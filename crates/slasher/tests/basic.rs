@@ -141,6 +141,8 @@ async fn test_basic_usage(pool: sqlx::PgPool) {
         "1",
         "--retries",
         "1",
+        "--block-confirmation-delay",
+        "0",
     ];
 
     println!("{exe_path} {args:?}");
@@ -222,6 +224,8 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
         "1",
         "--retries",
         "1",
+        "--block-confirmation-delay",
+        "0",
     ];
 
     println!("{exe_path} {args:?}");

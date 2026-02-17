@@ -59,7 +59,7 @@ async fn list_orders_v2_with_retry(
                         MAX_DELAY_MS,
                     );
                     tracing::warn!(
-                        "Failed to fetch orders (attempt {}/{}): {}. Retrying in {}ms",
+                        "Failed to fetch orders (attempt {}/{}): {:?}. Retrying in {}ms",
                         attempt + 1,
                         MAX_RETRIES + 1,
                         last_error.as_ref().unwrap(),
@@ -71,7 +71,7 @@ async fn list_orders_v2_with_retry(
         }
     }
 
-    Err(anyhow!("Failed to fetch orders after {} retries: {}", MAX_RETRIES, last_error.unwrap()))
+    Err(anyhow!("Failed to fetch orders after {} retries: {:?}", MAX_RETRIES, last_error.unwrap()))
 }
 
 impl<P, ANP> IndexerService<P, ANP>

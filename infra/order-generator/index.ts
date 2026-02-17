@@ -127,9 +127,9 @@ export = () => {
   const offchainInterval = offchainConfig.get('INTERVAL');
   const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
   const offchainMaxPricePerMCycle = offchainConfig.get('MAX_PRICE_PER_MCYCLE');
+  const offchainMaxPriceCap = offchainConfig.get('MAX_PRICE_CAP');
 
   if (offchainPrivateKey) {
-    const offchainMaxPrice = offchainMaxPricePerMCycle ?? offchainConfig.require('MAX_PRICE_PER_MCYCLE');
     new OrderGenerator('offchain', {
       chainId,
       stackName,
@@ -150,7 +150,7 @@ export = () => {
       interval: offchainInterval ?? interval,
       lockCollateralRaw,
       minPricePerMCycle,
-      maxPricePerMCycle: offchainMaxPrice,
+      maxPricePerMCycle: offchainMaxPricePerMCycle,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
@@ -164,6 +164,7 @@ export = () => {
       execRateKhz: offchainExecRateKhz,
       indexerUrl,
       useZeth: false,
+      maxPriceCap: offchainMaxPriceCap,
     });
   }
 
@@ -186,9 +187,9 @@ export = () => {
   const onchainInterval = onchainConfig.get('INTERVAL');
   const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
   const onchainMaxPricePerMCycle = onchainConfig.get('MAX_PRICE_PER_MCYCLE');
+  const onchainMaxPriceCap = onchainConfig.get('MAX_PRICE_CAP');
 
   if (onchainPrivateKey) {
-    const onchainMaxPrice = onchainMaxPricePerMCycle ?? onchainConfig.require('MAX_PRICE_PER_MCYCLE');
     new OrderGenerator('onchain', {
       chainId,
       stackName,
@@ -208,7 +209,7 @@ export = () => {
       rampUp: onchainRampUp,
       inputMaxMCycles: onchainInputMaxMCycles,
       minPricePerMCycle,
-      maxPricePerMCycle: onchainMaxPrice,
+      maxPricePerMCycle: onchainMaxPricePerMCycle,
       secondsPerMCycle: onchainSecondsPerMCycle,
       rampUpSecondsPerMCycle: onchainRampUpSecondsPerMCycle,
       vpcId,
@@ -220,6 +221,7 @@ export = () => {
       execRateKhz: onchainExecRateKhz,
       indexerUrl,
       useZeth: false,
+      maxPriceCap: onchainMaxPriceCap,
     });
   }
 
@@ -247,6 +249,7 @@ export = () => {
     const randomRequestorRampUpSecondsPerMCycle = randomRequestorConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
     const randomRequestorExecRateKhz = randomRequestorConfig.get('EXEC_RATE_KHZ');
     const randomRequestorMaxPricePerMCycle = randomRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
+    const randomRequestorMaxPriceCap = randomRequestorConfig.get('MAX_PRICE_CAP');
 
     new OrderGenerator('random-requestor', {
       chainId,
@@ -267,7 +270,7 @@ export = () => {
       rampUp: randomRequestorRampUp,
       inputMaxMCycles: randomRequestorInputMaxMCycles,
       minPricePerMCycle,
-      maxPricePerMCycle: randomRequestorMaxPricePerMCycle ?? minPricePerMCycle,
+      maxPricePerMCycle: randomRequestorMaxPricePerMCycle,
       secondsPerMCycle: randomRequestorSecondsPerMCycle,
       rampUpSecondsPerMCycle: randomRequestorRampUpSecondsPerMCycle,
       vpcId,
@@ -283,6 +286,7 @@ export = () => {
       },
       indexerUrl,
       useZeth: false,
+      maxPriceCap: randomRequestorMaxPriceCap,
     });
   }
 
@@ -305,9 +309,9 @@ export = () => {
   const evmRequestorRampUpSecondsPerMCycle = evmRequestorConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const evmRequestorExecRateKhz = evmRequestorConfig.get('EXEC_RATE_KHZ');
   const evmRequestorMaxPricePerMCycle = evmRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
+  const evmRequestorMaxPriceCap = evmRequestorConfig.get('MAX_PRICE_CAP');
 
   if (evmRequestorPrivateKey) {
-    const evmRequestorMaxPrice = evmRequestorMaxPricePerMCycle ?? evmRequestorConfig.require('MAX_PRICE_PER_MCYCLE');
     new OrderGenerator('evm-requestor', {
       chainId,
       stackName,
@@ -327,7 +331,7 @@ export = () => {
       rampUp: evmRequestorRampUp,
       inputMaxMCycles: evmRequestorInputMaxMCycles,
       minPricePerMCycle,
-      maxPricePerMCycle: evmRequestorMaxPrice,
+      maxPricePerMCycle: evmRequestorMaxPricePerMCycle,
       secondsPerMCycle: evmRequestorSecondsPerMCycle,
       rampUpSecondsPerMCycle: evmRequestorRampUpSecondsPerMCycle,
       vpcId,
@@ -339,6 +343,7 @@ export = () => {
       execRateKhz: evmRequestorExecRateKhz,
       indexerUrl,
       useZeth: true,
+      maxPriceCap: evmRequestorMaxPriceCap,
     });
   }
 };

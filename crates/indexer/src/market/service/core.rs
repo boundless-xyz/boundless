@@ -280,6 +280,7 @@ where
     pub fn clear_in_memory_cache(&mut self) {
         self.tx_hash_to_metadata.clear();
         self.block_num_to_timestamp.clear();
+        self.block_num_to_base_fee.clear();
     }
 
     /// Process cycle count updates that occurred between the last processed block and the current block timestamp.

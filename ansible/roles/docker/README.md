@@ -14,7 +14,7 @@ This role installs Docker Engine, Docker CLI, and Docker Compose plugin from the
 - `docker_ubuntu_version` (default: `null`): Ubuntu version override (auto-detected if null)
 - `docker_architecture` (default: `"amd64"`): Architecture for Docker packages (amd64, arm64, etc.)
 - `docker_users` (default: `[]`): List of users to add to the docker group (e.g., `["ubuntu", "deploy"]`)
-- `docker_nvidia_enabled` (default: `false`): Enable NVIDIA Container Toolkit installation for GPU support
+- `docker_nvidia_enabled` (default: `true`): Enable NVIDIA Container Toolkit installation for GPU support
 
 ## Dependencies
 
@@ -49,7 +49,7 @@ None.
 5. **Starts and enables Docker service**
 6. **Optionally adds users to docker group** (to run Docker without sudo)
 7. **Verifies installation** using `docker --version`
-8. **Optionally installs NVIDIA Container Toolkit** (if `docker_nvidia_enabled` is true and GPU is detected)
+8. **Optionally installs NVIDIA Container Toolkit** (if `docker_nvidia_enabled` is true)
 
 ## Important Notes
 

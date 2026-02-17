@@ -315,6 +315,29 @@ async fn test_market_requests_list() {
         //     );
         // }
 
+        // Cost fields (optional - may be None for submitted-only requests)
+        if let Some(ref fc) = first.fixed_cost {
+            assert!(!fc.is_empty(), "fixed_cost should not be empty if Some");
+        }
+        if let Some(ref fc_fmt) = first.fixed_cost_formatted {
+            assert!(!fc_fmt.is_empty(), "fixed_cost_formatted should not be empty if Some");
+        }
+        if let Some(ref vc) = first.variable_cost_per_cycle {
+            assert!(!vc.is_empty(), "variable_cost_per_cycle should not be empty if Some");
+        }
+        if let Some(ref vc_fmt) = first.variable_cost_per_cycle_formatted {
+            assert!(
+                !vc_fmt.is_empty(),
+                "variable_cost_per_cycle_formatted should not be empty if Some"
+            );
+        }
+        if let Some(ref lbf) = first.lock_base_fee {
+            assert!(!lbf.is_empty(), "lock_base_fee should not be empty if Some");
+        }
+        if let Some(ref fbf) = first.fulfill_base_fee {
+            assert!(!fbf.is_empty(), "fulfill_base_fee should not be empty if Some");
+        }
+
         // Transaction hashes
         if let Some(ref tx_hash) = first.submit_tx_hash {
             assert!(tx_hash.starts_with("0x"), "submit_tx_hash should start with 0x: {}", tx_hash);
@@ -1219,6 +1242,20 @@ async fn test_requestor_aggregates() {
         assert!(!first_entry.total_fees_locked_formatted.is_empty());
         // Verify percentile fields exist
         assert!(!first_entry.p50_lock_price_per_cycle_formatted.is_empty());
+        // Verify cost fields exist
+        assert!(!first_entry.total_fixed_cost.is_empty(), "total_fixed_cost should not be empty");
+        assert!(
+            !first_entry.total_fixed_cost_formatted.is_empty(),
+            "total_fixed_cost_formatted should not be empty"
+        );
+        assert!(
+            !first_entry.total_variable_cost.is_empty(),
+            "total_variable_cost should not be empty"
+        );
+        assert!(
+            !first_entry.total_variable_cost_formatted.is_empty(),
+            "total_variable_cost_formatted should not be empty"
+        );
         // Verify fulfillment rate fields exist and are valid
         assert!(
             first_entry.locked_orders_fulfillment_rate >= 0.0
@@ -1392,6 +1429,19 @@ async fn test_requestor_cumulatives() {
     assert_eq!(first_entry.requestor_address, *requestor_address);
     assert!(!first_entry.timestamp_iso.is_empty());
     assert!(!first_entry.total_fees_locked_formatted.is_empty());
+
+    // Verify cost fields
+    assert!(!first_entry.total_fixed_cost.is_empty(), "total_fixed_cost should not be empty");
+    assert!(
+        !first_entry.total_fixed_cost_formatted.is_empty(),
+        "total_fixed_cost_formatted should not be empty"
+    );
+    assert!(!first_entry.total_variable_cost.is_empty(), "total_variable_cost should not be empty");
+    assert!(
+        !first_entry.total_variable_cost_formatted.is_empty(),
+        "total_variable_cost_formatted should not be empty"
+    );
+
     // Verify fulfillment rate fields exist and are valid
     assert!(
         first_entry.locked_orders_fulfillment_rate >= 0.0
@@ -1723,6 +1773,35 @@ async fn test_requestor_leaderboard() {
             first.orders_requested > 0,
             "orders_requested should be positive for active requestors"
         );
+
+        // orders_fulfilled and orders_expired should not exceed orders_locked
+        assert!(
+            first.orders_fulfilled <= first.orders_locked,
+            "orders_fulfilled ({}) should not exceed orders_locked ({})",
+            first.orders_fulfilled,
+            first.orders_locked
+        );
+        assert!(
+            first.orders_expired <= first.orders_locked,
+            "orders_expired ({}) should not exceed orders_locked ({})",
+            first.orders_expired,
+            first.orders_locked
+        );
+        assert!(
+            first.orders_fulfilled + first.orders_expired <= first.orders_locked,
+            "orders_fulfilled ({}) + orders_expired ({}) should not exceed orders_locked ({})",
+            first.orders_fulfilled,
+            first.orders_expired,
+            first.orders_locked
+        );
+        assert!(
+            first.orders_not_locked_and_expired + first.orders_locked <= first.orders_requested,
+            "orders_not_locked_and_expired ({}) + orders_locked ({}) should not exceed orders_requested ({})",
+            first.orders_not_locked_and_expired,
+            first.orders_locked,
+            first.orders_requested
+        );
+
         assert!(
             first.acceptance_rate >= 0.0 && first.acceptance_rate <= 100.0,
             "acceptance_rate should be 0-100: {}",
@@ -1746,6 +1825,21 @@ async fn test_requestor_leaderboard() {
         assert!(
             !first.cycles_requested_formatted.is_empty(),
             "cycles_requested_formatted should not be empty"
+        );
+
+        // P50 cost fields
+        assert!(!first.p50_fixed_cost.is_empty(), "p50_fixed_cost should not be empty");
+        assert!(
+            !first.p50_fixed_cost_formatted.is_empty(),
+            "p50_fixed_cost_formatted should not be empty"
+        );
+        assert!(
+            !first.p50_variable_cost_per_cycle.is_empty(),
+            "p50_variable_cost_per_cycle should not be empty"
+        );
+        assert!(
+            !first.p50_variable_cost_per_cycle_formatted.is_empty(),
+            "p50_variable_cost_per_cycle_formatted should not be empty"
         );
 
         // Timestamps
@@ -1914,9 +2008,11 @@ async fn test_requestor_leaderboard_periods() {
             );
 
             tracing::info!(
-                "Top requestor for 'all': addr={}, orders={}, cycles={}, acceptance={}%, fulfillment={}%",
+                "Top requestor for 'all': addr={}, orders={}, fulfilled={}, expired={}, cycles={}, acceptance={}%, fulfillment={}%",
                 first.requestor_address,
                 first.orders_requested,
+                first.orders_fulfilled,
+                first.orders_expired,
                 first.cycles_requested_formatted,
                 first.acceptance_rate,
                 first.locked_order_fulfillment_rate
@@ -1965,6 +2061,38 @@ async fn test_requestor_leaderboard_periods() {
             entry.requestor_address
         );
 
+        // orders_fulfilled and orders_expired should not exceed orders_locked
+        assert!(
+            entry.orders_fulfilled <= entry.orders_locked,
+            "Requestor {} orders_fulfilled ({}) should not exceed orders_locked ({})",
+            entry.requestor_address,
+            entry.orders_fulfilled,
+            entry.orders_locked
+        );
+        assert!(
+            entry.orders_expired <= entry.orders_locked,
+            "Requestor {} orders_expired ({}) should not exceed orders_locked ({})",
+            entry.requestor_address,
+            entry.orders_expired,
+            entry.orders_locked
+        );
+        assert!(
+            entry.orders_fulfilled + entry.orders_expired <= entry.orders_locked,
+            "Requestor {} orders_fulfilled ({}) + orders_expired ({}) should not exceed orders_locked ({})",
+            entry.requestor_address,
+            entry.orders_fulfilled,
+            entry.orders_expired,
+            entry.orders_locked
+        );
+        assert!(
+            entry.orders_not_locked_and_expired + entry.orders_locked <= entry.orders_requested,
+            "Requestor {} orders_not_locked_and_expired ({}) + orders_locked ({}) should not exceed orders_requested ({})",
+            entry.requestor_address,
+            entry.orders_not_locked_and_expired,
+            entry.orders_locked,
+            entry.orders_requested
+        );
+
         // Cycles may be zero locally, but should be parseable
         let _cycles: u128 = entry.cycles_requested.parse().expect("cycles should be numeric");
 
@@ -1995,9 +2123,11 @@ async fn test_requestor_leaderboard_periods() {
         );
 
         tracing::info!(
-            "Requestor {}: orders={}, cycles={}, acceptance={}%, fulfillment={}%",
+            "Requestor {}: orders={}, fulfilled={}, expired={}, cycles={}, acceptance={}%, fulfillment={}%",
             entry.requestor_address,
             entry.orders_requested,
+            entry.orders_fulfilled,
+            entry.orders_expired,
             entry.cycles_requested_formatted,
             entry.acceptance_rate,
             entry.locked_order_fulfillment_rate

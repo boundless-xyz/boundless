@@ -21,8 +21,6 @@ config:
   order-generator-base:IPFS_GATEWAY_URL: https://gateway.beboundless.cloud
   order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
   order-generator-base:LOG_LEVEL: "info,boundless_market=debug"
-  order-generator-offchain:MAX_PRICE_PER_MCYCLE: "0.00002"
-  order-generator-onchain:MAX_PRICE_PER_MCYCLE: "0.000025"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://eth-sepolia.boundless.network
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
