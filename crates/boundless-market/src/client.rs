@@ -441,7 +441,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
             };
 
         // Set up the price oracle for USD conversions.
-        // If none was explicitly provided, create a default one using CoinGecko.
+        // If none was explicitly provided, create one from the default config (CoinGecko + Chainlink).
         let price_oracle_manager = if self.price_oracle_manager.is_some() {
             self.price_oracle_manager.clone()
         } else {
