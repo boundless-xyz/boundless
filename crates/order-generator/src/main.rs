@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
@@ -29,7 +29,6 @@ use boundless_market::{
     client::{Client, FundingMode},
     deployments::Deployment,
     input::GuestEnv,
-    price_oracle::{sources::CoinGeckoSource, CachedPriceOracle, PriceOracleManager, TradingPair},
     request_builder::StandardRequestBuilder,
     storage::{HttpDownloader, StandardDownloader, StorageDownloader},
     StandardUploader, StorageUploaderConfig,
@@ -175,17 +174,6 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    // Set up price oracle for accurate requestor preflight checks (uses CoinGecko API)
-    let price_oracle = match create_price_oracle().await {
-        Ok(oracle) => Some(Arc::new(oracle)),
-        Err(e) => {
-            tracing::warn!(
-                "Failed to initialize price oracle, preflight USD checks will be skipped: {e}"
-            );
-            None
-        }
-    };
-
     let mut client = Client::builder();
     if let Some(rpc_url) = &args.rpc_url {
         client = client.with_rpc_url(rpc_url.clone());
@@ -202,7 +190,6 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
         .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()))
-        .with_price_oracle_manager(price_oracle)
         .build()
         .await?;
 
@@ -520,21 +507,6 @@ async fn handle_zeth_request(
         );
     }
     Ok(())
-}
-
-/// Create a price oracle using CoinGecko for live ETH/USD and ZKC/USD prices.
-/// Performs an initial refresh so prices are available immediately.
-async fn create_price_oracle() -> Result<PriceOracleManager> {
-    let timeout = Duration::from_secs(10);
-    let eth_source = Arc::new(CoinGeckoSource::new(TradingPair::EthUsd, timeout)?);
-    let zkc_source = Arc::new(CoinGeckoSource::new(TradingPair::ZkcUsd, timeout)?);
-    let eth_oracle = Arc::new(CachedPriceOracle::new(eth_source));
-    let zkc_oracle = Arc::new(CachedPriceOracle::new(zkc_source));
-    // refresh_interval=300s, max_time_without_update=0 (disabled: no background task)
-    let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 300, 0);
-    manager.refresh_all_rates().await;
-    tracing::info!("Price oracle initialized with CoinGecko rates");
-    Ok(manager)
 }
 
 #[cfg(test)]
