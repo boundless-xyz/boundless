@@ -752,29 +752,6 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         self
     }
 
-    /// Set the price oracle manager for USD conversions in [OfferLayer].
-    ///
-    /// The price oracle manager is required if [crate::request_builder::OfferLayerConfig] contains USD-denominated
-    /// amounts for pricing or collateral fields. If USD amounts are specified without a
-    /// price oracle manager, an error will be returned during request submission.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// # use boundless_market::client::ClientBuilder;
-    /// # use boundless_market::price_oracle::PriceOracleManager;
-    /// # use std::sync::Arc;
-    /// // Example: Configure price oracle manager for USD conversions
-    /// // let oracle_manager: Arc<PriceOracleManager> = ...;
-    /// // ClientBuilder::new().with_price_oracle_manager(Some(oracle_manager));
-    /// ```
-    pub fn with_price_oracle_manager(
-        mut self,
-        price_oracle_manager: impl Into<Option<Arc<crate::price_oracle::PriceOracleManager>>>,
-    ) -> Self {
-        self.price_oracle_manager = price_oracle_manager.into();
-        self
-    }
-
     /// Modify the [OfferLayer] configuration used in the [StandardRequestBuilder].
     ///
     /// ```rust

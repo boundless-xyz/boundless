@@ -600,19 +600,20 @@ impl ProverGenerateConfig {
         display.note("becomes available to any prover. Multiple provers may race to fulfill it,");
         display.note("so expected rewards are discounted by the probability of winning the race.");
         display.note("");
-        display.note("For example, with a 25% win probability, a 100 ZKC reward is valued at 25 ZKC");
+        display
+            .note("For example, with a 25% win probability, a 100 ZKC reward is valued at 25 ZKC");
         display.note("when computing order profitability and priority.");
         display.note("");
 
-        let expected_probability_str = Text::new("Expected probability of winning secondary fulfillment (0-100):")
-            .with_default("25")
-            .with_help_message("Enter a percentage between 0 and 100")
-            .prompt()
-            .context("Failed to get expected probability")?;
+        let expected_probability_str =
+            Text::new("Expected probability of winning secondary fulfillment (0-100):")
+                .with_default("25")
+                .with_help_message("Enter a percentage between 0 and 100")
+                .prompt()
+                .context("Failed to get expected probability")?;
 
-        let expected_probability_win_secondary_fulfillment = expected_probability_str
-            .parse::<u32>()
-            .context("Invalid number format")?;
+        let expected_probability_win_secondary_fulfillment =
+            expected_probability_str.parse::<u32>().context("Invalid number format")?;
 
         if expected_probability_win_secondary_fulfillment > 100 {
             bail!("Expected probability must be between 0 and 100");
@@ -1075,7 +1076,8 @@ impl ProverGenerateConfig {
 
             // Update expected_probability_win_secondary_fulfillment
             if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment") {
-                *item = toml_edit::value(config.expected_probability_win_secondary_fulfillment as i64);
+                *item =
+                    toml_edit::value(config.expected_probability_win_secondary_fulfillment as i64);
             }
         }
 

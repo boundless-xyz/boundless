@@ -231,7 +231,11 @@ where
                         config.expected_probability_win_secondary_fulfillment,
                     );
                     let zkc_amount = Amount::new(discounted, Asset::ZKC);
-                    let eth_amount = self.price_oracle.convert(&zkc_amount, Asset::ETH)?;
+                    let eth_amount = self
+                        .price_oracle
+                        .convert(&zkc_amount, Asset::ETH)
+                        .await
+                        .map_err(anyhow::Error::from)?;
                     order.expected_reward_eth = Some(eth_amount.value);
 
                     self.priced_orders_tx
@@ -1601,10 +1605,6 @@ pub(crate) mod tests {
     #[traced_test]
     async fn price_locked_by_other() {
         let config = ConfigLock::default();
-        {
-            config.load_write().unwrap().market.min_mcycle_price_collateral_token =
-                Amount::parse("0.0000001 ZKC", None).unwrap();
-        }
         let mut ctx = PickerTestCtxBuilder::default()
             .with_config(config)
             .with_initial_hp(U256::from(1000))
@@ -1645,8 +1645,10 @@ pub(crate) mod tests {
     async fn price_locked_by_other_unprofitable() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price_collateral_token =
-                Amount::parse("0.1 ZKC", None).unwrap();
+            // Set min_mcycle_price which will be converted to ZKC
+            // With ETH=$2500, ZKC=$1: "0.1 USD" -> 0.1 ZKC/mcycle
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.1 USD", None).unwrap();
         }
         let ctx = PickerTestCtxBuilder::default()
             .with_collateral_token_decimals(6)
@@ -1855,7 +1857,8 @@ pub(crate) mod tests {
         };
         {
             let mut cfg = config.load_write().unwrap();
-            cfg.market.min_mcycle_price_collateral_token = Amount::parse("1 ZKC", None).unwrap();
+            // With ETH=$2500, ZKC=$1: "1 USD" -> 1 ZKC/mcycle
+            cfg.market.min_mcycle_price = Amount::parse("1 USD", None).unwrap();
             cfg.market.expected_probability_win_secondary_fulfillment = 100;
         }
         let ctx = PickerTestCtxBuilder::default()
@@ -2515,8 +2518,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_collateral() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap(); // 0.01 ETH per mcycle
-        market_config.min_mcycle_price_collateral_token = Amount::parse("10 ZKC", None).unwrap(); // 10 collateral tokens per mcycle
+        market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap(); // 0.001 ETH per mcycle
+                                                                                    // With ETH=$2500, ZKC=$1: 0.001 ETH = $2.5 = 2.5 ZKC/mcycle for collateral pricing
         market_config.max_mcycle_limit = 8000;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2558,7 +2561,7 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_collateral_higher_than_eth_exposes_bug() {
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.1 ETH", None).unwrap(); // 0.1 ETH per mcycle (expensive)
-        market_config.min_mcycle_price_collateral_token = Amount::parse("1 ZKC", None).unwrap(); // 1 collateral token per mcycle (cheaper)
+                                                                                  // With ETH=$2500, ZKC=$1: 0.1 ETH = $250 = 250 ZKC/mcycle for collateral pricing
         market_config.max_mcycle_limit = 8000;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2587,20 +2590,14 @@ pub(crate) mod tests {
             ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.1 ETH/mcycle = 490k cycles
-        // collateral based: (1000 collateral tokens - 20% burn) * 1M / 1 collateral_token/mcycle = 800M cycles
-        // collateral-based is higher, demonstrating the bug where preflight != prove limits
+        // Collateral based (now unified): 0.1 ETH = $250 = 250 ZKC/mcycle
+        // Collateral reward: 1000 * 50% = 500 tokens (in 6 decimals)
+        // With decimal scaling: actual limit is 2.5M cycles
+        // Since we use the higher of ETH and collateral for preflight, and lower for prove:
+        // preflight_limit = max(490k, 2.5M) = 2.5M
+        // prove_limit (for LockAndFulfill) = 490k (ETH-based)
 
-        let collateral_reward_tokens = order
-            .request
-            .offer
-            .collateral_reward_if_locked_and_not_fulfilled()
-            .div_ceil(U256::from(1_000_000));
-        let collateral_based_limit: u64 = collateral_reward_tokens
-            .saturating_mul(U256::from(1_000_000))
-            .div_ceil(U256::from(1))
-            .try_into()
-            .unwrap();
-        assert_eq!(preflight_limit, collateral_based_limit);
+        assert_eq!(preflight_limit, 2_500_000u64);
         assert_eq!(prove_limit, 490_000u64);
     }
 
@@ -2608,8 +2605,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_fulfill_after_expire_collateral_only() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = Amount::parse("0.0134 ETH", None).unwrap(); // Won't be used for FulfillAfterLockExpire
-        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap(); // 0.1 collateral per mcycle
+        // With ETH=$2500, ZKC=$1: need "0.1 USD" to get 0.1 ZKC/mcycle for collateral pricing
+        market_config.min_mcycle_price = Amount::parse("0.1 USD", None).unwrap();
         market_config.max_mcycle_limit = 8000;
         market_config.expected_probability_win_secondary_fulfillment = 100;
 
@@ -2657,7 +2654,6 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_max_mcycle_cap() {
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
-        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 20; // 20 mcycle limit
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2697,7 +2693,6 @@ pub(crate) mod tests {
         let priority_address = address!("1234567890123456789012345678901234567890");
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
-        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 5; // Low limit normally
         market_config.priority_requestor_addresses = Some(vec![priority_address]);
 
@@ -2729,17 +2724,20 @@ pub(crate) mod tests {
         let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
-        // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
-        // For LockAndFulfill orders: preflight uses higher limit (collateral), prove uses ETH-based
-        assert_eq!(preflight_limit, 500_000_000u64); // collateral-based calculation
-        assert_eq!(prove_limit, 99_900_000u64); // ETH-based calculation
+        // Priority requestors ignore max_mcycle_limit
+        // With unified pricing: 0.01 ETH = $25 = 25 ZKC/mcycle
+        // Collateral limit: 50 * 1M / 25 = 2M cycles
+        // ETH limit: (1.0 - 0.001) * 1M / 0.01 = 99.9M cycles
+        // preflight_limit = max(2M, 99.9M) = 99.9M
+        // prove_limit (for LockAndFulfill) = 99.9M (ETH-based)
+        assert_eq!(preflight_limit, 99_900_000u64);
+        assert_eq!(prove_limit, 99_900_000u64);
     }
 
     #[tokio::test]
     async fn test_calculate_exec_limits_timing_constraints() {
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
-        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 8000;
         market_config.peak_prove_khz = Some(1000); // 1M cycles per second
 
@@ -2778,47 +2776,9 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_exec_limits_zero_collateral_price_unlimited() {
-        let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
-        market_config.min_mcycle_price_collateral_token = Amount::parse("0 ZKC", None).unwrap(); // Zero collateral price
-        market_config.max_mcycle_limit = u64::MAX;
-
-        let ctx = PickerTestCtxBuilder::default()
-            .with_config({
-                let config = ConfigLock::default();
-                config.load_write().unwrap().market = market_config;
-                config
-            })
-            .build()
-            .await;
-
-        let gas_cost = parse_ether("0.001").unwrap();
-
-        let order = ctx
-            .generate_next_order(OrderParams {
-                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
-                max_price: parse_ether("1.0").unwrap(),
-                lock_collateral: parse_collateral_tokens("10.0"),
-                lock_timeout: 900,
-                timeout: 1200,
-                ..Default::default()
-            })
-            .await;
-
-        let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
-
-        // Should be unlimited (u64::MAX) when collateral price is zero
-        assert_eq!(preflight_limit, u64::MAX);
-        assert_eq!(prove_limit, u64::MAX);
-    }
-
-    #[tokio::test]
     async fn test_calculate_exec_limits_very_short_deadline() {
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
-        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 8000;
         market_config.peak_prove_khz = Some(1000); // 1M cycles per second
 
@@ -2858,7 +2818,6 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0 ETH", None).unwrap(); // Zero ETH price
-        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = u64::MAX;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2918,8 +2877,8 @@ pub(crate) mod tests {
     async fn test_zero_collateral_price_order_processing() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price_collateral_token =
-                Amount::parse("0 ZKC", None).unwrap();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 

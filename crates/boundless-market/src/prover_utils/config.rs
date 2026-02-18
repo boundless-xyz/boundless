@@ -206,7 +206,7 @@ pub mod defaults {
     }
 
     pub const fn expected_probability_win_secondary_fulfillment() -> u32 {
-        25
+        50
     }
 }
 
@@ -496,7 +496,7 @@ impl Default for MarketConfig {
         Self {
             min_mcycle_price: Amount::parse("0.00002 USD", None).expect("valid default"),
             expected_probability_win_secondary_fulfillment:
-            defaults::expected_probability_win_secondary_fulfillment(),
+                defaults::expected_probability_win_secondary_fulfillment(),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
             min_mcycle_limit: defaults::min_mcycle_limit(),
