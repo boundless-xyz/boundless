@@ -18,7 +18,7 @@ use crate::{
     dynamic_gas_filler::PriorityMode,
     price_oracle::{Amount, Asset, PriceOracleManager},
     price_provider::PriceProviderArc,
-    prover_utils::config_defaults::max_journal_bytes,
+    prover_utils::config::defaults::max_journal_bytes,
     request_builder::ParameterizationMode,
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,

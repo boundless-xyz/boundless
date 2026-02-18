@@ -165,7 +165,7 @@ pub enum FulfillmentType {
 }
 
 /// Order request from the network.
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OrderRequest {
     pub request: ProofRequest,
     pub client_sig: Bytes,
@@ -178,6 +178,7 @@ pub struct OrderRequest {
     pub journal_bytes: Option<usize>,
     pub target_timestamp: Option<u64>,
     pub expire_timestamp: Option<u64>,
+    #[serde(skip)]
     cached_id: OnceLock<String>,
 }
 
