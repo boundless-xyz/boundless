@@ -268,17 +268,24 @@ async fn test_backfill_aggregates(pool: sqlx::PgPool) {
                 }
             }
 
-            // Verify no periods were skipped - all periods that existed before still exist
-            assert_eq!(
-                before_ts.len(),
-                after_timestamps.len(),
-                "Row count changed in {}: had {} rows before, {} rows after",
+            // Verify no periods were skipped - all periods that existed before still exist.
+            // The backfill may create additional rows because its end_block includes a
+            // block mined after the indexer was killed, which can extend into a new
+            // time bucket if it crosses an hour/day/etc. boundary.
+            assert!(
+                after_timestamps.len() >= before_ts.len(),
+                "Rows were lost in {}: had {} rows before, {} rows after",
                 table,
                 before_ts.len(),
                 after_timestamps.len()
             );
 
-            tracing::info!("Verified all {} rows in {} were updated", before_ts.len(), table);
+            tracing::info!(
+                "Verified all {} rows in {} were preserved ({} rows after backfill)",
+                before_ts.len(),
+                table,
+                after_timestamps.len()
+            );
         } else {
             tracing::info!("No rows in {} to verify", table);
         }
@@ -333,17 +340,23 @@ async fn test_backfill_aggregates(pool: sqlx::PgPool) {
                 }
             }
 
-            // Verify no periods were skipped - all periods that existed before still exist
-            assert_eq!(
-                before_ts.len(),
-                after_timestamps.len(),
-                "Row count changed in {}: had {} rows before, {} rows after",
+            // Verify no periods were skipped - all periods that existed before still exist.
+            // (Same as market tables: backfill may create additional rows for the
+            // extended time range.)
+            assert!(
+                after_timestamps.len() >= before_ts.len(),
+                "Rows were lost in {}: had {} rows before, {} rows after",
                 table,
                 before_ts.len(),
                 after_timestamps.len()
             );
 
-            tracing::info!("Verified all {} rows in {} were updated", before_ts.len(), table);
+            tracing::info!(
+                "Verified all {} rows in {} were preserved ({} rows after backfill)",
+                before_ts.len(),
+                table,
+                after_timestamps.len()
+            );
         } else {
             tracing::info!("No rows in {} to verify", table);
         }
