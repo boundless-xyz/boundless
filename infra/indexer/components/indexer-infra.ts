@@ -1,7 +1,5 @@
-import * as fs from 'fs';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
-import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import * as crypto from 'crypto';
 
@@ -11,11 +9,6 @@ export interface IndexerInfraArgs {
   privSubNetIds: pulumi.Output<string[]>;
   rdsPassword: pulumi.Output<string>;
   isDev: boolean;
-  dockerDir: string;
-  dockerTag: string;
-  ciCacheSecret?: pulumi.Output<string>;
-  githubTokenSecret?: pulumi.Output<string>;
-  dockerRemoteBuilder?: string;
 }
 
 export class IndexerShared extends pulumi.ComponentResource {
@@ -34,12 +27,11 @@ export class IndexerShared extends pulumi.ComponentResource {
   public readonly taskRolePolicyAttachment: aws.iam.RolePolicyAttachment;
   public readonly cluster: aws.ecs.Cluster;
   public readonly databaseVersion: string;
-  public readonly indexerImage: docker_build.Image;
 
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
 
-    const { vpcId, privSubNetIds, rdsPassword, isDev, dockerDir, dockerTag, ciCacheSecret, githubTokenSecret, dockerRemoteBuilder } = args;
+    const { vpcId, privSubNetIds, rdsPassword, isDev } = args;
     const serviceName = `${args.serviceName}-base`;
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
@@ -63,69 +55,6 @@ export class IndexerShared extends pulumi.ComponentResource {
     this.ecrAuthToken = aws.ecr.getAuthorizationTokenOutput({
       registryId: this.ecrRepository.repository.registryId,
     });
-
-    // Build secrets for Docker
-    let buildSecrets: Record<string, pulumi.Input<string>> = {};
-    if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
-      buildSecrets = {
-        ci_cache_creds: cacheFileData,
-      };
-    }
-    if (githubTokenSecret !== undefined) {
-      buildSecrets = {
-        ...buildSecrets,
-        githubTokenSecret,
-      };
-    }
-
-    // Build a single unified indexer image containing all indexer binaries:
-    // market-indexer, rewards-indexer, market-indexer-backfill, market-efficiency-indexer
-    // Each service uses this image with a different command.
-    this.indexerImage = new docker_build.Image(`${serviceName}-indexer-img-${databaseVersion}`, {
-      tags: [pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:indexer-${dockerTag}-${databaseVersion}`],
-      context: {
-        location: dockerDir,
-      },
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/indexer.dockerfile`,
-      },
-      builder: dockerRemoteBuilder
-        ? {
-          name: dockerRemoteBuilder,
-        }
-        : undefined,
-      buildArgs: {
-        S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      registries: [
-        {
-          address: this.ecrRepository.repository.repositoryUrl,
-          password: this.ecrAuthToken.apply((authToken) => authToken.password),
-          username: this.ecrAuthToken.apply((authToken) => authToken.userName),
-        },
-      ],
-    }, { parent: this });
 
     this.cacheBucket = new aws.s3.BucketV2(`${serviceName}-cache`, {
       bucket: `${serviceName}-cache`,
@@ -429,7 +358,6 @@ export class IndexerShared extends pulumi.ComponentResource {
       rdsSecurityGroupId: this.rdsSecurityGroupId,
       taskRoleArn: this.taskRole.arn,
       executionRoleArn: this.executionRole.arn,
-      indexerImageRef: this.indexerImage.ref,
     });
   }
 }

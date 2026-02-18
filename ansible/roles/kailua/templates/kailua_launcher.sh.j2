@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+{% if kailua_private_key | default('') | string | length > 0 %}
+export BOUNDLESS_WALLET_KEY={{ kailua_private_key | quote }}
+{% endif %}
+{% if kailua_boundless_rpc_url | default('') | string | length > 0 %}
+export BOUNDLESS_RPC_URL={{ kailua_boundless_rpc_url | quote }}
+{% endif %}
+{% if kailua_order_stream_url | default('') | string | length > 0 %}
+export BOUNDLESS_ORDER_STREAM_URL={{ kailua_order_stream_url | quote }}
+{% endif %}
+{% for env_key, env_value in (kailua_env | default({})).items() %}
+{% if env_value is not none and (env_value | string | length) > 0 %}
+export {{ env_key }}={{ env_value | string | quote }}
+{% endif %}
+{% endfor %}
+
+if [[ ! -x {{ kailua_binary_path | quote }} ]]; then
+  echo "kailua-cli not found or not executable at {{ kailua_binary_path }}" >&2
+  exit 1
+fi
+
+cmd=(
+  {{ kailua_binary_path | quote }}
+  demo
+  --num-blocks-per-proof {{ kailua_demo_blocks_per_proof | string | quote }}
+  --data-dir {{ kailua_demo_data_dir | quote }}
+)
+{% if kailua_demo_l1_rpc | default('') | string | length > 0 %}
+cmd+=(--eth-rpc-url {{ kailua_demo_l1_rpc | quote }})
+{% endif %}
+{% if kailua_demo_l1_beacon_rpc | default('') | string | length > 0 %}
+cmd+=(--beacon-rpc-url {{ kailua_demo_l1_beacon_rpc | quote }})
+{% endif %}
+{% if kailua_demo_l2_rpc | default('') | string | length > 0 %}
+cmd+=(--op-geth-url {{ kailua_demo_l2_rpc | quote }})
+{% endif %}
+{% if kailua_demo_op_node_rpc | default('') | string | length > 0 %}
+cmd+=(--op-node-url {{ kailua_demo_op_node_rpc | quote }})
+{% endif %}
+{% if kailua_demo_verbosity | default('') | string | length > 0 %}
+cmd+=({{ kailua_demo_verbosity | quote }})
+{% endif %}
+
+exec "${cmd[@]}"

@@ -175,7 +175,7 @@ check-format: check-format-main
     forge fmt --check
 
 check-format-main:
-    cargo sort --workspace --check
+    cargo sort --workspace --check .
     cargo fmt --all --check
 
 # Run Cargo clippy for main workspace and all examples
@@ -209,7 +209,7 @@ check-clippy-main:
 
 # Format all code
 format:
-    cargo sort --workspace
+    cargo sort --workspace .
     cargo fmt --all
     cd examples/counter && cargo sort --workspace
     cd examples/counter && cargo fmt --all

@@ -1,15 +1,11 @@
 {
   "compilerOptions": {
-    "module": "CommonJS",
-    "target": "ES2017",
-    "noImplicitAny": true,
-    "preserveConstEnums": true,
-    "outDir": "./build",
-    "sourceMap": true,
-    "types": ["node"],
+    "target": "ES2020",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
-    "rootDir": "src"
+    "outDir": "./build"
   },
-  "include": ["src/"],
-  "exclude": ["node_modules", "build"]
+  "include": ["src/**/*"]
 }

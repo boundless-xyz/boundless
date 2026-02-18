@@ -21,6 +21,10 @@ use std::time::Duration;
 use super::common::get_db_url_from_pool;
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
+#[cfg_attr(
+    not(feature = "test-rpc"),
+    ignore = "Requires DATABASE_URL; run with just test-indexer-market"
+)]
 async fn test_efficiency_service_populates_tables(pool: sqlx::PgPool) {
     let db_url = get_db_url_from_pool(&pool).await;
     let zero_padded = format!("{:0>78}", 0u32);

@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use alloy::{
+    eips::BlockNumberOrTag,
     network::{Ethereum, EthereumWallet},
     primitives::{Address, B256, U256},
     providers::{
@@ -94,6 +95,8 @@ pub struct SlashServiceConfig {
     pub skip_addresses: Vec<Address>,
     pub tx_timeout: Duration,
     pub max_block_range: u64,
+    /// Blocks to subtract from latest when "safe" is not available (0 = use latest; used by tests).
+    pub block_confirmation_delay: u64,
 }
 
 impl SlashService<ProviderWallet> {
@@ -524,10 +527,23 @@ where
                             request_id
                         );
                         self.remove_order(request_id).await?;
+                    } else if err_msg.contains("already known")
+                        || err_msg.contains("known transaction")
+                        || err_msg.contains("already imported")
+                    {
+                        tracing::info!(
+                            "Slash tx for request 0x{:x} already in mempool ({}), will re-check on next tick",
+                            request_id,
+                            err_msg
+                        );
+                    } else if err_msg.contains("nonce too low") {
+                        tracing::info!(
+                            "Slash tx for request 0x{:x} nonce too low (likely already mined), will re-check on next tick",
+                            request_id,
+                        );
                     } else {
-                        // Any other error should be RPC related so we can retry
-                        // Only warn as logic will retry. If retrys fail, it will error out.
                         tracing::warn!("Failed to slash request 0x{:x}: {}", request_id, err);
+                        tracing::debug!("Full RPC error for request 0x{:x}: {:?}", request_id, err);
                         return Err(ServiceError::BoundlessMarketError(err));
                     }
                 }
@@ -537,8 +553,28 @@ where
         Ok(())
     }
 
+    /// Returns the latest confirmed block number (safe head), or latest minus a delay
+    /// if the RPC does not support the "safe" tag. Using a confirmed block avoids "invalid
+    /// block range params" errors when querying logs, especially on Base mainnet.
+    /// When config.block_confirmation_delay is 0 (e.g. in tests), uses latest directly.
     async fn current_block(&self) -> Result<u64, ServiceError> {
-        Ok(self.boundless_market.instance().provider().get_block_number().await?)
+        let provider = self.boundless_market.instance().provider();
+        if self.config.block_confirmation_delay == 0 {
+            return Ok(provider.get_block_number().await?);
+        }
+        match provider.get_block_by_number(BlockNumberOrTag::Safe).await {
+            Ok(Some(block)) => Ok(block.header.number),
+            Ok(None) => {
+                tracing::debug!("RPC returned no 'safe' block, using latest minus delay");
+                let latest = provider.get_block_number().await?;
+                Ok(latest.saturating_sub(self.config.block_confirmation_delay))
+            }
+            Err(e) => {
+                tracing::warn!("Error getting 'safe' block: {:?}, using latest minus delay", e);
+                let latest = provider.get_block_number().await?;
+                Ok(latest.saturating_sub(self.config.block_confirmation_delay))
+            }
+        }
     }
 
     async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
