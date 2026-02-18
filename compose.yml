@@ -189,12 +189,16 @@ services:
         condition: service_healthy
     restart: "no"
     entrypoint:
-      - /bin/sh
+      - /bin/bash
       - -c
       - |
         mc alias set local http://$${MINIO_HOST}:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
-        mc ilm rule add local/$${MINIO_BUCKET} --prefix "inputs/" --expire-days "$${INPUT_TTL_DAYS}" &&
-        echo "Lifecycle rule set: inputs/ objects expire after $${INPUT_TTL_DAYS} day(s)"
+        if [[ "$$(mc ilm rule list local/$${MINIO_BUCKET} --json 2>/dev/null)" == *'"Prefix":"inputs/"'* ]]; then
+          echo "Lifecycle rule for inputs/ already exists, skipping"
+        else
+          mc ilm rule add local/$${MINIO_BUCKET} --prefix "inputs/" --expire-days "$${INPUT_TTL_DAYS}" &&
+          echo "Lifecycle rule set: inputs/ objects expire after $${INPUT_TTL_DAYS} day(s)"
+        fi
     environment:
       MINIO_HOST: ${MINIO_HOST:-minio}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
