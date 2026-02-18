@@ -761,7 +761,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     ///
     /// ClientBuilder::new().config_offer_layer(|config| config
     ///     .max_price_per_cycle(Amount::new(
-    ///         parse_units("0.1", "gwei").unwrap(),
+    ///         parse_units("0.1", "gwei").unwrap().into(),
     ///         Asset::ETH
     ///     ))
     ///     .ramp_up_period(36)

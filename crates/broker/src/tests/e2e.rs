@@ -122,6 +122,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
     config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
+    config.market.expected_probability_win_secondary_fulfillment = 50;
     config.market.min_deadline = min_deadline;
     config.batcher.min_batch_size = min_batch_size;
     // Use static prices for tests to avoid needing real price sources
@@ -401,7 +402,7 @@ async fn e2e_fulfill_after_lock_expiry() {
             rampUpPeriod: 40,
             lockTimeout: 40,
             timeout: 120,
-            lockCollateral: U256::from(5),
+            lockCollateral: parse_ether("20").unwrap(),
         }),
         None,
         None,
