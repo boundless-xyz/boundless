@@ -32,7 +32,7 @@ use crate::{
     models::{
         EfficiencyAggregateEntry, EfficiencyAggregatesParams, EfficiencyAggregatesResponse,
         EfficiencyRequestEntry, EfficiencyRequestsParams, EfficiencyRequestsResponse,
-        EfficiencySummaryResponse, MoreProfitableSampleEntry,
+        EfficiencySummaryParams, EfficiencySummaryResponse, MoreProfitableSampleEntry,
     },
     utils::{format_eth, format_zkc, is_valid_ethereum_address},
 };
@@ -3219,13 +3219,17 @@ const MAX_EFFICIENCY_RESULTS: u64 = 500;
     get,
     path = "/v1/market/efficiency",
     tag = "Market",
+    params(EfficiencySummaryParams),
     responses(
         (status = 200, description = "Market efficiency summary", body = EfficiencySummaryResponse),
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_efficiency_summary(State(state): State<Arc<AppState>>) -> Response {
-    match get_efficiency_summary_impl(state).await {
+async fn get_efficiency_summary(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<EfficiencySummaryParams>,
+) -> Response {
+    match get_efficiency_summary_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
@@ -3237,8 +3241,15 @@ async fn get_efficiency_summary(State(state): State<Arc<AppState>>) -> Response 
 
 async fn get_efficiency_summary_impl(
     state: Arc<AppState>,
+    params: EfficiencySummaryParams,
 ) -> anyhow::Result<EfficiencySummaryResponse> {
-    let summary = state.efficiency_db.get_efficiency_summary().await?;
+    let summary = if params.gas_adjusted_with_exclusions {
+        state.efficiency_db.get_efficiency_summary_gas_adjusted_with_exclusions().await?
+    } else if params.gas_adjusted {
+        state.efficiency_db.get_efficiency_summary_gas_adjusted().await?
+    } else {
+        state.efficiency_db.get_efficiency_summary().await?
+    };
 
     let last_updated = summary.last_updated.map(|ts| {
         DateTime::<Utc>::from_timestamp(ts, 0)
@@ -3304,17 +3315,43 @@ async fn get_efficiency_aggregates_impl(
     };
 
     // Request one extra to determine if more pages exist
-    let mut aggregates = state
-        .efficiency_db
-        .get_efficiency_aggregates(
-            &params.granularity,
-            params.before,
-            params.after,
-            limit + 1,
-            cursor,
-            sort_desc,
-        )
-        .await?;
+    let mut aggregates = if params.gas_adjusted_with_exclusions {
+        state
+            .efficiency_db
+            .get_efficiency_aggregates_gas_adjusted_with_exclusions(
+                &params.granularity,
+                params.before,
+                params.after,
+                limit + 1,
+                cursor,
+                sort_desc,
+            )
+            .await?
+    } else if params.gas_adjusted {
+        state
+            .efficiency_db
+            .get_efficiency_aggregates_gas_adjusted(
+                &params.granularity,
+                params.before,
+                params.after,
+                limit + 1,
+                cursor,
+                sort_desc,
+            )
+            .await?
+    } else {
+        state
+            .efficiency_db
+            .get_efficiency_aggregates(
+                &params.granularity,
+                params.before,
+                params.after,
+                limit + 1,
+                cursor,
+                sort_desc,
+            )
+            .await?
+    };
 
     let has_more = aggregates.len() > limit as usize;
     if has_more {
@@ -3426,6 +3463,7 @@ async fn list_efficiency_requests_impl(
                     .map(|s| MoreProfitableSampleEntry {
                         request_digest: s.request_digest,
                         request_id: s.request_id,
+                        requestor_address: s.requestor_address,
                         lock_price_at_time: s.lock_price_at_time,
                         program_cycles: s.program_cycles,
                         price_per_cycle_at_time: s.price_per_cycle_at_time,
@@ -3515,6 +3553,7 @@ async fn get_efficiency_request_by_id_impl(
                     .map(|s| MoreProfitableSampleEntry {
                         request_digest: s.request_digest,
                         request_id: s.request_id,
+                        requestor_address: s.requestor_address,
                         lock_price_at_time: s.lock_price_at_time,
                         program_cycles: s.program_cycles,
                         price_per_cycle_at_time: s.price_per_cycle_at_time,

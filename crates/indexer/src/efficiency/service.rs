@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::primitives::U256;
+use alloy::primitives::{FixedBytes, U256};
 use anyhow::Result;
 use boundless_market::contracts::pricing::price_at_time;
+use boundless_market::prover_utils::config::defaults;
+use boundless_market::selector::{is_blake3_groth16_selector, is_groth16_selector};
 
 use crate::db::efficiency::{
     EfficiencyDbImpl, EfficiencyDbObj, MarketEfficiencyDaily, MarketEfficiencyHourly,
@@ -27,6 +30,19 @@ use crate::db::efficiency::{
 use crate::market::time_boundaries::{get_day_start, get_hour_start};
 
 const SECONDS_PER_DAY: u64 = 86400;
+
+const EXCLUDED_REQUESTORS_FOR_ADJUSTED: &[&str] = &["0x734df7809c4ef94da037449c287166d114503198"];
+
+fn estimate_gas_cost(selector: &str, base_fee: U256) -> U256 {
+    let groth16_gas = FixedBytes::<4>::from_str(selector)
+        .ok()
+        .filter(|sel| is_groth16_selector(*sel) || is_blake3_groth16_selector(*sel))
+        .map(|_| defaults::groth16_verify_gas_estimate())
+        .unwrap_or(0);
+    let lock_gas = U256::from(defaults::lockin_gas_estimate()) * base_fee;
+    let fulfill_gas = U256::from(defaults::fulfill_gas_estimate() + groth16_gas) * base_fee;
+    lock_gas + fulfill_gas
+}
 
 #[derive(Clone)]
 pub struct MarketEfficiencyServiceConfig {
@@ -62,6 +78,11 @@ impl MarketEfficiencyService {
         );
 
         // Step 1: Load all requests from the time range into memory
+        tracing::info!(
+            "Loading requests from database from {} to {}",
+            from_timestamp,
+            to_timestamp
+        );
         let all_requests =
             self.db.get_requests_for_efficiency(from_timestamp, to_timestamp).await?;
         tracing::info!("Loaded {} requests from database", all_requests.len());
@@ -87,8 +108,13 @@ impl MarketEfficiencyService {
             return Ok(());
         }
 
-        // Step 3: Compute efficiency for each fulfilled request
-        let efficiency_orders = self.compute_efficiency_orders(&fulfilled_requests, &all_requests);
+        // Step 3: Compute base efficiency (raw price-per-cycle)
+        let efficiency_orders = self.compute_efficiency_orders(
+            &fulfilled_requests,
+            &all_requests,
+            &HashSet::new(),
+            false,
+        );
         tracing::info!("Computed efficiency for {} orders", efficiency_orders.len());
 
         // Step 4: Store efficiency orders
@@ -105,7 +131,46 @@ impl MarketEfficiencyService {
         self.db.upsert_market_efficiency_daily(&daily_summaries).await?;
         tracing::info!("Stored {} daily summaries", daily_summaries.len());
 
-        // Step 7: Update last processed timestamp
+        // Step 7: Compute gas-adjusted efficiency (no exclusions)
+        let gas_adjusted_orders = self.compute_efficiency_orders(
+            &fulfilled_requests,
+            &all_requests,
+            &HashSet::new(),
+            true,
+        );
+        tracing::info!("Computed gas-adjusted efficiency for {} orders", gas_adjusted_orders.len());
+        self.db.upsert_market_efficiency_orders_gas_adjusted(&gas_adjusted_orders).await?;
+        let gas_adjusted_hourly = self.aggregate_hourly(&gas_adjusted_orders);
+        self.db.upsert_market_efficiency_hourly_gas_adjusted(&gas_adjusted_hourly).await?;
+        let gas_adjusted_daily = self.aggregate_daily(&gas_adjusted_orders);
+        self.db.upsert_market_efficiency_daily_gas_adjusted(&gas_adjusted_daily).await?;
+
+        // Step 8: Compute gas-adjusted with exclusions
+        let excluded: HashSet<String> =
+            EXCLUDED_REQUESTORS_FOR_ADJUSTED.iter().map(|s| s.to_string()).collect();
+        tracing::info!(
+            "Computing gas-adjusted efficiency with exclusions (excluding {} requestors)",
+            excluded.len()
+        );
+        let gas_adjusted_excl_orders =
+            self.compute_efficiency_orders(&fulfilled_requests, &all_requests, &excluded, true);
+        tracing::info!(
+            "Computed gas-adjusted-with-exclusions efficiency for {} orders",
+            gas_adjusted_excl_orders.len()
+        );
+        self.db
+            .upsert_market_efficiency_orders_gas_adjusted_with_exclusions(&gas_adjusted_excl_orders)
+            .await?;
+        let gas_adjusted_excl_hourly = self.aggregate_hourly(&gas_adjusted_excl_orders);
+        self.db
+            .upsert_market_efficiency_hourly_gas_adjusted_with_exclusions(&gas_adjusted_excl_hourly)
+            .await?;
+        let gas_adjusted_excl_daily = self.aggregate_daily(&gas_adjusted_excl_orders);
+        self.db
+            .upsert_market_efficiency_daily_gas_adjusted_with_exclusions(&gas_adjusted_excl_daily)
+            .await?;
+
+        // Step 9: Update last processed timestamp
         if let Some(max_locked_at) = efficiency_orders.iter().map(|o| o.locked_at).max() {
             self.db.set_last_processed_locked_at(max_locked_at).await?;
         }
@@ -114,21 +179,27 @@ impl MarketEfficiencyService {
         Ok(())
     }
 
+    // Computes per-order efficiency metrics.
+    // When `excluded_requestors` is non-empty, orders from those requestors are ignored.
+    // When `gas_adjusted` is true, compares profit_per_cycle = (lock_price - gas_cost) / cycles,
+    // skipping orders without lock_base_fee; otherwise compares raw price_per_cycle.
     fn compute_efficiency_orders(
         &self,
         fulfilled_requests: &[&RequestForEfficiency],
         all_requests: &[RequestForEfficiency],
+        excluded_requestors: &HashSet<String>,
+        gas_adjusted: bool,
     ) -> Vec<MarketEfficiencyOrder> {
-        let mut efficiency_orders = Vec::with_capacity(fulfilled_requests.len());
+        let total = fulfilled_requests.len();
+        let start = std::time::Instant::now();
+        let mut efficiency_orders = Vec::with_capacity(total);
 
-        for r in fulfilled_requests {
+        for (i, r) in fulfilled_requests.iter().enumerate() {
+            if (i + 1) % 1000 == 0 || i + 1 == total {
+                tracing::info!("Computed efficiency for {}/{} fulfilled requests", i + 1, total);
+            }
             let lock_time = match r.locked_at {
                 Some(t) => t,
-                None => continue,
-            };
-
-            let r_price_per_cycle = match &r.lock_price_per_cycle {
-                Some(ppc) => *ppc,
                 None => continue,
             };
 
@@ -142,6 +213,27 @@ impl MarketEfficiencyService {
                 None => continue,
             };
 
+            let (r_profitability_metric, r_price_per_cycle): (U256, U256) = if gas_adjusted {
+                let base_fee = match &r.lock_base_fee {
+                    Some(bf) => *bf,
+                    None => continue,
+                };
+                let r_gas_cost = estimate_gas_cost(&r.selector, base_fee);
+                let r_profit = r_lock_price.saturating_sub(r_gas_cost);
+                let ppc = if r_program_cycles > U256::ZERO {
+                    r_profit / r_program_cycles
+                } else {
+                    U256::ZERO
+                };
+                (ppc, r_lock_price / r_program_cycles)
+            } else {
+                let ppc = match &r.lock_price_per_cycle {
+                    Some(p) => *p,
+                    None => continue,
+                };
+                (ppc, ppc)
+            };
+
             // Find all orders that were available at lock_time
             let mut more_profitable: Vec<(&RequestForEfficiency, U256)> = Vec::new();
             let mut less_profitable_count = 0u64;
@@ -149,6 +241,12 @@ impl MarketEfficiencyService {
 
             for o in all_requests.iter() {
                 if o.request_digest == r.request_digest {
+                    continue;
+                }
+
+                if !excluded_requestors.is_empty()
+                    && excluded_requestors.contains(&o.client_address)
+                {
                     continue;
                 }
 
@@ -188,9 +286,22 @@ impl MarketEfficiencyService {
                     continue;
                 }
 
+                let o_profitability_metric: U256 = if gas_adjusted {
+                    let base_fee = r.lock_base_fee.unwrap();
+                    let o_gas_cost = estimate_gas_cost(&o.selector, base_fee);
+                    let o_profit = o_lock_price_at_time.saturating_sub(o_gas_cost);
+                    if o_program_cycles > U256::ZERO {
+                        o_profit / o_program_cycles
+                    } else {
+                        U256::ZERO
+                    }
+                } else {
+                    o_lock_price_at_time / o_program_cycles
+                };
+
                 let o_price_per_cycle_at_time = o_lock_price_at_time / o_program_cycles;
 
-                if o_price_per_cycle_at_time > r_price_per_cycle {
+                if o_profitability_metric > r_profitability_metric {
                     more_profitable.push((o, o_price_per_cycle_at_time));
                 } else {
                     less_profitable_count += 1;
@@ -221,6 +332,7 @@ impl MarketEfficiencyService {
                             MoreProfitableSample {
                                 request_digest: format!("{:x}", o.request_digest),
                                 request_id: o.request_id.to_string(),
+                                requestor_address: o.client_address.clone(),
                                 lock_price_at_time: lock_price_at_time.to_string(),
                                 program_cycles: o.program_cycles.unwrap_or(U256::ZERO).to_string(),
                                 price_per_cycle_at_time: ppc.to_string(),
@@ -247,6 +359,11 @@ impl MarketEfficiencyService {
             });
         }
 
+        tracing::info!(
+            "Computed efficiency for {} orders in {:?}",
+            efficiency_orders.len(),
+            start.elapsed()
+        );
         efficiency_orders
     }
 

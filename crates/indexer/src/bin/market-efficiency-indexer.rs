@@ -48,6 +48,10 @@ struct Args {
     /// Whether to log in JSON format.
     #[clap(long, env, default_value_t = false)]
     log_json: bool,
+
+    /// Run once (using lookback from now) and exit. Overrides interval/loop behavior.
+    #[clap(long)]
+    once: bool,
 }
 
 #[tokio::main]
@@ -73,11 +77,15 @@ async fn main() -> Result<()> {
 
     let mut service = MarketEfficiencyService::new(&args.db, config).await?;
 
-    // If start-time and end-time are specified, run once and exit
-    if args.start_time.is_some() && args.end_time.is_some() {
-        tracing::info!(
-            "Running market efficiency indexer once (start-time and end-time specified)"
-        );
+    // Run once and exit if --once or explicit time range
+    if args.once || (args.start_time.is_some() && args.end_time.is_some()) {
+        if args.once {
+            tracing::info!("Running market efficiency indexer once (--once), then exiting");
+        } else {
+            tracing::info!(
+                "Running market efficiency indexer once (start-time and end-time specified)"
+            );
+        }
         service.run().await?;
         tracing::info!("Market efficiency indexer completed successfully");
         return Ok(());

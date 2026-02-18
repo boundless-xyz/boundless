@@ -135,6 +135,79 @@ async fn test_efficiency_requests_list() {
 
 #[tokio::test]
 #[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
+async fn test_efficiency_summary_gas_adjusted() {
+    let env = TestEnv::market().await;
+
+    let response: EfficiencySummaryResponse =
+        env.get("/v1/market/efficiency?gas_adjusted=true").await.unwrap();
+
+    assert_eq!(
+        response.total_requests_analyzed,
+        response.most_profitable_locked + response.not_most_profitable_locked,
+        "total should equal sum of most + not most profitable"
+    );
+    if let Some(rate) = response.latest_hourly_efficiency_rate {
+        assert!(rate >= 0.0 && rate <= 1.0, "hourly efficiency rate should be 0-1: {}", rate);
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
+async fn test_efficiency_summary_gas_adjusted_with_exclusions() {
+    let env = TestEnv::market().await;
+
+    let response: EfficiencySummaryResponse =
+        env.get("/v1/market/efficiency?gas_adjusted_with_exclusions=true").await.unwrap();
+
+    assert_eq!(
+        response.total_requests_analyzed,
+        response.most_profitable_locked + response.not_most_profitable_locked,
+        "total should equal sum of most + not most profitable"
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
+async fn test_efficiency_aggregates_gas_adjusted() {
+    let env = TestEnv::market().await;
+
+    let response: EfficiencyAggregatesResponse = env
+        .get("/v1/market/efficiency/aggregates?granularity=hourly&limit=10&gas_adjusted=true")
+        .await
+        .unwrap();
+
+    for entry in &response.data {
+        assert!(entry.period_timestamp > 0);
+        assert!(
+            entry.efficiency_rate >= 0.0 && entry.efficiency_rate <= 1.0,
+            "efficiency_rate should be 0-1: {}",
+            entry.efficiency_rate
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
+async fn test_efficiency_aggregates_gas_adjusted_with_exclusions() {
+    let env = TestEnv::market().await;
+
+    let response: EfficiencyAggregatesResponse = env
+        .get("/v1/market/efficiency/aggregates?granularity=hourly&limit=10&gas_adjusted_with_exclusions=true")
+        .await
+        .unwrap();
+
+    for entry in &response.data {
+        assert!(entry.period_timestamp > 0);
+        assert!(
+            entry.efficiency_rate >= 0.0 && entry.efficiency_rate <= 1.0,
+            "efficiency_rate should be 0-1: {}",
+            entry.efficiency_rate
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_efficiency_requests_pagination() {
     let env = TestEnv::market().await;
 

@@ -427,6 +427,18 @@ pub struct EfficiencySummaryResponse {
     pub last_updated: Option<String>,
 }
 
+/// Query parameters for efficiency summary
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct EfficiencySummaryParams {
+    /// Use gas-adjusted data (profitability with gas costs). Default: false
+    #[serde(default)]
+    pub gas_adjusted: bool,
+
+    /// Use gas-adjusted data excluding certain requestors. Default: false
+    #[serde(default)]
+    pub gas_adjusted_with_exclusions: bool,
+}
+
 /// Query parameters for efficiency aggregates
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct EfficiencyAggregatesParams {
@@ -453,6 +465,14 @@ pub struct EfficiencyAggregatesParams {
     /// Sort order: 'asc' or 'desc' (default: desc)
     #[serde(default = "default_sort")]
     pub sort: String,
+
+    /// Use gas-adjusted data (profitability with gas costs). Default: false
+    #[serde(default)]
+    pub gas_adjusted: bool,
+
+    /// Use gas-adjusted data excluding certain requestors. Default: false
+    #[serde(default)]
+    pub gas_adjusted_with_exclusions: bool,
 }
 
 fn default_efficiency_granularity() -> String {
@@ -532,6 +552,9 @@ pub struct MoreProfitableSampleEntry {
 
     /// Request ID
     pub request_id: String,
+
+    /// Requestor (client) address that sent the request
+    pub requestor_address: String,
 
     /// Lock price at time (wei)
     pub lock_price_at_time: String,
