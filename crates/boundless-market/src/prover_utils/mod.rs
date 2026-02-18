@@ -1066,9 +1066,9 @@ pub trait OrderPricingContext {
         let min_mcycle_price: U256 = min_mcycle_price_eth.value;
 
         // Convert min_mcycle_price to ZKC for collateral-based pricing (handles ETH/USD via price oracle)
-        let config_min_mcycle_price_for_collateral = &config.min_mcycle_price;
+        let config_min_mcycle_price = &config.min_mcycle_price;
         let config_min_mcycle_price_zkc =
-            self.convert_to_zkc(config_min_mcycle_price_for_collateral).await?;
+            self.convert_to_zkc(config_min_mcycle_price).await?;
 
         // Scale from Asset ZKC decimals (18) to contract collateral token decimals
         let min_mcycle_price_collateral_tokens: U256 = scale_decimals(

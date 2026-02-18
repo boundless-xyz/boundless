@@ -231,16 +231,7 @@ where
                         config.expected_probability_win_secondary_fulfillment,
                     );
                     let zkc_amount = Amount::new(discounted, Asset::ZKC);
-                    let usd_amount = self
-                        .price_oracle
-                        .convert(&zkc_amount, Asset::USD)
-                        .await
-                        .unwrap_or(Amount::new(U256::ZERO, Asset::USD));
-                    let eth_amount = self
-                        .price_oracle
-                        .convert(&usd_amount, Asset::ETH)
-                        .await
-                        .unwrap_or(Amount::new(U256::ZERO, Asset::ETH));
+                    let eth_amount = self.price_oracle.convert(&zkc_amount, Asset::ETH)?;
                     order.expected_reward_eth = Some(eth_amount.value);
 
                     self.priced_orders_tx
