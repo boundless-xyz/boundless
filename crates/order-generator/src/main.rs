@@ -67,7 +67,7 @@ struct MainArgs {
     private_key: Option<PrivateKeySigner>,
     /// BIP-39 mnemonic phrase for key derivation. Use with --derive-rotation-keys for standard
     /// BIP-39/BIP-32 derivation (keys match MetaMask, Ledger, etc.). Pass via --mnemonic or MNEMONIC env.
-    #[clap(long, env, requires = "derive_rotation_keys")]
+    #[clap(long, env, requires = "derive_rotation_keys", hide_env_values = true)]
     mnemonic: Option<String>,
     /// Derive N rotation keys from mnemonic using BIP-39/BIP-32 (m/44'/60'/0'/0/{0..N}).
     /// Index 0 = funding key; indices 1..N = rotation keys. Requires N >= 2 and --mnemonic.
@@ -303,29 +303,34 @@ async fn run_with_rotation(
         state.save(state_path)?;
     }
 
-    // Build a client for initial setup (program upload/download) using funding signer.
-    let setup_client = build_client_for_signer(args, funding_signer).await?;
+    // Pre-build clients for all rotation keys and the funding key to avoid
+    // re-constructing RPC connections and storage uploaders on every iteration.
+    let funding_client = build_client_for_signer(args, funding_signer).await?;
+    let mut rotation_clients: Vec<OrderGeneratorClient> = Vec::with_capacity(n_keys);
+    for signer in private_keys {
+        rotation_clients.push(build_client_for_signer(args, signer).await?);
+    }
+
     let ipfs_gateway = args
         .storage_config
         .ipfs_gateway_url
         .clone()
         .unwrap_or(Url::parse("https://gateway.pinata.cloud").unwrap());
     let (program, program_url, input) =
-        load_program_and_input(args, &setup_client, &ipfs_gateway).await?;
+        load_program_and_input(args, &funding_client, &ipfs_gateway).await?;
 
-    let setup_provider = setup_client.provider();
-    let now = get_block_timestamp(&setup_provider).await.unwrap_or_else(|e| {
+    let now = get_block_timestamp(&funding_client.provider()).await.unwrap_or_else(|e| {
         tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
         rotation::now_secs()
     });
     try_pending_withdrawals(
-        args,
-        funding_signer,
-        private_keys,
+        &funding_client,
+        &rotation_clients,
         &mut state,
         state_path,
         n_keys,
         now,
+        args.withdrawal_expiry_buffer,
     )
     .await?;
 
@@ -341,7 +346,7 @@ async fn run_with_rotation(
             }
         }
 
-        let now = get_block_timestamp(&setup_provider).await.unwrap_or_else(|e| {
+        let now = get_block_timestamp(&funding_client.provider()).await.unwrap_or_else(|e| {
             tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
             rotation::now_secs()
         });
@@ -355,13 +360,12 @@ async fn run_with_rotation(
             last_index = idx;
         }
 
+        let client = &rotation_clients[idx];
         let signer = &private_keys[idx];
-        let client = build_client_for_signer(args, signer).await?;
-        top_up_from_funding_source(args, funding_signer, &client, signer.address()).await?;
+        top_up_from_funding_source(args, &funding_client, client, signer.address()).await?;
 
         let result =
-            submit_request_with_retry(args, &client, &program, &program_url, input.as_deref())
-                .await;
+            submit_request_with_retry(args, client, &program, &program_url, input.as_deref()).await;
 
         match result {
             Ok((_, expires_at)) => {
@@ -380,19 +384,18 @@ async fn run_with_rotation(
             }
         }
 
-        let provider = client.provider();
-        let now = get_block_timestamp(&provider).await.unwrap_or_else(|e| {
+        let now = get_block_timestamp(&client.provider()).await.unwrap_or_else(|e| {
             tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
             rotation::now_secs()
         });
         try_pending_withdrawals(
-            args,
-            funding_signer,
-            private_keys,
+            &funding_client,
+            &rotation_clients,
             &mut state,
             state_path,
             n_keys,
             now,
+            args.withdrawal_expiry_buffer,
         )
         .await?;
 
@@ -525,20 +528,34 @@ const GAS_RESERVE: &str = "0.001";
 
 async fn top_up_from_funding_source(
     args: &MainArgs,
-    funding_signer: &PrivateKeySigner,
-    client: &OrderGeneratorClient,
+    funding_client: &OrderGeneratorClient,
+    rotation_client: &OrderGeneratorClient,
     to_address: alloy::primitives::Address,
 ) -> Result<()> {
     let market_threshold = args.top_up_market_threshold;
     let native_threshold = args.top_up_native_threshold;
-    let market = client.boundless_market.clone();
-    let balance = market.balance_of(to_address).await.context("failed to get market balance")?;
-    let native_balance =
-        client.provider().get_balance(to_address).await.context("failed to get native balance")?;
-    if balance >= market_threshold && native_balance >= native_threshold {
+    let market = rotation_client.boundless_market.clone();
+    let market_balance =
+        market.balance_of(to_address).await.context("failed to get market balance")?;
+    let native_balance = rotation_client
+        .provider()
+        .get_balance(to_address)
+        .await
+        .context("failed to get native balance")?;
+    if market_balance >= market_threshold && native_balance >= native_threshold {
         return Ok(());
     }
-    let funding_client = build_client_for_signer(args, funding_signer).await?;
+
+    // The rotation address needs native ETH to cover:
+    // - Market deposit shortfall (FundingMode::BelowThreshold handles the deposit itself)
+    // - Native ETH for gas (submit tx, deposit tx, etc.)
+    let market_shortfall = market_threshold.saturating_sub(market_balance);
+    let native_shortfall = native_threshold.saturating_sub(native_balance);
+    let needed = market_shortfall.saturating_add(native_shortfall);
+    if needed == U256::ZERO {
+        return Ok(());
+    }
+
     let funding_balance = funding_client
         .provider()
         .get_balance(funding_client.caller())
@@ -554,7 +571,6 @@ async fn top_up_from_funding_source(
         );
         return Ok(());
     }
-    let needed = market_threshold.saturating_sub(balance).saturating_add(native_threshold);
     let top_up = needed.min(available);
     funding_client
         .transfer_value(to_address, top_up)
@@ -578,23 +594,21 @@ async fn get_block_timestamp(provider: &impl Provider) -> Result<u64> {
 }
 
 async fn try_pending_withdrawals(
-    args: &MainArgs,
-    funding_signer: &PrivateKeySigner,
-    private_keys: &[PrivateKeySigner],
+    funding_client: &OrderGeneratorClient,
+    rotation_clients: &[OrderGeneratorClient],
     state: &mut rotation::RotationState,
     state_path: &Path,
     n_keys: usize,
     now_secs: u64,
+    buffer_secs: u64,
 ) -> Result<()> {
-    let buf = args.withdrawal_expiry_buffer;
     let pending: Vec<_> = state.pending_withdrawal.clone();
     for pw in pending {
-        if state.can_withdraw(pw.index, now_secs, buf) {
+        if state.can_withdraw(pw.index, now_secs, buffer_secs) {
             let idx = pw.index;
             if let Err(e) = withdraw_and_transfer(
-                args,
-                funding_signer,
-                private_keys,
+                funding_client,
+                rotation_clients,
                 state,
                 state_path,
                 pw,
@@ -610,9 +624,8 @@ async fn try_pending_withdrawals(
 }
 
 async fn withdraw_and_transfer(
-    args: &MainArgs,
-    funding_signer: &PrivateKeySigner,
-    private_keys: &[PrivateKeySigner],
+    funding_client: &OrderGeneratorClient,
+    rotation_clients: &[OrderGeneratorClient],
     state: &mut rotation::RotationState,
     state_path: &Path,
     pw: rotation::PendingWithdrawal,
@@ -628,33 +641,60 @@ async fn withdraw_and_transfer(
         state.save(state_path)?;
         return Ok(());
     }
-    let old_signer = &private_keys[pw.index];
-    let funding_address = funding_signer.address();
+    let old_client = &rotation_clients[pw.index];
+    let old_address = old_client.caller();
+    let funding_address = funding_client.caller();
 
-    let old_client = build_client_for_signer(args, old_signer).await?;
     let market = old_client.boundless_market.clone();
-    let balance = market
-        .balance_of(old_signer.address())
+    let market_balance = market
+        .balance_of(old_address)
         .await
         .context("failed to get market balance for withdrawal")?;
-    let gas_reserve = parse_ether(GAS_RESERVE).unwrap();
-    if balance <= gas_reserve {
+    if market_balance == U256::ZERO {
         state.remove_pending(pw.index);
         state.save(state_path)?;
         return Ok(());
     }
-    market.withdraw(balance).await.context("failed to withdraw from market")?;
-    let transfer_amount = balance.saturating_sub(gas_reserve);
-    old_client
-        .transfer_value(funding_address, transfer_amount)
+
+    let gas_reserve = parse_ether(GAS_RESERVE).unwrap();
+    let native_balance = old_client
+        .provider()
+        .get_balance(old_address)
         .await
-        .context("failed to transfer to funding address")?;
+        .context("failed to get native balance for withdrawal")?;
+    if native_balance < gas_reserve {
+        tracing::warn!(
+            "Index {} has insufficient native ETH ({}) for withdrawal gas, skipping",
+            pw.index,
+            format_units(native_balance, "ether").unwrap_or_default()
+        );
+        return Ok(());
+    }
+
+    market.withdraw(market_balance).await.context("failed to withdraw from market")?;
+
+    // After withdrawal, sweep all native ETH (minus gas reserve for this transfer tx)
+    // back to the funding address. This captures both the withdrawn market balance and
+    // any leftover native ETH on the old address.
+    let post_withdraw_balance = old_client
+        .provider()
+        .get_balance(old_address)
+        .await
+        .context("failed to get post-withdraw native balance")?;
+    let transfer_amount = post_withdraw_balance.saturating_sub(gas_reserve);
+    if transfer_amount > U256::ZERO {
+        old_client
+            .transfer_value(funding_address, transfer_amount)
+            .await
+            .context("failed to transfer to funding address")?;
+    }
     state.remove_pending(pw.index);
     state.save(state_path)?;
     tracing::info!(
-        "Withdrew {} ETH from index {} and transferred to funding address {}",
-        format_units(balance, "ether")?,
+        "Withdrew {} ETH from market at index {} and swept {} ETH to funding address {}",
+        format_units(market_balance, "ether")?,
         pw.index,
+        format_units(transfer_amount, "ether")?,
         funding_address
     );
     Ok(())
