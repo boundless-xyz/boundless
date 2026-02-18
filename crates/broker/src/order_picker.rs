@@ -1432,7 +1432,8 @@ pub(crate) mod tests {
     async fn skip_price_less_than_gas_costs_large_journal() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.00000000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.00000000001 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 

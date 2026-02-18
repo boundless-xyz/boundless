@@ -916,7 +916,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
         tokio::spawn(chain_monitor.spawn(Default::default()));
         // Ensure chain_monitor has its first cached value.
         let _ = chain_monitor.current_block_number().await.unwrap();
