@@ -14,12 +14,11 @@
 
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
+use crate::{config::ConfigLock, errors::CodedError};
 use anyhow::{Context, Result as AnyhowRes};
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-
-use crate::{config::ConfigLock, errors::CodedError};
 
 #[derive(Error, Debug)]
 pub enum SupervisorErr<E: CodedError> {
