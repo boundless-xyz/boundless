@@ -7,7 +7,8 @@ interface LOrderStreamPipelineArgs extends BasePipelineArgs { }
 const config: LaunchPipelineConfig = {
   appName: "order-stream",
   buildTimeout: 60,
-  computeType: "BUILD_GENERAL1_MEDIUM"
+  computeType: "BUILD_GENERAL1_MEDIUM",
+  imageBuilderStack: "l-order-stream-images",
 };
 
 export class LOrderStreamPipeline extends LaunchDefaultPipeline {

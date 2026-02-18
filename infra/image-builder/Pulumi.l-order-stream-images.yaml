@@ -1,0 +1,3 @@
+config:
+  image-builder:SERVICE_NAME: order-stream
+  image-builder:DOCKERFILE: order_stream.dockerfile

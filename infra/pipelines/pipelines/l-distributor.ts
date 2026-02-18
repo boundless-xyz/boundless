@@ -7,7 +7,8 @@ interface LDistributorPipelineArgs extends BasePipelineArgs { }
 const config: LaunchPipelineConfig = {
   appName: "distributor",
   buildTimeout: 75,
-  computeType: "BUILD_GENERAL1_LARGE"
+  computeType: "BUILD_GENERAL1_LARGE",
+  imageBuilderStack: "l-distributor-images",
 };
 
 export class LDistributorPipeline extends LaunchDefaultPipeline {

@@ -21,6 +21,8 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
 
         const { githubTokenSecret, dockerTokenSecret } = this.createSecretsAndPolicy(role, githubToken, dockerToken);
 
+        const imageBuilderStack = this.config.imageBuilderStack;
+
         // Create CodeBuild projects for each stack
         const stagingDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-staging-84532-build`,
@@ -28,25 +30,149 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
             { dependsOn: [role] }
         );
 
-        // l-prod-84532 is the "builder" prod stack: it builds the Docker image once.
-        // Other prod stacks reference its image via BUILDER_STACK, skipping redundant builds.
+        // When an image-builder stack is configured, all prod stacks (including l-prod-84532)
+        // consume the pre-built image via BUILDER_STACK instead of building Docker images.
+        // Qualify with the project name so `pulumi stack output --stack` resolves cross-project.
+        const builderRef = imageBuilderStack ? `image-builder/${imageBuilderStack}` : undefined;
+
         const prodDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-84532-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, builderRef),
             { dependsOn: [role] }
         );
 
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, "l-prod-84532"),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, builderRef),
             { dependsOn: [role] }
         );
 
         const prodDeploymentEthSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-11155111-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, "l-prod-84532"),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, builderRef),
             { dependsOn: [role] }
         );
+
+        // Stages common to all pipelines
+        const stages: aws.types.input.codepipeline.PipelineStage[] = [
+            {
+                name: "Github",
+                actions: [{
+                    name: "Github",
+                    category: "Source",
+                    owner: "AWS",
+                    provider: "CodeStarSourceConnection",
+                    version: "1",
+                    outputArtifacts: ["source_output"],
+                    configuration: {
+                        ConnectionArn: connection.arn,
+                        FullRepositoryId: "boundless-xyz/boundless",
+                        BranchName: this.config.branchName!,
+                        OutputArtifactFormat: "CODEBUILD_CLONE_REF"
+                    },
+                }],
+            },
+            {
+                name: "DeployStaging",
+                actions: [
+                    {
+                        name: "DeployStagingBaseSepolia",
+                        category: "Build",
+                        owner: "AWS",
+                        provider: "CodeBuild",
+                        version: "1",
+                        runOrder: 1,
+                        configuration: {
+                            ProjectName: stagingDeploymentBaseSepolia.name
+                        },
+                        outputArtifacts: ["staging_output_base_sepolia"],
+                        inputArtifacts: ["source_output"],
+                    }
+                ]
+            },
+        ];
+
+        // When an image-builder stack is configured, add a BuildProdImage stage
+        // that builds and pushes the Docker image before the manual approval gate.
+        if (imageBuilderStack) {
+            const imageBuilderProject = new aws.codebuild.Project(
+                `l-${this.config.appName}-image-builder`,
+                this.codeBuildProjectArgs("image-builder", imageBuilderStack, role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+                { dependsOn: [role] }
+            );
+
+            stages.push({
+                name: "BuildProdImage",
+                actions: [{
+                    name: "BuildImage",
+                    category: "Build",
+                    owner: "AWS",
+                    provider: "CodeBuild",
+                    version: "1",
+                    runOrder: 1,
+                    configuration: {
+                        ProjectName: imageBuilderProject.name
+                    },
+                    outputArtifacts: ["image_builder_output"],
+                    inputArtifacts: ["source_output"],
+                }],
+            });
+        }
+
+        // After approval, all prod stacks deploy in parallel using the pre-built image.
+        stages.push({
+            name: "DeployProduction",
+            actions: [
+                {
+                    name: "ApproveDeployToProduction",
+                    category: "Approval",
+                    owner: "AWS",
+                    provider: "Manual",
+                    version: "1",
+                    runOrder: 1,
+                    configuration: {}
+                },
+                {
+                    name: "DeployProductionBaseSepolia",
+                    category: "Build",
+                    owner: "AWS",
+                    provider: "CodeBuild",
+                    version: "1",
+                    runOrder: 2,
+                    configuration: {
+                        ProjectName: prodDeploymentBaseSepolia.name
+                    },
+                    outputArtifacts: ["production_output_base_sepolia"],
+                    inputArtifacts: ["source_output"],
+                },
+                {
+                    name: "DeployProductionEthSepolia",
+                    category: "Build",
+                    owner: "AWS",
+                    provider: "CodeBuild",
+                    version: "1",
+                    runOrder: 2,
+                    configuration: {
+                        ProjectName: prodDeploymentEthSepolia.name
+                    },
+                    outputArtifacts: ["production_output_eth_sepolia"],
+                    inputArtifacts: ["source_output"],
+                },
+                {
+                    name: "DeployProductionBaseMainnet",
+                    category: "Build",
+                    owner: "AWS",
+                    provider: "CodeBuild",
+                    version: "1",
+                    runOrder: 2,
+                    configuration: {
+                        ProjectName: prodDeploymentBaseMainnet.name
+                    },
+                    outputArtifacts: ["production_output_base_mainnet"],
+                    inputArtifacts: ["source_output"],
+                }
+            ]
+        });
 
         // Create the pipeline
         const pipeline = new aws.codepipeline.Pipeline(`l-${this.config.appName}-pipeline`, {
@@ -55,96 +181,7 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                 type: "S3",
                 location: artifactBucket.bucket
             }],
-            stages: [
-                {
-                    name: "Github",
-                    actions: [{
-                        name: "Github",
-                        category: "Source",
-                        owner: "AWS",
-                        provider: "CodeStarSourceConnection",
-                        version: "1",
-                        outputArtifacts: ["source_output"],
-                        configuration: {
-                            ConnectionArn: connection.arn,
-                            FullRepositoryId: "boundless-xyz/boundless",
-                            BranchName: this.config.branchName!,
-                            OutputArtifactFormat: "CODEBUILD_CLONE_REF"
-                        },
-                    }],
-                },
-                {
-                    name: "DeployStaging",
-                    actions: [
-                        {
-                            name: "DeployStagingBaseSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 1,
-                            configuration: {
-                                ProjectName: stagingDeploymentBaseSepolia.name
-                            },
-                            outputArtifacts: ["staging_output_base_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        }
-                    ]
-                },
-                {
-                    name: "DeployProduction",
-                    actions: [
-                        {
-                            name: "ApproveDeployToProduction",
-                            category: "Approval",
-                            owner: "AWS",
-                            provider: "Manual",
-                            version: "1",
-                            runOrder: 1,
-                            configuration: {}
-                        },
-                        {
-                            name: "DeployProductionBaseSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 2,
-                            configuration: {
-                                ProjectName: prodDeploymentBaseSepolia.name
-                            },
-                            outputArtifacts: ["production_output_base_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        },
-                        {
-                            name: "DeployProductionEthSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 3,
-                            configuration: {
-                                ProjectName: prodDeploymentEthSepolia.name
-                            },
-                            outputArtifacts: ["production_output_eth_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        },
-                        {
-                            name: "DeployProductionBaseMainnet",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 3,
-                            configuration: {
-                                ProjectName: prodDeploymentBaseMainnet.name
-                            },
-                            outputArtifacts: ["production_output_base_mainnet"],
-                            inputArtifacts: ["source_output"],
-                        }
-                    ]
-                }
-            ],
+            stages,
             triggers: [
                 {
                     providerType: "CodeStarSourceConnection",
