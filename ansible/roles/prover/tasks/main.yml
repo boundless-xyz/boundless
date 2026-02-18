@@ -27,6 +27,15 @@
     mode: '0644'
   notify: Restart Bento
 
+- name: Download pricing overrides file (creates default if missing)
+  ansible.builtin.get_url:
+    url: '{{ prover_pricing_overrides_url }}'
+    dest: "{{ prover_dir }}/pricing-overrides.json"
+    owner: root
+    group: root
+    mode: '0644'
+    force: false
+
 - name: Write the system service file
   ansible.builtin.template:
     src: bento.service.j2

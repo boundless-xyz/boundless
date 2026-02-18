@@ -25,6 +25,27 @@
 # `min_mcycle_price` to determine if the order should be locked.
 min_mcycle_price = "0.00002 USD"
 
+# Optional path to a JSON file with per-requestor and per-selector pricing overrides.
+# When set, the broker checks the file for a matching override before falling back to
+# the global min_mcycle_price above. See the example file format:
+#
+#   {
+#     "by_requestor": {
+#       "0xAbC...123": { "min_mcycle_price": "0.0001 USD" }
+#     },
+#     "by_selector": {
+#       "0x12345678": { "min_mcycle_price": "0.0005 USD" }
+#     },
+#     "by_requestor_selector": {
+#       "0xAbC...123:0x12345678": { "min_mcycle_price": "0.001 USD" }
+#     }
+#   }
+#
+# Resolution priority: requestor+selector > selector > requestor > global default.
+# The file is automatically hot-reloaded every 60 seconds; no broker restart needed.
+# Copy pricing-overrides.template.json to pricing-overrides.json to get started.
+pricing_overrides_path = "pricing-overrides.json"
+
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
 # to attempt to fulfill an order in the case that the order was locked by another prover
 # but not fulfilled within the lock timeout.

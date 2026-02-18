@@ -94,6 +94,8 @@ pub struct OrderPicker<P> {
     allow_requestors: AllowRequestors,
     downloader: ConfigurableDownloader,
     price_oracle: Arc<PriceOracleManager>,
+    pricing_overrides:
+        Arc<std::sync::RwLock<Option<boundless_market::prover_utils::PricingOverrides>>>,
 }
 
 impl<P> OrderPicker<P>
@@ -116,6 +118,9 @@ where
         allow_requestors: AllowRequestors,
         downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
+        pricing_overrides: Arc<
+            std::sync::RwLock<Option<boundless_market::prover_utils::PricingOverrides>>,
+        >,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -153,6 +158,7 @@ where
             allow_requestors,
             downloader,
             price_oracle,
+            pricing_overrides,
         }
     }
 
@@ -277,6 +283,27 @@ where
     fn denied_requestor_addresses(&self) -> Result<Option<HashSet<Address>>, OrderPickerErr> {
         let config = self.config.lock_all().context("Failed to read config")?;
         Ok(config.market.deny_requestor_addresses.clone())
+    }
+
+    fn resolve_min_mcycle_price(&self, order: &OrderRequest) -> Result<Amount, OrderPickerErr> {
+        let config = self.market_config()?;
+        let guard = self.pricing_overrides.read().expect("pricing overrides lock poisoned");
+        if let Some(overrides) = guard.as_ref() {
+            let requestor = order.request.client_address();
+            let selector = order.request.requirements.selector;
+            if let Some(amount) = overrides.resolve(&requestor, &selector) {
+                tracing::debug!(
+                    order_id = %order.id(),
+                    %requestor,
+                    %selector,
+                    override_price = %amount,
+                    global_price = %config.min_mcycle_price,
+                    "Using pricing override instead of global min_mcycle_price"
+                );
+                return Ok(amount.clone());
+            }
+        }
+        Ok(config.min_mcycle_price.clone())
     }
 
     fn supported_selectors(&self) -> &SupportedSelectors {
@@ -960,6 +987,7 @@ pub(crate) mod tests {
         config: Option<ConfigLock>,
         collateral_token_decimals: Option<u8>,
         prover: Option<ProverObj>,
+        pricing_overrides: Option<boundless_market::prover_utils::PricingOverrides>,
     }
 
     impl PickerTestCtxBuilder {
@@ -978,6 +1006,12 @@ pub(crate) mod tests {
         }
         pub(crate) fn with_collateral_token_decimals(self, decimals: u8) -> Self {
             Self { collateral_token_decimals: Some(decimals), ..self }
+        }
+        pub(crate) fn with_pricing_overrides(
+            self,
+            overrides: boundless_market::prover_utils::PricingOverrides,
+        ) -> Self {
+            Self { pricing_overrides: Some(overrides), ..self }
         }
         pub(crate) async fn build(
             self,
@@ -1060,6 +1094,7 @@ pub(crate) mod tests {
                 allow_requestors,
                 downloader,
                 create_test_price_oracle(),
+                Arc::new(std::sync::RwLock::new(self.pricing_overrides)),
             );
 
             PickerTestCtx {
@@ -2921,5 +2956,156 @@ pub(crate) mod tests {
 
         let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
         assert!(priced_order.target_timestamp.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_with_requestor_pricing_override() {
+        let global_price = "0.001 ETH";
+        let override_price = "0.01 ETH";
+
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse(global_price, None).unwrap();
+        market_config.min_mcycle_price_collateral_token = Amount::parse("10 ZKC", None).unwrap();
+        market_config.max_mcycle_limit = 100_000;
+
+        let config = ConfigLock::default();
+        config.load_write().unwrap().market = market_config;
+
+        // Build without overrides first to get the baseline
+        let ctx_no_override =
+            PickerTestCtxBuilder::default().with_config(config.clone()).build().await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+        let order = ctx_no_override
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(),
+                lock_collateral: parse_collateral_tokens("100"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let requestor_addr = order.request.client_address();
+
+        let (_, baseline_prove_limit, _) =
+            ctx_no_override.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // ETH based: (0.05 - 0.001) * 1M / 0.001 = 49M cycles
+        assert_eq!(baseline_prove_limit, 49_000_000u64);
+
+        // Now build with a requestor override: 10x the global min_mcycle_price
+        let mut overrides = boundless_market::prover_utils::PricingOverrides::default();
+        overrides.by_requestor.insert(
+            requestor_addr,
+            boundless_market::prover_utils::PricingOverrideEntry {
+                min_mcycle_price: Amount::parse(override_price, None).unwrap(),
+            },
+        );
+
+        let config2 = ConfigLock::default();
+        config2.load_write().unwrap().market = config.lock_all().unwrap().market.clone();
+
+        let ctx_with_override = PickerTestCtxBuilder::default()
+            .with_config(config2)
+            .with_pricing_overrides(overrides)
+            .build()
+            .await;
+
+        let order2 = ctx_with_override
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(),
+                lock_collateral: parse_collateral_tokens("100"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (_, overridden_prove_limit, _) =
+            ctx_with_override.picker.calculate_exec_limits(&order2, gas_cost).await.unwrap();
+
+        // ETH based with override: (0.05 - 0.001) * 1M / 0.01 = 4.9M cycles
+        assert_eq!(overridden_prove_limit, 4_900_000u64);
+
+        // The override should produce a stricter (lower) limit
+        assert!(
+            overridden_prove_limit < baseline_prove_limit,
+            "Override price {override_price} should produce a lower exec limit than global {global_price}: \
+             got {overridden_prove_limit} vs {baseline_prove_limit}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_selector_override_takes_priority() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap();
+        market_config.min_mcycle_price_collateral_token = Amount::parse("10 ZKC", None).unwrap();
+        market_config.max_mcycle_limit = 100_000;
+
+        let config = ConfigLock::default();
+        config.load_write().unwrap().market = market_config;
+
+        // Set up overrides: requestor gets 0.005 ETH, but selector gets 0.01 ETH.
+        // Selector should win per the cascade priority.
+        let ctx_baseline =
+            PickerTestCtxBuilder::default().with_config(config.clone()).build().await;
+
+        let order_template = ctx_baseline
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(),
+                lock_collateral: parse_collateral_tokens("100"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let requestor_addr = order_template.request.client_address();
+        let selector = order_template.request.requirements.selector;
+
+        let mut overrides = boundless_market::prover_utils::PricingOverrides::default();
+        overrides.by_requestor.insert(
+            requestor_addr,
+            boundless_market::prover_utils::PricingOverrideEntry {
+                min_mcycle_price: Amount::parse("0.005 ETH", None).unwrap(),
+            },
+        );
+        overrides.by_selector.insert(
+            selector,
+            boundless_market::prover_utils::PricingOverrideEntry {
+                min_mcycle_price: Amount::parse("0.01 ETH", None).unwrap(),
+            },
+        );
+
+        let config2 = ConfigLock::default();
+        config2.load_write().unwrap().market = config.lock_all().unwrap().market.clone();
+
+        let ctx = PickerTestCtxBuilder::default()
+            .with_config(config2)
+            .with_pricing_overrides(overrides)
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(),
+                lock_collateral: parse_collateral_tokens("100"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (_, prove_limit, _) = ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // Selector override (0.01 ETH) should take priority over requestor (0.005 ETH).
+        // ETH based: (0.05 - 0.001) * 1M / 0.01 = 4.9M cycles
+        assert_eq!(prove_limit, 4_900_000u64);
     }
 }

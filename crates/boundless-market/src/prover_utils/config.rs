@@ -21,9 +21,12 @@
 
 #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
 use std::path::Path;
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, FixedBytes};
 #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -499,6 +502,12 @@ pub struct MarketConfig {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
+    /// Optional path to a JSON file containing per-requestor and per-selector pricing overrides.
+    ///
+    /// The file is hot-reloaded automatically (every 60 s); no broker restart needed.
+    /// See [`PricingOverrides`] for the file format.
+    #[serde(default)]
+    pub pricing_overrides_path: Option<PathBuf>,
 }
 
 impl Default for MarketConfig {
@@ -545,6 +554,7 @@ impl Default for MarketConfig {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
+            pricing_overrides_path: None,
         }
     }
 }
@@ -720,5 +730,262 @@ impl Config {
     pub async fn write(&self, path: &Path) -> Result<()> {
         let data = toml::to_string(&self).context("Failed to serialize config")?;
         fs::write(path, data).await.context("Failed to write Config to disk")
+    }
+}
+
+/// A single pricing override entry.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PricingOverrideEntry {
+    /// Minimum price per mega-cycle for this override.
+    pub min_mcycle_price: Amount,
+}
+
+/// Per-requestor and per-selector pricing overrides loaded from a JSON file.
+///
+/// Resolution priority (first match wins):
+/// 1. `by_requestor_selector` -- keyed by `"<address>:<selector_hex>"`
+/// 2. `by_selector` -- keyed by selector hex (e.g. `"0x12345678"`)
+/// 3. `by_requestor` -- keyed by requestor address
+/// 4. Fall back to global `MarketConfig::min_mcycle_price`
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PricingOverrides {
+    /// Overrides keyed by requestor address (checksummed or lowercase hex).
+    #[serde(default)]
+    pub by_requestor: HashMap<Address, PricingOverrideEntry>,
+    /// Overrides keyed by selector hex (e.g. `"0x12345678"`).
+    #[serde(default)]
+    pub by_selector: HashMap<FixedBytes<4>, PricingOverrideEntry>,
+    /// Overrides keyed by `"<requestor_address>:<selector_hex>"` for the most specific match.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_requestor_selector_map",
+        serialize_with = "serialize_requestor_selector_map"
+    )]
+    pub by_requestor_selector: HashMap<(Address, FixedBytes<4>), PricingOverrideEntry>,
+}
+
+fn deserialize_requestor_selector_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<(Address, FixedBytes<4>), PricingOverrideEntry>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: HashMap<String, PricingOverrideEntry> = HashMap::deserialize(deserializer)?;
+    let mut map = HashMap::with_capacity(raw.len());
+    for (key, entry) in raw {
+        let parts: Vec<&str> = key.split(':').collect();
+        if parts.len() != 2 {
+            return Err(serde::de::Error::custom(format!(
+                "by_requestor_selector key must be '<address>:<selector>', got '{key}'"
+            )));
+        }
+        let addr: Address = parts[0].parse().map_err(serde::de::Error::custom)?;
+        let sel: FixedBytes<4> = parts[1].parse().map_err(serde::de::Error::custom)?;
+        map.insert((addr, sel), entry);
+    }
+    Ok(map)
+}
+
+fn serialize_requestor_selector_map<S>(
+    map: &HashMap<(Address, FixedBytes<4>), PricingOverrideEntry>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeMap;
+    let mut ser_map = serializer.serialize_map(Some(map.len()))?;
+    for ((addr, sel), entry) in map {
+        ser_map.serialize_entry(&format!("{addr}:{sel}"), entry)?;
+    }
+    ser_map.end()
+}
+
+impl PricingOverrides {
+    /// Load overrides from a JSON file.
+    #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
+    pub async fn load(path: &Path) -> Result<Self> {
+        let data = fs::read_to_string(path)
+            .await
+            .context(format!("Failed to read pricing overrides from {path:?}"))?;
+        serde_json::from_str(&data)
+            .context(format!("Failed to parse pricing overrides from {path:?}"))
+    }
+
+    /// Resolve the effective `min_mcycle_price` for a given requestor and selector.
+    ///
+    /// Returns `Some(amount)` if an override matches, `None` to use the global default.
+    pub fn resolve(&self, requestor: &Address, selector: &FixedBytes<4>) -> Option<&Amount> {
+        if let Some(entry) = self.by_requestor_selector.get(&(*requestor, *selector)) {
+            return Some(&entry.min_mcycle_price);
+        }
+        if let Some(entry) = self.by_selector.get(selector) {
+            return Some(&entry.min_mcycle_price);
+        }
+        if let Some(entry) = self.by_requestor.get(requestor) {
+            return Some(&entry.min_mcycle_price);
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addr(s: &str) -> Address {
+        s.parse().unwrap()
+    }
+
+    fn sel(s: &str) -> FixedBytes<4> {
+        s.parse().unwrap()
+    }
+
+    fn amount(s: &str) -> Amount {
+        Amount::parse(s, None).unwrap()
+    }
+
+    fn entry(s: &str) -> PricingOverrideEntry {
+        PricingOverrideEntry { min_mcycle_price: amount(s) }
+    }
+
+    #[test]
+    fn test_resolve_empty_returns_none() {
+        let overrides = PricingOverrides::default();
+        let result = overrides
+            .resolve(&addr("0x0000000000000000000000000000000000000001"), &sel("0x12345678"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_by_requestor() {
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let mut overrides = PricingOverrides::default();
+        overrides.by_requestor.insert(requestor, entry("0.001 USD"));
+
+        let result = overrides.resolve(&requestor, &sel("0xaabbccdd"));
+        assert_eq!(result.unwrap().to_string(), "0.001 USD");
+
+        let other = addr("0x0000000000000000000000000000000000000002");
+        assert!(overrides.resolve(&other, &sel("0xaabbccdd")).is_none());
+    }
+
+    #[test]
+    fn test_resolve_by_selector() {
+        let selector = sel("0x12345678");
+        let mut overrides = PricingOverrides::default();
+        overrides.by_selector.insert(selector, entry("0.005 USD"));
+
+        let any_addr = addr("0x0000000000000000000000000000000000000099");
+        let result = overrides.resolve(&any_addr, &selector);
+        assert_eq!(result.unwrap().to_string(), "0.005 USD");
+
+        assert!(overrides.resolve(&any_addr, &sel("0x00000000")).is_none());
+    }
+
+    #[test]
+    fn test_resolve_priority_requestor_selector_over_individual() {
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let selector = sel("0x12345678");
+
+        let mut overrides = PricingOverrides::default();
+        overrides.by_requestor.insert(requestor, entry("0.001 USD"));
+        overrides.by_selector.insert(selector, entry("0.002 USD"));
+        overrides.by_requestor_selector.insert((requestor, selector), entry("0.003 USD"));
+
+        let result = overrides.resolve(&requestor, &selector);
+        assert_eq!(result.unwrap().to_string(), "0.003 USD");
+    }
+
+    #[test]
+    fn test_resolve_selector_over_requestor() {
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let selector = sel("0x12345678");
+
+        let mut overrides = PricingOverrides::default();
+        overrides.by_requestor.insert(requestor, entry("0.001 USD"));
+        overrides.by_selector.insert(selector, entry("0.002 USD"));
+
+        let result = overrides.resolve(&requestor, &selector);
+        assert_eq!(result.unwrap().to_string(), "0.002 USD");
+    }
+
+    #[test]
+    fn test_json_round_trip() {
+        let json = r#"{
+            "by_requestor": {
+                "0x0000000000000000000000000000000000000001": { "min_mcycle_price": "0.001 USD" }
+            },
+            "by_selector": {
+                "0x12345678": { "min_mcycle_price": "0.005 ETH" }
+            },
+            "by_requestor_selector": {
+                "0x0000000000000000000000000000000000000001:0x12345678": { "min_mcycle_price": "0.01 USD" }
+            }
+        }"#;
+
+        let overrides: PricingOverrides = serde_json::from_str(json).unwrap();
+
+        assert_eq!(overrides.by_requestor.len(), 1);
+        assert_eq!(overrides.by_selector.len(), 1);
+        assert_eq!(overrides.by_requestor_selector.len(), 1);
+
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let selector = sel("0x12345678");
+
+        assert_eq!(overrides.resolve(&requestor, &selector).unwrap().to_string(), "0.01 USD");
+
+        let other_sel = sel("0xdeadbeef");
+        assert_eq!(overrides.resolve(&requestor, &other_sel).unwrap().to_string(), "0.001 USD");
+
+        let other_addr = addr("0x0000000000000000000000000000000000000099");
+        assert_eq!(overrides.resolve(&other_addr, &selector).unwrap().to_string(), "0.005 ETH");
+
+        assert!(overrides.resolve(&other_addr, &other_sel).is_none());
+    }
+
+    #[test]
+    fn test_json_serialize_deserialize_round_trip() {
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let selector = sel("0x12345678");
+
+        let mut overrides = PricingOverrides::default();
+        overrides.by_requestor.insert(requestor, entry("0.001 USD"));
+        overrides.by_selector.insert(selector, entry("0.005 ETH"));
+        overrides.by_requestor_selector.insert((requestor, selector), entry("0.01 USD"));
+
+        let json = serde_json::to_string(&overrides).unwrap();
+        let deserialized: PricingOverrides = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.by_requestor.len(), 1);
+        assert_eq!(deserialized.by_selector.len(), 1);
+        assert_eq!(deserialized.by_requestor_selector.len(), 1);
+        assert_eq!(deserialized.resolve(&requestor, &selector).unwrap().to_string(), "0.01 USD");
+    }
+
+    #[test]
+    fn test_json_invalid_requestor_selector_key() {
+        let json = r#"{
+            "by_requestor_selector": {
+                "bad-key-no-colon": { "min_mcycle_price": "0.001 USD" }
+            }
+        }"#;
+        let result: Result<PricingOverrides, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_json_empty_maps() {
+        let json = r#"{}"#;
+        let overrides: PricingOverrides = serde_json::from_str(json).unwrap();
+        assert!(overrides.by_requestor.is_empty());
+        assert!(overrides.by_selector.is_empty());
+        assert!(overrides.by_requestor_selector.is_empty());
+    }
+
+    #[test]
+    fn test_market_config_default_has_no_overrides_path() {
+        let config = MarketConfig::default();
+        assert!(config.pricing_overrides_path.is_none());
     }
 }

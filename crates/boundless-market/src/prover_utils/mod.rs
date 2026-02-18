@@ -23,7 +23,7 @@ pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
-    OrderPricingPriority, ProverConfig,
+    OrderPricingPriority, PricingOverrideEntry, PricingOverrides, ProverConfig,
 };
 
 use crate::{
@@ -421,6 +421,15 @@ pub trait OrderPricingContext {
 
     /// Convert an Amount to ZKC using the price oracle.
     async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
+
+    /// Resolve the effective `min_mcycle_price` for an order.
+    ///
+    /// The default implementation returns `MarketConfig::min_mcycle_price`.
+    /// Override this to implement per-requestor / per-selector pricing (see [`config::PricingOverrides`]).
+    fn resolve_min_mcycle_price(&self, order: &OrderRequest) -> Result<Amount, OrderPricingError> {
+        let _ = order;
+        Ok(self.market_config()?.min_mcycle_price.clone())
+    }
 
     /// Access to the prover for preflight operations.
     fn prover(&self) -> &ProverObj;
@@ -931,8 +940,10 @@ pub trait OrderPricingContext {
                 config_min_mcycle_price: config_min_mcycle_price_collateral_tokens,
             })
         } else {
-            // For lockable orders, evaluate based on ETH price
-            let config_min_mcycle_price_amount = &config.min_mcycle_price;
+            // For lockable orders, evaluate based on ETH price.
+            // Use per-requestor/selector override if configured, otherwise global default.
+            let resolved_min_mcycle_price = self.resolve_min_mcycle_price(order)?;
+            let config_min_mcycle_price_amount = &resolved_min_mcycle_price;
 
             // Convert configured price to ETH (i.e., handles USD via price oracle)
             let config_min_mcycle_price_eth =
@@ -1045,7 +1056,9 @@ pub trait OrderPricingContext {
         let lock_expiry = order.request.lock_expires_at();
         let order_expiry = order.request.expires_at();
         let config = self.market_config()?;
-        let min_mcycle_price_amount = &config.min_mcycle_price;
+        // Use per-requestor/selector override if configured, otherwise global default.
+        let resolved_min_mcycle_price = self.resolve_min_mcycle_price(order)?;
+        let min_mcycle_price_amount = &resolved_min_mcycle_price;
 
         // Convert configured price to ETH (handles USD via price oracle)
         let min_mcycle_price_eth = self.convert_to_eth(min_mcycle_price_amount).await?;
