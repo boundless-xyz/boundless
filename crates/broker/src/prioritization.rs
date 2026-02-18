@@ -957,7 +957,7 @@ mod tests {
         // The expired tail should be randomized across runs, but higher expected_reward_eth should appear first more often
         let mut tails = HashSet::new();
         let mut exp_a_first_count = 0;
-        let iterations = 50;
+        let iterations = 100;
         for _ in 0..iterations {
             let mut test_orders = vec![
                 lock_30.clone(),
