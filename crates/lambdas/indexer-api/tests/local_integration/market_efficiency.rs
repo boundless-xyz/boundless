@@ -139,7 +139,7 @@ async fn test_efficiency_summary_gas_adjusted() {
     let env = TestEnv::market().await;
 
     let response: EfficiencySummaryResponse =
-        env.get("/v1/market/efficiency?gas_adjusted=true").await.unwrap();
+        env.get("/v1/market/efficiency?type=gas_adjusted").await.unwrap();
 
     assert_eq!(
         response.total_requests_analyzed,
@@ -157,7 +157,7 @@ async fn test_efficiency_summary_gas_adjusted_with_exclusions() {
     let env = TestEnv::market().await;
 
     let response: EfficiencySummaryResponse =
-        env.get("/v1/market/efficiency?gas_adjusted_with_exclusions=true").await.unwrap();
+        env.get("/v1/market/efficiency?type=gas_adjusted_with_exclusions").await.unwrap();
 
     assert_eq!(
         response.total_requests_analyzed,
@@ -172,7 +172,7 @@ async fn test_efficiency_aggregates_gas_adjusted() {
     let env = TestEnv::market().await;
 
     let response: EfficiencyAggregatesResponse = env
-        .get("/v1/market/efficiency/aggregates?granularity=hourly&limit=10&gas_adjusted=true")
+        .get("/v1/market/efficiency/aggregates?granularity=hourly&limit=10&type=gas_adjusted")
         .await
         .unwrap();
 
@@ -192,7 +192,7 @@ async fn test_efficiency_aggregates_gas_adjusted_with_exclusions() {
     let env = TestEnv::market().await;
 
     let response: EfficiencyAggregatesResponse = env
-        .get("/v1/market/efficiency/aggregates?granularity=hourly&limit=10&gas_adjusted_with_exclusions=true")
+        .get("/v1/market/efficiency/aggregates?granularity=hourly&limit=10&type=gas_adjusted_with_exclusions")
         .await
         .unwrap();
 

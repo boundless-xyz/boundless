@@ -427,16 +427,31 @@ pub struct EfficiencySummaryResponse {
     pub last_updated: Option<String>,
 }
 
+/// Efficiency data type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EfficiencyType {
+    /// Raw efficiency data (default)
+    Raw,
+    /// Gas-adjusted efficiency data (profitability with gas costs)
+    GasAdjusted,
+    /// Gas-adjusted efficiency data excluding certain requestors
+    GasAdjustedWithExclusions,
+}
+
+impl Default for EfficiencyType {
+    fn default() -> Self {
+        EfficiencyType::Raw
+    }
+}
+
 /// Query parameters for efficiency summary
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct EfficiencySummaryParams {
-    /// Use gas-adjusted data (profitability with gas costs). Default: false
+    /// Efficiency data type: 'raw', 'gas_adjusted', or 'gas_adjusted_with_exclusions' (default: raw)
     #[serde(default)]
-    pub gas_adjusted: bool,
-
-    /// Use gas-adjusted data excluding certain requestors. Default: false
-    #[serde(default)]
-    pub gas_adjusted_with_exclusions: bool,
+    #[param(value_type = String)]
+    pub r#type: EfficiencyType,
 }
 
 /// Query parameters for efficiency aggregates
@@ -466,13 +481,10 @@ pub struct EfficiencyAggregatesParams {
     #[serde(default = "default_sort")]
     pub sort: String,
 
-    /// Use gas-adjusted data (profitability with gas costs). Default: false
+    /// Efficiency data type: 'raw', 'gas_adjusted', or 'gas_adjusted_with_exclusions' (default: raw)
     #[serde(default)]
-    pub gas_adjusted: bool,
-
-    /// Use gas-adjusted data excluding certain requestors. Default: false
-    #[serde(default)]
-    pub gas_adjusted_with_exclusions: bool,
+    #[param(value_type = String)]
+    pub r#type: EfficiencyType,
 }
 
 fn default_efficiency_granularity() -> String {

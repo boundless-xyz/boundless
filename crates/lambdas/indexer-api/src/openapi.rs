@@ -149,6 +149,8 @@ use utoipa::OpenApi;
         crate::routes::market::ProverCumulativesResponse,
 
         // Efficiency types
+        EfficiencyType,
+        EfficiencySummaryParams,
         EfficiencySummaryResponse,
         EfficiencyAggregatesParams,
         EfficiencyAggregateEntry,

@@ -32,7 +32,8 @@ use crate::{
     models::{
         EfficiencyAggregateEntry, EfficiencyAggregatesParams, EfficiencyAggregatesResponse,
         EfficiencyRequestEntry, EfficiencyRequestsParams, EfficiencyRequestsResponse,
-        EfficiencySummaryParams, EfficiencySummaryResponse, MoreProfitableSampleEntry,
+        EfficiencySummaryParams, EfficiencySummaryResponse, EfficiencyType,
+        MoreProfitableSampleEntry,
     },
     utils::{format_eth, format_zkc, is_valid_ethereum_address},
 };
@@ -3259,12 +3260,14 @@ async fn get_efficiency_summary_impl(
     state: Arc<AppState>,
     params: EfficiencySummaryParams,
 ) -> anyhow::Result<EfficiencySummaryResponse> {
-    let summary = if params.gas_adjusted_with_exclusions {
-        state.efficiency_db.get_efficiency_summary_gas_adjusted_with_exclusions().await?
-    } else if params.gas_adjusted {
-        state.efficiency_db.get_efficiency_summary_gas_adjusted().await?
-    } else {
-        state.efficiency_db.get_efficiency_summary().await?
+    let summary = match params.r#type {
+        EfficiencyType::GasAdjustedWithExclusions => {
+            state.efficiency_db.get_efficiency_summary_gas_adjusted_with_exclusions().await?
+        }
+        EfficiencyType::GasAdjusted => {
+            state.efficiency_db.get_efficiency_summary_gas_adjusted().await?
+        }
+        EfficiencyType::Raw => state.efficiency_db.get_efficiency_summary().await?,
     };
 
     let last_updated = summary.last_updated.map(|ts| {
@@ -3331,42 +3334,46 @@ async fn get_efficiency_aggregates_impl(
     };
 
     // Request one extra to determine if more pages exist
-    let mut aggregates = if params.gas_adjusted_with_exclusions {
-        state
-            .efficiency_db
-            .get_efficiency_aggregates_gas_adjusted_with_exclusions(
-                &params.granularity,
-                params.before,
-                params.after,
-                limit + 1,
-                cursor,
-                sort_desc,
-            )
-            .await?
-    } else if params.gas_adjusted {
-        state
-            .efficiency_db
-            .get_efficiency_aggregates_gas_adjusted(
-                &params.granularity,
-                params.before,
-                params.after,
-                limit + 1,
-                cursor,
-                sort_desc,
-            )
-            .await?
-    } else {
-        state
-            .efficiency_db
-            .get_efficiency_aggregates(
-                &params.granularity,
-                params.before,
-                params.after,
-                limit + 1,
-                cursor,
-                sort_desc,
-            )
-            .await?
+    let mut aggregates = match params.r#type {
+        EfficiencyType::GasAdjustedWithExclusions => {
+            state
+                .efficiency_db
+                .get_efficiency_aggregates_gas_adjusted_with_exclusions(
+                    &params.granularity,
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::GasAdjusted => {
+            state
+                .efficiency_db
+                .get_efficiency_aggregates_gas_adjusted(
+                    &params.granularity,
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::Raw => {
+            state
+                .efficiency_db
+                .get_efficiency_aggregates(
+                    &params.granularity,
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
     };
 
     let has_more = aggregates.len() > limit as usize;
