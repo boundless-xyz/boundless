@@ -601,13 +601,13 @@ impl ProverGenerateConfig {
         display.note("so expected rewards are discounted by the probability of winning the race.");
         display.note("");
         display
-            .note("For example, with a 25% win probability, a 100 ZKC reward is valued at 25 ZKC");
+            .note("For example, with a 50% win probability, a 100 ZKC reward is valued at 50 ZKC");
         display.note("when computing order profitability and priority.");
         display.note("");
 
         let expected_probability_str =
             Text::new("Expected probability of winning secondary fulfillment (0-100):")
-                .with_default("25")
+                .with_default("50")
                 .with_help_message("Enter a percentage between 0 and 100")
                 .prompt()
                 .context("Failed to get expected probability")?;

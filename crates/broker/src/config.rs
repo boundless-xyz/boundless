@@ -192,7 +192,7 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1 ETH"
-expected_probability_win_secondary_fulfillment = 25
+expected_probability_win_secondary_fulfillment = 50
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
@@ -275,7 +275,7 @@ error = ?"#;
         let config = Config::load(config_temp.path()).await.unwrap();
 
         assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
-        assert_eq!(config.market.expected_probability_win_secondary_fulfillment, 25);
+        assert_eq!(config.market.expected_probability_win_secondary_fulfillment, 50);
         assert_eq!(config.market.assumption_price, None);
         assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 300);
@@ -339,7 +339,7 @@ error = ?"#;
         {
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
-            assert_eq!(config.market.expected_probability_win_secondary_fulfillment, 25);
+            assert_eq!(config.market.expected_probability_win_secondary_fulfillment, 50);
             assert_eq!(config.market.assumption_price, None);
             assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.min_deadline, 300);

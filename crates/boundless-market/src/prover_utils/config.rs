@@ -270,6 +270,20 @@ where
         .map_err(serde::de::Error::custom)
 }
 
+/// Deserialize a u32 and validate it is in the range 0-100 (inclusive).
+fn deserialize_probability_percent<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u32::deserialize(deserializer)?;
+    if value > 100 {
+        return Err(serde::de::Error::custom(format!(
+            "expected_probability_win_secondary_fulfillment must be between 0 and 100, got {value}"
+        )));
+    }
+    Ok(value)
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
@@ -289,7 +303,10 @@ pub struct MarketConfig {
     pub min_mcycle_price: Amount,
     /// Expected probability (0-100) of winning the secondary fulfillment race.
     /// Discounts the collateral reward when evaluating profitability and prioritizing orders.
-    #[serde(default = "defaults::expected_probability_win_secondary_fulfillment")]
+    #[serde(
+        default = "defaults::expected_probability_win_secondary_fulfillment",
+        deserialize_with = "deserialize_probability_percent"
+    )]
     pub expected_probability_win_secondary_fulfillment: u32,
     /// Assumption price (in native token)
     ///
