@@ -282,6 +282,14 @@ export = () => {
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
   const evmRequestorMaxPriceCap = evmRequestorConfig.get('MAX_PRICE_CAP');
 
+  const evmS3Bucket = evmRequestorConfig.get('S3_BUCKET');
+  const evmS3Region = evmRequestorConfig.get('AWS_REGION');
+  const evmS3AccessKeyId = evmRequestorConfig.getSecret('S3_ACCESS_KEY_ID');
+  const evmS3SecretAccessKey = evmRequestorConfig.getSecret('S3_SECRET_ACCESS_KEY');
+  const evmS3Config = evmS3Bucket && evmS3Region && evmS3AccessKeyId && evmS3SecretAccessKey
+    ? { bucket: evmS3Bucket, region: evmS3Region, accessKeyId: evmS3AccessKeyId, secretAccessKey: evmS3SecretAccessKey }
+    : undefined;
+
   if (evmRequestorDeploy) {
     new OrderGenerator('evm-requestor', {
       chainId,
@@ -292,7 +300,7 @@ export = () => {
       ...(evmRequestorUsesRotation
         ? { rotationConfig: { mnemonic: evmRequestorMnemonic!, deriveRotationKeys: evmRequestorDeriveRotationKeys! } }
         : { privateKey: evmRequestorPrivateKey! }),
-      pinataJWT,
+      ...(evmS3Config ? { s3Config: evmS3Config } : { pinataJWT }),
       ethRpcUrl,
       image,
       logLevel,
