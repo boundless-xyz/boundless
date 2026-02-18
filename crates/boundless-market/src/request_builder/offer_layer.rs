@@ -14,7 +14,15 @@
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
-    LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ, contracts::{Offer, PredicateType, RequestId, Requirements}, dynamic_gas_filler::PriorityMode, price_oracle::{Amount, Asset, PriceOracleManager}, price_provider::PriceProviderArc, prover_utils::config_defaults::max_journal_bytes, request_builder::ParameterizationMode, selector::{ProofType, SupportedSelectors}, util::now_timestamp
+    contracts::{Offer, PredicateType, RequestId, Requirements},
+    dynamic_gas_filler::PriorityMode,
+    price_oracle::{Amount, Asset, PriceOracleManager},
+    price_provider::PriceProviderArc,
+    prover_utils::config_defaults::max_journal_bytes,
+    request_builder::ParameterizationMode,
+    selector::{ProofType, SupportedSelectors},
+    util::now_timestamp,
+    LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
 };
 use alloy::{
     network::Ethereum,
