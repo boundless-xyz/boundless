@@ -21,6 +21,7 @@ use crate::{
 
 use alloy::primitives::U256;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use std::sync::Arc;
 
 /// Unified priority mode for both pricing and commitment
@@ -82,9 +83,10 @@ where
     T: AsRef<OrderRequest>,
 {
     let now = crate::now_timestamp();
+    let mut rng = rand::rng();
 
     match mode {
-        UnifiedPriorityMode::Random => orders.shuffle(&mut rand::rng()),
+        UnifiedPriorityMode::Random => orders.shuffle(&mut rng),
         UnifiedPriorityMode::TimeOrdered => {
             // Already in observation time order, no sorting needed
         }
@@ -92,24 +94,38 @@ where
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
         UnifiedPriorityMode::Price => {
-            orders.sort_by_key(|o| total_reward_amount(o.as_ref(), now));
+            orders
+                .sort_by_key(|o| std::cmp::Reverse(total_reward_amount(o.as_ref(), now, &mut rng)));
         }
         UnifiedPriorityMode::CyclePrice => {
             orders.sort_by_key(|o| {
-                let amount = total_reward_amount(o.as_ref(), now);
-                o.as_ref()
-                    .total_cycles
-                    .and_then(|cycles| amount.checked_div(U256::from(cycles)))
-                    .unwrap_or_default()
+                let amount = total_reward_amount(o.as_ref(), now, &mut rng);
+                std::cmp::Reverse(
+                    o.as_ref()
+                        .total_cycles
+                        .and_then(|cycles| amount.checked_div(U256::from(cycles)))
+                        .unwrap_or_default(),
+                )
             });
         }
     }
 }
 
-fn total_reward_amount(order: &OrderRequest, now: u64) -> U256 {
+fn total_reward_amount<R>(order: &OrderRequest, now: u64, rng: &mut R) -> U256
+where
+    R: Rng,
+{
     if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire) {
-        // Secondary orders: use pre-computed ETH value (ZKC→USD→ETH with discount applied)
-        order.expected_reward_eth.unwrap_or_default()
+        // Secondary orders: use pre-computed ETH value: collateral_reward_if_locked_and_not_fulfilled() * expected_probability_win_secondary_fulfillment
+        let expected_reward_eth = order.expected_reward_eth.unwrap_or_default();
+
+        // Secondary orders are proof races — multiple provers compete to fulfill them.
+        // If all provers rank orders identically by expected_reward_eth, they all pick the
+        // same order, wasting network capacity. Applying a random factor spreads provers
+        // across different orders.
+        // Multiply by a random factor between 0.2 and 1.0 (scaled by 1000 for integer math).
+        let factor = rng.random_range(200u64..=1000u64);
+        expected_reward_eth * U256::from(factor) / U256::from(1000u64)
     } else {
         // Primary orders: use the current auction price (already in ETH)
         order.request.offer.price_at(now).unwrap_or_default()
@@ -168,6 +184,7 @@ mod tests {
         order_picker::tests::{OrderParams, PickerTestCtxBuilder},
         FulfillmentType,
     };
+    use alloy::primitives::U256;
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -483,92 +500,108 @@ mod tests {
         assert_eq!(fulfill_after_expire_count, 3);
     }
 
-    #[test]
-    fn test_high_value_secondary_order_ranks_above_low_value_primary() {
-        use alloy::primitives::{address, Bytes, U256};
-        use boundless_market::contracts::{
-            Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
-        };
-        use risc0_zkvm::sha::Digest;
+    #[tokio::test]
+    #[traced_test]
+    async fn test_high_value_secondary_order_ranks_above_low_value_primary_price_mode() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp().saturating_sub(1_000); // ensure price_at(now) == maxPrice
 
-        // Create minimal orders with just the fields we need
-        let base_time = crate::now_timestamp();
-
-        // Create a low-value primary (lockable) order
-        let request_id_1 = RequestId::new(address!("0000000000000000000000000000000000000001"), 1);
-        let request_1 = ProofRequest::new(
-            request_id_1,
-            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
-            "http://example.com/image1",
-            RequestInput { inputType: RequestInputType::Inline, data: "".into() },
-            Offer {
-                minPrice: U256::from(100u64),
-                maxPrice: U256::from(200u64),
-                rampUpStart: base_time,
-                lockTimeout: 300,
+        // Low-value primary order: price_at(now) == maxPrice == 200
+        let low_value_primary = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                min_price: U256::from(1u64),
+                max_price: U256::from(200u64),
+                lock_timeout: 300,
                 timeout: 600,
-                rampUpPeriod: 1,
-                lockCollateral: U256::from(1000u64),
-            },
-        );
-        let mut low_value_primary = OrderRequest::new(
-            request_1,
-            Bytes::default(),
-            FulfillmentType::LockAndFulfill,
-            address!("0000000000000000000000000000000000000001"),
-            1,
-        );
-        low_value_primary.total_cycles = Some(1_000_000);
-        low_value_primary.target_timestamp = Some(base_time + 300);
-        low_value_primary.expire_timestamp = Some(base_time + 600);
-        low_value_primary.expected_reward_eth = Some(U256::from(100u64)); // Low reward
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        let low_value_primary = std::sync::Arc::new(*low_value_primary);
 
-        // Create a high-value secondary (FulfillAfterLockExpire) order
-        let request_id_2 = RequestId::new(address!("0000000000000000000000000000000000000002"), 2);
-        let request_2 = ProofRequest::new(
-            request_id_2,
-            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
-            "http://example.com/image2",
-            RequestInput { inputType: RequestInputType::Inline, data: "".into() },
-            Offer {
-                minPrice: U256::from(100u64),
-                maxPrice: U256::from(200u64),
-                rampUpStart: base_time,
-                lockTimeout: 200,
+        // High-value secondary order: expected_reward_eth * min_factor (0.2) = 400 > primary maxPrice 200
+        let mut high_value_secondary = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                bidding_start: base_time,
+                lock_timeout: 200,
                 timeout: 400,
-                rampUpPeriod: 1,
-                lockCollateral: U256::from(1000u64),
-            },
-        );
-        let mut high_value_secondary = OrderRequest::new(
-            request_2,
-            Bytes::default(),
-            FulfillmentType::FulfillAfterLockExpire,
-            address!("0000000000000000000000000000000000000001"),
-            1,
-        );
-        high_value_secondary.total_cycles = Some(1_000_000);
-        high_value_secondary.target_timestamp = Some(base_time + 200);
-        high_value_secondary.expire_timestamp = Some(base_time + 400);
-        high_value_secondary.expected_reward_eth = Some(U256::from(1000u64)); // High reward
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        high_value_secondary.expected_reward_eth = Some(U256::from(2000u64));
+        let high_value_secondary = std::sync::Arc::new(high_value_secondary);
 
-        let mut orders =
-            vec![std::sync::Arc::new(low_value_primary), std::sync::Arc::new(high_value_secondary)];
-
-        // Sort using Price mode
+        let mut orders = vec![low_value_primary.clone(), high_value_secondary.clone()];
         sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
 
-        // The high-value secondary order should be first due to higher expected_reward_eth
-        // Verify it's the high value one by checking expected_reward_eth
+        // Secondary order should be first: effective reward [400, 2000] > primary price 200
         assert_eq!(
-            orders[0].expected_reward_eth,
-            Some(U256::from(1000u64)),
-            "First order should be the high-value secondary order (high expected reward)"
+            orders[0].request.id, high_value_secondary.request.id,
+            "High-value secondary order should rank first"
         );
         assert_eq!(
-            orders[1].expected_reward_eth,
-            Some(U256::from(100u64)),
-            "Second order should be the low-value primary order"
+            orders[1].request.id, low_value_primary.request.id,
+            "Low-value primary order should rank second"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_high_value_secondary_order_ranks_above_low_value_primary_cycle_price_mode() {
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp().saturating_sub(1_000); // ensure price_at(now) == maxPrice
+
+        // Low-value primary: price_at(now) == maxPrice == 200, cycles 100 -> per-cycle = 2
+        let mut low_value_primary = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                min_price: U256::from(1u64),
+                max_price: U256::from(200u64),
+                lock_timeout: 300,
+                timeout: 600,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+        low_value_primary.total_cycles = Some(100);
+        let low_value_primary = std::sync::Arc::new(low_value_primary);
+
+        // High-value secondary: expected_reward_eth 2000, cycles 10
+        // per-cycle at min factor (0.2x): 400/10 = 40, which is >> primary per-cycle (2)
+        let mut high_value_secondary = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                bidding_start: base_time,
+                lock_timeout: 200,
+                timeout: 400,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        high_value_secondary.total_cycles = Some(10);
+        high_value_secondary.expected_reward_eth = Some(U256::from(2000u64));
+        let high_value_secondary = std::sync::Arc::new(high_value_secondary);
+
+        let mut orders = vec![low_value_primary.clone(), high_value_secondary.clone()];
+        sort_orders_by_priority_and_mode(
+            &mut orders,
+            None,
+            OrderCommitmentPriority::CyclePrice.into(),
+        );
+
+        // Secondary order should be first: per-cycle reward [40, 200] >> primary per-cycle 2
+        assert_eq!(
+            orders[0].request.id, high_value_secondary.request.id,
+            "High-value secondary order should rank first"
+        );
+        assert_eq!(
+            orders[1].request.id, low_value_primary.request.id,
+            "Low-value primary order should rank second"
         );
     }
 
@@ -817,17 +850,18 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_commitment_priority_lock_price_ordering_and_expired_shuffled() {
-        // Build orders with different prices; lock-capable should be sorted by price desc, expired randomized.
         let ctx = PickerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp().saturating_sub(1_000); // ensure price_at(now) == maxPrice
 
-        // Lock-capable orders with max prices 30, 10, 20 (descending should be 30,20,10)
+        // Lock-capable orders with max prices 30_000, 10_000, 20_000 (descending should be 30_000, 20_000, 10_000).
+        // Prices are kept well above the secondary orders' maximum effective reward (500) so
+        // primary orders always rank first for this test.
         let lock_30 = ctx
             .generate_next_order(OrderParams {
                 order_index: 1,
                 bidding_start: base_time,
                 min_price: U256::from(1u64),
-                max_price: U256::from(30u64),
+                max_price: U256::from(30_000u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -841,7 +875,7 @@ mod tests {
                 order_index: 2,
                 bidding_start: base_time,
                 min_price: U256::from(1u64),
-                max_price: U256::from(10u64),
+                max_price: U256::from(10_000u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -855,7 +889,7 @@ mod tests {
                 order_index: 3,
                 bidding_start: base_time,
                 min_price: U256::from(1u64),
-                max_price: U256::from(20u64),
+                max_price: U256::from(20_000u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -865,7 +899,7 @@ mod tests {
         let lock_20 = std::sync::Arc::new(*lock_20);
 
         // Expired fulfillment orders
-        let exp_a = ctx
+        let mut exp_a = *ctx
             .generate_next_order(OrderParams {
                 order_index: 4,
                 bidding_start: base_time,
@@ -876,9 +910,10 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let exp_a = std::sync::Arc::new(*exp_a);
+        exp_a.expected_reward_eth = Some(U256::from(500u64)); // effective range [100, 500] with random factor
+        let exp_a = std::sync::Arc::new(exp_a);
 
-        let exp_b = ctx
+        let mut exp_b = *ctx
             .generate_next_order(OrderParams {
                 order_index: 5,
                 bidding_start: base_time,
@@ -889,7 +924,8 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let exp_b = std::sync::Arc::new(*exp_b);
+        exp_b.expected_reward_eth = Some(U256::from(400u64)); // effective range [80, 400] with random factor
+        let exp_b = std::sync::Arc::new(exp_b);
 
         // Verify ordering for LockPrice
         let mut orders =
@@ -897,10 +933,10 @@ mod tests {
 
         sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
 
-        // First 3 must be lock-capable, ordered by price desc (30, 20, 10)
-        assert_eq!(orders[0].request.offer.maxPrice, U256::from(30u64));
-        assert_eq!(orders[1].request.offer.maxPrice, U256::from(20u64));
-        assert_eq!(orders[2].request.offer.maxPrice, U256::from(10u64));
+        // First 3 must be lock-capable, ordered by price desc (30_000, 20_000, 10_000)
+        assert_eq!(orders[0].request.offer.maxPrice, U256::from(30_000u64));
+        assert_eq!(orders[1].request.offer.maxPrice, U256::from(20_000u64));
+        assert_eq!(orders[2].request.offer.maxPrice, U256::from(10_000u64));
         assert!(matches!(
             orders[0].fulfillment_type,
             FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
@@ -918,7 +954,7 @@ mod tests {
         assert_eq!(orders[3].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
         assert_eq!(orders[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
 
-        // The expired tail should be randomized across runs, but higher collateral should appear first more often
+        // The expired tail should be randomized across runs, but higher expected_reward_eth should appear first more often
         let mut tails = HashSet::new();
         let mut exp_a_first_count = 0;
         let iterations = 50;
@@ -941,10 +977,10 @@ mod tests {
             }
         }
         assert!(tails.len() > 1, "Expired orders should be shuffled in LockPrice mode");
-        // exp_a has higher collateral (50 vs 30), so should appear first more than half the time
+        // exp_a has higher expected_reward_eth (500 vs 400), so should appear first more than half the time
         assert!(
             exp_a_first_count > iterations / 2,
-            "Higher collateral order should appear first more often: {} out of {}",
+            "Higher expected_reward_eth order should appear first more often: {} out of {}",
             exp_a_first_count,
             iterations
         );
@@ -1018,6 +1054,9 @@ mod tests {
             })
             .await;
         exp_a.total_cycles = Some(10);
+        // Per-cycle key at max factor (1.0): 50/10 = 5 < min primary per-cycle (6), so primary always ranks first.
+        // Per-cycle effective range [1, 5] with random factor.
+        exp_a.expected_reward_eth = Some(U256::from(50u64));
         let exp_a = std::sync::Arc::new(exp_a);
 
         let mut exp_b = *ctx
@@ -1032,6 +1071,9 @@ mod tests {
             })
             .await;
         exp_b.total_cycles = Some(10);
+        // Per-cycle key at max factor (1.0): 40/10 = 4 < min primary per-cycle (6).
+        // Per-cycle effective range [0, 4] with random factor.
+        exp_b.expected_reward_eth = Some(U256::from(40u64));
         let exp_b = std::sync::Arc::new(exp_b);
 
         // Verify ordering for CyclePrice: B (30), A (10), C (6)
@@ -1064,7 +1106,7 @@ mod tests {
         assert_eq!(orders[3].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
         assert_eq!(orders[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
 
-        // The expired tail should be randomized across runs, but higher collateral should appear first more often
+        // The expired tail should be randomized across runs, but higher expected_reward_eth should appear first more often
         let mut tails = HashSet::new();
         let mut exp_a_first_count = 0;
         let iterations = 50;
@@ -1082,12 +1124,77 @@ mod tests {
             }
         }
         assert!(tails.len() > 1, "Expired orders should be shuffled in CyclePrice mode");
-        // exp_a has higher collateral (100 vs 40), so should appear first more than half the time
+        // exp_a has higher expected_reward_eth (50 vs 40), so should appear first more than half the time
         assert!(
             exp_a_first_count > iterations / 2,
-            "Higher collateral order should appear first more often: {} out of {}",
+            "Higher expected_reward_eth order should appear first more often: {} out of {}",
             exp_a_first_count,
             iterations
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_secondary_orders_randomized_by_price_mode() {
+        // Verify that secondary orders with identical expected_reward_eth produce different
+        // orderings across runs, testing the random factor spreads provers across orders.
+        let ctx = PickerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp().saturating_sub(1_000);
+
+        let mut sec_1 = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                timeout: 500,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        sec_1.expected_reward_eth = Some(U256::from(1000u64));
+        let sec_1 = std::sync::Arc::new(sec_1);
+
+        let mut sec_2 = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                timeout: 500,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        sec_2.expected_reward_eth = Some(U256::from(1000u64));
+        let sec_2 = std::sync::Arc::new(sec_2);
+
+        let mut sec_3 = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 3,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                timeout: 500,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+        sec_3.expected_reward_eth = Some(U256::from(1000u64));
+        let sec_3 = std::sync::Arc::new(sec_3);
+
+        let mut all_orderings = HashSet::new();
+        for _ in 0..20 {
+            let mut orders = vec![sec_1.clone(), sec_2.clone(), sec_3.clone()];
+            sort_orders_by_priority_and_mode(
+                &mut orders,
+                None,
+                OrderCommitmentPriority::Price.into(),
+            );
+            let ids: Vec<_> = orders.iter().map(|o| o.request.id).collect();
+            all_orderings.insert(ids);
+        }
+
+        assert!(
+            all_orderings.len() > 1,
+            "Secondary orders with identical expected_reward_eth should produce different orderings due to random factor"
         );
     }
 }
