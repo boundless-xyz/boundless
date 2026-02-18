@@ -72,6 +72,9 @@ struct MainArgs {
     /// Maximum block range to query in a single request.
     #[clap(long, default_value = "500")]
     max_block_range: u64,
+    /// Blocks to subtract from latest when "safe" block is unavailable (0 = use latest; use 0 for tests).
+    #[clap(long, default_value = "2")]
+    block_confirmation_delay: u64,
 }
 
 fn parse_address(s: &str) -> Result<Address, String> {
@@ -111,6 +114,7 @@ async fn main() -> Result<()> {
             skip_addresses: args.skip_addresses,
             tx_timeout: Duration::from_secs(args.tx_timeout),
             max_block_range: args.max_block_range,
+            block_confirmation_delay: args.block_confirmation_delay,
         },
     )
     .await?;

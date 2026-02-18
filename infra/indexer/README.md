@@ -222,3 +222,24 @@ npm run build
 cd ..
 pulumi up
 ```
+
+# Redrive Lambda (manual redrive of failed cycle counts)
+
+The market indexer runs cycle-count execution (Bento) for requests. Rows in `cycle_counts` move through `PENDING` -> `EXECUTING` -> `COMPLETED` or `FAILED`. Failed rows are not retried automatically. The **redrive Lambda** lets you reset `FAILED` (and optionally stuck `EXECUTING`) rows back to `PENDING` so the indexer picks them up again on its next run.
+
+The Lambda runs inside the VPC with writer DB access. It is invoked manually (no schedule).
+
+Use `./scripts/trigger-redrive.sh` to invoke the Lambda. Get the lambda name from the AWS console (Lambda > Functions) or via CLI:
+
+```bash
+aws lambda list-functions --query 'Functions[?contains(FunctionName, `redrive`)].FunctionName' --output text
+```
+
+```bash
+./scripts/trigger-redrive.sh --lambda-name <name> --lookback-days 3 --dry-run
+./scripts/trigger-redrive.sh --lambda-name <name> --lookback-days 3
+./scripts/trigger-redrive.sh --lambda-name <name> --lookback-days 7 --include-stuck
+./scripts/trigger-redrive.sh --lambda-name <name> --lookback-days 3 --requestor 0xABC...
+```
+
+Run `./scripts/trigger-redrive.sh --help` for all options.

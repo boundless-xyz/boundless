@@ -14,6 +14,7 @@ members = [
     "crates/indexer",
     "crates/lambdas/indexer-api",
     "crates/lambdas/indexer-monitor",
+    "crates/lambdas/indexer-redrive",
     "crates/order-generator",
     "crates/order-stream",
     "crates/povw",
@@ -81,7 +82,7 @@ order-stream = { path = "crates/order-stream" }
 postcard = { version = "1.0" }
 rand = { version = "0.9" }
 requestor-lists = { path = "crates/requestor-lists" }
-reqwest = { version = "0.13", default-features = false }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 risc0-aggregation = { version = "0.9.0" }
 risc0-binfmt = { version = "3.0.3", default-features = false }
 risc0-build = { version = "3.0.4", features = ["docker", "unstable"] }

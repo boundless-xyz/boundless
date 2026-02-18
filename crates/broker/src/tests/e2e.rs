@@ -28,6 +28,8 @@ use alloy::{
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
+use boundless_market::price_oracle::config::PriceValue;
+use boundless_market::price_oracle::Amount;
 use boundless_market::{
     contracts::{
         hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
@@ -120,10 +122,13 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     }
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
-    config.market.min_mcycle_price = "0.00001".into();
-    config.market.min_mcycle_price_collateral_token = "0.0".into();
+    config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
+    config.market.min_mcycle_price_collateral_token = Amount::parse("0.0 ZKC", None).unwrap();
     config.market.min_deadline = min_deadline;
     config.batcher.min_batch_size = min_batch_size;
+    // Use static prices for tests to avoid needing real price sources
+    config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+    config.price_oracle.zkc_usd = PriceValue::Static(1.0);
     config.write(config_file.path()).await.unwrap();
     config_file
 }

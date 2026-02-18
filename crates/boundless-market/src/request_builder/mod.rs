@@ -251,6 +251,7 @@ where
             market_address,
             chain_id,
             price_provider,
+            self.offer_layer.price_oracle_manager.clone(),
         )
         .await
         {
@@ -567,11 +568,15 @@ impl RequestParams {
     ///
     /// ```rust
     /// # use boundless_market::request_builder::{RequestParams, OfferParams};
+    /// use boundless_market::price_oracle::{Amount, Asset};
     /// use alloy::primitives::utils::parse_units;
     ///
     /// RequestParams::new()
     ///     .with_offer(OfferParams::builder()
-    ///         .max_price(parse_units("0.01", "ether").unwrap())
+    ///         .max_price(Amount::new(
+    ///             parse_units("0.01", "ether").unwrap().into(),
+    ///             Asset::ETH
+    ///         ))
     ///         .ramp_up_period(30)
     ///         .lock_timeout(120)
     ///         .timeout(240));
@@ -995,6 +1000,7 @@ mod tests {
         StorageLayerConfig,
     };
 
+    use crate::price_oracle::{Amount, Asset};
     use crate::prover_utils::{local_executor::LocalExecutor, prover::Prover};
     use crate::storage::HttpDownloader;
     use crate::{
@@ -1085,7 +1091,7 @@ mod tests {
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder()
                     .ramp_up_period(27)
-                    .lock_collateral(parse_ether("10").unwrap())
+                    .lock_collateral(Amount::new(parse_ether("10").unwrap(), Asset::ZKC))
                     .build()?,
             ))
             .request_id_layer(market)
@@ -1398,8 +1404,8 @@ mod tests {
         let max_price = U256::from(5u64);
         let bidding_start = now + 100;
         let offer_params = OfferParams::builder()
-            .max_price(max_price)
-            .min_price(min_price)
+            .max_price(Amount::new(max_price, Asset::ETH))
+            .min_price(Amount::new(min_price, Asset::ETH))
             .bidding_start(bidding_start)
             .ramp_up_period(20)
             .lock_timeout(50)

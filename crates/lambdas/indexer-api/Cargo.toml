@@ -10,13 +10,13 @@ publish = false
 [package.metadata.release]
 release = false
 
-[features]
-# Enable this feature to run tests that require RPC URLs (ETH_MAINNET_RPC_URL, etc.)
-test-rpc = []
-
 [[bin]]
 name = "local-server"
 path = "src/bin/local-server.rs"
+
+[features]
+# Enable this feature to run tests that require RPC URLs (ETH_MAINNET_RPC_URL, etc.)
+test-rpc = []
 
 [dependencies]
 # Core dependencies

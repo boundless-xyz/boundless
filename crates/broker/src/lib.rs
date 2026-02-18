@@ -24,6 +24,7 @@ use alloy::{
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
+use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
@@ -63,6 +64,7 @@ pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
+mod price_oracle;
 pub(crate) mod prioritization;
 pub mod provers;
 pub(crate) mod proving;
@@ -868,6 +870,26 @@ where
             .await
             .context("Failed to get stake token decimals. Possible RPC error.")?;
 
+        let named_chain = NamedChain::try_from(chain_id)?;
+        let price_oracle = Arc::new(
+            config
+                .lock_all()
+                .unwrap()
+                .price_oracle
+                .build(named_chain, self.provider.clone())
+                .context("Failed to build price oracle")?,
+        );
+        let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        let price_oracle_clone = price_oracle.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("price oracle failed")?;
+            Ok(())
+        });
+
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
@@ -883,6 +905,7 @@ where
             self.priority_requestors.clone(),
             self.allow_requestors.clone(),
             self.downloader.clone(),
+            price_oracle.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1177,6 +1200,8 @@ pub mod test_utils {
     };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
+    use boundless_market::price_oracle::config::PriceValue;
+    use boundless_market::price_oracle::Amount;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
         market::TestCtx,
@@ -1204,9 +1229,12 @@ pub mod test_utils {
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-            config.market.min_mcycle_price = "0.0".into();
+            config.market.min_mcycle_price = Amount::parse("0.0 ETH", None).unwrap();
             config.batcher.min_batch_size = 1;
             config.market.min_deadline = 30;
+            // Use static prices for tests to avoid needing real price sources
+            config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+            config.price_oracle.zkc_usd = PriceValue::Static(1.0);
             config.write(config_file.path()).await.unwrap();
 
             let args = Args {

@@ -254,6 +254,8 @@ pub struct PeriodRequestorSummary {
     pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -312,6 +314,8 @@ pub struct AllTimeRequestorSummary {
     pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -326,6 +330,9 @@ pub struct RequestorLeaderboardEntry {
     pub requestor_address: Address,
     pub orders_requested: u64,
     pub orders_locked: u64,
+    pub orders_fulfilled: u64,
+    pub orders_expired: u64,
+    pub orders_not_locked_and_expired: u64,
     pub cycles_requested: U256,
     pub median_lock_price_per_cycle: Option<U256>,
     pub acceptance_rate: f32,
@@ -460,6 +467,10 @@ pub struct RequestStatus {
     pub cycle_status: Option<String>,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
+    pub fixed_cost: Option<String>,
+    pub variable_cost_per_cycle: Option<String>,
+    pub lock_base_fee: Option<String>,
+    pub fulfill_base_fee: Option<String>,
     pub submit_tx_hash: Option<B256>,
     pub lock_tx_hash: Option<B256>,
     pub fulfill_tx_hash: Option<B256>,
@@ -540,6 +551,7 @@ pub struct LockPricingData {
     pub lock_timestamp: u64,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
+    pub fixed_cost: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -565,6 +577,8 @@ pub struct RequestWithId {
     /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
     pub request_id: Option<U256>,
     pub request_digest: B256,
+    /// Number of retries attempted so far (for RETRY_PENDING rows); 0 for PENDING.
+    pub retry_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -575,6 +589,7 @@ pub struct ExecutionWithId {
     pub request_id: Option<U256>,
     pub request_digest: B256,
     pub session_uuid: String,
+    pub retry_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -608,8 +623,9 @@ pub trait IndexerDb {
     async fn get_last_aggregation_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_aggregation_block(&self, block_numb: u64) -> Result<(), DbError>;
 
-    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
+    async fn add_blocks(&self, blocks: &[(u64, u64, Option<u128>)]) -> Result<(), DbError>;
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
+    async fn get_block_base_fee(&self, block_numb: u64) -> Result<Option<u128>, DbError>;
 
     async fn add_txs(&self, metadata_list: &[TxMetadata]) -> Result<(), DbError>;
 
@@ -773,9 +789,12 @@ pub trait IndexerDb {
         to_timestamp: u64,
     ) -> Result<HashSet<B256>, DbError>;
 
-    /// Get request digests with request IDs for cycle counts in status PENDING
-    async fn get_cycle_counts_pending(&self, limit: u32)
-        -> Result<HashSet<RequestWithId>, DbError>;
+    /// Get request digests with request IDs for cycle counts in status PENDING, or RETRY_PENDING with retry_after <= now_secs
+    async fn get_cycle_counts_pending(
+        &self,
+        limit: u32,
+        now_secs: u64,
+    ) -> Result<HashSet<RequestWithId>, DbError>;
 
     /// Get request digests with request IDs and session UUID for cycle counts in status EXECUTING
     async fn get_cycle_counts_executing(
@@ -798,8 +817,15 @@ pub trait IndexerDb {
     /// Update cycle status for failed cycle counts
     async fn set_cycle_counts_failed(&self, request_digests: &[B256]) -> Result<(), DbError>;
 
-    /// Return counts of cycle_counts rows in status 'PENDING', 'EXECUTING', and 'FAILED'
-    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError>;
+    /// Update cycle status to RETRY_PENDING for the given requests.
+    /// Each update contains (request_digest, last_error, retry_after_timestamp).
+    async fn set_cycle_counts_retry_pending(
+        &self,
+        updates: &[(B256, String, u64)],
+    ) -> Result<(), DbError>;
+
+    /// Return counts of cycle_counts rows in status 'PENDING', 'EXECUTING', 'FAILED', and 'RETRY_PENDING'
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32, u32), DbError>;
 
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
     async fn get_request_inputs(
@@ -1131,7 +1157,7 @@ impl IndexerDb for MarketDb {
         Ok(())
     }
 
-    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError> {
+    async fn add_blocks(&self, blocks: &[(u64, u64, Option<u128>)]) -> Result<(), DbError> {
         if blocks.is_empty() {
             return Ok(());
         }
@@ -1146,7 +1172,8 @@ impl IndexerDb for MarketDb {
             let mut query = String::from(
                 "INSERT INTO blocks (
                     block_number,
-                    block_timestamp
+                    block_timestamp,
+                    base_fee
                 ) VALUES ",
             );
 
@@ -1155,15 +1182,24 @@ impl IndexerDb for MarketDb {
                 if i > 0 {
                     query.push_str(", ");
                 }
-                query.push_str(&format!("(${}, ${})", params_count + 1, params_count + 2));
-                params_count += 2;
+                query.push_str(&format!(
+                    "(${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3
+                ));
+                params_count += 3;
             }
-            query.push_str(" ON CONFLICT (block_number) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (block_number) DO UPDATE SET base_fee = COALESCE(EXCLUDED.base_fee, blocks.base_fee)",
+            );
 
             let mut query_builder = sqlx::query(&query);
-            for (block_number, block_timestamp) in chunk {
-                query_builder =
-                    query_builder.bind(*block_number as i64).bind(*block_timestamp as i64);
+            for (block_number, block_timestamp, base_fee) in chunk {
+                query_builder = query_builder
+                    .bind(*block_number as i64)
+                    .bind(*block_timestamp as i64)
+                    .bind(base_fee.map(|f| f.to_string()));
             }
 
             query_builder.execute(&mut *tx).await?;
@@ -1182,6 +1218,20 @@ impl IndexerDb for MarketDb {
         if let Some(row) = result {
             let block_timestamp: i64 = row.get(0);
             Ok(Some(block_timestamp as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_block_base_fee(&self, block_numb: u64) -> Result<Option<u128>, DbError> {
+        let result = sqlx::query("SELECT base_fee FROM blocks WHERE block_number = $1")
+            .bind(block_numb as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = result {
+            let base_fee_str: Option<String> = row.try_get("base_fee").ok().flatten();
+            Ok(base_fee_str.and_then(|s| s.parse::<u128>().ok()))
         } else {
             Ok(None)
         }
@@ -2268,7 +2318,7 @@ impl IndexerDb for MarketDb {
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
                     program_cycles, total_cycles,
                     peak_prove_mhz_v2, effective_prove_mhz_v2, prover_effective_prove_mhz, cycle_status,
-                    lock_price, lock_price_per_cycle,
+                    lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle, lock_base_fee, fulfill_base_fee,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
@@ -2281,7 +2331,7 @@ impl IndexerDb for MarketDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2291,9 +2341,10 @@ impl IndexerDb for MarketDb {
                     params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
                     params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45,
-                    params_count + 46, params_count + 47, params_count + 48, params_count + 49
+                    params_count + 46, params_count + 47, params_count + 48, params_count + 49, params_count + 50,
+                    params_count + 51, params_count + 52, params_count + 53
                 ));
-                params_count += 49;
+                params_count += 53;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2323,6 +2374,10 @@ impl IndexerDb for MarketDb {
                     cycle_status = EXCLUDED.cycle_status,
                     lock_price = EXCLUDED.lock_price,
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
+                    fixed_cost = EXCLUDED.fixed_cost,
+                    variable_cost_per_cycle = EXCLUDED.variable_cost_per_cycle,
+                    lock_base_fee = EXCLUDED.lock_base_fee,
+                    fulfill_base_fee = EXCLUDED.fulfill_base_fee,
                     fulfill_journal = EXCLUDED.fulfill_journal,
                     fulfill_seal = EXCLUDED.fulfill_seal",
             );
@@ -2369,6 +2424,10 @@ impl IndexerDb for MarketDb {
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
                     .bind(&status.lock_price_per_cycle)
+                    .bind(&status.fixed_cost)
+                    .bind(&status.variable_cost_per_cycle)
+                    .bind(&status.lock_base_fee)
+                    .bind(&status.fulfill_base_fee)
                     .bind(status.submit_tx_hash.map(|h| h.to_string()))
                     .bind(status.lock_tx_hash.map(|h| h.to_string()))
                     .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
@@ -2578,15 +2637,21 @@ impl IndexerDb for MarketDb {
     async fn get_cycle_counts_pending(
         &self,
         limit: u32,
+        now_secs: u64,
     ) -> Result<HashSet<RequestWithId>, DbError> {
-        let query = "SELECT cc.request_digest, pr.request_id
+        let query = "SELECT cc.request_digest, pr.request_id, COALESCE(cc.retry_count, 0) AS retry_count
                      FROM cycle_counts cc
                      LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
-                     WHERE cc.cycle_status = 'PENDING'
+                     WHERE (cc.cycle_status = 'PENDING')
+                        OR (cc.cycle_status = 'RETRY_PENDING' AND (cc.retry_after IS NULL OR cc.retry_after <= $2))
                      ORDER BY cc.updated_at DESC
                      LIMIT $1";
 
-        let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
+        let rows = sqlx::query(query)
+            .bind(limit as i64)
+            .bind(now_secs as i64)
+            .fetch_all(self.pool())
+            .await?;
 
         let mut requests = HashSet::new();
         for row in rows {
@@ -2601,7 +2666,12 @@ impl IndexerDb for MarketDb {
             let request_id: Option<U256> = row
                 .try_get::<Option<String>, _>("request_id")?
                 .and_then(|s| U256::from_str_radix(&s, 16).ok());
-            requests.insert(RequestWithId { request_id, request_digest: digest });
+            let retry_count: i32 = row.try_get("retry_count")?;
+            requests.insert(RequestWithId {
+                request_id,
+                request_digest: digest,
+                retry_count: retry_count as u32,
+            });
         }
 
         Ok(requests)
@@ -2611,7 +2681,7 @@ impl IndexerDb for MarketDb {
         &self,
         limit: u32,
     ) -> Result<HashSet<ExecutionWithId>, DbError> {
-        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id
+        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id, COALESCE(cc.retry_count, 0) AS retry_count
                      FROM cycle_counts cc
                      LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
                      WHERE cc.cycle_status = 'EXECUTING'
@@ -2634,10 +2704,12 @@ impl IndexerDb for MarketDb {
             let request_id: Option<U256> = row
                 .try_get::<Option<String>, _>("request_id")?
                 .and_then(|s| U256::from_str_radix(&s, 16).ok());
+            let retry_count: i32 = row.try_get("retry_count")?;
             execution_info.insert(ExecutionWithId {
                 request_id,
                 request_digest: digest,
                 session_uuid,
+                retry_count: retry_count as u32,
             });
         }
 
@@ -2751,11 +2823,78 @@ impl IndexerDb for MarketDb {
         Ok(())
     }
 
-    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError> {
+    async fn set_cycle_counts_retry_pending(
+        &self,
+        updates: &[(B256, String, u64)],
+    ) -> Result<(), DbError> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        let mut tx = self.pool.begin().await?;
+
+        // 3 params per row (retry_after, last_error, request_digest) + 1 shared (updated_at)
+        const BATCH_SIZE: usize = 10;
+        for chunk in updates.chunks(BATCH_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 2; // $1 is reserved for updated_at
+
+            for (i, _) in chunk.iter().enumerate() {
+                if i == 0 {
+                    values_clauses.push(format!(
+                        "(${}::bigint, ${}::text, ${}::text)",
+                        param_idx,
+                        param_idx + 1,
+                        param_idx + 2,
+                    ));
+                } else {
+                    values_clauses.push(format!(
+                        "(${}, ${}, ${})",
+                        param_idx,
+                        param_idx + 1,
+                        param_idx + 2,
+                    ));
+                }
+                param_idx += 3;
+            }
+
+            let query = format!(
+                "UPDATE cycle_counts
+                 SET cycle_status = 'RETRY_PENDING',
+                     retry_count = COALESCE(retry_count, 0) + 1,
+                     retry_after = batch.retry_after,
+                     last_error = batch.last_error,
+                     updated_at = $1,
+                     session_uuid = NULL
+                 FROM (VALUES {}) AS batch(retry_after, last_error, request_digest)
+                 WHERE cycle_counts.request_digest = batch.request_digest",
+                values_clauses.join(", ")
+            );
+
+            let mut query_builder = sqlx::query(&query).bind(current_timestamp as i64);
+            for (request_digest, last_error, retry_after) in chunk {
+                query_builder = query_builder
+                    .bind(*retry_after as i64)
+                    .bind(last_error)
+                    .bind(format!("{:x}", request_digest));
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32, u32), DbError> {
         let query = "SELECT
                      COUNT(*) FILTER (WHERE cycle_status = 'PENDING') AS pending_count,
                      COUNT(*) FILTER (WHERE cycle_status = 'EXECUTING') AS executing_count,
-                     COUNT(*) FILTER (WHERE cycle_status = 'FAILED') AS failed_count
+                     COUNT(*) FILTER (WHERE cycle_status = 'FAILED') AS failed_count,
+                     COUNT(*) FILTER (WHERE cycle_status = 'RETRY_PENDING') AS retry_pending_count
                      FROM cycle_counts";
 
         let query_builder = sqlx::query(query);
@@ -2763,8 +2902,14 @@ impl IndexerDb for MarketDb {
         let pending_count: i64 = row.get("pending_count");
         let executing_count: i64 = row.get("executing_count");
         let failed_count: i64 = row.get("failed_count");
+        let retry_pending_count: i64 = row.get("retry_pending_count");
 
-        Ok((pending_count as u32, executing_count as u32, failed_count as u32))
+        Ok((
+            pending_count as u32,
+            executing_count as u32,
+            failed_count as u32,
+            retry_pending_count as u32,
+        ))
     }
 
     async fn get_request_inputs(
@@ -3496,6 +3641,7 @@ impl IndexerDb for MarketDb {
                 lock_timestamp: lock_timestamp as u64,
                 lock_price,
                 lock_price_per_cycle,
+                fixed_cost: None,
             });
         }
 
@@ -4483,6 +4629,10 @@ impl MarketDb {
             cycle_status: row.try_get("cycle_status").ok(),
             lock_price: row.try_get("lock_price").ok(),
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
+            fixed_cost: row.try_get("fixed_cost").ok().flatten(),
+            variable_cost_per_cycle: row.try_get("variable_cost_per_cycle").ok().flatten(),
+            lock_base_fee: row.try_get("lock_base_fee").ok().flatten(),
+            fulfill_base_fee: row.try_get("fulfill_base_fee").ok().flatten(),
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -4573,6 +4723,29 @@ mod tests {
 
         let db_block = db.get_last_block().await.unwrap().unwrap();
         assert_eq!(block_numb, db_block);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_block_base_fee(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db;
+
+        // Insert a block with a base_fee
+        db.add_blocks(&[(100, 1234567890, Some(30_000_000_000u128))]).await.unwrap();
+        // Insert a block without a base_fee
+        db.add_blocks(&[(101, 1234567891, None)]).await.unwrap();
+
+        // Verify block 100 returns the expected base_fee
+        let base_fee = db.get_block_base_fee(100).await.unwrap();
+        assert_eq!(base_fee, Some(30_000_000_000u128));
+
+        // Verify block 101 (inserted with None) returns None
+        let base_fee = db.get_block_base_fee(101).await.unwrap();
+        assert_eq!(base_fee, None);
+
+        // Verify non-existent block returns None
+        let base_fee = db.get_block_base_fee(999).await.unwrap();
+        assert_eq!(base_fee, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -5523,6 +5696,10 @@ mod tests {
             cycle_status: None,
             lock_price: None,
             lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
@@ -5545,7 +5722,14 @@ mod tests {
         let db: DbObj = test_db.db;
 
         let digest = B256::from([1; 32]);
-        let status = create_test_status(digest, RequestStatusType::Submitted);
+        let mut status = create_test_status(digest, RequestStatusType::Locked);
+        status.locked_at = Some(1234567900);
+        status.lock_block = Some(200);
+        status.lock_prover_address = Some(Address::from([5; 20]));
+        status.fixed_cost = Some("500".to_string());
+        status.variable_cost_per_cycle = Some("10".to_string());
+        status.lock_base_fee = Some("1000000000".to_string());
+        status.fulfill_base_fee = Some("2000000000".to_string());
 
         db.upsert_request_statuses(std::slice::from_ref(&status)).await.unwrap();
 
@@ -5555,9 +5739,22 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.get::<String, _>("request_status"), "submitted");
+        assert_eq!(result.get::<String, _>("request_status"), "locked");
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
         assert_eq!(result.get::<String, _>("source"), "onchain");
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), Some("500".to_string()));
+        assert_eq!(
+            result.get::<Option<String>, _>("variable_cost_per_cycle"),
+            Some("10".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("lock_base_fee"),
+            Some("1000000000".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("fulfill_base_fee"),
+            Some("2000000000".to_string())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -5570,11 +5767,26 @@ mod tests {
 
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
+        // Verify cost fields are None initially
+        let result = sqlx::query("SELECT * FROM request_status WHERE request_digest = $1")
+            .bind(format!("{:x}", digest))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), None);
+        assert_eq!(result.get::<Option<String>, _>("variable_cost_per_cycle"), None);
+        assert_eq!(result.get::<Option<String>, _>("lock_base_fee"), None);
+        assert_eq!(result.get::<Option<String>, _>("fulfill_base_fee"), None);
+
         status.request_status = RequestStatusType::Locked;
         status.locked_at = Some(1234567900);
         status.lock_block = Some(200);
         status.lock_prover_address = Some(Address::from([5; 20]));
         status.lock_tx_hash = Some(B256::from([3; 32]));
+        status.fixed_cost = Some("750".to_string());
+        status.variable_cost_per_cycle = Some("25".to_string());
+        status.lock_base_fee = Some("3000000000".to_string());
+        status.fulfill_base_fee = Some("4000000000".to_string());
 
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
@@ -5588,6 +5800,19 @@ mod tests {
         assert_eq!(result.get::<Option<i64>, _>("locked_at"), Some(1234567900));
         assert_eq!(result.get::<Option<i64>, _>("lock_block"), Some(200));
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), Some("750".to_string()));
+        assert_eq!(
+            result.get::<Option<String>, _>("variable_cost_per_cycle"),
+            Some("25".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("lock_base_fee"),
+            Some("3000000000".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("fulfill_base_fee"),
+            Some("4000000000".to_string())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -6475,7 +6700,9 @@ mod tests {
             .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "COMPLETED"])
             .await;
 
-        let pending = db.get_cycle_counts_pending(10).await.unwrap();
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let pending = db.get_cycle_counts_pending(10, now).await.unwrap();
         assert_eq!(pending.len(), 2);
         assert!(pending
             .iter()
@@ -6485,7 +6712,7 @@ mod tests {
             .any(|r| r.request_id == Some(requests[1].id) && r.request_digest == digests[1]));
         assert!(!pending.iter().any(|r| r.request_id == Some(requests[2].id)));
 
-        assert_eq!(db.get_cycle_counts_pending(1).await.unwrap().len(), 1);
+        assert_eq!(db.get_cycle_counts_pending(1, now).await.unwrap().len(), 1);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -6803,10 +7030,12 @@ mod tests {
         let db: DbObj = test_db.db.clone();
 
         // Test with empty DB - should return 0 of each
-        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        let (pending, executing, failed, retry_pending) =
+            db.count_cycle_counts_by_status().await.unwrap();
         assert_eq!(pending, 0);
         assert_eq!(executing, 0);
         assert_eq!(failed, 0);
+        assert_eq!(retry_pending, 0);
 
         let requests = vec![
             generate_request(1, &Address::ZERO),
@@ -6833,10 +7062,100 @@ mod tests {
             .await;
 
         // Count cycle count statuses
-        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        let (pending, executing, failed, retry_pending) =
+            db.count_cycle_counts_by_status().await.unwrap();
         assert_eq!(pending, 3);
         assert_eq!(executing, 2);
         assert_eq!(failed, 1);
+        assert_eq!(retry_pending, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_set_cycle_counts_retry_pending(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        // Use 15 items to exercise multi-batch (BATCH_SIZE = 10)
+        let count = 15;
+        let requests: Vec<_> =
+            (1..=count).map(|i| generate_request(i as u32, &Address::ZERO)).collect();
+        let digests: Vec<_> = (1..=count).map(|i| B256::from([i as u8; 32])).collect();
+        let statuses: Vec<&str> = vec!["PENDING"; count];
+        test_db.setup_requests_and_cycles(&digests, &requests, &statuses).await;
+
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let retry_after_ts = now + 900;
+
+        let updates: Vec<_> = digests
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (*d, format!("error {}", i), retry_after_ts))
+            .collect();
+        db.set_cycle_counts_retry_pending(&updates).await.unwrap();
+
+        for (i, digest) in digests.iter().enumerate() {
+            let row = sqlx::query(
+                "SELECT cycle_status, retry_count, retry_after, last_error FROM cycle_counts WHERE request_digest = $1",
+            )
+            .bind(format!("{:x}", digest))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+            assert_eq!(row.get::<String, _>("cycle_status"), "RETRY_PENDING");
+            assert_eq!(row.get::<i32, _>("retry_count"), 1);
+            let retry_after: i64 = row.get("retry_after");
+            assert_eq!(retry_after, retry_after_ts as i64);
+            let err: String = row.get("last_error");
+            assert_eq!(err, format!("error {}", i));
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_get_cycle_counts_pending_includes_retry_pending(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        test_db
+            .setup_requests_and_cycles(
+                &digests,
+                &requests,
+                &["PENDING", "RETRY_PENDING", "RETRY_PENDING"],
+            )
+            .await;
+
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts SET retry_after = $1, retry_count = 1 WHERE request_digest = $2",
+        )
+        .bind((now - 60) as i64)
+        .bind(format!("{:x}", digests[1]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE cycle_counts SET retry_after = $1, retry_count = 1 WHERE request_digest = $2",
+        )
+        .bind((now + 3600) as i64)
+        .bind(format!("{:x}", digests[2]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        let pending = db.get_cycle_counts_pending(10, now).await.unwrap();
+        assert_eq!(pending.len(), 2);
+        assert!(pending.iter().any(|r| r.request_digest == digests[0]));
+        assert!(pending.iter().any(|r| r.request_digest == digests[1]));
+        assert!(!pending.iter().any(|r| r.request_digest == digests[2]));
     }
 
     #[sqlx::test(migrations = "./migrations")]

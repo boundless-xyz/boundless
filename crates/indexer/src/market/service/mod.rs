@@ -151,6 +151,8 @@ pub struct IndexerService<P, ANP> {
     pub tx_hash_to_metadata: HashMap<B256, TxMetadata>,
     // Mapping from block number to timestamp
     pub block_num_to_timestamp: HashMap<u64, u64>,
+    // Mapping from block number to base fee per gas
+    pub block_num_to_base_fee: HashMap<u64, Option<u128>>,
     // Optional order stream client for fetching off-chain orders
     pub order_stream_client: Option<OrderStreamClient>,
     // Optional cache storage for logs and transaction metadata
@@ -193,6 +195,9 @@ pub struct IndexerServiceExecutionConfig {
     pub max_concurrent_executing: u32,
     pub max_status_queries: u32,
     pub max_iterations: u32,
+    pub max_retries: u32,
+    pub retry_base_delay_secs: u64,
+    pub retry_max_delay_secs: u64,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {
@@ -255,6 +260,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             config,
             tx_hash_to_metadata,
             block_num_to_timestamp: HashMap::new(),
+            block_num_to_base_fee: HashMap::new(),
             order_stream_client: None,
             cache_storage,
             chain_id,
@@ -334,6 +340,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             config,
             tx_hash_to_metadata,
             block_num_to_timestamp: HashMap::new(),
+            block_num_to_base_fee: HashMap::new(),
             order_stream_client,
             cache_storage,
             chain_id,
