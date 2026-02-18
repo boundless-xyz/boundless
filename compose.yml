@@ -12,7 +12,7 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
-  image: ${AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/bento-agent:bento-v1.2.2}
+  image: ${AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/bento-agent:bento-v1.2}
   runtime: nvidia
   build:
     context: .
@@ -60,7 +60,7 @@ x-broker-environment: &broker-environment
   POSTGRES_PASS:
 
 x-broker-common: &broker-common
-  image: ${BROKER_IMAGE:-ghcr.io/boundless-xyz/boundless/broker:broker-v1.2.2}
+  image: ${BROKER_IMAGE:-ghcr.io/boundless-xyz/boundless/broker:broker-v1.2}
   restart: always
   depends_on:
     rest_api:
@@ -215,7 +215,7 @@ services:
               capabilities: [gpu]
 
   rest_api:
-    image: ${REST_API_IMAGE:-ghcr.io/boundless-xyz/boundless/bento-rest-api:bento-v1.2.2}
+    image: ${REST_API_IMAGE:-ghcr.io/boundless-xyz/boundless/bento-rest-api:bento-v1.2}
     build:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}
@@ -279,7 +279,7 @@ services:
   #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
   miner:
-    image: ${AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/bento-agent:bento-v1.2.2}
+    image: ${AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/bento-agent:bento-v1.2}
     build:
       context: .
       dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.dockerfile}
