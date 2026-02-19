@@ -280,7 +280,7 @@ impl ProverGenerateConfig {
         display.note("");
 
         let max_exec_agents =
-            ((num_threads.saturating_sub(4).saturating_sub(num_gpus * 2)) / 2).clamp(2, 20);
+            ((num_threads.saturating_sub(4).saturating_sub(num_gpus * 2)) / 2).min(20);
         display.note("  Formula: max_exec_agents =");
         display.note("    min(20, # Capped at 20 to avoid overloading connections");
         display.note("      (");
@@ -1158,12 +1158,10 @@ impl ProverGenerateConfig {
                 in_deploy = false;
             }
 
-            // Update replicas line if we're in the right section.
-            // Compose uses replicas: ${BENTO_EXECUTOR_COUNT:-N}; we set the default to the wizard value.
+            // Update replicas line if we're in the right section
             if in_exec_agent && in_deploy && line.trim().starts_with("replicas:") {
                 let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
-                updated_line =
-                    format!("{}replicas: ${{BENTO_EXECUTOR_COUNT:-{}}}", indent, replicas);
+                updated_line = format!("{}replicas: {}", indent, replicas);
             }
 
             result.push(updated_line);
