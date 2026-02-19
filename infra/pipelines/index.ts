@@ -180,6 +180,7 @@ const lProverAnsiblePipeline = new LProverAnsiblePipeline("lProverAnsiblePipelin
 })
 
 export const bucketName = pulumiStateBucket.bucket.id;
+export const sccacheBucketName = codePipelineSharedResources.sccacheBucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
 export const boundlessAlertsBetaTopicArn = notifications.slackSNSTopic.arn;
 export const boundlessPagerdutyBetaTopicArn = notifications.pagerdutySNSTopic.arn;
