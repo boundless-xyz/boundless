@@ -4,6 +4,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import { getEnvVar, getServiceNameV1 } from '../util';
 import { OrderGenerator } from './components/order-generator';
+import { LoadTestTrigger } from './components/load-test';
 
 require('dotenv').config();
 
@@ -344,6 +345,34 @@ export = () => {
       indexerUrl,
       useZeth: true,
       maxPriceCap: evmRequestorMaxPriceCap,
+    });
+  }
+
+  const loadTestConfig = new pulumi.Config("order-generator-load-test");
+  let loadTestPrivateKey: pulumi.Output<string> | undefined;
+  if (isDev && process.env.LOAD_TEST_PRIVATE_KEY) {
+    loadTestPrivateKey = pulumi.output(process.env.LOAD_TEST_PRIVATE_KEY);
+  } else {
+    loadTestPrivateKey = loadTestConfig.getSecret('PRIVATE_KEY');
+  }
+
+  if (loadTestPrivateKey) {
+    new LoadTestTrigger({
+      chainId,
+      stackName,
+      privateKey: loadTestPrivateKey,
+      pinataJWT,
+      ethRpcUrl,
+      indexerUrl,
+      orderStreamUrl,
+      image,
+      logLevel,
+      setVerifierAddr: setVerifierAddr,
+      boundlessMarketAddr: boundlessMarketAddr,
+      ipfsGateway,
+      lockCollateralRaw,
+      vpcId,
+      privateSubnetIds,
     });
   }
 };
