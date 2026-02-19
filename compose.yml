@@ -183,6 +183,7 @@ services:
       retries: 5
 
   minio-init:
+    profiles: [input-ttl]
     image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
     depends_on:
       minio:
