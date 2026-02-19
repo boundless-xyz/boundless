@@ -106,6 +106,11 @@ pub mod defaults {
         Some(2)
     }
 
+    /// When true (default), run the pre-lock check before sending the lock tx.
+    pub const fn pre_lock_check_enabled() -> bool {
+        true
+    }
+
     pub fn ipfs_gateway() -> Option<url::Url> {
         Some(Url::parse(crate::storage::DEFAULT_IPFS_GATEWAY_URL).unwrap())
     }
@@ -398,6 +403,9 @@ pub struct MarketConfig {
     /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
+    /// When true (default), run a pre-lock check (expiry + gas vs max price) immediately before sending the lock tx. Set to false to skip the check and lock with the order as-is.
+    #[serde(default = "defaults::pre_lock_check_enabled")]
+    pub pre_lock_check_enabled: bool,
 
     /// DEPRECATED: lockRequest priority gas
     ///
@@ -535,6 +543,7 @@ impl Default for MarketConfig {
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
+            pre_lock_check_enabled: defaults::pre_lock_check_enabled(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
             max_fetch_retries: defaults::max_fetch_retries(),

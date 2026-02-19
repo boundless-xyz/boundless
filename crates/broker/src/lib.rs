@@ -30,7 +30,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
-    selector::{is_blake3_groth16_selector, is_groth16_selector},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
     storage::StorageDownloader,
     Deployment,
 };
@@ -185,8 +185,9 @@ enum OrderStatus {
 }
 
 pub use boundless_market::prover_utils::{
-    FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
-    OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue, ProveLimitReason,
+    check_order_ok_to_lock, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
+    OrderPricingOutcome, OrderRequest, PreLockChecker, PreLockSkipReason, PreflightCache,
+    PreflightCacheKey, PreflightCacheValue, ProveLimitReason,
 };
 
 /// Message sent from MarketMonitor to OrderPicker about order state changes
@@ -938,8 +939,15 @@ where
             Ok(())
         });
 
+        let pre_lock_checker: Arc<dyn crate::PreLockChecker> =
+            Arc::new(order_monitor::LightPreLockChecker::new(
+                config.clone(),
+                SupportedSelectors::default(),
+                chain_monitor.clone(),
+            ));
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
+            Some(pre_lock_checker),
             self.provider.clone(),
             chain_monitor.clone(),
             config.clone(),

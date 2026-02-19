@@ -19,7 +19,7 @@ use crate::{
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, Order, OrderRequest,
+    utils, FulfillmentType, Order, OrderRequest, PreLockChecker, PreLockSkipReason,
 };
 use alloy::{
     network::Ethereum,
@@ -30,6 +30,7 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
@@ -37,11 +38,13 @@ use boundless_market::{
         RequestStatus, TxnErr,
     },
     dynamic_gas_filler::PriorityMode,
+    prover_utils::check_order_ok_to_lock,
     selector::SupportedSelectors,
 };
 use moka::policy::EvictionPolicy;
 use moka::{future::Cache, Expiry};
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -71,6 +74,10 @@ pub enum OrderMonitorErr {
 
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
+
+    /// Pre-lock check failed for a transient reason (e.g. gas spike). Caller may retry next block.
+    #[error("{code} Pre-lock check failed (retry later): {0}", code = self.code())]
+    PreLockCheckRetry(PreLockSkipReason),
 }
 
 impl_coded_debug!(OrderMonitorErr);
@@ -83,6 +90,7 @@ impl CodedError for OrderMonitorErr {
             OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
             OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
             OrderMonitorErr::RpcErr(_) => "[B-OM-011]",
+            OrderMonitorErr::PreLockCheckRetry(_) => "[B-OM-012]",
             OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
         }
     }
@@ -146,9 +154,53 @@ pub struct RpcRetryConfig {
     pub retry_sleep_ms: u64,
 }
 
+/// Lightweight pre-lock checker: expiry + gas profitability only (no preflight). Use this in
+/// production so the monitor does not depend on the full OrderPicker.
+#[derive(Clone)]
+pub struct LightPreLockChecker<P> {
+    config: ConfigLock,
+    supported_selectors: SupportedSelectors,
+    chain_monitor: Arc<ChainMonitorService<P>>,
+}
+
+impl<P> LightPreLockChecker<P>
+where
+    P: Provider<Ethereum> + 'static,
+{
+    pub fn new(
+        config: ConfigLock,
+        supported_selectors: SupportedSelectors,
+        chain_monitor: Arc<ChainMonitorService<P>>,
+    ) -> Self {
+        Self { config, supported_selectors, chain_monitor }
+    }
+}
+
+#[async_trait]
+impl<P> PreLockChecker for LightPreLockChecker<P>
+where
+    P: Provider<Ethereum> + 'static,
+{
+    async fn check_ok_to_lock(&self, order: &OrderRequest) -> Result<(), PreLockSkipReason> {
+        let market_config = self
+            .config
+            .lock_all()
+            .map_err(|e| PreLockSkipReason::Unexpected(format!("config: {e}")))?
+            .market
+            .clone();
+        let gas_price = self
+            .chain_monitor
+            .current_gas_price()
+            .await
+            .map_err(|e| PreLockSkipReason::Unexpected(format!("gas price: {e:#}")))?;
+        check_order_ok_to_lock(order, &market_config, &self.supported_selectors, gas_price).await
+    }
+}
+
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
+    pre_lock_checker: Option<Arc<dyn PreLockChecker>>,
     chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     config: ConfigLock,
@@ -161,6 +213,10 @@ pub struct OrderMonitor<P> {
     supported_selectors: SupportedSelectors,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    /// Consecutive pre-lock retry count per order. Cleared on successful lock or
+    /// non–PreLockCheckRetry error in lock_and_prove_orders, and in skip_order
+    /// when invalidating lock_and_prove_cache so the map does not grow without bound.
+    pre_lock_retry_count: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl<P> OrderMonitor<P>
@@ -170,6 +226,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
+        pre_lock_checker: Option<Arc<dyn PreLockChecker>>,
         provider: Arc<P>,
         chain_monitor: Arc<ChainMonitorService<P>>,
         config: ConfigLock,
@@ -210,6 +267,7 @@ where
         }
         let monitor = Self {
             db,
+            pre_lock_checker,
             chain_monitor,
             block_time,
             config,
@@ -232,6 +290,7 @@ where
             supported_selectors: SupportedSelectors::default(),
             rpc_retry_config,
             gas_priority_mode,
+            pre_lock_retry_count: Arc::new(Mutex::new(HashMap::new())),
         };
         Ok(monitor)
     }
@@ -277,6 +336,40 @@ where
             request_id,
             order.request.offer.lockCollateral
         );
+
+        // Optionally run pre-lock check (expiry + gas vs max price) before sending the lock tx.
+        // When disabled or no pre_lock_checker, lock with the order as-is.
+        let run_check = if self.pre_lock_checker.is_some() {
+            match self.config.lock_all() {
+                Ok(c) => c.market.pre_lock_check_enabled,
+                Err(e) => {
+                    tracing::warn!("Failed to read config for pre-lock check, skipping: {e}");
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        if run_check {
+            self.pre_lock_checker.as_ref().unwrap().check_ok_to_lock(order).await.map_err(
+                |reason| {
+                    tracing::warn!(
+                        "Pre-lock check failed for request 0x{:x}: {}",
+                        request_id,
+                        reason
+                    );
+                    match &reason {
+                        PreLockSkipReason::Expired | PreLockSkipReason::UnsupportedSelector => {
+                            OrderMonitorErr::LockTxFailed(format!("pre-lock check: {reason}"))
+                        }
+                        PreLockSkipReason::GasTooHigh { .. } | PreLockSkipReason::Unexpected(_) => {
+                            OrderMonitorErr::PreLockCheckRetry(reason)
+                        }
+                    }
+                },
+            )?;
+        }
+
         let lock_block =
             self.market.lock_request(&order.request, order.client_sig.clone()).await.map_err(
                 |e| -> OrderMonitorErr {
@@ -419,6 +512,7 @@ where
         match order.fulfillment_type {
             FulfillmentType::LockAndFulfill => {
                 self.lock_and_prove_cache.invalidate(&order.id()).await;
+                self.pre_lock_retry_count.lock().await.remove(&order.id());
             }
             FulfillmentType::FulfillAfterLockExpire | FulfillmentType::FulfillWithoutLocking => {
                 self.prove_cache.invalidate(&order.id()).await;
@@ -555,8 +649,10 @@ where
                 let order_id = order.id();
                 if order.fulfillment_type == FulfillmentType::LockAndFulfill {
                     let request_id = order.request.id;
+                    let mut should_invalidate = true;
                     match self.lock_order(order).await {
                         Ok(lock_price) => {
+                            self.pre_lock_retry_count.lock().await.remove(&order_id);
                             tracing::info!("Locked request: 0x{:x}", request_id);
                             if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
                                 tracing::error!(
@@ -567,32 +663,54 @@ where
                             }
                         }
                         Err(ref err) => {
-                            match err {
-                                OrderMonitorErr::UnexpectedError(inner) => {
-                                    tracing::error!(
-                                        "Failed to lock order: {order_id} - {} - {inner:?}",
-                                        err.code()
-                                    );
-                                }
-                                OrderMonitorErr::AlreadyLocked => {
-                                    // For order already locked, we don't need to print the error backtrace.
-                                    tracing::warn!("Soft failed to lock request: {order_id} - {}", err.code());
-                                }
-                                _ => {
+                            if let OrderMonitorErr::PreLockCheckRetry(reason) = err {
+                                const WARN_THRESHOLD: u32 = 5;
+                                let count = {
+                                    let mut m = self.pre_lock_retry_count.lock().await;
+                                    let c = m.entry(order_id.clone()).or_insert(0);
+                                    *c += 1;
+                                    *c
+                                };
+                                if count >= WARN_THRESHOLD {
                                     tracing::warn!(
-                                        "Soft failed to lock request: {order_id} - {} - {err:?}",
-                                        err.code()
+                                        "Pre-lock check has failed {count} times for {order_id}: {reason}, will retry next block"
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        "Pre-lock check failed for {order_id} (attempt {count}): {reason}, will retry next block"
                                     );
                                 }
-                            }
-                            if let Err(err) = self.db.insert_skipped_request(order).await {
-                                tracing::error!(
-                                    "Failed to set DB failure state for order: {order_id} - {err:?}"
-                                );
+                                should_invalidate = false;
+                            } else {
+                                self.pre_lock_retry_count.lock().await.remove(&order_id);
+                                match err {
+                                    OrderMonitorErr::UnexpectedError(inner) => {
+                                        tracing::error!(
+                                            "Failed to lock order: {order_id} - {} - {inner:?}",
+                                            err.code()
+                                        );
+                                    }
+                                    OrderMonitorErr::AlreadyLocked => {
+                                        tracing::warn!("Soft failed to lock request: {order_id} - {}", err.code());
+                                    }
+                                    _ => {
+                                        tracing::warn!(
+                                            "Soft failed to lock request: {order_id} - {} - {err:?}",
+                                            err.code()
+                                        );
+                                    }
+                                }
+                                if let Err(e) = self.db.insert_skipped_request(order).await {
+                                    tracing::error!(
+                                        "Failed to set DB failure state for order: {order_id} - {e:?}"
+                                    );
+                                }
                             }
                         }
                     }
-                    self.lock_and_prove_cache.invalidate(&order_id).await;
+                    if should_invalidate {
+                        self.lock_and_prove_cache.invalidate(&order_id).await;
+                    }
                 } else {
                     if let Err(err) = self.db.insert_accepted_request(order, U256::ZERO).await {
                         tracing::error!(
@@ -608,6 +726,16 @@ where
         futures::future::join_all(lock_jobs).await;
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn test_insert_into_lock_cache(&self, order: Arc<OrderRequest>) {
+        self.lock_and_prove_cache.insert(order.id().clone(), order).await;
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn test_lock_cache_contains(&self, order_id: &str) -> bool {
+        self.lock_and_prove_cache.get(order_id).await.is_some()
     }
 
     /// Calculate the gas units needed for an order and the corresponding cost in wei
@@ -1054,6 +1182,10 @@ pub(crate) mod tests {
     use tokio::task::JoinSet;
     use tracing_test::traced_test;
 
+    use crate::PreLockSkipReason;
+    use async_trait::async_trait;
+    use boundless_market::dynamic_gas_filler::PriorityMode;
+
     type TestProvider = FillProvider<
         JoinFill<
             JoinFill<
@@ -1075,6 +1207,10 @@ pub(crate) mod tests {
         pub priced_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pub signer: PrivateKeySigner,
         pub market_service: BoundlessMarketService<Arc<TestProvider>>,
+        #[allow(dead_code)]
+        pub provider: Arc<TestProvider>,
+        #[allow(dead_code)]
+        pub chain_monitor: Arc<ChainMonitorService<TestProvider>>,
         next_order_id: u32, // Counter to assign unique order IDs
     }
 
@@ -1188,6 +1324,7 @@ pub(crate) mod tests {
 
         let monitor = OrderMonitor::new(
             db.clone(),
+            None, // no pre_lock_checker in tests; pre-lock check is skipped
             provider.clone(),
             chain_monitor.clone(),
             config.clone(),
@@ -1210,6 +1347,8 @@ pub(crate) mod tests {
             priced_order_tx,
             signer,
             market_service,
+            provider,
+            chain_monitor,
             next_order_id: 1, // Initialize with 1 instead of 0
         }
     }
@@ -1882,6 +2021,104 @@ pub(crate) mod tests {
         assert!(
             logs_contain("No longer have enough collateral deposited to market to lock order"),
             "Expected log message about insufficient collateral balance"
+        );
+    }
+
+    /// Mock pricer that always fails with GasTooHigh so we can test retry vs skip behaviour.
+    struct MockPricerGasTooHigh;
+
+    #[async_trait]
+    impl PreLockChecker for MockPricerGasTooHigh {
+        async fn check_ok_to_lock(&self, _order: &OrderRequest) -> Result<(), PreLockSkipReason> {
+            Err(PreLockSkipReason::GasTooHigh {
+                order_gas_cost: U256::from(1),
+                max_price: U256::ZERO,
+            })
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn pre_lock_check_retry_keeps_order_in_cache() {
+        let mut ctx = setup_om_test_context().await;
+        ctx.config.load_write().unwrap().market.pre_lock_check_enabled = true;
+
+        let collateral_token_decimals =
+            ctx.market_service.collateral_token_decimals().await.unwrap();
+        let (_, priced_order_rx) = mpsc::channel(16);
+        let monitor = OrderMonitor::new(
+            ctx.db.clone(),
+            Some(Arc::new(MockPricerGasTooHigh)),
+            ctx.provider.clone(),
+            ctx.chain_monitor.clone(),
+            ctx.config.clone(),
+            2,
+            ctx.signer.address(),
+            ctx.market_address,
+            priced_order_rx,
+            collateral_token_decimals,
+            RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
+            Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium)),
+        )
+        .unwrap();
+
+        // Use now_timestamp() for rampUpStart so expires_at() is in the future; otherwise get_status returns Expired.
+        let order =
+            ctx.create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200).await;
+        // Submit request on-chain so lock_order's get_status sees it as open (Unknown), and we reach the pricer.
+        let _ = ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+        let order_arc = Arc::new(*order);
+        let order_id = order_arc.id().clone();
+        monitor.test_insert_into_lock_cache(order_arc).await;
+
+        let valid = monitor.get_valid_orders(1, 0).await.unwrap();
+        assert_eq!(valid.len(), 1, "expect single order from cache");
+        assert_eq!(valid[0].id(), order_id, "valid order must be the one we inserted");
+        monitor.lock_and_prove_orders(&valid).await.unwrap();
+
+        assert!(
+            monitor.test_lock_cache_contains(&order_id).await,
+            "On PreLockCheckRetry (e.g. gas too high), order stays in cache and will retry next block"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn pre_lock_check_disabled_attempts_lock_without_pricer_check() {
+        let mut ctx = setup_om_test_context().await;
+        ctx.config.load_write().unwrap().market.pre_lock_check_enabled = false;
+
+        let collateral_token_decimals =
+            ctx.market_service.collateral_token_decimals().await.unwrap();
+        let (_, priced_order_rx) = mpsc::channel(16);
+        let monitor = OrderMonitor::new(
+            ctx.db.clone(),
+            Some(Arc::new(MockPricerGasTooHigh)),
+            ctx.provider.clone(),
+            ctx.chain_monitor.clone(),
+            ctx.config.clone(),
+            2,
+            ctx.signer.address(),
+            ctx.market_address,
+            priced_order_rx,
+            collateral_token_decimals,
+            RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
+            Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium)),
+        )
+        .unwrap();
+
+        let order = ctx.create_test_order(FulfillmentType::LockAndFulfill, 0, 100, 200).await;
+        let order_arc = Arc::new(*order);
+        let order_id = order_arc.id().clone();
+        monitor.test_insert_into_lock_cache(order_arc).await;
+
+        let valid = monitor.get_valid_orders(1, 0).await.unwrap();
+        assert!(!valid.is_empty());
+        monitor.lock_and_prove_orders(&valid).await.unwrap();
+
+        assert!(
+            !monitor.test_lock_cache_contains(&order_id).await,
+            "With pre_lock_check_enabled = false, pricer is not used; we attempt lock and do not keep order in cache for retry"
         );
     }
 }

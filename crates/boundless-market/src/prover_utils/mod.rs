@@ -238,6 +238,92 @@ impl std::fmt::Display for OrderRequest {
     }
 }
 
+/// Reason to skip locking when doing a light pre-lock check (no preflight).
+#[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "prover_utils"), allow(dead_code))]
+pub enum PreLockSkipReason {
+    /// Order has expired.
+    Expired,
+    /// Estimated gas cost at current gas price exceeds order max price.
+    GasTooHigh { order_gas_cost: U256, max_price: U256 },
+    /// Selector is not supported.
+    UnsupportedSelector,
+    /// Unexpected error (e.g. from gas estimation or RPC failure).
+    Unexpected(String),
+}
+
+impl fmt::Display for PreLockSkipReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PreLockSkipReason::Expired => write!(f, "order has expired"),
+            PreLockSkipReason::GasTooHigh { order_gas_cost, max_price } => {
+                write!(
+                    f,
+                    "gas cost {} exceeds max price {}",
+                    format_ether(*order_gas_cost),
+                    format_ether(*max_price)
+                )
+            }
+            PreLockSkipReason::UnsupportedSelector => write!(f, "unsupported selector"),
+            PreLockSkipReason::Unexpected(s) => write!(f, "{s}"),
+        }
+    }
+}
+
+/// Lightweight check that an order is still ok to lock: not expired and still profitable at
+/// current gas. Does not run preflight or other heavy pricing logic. Use this before sending
+/// the lock tx to avoid overpaying when gas has spiked.
+///
+/// The function is general-purpose and handles all [`FulfillmentType`] variants. In the current
+/// lock flow it is only called for [`FulfillmentType::LockAndFulfill`] orders; the
+/// [`FulfillmentType::FulfillAfterLockExpire`] branch is included for completeness.
+pub async fn check_order_ok_to_lock(
+    order: &OrderRequest,
+    config: &MarketConfig,
+    supported_selectors: &SupportedSelectors,
+    current_gas_price: u128,
+) -> Result<(), PreLockSkipReason> {
+    let now = now_timestamp();
+    if order.expiry() <= now {
+        return Err(PreLockSkipReason::Expired);
+    }
+    if !supported_selectors.is_supported(order.request.requirements.selector) {
+        return Err(PreLockSkipReason::UnsupportedSelector);
+    }
+    let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
+    let order_gas = if lock_expired {
+        U256::from(
+            estimate_gas_to_fulfill(config, supported_selectors, &order.request)
+                .await
+                .map_err(|e| PreLockSkipReason::Unexpected(e.to_string()))?,
+        )
+    } else {
+        let lock_gas = estimate_gas_to_lock(config, order)
+            .await
+            .map_err(|e| PreLockSkipReason::Unexpected(e.to_string()))?;
+        let fulfill_gas = estimate_gas_to_fulfill(config, supported_selectors, &order.request)
+            .await
+            .map_err(|e| PreLockSkipReason::Unexpected(e.to_string()))?;
+        U256::from(lock_gas + fulfill_gas)
+    };
+    let order_gas_cost = U256::from(current_gas_price) * order_gas;
+    let max_price = U256::from(order.request.offer.maxPrice);
+    if order_gas_cost > max_price {
+        return Err(PreLockSkipReason::GasTooHigh { order_gas_cost, max_price });
+    }
+    Ok(())
+}
+
+/// Trait for checking that an order is still ok to lock immediately before sending the lock tx.
+/// Implementations can be full (e.g. re-run full pricing) or light (expiry + gas only).
+#[cfg(feature = "prover_utils")]
+#[async_trait::async_trait]
+pub trait PreLockChecker: Send + Sync {
+    /// Returns Ok(()) if the order should be locked with its current request/signature; Err with
+    /// a reason to skip locking.
+    async fn check_ok_to_lock(&self, order: &OrderRequest) -> Result<(), PreLockSkipReason>;
+}
+
 /// Outcome of order pricing.
 #[derive(Debug)]
 #[cfg_attr(not(feature = "prover_utils"), allow(dead_code))]
