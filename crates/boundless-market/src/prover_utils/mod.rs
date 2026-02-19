@@ -601,6 +601,17 @@ pub trait OrderPricingContext {
             });
         }
 
+        // Check if the order expiry exceeds the max allowed duration
+        if let Some(max_expiry) = config.max_order_expiry_secs {
+            if seconds_left > max_expiry {
+                return Ok(Skip {
+                    reason: format!(
+                        "order expiry duration {seconds_left}s exceeds max_order_expiry_secs {max_expiry}s"
+                    ),
+                });
+            }
+        }
+
         // Check if requestor is allowed (from both static config and dynamic lists)
         if let Some(outcome) = self.check_requestor_allowed(order, denied_addresses_opt.as_ref())? {
             return Ok(outcome);
