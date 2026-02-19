@@ -279,7 +279,7 @@ pub struct OfferLayerConfig {
     pub lock_gas_estimate: u64,
 
     /// Estimated gas used when fulfilling a request (base cost, excluding journal calldata).
-    #[builder(default = "400_000")]
+    #[builder(default = "450_000")]
     pub fulfill_gas_estimate: u64,
 
     /// Gas per byte of journal data submitted on-chain during fulfillment.
@@ -630,11 +630,16 @@ where
         max_price: U256,
         journal_bytes: Option<usize>,
     ) -> anyhow::Result<U256> {
-        // Use high priority mode to give a buffer for gas price fluctuations.
-        let gas_price: u128 = PriorityMode::High
-            .estimate_max_fee_per_gas(&self.provider)
-            .await
-            .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
+        // Use custom priority mode with a base fee multiplier of 250x, priority fee multiplier of 100x, priority fee percentile of 75.0, and dynamic multiplier percentage of 7 to give a buffer for gas price fluctuations.
+        let gas_price: u128 = PriorityMode::Custom {
+            base_fee_multiplier_percentage: 250,
+            priority_fee_multiplier_percentage: 100,
+            priority_fee_percentile: 75.0,
+            dynamic_multiplier_percentage: 7,
+        }
+        .estimate_max_fee_per_gas(&self.provider)
+        .await
+        .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price, journal_bytes)?;
 
