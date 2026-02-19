@@ -447,9 +447,19 @@ bento action="up" env_file="" compose_flags="" detached="true":
         
         BOUNDLESS_BUILD="${BOUNDLESS_BUILD:-}"
 
+        # When building from source, clear the prebuilt image tags so Compose
+        # uses the build directive instead of pulling the remote image.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
+            export AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE=""
             docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
         elif [ -n "$BOUNDLESS_BUILD" ]; then
+            for svc in $BOUNDLESS_BUILD; do
+                case "$svc" in
+                    *agent*|miner) export AGENT_IMAGE="" ;;
+                    broker)        export BROKER_IMAGE="" ;;
+                    rest_api)      export REST_API_IMAGE="" ;;
+                esac
+            done
             docker compose {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
             docker compose {{compose_flags}} $ENV_FILE_ARG up $DETACHED_FLAG
         else
