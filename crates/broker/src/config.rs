@@ -138,6 +138,10 @@ mod defaults {
         1
     }
 
+    pub const fn max_order_expiry_secs() -> Option<u64> {
+        None
+    }
+
     pub const fn status_poll_retry_count() -> u64 {
         3
     }
@@ -435,6 +439,11 @@ pub struct MarketConf {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
+    /// Maximum order expiry duration in seconds (order_expiry - now).
+    /// Orders with a longer time until expiry will be skipped.
+    /// If not set (None), no maximum is enforced.
+    #[serde(default = "defaults::max_order_expiry_secs")]
+    pub max_order_expiry_secs: Option<u64>,
 }
 
 impl Default for MarketConf {
@@ -479,6 +488,7 @@ impl Default for MarketConf {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
+            max_order_expiry_secs: defaults::max_order_expiry_secs(),
         }
     }
 }
