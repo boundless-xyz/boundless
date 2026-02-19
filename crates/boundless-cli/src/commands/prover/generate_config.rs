@@ -146,7 +146,7 @@ impl ProverGenerateConfig {
         if let Some(backup_path) = self.backup_file(&self.compose_yml_file)? {
             display.item_colored("Backup saved", backup_path.display(), "cyan");
         }
-        self.generate_compose_yml(&config, compose_strategy, &display)?;
+        self.generate_compose_yml(&config, compose_strategy)?;
         display.item_colored("Created", self.compose_yml_file.display(), "green");
 
         display.separator();
@@ -1233,21 +1233,10 @@ impl ProverGenerateConfig {
         Ok(())
     }
 
-    fn count_existing_gpu_agents(&self, content: &str) -> usize {
-        let mut count = 0;
-        for line in content.lines() {
-            if line.starts_with("  gpu_prove_agent") && line.ends_with(":") {
-                count += 1;
-            }
-        }
-        count
-    }
-
     fn generate_compose_yml(
         &self,
         config: &WizardConfig,
         strategy: FileHandlingStrategy,
-        display: &DisplayManager,
     ) -> Result<()> {
         // We use string manipulation instead of YAML parsing libraries because
         // compose.yml uses YAML anchors (&) and aliases (*) which are
@@ -1269,33 +1258,8 @@ impl ProverGenerateConfig {
         // Update segment size
         content = self.update_segment_size(content, config.segment_size)?;
 
-        // Handle GPU agents
-        if matches!(strategy, FileHandlingStrategy::ModifyExisting) {
-            let existing_gpu_count = self.count_existing_gpu_agents(&content);
-            if existing_gpu_count > 1 {
-                // File has already been modified with multiple GPUs
-                display.note("");
-                display.note("ℹ  The compose.yml GPU agents section has already been modified.");
-                display.note(&format!(
-                    "   Found {} GPU agents in the existing file.",
-                    existing_gpu_count
-                ));
-                display.note("");
-                display.note("   To change GPU configuration:");
-                display.note("   1. Manually edit compose.yml");
-                display.note("   2. Add/remove gpu_prove_agentN sections as needed");
-                display.note("   3. Each agent should have a unique device_ids value");
-                display.note("");
-            } else if config.num_gpus > 1 {
-                // Only add GPU agents if file has the default single GPU
-                content = self.add_gpu_agents(content, config.num_gpus)?;
-            }
-        } else {
-            // Generating new file - add GPU agents as needed
-            if config.num_gpus > 1 {
-                content = self.add_gpu_agents(content, config.num_gpus)?;
-            }
-        }
+        // Note: compose.yml has a single gpu_prove_agent service that auto-detects all GPUs
+        // via nvidia-smi and spawns one agent process per GPU. No need to add/remove sections.
 
         // Write to file
         std::fs::write(&self.compose_yml_file, content).context("Failed to write compose.yml")?;
@@ -1351,70 +1315,6 @@ impl ProverGenerateConfig {
         let pattern = "${SEGMENT_SIZE:-21}";
         let replacement = format!("${{SEGMENT_SIZE:-{}}}", segment_size);
         Ok(content.replace(pattern, &replacement))
-    }
-
-    fn add_gpu_agents(&self, content: String, num_gpus: usize) -> Result<String> {
-        let lines: Vec<&str> = content.lines().collect();
-        let mut result: Vec<String> = Vec::new();
-
-        // Find gpu_prove_agent0 section boundaries
-        let mut gpu_agent_start = None;
-        let mut gpu_agent_end = None;
-
-        for (i, line) in lines.iter().enumerate() {
-            if line.starts_with("  gpu_prove_agent0:") {
-                gpu_agent_start = Some(i);
-            } else if gpu_agent_start.is_some() && gpu_agent_end.is_none() {
-                // Look for next service at same indentation level (2 spaces, followed by a letter)
-                if line.starts_with("  ")
-                    && !line.starts_with("    ")
-                    && line.len() > 2
-                    && line.chars().nth(2).unwrap().is_alphabetic()
-                {
-                    gpu_agent_end = Some(i);
-                    break;
-                }
-            }
-        }
-
-        let start =
-            gpu_agent_start.context("Could not find gpu_prove_agent0 section in compose.yml")?;
-        let end = gpu_agent_end.unwrap_or(lines.len());
-
-        // Extract the gpu_prove_agent0 section
-        let gpu_agent_lines: Vec<&str> = lines[start..end].to_vec();
-
-        // Build result: everything up to and including gpu_prove_agent0
-        for line in &lines[..end] {
-            result.push(line.to_string());
-        }
-
-        // Add additional GPU agents
-        for i in 1..num_gpus {
-            result.push(String::new()); // Empty line between services
-
-            for line in &gpu_agent_lines {
-                let mut new_line = line.to_string();
-                // Replace service name
-                if new_line.contains("gpu_prove_agent0") {
-                    new_line =
-                        new_line.replace("gpu_prove_agent0", &format!("gpu_prove_agent{}", i));
-                }
-                // Replace device_ids
-                if new_line.contains(r#"device_ids: ["0"]"#) {
-                    new_line = new_line
-                        .replace(r#"device_ids: ["0"]"#, &format!(r#"device_ids: ["{}"]"#, i));
-                }
-                result.push(new_line);
-            }
-        }
-
-        // Add remaining content
-        for line in &lines[end..] {
-            result.push(line.to_string());
-        }
-
-        Ok(result.join("\n"))
     }
 
     fn ask_file_handling_strategy(
