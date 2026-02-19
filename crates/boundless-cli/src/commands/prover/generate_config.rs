@@ -670,7 +670,12 @@ impl ProverGenerateConfig {
             // When cost floor is 0 (subsidy >= infra), recommend market 25th percentile instead of 0.
             let recommended_default = if let Some(floor_usd) = cost_floor_usd_per_mcycle {
                 let cost_floor_per_bcycle = floor_usd * MCYCLES_PER_BCYCLE;
-                let market_p25_f64: f64 = market_p25_usd.trim().parse().unwrap_or(0.0);
+                // try_convert_to_usd returns e.g. "0.010409 USD"; parse numeric part only
+                let market_p25_f64: f64 = market_p25_usd
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.0);
                 let cost_floor_is_zero = cost_floor_per_bcycle <= 0.0;
 
                 display.item_colored(
