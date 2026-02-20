@@ -186,9 +186,7 @@ pub struct OrderRequest {
     pub gas_estimate: Option<u64>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
-    /// Consecutive pre-lock check retry count. Tracked per order instance so it is
-    /// automatically cleaned up when the order leaves the cache. Uses `Arc<AtomicU32>`
-    /// so the field is `Clone` + `Send + Sync` and can be incremented through `&self`.
+    /// Consecutive pre-lock check retry count, used for logging purposes.
     #[serde(skip)]
     pub pre_lock_retries: Arc<AtomicU32>,
 }
