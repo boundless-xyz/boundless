@@ -2053,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "blake3_groth16"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2171,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -2184,7 +2184,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2251,7 +2251,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2264,7 +2264,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3974,7 +3974,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3992,7 +3992,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6378,7 +6378,7 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "requestor-lists"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "alloy",
  "reqwest",

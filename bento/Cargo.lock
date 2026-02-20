@@ -2083,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "blake3_groth16"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2100,6 +2100,7 @@ dependencies = [
  "num-traits",
  "risc0-groth16",
  "risc0-groth16-sys",
+ "risc0-zkp",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -2200,7 +2201,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "1.2.0"
+version = "1.2.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2240,7 +2241,6 @@ dependencies = [
  "tokio-tungstenite",
  "tower",
  "tracing",
- "tracing-subscriber 0.3.20",
  "url",
  "utoipa",
 ]
