@@ -1208,6 +1208,7 @@ pub(crate) mod tests {
             collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
             gas_priority_mode,
+            Arc::new(Cache::builder().build()),
         )
         .unwrap();
 
