@@ -113,6 +113,41 @@ struct MainArgs {
     /// If unspecified, the loop will run indefinitely.
     #[clap(short, long)]
     count: Option<u64>,
+    /// Minimum price per mcycle in ether.
+    #[clap(long = "min", value_parser = parse_ether, default_value = "0.001")]
+    min_price_per_mcycle: U256,
+    /// Maximum price per mcycle in ether. If set, overrides the offer's maxPrice
+    /// with max_price_per_mcycle * mcycles. Overridden by max_price_cap if both are set.
+    #[clap(long = "max", value_parser = parse_ether)]
+    max_price_per_mcycle: Option<U256>,
+    /// Lockin stake amount in ether.
+    #[clap(short, long, default_value = "0")]
+    lock_collateral_raw: U256,
+    /// Number of seconds, from the current time, before the auction period starts.
+    /// If not provided, will be calculated based on cycle count assuming 5 MHz prove rate.
+    #[clap(long)]
+    bidding_start_delay: Option<u64>,
+    /// Ramp-up period in seconds.
+    ///
+    /// The bid price will increase linearly from `min_price` to `max_price` over this period.
+    #[clap(long, default_value = "240")] // 240s = ~20 Sepolia blocks
+    ramp_up: u32,
+    /// Number of seconds before the request lock-in expires.
+    #[clap(long, default_value = "900")]
+    lock_timeout: u32,
+    /// Number of seconds before the request expires.
+    #[clap(long, default_value = "1800")]
+    timeout: u32,
+    /// Additional time in seconds to add to the timeout for each 1M cycles.
+    #[clap(long, default_value = "20")]
+    seconds_per_mcycle: u32,
+    /// Additional time in seconds to add to the ramp-up period for each 1M cycles.
+    #[clap(long, default_value = "20")]
+    ramp_up_seconds_per_mcycle: u32,
+    /// Execution rate in kHz for calculating bidding start delays.
+    /// Default is 2000 kHz (2 MHz).
+    #[clap(long, default_value = "2000", env)]
+    exec_rate_khz: u64,
     /// Program binary file to use as the guest image, given as a path.
     ///
     /// If unspecified, defaults to the included loop guest.
@@ -719,6 +754,18 @@ async fn handle_loop_request(
     // Build the request, including preflight, and assigned the remaining fields.
     let mut request = client.build_request(request).await?;
 
+    if let Some(max_price_per_mcycle) = args.max_price_per_mcycle {
+        let per_mcycle_max = max_price_per_mcycle * U256::from(m_cycles);
+        tracing::info!(
+            "Applying max_price_per_mcycle: {} ether/mcycle * {} mcycles = {} ether (build produced {} ether)",
+            format_units(max_price_per_mcycle, "ether")?,
+            m_cycles,
+            format_units(per_mcycle_max, "ether")?,
+            format_units(request.offer.maxPrice, "ether")?,
+        );
+        request.offer.maxPrice = per_mcycle_max;
+    }
+
     if let Some(max_price_cap) = args.max_price_cap {
         if request.offer.maxPrice > max_price_cap {
             tracing::warn!(
@@ -813,6 +860,19 @@ async fn handle_zeth_request(
     // Build the request, including preflight, and assigned the remaining fields.
     let mut request = client.build_request(request).await?;
 
+    let m_cycles = max_cycles >> 20;
+    if let Some(max_price_per_mcycle) = args.max_price_per_mcycle {
+        let per_mcycle_max = max_price_per_mcycle * U256::from(m_cycles);
+        tracing::info!(
+            "Applying max_price_per_mcycle: {} ether/mcycle * {} mcycles = {} ether (build produced {} ether)",
+            format_units(max_price_per_mcycle, "ether")?,
+            m_cycles,
+            format_units(per_mcycle_max, "ether")?,
+            format_units(request.offer.maxPrice, "ether")?,
+        );
+        request.offer.maxPrice = per_mcycle_max;
+    }
+
     if let Some(max_price_cap) = args.max_price_cap {
         if request.offer.maxPrice > max_price_cap {
             tracing::warn!(
@@ -885,6 +945,16 @@ mod tests {
             deployment: None,
             interval: 60,
             count: None,
+            min_price_per_mcycle: parse_ether("0.001").unwrap(),
+            max_price_per_mcycle: None,
+            lock_collateral_raw: parse_ether("0.0").unwrap(),
+            bidding_start_delay: None,
+            ramp_up: 0,
+            timeout: 1000,
+            lock_timeout: 1000,
+            seconds_per_mcycle: 60,
+            ramp_up_seconds_per_mcycle: 60,
+            exec_rate_khz: 5000,
             program: None,
             input: None,
             input_max_mcycles: None,

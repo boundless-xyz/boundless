@@ -35,6 +35,15 @@ interface OrderGeneratorArgs {
   collateralTokenAddress?: string;
   ipfsGateway: string;
   interval: string;
+  lockCollateralRaw: string;
+  rampUp?: string;
+  minPricePerMCycle: string;
+  maxPricePerMCycle?: string;
+  secondsPerMCycle?: string;
+  rampUpSecondsPerMCycle?: string;
+  lockTimeout?: string;
+  timeout?: string;
+  execRateKhz?: string;
   inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
@@ -257,8 +266,31 @@ export class OrderGenerator extends pulumi.ComponentResource {
       `--interval ${args.interval}`,
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
-      `--tx-timeout ${args.txTimeout}`
+      `--tx-timeout ${args.txTimeout}`,
+      `--min ${args.minPricePerMCycle}`,
+      `--lock-collateral-raw ${args.lockCollateralRaw}`,
     ]
+    if (args.maxPricePerMCycle) {
+      ogArgs.push(`--max ${args.maxPricePerMCycle}`);
+    }
+    if (args.lockTimeout) {
+      ogArgs.push(`--lock-timeout ${args.lockTimeout}`);
+    }
+    if (args.timeout) {
+      ogArgs.push(`--timeout ${args.timeout}`);
+    }
+    if (args.rampUp) {
+      ogArgs.push(`--ramp-up ${args.rampUp}`);
+    }
+    if (args.rampUpSecondsPerMCycle) {
+      ogArgs.push(`--ramp-up-seconds-per-mcycle ${args.rampUpSecondsPerMCycle}`);
+    }
+    if (args.secondsPerMCycle) {
+      ogArgs.push(`--seconds-per-mcycle ${args.secondsPerMCycle}`);
+    }
+    if (args.execRateKhz) {
+      ogArgs.push(`--exec-rate-khz ${args.execRateKhz}`);
+    }
     if (args.collateralTokenAddress) {
       ogArgs.push(`--collateral-token-address ${args.collateralTokenAddress}`);
     }

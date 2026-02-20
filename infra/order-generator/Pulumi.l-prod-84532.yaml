@@ -13,6 +13,7 @@ config:
   order-generator-base:IPFS_GATEWAY_URL: https://gateway.beboundless.cloud
   order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
   order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0x8d4dA4b7938471A919B08F941461b2ed1679d7bb
+  order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: "info,boundless_market=debug"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL: https://base-sepolia.boundless.network
@@ -25,18 +26,30 @@ config:
   order-generator-offchain:AUTO_DEPOSIT: "0.015"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:INPUT_MAX_MCYCLES: "15"
+  order-generator-offchain:LOCK_TIMEOUT: "900"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:M07kJ0tmcZgagVKz:3KrMZyOCWXWVEguJBUA0fK5g74eUQAs2Nl64rC/X1a1PV975M6XDAvcu8WVpsFEC8mnN5kZAZQQaeoYs+4n1J+TJV0HK1Ly8C44CsEruZFE=
+  order-generator-offchain:RAMP_UP: "300"
   order-generator-offchain:INTERVAL: "1200"
   order-generator-base:ETH_RPC_URL:
     secure: v1:uZEuyLiZRrMdjJKj:ADWgToRtGwtyH4DTO1ztJzge/b9NLGN920eoZ4pjKiaoX+Dfu+qm1CFQ/1jsD6QCXdUSw58HzvNB7XA12QLOgspC2qqji64u5+3CVg1g67DivsKYuXqhopZfHMTK+zgcohPDHkiDLLXrFqBDbXl0npKR6ew=
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:OyulKh+LRE/0Jv0o:Mw0ZnN8GxEOv4DeqgVP6kNjh9vimxeLgweKEB7KpJBSve6Me8g4LQ2VH3DaNGSzBNs6ZJ27rI3E7dJFvQvX6o4GvEu6Zf2RkNBO3JmPLKII=
   order-generator-onchain:INPUT_MAX_MCYCLES: "10"
+  order-generator-offchain:EXEC_RATE_KHZ: "500"
+  order-generator-offchain:SECONDS_PER_MCYCLE: "0"
+  order-generator-offchain:RAMP_UP_SECONDS_PER_MCYCLE: "0"
+  order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-onchain:AUTO_DEPOSIT: "0.015"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-onchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:INTERVAL: "600"
+  order-generator-onchain:LOCK_TIMEOUT: "900"
+  order-generator-onchain:RAMP_UP: "600"
+  order-generator-onchain:RAMP_UP_SECONDS_PER_MCYCLE: "15"
+  order-generator-onchain:SECONDS_PER_MCYCLE: "15"
+  order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-base:INDEXER_URL:
     secure: v1:ypPbRqBJLQoc0TC7:wptREJ24x8rrXu7IXc4sMN4UDBgHj1uEkA7Z4wZzEnIJ/XdJVVeWKw4jMxhFSojuM0aUkQTh

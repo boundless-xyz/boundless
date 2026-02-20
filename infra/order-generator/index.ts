@@ -36,6 +36,8 @@ export = () => {
   const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.get('INTERVAL') || '60';
+  const lockCollateralRaw = baseConfig.get('LOCK_COLLATERAL_RAW') || '15000000000000000000';
+  const minPricePerMCycle = baseConfig.get('MIN_PRICE_PER_MCYCLE') || '0';
   const txTimeout = baseConfig.get('TX_TIMEOUT') || '180';
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
@@ -118,7 +120,14 @@ export = () => {
     offchainPrivateKey = offchainConfig.requireSecret('PRIVATE_KEY');
   }
   const offchainInputMaxMCycles = offchainConfig.get('INPUT_MAX_MCYCLES') ?? "1000";
+  const offchainRampUp = offchainConfig.get('RAMP_UP');
+  const offchainLockTimeout = offchainConfig.get('LOCK_TIMEOUT');
+  const offchainTimeout = offchainConfig.get('TIMEOUT');
+  const offchainSecondsPerMCycle = offchainConfig.get('SECONDS_PER_MCYCLE');
+  const offchainRampUpSecondsPerMCycle = offchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const offchainInterval = offchainConfig.get('INTERVAL');
+  const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
+  const offchainMaxPricePerMCycle = offchainConfig.get('MAX_PRICE_PER_MCYCLE');
   const offchainMaxPriceCap = offchainConfig.get('MAX_PRICE_CAP');
 
   if (offchainPrivateKey) {
@@ -140,6 +149,15 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: offchainInterval ?? interval,
+      lockCollateralRaw,
+      minPricePerMCycle,
+      maxPricePerMCycle: offchainMaxPricePerMCycle,
+      rampUp: offchainRampUp,
+      rampUpSecondsPerMCycle: offchainRampUpSecondsPerMCycle,
+      lockTimeout: offchainLockTimeout,
+      timeout: offchainTimeout,
+      secondsPerMCycle: offchainSecondsPerMCycle,
+      execRateKhz: offchainExecRateKhz,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
@@ -162,7 +180,14 @@ export = () => {
     onchainPrivateKey = onchainConfig.requireSecret('PRIVATE_KEY');
   }
   const onchainInputMaxMCycles = onchainConfig.get('INPUT_MAX_MCYCLES');
+  const onchainRampUp = onchainConfig.get('RAMP_UP');
+  const onchainLockTimeout = onchainConfig.get('LOCK_TIMEOUT');
+  const onchainTimeout = onchainConfig.get('TIMEOUT');
+  const onchainSecondsPerMCycle = onchainConfig.get('SECONDS_PER_MCYCLE');
+  const onchainRampUpSecondsPerMCycle = onchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const onchainInterval = onchainConfig.get('INTERVAL');
+  const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
+  const onchainMaxPricePerMCycle = onchainConfig.get('MAX_PRICE_PER_MCYCLE');
   const onchainMaxPriceCap = onchainConfig.get('MAX_PRICE_CAP');
 
   if (onchainPrivateKey) {
@@ -181,11 +206,20 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: onchainInterval ?? interval,
+      lockCollateralRaw,
+      rampUp: onchainRampUp,
       inputMaxMCycles: onchainInputMaxMCycles,
+      minPricePerMCycle,
+      maxPricePerMCycle: onchainMaxPricePerMCycle,
+      secondsPerMCycle: onchainSecondsPerMCycle,
+      rampUpSecondsPerMCycle: onchainRampUpSecondsPerMCycle,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
+      lockTimeout: onchainLockTimeout,
+      timeout: onchainTimeout,
+      execRateKhz: onchainExecRateKhz,
       indexerUrl,
       useZeth: false,
       maxPriceCap: onchainMaxPriceCap,
@@ -222,6 +256,13 @@ export = () => {
     const randomRequestorWarnBalanceBelow = randomRequestorConfig.get('WARN_BALANCE_BELOW');
     const randomRequestorErrorBalanceBelow = randomRequestorConfig.get('ERROR_BALANCE_BELOW');
     const randomRequestorInputMaxMCycles = randomRequestorConfig.get('INPUT_MAX_MCYCLES');
+    const randomRequestorRampUp = randomRequestorConfig.get('RAMP_UP');
+    const randomRequestorLockTimeout = randomRequestorConfig.get('LOCK_TIMEOUT');
+    const randomRequestorTimeout = randomRequestorConfig.get('TIMEOUT');
+    const randomRequestorSecondsPerMCycle = randomRequestorConfig.get('SECONDS_PER_MCYCLE');
+    const randomRequestorRampUpSecondsPerMCycle = randomRequestorConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
+    const randomRequestorExecRateKhz = randomRequestorConfig.get('EXEC_RATE_KHZ');
+    const randomRequestorMaxPricePerMCycle = randomRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
     const randomRequestorMaxPriceCap = randomRequestorConfig.get('MAX_PRICE_CAP');
 
     new OrderGenerator('random-requestor', {
@@ -241,11 +282,20 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: randomRequestorInterval,
+      lockCollateralRaw,
+      rampUp: randomRequestorRampUp,
       inputMaxMCycles: randomRequestorInputMaxMCycles,
+      minPricePerMCycle,
+      maxPricePerMCycle: randomRequestorMaxPricePerMCycle,
+      secondsPerMCycle: randomRequestorSecondsPerMCycle,
+      rampUpSecondsPerMCycle: randomRequestorRampUpSecondsPerMCycle,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
+      lockTimeout: randomRequestorLockTimeout,
+      timeout: randomRequestorTimeout,
+      execRateKhz: randomRequestorExecRateKhz,
       oneShotConfig: {
         count: randomRequestorCount,
         scheduleExpression: randomRequestorScheduleExpression,
@@ -281,6 +331,13 @@ export = () => {
   const evmRequestorDeploy = evmRequestorPrivateKey || evmRequestorUsesRotation;
   const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
+  const evmRequestorRampUp = evmRequestorConfig.get('RAMP_UP');
+  const evmRequestorLockTimeout = evmRequestorConfig.get('LOCK_TIMEOUT');
+  const evmRequestorTimeout = evmRequestorConfig.get('TIMEOUT');
+  const evmRequestorSecondsPerMCycle = evmRequestorConfig.get('SECONDS_PER_MCYCLE');
+  const evmRequestorRampUpSecondsPerMCycle = evmRequestorConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
+  const evmRequestorExecRateKhz = evmRequestorConfig.get('EXEC_RATE_KHZ');
+  const evmRequestorMaxPricePerMCycle = evmRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
   const evmRequestorMaxPriceCap = evmRequestorConfig.get('MAX_PRICE_CAP');
 
   const evmS3Bucket = evmRequestorConfig.get('S3_BUCKET');
@@ -309,11 +366,20 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: evmRequestorInterval ?? interval,
+      lockCollateralRaw,
+      rampUp: evmRequestorRampUp,
       inputMaxMCycles: evmRequestorInputMaxMCycles,
+      minPricePerMCycle,
+      maxPricePerMCycle: evmRequestorMaxPricePerMCycle,
+      secondsPerMCycle: evmRequestorSecondsPerMCycle,
+      rampUpSecondsPerMCycle: evmRequestorRampUpSecondsPerMCycle,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
+      lockTimeout: evmRequestorLockTimeout,
+      timeout: evmRequestorTimeout,
+      execRateKhz: evmRequestorExecRateKhz,
       indexerUrl,
       useZeth: true,
       maxPriceCap: evmRequestorMaxPriceCap,
