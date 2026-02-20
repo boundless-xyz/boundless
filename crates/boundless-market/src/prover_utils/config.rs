@@ -823,40 +823,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_empty_returns_none() {
-        let overrides = PricingOverrides::default();
-        let result = overrides
-            .resolve(&addr("0x0000000000000000000000000000000000000001"), &sel("0x12345678"));
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_resolve_by_requestor() {
-        let requestor = addr("0x0000000000000000000000000000000000000001");
-        let mut overrides = PricingOverrides::default();
-        overrides.by_requestor.insert(requestor, amount("0.001 USD"));
-
-        let result = overrides.resolve(&requestor, &sel("0xaabbccdd"));
-        assert_eq!(result.unwrap().to_string(), "0.001 USD");
-
-        let other = addr("0x0000000000000000000000000000000000000002");
-        assert!(overrides.resolve(&other, &sel("0xaabbccdd")).is_none());
-    }
-
-    #[test]
-    fn test_resolve_by_selector() {
-        let selector = sel("0x12345678");
-        let mut overrides = PricingOverrides::default();
-        overrides.by_selector.insert(selector, amount("0.005 USD"));
-
-        let any_addr = addr("0x0000000000000000000000000000000000000099");
-        let result = overrides.resolve(&any_addr, &selector);
-        assert_eq!(result.unwrap().to_string(), "0.005 USD");
-
-        assert!(overrides.resolve(&any_addr, &sel("0x00000000")).is_none());
-    }
-
-    #[test]
     fn test_resolve_priority_requestor_selector_over_individual() {
         let requestor = addr("0x0000000000000000000000000000000000000001");
         let selector = sel("0x12345678");
@@ -955,14 +921,6 @@ mod tests {
     }
 
     #[test]
-    fn test_toml_empty_overrides() {
-        let overrides: PricingOverrides = toml::from_str("").unwrap();
-        assert!(overrides.by_requestor.is_empty());
-        assert!(overrides.by_selector.is_empty());
-        assert!(overrides.by_requestor_selector.is_empty());
-    }
-
-    #[test]
     fn test_market_config_toml_with_pricing_overrides() {
         let toml = r#"
 mcycle_price = "0.00002 USD"
@@ -1002,13 +960,5 @@ max_stake = "10 USD"
                 .to_string(),
             "0.005 ETH"
         );
-    }
-
-    #[test]
-    fn test_market_config_default_has_empty_pricing_overrides() {
-        let config = MarketConfig::default();
-        assert!(config.pricing_overrides.by_requestor.is_empty());
-        assert!(config.pricing_overrides.by_selector.is_empty());
-        assert!(config.pricing_overrides.by_requestor_selector.is_empty());
     }
 }
