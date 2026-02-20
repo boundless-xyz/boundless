@@ -1321,8 +1321,7 @@ const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 /// Results are **cached** per wallet contract address via a caller-supplied [`Erc1271GasCache`].
 ///
 /// Returns 0 if the order is not smart-contract-signed.
-/// Returns `ERC1271_MAX_GAS_FOR_CHECK` when the address has no deployed code (EOA),
-/// when the RPC call fails, or when `signing_hash` fails (malformed request).
+/// Returns `ERC1271_MAX_GAS_FOR_CHECK` if the RPC call fails.
 pub async fn estimate_erc1271_gas<P>(
     order: &OrderRequest,
     provider: &Arc<P>,
@@ -1342,22 +1341,10 @@ where
             Err(_) => return ERC1271_MAX_GAS_FOR_CHECK,
         };
     let sig = order.client_sig.clone();
-    let provider = provider.clone(); // cheap Arc clone
+    let provider = provider.clone();
 
     cache
         .get_with(client_addr, async move {
-            // An EOA (no deployed bytecode) cannot implement isValidSignature.
-            // eth_estimateGas on an EOA succeeds but only accounts for the base call
-            // overhead (~21k), not actual verification logic. Fall back to the
-            // conservative constant whenever the address has no code.
-            let code = provider.get_code_at(client_addr).await.unwrap_or_default();
-            if code.is_empty() {
-                tracing::debug!(
-                    "Address {client_addr} has no contract code; using constant ERC1271 gas estimate"
-                );
-                return ERC1271_MAX_GAS_FOR_CHECK;
-            }
-
             match IERC1271::new(client_addr, &provider)
                 .isValidSignature(request_hash, sig)
                 .estimate_gas()
