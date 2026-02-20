@@ -21,7 +21,7 @@ use crate::{
     futures_retry::retry_with_context,
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
-    requestor_monitor::PriorityRequestors,
+    requestor_monitor::{AllowRequestors, PriorityRequestors},
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils::cancel_proof_and_fail_order,
@@ -69,6 +69,7 @@ pub struct ProvingService {
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
+    allow_requestors: AllowRequestors,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
     downloader: ConfigurableDownloader,
 }
@@ -82,6 +83,7 @@ impl ProvingService {
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
+        allow_requestors: AllowRequestors,
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
         downloader: ConfigurableDownloader,
     ) -> Self {
@@ -92,6 +94,7 @@ impl ProvingService {
             config,
             order_state_tx,
             priority_requestors,
+            allow_requestors,
             fulfillment_market,
             downloader,
         }
@@ -213,14 +216,20 @@ impl ProvingService {
 
                 let input_id = match order.input_id.as_ref() {
                     Some(val) => val.clone(),
-                    None => upload_input_uri(
-                        &self.prover,
-                        &order.request,
-                        &self.downloader,
-                        &self.priority_requestors,
-                    )
-                    .await
-                    .context(format!("Failed to upload input for order {order_id}"))?,
+                    None => {
+                        let client_addr = order.request.client_address();
+                        let skip_size_limit =
+                            self.priority_requestors.is_priority_requestor(&client_addr)
+                                || self.allow_requestors.is_allow_requestor(&client_addr);
+                        upload_input_uri(
+                            &self.prover,
+                            &order.request,
+                            &self.downloader,
+                            skip_size_limit,
+                        )
+                        .await
+                        .context(format!("Failed to upload input for order {order_id}"))?
+                    }
                 };
 
                 let proof_id = self
@@ -685,6 +694,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let allow_requestors = AllowRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -692,6 +702,7 @@ mod tests {
             config.clone(),
             order_state_tx,
             priority_requestors,
+            allow_requestors,
             market.clone(),
             downloader.clone(),
         );
@@ -715,6 +726,7 @@ mod tests {
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let allow_requestors = AllowRequestors::new(config.clone(), 1);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -722,6 +734,7 @@ mod tests {
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,
+            allow_requestors,
             market.clone(),
             downloader.clone(),
         );
@@ -774,6 +787,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let allow_requestors = AllowRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -781,6 +795,7 @@ mod tests {
             config.clone(),
             order_state_tx,
             priority_requestors,
+            allow_requestors,
             market,
             downloader,
         );
@@ -869,6 +884,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let allow_requestors = AllowRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -876,6 +892,7 @@ mod tests {
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,
+            allow_requestors,
             market,
             downloader,
         );

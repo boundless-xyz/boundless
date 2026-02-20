@@ -55,6 +55,10 @@ impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
     }
 }
 
+/// Two-tier sort: orders from `priority_addresses` are partitioned to the front,
+/// then each tier is independently sorted by the given `mode`. This ensures
+/// priority requestors' orders are always processed before regular orders,
+/// regardless of the sorting mode (random, shortest-expiry, price, etc.).
 fn sort_orders_by_priority_and_mode<T>(
     orders: &mut Vec<T>,
     priority_addresses: Option<&[alloy::primitives::Address]>,
@@ -186,6 +190,7 @@ where
 }
 
 impl<P> OrderPicker<P> {
+    /// Select up to `capacity` orders for pricing, sorting priority requestors first.
     #[allow(clippy::vec_box)]
     pub(crate) fn select_pricing_orders(
         &self,

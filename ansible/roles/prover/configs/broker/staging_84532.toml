@@ -17,7 +17,7 @@ deny_requestor_addresses = [
   "0x5351280f80ffC14B7550638F1d2fa336D7e1d435", # Signal contract on Base Sepolia, connected to the staging market
 ]
 # max_fetch_retries = 2
-# allow_client_addresses = []
+# allow_requestor_addresses = []
 # lockin_priority_gas = 100
 max_order_expiry_secs = 86400
 
