@@ -790,8 +790,11 @@ mod tests {
         providers::{ext::AnvilApi, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
-    use boundless_market::contracts::{
-        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+    use boundless_market::{
+        contracts::{
+            Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+        },
+        dynamic_gas_filler::PriorityMode,
     };
     use boundless_test_utils::guests::{
         ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF, SET_BUILDER_ID,
@@ -833,7 +836,9 @@ mod tests {
         let proof_res_2 =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
         let chain_id = provider.get_chain_id().await.unwrap();
         let set_builder_id = Digest::from(SET_BUILDER_ID);
@@ -896,6 +901,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -941,6 +947,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -992,7 +999,9 @@ mod tests {
         let proof_res_2 =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
         let set_builder_id = Digest::from(SET_BUILDER_ID);
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
@@ -1055,6 +1064,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -1115,6 +1125,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -1224,6 +1235,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -1273,7 +1285,9 @@ mod tests {
         let proof_res =
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
 
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
@@ -1337,6 +1351,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -1394,7 +1409,9 @@ mod tests {
 
         let prover: ProverObj = Arc::new(mock_prover);
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
 
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
@@ -1458,6 +1475,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -1498,6 +1516,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -1565,6 +1584,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id: 1,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };
@@ -1601,6 +1621,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id: 1,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };

@@ -15,7 +15,7 @@
 use alloy::primitives::aliases::U96;
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::ProofRequest,
+    contracts::{PredicateType, ProofRequest},
     selector::{ProofType, SupportedSelectors},
 };
 use risc0_zkvm::{
@@ -109,14 +109,26 @@ pub(crate) async fn estimate_gas_to_fulfill(
     config: &ConfigLock,
     supported_selectors: &SupportedSelectors,
     request: &ProofRequest,
+    journal_bytes: Option<usize>,
 ) -> Result<u64> {
-    // TODO: Add gas costs for orders with large journals.
-    let (base, groth16) = {
+    let (base, groth16, journal_gas_per_byte, max_journal_bytes) = {
         let config = config.lock_all().context("Failed to read config")?;
-        (config.market.fulfill_gas_estimate, config.market.groth16_verify_gas_estimate)
+        (
+            config.market.fulfill_gas_estimate,
+            config.market.groth16_verify_gas_estimate,
+            config.market.fulfill_journal_gas_per_byte,
+            config.market.max_journal_bytes,
+        )
     };
 
+    let journal_size = journal_bytes.unwrap_or(max_journal_bytes);
+
     let mut estimate = base;
+
+    // Add gas for journal calldata when the predicate requires journal submission.
+    if request.requirements.predicate.predicateType != PredicateType::ClaimDigestMatch {
+        estimate += journal_size as u64 * journal_gas_per_byte;
+    }
 
     // Add gas for orders that make use of the callbacks feature.
     estimate += u64::try_from(

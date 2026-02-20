@@ -294,3 +294,140 @@ pub fn compute_povw_rewards(
 
     Ok(PoVWRewardsResult { epoch_rewards, summary_by_work_log_id: aggregates_by_work_log, summary })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::compute_povw_rewards;
+    use crate::EpochTimeRange;
+    use alloy::primitives::{Address, U256};
+
+    fn make_address(byte: u8) -> Address {
+        Address::from([byte; 20])
+    }
+
+    #[test]
+    fn pending_epoch_work_stays_on_pending_epoch_when_chain_epoch_has_advanced() {
+        let pending_epoch = 10_u64;
+        let processing_end_epoch = 11_u64;
+        let work_log_id = make_address(1);
+
+        let mut work_by_work_log_by_epoch: HashMap<(Address, u64), U256> = HashMap::new();
+        work_by_work_log_by_epoch.insert((work_log_id, 9), U256::from(90_u64));
+        work_by_work_log_by_epoch.insert((work_log_id, pending_epoch), U256::from(300_u64));
+
+        let mut work_recipients_by_epoch: HashMap<(Address, u64), Address> = HashMap::new();
+        work_recipients_by_epoch.insert((work_log_id, 9), work_log_id);
+        work_recipients_by_epoch.insert((work_log_id, pending_epoch), work_log_id);
+
+        let mut total_work_by_epoch: HashMap<u64, U256> = HashMap::new();
+        total_work_by_epoch.insert(9, U256::from(90_u64));
+        total_work_by_epoch.insert(pending_epoch, U256::from(250_u64));
+
+        let pending_epoch_total_work = U256::from(300_u64);
+
+        let mut povw_emissions_by_epoch: HashMap<u64, U256> = HashMap::new();
+        let mut epoch_time_ranges: HashMap<u64, EpochTimeRange> = HashMap::new();
+        for epoch in 0_u64..=processing_end_epoch {
+            povw_emissions_by_epoch.insert(epoch, U256::from(1000_u64));
+            epoch_time_ranges.insert(
+                epoch,
+                EpochTimeRange { start_time: epoch * 100, end_time: epoch * 100 + 99 },
+            );
+        }
+
+        let mut reward_caps: HashMap<(Address, u64), U256> = HashMap::new();
+        reward_caps.insert((work_log_id, 9), U256::MAX);
+        reward_caps.insert((work_log_id, pending_epoch), U256::MAX);
+
+        let staking_amounts_by_epoch: HashMap<(Address, u64), U256> = HashMap::new();
+
+        let result = compute_povw_rewards(
+            pending_epoch,
+            processing_end_epoch,
+            &work_by_work_log_by_epoch,
+            &work_recipients_by_epoch,
+            &total_work_by_epoch,
+            pending_epoch_total_work,
+            &povw_emissions_by_epoch,
+            &reward_caps,
+            &staking_amounts_by_epoch,
+            &epoch_time_ranges,
+        )
+        .expect("compute_povw_rewards should succeed");
+
+        let epoch_9 = result
+            .epoch_rewards
+            .iter()
+            .find(|r| r.epoch == U256::from(9_u64))
+            .expect("epoch 9 must exist");
+        let epoch_10 = result
+            .epoch_rewards
+            .iter()
+            .find(|r| r.epoch == U256::from(pending_epoch))
+            .expect("pending epoch must exist");
+        let epoch_11 = result
+            .epoch_rewards
+            .iter()
+            .find(|r| r.epoch == U256::from(11_u64))
+            .expect("newer epoch must exist");
+
+        assert_eq!(epoch_9.total_work, U256::from(90_u64));
+        assert_eq!(epoch_10.total_work, pending_epoch_total_work);
+        assert_eq!(epoch_11.total_work, U256::ZERO);
+    }
+
+    #[test]
+    fn non_pending_epochs_use_finalized_total_work() {
+        let current_epoch = 10_u64;
+        let epoch = 9_u64;
+        let work_log_id = make_address(2);
+
+        let mut work_by_work_log_by_epoch: HashMap<(Address, u64), U256> = HashMap::new();
+        work_by_work_log_by_epoch.insert((work_log_id, epoch), U256::from(80_u64));
+
+        let mut work_recipients_by_epoch: HashMap<(Address, u64), Address> = HashMap::new();
+        work_recipients_by_epoch.insert((work_log_id, epoch), work_log_id);
+
+        let mut total_work_by_epoch: HashMap<u64, U256> = HashMap::new();
+        total_work_by_epoch.insert(epoch, U256::from(120_u64));
+
+        let pending_epoch_total_work = U256::from(999_u64);
+
+        let mut povw_emissions_by_epoch: HashMap<u64, U256> = HashMap::new();
+        let mut epoch_time_ranges: HashMap<u64, EpochTimeRange> = HashMap::new();
+        for i in 0_u64..=current_epoch {
+            povw_emissions_by_epoch.insert(i, U256::from(1000_u64));
+            epoch_time_ranges
+                .insert(i, EpochTimeRange { start_time: i * 100, end_time: i * 100 + 99 });
+        }
+
+        let mut reward_caps: HashMap<(Address, u64), U256> = HashMap::new();
+        reward_caps.insert((work_log_id, epoch), U256::MAX);
+
+        let staking_amounts_by_epoch: HashMap<(Address, u64), U256> = HashMap::new();
+
+        let result = compute_povw_rewards(
+            current_epoch,
+            current_epoch,
+            &work_by_work_log_by_epoch,
+            &work_recipients_by_epoch,
+            &total_work_by_epoch,
+            pending_epoch_total_work,
+            &povw_emissions_by_epoch,
+            &reward_caps,
+            &staking_amounts_by_epoch,
+            &epoch_time_ranges,
+        )
+        .expect("compute_povw_rewards should succeed");
+
+        let epoch_rewards = result
+            .epoch_rewards
+            .iter()
+            .find(|r| r.epoch == U256::from(epoch))
+            .expect("epoch rewards must exist");
+
+        assert_eq!(epoch_rewards.total_work, U256::from(120_u64));
+    }
+}

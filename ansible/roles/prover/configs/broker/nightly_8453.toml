@@ -17,3 +17,4 @@ max_concurrent_proofs = 2
 max_journal_bytes = 20000
 max_file_size = 500000000000
 max_mcycle_limit = 500000000000
+max_order_expiry_secs = 86400
