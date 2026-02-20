@@ -760,7 +760,7 @@ impl Config {
 
 /// Per-requestor and per-proof-type `min_mcycle_price` overrides.
 ///
-/// The proof type is the 4-byte function selector from the order's requirements
+/// The proof type is the 4-byte selector from the order's requirements
 /// (i.e. `request.requirements.selector`), which identifies the verifier entry point.
 ///
 /// Resolution priority (first match wins):
