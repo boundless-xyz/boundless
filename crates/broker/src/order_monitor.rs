@@ -603,32 +603,16 @@ where
                                 const WARN_THRESHOLD: u32 = 5;
                                 let count = order.increment_pre_lock_retries();
                                 if count >= WARN_THRESHOLD {
-                                    tracing::warn!(
-                                        "Pre-lock check has failed {count} times for {order_id}: {reason}, will retry next block"
-                                    );
+                                    tracing::warn!("Pre-lock check has failed {count} times for {order_id}: {reason}, will retry next block");
                                 } else {
-                                    tracing::debug!(
-                                        "Pre-lock check failed for {order_id} (attempt {count}): {reason}, will retry next block"
-                                    );
+                                    tracing::debug!("Pre-lock check failed for {order_id} (attempt {count}): {reason}, will retry next block");
                                 }
                                 should_invalidate = false;
                             } else {
-                                match err {
-                                    OrderMonitorErr::UnexpectedError(inner) => {
-                                        tracing::error!(
-                                            "Failed to lock order: {order_id} - {} - {inner:?}",
-                                            err.code()
-                                        );
-                                    }
-                                    OrderMonitorErr::AlreadyLocked => {
-                                        tracing::warn!("Soft failed to lock request: {order_id} - {}", err.code());
-                                    }
-                                    _ => {
-                                        tracing::warn!(
-                                            "Soft failed to lock request: {order_id} - {} - {err:?}",
-                                            err.code()
-                                        );
-                                    }
+                                if matches!(err, OrderMonitorErr::UnexpectedError(_)) {
+                                    tracing::error!("Failed to lock order: {order_id} - {err:?}");
+                                } else {
+                                    tracing::warn!("Failed to lock order: {order_id} - {err:?}");
                                 }
                                 if let Err(e) = self.db.insert_skipped_request(order).await {
                                     tracing::error!("Failed to set DB failure state for order: {order_id} - {e:?}");
