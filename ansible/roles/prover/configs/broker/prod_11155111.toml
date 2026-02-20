@@ -16,6 +16,7 @@ priority_requestor_addresses = ["0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"]
 # max_fetch_retries = 2
 # allow_client_addresses = []
 # lockin_priority_gas = 100
+max_order_expiry_secs = 86400
 
 [prover]
 status_poll_retry_count = 3
