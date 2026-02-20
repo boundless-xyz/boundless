@@ -59,9 +59,6 @@ type OrderCache = Arc<Cache<String, ()>>;
 const PREFLIGHT_CACHE_SIZE: u64 = 5000;
 const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
 
-/// ERC1271 gas cache: store estimates per wallet contract address, expire after 1 hour.
-const ERC1271_GAS_CACHE_SIZE: u64 = 256;
-const ERC1271_GAS_CACHE_TTL_SECS: u64 = 60 * 60; // 1 hour
 
 type OrderPickerErr = OrderPricingError;
 
@@ -121,6 +118,7 @@ where
         allow_requestors: AllowRequestors,
         downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
+        erc1271_gas_cache: Erc1271GasCache,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -153,13 +151,7 @@ where
                     .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
                     .build(),
             ),
-            erc1271_gas_cache: Arc::new(
-                Cache::builder()
-                    .eviction_policy(EvictionPolicy::lru())
-                    .max_capacity(ERC1271_GAS_CACHE_SIZE)
-                    .time_to_live(Duration::from_secs(ERC1271_GAS_CACHE_TTL_SECS))
-                    .build(),
-            ),
+            erc1271_gas_cache,
             order_state_tx,
             priority_requestors,
             allow_requestors,
@@ -1091,6 +1083,7 @@ pub(crate) mod tests {
                 allow_requestors,
                 downloader,
                 create_test_price_oracle(),
+                Arc::new(Cache::builder().build()),
             );
 
             PickerTestCtx {

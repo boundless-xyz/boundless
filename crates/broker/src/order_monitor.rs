@@ -181,6 +181,7 @@ where
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        erc1271_gas_cache: Erc1271GasCache,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -231,13 +232,7 @@ where
                     .build(),
             ),
             supported_selectors: SupportedSelectors::default(),
-            erc1271_gas_cache: Arc::new(
-                Cache::builder()
-                    .eviction_policy(EvictionPolicy::lru())
-                    .max_capacity(256)
-                    .time_to_live(Duration::from_secs(60 * 60))
-                    .build(),
-            ),
+            erc1271_gas_cache,
             rpc_retry_config,
             gas_priority_mode,
         };
