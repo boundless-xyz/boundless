@@ -293,6 +293,7 @@ where
     /// Two-stage access control gate, evaluated in order:
     ///   1. Allow list: if any allow source is configured, reject requestors not on the list.
     ///   2. Deny list: reject requestors on the deny list (even if also on the allow list).
+    ///
     /// Returns `None` if the order passes both checks.
     fn check_access_lists(
         &self,
@@ -306,12 +307,10 @@ where
             config.market.allow_requestor_addresses.is_some()
                 || config.market.allow_requestor_lists.is_some()
         };
-        if has_allow_list {
-            if !self.allow_requestors.is_allow_requestor(&client_addr) {
-                return Ok(Some(Skip {
-                    reason: format!("order from {client_addr} is not in allow requestors"),
-                }));
-            }
+        if has_allow_list && !self.allow_requestors.is_allow_requestor(&client_addr) {
+            return Ok(Some(Skip {
+                reason: format!("order from {client_addr} is not in allow requestors"),
+            }));
         }
 
         // 2. Deny list gate: unconditionally skip denied addresses.
