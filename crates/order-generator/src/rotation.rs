@@ -80,7 +80,10 @@ impl RotationState {
         let temp = parent.join(format!(".{filename}.tmp"));
         let json = serde_json::to_string_pretty(self)?;
         fs::write(&temp, json)?;
-        fs::rename(temp, path)?;
+        if let Err(e) = fs::rename(&temp, path) {
+            let _ = fs::remove_file(&temp);
+            return Err(e.into());
+        }
         Ok(())
     }
 }
@@ -92,7 +95,7 @@ pub fn desired_index(now_secs: u64, interval_secs: u64, n_keys: usize) -> usize 
     if n_keys == 0 || interval_secs == 0 {
         return 0;
     }
-    (now_secs / interval_secs) as usize % n_keys
+    usize::try_from(now_secs / interval_secs).unwrap_or(usize::MAX) % n_keys
 }
 
 /// Current Unix timestamp in seconds.

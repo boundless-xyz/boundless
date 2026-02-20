@@ -28,10 +28,11 @@ pub fn derive_keys(phrase: &str, count: usize) -> anyhow::Result<Vec<PrivateKeyS
     if count == 0 {
         return Ok(Vec::new());
     }
+    let phrase = phrase.trim();
     let mut signers = Vec::with_capacity(count);
     for i in 0..count {
         let signer = MnemonicBuilder::<English>::default()
-            .phrase(phrase.trim())
+            .phrase(phrase)
             .index(i as u32)
             .map_err(|e| anyhow::anyhow!("MnemonicBuilder index {i}: {e}"))?
             .build()

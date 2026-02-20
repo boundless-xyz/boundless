@@ -234,7 +234,7 @@ fn resolve_rotation_keys(
 async fn run(args: &MainArgs) -> Result<()> {
     let rotation = resolve_rotation_keys(args)?;
     let (funding_signer, rotation_keys) = match rotation {
-        Some((f, r)) if r.len() >= 2 => {
+        Some((f, r)) => {
             // Use private_key as funding source when provided (e.g. for tests with pre-funded account)
             let funding = args.private_key.as_ref().unwrap_or(&f);
             (funding.clone(), r)
@@ -285,6 +285,11 @@ async fn run_single_key(args: &MainArgs, signer: &PrivateKeySigner) -> Result<()
     let (program, program_url, input) =
         load_program_and_input(args, &client, &ipfs_gateway).await?;
 
+    // Zeth mode requires input; validate early to avoid a silent per-iteration failure.
+    if args.use_zeth && input.is_none() {
+        return Err(anyhow::anyhow!("Zeth input is not provided"));
+    }
+
     let mut i = 0u64;
     loop {
         if let Some(count) = args.count {
@@ -292,20 +297,11 @@ async fn run_single_key(args: &MainArgs, signer: &PrivateKeySigner) -> Result<()
                 break;
             }
         }
-        if let Err(e) = match args.use_zeth {
-            true => {
-                if let Some(input) = input.as_ref() {
-                    handle_zeth_request(args, &client, &program, &program_url, input)
-                        .await
-                        .map(|_| ())
-                } else {
-                    let error_msg = "Zeth input is not provided".to_string();
-                    tracing::error!("Request failed: {error_msg}");
-                    return Err(anyhow::anyhow!(error_msg));
-                }
-            }
-            false => handle_loop_request(args, &client, &program, &program_url).await.map(|_| ()),
-        } {
+        if let Err(e) =
+            submit_request_with_retry(args, &client, &program, &program_url, input.as_deref())
+                .await
+                .map(|_| ())
+        {
             let error_msg = format!("{e:?}");
             if error_msg.contains("Transaction confirmation error") {
                 tracing::error!("[B-OG-CONF] Transaction confirmation error: {e:?}");
@@ -334,6 +330,12 @@ async fn run_with_rotation(
     }
     // Clamp current_index if state was saved with more keys than we have now.
     if state.current_index >= n_keys {
+        tracing::warn!(
+            "Rotation state current_index {} >= n_keys {}; resetting to 0. \
+             In-flight requests on the old index may not have expired yet.",
+            state.current_index,
+            n_keys,
+        );
         state.current_index = 0;
         state.max_expires_at = 0;
         state.save(state_path)?;
@@ -466,7 +468,7 @@ async fn submit_request_with_retry(
 
     let max_retries = args.submit_retry_attempts;
     let retry_delay = Duration::from_secs(args.submit_retry_delay_secs);
-    for attempt in 1..max_retries {
+    for attempt in 1..=max_retries {
         if result.is_ok() {
             return result;
         }
@@ -674,29 +676,30 @@ async fn perform_rotation_withdrawal(
     let market = old_client.boundless_market.clone();
     let market_balance =
         market.balance_of(old_address).await.context("failed to get market balance")?;
-    if market_balance == U256::ZERO {
-        tracing::debug!("No market balance to withdraw from {old_address}, skipping sweep");
-        return Ok(());
-    }
-
     let gas_reserve = parse_ether(GAS_RESERVE).unwrap();
     let native_balance = old_client
         .provider()
         .get_balance(old_address)
         .await
         .context("failed to get native balance")?;
-    if native_balance < gas_reserve {
-        tracing::warn!(
-            "Insufficient native ETH ({}) on {old_address} for withdrawal gas, skipping",
-            format_units(native_balance, "ether").unwrap_or_default(),
-        );
-        return Ok(());
+
+    // Withdraw market balance if present and we have enough gas.
+    if market_balance > U256::ZERO {
+        if native_balance < gas_reserve {
+            tracing::warn!(
+                "Insufficient native ETH ({}) on {old_address} for market withdrawal gas, skipping",
+                format_units(native_balance, "ether").unwrap_or_default(),
+            );
+        } else {
+            market.withdraw(market_balance).await.context("failed to withdraw from market")?;
+        }
+    } else {
+        tracing::debug!("No market balance to withdraw from {old_address}");
     }
 
-    market.withdraw(market_balance).await.context("failed to withdraw from market")?;
-
     // Sweep all native ETH (minus gas reserve for this transfer) back to funding.
-    // This captures both the withdrawn market balance and any leftover gas money.
+    // This captures both the withdrawn market balance and any leftover gas money,
+    // including funds stranded on the rotation address when market balance was zero.
     let post_balance = old_client
         .provider()
         .get_balance(old_address)
