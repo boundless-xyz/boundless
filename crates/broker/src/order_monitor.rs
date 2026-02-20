@@ -600,13 +600,7 @@ where
                         }
                         Err(ref err) => {
                             if let OrderMonitorErr::PreLockCheckRetry(reason) = err {
-                                const WARN_THRESHOLD: u32 = 5;
-                                let count = order.increment_pre_lock_retries();
-                                if count >= WARN_THRESHOLD {
-                                    tracing::warn!("Pre-lock check has failed {count} times for {order_id}: {reason}, will retry next block");
-                                } else {
-                                    tracing::debug!("Pre-lock check failed for {order_id} (attempt {count}): {reason}, will retry next block");
-                                }
+                                tracing::warn!("Pre-lock check failed for {order_id}: {reason}, will retry next block");
                                 should_invalidate = false;
                             } else {
                                 if matches!(err, OrderMonitorErr::UnexpectedError(_)) {
@@ -1959,10 +1953,5 @@ pub(crate) mod tests {
             "When gas cost exceeds reward, order stays in cache and will retry next block"
         );
         assert!(logs_contain("gas cost"), "Expected log about gas cost exceeding reward");
-        assert_eq!(
-            order_arc.pre_lock_retries.load(std::sync::atomic::Ordering::Relaxed),
-            1,
-            "pre_lock_retries should be incremented to 1 after first failure"
-        );
     }
 }

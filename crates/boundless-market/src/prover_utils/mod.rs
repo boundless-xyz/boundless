@@ -53,10 +53,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fmt,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc, OnceLock,
-    },
+    sync::{Arc, OnceLock},
 };
 use thiserror::Error;
 use OrderPricingOutcome::Skip;
@@ -186,9 +183,6 @@ pub struct OrderRequest {
     pub gas_estimate: Option<u64>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
-    /// Consecutive pre-lock check retry count, used for logging purposes.
-    #[serde(skip)]
-    pub pre_lock_retries: Arc<AtomicU32>,
 }
 
 impl OrderRequest {
@@ -213,7 +207,6 @@ impl OrderRequest {
             expire_timestamp: None,
             gas_estimate: None,
             cached_id: OnceLock::new(),
-            pre_lock_retries: Default::default(),
         }
     }
 
@@ -235,11 +228,6 @@ impl OrderRequest {
             FulfillmentType::FulfillAfterLockExpire => self.request.expires_at(),
             FulfillmentType::FulfillWithoutLocking => self.request.expires_at(),
         }
-    }
-
-    /// Increment the pre-lock retry counter and return the new value.
-    pub fn increment_pre_lock_retries(&self) -> u32 {
-        self.pre_lock_retries.fetch_add(1, Ordering::Relaxed) + 1
     }
 }
 
