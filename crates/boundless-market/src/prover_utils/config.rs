@@ -398,7 +398,7 @@ pub struct MarketConfig {
     /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
-    
+
     /// DEPRECATED: lockRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
