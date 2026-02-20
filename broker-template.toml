@@ -26,9 +26,9 @@
 min_mcycle_price = "0.00002 USD"
 
 
-# Per-requestor and per-selector min_mcycle_price overrides.
+# Per-requestor and per-proof-type min_mcycle_price overrides.
 #
-# Resolution priority: by_requestor_selector > by_selector > by_requestor > global default.
+# Resolution priority: by_requestor_proof_type > by_proof_type > by_requestor > global default.
 # Changes take effect immediately when the broker reloads this file.
 #
 # Uncomment and populate any of the sections below to enable overrides:
@@ -36,10 +36,10 @@ min_mcycle_price = "0.00002 USD"
 # [market.pricing_overrides.by_requestor]
 # "0xAbC...123" = "0.0001 USD"
 #
-# [market.pricing_overrides.by_selector]
+# [market.pricing_overrides.by_proof_type]
 # "0x12345678" = "0.0005 USD"
 #
-# [market.pricing_overrides.by_requestor_selector]
+# [market.pricing_overrides.by_requestor_proof_type]
 # "0xAbC...123:0x12345678" = "0.001 USD"
 
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker

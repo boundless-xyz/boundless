@@ -3077,7 +3077,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_exec_limits_selector_override_takes_priority() {
+    async fn test_calculate_exec_limits_proof_type_override_takes_priority() {
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap();
         market_config.min_mcycle_price_collateral_token = Amount::parse("10 ZKC", None).unwrap();
@@ -3086,8 +3086,8 @@ pub(crate) mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().market = market_config;
 
-        // Set up overrides: requestor gets 0.005 ETH, but selector gets 0.01 ETH.
-        // Selector should win per the cascade priority.
+        // Set up overrides: requestor gets 0.005 ETH, but proof_type gets 0.01 ETH.
+        // proof_type should win per the cascade priority.
         let ctx_baseline =
             PickerTestCtxBuilder::default().with_config(config.clone()).build().await;
 
@@ -3103,7 +3103,7 @@ pub(crate) mod tests {
             .await;
 
         let requestor_addr = order_template.request.client_address();
-        let selector = order_template.request.requirements.selector;
+        let proof_type = order_template.request.requirements.selector;
 
         let mut config2_market = config.lock_all().unwrap().market.clone();
         config2_market
@@ -3112,8 +3112,8 @@ pub(crate) mod tests {
             .insert(requestor_addr, Amount::parse("0.005 ETH", None).unwrap());
         config2_market
             .pricing_overrides
-            .by_selector
-            .insert(selector, Amount::parse("0.01 ETH", None).unwrap());
+            .by_proof_type
+            .insert(proof_type, Amount::parse("0.01 ETH", None).unwrap());
         let config2 = ConfigLock::default();
         config2.load_write().unwrap().market = config2_market;
 
@@ -3133,7 +3133,7 @@ pub(crate) mod tests {
 
         let (_, prove_limit, _) = ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
-        // Selector override (0.01 ETH) should take priority over requestor (0.005 ETH).
+        // proof_type override (0.01 ETH) should take priority over requestor (0.005 ETH).
         // ETH based: (0.05 - 0.001) * 1M / 0.01 = 4.9M cycles
         assert_eq!(prove_limit, 4_900_000u64);
     }

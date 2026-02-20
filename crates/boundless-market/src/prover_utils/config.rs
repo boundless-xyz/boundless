@@ -516,10 +516,13 @@ pub struct MarketConfig {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
-    /// Per-requestor and per-selector `min_mcycle_price` overrides.
+    /// Per-requestor and per-proof-type `min_mcycle_price` overrides.
+    ///
+    /// The proof type is the 4-byte function selector from the order's requirements
+    /// (`request.requirements.selector`), identifying the verifier entry point.
     ///
     /// When the broker evaluates an order, it resolves the effective `min_mcycle_price`
-    /// with priority: `by_requestor_selector` > `by_selector` > `by_requestor` > global default.
+    /// with priority: `by_requestor_proof_type` > `by_proof_type` > `by_requestor` > global default.
     /// Changes to this section are picked up automatically when the broker reloads `broker.toml`.
     #[serde(default)]
     pub pricing_overrides: PricingOverrides,
@@ -755,11 +758,14 @@ impl Config {
     }
 }
 
-/// Per-requestor and per-selector `min_mcycle_price` overrides.
+/// Per-requestor and per-proof-type `min_mcycle_price` overrides.
+///
+/// The proof type is the 4-byte function selector from the order's requirements
+/// (i.e. `request.requirements.selector`), which identifies the verifier entry point.
 ///
 /// Resolution priority (first match wins):
-/// 1. `by_requestor_selector` -- keyed by `"<address>:<selector_hex>"`
-/// 2. `by_selector` -- keyed by selector hex (e.g. `"0x12345678"`)
+/// 1. `by_requestor_proof_type` -- keyed by `"<address>:<proof_type_hex>"`
+/// 2. `by_proof_type` -- keyed by proof type hex (e.g. `"0x12345678"`)
 /// 3. `by_requestor` -- keyed by requestor address
 /// 4. Fall back to global `MarketConfig::min_mcycle_price`
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -767,19 +773,19 @@ pub struct PricingOverrides {
     /// Overrides keyed by requestor address (checksummed or lowercase hex).
     #[serde(default)]
     pub by_requestor: HashMap<Address, Amount>,
-    /// Overrides keyed by selector hex (e.g. `"0x12345678"`).
+    /// Overrides keyed by proof type hex (e.g. `"0x12345678"`).
     #[serde(default)]
-    pub by_selector: HashMap<FixedBytes<4>, Amount>,
-    /// Overrides keyed by `"<requestor_address>:<selector_hex>"` for the most specific match.
+    pub by_proof_type: HashMap<FixedBytes<4>, Amount>,
+    /// Overrides keyed by `"<requestor_address>:<proof_type_hex>"` for the most specific match.
     #[serde(
         default,
-        deserialize_with = "deserialize_requestor_selector_map",
-        serialize_with = "serialize_requestor_selector_map"
+        deserialize_with = "deserialize_requestor_proof_type_map",
+        serialize_with = "serialize_requestor_proof_type_map"
     )]
-    pub by_requestor_selector: HashMap<(Address, FixedBytes<4>), Amount>,
+    pub by_requestor_proof_type: HashMap<(Address, FixedBytes<4>), Amount>,
 }
 
-fn deserialize_requestor_selector_map<'de, D>(
+fn deserialize_requestor_proof_type_map<'de, D>(
     deserializer: D,
 ) -> Result<HashMap<(Address, FixedBytes<4>), Amount>, D::Error>
 where
@@ -788,19 +794,19 @@ where
     let raw: HashMap<String, Amount> = HashMap::deserialize(deserializer)?;
     let mut map = HashMap::with_capacity(raw.len());
     for (key, amount) in raw {
-        let (addr_str, sel_str) = key.split_once(':').ok_or_else(|| {
+        let (addr_str, proof_type_str) = key.split_once(':').ok_or_else(|| {
             serde::de::Error::custom(format!(
-                "by_requestor_selector key must be '<address>:<selector>', got '{key}'"
+                "by_requestor_proof_type key must be '<address>:<proof_type_hex>', got '{key}'"
             ))
         })?;
         let addr: Address = addr_str.parse().map_err(serde::de::Error::custom)?;
-        let sel: FixedBytes<4> = sel_str.parse().map_err(serde::de::Error::custom)?;
-        map.insert((addr, sel), amount);
+        let proof_type: FixedBytes<4> = proof_type_str.parse().map_err(serde::de::Error::custom)?;
+        map.insert((addr, proof_type), amount);
     }
     Ok(map)
 }
 
-fn serialize_requestor_selector_map<S>(
+fn serialize_requestor_proof_type_map<S>(
     map: &HashMap<(Address, FixedBytes<4>), Amount>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -809,20 +815,20 @@ where
 {
     use serde::ser::SerializeMap;
     let mut ser_map = serializer.serialize_map(Some(map.len()))?;
-    for ((addr, sel), amount) in map {
-        ser_map.serialize_entry(&format!("{addr}:{sel}"), amount)?;
+    for ((addr, proof_type), amount) in map {
+        ser_map.serialize_entry(&format!("{addr}:{proof_type}"), amount)?;
     }
     ser_map.end()
 }
 
 impl PricingOverrides {
-    /// Resolve the effective `min_mcycle_price` for a given requestor and selector.
+    /// Resolve the effective `min_mcycle_price` for a given requestor and proof type.
     ///
     /// Returns `Some(amount)` if an override matches, `None` to use the global default.
-    pub fn resolve(&self, requestor: &Address, selector: &FixedBytes<4>) -> Option<&Amount> {
-        self.by_requestor_selector
-            .get(&(*requestor, *selector))
-            .or_else(|| self.by_selector.get(selector))
+    pub fn resolve(&self, requestor: &Address, proof_type: &FixedBytes<4>) -> Option<&Amount> {
+        self.by_requestor_proof_type
+            .get(&(*requestor, *proof_type))
+            .or_else(|| self.by_proof_type.get(proof_type))
             .or_else(|| self.by_requestor.get(requestor))
     }
 }
@@ -844,29 +850,29 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_priority_requestor_selector_over_individual() {
+    fn test_resolve_priority_requestor_proof_type_over_individual() {
         let requestor = addr("0x0000000000000000000000000000000000000001");
-        let selector = sel("0x12345678");
+        let proof_type = sel("0x12345678");
 
         let mut overrides = PricingOverrides::default();
         overrides.by_requestor.insert(requestor, amount("0.001 USD"));
-        overrides.by_selector.insert(selector, amount("0.002 USD"));
-        overrides.by_requestor_selector.insert((requestor, selector), amount("0.003 USD"));
+        overrides.by_proof_type.insert(proof_type, amount("0.002 USD"));
+        overrides.by_requestor_proof_type.insert((requestor, proof_type), amount("0.003 USD"));
 
-        let result = overrides.resolve(&requestor, &selector);
+        let result = overrides.resolve(&requestor, &proof_type);
         assert_eq!(result.unwrap().to_string(), "0.003 USD");
     }
 
     #[test]
-    fn test_resolve_selector_over_requestor() {
+    fn test_resolve_proof_type_over_requestor() {
         let requestor = addr("0x0000000000000000000000000000000000000001");
-        let selector = sel("0x12345678");
+        let proof_type = sel("0x12345678");
 
         let mut overrides = PricingOverrides::default();
         overrides.by_requestor.insert(requestor, amount("0.001 USD"));
-        overrides.by_selector.insert(selector, amount("0.002 USD"));
+        overrides.by_proof_type.insert(proof_type, amount("0.002 USD"));
 
-        let result = overrides.resolve(&requestor, &selector);
+        let result = overrides.resolve(&requestor, &proof_type);
         assert_eq!(result.unwrap().to_string(), "0.002 USD");
     }
 
@@ -876,30 +882,33 @@ mod tests {
 [by_requestor]
 "0x0000000000000000000000000000000000000001" = "0.001 USD"
 
-[by_selector]
+[by_proof_type]
 "0x12345678" = "0.005 ETH"
 
-[by_requestor_selector]
+[by_requestor_proof_type]
 "0x0000000000000000000000000000000000000001:0x12345678" = "0.01 USD"
 "#;
         let overrides: PricingOverrides = toml::from_str(toml).unwrap();
 
         assert_eq!(overrides.by_requestor.len(), 1);
-        assert_eq!(overrides.by_selector.len(), 1);
-        assert_eq!(overrides.by_requestor_selector.len(), 1);
+        assert_eq!(overrides.by_proof_type.len(), 1);
+        assert_eq!(overrides.by_requestor_proof_type.len(), 1);
 
         let requestor = addr("0x0000000000000000000000000000000000000001");
-        let selector = sel("0x12345678");
+        let proof_type = sel("0x12345678");
 
-        assert_eq!(overrides.resolve(&requestor, &selector).unwrap().to_string(), "0.01 USD");
+        assert_eq!(overrides.resolve(&requestor, &proof_type).unwrap().to_string(), "0.01 USD");
 
-        let other_sel = sel("0xdeadbeef");
-        assert_eq!(overrides.resolve(&requestor, &other_sel).unwrap().to_string(), "0.001 USD");
+        let other_proof_type = sel("0xdeadbeef");
+        assert_eq!(
+            overrides.resolve(&requestor, &other_proof_type).unwrap().to_string(),
+            "0.001 USD"
+        );
 
         let other_addr = addr("0x0000000000000000000000000000000000000099");
-        assert_eq!(overrides.resolve(&other_addr, &selector).unwrap().to_string(), "0.005 ETH");
+        assert_eq!(overrides.resolve(&other_addr, &proof_type).unwrap().to_string(), "0.005 ETH");
 
-        assert!(overrides.resolve(&other_addr, &other_sel).is_none());
+        assert!(overrides.resolve(&other_addr, &other_proof_type).is_none());
     }
 
     #[test]
@@ -909,32 +918,32 @@ mod tests {
 "0x0000000000000000000000000000000000000001" = "0.001 USD"
 "0x0000000000000000000000000000000000000002" = "0.002 USD"
 
-[by_selector]
+[by_proof_type]
 "0x12345678" = "0.005 ETH"
 "0xdeadbeef" = "0.01 ETH"
 
-[by_requestor_selector]
+[by_requestor_proof_type]
 "0x0000000000000000000000000000000000000001:0x12345678" = "0.001 USD"
 "0x0000000000000000000000000000000000000002:0xdeadbeef" = "0.002 USD"
 "#;
         let overrides: PricingOverrides = toml::from_str(toml).unwrap();
 
         assert_eq!(overrides.by_requestor.len(), 2);
-        assert_eq!(overrides.by_selector.len(), 2);
-        assert_eq!(overrides.by_requestor_selector.len(), 2);
+        assert_eq!(overrides.by_proof_type.len(), 2);
+        assert_eq!(overrides.by_requestor_proof_type.len(), 2);
 
         // Verify serialize → deserialize round-trip preserves all entries
         let serialized = toml::to_string(&overrides).unwrap();
         let deserialized: PricingOverrides = toml::from_str(&serialized).unwrap();
         assert_eq!(deserialized.by_requestor.len(), 2);
-        assert_eq!(deserialized.by_selector.len(), 2);
-        assert_eq!(deserialized.by_requestor_selector.len(), 2);
+        assert_eq!(deserialized.by_proof_type.len(), 2);
+        assert_eq!(deserialized.by_requestor_proof_type.len(), 2);
     }
 
     #[test]
-    fn test_toml_invalid_requestor_selector_key() {
+    fn test_toml_invalid_requestor_proof_type_key() {
         let toml = r#"
-[by_requestor_selector]
+[by_requestor_proof_type]
 "bad-key-no-colon" = "0.001 USD"
 "#;
         let result: Result<PricingOverrides, _> = toml::from_str(toml);
@@ -951,20 +960,20 @@ max_stake = "10 USD"
 [pricing_overrides.by_requestor]
 "0x0000000000000000000000000000000000000001" = "0.001 USD"
 
-[pricing_overrides.by_selector]
+[pricing_overrides.by_proof_type]
 "0x12345678" = "0.005 ETH"
 
-[pricing_overrides.by_requestor_selector]
+[pricing_overrides.by_requestor_proof_type]
 "0x0000000000000000000000000000000000000001:0x12345678" = "0.01 USD"
 "#;
         let config: MarketConfig = toml::from_str(toml).unwrap();
 
         let requestor = addr("0x0000000000000000000000000000000000000001");
-        let selector = sel("0x12345678");
+        let proof_type = sel("0x12345678");
 
-        // requestor+selector combo takes highest priority
+        // requestor+proof_type combo takes highest priority
         assert_eq!(
-            config.pricing_overrides.resolve(&requestor, &selector).unwrap().to_string(),
+            config.pricing_overrides.resolve(&requestor, &proof_type).unwrap().to_string(),
             "0.01 USD"
         );
         // requestor-only match
@@ -972,11 +981,11 @@ max_stake = "10 USD"
             config.pricing_overrides.resolve(&requestor, &sel("0xdeadbeef")).unwrap().to_string(),
             "0.001 USD"
         );
-        // selector-only match
+        // proof_type-only match
         assert_eq!(
             config
                 .pricing_overrides
-                .resolve(&addr("0x0000000000000000000000000000000000000099"), &selector)
+                .resolve(&addr("0x0000000000000000000000000000000000000099"), &proof_type)
                 .unwrap()
                 .to_string(),
             "0.005 ETH"
