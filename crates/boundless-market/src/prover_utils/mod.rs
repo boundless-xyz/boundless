@@ -175,6 +175,7 @@ pub struct OrderRequest {
     pub image_id: Option<String>,
     pub input_id: Option<String>,
     pub total_cycles: Option<u64>,
+    pub journal_bytes: Option<usize>,
     pub target_timestamp: Option<u64>,
     pub expire_timestamp: Option<u64>,
     #[serde(skip)]
@@ -198,6 +199,7 @@ impl OrderRequest {
             image_id: None,
             input_id: None,
             total_cycles: None,
+            journal_bytes: None,
             target_timestamp: None,
             expire_timestamp: None,
             cached_id: OnceLock::new(),
@@ -249,6 +251,7 @@ pub enum OrderPricingOutcome {
         max_mcycle_price: U256,
         config_min_mcycle_price: U256,
         current_mcycle_price: U256,
+        journal_len: usize,
     },
     /// Do not lock the order, but consider proving and fulfilling it after the lock expires.
     ProveAfterLockExpire {
@@ -257,6 +260,7 @@ pub enum OrderPricingOutcome {
         expiry_secs: u64,
         mcycle_price: U256,
         config_min_mcycle_price: U256,
+        journal_len: usize,
     },
     /// Do not accept engage order.
     Skip { reason: String },
@@ -601,6 +605,17 @@ pub trait OrderPricingContext {
             });
         }
 
+        // Check if the order expiry exceeds the max allowed duration
+        if let Some(max_expiry) = config.max_order_expiry_secs {
+            if seconds_left > max_expiry {
+                return Ok(Skip {
+                    reason: format!(
+                        "order expiry duration {seconds_left}s exceeds max_order_expiry_secs {max_expiry}s"
+                    ),
+                });
+            }
+        }
+
         // Check if requestor is allowed (from both static config and dynamic lists)
         if let Some(outcome) = self.check_requestor_allowed(order, denied_addresses_opt.as_ref())? {
             return Ok(outcome);
@@ -665,7 +680,7 @@ pub trait OrderPricingContext {
                         .await?,
             )
         };
-        let order_gas_cost = U256::from(gas_price) * order_gas;
+        let mut order_gas_cost = U256::from(gas_price) * order_gas;
         tracing::debug!(
             "Estimated {order_gas} gas to {} order {order_id}; {} ether @ {} gwei",
             if lock_expired { "fulfill" } else { "lock and fulfill" },
@@ -842,6 +857,7 @@ pub trait OrderPricingContext {
         }
 
         let journal = self.preflight_journal(&exec_session_id).await?;
+        let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)
             && journal.len() > config.max_journal_bytes
@@ -862,6 +878,23 @@ pub trait OrderPricingContext {
             );
             return Ok(Skip {
                 reason: "blake3 groth16 selector requires 32 byte journal".to_string(),
+            });
+        }
+
+        // Refine gas estimate with actual journal size now that preflight is complete.
+        if order_predicate_type != PredicateType::ClaimDigestMatch {
+            let journal_gas = journal_len as u64 * config.fulfill_journal_gas_per_byte;
+            order_gas_cost += U256::from(gas_price) * U256::from(journal_gas);
+        }
+
+        // Re-check gas cost now that journal calldata gas is included.
+        if order_gas_cost > U256::from(order.request.offer.maxPrice) && !lock_expired {
+            return Ok(Skip {
+                reason: format!(
+                    "after accounting for journal costs, estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
+                    format_ether(order_gas_cost),
+                    format_ether(order.request.offer.maxPrice)
+                ),
             });
         }
 
@@ -929,6 +962,7 @@ pub trait OrderPricingContext {
                 expiry_secs: order.request.offer.rampUpStart + order.request.offer.timeout as u64,
                 mcycle_price: mcycle_price_in_collateral_tokens,
                 config_min_mcycle_price: config_min_mcycle_price_collateral_tokens,
+                journal_len,
             })
         } else {
             // For lockable orders, evaluate based on ETH price
@@ -1019,6 +1053,7 @@ pub trait OrderPricingContext {
                 max_mcycle_price: mcycle_price_max,
                 config_min_mcycle_price,
                 current_mcycle_price,
+                journal_len,
             })
         }
     }

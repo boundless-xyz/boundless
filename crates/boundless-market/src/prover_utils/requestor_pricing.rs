@@ -39,6 +39,7 @@ use super::{
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
+use crate::dynamic_gas_filler::PriorityMode;
 use crate::price_oracle::{Amount, Asset, PriceOracleManager};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
@@ -287,8 +288,8 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128, OrderPricingError> {
-        self.provider
-            .get_gas_price()
+        PriorityMode::default()
+            .estimate_max_fee_per_gas(self.provider.as_ref())
             .await
             .map_err(|err| OrderPricingError::RpcErr(Arc::new(err.into())))
     }
