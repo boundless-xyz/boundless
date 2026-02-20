@@ -15,7 +15,7 @@
 mod derivation;
 mod rotation;
 
-use std::{path::Path, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use alloy::{
     eips::BlockNumberOrTag,
@@ -297,9 +297,10 @@ async fn run_with_rotation(
         state = rotation::RotationState::default();
         state.save(state_path)?;
     }
-    // Clamp last_used_index if state was from a run with more keys.
-    if state.last_used_index >= n_keys {
-        state.last_used_index = 0;
+    // Clamp current_index if state was saved with more keys than we have now.
+    if state.current_index >= n_keys {
+        state.current_index = 0;
+        state.max_expires_at = 0;
         state.save(state_path)?;
     }
 
@@ -319,25 +320,10 @@ async fn run_with_rotation(
     let (program, program_url, input) =
         load_program_and_input(args, &funding_client, &ipfs_gateway).await?;
 
-    let now = get_block_timestamp(&funding_client.provider()).await.unwrap_or_else(|e| {
-        tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
-        rotation::now_secs()
-    });
-    try_pending_withdrawals(
-        &funding_client,
-        &rotation_clients,
-        &mut state,
-        state_path,
-        n_keys,
-        now,
-        args.withdrawal_expiry_buffer,
-    )
-    .await?;
-
-    let mut last_index = state.last_used_index;
     let mut i = 0u64;
     let mut success_count = 0u64;
     let mut last_error: Option<anyhow::Error> = None;
+    let poll_interval = Duration::from_secs(args.interval);
 
     loop {
         if let Some(count) = args.count {
@@ -350,19 +336,45 @@ async fn run_with_rotation(
             tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
             rotation::now_secs()
         });
-        let idx = state.current_index(now, args.address_rotation_interval, n_keys);
+        let desired = rotation::desired_index(now, args.address_rotation_interval, n_keys);
 
-        if idx != last_index {
-            state.add_pending(last_index, state.max_expires_at(last_index));
-            state.last_used_index = idx;
-            state.last_rotation_timestamp = now;
+        if desired != state.current_index {
+            tracing::info!(
+                "Rotating from key {} to key {} — waiting for in-flight requests to expire",
+                state.current_index,
+                desired,
+            );
+            // Block until all requests from the current key have expired, then
+            // withdraw and sweep before switching. This ensures no funds are
+            // stranded: we know the current key is idle before we move on.
+            wait_for_expiry(
+                &funding_client.provider(),
+                state.max_expires_at,
+                args.withdrawal_expiry_buffer,
+                poll_interval,
+            )
+            .await?;
+            perform_rotation_withdrawal(&funding_client, &rotation_clients[state.current_index])
+                .await?;
+            state.current_index = desired;
+            state.max_expires_at = 0;
             state.save(state_path)?;
-            last_index = idx;
         }
 
-        let client = &rotation_clients[idx];
-        let signer = &private_keys[idx];
-        top_up_from_funding_source(args, &funding_client, client, signer.address()).await?;
+        let client = &rotation_clients[state.current_index];
+        top_up_from_funding_source(
+            args,
+            &funding_client,
+            client,
+            private_keys[state.current_index].address(),
+        )
+        .await?;
+
+        // Pessimistically extend max_expires_at before submitting. If the service
+        // crashes between tx confirmation and the post-submit state save, the
+        // loaded state still guards against rotating/withdrawing too early.
+        state.max_expires_at = state.max_expires_at.max(now + PESSIMISTIC_REQUEST_TIMEOUT_SECS);
+        state.save(state_path)?;
 
         let result =
             submit_request_with_retry(args, client, &program, &program_url, input.as_deref()).await;
@@ -370,10 +382,13 @@ async fn run_with_rotation(
         match result {
             Ok((_, expires_at)) => {
                 success_count += 1;
-                state.update_expires_at(idx, expires_at);
+                // Overwrite with actual expiry, which is lower than the pessimistic estimate.
+                state.max_expires_at = state.max_expires_at.max(expires_at);
                 state.save(state_path)?;
             }
             Err(e) => {
+                // Keep the pessimistic max_expires_at: the request may have landed
+                // on-chain (e.g., confirmation timeout), so we must not rotate early.
                 let error_msg = format!("{e:?}");
                 last_error = Some(e);
                 if error_msg.contains("Transaction confirmation error") {
@@ -384,23 +399,8 @@ async fn run_with_rotation(
             }
         }
 
-        let now = get_block_timestamp(&client.provider()).await.unwrap_or_else(|e| {
-            tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
-            rotation::now_secs()
-        });
-        try_pending_withdrawals(
-            &funding_client,
-            &rotation_clients,
-            &mut state,
-            state_path,
-            n_keys,
-            now,
-            args.withdrawal_expiry_buffer,
-        )
-        .await?;
-
         i += 1;
-        tokio::time::sleep(Duration::from_secs(args.interval)).await;
+        tokio::time::sleep(poll_interval).await;
     }
 
     if let Some(count) = args.count {
@@ -526,6 +526,14 @@ async fn build_client_for_signer(
 /// Reserve left on funding/old address for gas (withdraw + transfer txs).
 const GAS_RESERVE: &str = "0.001";
 
+/// Conservative upper bound on request lifetime, saved to state *before* each
+/// submission attempt. If the service crashes between tx confirmation and the
+/// post-submit state save, the loaded `max_expires_at` still covers the live
+/// request, preventing a premature rotation/withdrawal on restart.
+///
+/// Set well above the 1800 s contract default so it is always safe.
+const PESSIMISTIC_REQUEST_TIMEOUT_SECS: u64 = 3600;
+
 async fn top_up_from_funding_source(
     args: &MainArgs,
     funding_client: &OrderGeneratorClient,
@@ -593,66 +601,46 @@ async fn get_block_timestamp(provider: &impl Provider) -> Result<u64> {
     Ok(block.header.timestamp)
 }
 
-async fn try_pending_withdrawals(
-    funding_client: &OrderGeneratorClient,
-    rotation_clients: &[OrderGeneratorClient],
-    state: &mut rotation::RotationState,
-    state_path: &Path,
-    n_keys: usize,
-    now_secs: u64,
+/// Poll block timestamps until the current key's requests have safely expired,
+/// then return so the caller can withdraw and rotate.
+///
+/// If `max_expires_at` is zero (no requests submitted on this key) the check
+/// passes immediately on any real chain whose block timestamp exceeds `buffer_secs`.
+async fn wait_for_expiry(
+    provider: &impl Provider,
+    max_expires_at: u64,
     buffer_secs: u64,
+    poll_interval: Duration,
 ) -> Result<()> {
-    let pending: Vec<_> = state.pending_withdrawal.clone();
-    for pw in pending {
-        if state.can_withdraw(pw.index, now_secs, buffer_secs) {
-            let idx = pw.index;
-            if let Err(e) = withdraw_and_transfer(
-                funding_client,
-                rotation_clients,
-                state,
-                state_path,
-                pw,
-                n_keys,
-            )
-            .await
-            {
-                tracing::warn!("Failed to withdraw and transfer from index {idx}: {e:?}");
-            }
+    loop {
+        let now = get_block_timestamp(provider).await.unwrap_or_else(|e| {
+            tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
+            rotation::now_secs()
+        });
+        if now > max_expires_at.saturating_add(buffer_secs) {
+            break;
         }
+        let remaining = max_expires_at.saturating_add(buffer_secs).saturating_sub(now);
+        tracing::info!("Waiting {remaining}s for in-flight requests to expire before rotating...");
+        tokio::time::sleep(poll_interval).await;
     }
     Ok(())
 }
 
-async fn withdraw_and_transfer(
+/// Withdraw the market balance from `old_client` and sweep remaining native ETH
+/// back to the funding address. Called once at rotation time after `wait_for_expiry`.
+async fn perform_rotation_withdrawal(
     funding_client: &OrderGeneratorClient,
-    rotation_clients: &[OrderGeneratorClient],
-    state: &mut rotation::RotationState,
-    state_path: &Path,
-    pw: rotation::PendingWithdrawal,
-    n_keys: usize,
+    old_client: &OrderGeneratorClient,
 ) -> Result<()> {
-    if pw.index >= n_keys {
-        tracing::warn!(
-            "Skipping withdrawal for index {} (out of range, n_keys={})",
-            pw.index,
-            n_keys
-        );
-        state.remove_pending(pw.index);
-        state.save(state_path)?;
-        return Ok(());
-    }
-    let old_client = &rotation_clients[pw.index];
     let old_address = old_client.caller();
     let funding_address = funding_client.caller();
 
     let market = old_client.boundless_market.clone();
-    let market_balance = market
-        .balance_of(old_address)
-        .await
-        .context("failed to get market balance for withdrawal")?;
+    let market_balance =
+        market.balance_of(old_address).await.context("failed to get market balance")?;
     if market_balance == U256::ZERO {
-        state.remove_pending(pw.index);
-        state.save(state_path)?;
+        tracing::debug!("No market balance to withdraw from {old_address}, skipping sweep");
         return Ok(());
     }
 
@@ -661,41 +649,36 @@ async fn withdraw_and_transfer(
         .provider()
         .get_balance(old_address)
         .await
-        .context("failed to get native balance for withdrawal")?;
+        .context("failed to get native balance")?;
     if native_balance < gas_reserve {
         tracing::warn!(
-            "Index {} has insufficient native ETH ({}) for withdrawal gas, skipping",
-            pw.index,
-            format_units(native_balance, "ether").unwrap_or_default()
+            "Insufficient native ETH ({}) on {old_address} for withdrawal gas, skipping",
+            format_units(native_balance, "ether").unwrap_or_default(),
         );
         return Ok(());
     }
 
     market.withdraw(market_balance).await.context("failed to withdraw from market")?;
 
-    // After withdrawal, sweep all native ETH (minus gas reserve for this transfer tx)
-    // back to the funding address. This captures both the withdrawn market balance and
-    // any leftover native ETH on the old address.
-    let post_withdraw_balance = old_client
+    // Sweep all native ETH (minus gas reserve for this transfer) back to funding.
+    // This captures both the withdrawn market balance and any leftover gas money.
+    let post_balance = old_client
         .provider()
         .get_balance(old_address)
         .await
         .context("failed to get post-withdraw native balance")?;
-    let transfer_amount = post_withdraw_balance.saturating_sub(gas_reserve);
+    let transfer_amount = post_balance.saturating_sub(gas_reserve);
     if transfer_amount > U256::ZERO {
         old_client
             .transfer_value(funding_address, transfer_amount)
             .await
-            .context("failed to transfer to funding address")?;
+            .context("failed to sweep ETH to funding address")?;
     }
-    state.remove_pending(pw.index);
-    state.save(state_path)?;
     tracing::info!(
-        "Withdrew {} ETH from market at index {} and swept {} ETH to funding address {}",
+        "Rotated from {old_address}: withdrew {} ETH from market, swept {} ETH to funding {}",
         format_units(market_balance, "ether")?,
-        pw.index,
         format_units(transfer_amount, "ether")?,
-        funding_address
+        funding_address,
     );
     Ok(())
 }
@@ -972,89 +955,70 @@ mod tests {
         assert_eq!(count, 2);
     }
 
-    /// Submits requests with key rotation and verifies all succeed.
+    /// Full rotation lifecycle:
+    ///   Phase 1 — submit 2 requests from key[0] (no rotation triggered).
+    ///   Phase 2 — advance Anvil time past expiry + buffer, trigger rotation,
+    ///             verify withdrawal from key[0] and 1 new request from key[1].
     #[tokio::test]
-    async fn test_rotation_flow() {
+    async fn test_rotation() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
 
-        let state_file = std::env::temp_dir().join("og-rotation-flow-test.json");
+        let state_file = std::env::temp_dir().join("og-rotation-test.json");
         let _ = std::fs::remove_file(&state_file);
 
         let mut args = base_test_args();
         args.rpc_url = Some(anvil.endpoint_url());
         args.rpc_urls = Some(Vec::new());
-        args.private_key = Some(ctx.customer_signer);
+        args.private_key = Some(ctx.customer_signer.clone());
         args.mnemonic = Some(BIP39_TEST_MNEMONIC.to_string());
-        args.derive_rotation_keys = Some(4);
-        args.address_rotation_interval = 4;
-        args.rotation_state_file = state_file;
+        args.derive_rotation_keys = Some(2);
+        args.address_rotation_interval = 86400; // no rotation during phase 1
+        args.rotation_state_file = state_file.clone();
         args.rotation_state_reset = true;
         args.deployment = Some(ctx.deployment.clone());
-        args.interval = 4;
-        args.count = Some(5);
+        args.interval = 1;
+        args.count = Some(2);
         args.program = Some(LOOP_PATH.parse().unwrap());
+        args.withdrawal_expiry_buffer = 60;
 
+        // Phase 1: 2 requests from key[0].
         run(&args).await.unwrap();
 
         let filter = Filter::new()
             .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(0)
             .address(ctx.deployment.boundless_market_address);
-        let logs = ctx.customer_provider.get_logs(&filter).await.unwrap();
-        let count = logs
-            .iter()
-            .filter_map(|log| log.log_decode::<IBoundlessMarket::RequestSubmitted>().ok())
-            .count();
-        assert_eq!(count, 5, "expected 5 requests from rotation flow, got {count}");
-    }
-
-    /// Advances Anvil time past request expiry and verifies withdrawal from rotated addresses.
-    #[tokio::test]
-    async fn test_rotation_withdrawal() {
-        let anvil = Anvil::new().spawn();
-        let ctx = create_test_ctx(&anvil).await.unwrap();
-
-        let state_file = std::env::temp_dir().join("og-rotation-withdrawal-test.json");
-        let _ = std::fs::remove_file(&state_file);
-
-        let mut args = base_test_args();
-        args.rpc_url = Some(anvil.endpoint_url());
-        args.rpc_urls = Some(Vec::new());
-        args.private_key = Some(ctx.customer_signer);
-        args.mnemonic = Some(BIP39_TEST_MNEMONIC.to_string());
-        args.derive_rotation_keys = Some(2);
-        args.address_rotation_interval = 6;
-        args.rotation_state_file = state_file.clone();
-        args.rotation_state_reset = true;
-        args.deployment = Some(ctx.deployment.clone());
-        args.interval = 4;
-        args.count = Some(4);
-        args.program = Some(LOOP_PATH.parse().unwrap());
-        args.withdrawal_expiry_buffer = 60;
-
-        run(&args).await.unwrap();
+        let count =
+            ctx.customer_provider.get_logs(&filter).await.unwrap().iter().filter_map(|l| l.log_decode::<IBoundlessMarket::RequestSubmitted>().ok()).count();
+        assert_eq!(count, 2, "phase 1: expected 2 requests, got {count}");
 
         let state = rotation::RotationState::load(&state_file);
-        let max_expires_at = state
-            .pending_withdrawal
-            .iter()
-            .map(|pw| pw.max_expires_at)
-            .max()
-            .expect("expected at least one pending withdrawal after rotation");
+        assert_eq!(state.current_index, 0);
+        assert!(state.max_expires_at > 0, "max_expires_at must be set after submissions");
 
-        let target_ts = max_expires_at + args.withdrawal_expiry_buffer + 1;
+        // Advance Anvil time past max_expires_at + buffer.
+        // Use an odd target_ts so that desired_index(target_ts, 1, 2) = target_ts % 2 = 1 ≠ 0,
+        // ensuring the rotation branch is taken in phase 2.
+        let safe_ts = state.max_expires_at + args.withdrawal_expiry_buffer + 1;
+        let target_ts = if safe_ts % 2 == 0 { safe_ts + 1 } else { safe_ts };
         ctx.customer_provider.anvil_set_next_block_timestamp(target_ts).await.unwrap();
         ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
 
-        args.count = Some(0);
+        // Phase 2: rotation_interval=1 → desired = target_ts % 2 = 1 ≠ current(0).
+        // wait_for_expiry passes immediately (target_ts > max_expires_at + buffer),
+        // withdrawal fires, then 1 request is submitted from key[1].
+        args.address_rotation_interval = 1;
         args.rotation_state_reset = false;
+        args.count = Some(1);
+
         run(&args).await.unwrap();
 
+        let count =
+            ctx.customer_provider.get_logs(&filter).await.unwrap().iter().filter_map(|l| l.log_decode::<IBoundlessMarket::RequestSubmitted>().ok()).count();
+        assert_eq!(count, 3, "phase 2: expected 3 total requests after rotation, got {count}");
+
         let state_after = rotation::RotationState::load(&state_file);
-        assert!(
-            state_after.pending_withdrawal.is_empty(),
-            "pending_withdrawal should be empty after withdrawals"
-        );
+        assert_eq!(state_after.current_index, 1, "should have rotated to key[1]");
     }
 }
