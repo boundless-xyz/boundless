@@ -589,7 +589,6 @@ where
                     let mut should_invalidate = true;
                     match self.lock_order(order).await {
                         Ok(lock_price) => {
-                            order.reset_pre_lock_retries();
                             tracing::info!("Locked request: 0x{:x}", request_id);
                             if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
                                 tracing::error!(
@@ -614,7 +613,6 @@ where
                                 }
                                 should_invalidate = false;
                             } else {
-                                order.reset_pre_lock_retries();
                                 match err {
                                     OrderMonitorErr::UnexpectedError(inner) => {
                                         tracing::error!(

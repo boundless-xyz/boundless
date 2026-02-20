@@ -241,11 +241,6 @@ impl OrderRequest {
     pub fn increment_pre_lock_retries(&self) -> u32 {
         self.pre_lock_retries.fetch_add(1, Ordering::Relaxed) + 1
     }
-
-    /// Reset the pre-lock retry counter to zero.
-    pub fn reset_pre_lock_retries(&self) {
-        self.pre_lock_retries.store(0, Ordering::Relaxed);
-    }
 }
 
 impl std::fmt::Display for OrderRequest {
