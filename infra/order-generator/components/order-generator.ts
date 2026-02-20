@@ -41,9 +41,6 @@ interface OrderGeneratorArgs {
   maxPricePerMCycle?: string;
   secondsPerMCycle?: string;
   rampUpSecondsPerMCycle?: string;
-  lockTimeout?: string;
-  timeout?: string;
-  execRateKhz?: string;
   inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
@@ -55,6 +52,9 @@ interface OrderGeneratorArgs {
   warnBalanceBelow?: string;
   errorBalanceBelow?: string;
   txTimeout: string;
+  lockTimeout?: string;
+  timeout?: string;
+  execRateKhz?: string;
   oneShotConfig?: {
     // Number of requests to submit.
     count: string;
@@ -264,14 +264,29 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     let ogArgs = [
       `--interval ${args.interval}`,
-      `--set-verifier-address ${args.setVerifierAddr}`,
-      `--boundless-market-address ${args.boundlessMarketAddr}`,
-      `--tx-timeout ${args.txTimeout}`,
       `--min ${args.minPricePerMCycle}`,
       `--lock-collateral-raw ${args.lockCollateralRaw}`,
+      `--set-verifier-address ${args.setVerifierAddr}`,
+      `--boundless-market-address ${args.boundlessMarketAddr}`,
+      `--tx-timeout ${args.txTimeout}`
     ]
     if (args.maxPricePerMCycle) {
       ogArgs.push(`--max ${args.maxPricePerMCycle}`);
+    }
+    if (args.collateralTokenAddress) {
+      ogArgs.push(`--collateral-token-address ${args.collateralTokenAddress}`);
+    }
+    if (offchainConfig) {
+      ogArgs.push('--submit-offchain');
+    }
+    if (args.warnBalanceBelow) {
+      ogArgs.push(`--warn-balance-below ${args.warnBalanceBelow}`);
+    }
+    if (args.errorBalanceBelow) {
+      ogArgs.push(`--error-balance-below ${args.errorBalanceBelow}`);
+    }
+    if (args.inputMaxMCycles) {
+      ogArgs.push(`--input-max-mcycles ${args.inputMaxMCycles}`);
     }
     if (args.lockTimeout) {
       ogArgs.push(`--lock-timeout ${args.lockTimeout}`);
@@ -290,21 +305,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.execRateKhz) {
       ogArgs.push(`--exec-rate-khz ${args.execRateKhz}`);
-    }
-    if (args.collateralTokenAddress) {
-      ogArgs.push(`--collateral-token-address ${args.collateralTokenAddress}`);
-    }
-    if (offchainConfig) {
-      ogArgs.push('--submit-offchain');
-    }
-    if (args.warnBalanceBelow) {
-      ogArgs.push(`--warn-balance-below ${args.warnBalanceBelow}`);
-    }
-    if (args.errorBalanceBelow) {
-      ogArgs.push(`--error-balance-below ${args.errorBalanceBelow}`);
-    }
-    if (args.inputMaxMCycles) {
-      ogArgs.push(`--input-max-mcycles ${args.inputMaxMCycles}`);
     }
     if (args.oneShotConfig) {
       ogArgs.push(`--count ${args.oneShotConfig.count}`);
