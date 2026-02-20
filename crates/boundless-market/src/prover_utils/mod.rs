@@ -53,7 +53,10 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fmt,
-    sync::{Arc, OnceLock},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, OnceLock,
+    },
 };
 use thiserror::Error;
 use OrderPricingOutcome::Skip;
@@ -178,8 +181,16 @@ pub struct OrderRequest {
     pub journal_bytes: Option<usize>,
     pub target_timestamp: Option<u64>,
     pub expire_timestamp: Option<u64>,
+    /// Total gas units (lock + fulfill) estimated during pricing. Stored so the pre-lock
+    /// check can simply re-multiply by the current gas price instead of re-computing.
+    pub gas_estimate: Option<u64>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
+    /// Consecutive pre-lock check retry count. Tracked per order instance so it is
+    /// automatically cleaned up when the order leaves the cache. Uses `Arc<AtomicU32>`
+    /// so the field is `Clone` + `Send + Sync` and can be incremented through `&self`.
+    #[serde(skip)]
+    pub pre_lock_retries: Arc<AtomicU32>,
 }
 
 impl OrderRequest {
@@ -202,7 +213,9 @@ impl OrderRequest {
             journal_bytes: None,
             target_timestamp: None,
             expire_timestamp: None,
+            gas_estimate: None,
             cached_id: OnceLock::new(),
+            pre_lock_retries: Default::default(),
         }
     }
 
@@ -225,6 +238,16 @@ impl OrderRequest {
             FulfillmentType::FulfillWithoutLocking => self.request.expires_at(),
         }
     }
+
+    /// Increment the pre-lock retry counter and return the new value.
+    pub fn increment_pre_lock_retries(&self) -> u32 {
+        self.pre_lock_retries.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Reset the pre-lock retry counter to zero.
+    pub fn reset_pre_lock_retries(&self) {
+        self.pre_lock_retries.store(0, Ordering::Relaxed);
+    }
 }
 
 impl std::fmt::Display for OrderRequest {
@@ -236,92 +259,6 @@ impl std::fmt::Display for OrderRequest {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
-}
-
-/// Reason to skip locking when doing a light pre-lock check (no preflight).
-#[derive(Debug, Clone)]
-#[cfg_attr(not(feature = "prover_utils"), allow(dead_code))]
-pub enum PreLockSkipReason {
-    /// Order has expired.
-    Expired,
-    /// Estimated gas cost at current gas price exceeds order max price.
-    GasTooHigh { order_gas_cost: U256, max_price: U256 },
-    /// Selector is not supported.
-    UnsupportedSelector,
-    /// Unexpected error (e.g. from gas estimation or RPC failure).
-    Unexpected(String),
-}
-
-impl fmt::Display for PreLockSkipReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PreLockSkipReason::Expired => write!(f, "order has expired"),
-            PreLockSkipReason::GasTooHigh { order_gas_cost, max_price } => {
-                write!(
-                    f,
-                    "gas cost {} exceeds max price {}",
-                    format_ether(*order_gas_cost),
-                    format_ether(*max_price)
-                )
-            }
-            PreLockSkipReason::UnsupportedSelector => write!(f, "unsupported selector"),
-            PreLockSkipReason::Unexpected(s) => write!(f, "{s}"),
-        }
-    }
-}
-
-/// Lightweight check that an order is still ok to lock: not expired and still profitable at
-/// current gas. Does not run preflight or other heavy pricing logic. Use this before sending
-/// the lock tx to avoid overpaying when gas has spiked.
-///
-/// The function is general-purpose and handles all [`FulfillmentType`] variants. In the current
-/// lock flow it is only called for [`FulfillmentType::LockAndFulfill`] orders; the
-/// [`FulfillmentType::FulfillAfterLockExpire`] branch is included for completeness.
-pub async fn check_order_ok_to_lock(
-    order: &OrderRequest,
-    config: &MarketConfig,
-    supported_selectors: &SupportedSelectors,
-    current_gas_price: u128,
-) -> Result<(), PreLockSkipReason> {
-    let now = now_timestamp();
-    if order.expiry() <= now {
-        return Err(PreLockSkipReason::Expired);
-    }
-    if !supported_selectors.is_supported(order.request.requirements.selector) {
-        return Err(PreLockSkipReason::UnsupportedSelector);
-    }
-    let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
-    let order_gas = if lock_expired {
-        U256::from(
-            estimate_gas_to_fulfill(config, supported_selectors, &order.request)
-                .await
-                .map_err(|e| PreLockSkipReason::Unexpected(e.to_string()))?,
-        )
-    } else {
-        let lock_gas = estimate_gas_to_lock(config, order)
-            .await
-            .map_err(|e| PreLockSkipReason::Unexpected(e.to_string()))?;
-        let fulfill_gas = estimate_gas_to_fulfill(config, supported_selectors, &order.request)
-            .await
-            .map_err(|e| PreLockSkipReason::Unexpected(e.to_string()))?;
-        U256::from(lock_gas + fulfill_gas)
-    };
-    let order_gas_cost = U256::from(current_gas_price) * order_gas;
-    let max_price = U256::from(order.request.offer.maxPrice);
-    if order_gas_cost > max_price {
-        return Err(PreLockSkipReason::GasTooHigh { order_gas_cost, max_price });
-    }
-    Ok(())
-}
-
-/// Trait for checking that an order is still ok to lock immediately before sending the lock tx.
-/// Implementations can be full (e.g. re-run full pricing) or light (expiry + gas only).
-#[cfg(feature = "prover_utils")]
-#[async_trait::async_trait]
-pub trait PreLockChecker: Send + Sync {
-    /// Returns Ok(()) if the order should be locked with its current request/signature; Err with
-    /// a reason to skip locking.
-    async fn check_ok_to_lock(&self, order: &OrderRequest) -> Result<(), PreLockSkipReason>;
 }
 
 /// Outcome of order pricing.
@@ -755,6 +692,10 @@ pub trait OrderPricingContext {
                         .await?,
             )
         };
+        // Store the gas estimate on the order so the pre-lock check can re-use it
+        // instead of re-computing.
+        order.gas_estimate = Some(order_gas.saturating_to::<u64>());
+
         let mut order_gas_cost = U256::from(gas_price) * order_gas;
         tracing::debug!(
             "Estimated {order_gas} gas to {} order {order_id}; {} ether @ {} gwei",
