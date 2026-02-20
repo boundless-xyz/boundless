@@ -55,10 +55,14 @@ pub mod defaults {
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        // Observed cost of a basic single fulfill transaction is ~350k gas.
-        // Additional padding is used to account for journals up to 10kB in size.
-        // https://sepolia.etherscan.io/tx/0x14e54fbaf0c1eda20dd0828ddd64e255ffecee4562492f8c1253b0c3f20af764
-        750_000
+        // Observed cost of a basic single fulfill transaction is ~390k gas. Added a small buffer.
+        // Journal calldata costs are added separately via fulfill_journal_gas_per_byte.
+        450_000
+    }
+
+    pub const fn fulfill_journal_gas_per_byte() -> u64 {
+        // Retrieved from onchain observations.
+        26
     }
 
     pub const fn groth16_verify_gas_estimate() -> u64 {
@@ -422,6 +426,12 @@ pub struct MarketConfig {
     /// conservative default will be used.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Gas per byte of journal data submitted on-chain during fulfillment.
+    ///
+    /// Applied only for predicates that require journal data (DigestMatch, PrefixMatch).
+    /// ClaimDigestMatch predicates do not submit journal data and skip this cost.
+    #[serde(default = "defaults::fulfill_journal_gas_per_byte")]
+    pub fulfill_journal_gas_per_byte: u64,
     /// Gas estimate for proof verification using the RiscZeroGroth16Verifier
     ///
     /// Used for estimating the gas costs associated with an order during pricing. If not set a
@@ -539,6 +549,7 @@ impl Default for MarketConfig {
             max_fetch_retries: defaults::max_fetch_retries(),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            fulfill_journal_gas_per_byte: defaults::fulfill_journal_gas_per_byte(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
             additional_proof_cycles: defaults::additional_proof_cycles(),
             balance_warn_threshold: None,

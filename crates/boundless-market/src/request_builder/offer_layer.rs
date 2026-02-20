@@ -14,9 +14,11 @@
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
-    contracts::{Offer, RequestId, Requirements},
+    contracts::{Offer, PredicateType, RequestId, Requirements},
+    dynamic_gas_filler::PriorityMode,
     price_oracle::{Amount, Asset, PriceOracleManager},
     price_provider::PriceProviderArc,
+    prover_utils::config::defaults::max_journal_bytes,
     request_builder::ParameterizationMode,
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
@@ -276,9 +278,16 @@ pub struct OfferLayerConfig {
     #[builder(default = "200_000")]
     pub lock_gas_estimate: u64,
 
-    /// Estimated gas used when fulfilling a request.
-    #[builder(default = "750_000")]
+    /// Estimated gas used when fulfilling a request (base cost, excluding journal calldata).
+    #[builder(default = "450_000")]
     pub fulfill_gas_estimate: u64,
+
+    /// Gas per byte of journal data submitted on-chain during fulfillment.
+    ///
+    /// Applied only for predicates that require journal data (DigestMatch, PrefixMatch).
+    /// ClaimDigestMatch predicates do not submit journal data and skip this cost.
+    #[builder(default = "26")]
+    pub fulfill_journal_gas_per_byte: u64,
 
     /// Estimated gas used for Groth16 verification.
     #[builder(default = "250_000")]
@@ -549,9 +558,27 @@ where
         &self,
         requirements: &Requirements,
         request_id: &RequestId,
+        journal_bytes: Option<usize>,
     ) -> anyhow::Result<u64> {
         let mut gas_usage_estimate =
             self.config.lock_gas_estimate + self.config.fulfill_gas_estimate;
+
+        // Add gas for journal calldata when the predicate requires journal submission.
+        if requirements.predicate.predicateType != PredicateType::ClaimDigestMatch {
+            let len = match journal_bytes {
+                Some(len) => len,
+                None => {
+                    const MAX_JOURNAL_BYTES: usize = max_journal_bytes();
+                    tracing::warn!(
+                        "Journal size unknown; using default estimate of {MAX_JOURNAL_BYTES} bytes \
+                         for gas calculation"
+                    );
+                    MAX_JOURNAL_BYTES
+                }
+            };
+            gas_usage_estimate += len as u64 * self.config.fulfill_journal_gas_per_byte;
+        }
+
         if request_id.smart_contract_signed {
             gas_usage_estimate += self.config.smart_contract_sig_verify_gas_estimate;
         }
@@ -583,8 +610,10 @@ where
         requirements: &Requirements,
         request_id: &RequestId,
         gas_price: u128,
+        journal_bytes: Option<usize>,
     ) -> anyhow::Result<U256> {
-        let gas_usage_estimate = self.estimate_gas_usage_upper_bound(requirements, request_id)?;
+        let gas_usage_estimate =
+            self.estimate_gas_usage_upper_bound(requirements, request_id, journal_bytes)?;
 
         let gas_cost_estimate = gas_price * (gas_usage_estimate as u128);
         Ok(U256::from(gas_cost_estimate))
@@ -599,24 +628,39 @@ where
         requirements: &Requirements,
         request_id: &RequestId,
         max_price: U256,
+        journal_bytes: Option<usize>,
     ) -> anyhow::Result<U256> {
-        let gas_price: u128 = self.provider.get_gas_price().await?;
+        // Intentionally more aggressive than PriorityMode::High (50th percentile, 2.5x base fee).
+        // Requestors use the 75th percentile so that `maxPrice` has enough headroom for gas
+        // volatility between request submission and fulfillment.
+        let gas_price: u128 = PriorityMode::Custom {
+            base_fee_multiplier_percentage: 250,
+            priority_fee_multiplier_percentage: 100,
+            priority_fee_percentile: 75.0,
+            dynamic_multiplier_percentage: 7,
+        }
+        .estimate_max_fee_per_gas(&self.provider)
+        .await
+        .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
         let gas_cost_estimate =
-            self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
-        let adjusted_gas_cost_estimate = gas_cost_estimate + gas_cost_estimate;
-        let adjusted_max_price = max_price + adjusted_gas_cost_estimate;
+            self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price, journal_bytes)?;
+
+        // Use 2x the gas cost estimate to account for gas price fluctuations.
+        let gas_cost_estimate = U256::from(2) * gas_cost_estimate;
+        let adjusted_max_price = max_price + gas_cost_estimate;
         tracing::debug!(
-            "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
+            "Setting a max price of {} ether: {} max_price + {} gas_cost_estimate [gas price: {} gwei]",
             format_units(adjusted_max_price, "ether")?,
             format_units(max_price, "ether")?,
-            format_units(adjusted_gas_cost_estimate, "ether")?,
+            format_units(gas_cost_estimate, "ether")?,
             format_units(U256::from(gas_price), "gwei")?,
         );
         Ok(adjusted_max_price)
     }
 }
 
-impl<P> Layer<(&Requirements, &RequestId, Option<u64>, &OfferParams)> for OfferLayer<P>
+impl<P> Layer<(&Requirements, &RequestId, Option<u64>, Option<usize>, &OfferParams)>
+    for OfferLayer<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -625,10 +669,11 @@ where
 
     async fn process(
         &self,
-        (requirements, request_id, cycle_count, params): (
+        (requirements, request_id, cycle_count, journal_bytes, params): (
             &Requirements,
             &RequestId,
             Option<u64>,
+            Option<usize>,
             &OfferParams,
         ),
     ) -> Result<Self::Output, Self::Error> {
@@ -708,7 +753,7 @@ where
         let max_price =
             resolve_max_price(params_max_price, config_max_value, market_max_price, cycle_count);
         let max_price = if params_max_price.is_none() {
-            self.max_price_with_gas(requirements, request_id, max_price).await?
+            self.max_price_with_gas(requirements, request_id, max_price, journal_bytes).await?
         } else {
             max_price
         };
@@ -849,7 +894,10 @@ where
             .context("failed to construct requirements in OfferLayer")?;
         let request_id = self.require_request_id()?;
 
-        let offer = layer.process((&requirements, request_id, self.cycles, &self.offer)).await?;
+        let journal_bytes = self.journal.as_ref().map(|j| j.bytes.len());
+        let offer = layer
+            .process((&requirements, request_id, self.cycles, journal_bytes, &self.offer))
+            .await?;
         Ok(self.with_offer(OfferParams::from_offer(offer)))
     }
 }
