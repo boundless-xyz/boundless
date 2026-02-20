@@ -527,10 +527,23 @@ where
                             request_id
                         );
                         self.remove_order(request_id).await?;
+                    } else if err_msg.contains("already known")
+                        || err_msg.contains("known transaction")
+                        || err_msg.contains("already imported")
+                    {
+                        tracing::info!(
+                            "Slash tx for request 0x{:x} already in mempool ({}), will re-check on next tick",
+                            request_id,
+                            err_msg
+                        );
+                    } else if err_msg.contains("nonce too low") {
+                        tracing::info!(
+                            "Slash tx for request 0x{:x} nonce too low (likely already mined), will re-check on next tick",
+                            request_id,
+                        );
                     } else {
-                        // Any other error should be RPC related so we can retry
-                        // Only warn as logic will retry. If retrys fail, it will error out.
                         tracing::warn!("Failed to slash request 0x{:x}: {}", request_id, err);
+                        tracing::debug!("Full RPC error for request 0x{:x}: {:?}", request_id, err);
                         return Err(ServiceError::BoundlessMarketError(err));
                     }
                 }

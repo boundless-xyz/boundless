@@ -900,7 +900,7 @@ pub trait OrderPricingContext {
         if order_gas_cost > U256::from(order.request.offer.maxPrice) && !lock_expired {
             return Ok(Skip {
                 reason: format!(
-                    "estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
+                    "after accounting for journal costs, estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
                     format_ether(order_gas_cost),
                     format_ether(order.request.offer.maxPrice)
                 ),

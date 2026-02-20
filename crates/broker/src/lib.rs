@@ -1329,6 +1329,13 @@ mod unit_tests {
         // Deserialize and verify journal_bytes defaults to None.
         let deserialized: Order = serde_json::from_str(&json_without_field).unwrap();
         assert!(deserialized.journal_bytes.is_none());
+
+        // Verify that an explicit null also round-trips to None.
+        let mut value_null: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value_null.as_object_mut().unwrap().insert("journal_bytes".into(), serde_json::Value::Null);
+        let json_with_null = serde_json::to_string(&value_null).unwrap();
+        let deserialized_null: Order = serde_json::from_str(&json_with_null).unwrap();
+        assert!(deserialized_null.journal_bytes.is_none());
     }
 }
 
