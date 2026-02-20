@@ -12,6 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Manages the broker's requestor lists: **priority**, **allow** (whitelist), and
+//! **deny** (blacklist, configured separately via `deny_requestor_addresses`).
+//!
+//! Each list can be populated from two sources:
+//!   - Static addresses in the broker config (`priority_requestor_addresses`,
+//!     `allow_requestor_addresses`).
+//!   - Remote JSON lists fetched from URLs (`priority_requestor_lists`,
+//!     `allow_requestor_lists`), refreshed every hour.
+//!
+//! Remote lists are filtered by the broker's `chain_id` so only relevant
+//! entries are loaded.
+//!
+//! Precedence for **priority** lists: when multiple URLs contain the same
+//! address, the first URL in the config array wins (lists are processed in
+//! reverse order). For **allow** lists, all URLs are unioned (order-independent).
+//!
+//! Static config addresses always take precedence over remote entries.
+
 use crate::{
     config::ConfigLock,
     errors::CodedError,
@@ -54,7 +72,10 @@ struct CachedEntry {
     source_url: String,
 }
 
-/// Tracks priority requestors from both static config and remote lists
+/// Tracks priority requestors from both static config and remote lists.
+///
+/// Priority requestors bypass `max_mcycle_limit` and `max_file_size`, and their
+/// orders are sorted ahead of regular orders in pricing and commitment selection.
 #[derive(Clone, Debug)]
 pub struct PriorityRequestors {
     /// Map of requestor addresses to their cached entries (from remote lists)
@@ -65,7 +86,11 @@ pub struct PriorityRequestors {
     chain_id: u64,
 }
 
-/// Tracks allowed requestors from both static config and remote lists
+/// Tracks allow-listed requestors from both static config and remote lists.
+///
+/// When any allow source is configured, only orders from listed addresses are
+/// accepted. Allow-listed requestors also bypass `max_mcycle_limit` and
+/// `max_file_size`, but do not receive ordering priority.
 #[derive(Clone, Debug)]
 pub struct AllowRequestors {
     /// Map of requestor addresses to their cached entries (from remote lists)
@@ -174,7 +199,7 @@ impl AllowRequestors {
 
         // Then check static config addresses
         if let Ok(config) = self.config.lock_all() {
-            if let Some(static_addresses) = &config.market.allow_client_addresses {
+            if let Some(static_addresses) = &config.market.allow_requestor_addresses {
                 if static_addresses.contains(address) {
                     // Create a default entry for static config addresses (no extensions)
                     return Some(RequestorEntry {
@@ -704,7 +729,7 @@ mod tests {
         // Set up static config
         {
             let mut cfg = config.load_write().unwrap();
-            cfg.market.allow_client_addresses = Some(vec![static_addr]);
+            cfg.market.allow_requestor_addresses = Some(vec![static_addr]);
         }
 
         let allow_requestors = AllowRequestors::new(config, 1);

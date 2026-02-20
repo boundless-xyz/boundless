@@ -226,7 +226,7 @@ lookback_blocks = 100
 max_stake = "0.1 ZKC"
 max_file_size = 50_000_000
 max_fetch_retries = 10
-allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
+allow_requestor_addresses = ["0x0000000000000000000000000000000000000000"]
 deny_requestor_addresses = ["0x0000000000000000000000000000000000000000"]
 gas_priority_mode = "high"
 max_mcycle_limit = 10
@@ -359,7 +359,7 @@ error = ?"#;
             assert_eq!(config.market.peak_prove_khz, Some(10000));
             assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
-            assert_eq!(config.market.allow_client_addresses, Some(vec![Address::ZERO]));
+            assert_eq!(config.market.allow_requestor_addresses, Some(vec![Address::ZERO]));
             assert_eq!(
                 config.market.deny_requestor_addresses,
                 Some([Address::ZERO].into_iter().collect())

@@ -162,16 +162,14 @@ pub async fn upload_image_uri(
 
 /// Fetches and uploads input from a URL to the prover.
 ///
-/// This function:
-/// 1. For inline inputs: decodes and uploads directly
-/// 2. For URL inputs: fetches using broker config (with optional size limit bypass for priority requestors)
-/// 3. Decodes the input using GuestEnv format
-/// 4. Uploads to the prover
+/// For inline inputs, decodes and uploads directly. For URL inputs, fetches using
+/// the broker downloader. When `skip_size_limit` is true (priority or allow-listed
+/// requestors), the configured max_file_size is bypassed.
 pub async fn upload_input_uri(
     prover: &crate::provers::ProverObj,
     request: &crate::ProofRequest,
     downloader: &impl StorageDownloader,
-    priority_requestors: &crate::requestor_monitor::PriorityRequestors,
+    skip_size_limit: bool,
 ) -> Result<String> {
     Ok(match request.input.inputType {
         boundless_market::contracts::RequestInputType::Inline => prover
@@ -188,8 +186,7 @@ pub async fn upload_input_uri(
                 std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
             tracing::debug!("Input URI string: {input_uri_str}");
 
-            let client_addr = request.client_address();
-            let input = if priority_requestors.is_priority_requestor(&client_addr) {
+            let input = if skip_size_limit {
                 downloader.download_with_limit(input_uri_str, usize::MAX).await
             } else {
                 downloader.download(input_uri_str).await

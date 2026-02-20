@@ -51,7 +51,6 @@ use risc0_zkvm::sha::Digest as Risc0Digest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
     fmt,
     sync::{Arc, OnceLock},
 };
@@ -349,13 +348,14 @@ async fn upload_image_with_downloader(
 /// This is a standalone function (not a trait method) so it can be called from inside
 /// async closures like `try_get_with` without capturing `&self`.
 ///
-/// If `is_priority_requestor` is true, size limits are bypassed when fetching from URLs.
+/// If `skip_size_limit` is true, the configured max_file_size is bypassed when fetching from URLs.
+/// This applies to priority and allow-listed requestors.
 async fn upload_input_with_downloader(
     prover: &ProverObj,
     input_type: crate::contracts::RequestInputType,
     input_data: &Bytes,
     downloader: &(dyn StorageDownloader + Send + Sync),
-    is_priority_requestor: bool,
+    skip_size_limit: bool,
 ) -> anyhow::Result<String> {
     match input_type {
         crate::contracts::RequestInputType::Inline => {
@@ -367,7 +367,7 @@ async fn upload_input_with_downloader(
                 std::str::from_utf8(input_data).context("input url is not valid utf8")?;
 
             tracing::debug!("Fetching input from URI {input_url}");
-            let raw_input = if is_priority_requestor {
+            let raw_input = if skip_size_limit {
                 downloader.download_with_limit(input_url, usize::MAX).await
             } else {
                 downloader.download(input_url).await
@@ -395,14 +395,13 @@ pub trait OrderPricingContext {
     fn format_collateral(&self, value: U256) -> String {
         format_units(value, self.collateral_token_decimals()).unwrap_or_else(|_| "?".to_string())
     }
-    /// Returns the set of denied requestor addresses, if any are configured.
-    fn denied_requestor_addresses(&self) -> Result<Option<HashSet<Address>>, OrderPricingError> {
-        Ok(None)
-    }
-    fn check_requestor_allowed(
+    fn check_access_lists(
         &self,
         order: &OrderRequest,
-        denied_addresses_opt: Option<&HashSet<Address>>,
+    ) -> Result<Option<OrderPricingOutcome>, OrderPricingError>;
+    fn check_supported_selectors(
+        &self,
+        order: &OrderRequest,
     ) -> Result<Option<OrderPricingOutcome>, OrderPricingError>;
     async fn check_request_available(
         &self,
@@ -411,6 +410,12 @@ pub trait OrderPricingContext {
     #[cfg(feature = "prover_utils")]
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64, OrderPricingError>;
     fn is_priority_requestor(&self, client_addr: &Address) -> bool;
+    fn is_allow_requestor(&self, client_addr: &Address) -> bool;
+    /// Returns true if the requestor is on either the priority or allow list.
+    /// Used to bypass resource limits (`max_mcycle_limit`, `max_file_size`) only.
+    fn skip_resource_limits(&self, client_addr: &Address) -> bool {
+        self.is_priority_requestor(client_addr) || self.is_allow_requestor(client_addr)
+    }
     async fn check_available_balances(
         &self,
         order: &OrderRequest,
@@ -462,13 +467,13 @@ pub trait OrderPricingContext {
     /// Upload input data to the prover (from inline data or URL) using the downloader.
     #[cfg(feature = "prover_utils")]
     async fn upload_input(&self, order: &OrderRequest) -> Result<String, OrderPricingError> {
-        let is_priority = self.is_priority_requestor(&order.request.client_address());
+        let skip_limits = self.skip_resource_limits(&order.request.client_address());
         upload_input_with_downloader(
             self.prover(),
             order.request.input.inputType,
             &order.request.input.data,
             self.downloader().as_ref(),
-            is_priority,
+            skip_limits,
         )
         .await
         .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))
@@ -492,7 +497,7 @@ pub trait OrderPricingContext {
         let input_type = order.request.input.inputType;
         let input_data = order.request.input.data.clone();
         let order_id_clone = order_id.clone();
-        let is_priority = self.is_priority_requestor(&order.request.client_address());
+        let skip_limits = self.skip_resource_limits(&order.request.client_address());
 
         // Multiple concurrent calls of this coalesce into a single execution.
         // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
@@ -510,7 +515,7 @@ pub trait OrderPricingContext {
 
                 // Upload input using downloader
                 let input_id =
-                    upload_input_with_downloader(&prover, input_type, &input_data, downloader.as_ref(), is_priority)
+                    upload_input_with_downloader(&prover, input_type, &input_data, downloader.as_ref(), skip_limits)
                         .await
                         .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?;
 
@@ -593,7 +598,6 @@ pub trait OrderPricingContext {
 
         let config = self.market_config()?;
         let min_deadline = config.min_deadline;
-        let denied_addresses_opt = self.denied_requestor_addresses()?;
 
         // Does the order expire within the min deadline
         let seconds_left = expiration.saturating_sub(now);
@@ -616,24 +620,14 @@ pub trait OrderPricingContext {
             }
         }
 
-        // Check if requestor is allowed (from both static config and dynamic lists)
-        if let Some(outcome) = self.check_requestor_allowed(order, denied_addresses_opt.as_ref())? {
+        // Check allow and deny list access controls.
+        if let Some(outcome) = self.check_access_lists(order)? {
             return Ok(outcome);
         }
 
-        if !self.supported_selectors().is_supported(order.request.requirements.selector) {
-            return Ok(Skip {
-                reason: format!(
-                    "unsupported selector requirement. Requested: {:x}. Supported: {:?}",
-                    order.request.requirements.selector,
-                    self.supported_selectors()
-                        .selectors
-                        .iter()
-                        .map(|(k, v)| format!("{k:x} ({v:?})"))
-                        .collect::<Vec<_>>()
-                ),
-            });
-        };
+        if let Some(outcome) = self.check_supported_selectors(order)? {
+            return Ok(outcome);
+        }
 
         // Check if the collateral is sane and if we can afford it
         // For lock expired orders, we don't check the max collateral because we can't lock those orders.
@@ -1164,12 +1158,12 @@ pub trait OrderPricingContext {
             "preflight_limit ({preflight_limit}) < prove_limit ({prove_limit})",
         );
 
-        // Apply max mcycle limit cap
-        // Check if priority requestor address - skip all exec limit calculations
+        // Priority and allow-listed requestors bypass the max_mcycle_limit config cap.
+        // Gas-based limits and deadline-based limits still apply.
         let client_addr = order.request.client_address();
-        let skip_mcycle_limit = self.is_priority_requestor(&client_addr);
+        let skip_mcycle_limit = self.skip_resource_limits(&client_addr);
         if skip_mcycle_limit {
-            tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority requestors.", client_addr);
+            tracing::debug!("Order {order_id} max_mcycle_limit config ignored: client {} is on the priority or allow list.", client_addr);
         }
 
         if !skip_mcycle_limit {
