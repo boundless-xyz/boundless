@@ -1,6 +1,6 @@
 [market]
 mcycle_price = "0.00000005"
-mcycle_price_collateral_token = "0" # will fill any lock-expired orders regardless of cost
+expected_probability_win_secondary_fulfillment = 100 # assume we win all secondary fulfillments -> min_mcycle_price is used to judge whether to accept a request or not
 peak_prove_khz = 80
 min_deadline = 120
 lookback_blocks = 100

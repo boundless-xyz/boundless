@@ -559,8 +559,6 @@ mod tests {
         config.prover.req_retry_count = 3;
         config.market.min_mcycle_price =
             boundless_market::price_oracle::Amount::parse("0.00001 ETH", None).unwrap();
-        config.market.min_mcycle_price_collateral_token =
-            boundless_market::price_oracle::Amount::parse("0.0 ZKC", None).unwrap();
         config.market.min_deadline = min_deadline;
         config.batcher.min_batch_size = min_batch_size;
         // Use static prices for tests to avoid needing real price sources
