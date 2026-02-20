@@ -883,41 +883,6 @@ where
             Ok(())
         });
 
-        // Load pricing overrides if configured, with hot-reload support
-        let pricing_overrides_path = config
-            .lock_all()
-            .context("Failed to read config for pricing overrides")?
-            .market
-            .pricing_overrides_path
-            .clone();
-        let pricing_overrides = Arc::new(std::sync::RwLock::new(None));
-        if let Some(ref path) = pricing_overrides_path {
-            match boundless_market::prover_utils::PricingOverrides::load(path).await {
-                Ok(overrides) => {
-                    log_pricing_overrides(path, &overrides);
-                    *pricing_overrides.write().expect("pricing overrides lock poisoned") =
-                        Some(overrides);
-                }
-                Err(e)
-                    if e.downcast_ref::<std::io::Error>()
-                        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
-                {
-                    tracing::info!(
-                        "Pricing overrides file {} not found yet, will pick it up when created",
-                        path.display()
-                    );
-                }
-                Err(e) => return Err(e.context("Failed to load pricing overrides")),
-            }
-            let reload_overrides = pricing_overrides.clone();
-            let reload_path = path.clone();
-            let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(async move {
-                pricing_overrides_reload_task(reload_path, reload_overrides, cancel_token).await;
-                Ok(())
-            });
-        }
-
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
@@ -934,7 +899,6 @@ where
             self.allow_requestors.clone(),
             self.downloader.clone(),
             price_oracle.clone(),
-            pricing_overrides,
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1302,78 +1266,6 @@ pub mod test_utils {
                 .await?,
                 self.config_file,
             ))
-        }
-    }
-}
-
-const PRICING_OVERRIDES_RELOAD_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
-
-fn log_pricing_overrides(
-    path: &std::path::Path,
-    overrides: &boundless_market::prover_utils::PricingOverrides,
-) {
-    tracing::info!(
-        "Loaded pricing overrides from {}: {} requestor, {} selector, {} requestor+selector entries",
-        path.display(),
-        overrides.by_requestor.len(),
-        overrides.by_selector.len(),
-        overrides.by_requestor_selector.len(),
-    );
-}
-
-async fn pricing_overrides_reload_task(
-    path: PathBuf,
-    overrides: Arc<std::sync::RwLock<Option<boundless_market::prover_utils::PricingOverrides>>>,
-    cancel_token: CancellationToken,
-) {
-    let mut last_modified: Option<std::time::SystemTime> = None;
-
-    // Capture the initial mtime so the first poll only reloads on actual change.
-    if let Ok(meta) = tokio::fs::metadata(&path).await {
-        last_modified = meta.modified().ok();
-    }
-
-    loop {
-        tokio::select! {
-            _ = cancel_token.cancelled() => break,
-            _ = tokio::time::sleep(PRICING_OVERRIDES_RELOAD_INTERVAL) => {}
-        }
-
-        match tokio::fs::metadata(&path).await {
-            Ok(meta) => {
-                let modified = meta.modified().ok();
-                if modified == last_modified {
-                    continue;
-                }
-                match boundless_market::prover_utils::PricingOverrides::load(&path).await {
-                    Ok(new_overrides) => {
-                        log_pricing_overrides(&path, &new_overrides);
-                        *overrides.write().expect("pricing overrides lock poisoned") =
-                            Some(new_overrides);
-                        last_modified = modified;
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to reload pricing overrides from {}: {:#}",
-                            path.display(),
-                            e
-                        );
-                    }
-                }
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                if last_modified.is_some() {
-                    tracing::info!(
-                        "Pricing overrides file {} removed, clearing overrides",
-                        path.display()
-                    );
-                    *overrides.write().expect("pricing overrides lock poisoned") = None;
-                    last_modified = None;
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Failed to check pricing overrides file {}: {}", path.display(), e);
-            }
         }
     }
 }

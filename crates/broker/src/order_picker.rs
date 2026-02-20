@@ -94,8 +94,6 @@ pub struct OrderPicker<P> {
     allow_requestors: AllowRequestors,
     downloader: ConfigurableDownloader,
     price_oracle: Arc<PriceOracleManager>,
-    pricing_overrides:
-        Arc<std::sync::RwLock<Option<boundless_market::prover_utils::PricingOverrides>>>,
 }
 
 impl<P> OrderPicker<P>
@@ -118,9 +116,6 @@ where
         allow_requestors: AllowRequestors,
         downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
-        pricing_overrides: Arc<
-            std::sync::RwLock<Option<boundless_market::prover_utils::PricingOverrides>>,
-        >,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -158,7 +153,6 @@ where
             allow_requestors,
             downloader,
             price_oracle,
-            pricing_overrides,
         }
     }
 
@@ -287,21 +281,18 @@ where
 
     fn resolve_min_mcycle_price(&self, order: &OrderRequest) -> Result<Amount, OrderPickerErr> {
         let config = self.market_config()?;
-        let guard = self.pricing_overrides.read().expect("pricing overrides lock poisoned");
-        if let Some(overrides) = guard.as_ref() {
-            let requestor = order.request.client_address();
-            let selector = order.request.requirements.selector;
-            if let Some(amount) = overrides.resolve(&requestor, &selector) {
-                tracing::debug!(
-                    order_id = %order.id(),
-                    %requestor,
-                    %selector,
-                    override_price = %amount,
-                    global_price = %config.min_mcycle_price,
-                    "Using pricing override instead of global min_mcycle_price"
-                );
-                return Ok(amount.clone());
-            }
+        let requestor = order.request.client_address();
+        let selector = order.request.requirements.selector;
+        if let Some(amount) = config.pricing_overrides.resolve(&requestor, &selector) {
+            tracing::debug!(
+                order_id = %order.id(),
+                %requestor,
+                %selector,
+                override_price = %amount,
+                global_price = %config.min_mcycle_price,
+                "Using pricing override instead of global min_mcycle_price"
+            );
+            return Ok(amount.clone());
         }
         Ok(config.min_mcycle_price.clone())
     }
@@ -987,7 +978,6 @@ pub(crate) mod tests {
         config: Option<ConfigLock>,
         collateral_token_decimals: Option<u8>,
         prover: Option<ProverObj>,
-        pricing_overrides: Option<boundless_market::prover_utils::PricingOverrides>,
     }
 
     impl PickerTestCtxBuilder {
@@ -1006,12 +996,6 @@ pub(crate) mod tests {
         }
         pub(crate) fn with_collateral_token_decimals(self, decimals: u8) -> Self {
             Self { collateral_token_decimals: Some(decimals), ..self }
-        }
-        pub(crate) fn with_pricing_overrides(
-            self,
-            overrides: boundless_market::prover_utils::PricingOverrides,
-        ) -> Self {
-            Self { pricing_overrides: Some(overrides), ..self }
         }
         pub(crate) async fn build(
             self,
@@ -1094,7 +1078,6 @@ pub(crate) mod tests {
                 allow_requestors,
                 downloader,
                 create_test_price_oracle(),
-                Arc::new(std::sync::RwLock::new(self.pricing_overrides)),
             );
 
             PickerTestCtx {
@@ -2996,22 +2979,17 @@ pub(crate) mod tests {
         assert_eq!(baseline_prove_limit, 49_000_000u64);
 
         // Now build with a requestor override: 10x the global min_mcycle_price
-        let mut overrides = boundless_market::prover_utils::PricingOverrides::default();
-        overrides.by_requestor.insert(
+        let mut config2_market = config.lock_all().unwrap().market.clone();
+        config2_market.pricing_overrides.by_requestor.insert(
             requestor_addr,
             boundless_market::prover_utils::PricingOverrideEntry {
                 min_mcycle_price: Amount::parse(override_price, None).unwrap(),
             },
         );
-
         let config2 = ConfigLock::default();
-        config2.load_write().unwrap().market = config.lock_all().unwrap().market.clone();
+        config2.load_write().unwrap().market = config2_market;
 
-        let ctx_with_override = PickerTestCtxBuilder::default()
-            .with_config(config2)
-            .with_pricing_overrides(overrides)
-            .build()
-            .await;
+        let ctx_with_override = PickerTestCtxBuilder::default().with_config(config2).build().await;
 
         let order2 = ctx_with_override
             .generate_next_order(OrderParams {
@@ -3067,28 +3045,23 @@ pub(crate) mod tests {
         let requestor_addr = order_template.request.client_address();
         let selector = order_template.request.requirements.selector;
 
-        let mut overrides = boundless_market::prover_utils::PricingOverrides::default();
-        overrides.by_requestor.insert(
+        let mut config2_market = config.lock_all().unwrap().market.clone();
+        config2_market.pricing_overrides.by_requestor.insert(
             requestor_addr,
             boundless_market::prover_utils::PricingOverrideEntry {
                 min_mcycle_price: Amount::parse("0.005 ETH", None).unwrap(),
             },
         );
-        overrides.by_selector.insert(
+        config2_market.pricing_overrides.by_selector.insert(
             selector,
             boundless_market::prover_utils::PricingOverrideEntry {
                 min_mcycle_price: Amount::parse("0.01 ETH", None).unwrap(),
             },
         );
-
         let config2 = ConfigLock::default();
-        config2.load_write().unwrap().market = config.lock_all().unwrap().market.clone();
+        config2.load_write().unwrap().market = config2_market;
 
-        let ctx = PickerTestCtxBuilder::default()
-            .with_config(config2)
-            .with_pricing_overrides(overrides)
-            .build()
-            .await;
+        let ctx = PickerTestCtxBuilder::default().with_config(config2).build().await;
 
         let gas_cost = parse_ether("0.001").unwrap();
         let order = ctx

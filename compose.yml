@@ -283,9 +283,6 @@ services:
       - type: bind
         source: ./broker.toml
         target: /app/broker.toml
-      - type: bind
-        source: ./pricing-overrides.json
-        target: /app/pricing-overrides.json
       - broker-data:/db/
     # Uncomment when using locally built set-builder and assessor guest programs
     # - type: bind

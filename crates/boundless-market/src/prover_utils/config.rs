@@ -502,12 +502,13 @@ pub struct MarketConfig {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
-    /// Optional path to a JSON file containing per-requestor and per-selector pricing overrides.
+    /// Per-requestor and per-selector `min_mcycle_price` overrides.
     ///
-    /// The file is hot-reloaded automatically (every 60 s); no broker restart needed.
-    /// See [`PricingOverrides`] for the file format.
+    /// When the broker evaluates an order, it resolves the effective `min_mcycle_price`
+    /// with priority: `by_requestor_selector` > `by_selector` > `by_requestor` > global default.
+    /// Changes to this section are picked up automatically when the broker reloads `broker.toml`.
     #[serde(default)]
-    pub pricing_overrides_path: Option<PathBuf>,
+    pub pricing_overrides: PricingOverrides,
 }
 
 impl Default for MarketConfig {
@@ -554,7 +555,7 @@ impl Default for MarketConfig {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
-            pricing_overrides_path: None,
+            pricing_overrides: PricingOverrides::default(),
         }
     }
 }
@@ -802,16 +803,6 @@ where
 }
 
 impl PricingOverrides {
-    /// Load overrides from a JSON file.
-    #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
-    pub async fn load(path: &Path) -> Result<Self> {
-        let data = fs::read_to_string(path)
-            .await
-            .context(format!("Failed to read pricing overrides from {path:?}"))?;
-        serde_json::from_str(&data)
-            .context(format!("Failed to parse pricing overrides from {path:?}"))
-    }
-
     /// Resolve the effective `min_mcycle_price` for a given requestor and selector.
     ///
     /// Returns `Some(amount)` if an override matches, `None` to use the global default.
@@ -984,8 +975,10 @@ mod tests {
     }
 
     #[test]
-    fn test_market_config_default_has_no_overrides_path() {
+    fn test_market_config_default_has_empty_pricing_overrides() {
         let config = MarketConfig::default();
-        assert!(config.pricing_overrides_path.is_none());
+        assert!(config.pricing_overrides.by_requestor.is_empty());
+        assert!(config.pricing_overrides.by_selector.is_empty());
+        assert!(config.pricing_overrides.by_requestor_selector.is_empty());
     }
 }

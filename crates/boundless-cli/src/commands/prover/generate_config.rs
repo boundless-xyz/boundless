@@ -135,18 +135,6 @@ impl ProverGenerateConfig {
         self.generate_broker_toml(&config, broker_strategy, &display)?;
         display.item_colored("Created", self.broker_toml_file.display(), "green");
 
-        // Create pricing-overrides.json next to broker.toml if it doesn't exist
-        let pricing_overrides_path =
-            self.broker_toml_file.parent().unwrap_or(Path::new(".")).join("pricing-overrides.json");
-        if !pricing_overrides_path.exists() {
-            std::fs::write(
-                &pricing_overrides_path,
-                include_str!("../../../../../pricing-overrides.template.json"),
-            )
-            .context("Failed to write pricing-overrides.json")?;
-            display.item_colored("Created", pricing_overrides_path.display(), "green");
-        }
-
         // Backup and generate compose.yml
         if let Some(backup_path) = self.backup_file(&self.compose_yml_file)? {
             display.item_colored("Backup saved", backup_path.display(), "cyan");

@@ -392,9 +392,6 @@ localnet action="up": check-deps
                 cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
                 echo "broker.toml created successfully."
             fi
-            if [ ! -f pricing-overrides.json ]; then
-                cp pricing-overrides.template.json pricing-overrides.json 2>/dev/null || true
-            fi
             echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
             echo "To start the broker manually, run:"
             echo "source .env.localnet && cp broker-template.toml broker.toml && cargo run --bin broker"
@@ -524,9 +521,6 @@ prover action="up" env_file="" detached="true":
         echo "Creating broker.toml from template..."
         cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
         echo "broker.toml created successfully."
-    fi
-    if [ ! -f pricing-overrides.json ]; then
-        cp pricing-overrides.template.json pricing-overrides.json 2>/dev/null || true
     fi
 
     if [ "{{action}}" = "logs" ]; then

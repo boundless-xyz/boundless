@@ -64,7 +64,5 @@ prover_povw_log_id: ""
 
 # Broker configuration URL
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
-# Pricing overrides JSON (default ships with empty overrides; edit on host to take effect within 60s)
-prover_pricing_overrides_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/pricing-overrides.template.json"
 prover_docker_compose_profile: "--profile broker --profile miner"
 prover_docker_compose_invoke: ""
