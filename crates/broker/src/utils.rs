@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::aliases::U96;
+use alloy::{network::Ethereum, primitives::aliases::U96, providers::Provider};
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{PredicateType, ProofRequest},
+    prover_utils::estimate_erc1271_gas,
     selector::{ProofType, SupportedSelectors},
 };
 use risc0_zkvm::{
@@ -24,9 +25,6 @@ use risc0_zkvm::{
 };
 
 use crate::{config::ConfigLock, Order, OrderRequest, OrderStatus};
-
-/// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
-pub const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
 /// Replace the journal bytes in a [`ReceiptClaim`] with their digest to keep claims compact while
 /// preserving the existing `ReceiptClaim::digest` output.
@@ -90,17 +88,24 @@ pub(crate) async fn cancel_proof_and_fail_order(
     }
 }
 
-/// Estimate of gas for locking a single order
-/// Currently just uses the config estimate but this may change in the future
-pub(crate) async fn estimate_gas_to_lock(config: &ConfigLock, order: &OrderRequest) -> Result<u64> {
-    let mut estimate =
-        config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
-
-    if order.request.is_smart_contract_signed() {
-        estimate += ERC1271_MAX_GAS_FOR_CHECK;
-    }
-
-    Ok(estimate)
+/// Estimate of gas for locking a single order.
+///
+/// For smart-contract-signed requests, calls `eth_estimateGas` on the ERC-1271
+/// `isValidSignature` method to get a tighter estimate than the worst-case constant.
+/// Falls back to the contract-defined maximum if the address has no code or the RPC call fails.
+///
+/// Note: this path is used for capacity/balance tracking in the order monitor, not for
+/// the order-picker pricing loop. Results are not cached; each call makes up to two RPC
+/// round-trips (`eth_getCode` + `eth_estimateGas`). This is acceptable because the order
+/// monitor processes far fewer requests per second than the order-picker hot path.
+pub(crate) async fn estimate_gas_to_lock<P: Provider<Ethereum>>(
+    config: &ConfigLock,
+    order: &OrderRequest,
+    provider: &P,
+) -> Result<u64> {
+    let lockin_gas = config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
+    let erc1271_gas = estimate_erc1271_gas(order, provider).await;
+    Ok(lockin_gas + erc1271_gas)
 }
 
 /// Estimate of gas for to fulfill a single order

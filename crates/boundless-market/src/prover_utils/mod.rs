@@ -28,7 +28,8 @@ pub use config::{
 
 use crate::{
     contracts::{
-        FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError, RequestInputType,
+        erc1271::IERC1271, FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError,
+        RequestInputType,
     },
     input::GuestEnv,
     price_oracle::{scale_decimals, Amount},
@@ -37,10 +38,12 @@ use crate::{
     util::now_timestamp,
 };
 use alloy::{
+    network::Ethereum,
     primitives::{
         utils::{format_ether, format_units},
         Address, Bytes, FixedBytes, U256,
     },
+    providers::Provider,
     uint,
 };
 use anyhow::Context;
@@ -294,6 +297,13 @@ pub struct PreflightCacheKey {
 /// Cache for preflight results to avoid duplicate computations.
 pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 
+/// Cache for ERC1271 `isValidSignature` gas estimates, keyed by wallet contract address.
+///
+/// Entries are reused across orders from the same smart-contract wallet because the
+/// gas cost of `isValidSignature` is determined by the wallet's bytecode, not by the
+/// specific hash or signature being verified.
+pub type Erc1271GasCache = Arc<Cache<Address, u64>>;
+
 /// Upload an image to the prover using the provided downloader.
 ///
 /// This is a standalone function (not a trait method) so it can be called from inside
@@ -419,6 +429,19 @@ pub trait OrderPricingContext {
         lockin_collateral: U256,
     ) -> Result<Option<OrderPricingOutcome>, OrderPricingError>;
     async fn current_gas_price(&self) -> Result<u128, OrderPricingError>;
+
+    /// Estimate the additional gas required for ERC-1271 signature verification on lock.
+    ///
+    /// Returns 0 for non-smart-contract-signed orders. The default implementation falls
+    /// back to the conservative constant [`ERC1271_MAX_GAS_FOR_CHECK`]. Implementors with
+    /// access to an RPC provider should override this to call `eth_estimateGas` instead.
+    async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
+        if order.request.is_smart_contract_signed() {
+            ERC1271_MAX_GAS_FOR_CHECK
+        } else {
+            0
+        }
+    }
 
     /// Convert an Amount to ETH (using the price oracle).
     async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
@@ -675,7 +698,8 @@ pub trait OrderPricingContext {
             )
         } else {
             U256::from(
-                estimate_gas_to_lock(&config, order).await?
+                config.lockin_gas_estimate
+                    + self.estimate_erc1271_gas(order).await
                     + estimate_gas_to_fulfill(&config, self.supported_selectors(), &order.request)
                         .await?,
             )
@@ -1292,12 +1316,108 @@ async fn estimate_gas_to_fulfill(
 /// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
 const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
-async fn estimate_gas_to_lock(config: &MarketConfig, order: &OrderRequest) -> anyhow::Result<u64> {
-    let mut estimate = config.lockin_gas_estimate;
-
-    if order.request.is_smart_contract_signed() {
-        estimate += ERC1271_MAX_GAS_FOR_CHECK;
+/// Core RPC logic for estimating ERC-1271 `isValidSignature` gas.
+///
+/// Checks whether `client_addr` has deployed bytecode first; falls back to
+/// [`ERC1271_MAX_GAS_FOR_CHECK`] for EOAs and on any RPC error.
+async fn run_erc1271_estimate<P>(
+    client_addr: Address,
+    request_hash: FixedBytes<32>,
+    sig: Bytes,
+    provider: &P,
+) -> u64
+where
+    P: Provider<Ethereum>,
+{
+    // An EOA (no deployed bytecode) cannot implement isValidSignature.
+    // eth_estimateGas on an EOA succeeds but only accounts for the base call
+    // overhead (~21k), not actual verification logic.  Fall back to the
+    // conservative constant whenever the address has no code.
+    let code = provider.get_code_at(client_addr).await.unwrap_or_default();
+    if code.is_empty() {
+        tracing::debug!(
+            "Address {client_addr} has no contract code; using constant ERC1271 gas estimate"
+        );
+        return ERC1271_MAX_GAS_FOR_CHECK;
     }
 
-    Ok(estimate)
+    match IERC1271::new(client_addr, provider)
+        .isValidSignature(request_hash, sig)
+        .estimate_gas()
+        .await
+    {
+        Ok(gas) => {
+            tracing::debug!("Estimated ERC1271 gas for {client_addr}: {gas}");
+            gas
+        }
+        Err(err) => {
+            tracing::warn!(
+                "Failed to estimate ERC1271 gas for {client_addr}, using constant: {err}"
+            );
+            ERC1271_MAX_GAS_FOR_CHECK
+        }
+    }
+}
+
+/// Estimate the ERC-1271 `isValidSignature` gas for a smart-contract-signed order (uncached).
+///
+/// Returns 0 if the order is not smart-contract-signed.
+/// Returns [`ERC1271_MAX_GAS_FOR_CHECK`] when the address has no deployed code (EOA),
+/// when the RPC call fails, or when `signing_hash` fails (malformed request).
+///
+/// For hot paths that process many orders from the same wallet, prefer
+/// [`estimate_erc1271_gas_cached`] to avoid redundant RPC calls.
+pub async fn estimate_erc1271_gas<P>(order: &OrderRequest, provider: &P) -> u64
+where
+    P: Provider<Ethereum>,
+{
+    if !order.request.is_smart_contract_signed() {
+        return 0;
+    }
+
+    let client_addr = order.request.client_address();
+    let request_hash =
+        match order.request.signing_hash(order.boundless_market_address, order.chain_id) {
+            Ok(h) => h,
+            Err(_) => return ERC1271_MAX_GAS_FOR_CHECK,
+        };
+
+    run_erc1271_estimate(client_addr, request_hash, order.client_sig.clone(), provider).await
+}
+
+/// Estimate the gas used by an ERC-1271 `isValidSignature` call for a smart-contract-signed order.
+///
+/// Like [`estimate_erc1271_gas`] but results are **cached** per wallet contract address via a
+/// caller-supplied [`Erc1271GasCache`]. Use this in long-running contexts (e.g. order pricing
+/// loops) where many orders may arrive from the same smart-contract wallet.
+///
+/// Returns 0 if the order is not smart-contract-signed.
+/// Returns [`ERC1271_MAX_GAS_FOR_CHECK`] when the address has no deployed code (EOA) or
+/// when the RPC call fails.
+pub async fn estimate_erc1271_gas_cached<P>(
+    order: &OrderRequest,
+    provider: &Arc<P>,
+    cache: &Erc1271GasCache,
+) -> u64
+where
+    P: Provider<Ethereum> + 'static,
+{
+    if !order.request.is_smart_contract_signed() {
+        return 0;
+    }
+
+    let client_addr = order.request.client_address();
+    let request_hash =
+        match order.request.signing_hash(order.boundless_market_address, order.chain_id) {
+            Ok(h) => h,
+            Err(_) => return ERC1271_MAX_GAS_FOR_CHECK,
+        };
+    let sig = order.client_sig.clone();
+    let provider = provider.clone(); // cheap Arc clone
+
+    cache
+        .get_with(client_addr, async move {
+            run_erc1271_estimate(client_addr, request_hash, sig, &provider).await
+        })
+        .await
 }

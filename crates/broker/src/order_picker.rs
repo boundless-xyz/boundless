@@ -26,8 +26,8 @@ use crate::{
     provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, ConfigurableDownloader, FulfillmentType, OrderPricingContext, OrderPricingError,
-    OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
+    utils, ConfigurableDownloader, Erc1271GasCache, FulfillmentType, OrderPricingContext,
+    OrderPricingError, OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
 };
 use alloy::{
     network::Ethereum,
@@ -38,7 +38,8 @@ use anyhow::{Context, Result};
 use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
-    selector::SupportedSelectors, storage::StorageDownloader,
+    prover_utils::estimate_erc1271_gas_cached, selector::SupportedSelectors,
+    storage::StorageDownloader,
 };
 use moka::{future::Cache, policy::EvictionPolicy};
 use tokio::{
@@ -58,6 +59,10 @@ type OrderCache = Arc<Cache<String, ()>>;
 /// Configuration for preflight result caching
 const PREFLIGHT_CACHE_SIZE: u64 = 5000;
 const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
+
+/// ERC1271 gas cache: store estimates per wallet contract address, expire after 1 hour.
+const ERC1271_GAS_CACHE_SIZE: u64 = 256;
+const ERC1271_GAS_CACHE_TTL_SECS: u64 = 60 * 60; // 1 hour
 
 type OrderPickerErr = OrderPricingError;
 
@@ -89,6 +94,7 @@ pub struct OrderPicker<P> {
     collateral_token_decimals: u8,
     order_cache: OrderCache,
     preflight_cache: PreflightCache,
+    erc1271_gas_cache: Erc1271GasCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
     allow_requestors: AllowRequestors,
@@ -146,6 +152,13 @@ where
                     .eviction_policy(EvictionPolicy::lru())
                     .max_capacity(PREFLIGHT_CACHE_SIZE)
                     .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
+                    .build(),
+            ),
+            erc1271_gas_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .max_capacity(ERC1271_GAS_CACHE_SIZE)
+                    .time_to_live(Duration::from_secs(ERC1271_GAS_CACHE_TTL_SECS))
                     .build(),
             ),
             order_state_tx,
@@ -461,6 +474,10 @@ where
 
     async fn current_gas_price(&self) -> Result<u128, OrderPickerErr> {
         Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?)
+    }
+
+    async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
+        estimate_erc1271_gas_cached(order, &self.provider, &self.erc1271_gas_cache).await
     }
 
     async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPickerErr> {

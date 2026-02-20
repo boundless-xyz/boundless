@@ -185,8 +185,9 @@ enum OrderStatus {
 }
 
 pub use boundless_market::prover_utils::{
-    FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
-    OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue, ProveLimitReason,
+    Erc1271GasCache, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
+    OrderPricingOutcome, OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue,
+    ProveLimitReason,
 };
 
 /// Message sent from MarketMonitor to OrderPicker about order state changes

@@ -618,17 +618,18 @@ where
     ) -> Result<U256, OrderMonitorErr> {
         // Calculate gas units needed for this order (lock + fulfill)
         let order_gas_units = if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-            U256::from(utils::estimate_gas_to_lock(&self.config, order).await?).saturating_add(
-                U256::from(
-                    utils::estimate_gas_to_fulfill(
-                        &self.config,
-                        &self.supported_selectors,
-                        &order.request,
-                        order.journal_bytes,
-                    )
-                    .await?,
-                ),
+            U256::from(
+                utils::estimate_gas_to_lock(&self.config, order, self.provider.as_ref()).await?,
             )
+            .saturating_add(U256::from(
+                utils::estimate_gas_to_fulfill(
+                    &self.config,
+                    &self.supported_selectors,
+                    &order.request,
+                    order.journal_bytes,
+                )
+                .await?,
+            ))
         } else {
             U256::from(
                 utils::estimate_gas_to_fulfill(
