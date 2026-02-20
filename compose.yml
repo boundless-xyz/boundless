@@ -278,7 +278,6 @@ services:
 
   broker:
     <<: *broker-common
-    working_dir: /app # needed for source-build Dockerfile which doesn't set WORKDIR in the runtime stage
     volumes:
       - type: bind
         source: ./broker.toml
