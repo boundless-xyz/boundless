@@ -65,9 +65,11 @@ ansible-playbook -i inventory.yml prover.yml \
 
 | Variable                        | Default / typical                       | Description                                                                               |
 | ------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `prover_agent_dockerfile`       | `dockerfiles/agent.prebuilt.dockerfile` | Agent image (explorer CPU: `agent.cpu.dockerfile`; build from source: `agent.dockerfile`) |
-| `prover_rest_api_dockerfile`    | (role default)                          | REST API Dockerfile path                                                                  |
-| `prover_broker_dockerfile`      | (role default)                          | Broker Dockerfile path (when broker is used)                                              |
+| `prover_boundless_build`        | `""`                                    | Set to `"all"` to build from source (clears image vars, adds `--build`)                   |
+| `prover_image_version`          | `""`                                    | Image version for pre-built images (e.g. `1.2`); empty uses `latest`                     |
+| `prover_agent_dockerfile`       | `""`                                    | Agent Dockerfile override (e.g. `dockerfiles/agent.cpu.dockerfile` for CPU-only)          |
+| `prover_rest_api_dockerfile`    | `""`                                    | REST API Dockerfile override                                                              |
+| `prover_broker_dockerfile`      | `""`                                    | Broker Dockerfile override                                                                |
 | `prover_docker_compose_invoke`  | `""`                                    | Services to run (e.g. `exec_agent rest_api caddy` for explorer)                           |
 | `prover_docker_compose_profile` | `--profile broker --profile miner`      | Compose profiles (explorer: `--profile caddy`)                                            |
 | `prover_docker_runtime`         | `nvidia`                                | Docker runtime (`runc` for CPU-only explorer)                                             |
@@ -235,9 +237,8 @@ all:
 prover_84532_staging_nightly:
   hosts:
     dev-prover:
-      prover_agent_dockerfile: dockerfiles/agent.dockerfile
-      prover_rest_api_dockerfile: dockerfiles/rest_api.dockerfile
-      prover_broker_dockerfile: dockerfiles/broker.dockerfile
+      prover_boundless_build: "all"
+      prover_version: main
       prover_postgres_password: "dev_password"
       prover_minio_root_pass: "dev_password"
       prover_rpc_urls: "https://..."

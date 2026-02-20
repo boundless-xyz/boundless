@@ -49,10 +49,19 @@ prover_snark_timeout: "180"
 prover_executor_count: 4
 prover_aux_worker_count: 2
 
-# Options: dockerfiles/agent.prebuilt.dockerfile or dockerfiles/agent.dockerfile
-prover_agent_dockerfile: "dockerfiles/agent.prebuilt.dockerfile"
-# Options: dockerfiles/broker.prebuilt.dockerfile or dockerfiles/broker.dockerfile
-prover_broker_dockerfile: "dockerfiles/broker.prebuilt.dockerfile"
+# Set to "all" to build all images from source (nightly), or leave empty to use pre-built images (release)
+prover_boundless_build: ""
+# Docker image version for pre-built images (ignored when building from source)
+# Tags are constructed per image: bento-agent uses "bento-v{version}", broker uses "broker-v{version}",
+# bento-rest-api uses "bento-v{version}". Set to e.g. "1.2" for the v1.2 release tags.
+# When empty, "latest" is used for all images.
+prover_image_version: ""
+
+# Optional Dockerfile overrides (e.g. "dockerfiles/agent.cpu.dockerfile" for CPU-only hosts)
+# Leave empty to use compose.yml defaults.
+prover_agent_dockerfile: ""
+prover_broker_dockerfile: ""
+prover_rest_api_dockerfile: ""
 
 # BLAKE3 Groth16 artifacts URL (required for GPU proving)
 prover_blake3_groth16_url: "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
