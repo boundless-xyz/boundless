@@ -1842,7 +1842,7 @@ pub(crate) mod tests {
 
         // Check logs for the expected message about skipping mcycle limit
         assert!(logs_contain(&format!(
-            "Order {order_id} exec limit config ignored due to client {} being part of priority requestors.",
+            "Order {order_id} max_mcycle_limit config ignored: client {} is on the priority or allow list.",
             ctx.provider.default_signer_address()
         )));
 
