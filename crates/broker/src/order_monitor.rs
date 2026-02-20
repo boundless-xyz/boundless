@@ -19,7 +19,7 @@ use crate::{
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, Order, OrderRequest,
+    utils, Erc1271GasCache, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
     network::Ethereum,
@@ -159,13 +159,14 @@ pub struct OrderMonitor<P> {
     lock_and_prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     supported_selectors: SupportedSelectors,
+    erc1271_gas_cache: Erc1271GasCache,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
 }
 
 impl<P> OrderMonitor<P>
 where
-    P: Provider<Ethereum> + WalletProvider,
+    P: Provider<Ethereum> + WalletProvider + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -230,6 +231,13 @@ where
                     .build(),
             ),
             supported_selectors: SupportedSelectors::default(),
+            erc1271_gas_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .max_capacity(256)
+                    .time_to_live(Duration::from_secs(60 * 60))
+                    .build(),
+            ),
             rpc_retry_config,
             gas_priority_mode,
         };
@@ -619,7 +627,13 @@ where
         // Calculate gas units needed for this order (lock + fulfill)
         let order_gas_units = if order.fulfillment_type == FulfillmentType::LockAndFulfill {
             U256::from(
-                utils::estimate_gas_to_lock(&self.config, order, self.provider.as_ref()).await?,
+                utils::estimate_gas_to_lock(
+                    &self.config,
+                    order,
+                    &self.provider,
+                    &self.erc1271_gas_cache,
+                )
+                .await?,
             )
             .saturating_add(U256::from(
                 utils::estimate_gas_to_fulfill(

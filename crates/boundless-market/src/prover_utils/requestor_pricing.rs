@@ -305,7 +305,7 @@ where
     }
 
     async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
-        super::estimate_erc1271_gas_cached(order, &self.provider, &self.erc1271_gas_cache).await
+        super::estimate_erc1271_gas(order, &self.provider, &self.erc1271_gas_cache).await
     }
 
     async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {

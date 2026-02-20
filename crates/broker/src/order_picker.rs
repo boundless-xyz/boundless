@@ -38,8 +38,7 @@ use anyhow::{Context, Result};
 use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
-    prover_utils::estimate_erc1271_gas_cached, selector::SupportedSelectors,
-    storage::StorageDownloader,
+    prover_utils::estimate_erc1271_gas, selector::SupportedSelectors, storage::StorageDownloader,
 };
 use moka::{future::Cache, policy::EvictionPolicy};
 use tokio::{
@@ -477,7 +476,7 @@ where
     }
 
     async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
-        estimate_erc1271_gas_cached(order, &self.provider, &self.erc1271_gas_cache).await
+        estimate_erc1271_gas(order, &self.provider, &self.erc1271_gas_cache).await
     }
 
     async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPickerErr> {

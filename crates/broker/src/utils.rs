@@ -16,9 +16,11 @@ use alloy::{network::Ethereum, primitives::aliases::U96, providers::Provider};
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{PredicateType, ProofRequest},
-    prover_utils::estimate_erc1271_gas,
+    prover_utils::{estimate_erc1271_gas, Erc1271GasCache},
     selector::{ProofType, SupportedSelectors},
 };
+use std::sync::Arc;
+
 use risc0_zkvm::{
     sha::{Impl as ShaImpl, Sha256},
     MaybePruned, ReceiptClaim,
@@ -93,18 +95,14 @@ pub(crate) async fn cancel_proof_and_fail_order(
 /// For smart-contract-signed requests, calls `eth_estimateGas` on the ERC-1271
 /// `isValidSignature` method to get a tighter estimate than the worst-case constant.
 /// Falls back to the contract-defined maximum if the address has no code or the RPC call fails.
-///
-/// Note: this path is used for capacity/balance tracking in the order monitor, not for
-/// the order-picker pricing loop. Results are not cached; each call makes up to two RPC
-/// round-trips (`eth_getCode` + `eth_estimateGas`). This is acceptable because the order
-/// monitor processes far fewer requests per second than the order-picker hot path.
-pub(crate) async fn estimate_gas_to_lock<P: Provider<Ethereum>>(
+pub(crate) async fn estimate_gas_to_lock<P: Provider<Ethereum> + 'static>(
     config: &ConfigLock,
     order: &OrderRequest,
-    provider: &P,
+    provider: &Arc<P>,
+    cache: &Erc1271GasCache,
 ) -> Result<u64> {
     let lockin_gas = config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
-    let erc1271_gas = estimate_erc1271_gas(order, provider).await;
+    let erc1271_gas = estimate_erc1271_gas(order, provider, cache).await;
     Ok(lockin_gas + erc1271_gas)
 }
 
