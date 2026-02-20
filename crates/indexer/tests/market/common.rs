@@ -109,7 +109,7 @@ pub async fn create_isolated_db_pool(base_name: &str) -> (String, PgPool) {
 
 /// Extract the database connection string from a sqlx::test PgPool.
 /// sqlx::test creates an isolated database per test with a unique name.
-async fn get_db_url_from_pool(pool: &PgPool) -> String {
+pub async fn get_db_url_from_pool(pool: &PgPool) -> String {
     let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
     let db_name: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(pool)
