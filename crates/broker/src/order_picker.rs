@@ -59,7 +59,6 @@ type OrderCache = Arc<Cache<String, ()>>;
 const PREFLIGHT_CACHE_SIZE: u64 = 5000;
 const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
 
-
 type OrderPickerErr = OrderPricingError;
 
 impl CodedError for OrderPricingError {
