@@ -989,8 +989,14 @@ mod tests {
             .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
             .from_block(0)
             .address(ctx.deployment.boundless_market_address);
-        let count =
-            ctx.customer_provider.get_logs(&filter).await.unwrap().iter().filter_map(|l| l.log_decode::<IBoundlessMarket::RequestSubmitted>().ok()).count();
+        let count = ctx
+            .customer_provider
+            .get_logs(&filter)
+            .await
+            .unwrap()
+            .iter()
+            .filter_map(|l| l.log_decode::<IBoundlessMarket::RequestSubmitted>().ok())
+            .count();
         assert_eq!(count, 2, "phase 1: expected 2 requests, got {count}");
 
         let state = rotation::RotationState::load(&state_file);
@@ -1014,8 +1020,14 @@ mod tests {
 
         run(&args).await.unwrap();
 
-        let count =
-            ctx.customer_provider.get_logs(&filter).await.unwrap().iter().filter_map(|l| l.log_decode::<IBoundlessMarket::RequestSubmitted>().ok()).count();
+        let count = ctx
+            .customer_provider
+            .get_logs(&filter)
+            .await
+            .unwrap()
+            .iter()
+            .filter_map(|l| l.log_decode::<IBoundlessMarket::RequestSubmitted>().ok())
+            .count();
         assert_eq!(count, 3, "phase 2: expected 3 total requests after rotation, got {count}");
 
         let state_after = rotation::RotationState::load(&state_file);
