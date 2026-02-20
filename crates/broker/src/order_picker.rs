@@ -387,12 +387,13 @@ where
             return Ok(Skip { reason: "order has expired".to_string() });
         };
 
-        let (min_deadline, denied_addresses_opt, min_mcycle_limit) = {
+        let (min_deadline, denied_addresses_opt, min_mcycle_limit, max_order_expiry_secs) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             (
                 config.market.min_deadline,
                 config.market.deny_requestor_addresses.clone(),
                 config.market.min_mcycle_limit,
+                config.market.max_order_expiry_secs,
             )
         };
 
@@ -404,6 +405,17 @@ where
                     "order expires in {seconds_left} seconds with min_deadline {min_deadline}"
                 ),
             });
+        }
+
+        // Check if the order expiry exceeds the max allowed duration
+        if let Some(max_expiry) = max_order_expiry_secs {
+            if seconds_left > max_expiry {
+                return Ok(Skip {
+                    reason: format!(
+                        "order expiry duration {seconds_left}s exceeds max_order_expiry_secs {max_expiry}s"
+                    ),
+                });
+            }
         }
 
         // Check if requestor is allowed (from both static config and dynamic lists)
