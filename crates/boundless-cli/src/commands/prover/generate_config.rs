@@ -26,7 +26,7 @@ use alloy::primitives::U256;
 use alloy::providers::Provider;
 use anyhow::{bail, Context, Result};
 use boundless_market::indexer_client::IndexerClient;
-use boundless_market::price_oracle::Asset;
+use boundless_market::price_oracle::{Amount, Asset, PriceOracleManager, TradingPair};
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
@@ -36,7 +36,9 @@ use boundless_market::{
 use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use url::Url;
 
 // Priority requestor list URLs
@@ -47,9 +49,20 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
 
+/// POVW epochs API base URL for ZKC subsidy rate (emissions per work).
+const POVW_EPOCHS_URL: &str = "https://d3ig5wxf8178te.cloudfront.net/v1/povw/epochs?limit=10";
+
 // Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
 // orders locked by other provers that exceeded their lock timeout
 const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.0005 ZKC";
+
+/// Competitive cost floor based on vast.ai 4×RTX 5090 pricing at $0.10 per billion cycles.
+/// 1 billion cycles = 1 000 Mcycles  →  $0.10 / 1000 = $0.0001 USD / Mcycle.
+/// No prover using commodity hardware can profitably serve orders priced below this.
+const COMPETITIVE_PRICE_FLOOR_USD_PER_MCYCLE: f64 = 0.0001;
+
+/// 1 BCycle (billion cycles) = 1000 Mcycles. Used to convert display (BCycle) to config (Mcycle).
+const MCYCLES_PER_BCYCLE: f64 = 1000.0;
 
 mod selection_strings {
     // Benchmark performance options
@@ -93,6 +106,10 @@ struct WizardConfig {
     max_collateral: String,
     min_mcycle_price: String,
     min_mcycle_price_collateral_token: String,
+    /// Hourly infra cost entered by the user (USD). None if the user skipped.
+    hourly_infra_cost_usd: Option<f64>,
+    /// ZKC subsidy per Mcycle in USD (from POVW epochs + price oracle). Used in cost breakdown and comments.
+    zkc_subsidy_per_mcycle_usd: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -403,6 +420,19 @@ impl ProverGenerateConfig {
             }
         };
 
+        // Fetch ZKC subsidy per Mcycle (from POVW epochs + price oracle) for cost breakdown and config.
+        let zkc_subsidy_per_mcycle_usd =
+            match estimate_zkc_subsidy_per_mcycle_usd(price_oracle.clone()).await {
+                Ok(v) => v,
+                Err(e) => {
+                    display.warning(&format!(
+                        "Could not compute ZKC subsidy ({}); using 0 for cost breakdown.",
+                        e
+                    ));
+                    0.0
+                }
+            };
+
         let recommended_collateral = match priority_requestor_lists.len() {
             1 => &format!(
                 "{} USD",
@@ -460,6 +490,81 @@ impl ProverGenerateConfig {
         display.separator();
         display.step(7, 7, "Pricing Configuration");
 
+        // ── 7a: Infra cost estimation ─────────────────────────────────────────────
+        display.note("Infrastructure Cost Estimation:");
+        display.note("");
+        display.note("Enter your total cluster cost per hour (electricity + rental, in USD).");
+        display.note(
+            "This is used to compute the minimum ETH price per billion cycles (BCycle) at which",
+        );
+        display.note("proving is profitable, accounting for ZKC mining as a baseline income.");
+        display.note("Enter 0 to skip and fall back to market-percentile pricing only.");
+        display.note("");
+
+        let hourly_cost_input = Text::new("Hourly infrastructure cost (USD):")
+            .with_default("0")
+            .with_help_message("e.g. '2.80' for a 4×RTX 5090 cluster on vast.ai. Enter 0 to skip.")
+            .prompt()
+            .context("Failed to get hourly infrastructure cost")?;
+
+        let hourly_infra_cost_usd: Option<f64> = {
+            let val = hourly_cost_input.parse::<f64>().context("Invalid cost value")?;
+            if val > 0.0 {
+                Some(val)
+            } else {
+                None
+            }
+        };
+
+        // Compute cost-based floor and display breakdown when cost was provided.
+        let cost_floor_usd_per_mcycle: Option<f64> = if let Some(hourly_cost) =
+            hourly_infra_cost_usd
+        {
+            let cost_per_mcycle = infra_cost_per_mcycle_usd(hourly_cost, peak_prove_khz);
+            let eth_floor = (cost_per_mcycle - zkc_subsidy_per_mcycle_usd).max(0.0);
+
+            display.note("");
+            display.note("  Cost breakdown (per billion cycles, BCycle):");
+            display.item_colored(
+                "  Infra cost / BCycle",
+                format!("${:.6} USD", cost_per_mcycle * MCYCLES_PER_BCYCLE),
+                "cyan",
+            );
+            display.item_colored(
+                "  ZKC subsidy / BCycle",
+                format!("-${:.6} USD", zkc_subsidy_per_mcycle_usd * MCYCLES_PER_BCYCLE),
+                "cyan",
+            );
+            display.note("  ─────────────────────────────────────────");
+            display.item_colored(
+                "  Cost floor / BCycle",
+                format!("${:.6} USD", eth_floor * MCYCLES_PER_BCYCLE),
+                "green",
+            );
+            display.note("  (infra cost − ZKC subsidy = cost floor)");
+            display.note("");
+
+            // Compare against the competitive benchmark ($0.10/BCycle = $0.0001/Mcycle)
+            let benchmark_per_bcycle = COMPETITIVE_PRICE_FLOOR_USD_PER_MCYCLE * MCYCLES_PER_BCYCLE;
+            if eth_floor >= COMPETITIVE_PRICE_FLOOR_USD_PER_MCYCLE {
+                display.note(&format!(
+                    "  Your cost floor (${:.6}/BCycle) is above the vast.ai 4×RTX 5090 \
+                     benchmark (${:.2}/BCycle).",
+                    eth_floor * MCYCLES_PER_BCYCLE,
+                    benchmark_per_bcycle
+                ));
+                display.note(
+                    "  You may face cost pressure from provers running more efficient clusters.",
+                );
+            }
+            display.note("");
+
+            Some(eth_floor.min(COMPETITIVE_PRICE_FLOOR_USD_PER_MCYCLE))
+        } else {
+            None
+        };
+
+        // ── 7b: Market pricing analysis (existing) ────────────────────────────────
         display.note("Analyzing recent market prices to determine competitive pricing...");
         display.note("");
 
@@ -503,12 +608,12 @@ impl ProverGenerateConfig {
                 display.item_colored(
                     "Median price",
                     format!(
-                        "{} / Mcycle",
+                        "{} / BCycle",
                         format_amount_with_conversion(
                             &format!(
                                 "{} ETH",
                                 format_units(
-                                    price_percentiles.p50 * U256::from(1_000_000),
+                                    price_percentiles.p50 * U256::from(1_000_000_000u64),
                                     "ether"
                                 )?
                             ),
@@ -522,12 +627,12 @@ impl ProverGenerateConfig {
                 display.item_colored(
                     "25th percentile",
                     format!(
-                        "{} / Mcycle",
+                        "{} / BCycle",
                         format_amount_with_conversion(
                             &format!(
                                 "{} ETH",
                                 format_units(
-                                    price_percentiles.p25 * U256::from(1_000_000),
+                                    price_percentiles.p25 * U256::from(1_000_000_000u64),
                                     "ether"
                                 )?
                             ),
@@ -547,55 +652,157 @@ impl ProverGenerateConfig {
             }
         };
 
+        // ── 7c: Recommendation ────────────────────────────────────────────────────
         // Prompt user to accept or override
         let min_mcycle_price = if let Some(pricing) = market_pricing {
-            display.note("");
-            display.note(&format!(
-                "Recommended minimum price: {} / Mcycle",
-                format_amount_with_conversion(
-                    &format!("{} ETH", format_units(pricing.p25 * U256::from(1_000_000), "ether")?),
-                    None,
-                    price_oracle.clone()
-                )
-                .await,
-            ));
-            display.note("");
-            display
-                .note("This value is computed based on recent market prices. It ensures you are");
-            display
-                .note("priced competitively such that you will be able to lock and fulfill orders");
-            display.note("for ETH rewards in the market.");
-            display.note("");
-            display.note("Example: If set to 0.00000001 ETH/Mcycle, a 1000 Mcycle order must");
-            display.note("         offer at least 0.00001 ETH for your broker to accept it.");
+            let market_p25_usd = try_convert_to_usd(
+                &format!(
+                    "{} ETH",
+                    format_units(pricing.p25 * U256::from(1_000_000_000u64), "ether")?
+                ),
+                price_oracle.clone(),
+            )
+            .await;
+
             display.note("");
 
-            display.note("You can specify the price in ETH or USD:");
-            display.note("  • ETH: Price in ETH per mega-cycle (e.g., '0.00000001 ETH')");
-            display.note("  • USD: Price in USD per mega-cycle, converted to ETH at runtime (e.g., '0.02 USD')");
+            // When we have a cost-based floor, show both and recommend the higher one. All in BCycle.
+            // When cost floor is 0 (subsidy >= infra), recommend market 25th percentile instead of 0.
+            let recommended_default = if let Some(floor_usd) = cost_floor_usd_per_mcycle {
+                let cost_floor_per_bcycle = floor_usd * MCYCLES_PER_BCYCLE;
+                // try_convert_to_usd returns e.g. "0.010409 USD"; parse numeric part only
+                let market_p25_f64: f64 = market_p25_usd
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.0);
+                let cost_floor_is_zero = cost_floor_per_bcycle <= 0.0;
+
+                display.item_colored(
+                    "Market 25th percentile",
+                    format!("{} / BCycle  (reference)", market_p25_usd),
+                    "cyan",
+                );
+                if cost_floor_is_zero {
+                    display.item_colored(
+                        "Cost-based floor",
+                        "0.000000 USD / BCycle  (subsidy covers infra)",
+                        "green",
+                    );
+                    display.note("  (min of cost floor and vast.ai benchmark $0.10/BCycle)");
+                    display.note("");
+                    display.note(
+                        "Your cost floor is zero; we recommend the market 25th percentile below \
+                         to stay competitive.",
+                    );
+                    market_p25_usd.clone()
+                } else {
+                    display.item_colored(
+                        "Cost-based floor",
+                        format!("{:.6} USD / BCycle  (recommended)", cost_floor_per_bcycle),
+                        "green",
+                    );
+                    display.note("  (min of cost floor and vast.ai benchmark $0.10/BCycle)");
+                    display.note("");
+                    if cost_floor_per_bcycle > market_p25_f64 {
+                        display.warning(
+                            "Your cost-based floor is above current market levels; consider improving \
+                             efficiency or accepting lower margins to compete.",
+                        );
+                        display.note("");
+                        display.note(
+                            "The recommended minimum below uses your cost floor so you don't lose \
+                             money; improving efficiency would let you compete at market and still be \
+                             profitable.",
+                        );
+                    } else {
+                        display.note("Your cost-based floor is in line with or below market.");
+                        display.note("");
+                        display
+                            .note("The recommended price is the higher of your cost floor and the");
+                        display
+                            .note("market 25th percentile, ensuring you are both profitable and");
+                        display.note("competitive.");
+                    }
+                    format!("{:.6} USD", cost_floor_per_bcycle)
+                }
+            } else {
+                display.note(&format!(
+                    "Recommended minimum price: {} / BCycle",
+                    format_amount_with_conversion(
+                        &format!(
+                            "{} ETH",
+                            format_units(pricing.p25 * U256::from(1_000_000_000u64), "ether")?
+                        ),
+                        None,
+                        price_oracle.clone()
+                    )
+                    .await,
+                ));
+                display.note("");
+                display.note(
+                    "This value is computed based on recent market prices. It ensures you are",
+                );
+                display.note(
+                    "priced competitively such that you will be able to lock and fulfill orders",
+                );
+                display.note("for ETH rewards in the market.");
+                market_p25_usd
+            };
+
+            display.note("");
+            display.note("Example: If set to 0.01 ETH/BCycle, a 1 BCycle order must");
+            display.note("         offer at least 0.01 ETH for your broker to accept it.");
+            display.note("");
+            display.note("You can specify the price in ETH or USD (per billion cycles):");
+            display.note("  • ETH: Price in ETH per BCycle (e.g., '0.01 ETH')");
+            display.note(
+                "  • USD: Price in USD per BCycle, converted to ETH at runtime (e.g., '20 USD')",
+            );
             display.note("");
 
-            prompt_validated_amount(
-                "Minimum price per Mcycle:",
-                &try_convert_to_usd(
-                    &format!(
-                        "{} ETH",
-                        &format_units(pricing.p25 * U256::from(1_000_000), "ether")?
-                    ),
-                    price_oracle.clone(),
-                )
-                .await,
-                "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
+            let raw_input = prompt_validated_amount(
+                "Minimum price per BCycle (billion cycles):",
+                &recommended_default,
+                "Format: '<value> ETH' or '<value> USD'. Stored as per-Mcycle in broker.toml.",
                 &[Asset::USD, Asset::ETH],
                 "min_mcycle_price",
-            )?
+            )?;
+            amount_per_bcycle_to_per_mcycle(&raw_input)?
         } else {
-            // Fallback to manual entry if query failed
-            Text::new("Minimum price per mcycle (ETH):")
-                .with_default("0.00000001 ETH")
-                .with_help_message("You can update this later in broker.toml")
+            // Fallback to manual entry if market query failed
+            let fallback_default = if let Some(floor_usd) = cost_floor_usd_per_mcycle {
+                let floor_per_bcycle = floor_usd * MCYCLES_PER_BCYCLE;
+                if floor_per_bcycle <= 0.0 {
+                    display.item_colored(
+                        "Cost-based floor",
+                        "0.000000 USD / BCycle  (subsidy covers infra)",
+                        "green",
+                    );
+                    display.note("  Cost floor is zero; enter a minimum price (e.g. 0.00001 ETH) or accept default.");
+                    display.note("");
+                    "0.00001 ETH".to_string()
+                } else {
+                    display.item_colored(
+                        "Cost-based floor",
+                        format!("{:.6} USD / BCycle  (recommended)", floor_per_bcycle),
+                        "green",
+                    );
+                    display.note("  (min of cost floor and vast.ai benchmark $0.10/BCycle)");
+                    display.note("");
+                    format!("{:.6} USD", floor_per_bcycle)
+                }
+            } else {
+                "0.00001 ETH".to_string()
+            };
+            let raw_input = Text::new("Minimum price per BCycle (ETH):")
+                .with_default(&fallback_default)
+                .with_help_message(
+                    "You can update this later in broker.toml. Value is stored per Mcycle.",
+                )
                 .prompt()
-                .context("Failed to get price")?
+                .context("Failed to get price")?;
+            amount_per_bcycle_to_per_mcycle(&raw_input)?
         };
 
         // Collateral token pricing
@@ -607,29 +814,28 @@ impl ProverGenerateConfig {
         display.note("they are slashed. A portion of their collateral (in ZKC) becomes available");
         display.note("as a reward for any prover who can fulfill that order in a 'proof race'.");
         display.note("");
-        display.note("You can specify the price in ZKC or USD:");
-        display.note("  • ZKC: Price in ZKC per mega-cycle (e.g., '0.0005 ZKC')");
-        display.note(
-            "  • USD: Price in USD per mega-cycle, converted to ZKC at runtime (e.g., '0.02 USD')",
-        );
+        display.note("You can specify the price in ZKC or USD (per billion cycles):");
+        display.note("  • ZKC: Price in ZKC per BCycle (e.g., '0.5 ZKC')");
+        display
+            .note("  • USD: Price in USD per BCycle, converted to ZKC at runtime (e.g., '20 USD')");
+        let default_collateral_bcycle =
+            amount_per_mcycle_to_per_bcycle(DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN)
+                .unwrap_or_else(|_| "0.5 ZKC".to_string());
         display.note(&format!(
-            "The recommended price per Mcycle is: {}",
-            format_amount_with_conversion(
-                DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
-                None,
-                price_oracle.clone(),
-            )
-            .await
+            "The recommended price per BCycle is: {}",
+            format_amount_with_conversion(&default_collateral_bcycle, None, price_oracle.clone(),)
+                .await
         ));
         display.note("");
 
-        let min_mcycle_price_collateral_token = prompt_validated_amount(
-            "Minimum price per Mcycle (collateral rewards):",
-            DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
-            "Format: '<value> ZKC' or '<value> USD'. You can update this later in broker.toml",
+        let raw_collateral = prompt_validated_amount(
+            "Minimum price per BCycle (collateral rewards):",
+            &default_collateral_bcycle,
+            "Format: '<value> ZKC' or '<value> USD'. Stored as per-Mcycle in broker.toml.",
             &[Asset::USD, Asset::ZKC],
             "min_mcycle_price_collateral_token",
         )?;
+        let min_mcycle_price_collateral_token = amount_per_bcycle_to_per_mcycle(&raw_collateral)?;
 
         Ok(WizardConfig {
             num_threads,
@@ -643,6 +849,8 @@ impl ProverGenerateConfig {
             max_collateral,
             min_mcycle_price,
             min_mcycle_price_collateral_token,
+            hourly_infra_cost_usd,
+            zkc_subsidy_per_mcycle_usd,
         })
     }
 
@@ -1076,6 +1284,25 @@ impl ProverGenerateConfig {
                 };
 
                 if should_update {
+                    // Add a comment explaining how the price was derived
+                    let cost_comment = if let Some(hourly_cost) = config.hourly_infra_cost_usd {
+                        let cost_per_mcycle =
+                            infra_cost_per_mcycle_usd(hourly_cost, config.peak_prove_khz);
+                        let zkc_subsidy = config.zkc_subsidy_per_mcycle_usd;
+                        format!(
+                            "\n# Cost-based floor: min(cost floor, $0.0001/Mcycle benchmark). \
+                             Cost floor = ${:.2}/hr ÷ ({:.0} kHz × 3.6 Mcycles/hr/kHz) − ${:.8} ZKC subsidy = ${:.8} USD/Mcycle.\n",
+                            hourly_cost,
+                            config.peak_prove_khz,
+                            zkc_subsidy,
+                            cost_per_mcycle - zkc_subsidy,
+                        )
+                    } else {
+                        "\n# Set from market 25th percentile pricing.\n".to_string()
+                    };
+                    if let Some(value) = item.as_value_mut() {
+                        value.decor_mut().set_prefix(cost_comment);
+                    }
                     *item = toml_edit::value(config.min_mcycle_price.clone());
                 }
             }
@@ -1345,6 +1572,127 @@ fn gpu_memory_to_segment_size(memory_mib: u32) -> u32 {
         16_385..=20_480 => 20, // <= 20GB
         _ => 21,               // > 20GB (including 40GB+)
     }
+}
+
+/// Returns the infrastructure cost per Mcycle in USD.
+///
+/// `hourly_cost_usd` – total cluster cost per hour (e.g. electricity + rental).
+/// `peak_prove_khz`  – peak proving throughput in kHz (kilo-cycles per second).
+///
+/// Formula: mcycles_per_hour = peak_prove_khz × 3.6
+///          (kHz = 1000 cycles/sec  →  × 3600 sec/hr  ÷ 1 000 000 cycles/Mcycle = × 3.6)
+fn infra_cost_per_mcycle_usd(hourly_cost_usd: f64, peak_prove_khz: f64) -> f64 {
+    let mcycles_per_hour = peak_prove_khz * 3.6;
+    if mcycles_per_hour > 0.0 {
+        hourly_cost_usd / mcycles_per_hour
+    } else {
+        0.0
+    }
+}
+
+/// Converts an amount string from "per BCycle" (user input in wizard) to "per Mcycle" for broker config.
+fn amount_per_bcycle_to_per_mcycle(amount_str: &str) -> Result<String> {
+    let amount = Amount::parse(amount_str.trim(), None).context("Invalid amount format")?;
+    let new_value = amount.value / U256::from(1000u32);
+    Ok(Amount::new(new_value, amount.asset).format())
+}
+
+/// Converts an amount string from "per Mcycle" (config/default) to "per BCycle" for wizard display.
+fn amount_per_mcycle_to_per_bcycle(amount_str: &str) -> Result<String> {
+    let amount = Amount::parse(amount_str.trim(), None).context("Invalid amount format")?;
+    let new_value = amount.value.checked_mul(U256::from(1000u32)).context("Amount overflow")?;
+    Ok(Amount::new(new_value, amount.asset).format())
+}
+
+/// Response shape for POVW epochs API (only fields we need).
+#[derive(Debug, Deserialize)]
+struct PovwEpochsResponse {
+    entries: Vec<PovwEpochEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PovwEpochEntry {
+    /// Total emissions in atto-ZKC (18 decimals) for this epoch.
+    total_emissions: String,
+    /// Total work in cycles for this epoch.
+    total_work: String,
+}
+
+/// Estimates the ZKC mining subsidy per Mcycle in USD.
+///
+/// Fetches recent POVW epochs from the Boundless API, computes average ZKC per cycle
+/// (total_emissions / total_work, with emissions in 18 decimals), converts to ZKC per Mcycle,
+/// then to USD via the price oracle when available.
+///
+/// When no ETH orders are available, the GPU mines ZKC at 100% utilization.
+/// Each ETH order displaces ZKC mining, so the ZKC revenue foregone is an
+/// opportunity cost that partially offsets infrastructure costs.
+async fn estimate_zkc_subsidy_per_mcycle_usd(
+    price_oracle: Option<Arc<PriceOracleManager>>,
+) -> Result<f64> {
+    let client = reqwest::Client::builder()
+        .user_agent(format!("Boundless-CLI/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("Failed to build HTTP client")?;
+    let response = client
+        .get(POVW_EPOCHS_URL)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to fetch POVW epochs")?;
+    let status = response.status();
+    let body = response.text().await.context("Failed to read POVW response body")?;
+    if !status.is_success() {
+        anyhow::bail!("POVW API returned {}: {}", status, body.lines().next().unwrap_or("").trim());
+    }
+    let response: PovwEpochsResponse = serde_json::from_str(&body)
+        .context("Failed to parse POVW epochs JSON (check API response shape)")?;
+
+    if response.entries.is_empty() {
+        return Ok(0.0);
+    }
+
+    // Formula: ZKC per Mcycle = (total emissions in ZKC) / (total work in Mcycles).
+    // API gives total_emissions in atto-ZKC (18 decimals), total_work in cycles.
+    const ATTO_ZKC_PER_ZKC: f64 = 1e18; // 1 ZKC = 10^18 atto-ZKC
+    const CYCLES_PER_MCYCLE: f64 = 1_000_000.0;
+
+    let mut sum_zkc_per_mcycle = 0.0;
+    let mut count = 0u32;
+    for entry in &response.entries {
+        let total_work_cycles: f64 = entry.total_work.parse().context("Invalid total_work")?;
+        if total_work_cycles <= 0.0 {
+            continue;
+        }
+        let total_emissions_atto: f64 =
+            entry.total_emissions.parse().context("Invalid total_emissions")?;
+        // Convert: emissions atto-ZKC → ZKC; work cycles → Mcycles. Then ZKC/Mcycle = emissions / work.
+        let total_emissions_zkc = total_emissions_atto / ATTO_ZKC_PER_ZKC;
+        let total_work_mcycles = total_work_cycles / CYCLES_PER_MCYCLE;
+        let zkc_per_mcycle = total_emissions_zkc / total_work_mcycles;
+        sum_zkc_per_mcycle += zkc_per_mcycle;
+        count += 1;
+    }
+
+    if count == 0 {
+        return Ok(0.0);
+    }
+
+    let zkc_per_mcycle = sum_zkc_per_mcycle / (count as f64);
+
+    // Convert ZKC per Mcycle → USD per Mcycle using oracle rate (f64 to avoid truncation).
+    let usd_per_mcycle = match &price_oracle {
+        None => 0.0,
+        Some(oracle) => {
+            let rate = oracle
+                .get_rate(TradingPair::ZkcUsd)
+                .await
+                .context("Price oracle ZKC/USD rate unavailable")?;
+            zkc_per_mcycle * rate.rate_to_f64()
+        }
+    };
+
+    Ok(usd_per_mcycle)
 }
 
 // Bento health check
