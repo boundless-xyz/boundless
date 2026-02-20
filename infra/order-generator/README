@@ -38,3 +38,112 @@ When all four are set, the evm-requestor uses S3; otherwise it falls back to the
 1. pulumi login --local
 2. pulumi stack select dev
 3. pulumi up
+
+# Load Testing
+
+The order generator includes a Lambda-triggered load test that runs the order generator
+as a one-shot ECS Fargate task. This lets you run load tests on demand without modifying
+any running services.
+
+## Setup
+
+Set a dedicated private key for load tests in your Pulumi config:
+
+```bash
+pulumi config set --secret order-generator-load-test:PRIVATE_KEY <private-key>
+```
+
+Then deploy:
+
+```bash
+pulumi up
+```
+
+The Lambda function name will be printed in the Pulumi outputs (it follows the pattern
+`<stack>-og-load-test-<chain-id>-trigger`).
+
+## Running a Load Test
+
+Use the trigger script from the `infra/order-generator` directory:
+
+```bash
+./scripts/trigger-load-test.sh --lambda-name <lambda-name> [OPTIONS]
+```
+
+### Cycle Counts
+
+Each request generates a random cycle count between 1 and `--input-max-mcycles` Mcycles.
+For example, `--input-max-mcycles 100` means each request will have a random workload
+between 1 and 100 million cycles. The default is 1000 Mcycles.
+
+### Examples
+
+Run 50 offchain requests, one every 10 seconds, with small workloads (1-10 Mcycles):
+
+```bash
+./scripts/trigger-load-test.sh \
+  --lambda-name dev-og-load-test-84532-trigger \
+  --interval 10 \
+  --count 50 \
+  --submit-offchain \
+  --input-max-mcycles 10
+```
+
+Run 200 onchain requests, one every 5 seconds, with larger workloads (up to 500 Mcycles):
+
+```bash
+./scripts/trigger-load-test.sh \
+  --lambda-name dev-og-load-test-84532-trigger \
+  --interval 5 \
+  --count 200 \
+  --input-max-mcycles 500
+```
+
+Run with all defaults (10 onchain requests, 60s apart, 1-1000 Mcycles each):
+
+```bash
+./scripts/trigger-load-test.sh \
+  --lambda-name dev-og-load-test-84532-trigger
+```
+
+### All Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `--lambda-name` | (required) | Lambda function name |
+| `--interval` | 60 | Seconds between requests |
+| `--count` | 10 | Number of requests to submit |
+| `--submit-offchain` | false | Submit requests offchain (default: onchain) |
+| `--input-max-mcycles` | 1000 | Max random cycle count per request in Mcycles |
+| `--min` | 0.001 | Minimum price per mcycle in ether |
+| `--max` | 0.002 | Maximum price per mcycle in ether |
+| `--ramp-up` | 240 | Ramp-up period in seconds |
+| `--lock-timeout` | 900 | Lock-in timeout in seconds |
+| `--timeout` | 1800 | Request expiry timeout in seconds |
+| `--seconds-per-mcycle` | 20 | Additional seconds per 1M cycles added to timeout |
+| `--ramp-up-seconds-per-mcycle` | 20 | Additional seconds per 1M cycles added to ramp-up |
+| `--exec-rate-khz` | 2000 | Execution rate in kHz for bidding start delay |
+| `--lock-collateral-raw` | 0 | Lock-in stake amount in ether |
+| `--tx-timeout` | 180 | Transaction timeout in seconds |
+| `--region` | us-west-2 | AWS region |
+
+### Cancelling a Load Test
+
+When you start a load test, the script prints a cancel command. You can also cancel manually:
+
+```bash
+./scripts/trigger-load-test.sh \
+  --lambda-name dev-og-load-test-84532-trigger \
+  --cancel \
+  --task-arn arn:aws:ecs:us-west-2:123456:task/cluster-name/task-id
+```
+
+### Building the Lambda
+
+If you modify the Lambda handler, rebuild it before deploying:
+
+```bash
+cd load-test-trigger-lambda
+npm install
+npm run build
+```

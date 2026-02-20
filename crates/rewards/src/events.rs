@@ -23,6 +23,9 @@ use alloy::{
 use anyhow::Context;
 use boundless_povw::{deployments::Deployment, log_updater::IPovwAccounting};
 
+/// Maximum block range per eth_getLogs request. Many RPC providers (e.g. Alchemy, Infura) enforce 10_000.
+const MAX_ETH_GETLOGS_BLOCK_RANGE: u64 = 10_000;
+
 /// Container for all event logs needed for rewards computation
 #[derive(Debug)]
 pub struct AllEventLogs {
@@ -49,10 +52,11 @@ pub async fn query_logs_chunked<P: Provider>(
     block_chunk_size: u64,
 ) -> anyhow::Result<Vec<Log>> {
     let mut all_logs = Vec::new();
+    let effective_chunk = block_chunk_size.min(MAX_ETH_GETLOGS_BLOCK_RANGE);
 
     let mut current_from = from_block;
     while current_from <= to_block {
-        let current_to = (current_from + block_chunk_size - 1).min(to_block);
+        let current_to = (current_from + effective_chunk - 1).min(to_block);
 
         let chunk_filter = filter
             .clone()

@@ -39,6 +39,7 @@ use super::{
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
+use crate::dynamic_gas_filler::PriorityMode;
 use crate::price_oracle::{Amount, Asset, PriceOracleManager};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
@@ -287,8 +288,8 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128, OrderPricingError> {
-        self.provider
-            .get_gas_price()
+        PriorityMode::default()
+            .estimate_max_fee_per_gas(self.provider.as_ref())
             .await
             .map_err(|err| OrderPricingError::RpcErr(Arc::new(err.into())))
     }
@@ -297,12 +298,13 @@ where
         if amount.asset == Asset::ETH {
             return Ok(amount.clone());
         }
-        let oracle = self.price_oracle.as_ref().ok_or_else(|| {
-            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                "Price conversion from {} to ETH not available (requires price oracle)",
+        let Some(oracle) = self.price_oracle.as_ref() else {
+            tracing::warn!(
+                "Skipping price check: conversion from {} to ETH requires a price oracle (configure one for accurate preflight)",
                 amount.asset
-            )))
-        })?;
+            );
+            return Ok(Amount::new(U256::ZERO, Asset::ETH));
+        };
         oracle.convert(amount, Asset::ETH).await.map_err(|e| {
             OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
                 "Failed to convert {} to ETH: {}",
@@ -316,12 +318,13 @@ where
         if amount.asset == Asset::ZKC {
             return Ok(amount.clone());
         }
-        let oracle = self.price_oracle.as_ref().ok_or_else(|| {
-            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                "Price conversion from {} to ZKC not available (requires price oracle)",
+        let Some(oracle) = self.price_oracle.as_ref() else {
+            tracing::warn!(
+                "Skipping price check: conversion from {} to ZKC requires a price oracle (configure one for accurate preflight)",
                 amount.asset
-            )))
-        })?;
+            );
+            return Ok(Amount::new(U256::MAX, Asset::ZKC));
+        };
         oracle.convert(amount, Asset::ZKC).await.map_err(|e| {
             OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
                 "Failed to convert {} to ZKC: {}",

@@ -13,6 +13,6 @@
         "dotenv": "^16.5.0"
     },
     "scripts": {
-        "build": "tsc"
+        "build": "tsc && cd load-test-trigger-lambda && npm install && npm run build"
     }
 }
