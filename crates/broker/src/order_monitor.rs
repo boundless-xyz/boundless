@@ -1088,8 +1088,6 @@ pub(crate) mod tests {
     use tokio::task::JoinSet;
     use tracing_test::traced_test;
 
-    use boundless_market::dynamic_gas_filler::PriorityMode;
-
     type TestProvider = FillProvider<
         JoinFill<
             JoinFill<
