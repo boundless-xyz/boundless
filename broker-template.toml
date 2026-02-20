@@ -34,13 +34,13 @@ min_mcycle_price = "0.00002 USD"
 # Uncomment and populate any of the sections below to enable overrides:
 #
 # [market.pricing_overrides.by_requestor]
-# "0xAbC...123" = { min_mcycle_price = "0.0001 USD" }
+# "0xAbC...123" = "0.0001 USD"
 #
 # [market.pricing_overrides.by_selector]
-# "0x12345678" = { min_mcycle_price = "0.0005 USD" }
+# "0x12345678" = "0.0005 USD"
 #
 # [market.pricing_overrides.by_requestor_selector]
-# "0xAbC...123:0x12345678" = { min_mcycle_price = "0.001 USD" }
+# "0xAbC...123:0x12345678" = "0.001 USD"
 
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
 # to attempt to fulfill an order in the case that the order was locked by another prover

@@ -2980,12 +2980,10 @@ pub(crate) mod tests {
 
         // Now build with a requestor override: 10x the global min_mcycle_price
         let mut config2_market = config.lock_all().unwrap().market.clone();
-        config2_market.pricing_overrides.by_requestor.insert(
-            requestor_addr,
-            boundless_market::prover_utils::PricingOverrideEntry {
-                min_mcycle_price: Amount::parse(override_price, None).unwrap(),
-            },
-        );
+        config2_market
+            .pricing_overrides
+            .by_requestor
+            .insert(requestor_addr, Amount::parse(override_price, None).unwrap());
         let config2 = ConfigLock::default();
         config2.load_write().unwrap().market = config2_market;
 
@@ -3046,18 +3044,14 @@ pub(crate) mod tests {
         let selector = order_template.request.requirements.selector;
 
         let mut config2_market = config.lock_all().unwrap().market.clone();
-        config2_market.pricing_overrides.by_requestor.insert(
-            requestor_addr,
-            boundless_market::prover_utils::PricingOverrideEntry {
-                min_mcycle_price: Amount::parse("0.005 ETH", None).unwrap(),
-            },
-        );
-        config2_market.pricing_overrides.by_selector.insert(
-            selector,
-            boundless_market::prover_utils::PricingOverrideEntry {
-                min_mcycle_price: Amount::parse("0.01 ETH", None).unwrap(),
-            },
-        );
+        config2_market
+            .pricing_overrides
+            .by_requestor
+            .insert(requestor_addr, Amount::parse("0.005 ETH", None).unwrap());
+        config2_market
+            .pricing_overrides
+            .by_selector
+            .insert(selector, Amount::parse("0.01 ETH", None).unwrap());
         let config2 = ConfigLock::default();
         config2.load_write().unwrap().market = config2_market;
 
