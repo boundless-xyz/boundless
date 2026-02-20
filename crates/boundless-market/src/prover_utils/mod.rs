@@ -433,7 +433,7 @@ pub trait OrderPricingContext {
     /// Estimate the additional gas required for ERC-1271 signature verification on lock.
     ///
     /// Returns 0 for non-smart-contract-signed orders. The default implementation falls
-    /// back to the conservative constant [`ERC1271_MAX_GAS_FOR_CHECK`]. Implementors with
+    /// back to the conservative constant `ERC1271_MAX_GAS_FOR_CHECK`. Implementors with
     /// access to an RPC provider should override this to call `eth_estimateGas` instead.
     async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
         if order.request.is_smart_contract_signed() {
@@ -1319,7 +1319,7 @@ const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 /// Core RPC logic for estimating ERC-1271 `isValidSignature` gas.
 ///
 /// Checks whether `client_addr` has deployed bytecode first; falls back to
-/// [`ERC1271_MAX_GAS_FOR_CHECK`] for EOAs and on any RPC error.
+/// `ERC1271_MAX_GAS_FOR_CHECK` for EOAs and on any RPC error.
 async fn run_erc1271_estimate<P>(
     client_addr: Address,
     request_hash: FixedBytes<32>,
@@ -1362,7 +1362,7 @@ where
 /// Estimate the ERC-1271 `isValidSignature` gas for a smart-contract-signed order (uncached).
 ///
 /// Returns 0 if the order is not smart-contract-signed.
-/// Returns [`ERC1271_MAX_GAS_FOR_CHECK`] when the address has no deployed code (EOA),
+/// Returns `ERC1271_MAX_GAS_FOR_CHECK` when the address has no deployed code (EOA),
 /// when the RPC call fails, or when `signing_hash` fails (malformed request).
 ///
 /// For hot paths that process many orders from the same wallet, prefer
@@ -1392,7 +1392,7 @@ where
 /// loops) where many orders may arrive from the same smart-contract wallet.
 ///
 /// Returns 0 if the order is not smart-contract-signed.
-/// Returns [`ERC1271_MAX_GAS_FOR_CHECK`] when the address has no deployed code (EOA) or
+/// Returns `ERC1271_MAX_GAS_FOR_CHECK` when the address has no deployed code (EOA) or
 /// when the RPC call fails.
 pub async fn estimate_erc1271_gas_cached<P>(
     order: &OrderRequest,
