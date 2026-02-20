@@ -1223,9 +1223,8 @@ pub(crate) mod tests {
         ctx.provider.anvil_mine(Some(1), None).await.unwrap();
 
         let gas_price = ctx.picker.current_gas_price().await.unwrap();
-        // Base gas: lock (200k) + fulfill (450k) = 650k.
         // Use the midpoint (50%) so the test price has margin above base and below base+extra_gas.
-        let base_gas: u64 = 200_000 + 450_000; // lockin_gas_estimate + fulfill_gas_estimate
+        let base_gas: u64 = defaults::lockin_gas_estimate() + defaults::fulfill_gas_estimate();
         let target_gas = base_gas + extra_gas / 2;
         U256::from(gas_price) * U256::from(target_gas)
     }
@@ -1487,7 +1486,8 @@ pub(crate) mod tests {
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(
-            logs_contain("estimated gas cost to lock and fulfill order of")
+            logs_contain("after accounting for journal costs")
+                && logs_contain("estimated gas cost to lock and fulfill order of")
                 && logs_contain("exceeds max price")
         );
     }

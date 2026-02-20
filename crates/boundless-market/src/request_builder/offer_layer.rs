@@ -630,7 +630,9 @@ where
         max_price: U256,
         journal_bytes: Option<usize>,
     ) -> anyhow::Result<U256> {
-        // Use custom priority mode with a base fee multiplier of 250x, priority fee multiplier of 100x, priority fee percentile of 75.0, and dynamic multiplier percentage of 7 to give a buffer for gas price fluctuations.
+        // Intentionally more aggressive than PriorityMode::High (50th percentile, 2.5x base fee).
+        // Requestors use the 75th percentile so that `maxPrice` has enough headroom for gas
+        // volatility between request submission and fulfillment.
         let gas_price: u128 = PriorityMode::Custom {
             base_fee_multiplier_percentage: 250,
             priority_fee_multiplier_percentage: 100,
