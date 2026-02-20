@@ -279,24 +279,6 @@ where
         Ok(config.market.deny_requestor_addresses.clone())
     }
 
-    fn resolve_min_mcycle_price(&self, order: &OrderRequest) -> Result<Amount, OrderPickerErr> {
-        let config = self.market_config()?;
-        let requestor = order.request.client_address();
-        let selector = order.request.requirements.selector;
-        if let Some(amount) = config.pricing_overrides.resolve(&requestor, &selector) {
-            tracing::debug!(
-                order_id = %order.id(),
-                %requestor,
-                %selector,
-                override_price = %amount,
-                global_price = %config.min_mcycle_price,
-                "Using pricing override instead of global min_mcycle_price"
-            );
-            return Ok(amount.clone());
-        }
-        Ok(config.min_mcycle_price.clone())
-    }
-
     fn supported_selectors(&self) -> &SupportedSelectors {
         &self.supported_selectors
     }
