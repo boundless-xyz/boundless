@@ -1116,7 +1116,7 @@ pub(crate) mod tests {
         pub priced_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pub signer: PrivateKeySigner,
         pub market_service: BoundlessMarketService<Arc<TestProvider>>,
-        next_order_id: u32,
+        next_order_id: u32, // Counter to assign unique order IDs
     }
 
     impl TestCtx {
@@ -1251,7 +1251,7 @@ pub(crate) mod tests {
             priced_order_tx,
             signer,
             market_service,
-            next_order_id: 1,
+            next_order_id: 1, // Initialize with 1 instead of 0
         }
     }
 
