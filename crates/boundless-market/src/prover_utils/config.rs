@@ -902,20 +902,18 @@ mod tests {
     }
 
     #[test]
-    fn test_json_round_trip() {
-        let json = r#"{
-            "by_requestor": {
-                "0x0000000000000000000000000000000000000001": { "min_mcycle_price": "0.001 USD" }
-            },
-            "by_selector": {
-                "0x12345678": { "min_mcycle_price": "0.005 ETH" }
-            },
-            "by_requestor_selector": {
-                "0x0000000000000000000000000000000000000001:0x12345678": { "min_mcycle_price": "0.01 USD" }
-            }
-        }"#;
+    fn test_toml_round_trip() {
+        let toml = r#"
+[by_requestor]
+"0x0000000000000000000000000000000000000001" = { min_mcycle_price = "0.001 USD" }
 
-        let overrides: PricingOverrides = serde_json::from_str(json).unwrap();
+[by_selector]
+"0x12345678" = { min_mcycle_price = "0.005 ETH" }
+
+[by_requestor_selector]
+"0x0000000000000000000000000000000000000001:0x12345678" = { min_mcycle_price = "0.01 USD" }
+"#;
+        let overrides: PricingOverrides = toml::from_str(toml).unwrap();
 
         assert_eq!(overrides.by_requestor.len(), 1);
         assert_eq!(overrides.by_selector.len(), 1);
@@ -936,42 +934,92 @@ mod tests {
     }
 
     #[test]
-    fn test_json_serialize_deserialize_round_trip() {
-        let requestor = addr("0x0000000000000000000000000000000000000001");
-        let selector = sel("0x12345678");
+    fn test_toml_multiple_entries() {
+        let toml = r#"
+[by_requestor]
+"0x0000000000000000000000000000000000000001" = { min_mcycle_price = "0.001 USD" }
+"0x0000000000000000000000000000000000000002" = { min_mcycle_price = "0.002 USD" }
 
-        let mut overrides = PricingOverrides::default();
-        overrides.by_requestor.insert(requestor, entry("0.001 USD"));
-        overrides.by_selector.insert(selector, entry("0.005 ETH"));
-        overrides.by_requestor_selector.insert((requestor, selector), entry("0.01 USD"));
+[by_selector]
+"0x12345678" = { min_mcycle_price = "0.005 ETH" }
+"0xdeadbeef" = { min_mcycle_price = "0.01 ETH" }
 
-        let json = serde_json::to_string(&overrides).unwrap();
-        let deserialized: PricingOverrides = serde_json::from_str(&json).unwrap();
+[by_requestor_selector]
+"0x0000000000000000000000000000000000000001:0x12345678" = { min_mcycle_price = "0.001 USD" }
+"0x0000000000000000000000000000000000000002:0xdeadbeef" = { min_mcycle_price = "0.002 USD" }
+"#;
+        let overrides: PricingOverrides = toml::from_str(toml).unwrap();
 
-        assert_eq!(deserialized.by_requestor.len(), 1);
-        assert_eq!(deserialized.by_selector.len(), 1);
-        assert_eq!(deserialized.by_requestor_selector.len(), 1);
-        assert_eq!(deserialized.resolve(&requestor, &selector).unwrap().to_string(), "0.01 USD");
+        assert_eq!(overrides.by_requestor.len(), 2);
+        assert_eq!(overrides.by_selector.len(), 2);
+        assert_eq!(overrides.by_requestor_selector.len(), 2);
+
+        // Verify serialize → deserialize round-trip preserves all entries
+        let serialized = toml::to_string(&overrides).unwrap();
+        let deserialized: PricingOverrides = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.by_requestor.len(), 2);
+        assert_eq!(deserialized.by_selector.len(), 2);
+        assert_eq!(deserialized.by_requestor_selector.len(), 2);
     }
 
     #[test]
-    fn test_json_invalid_requestor_selector_key() {
-        let json = r#"{
-            "by_requestor_selector": {
-                "bad-key-no-colon": { "min_mcycle_price": "0.001 USD" }
-            }
-        }"#;
-        let result: Result<PricingOverrides, _> = serde_json::from_str(json);
+    fn test_toml_invalid_requestor_selector_key() {
+        let toml = r#"
+[by_requestor_selector]
+"bad-key-no-colon" = { min_mcycle_price = "0.001 USD" }
+"#;
+        let result: Result<PricingOverrides, _> = toml::from_str(toml);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_json_empty_maps() {
-        let json = r#"{}"#;
-        let overrides: PricingOverrides = serde_json::from_str(json).unwrap();
+    fn test_toml_empty_overrides() {
+        let overrides: PricingOverrides = toml::from_str("").unwrap();
         assert!(overrides.by_requestor.is_empty());
         assert!(overrides.by_selector.is_empty());
         assert!(overrides.by_requestor_selector.is_empty());
+    }
+
+    #[test]
+    fn test_market_config_toml_with_pricing_overrides() {
+        let toml = r#"
+mcycle_price = "0.00002 USD"
+mcycle_price_collateral_token = "0.001 ZKC"
+max_stake = "10 USD"
+
+[pricing_overrides.by_requestor]
+"0x0000000000000000000000000000000000000001" = { min_mcycle_price = "0.001 USD" }
+
+[pricing_overrides.by_selector]
+"0x12345678" = { min_mcycle_price = "0.005 ETH" }
+
+[pricing_overrides.by_requestor_selector]
+"0x0000000000000000000000000000000000000001:0x12345678" = { min_mcycle_price = "0.01 USD" }
+"#;
+        let config: MarketConfig = toml::from_str(toml).unwrap();
+
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let selector = sel("0x12345678");
+
+        // requestor+selector combo takes highest priority
+        assert_eq!(
+            config.pricing_overrides.resolve(&requestor, &selector).unwrap().to_string(),
+            "0.01 USD"
+        );
+        // requestor-only match
+        assert_eq!(
+            config.pricing_overrides.resolve(&requestor, &sel("0xdeadbeef")).unwrap().to_string(),
+            "0.001 USD"
+        );
+        // selector-only match
+        assert_eq!(
+            config
+                .pricing_overrides
+                .resolve(&addr("0x0000000000000000000000000000000000000099"), &selector)
+                .unwrap()
+                .to_string(),
+            "0.005 ETH"
+        );
     }
 
     #[test]
