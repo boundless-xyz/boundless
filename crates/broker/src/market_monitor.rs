@@ -470,24 +470,32 @@ where
                                     // If the request was not locked by the prover, we create an order to evaluate the request
                                     // for fulfilling after the lock expires.
                                     if event.prover != prover_addr {
-                                        // Try to get from market first. If the request was submitted via the order stream, we will be unable to find it there.
-                                        // In that case we check the order stream.
+                                        // Try the order stream first (single HTTP call). If the request was submitted
+                                        // on-chain rather than via the order stream (off-chain), fall back to an on-chain log search.
+                                        // This order matters: on-chain search can cost up to 100 eth_getLogs calls for
+                                        // requests that were submitted off-chain and have no on-chain RequestSubmitted event.
                                         let mut order: Option<OrderRequest> = None;
-                                        if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None, None, None).await {
-                                            order = Some(OrderRequest::new(
-                                                proof_request,
-                                                signature,
-                                                FulfillmentType::FulfillAfterLockExpire,
-                                                market_addr,
-                                                chain_id,
-                                            ));
-                                        } else if let Some(order_stream) = &order_stream {
+                                        if let Some(order_stream) = &order_stream {
                                             if let Ok(order_stream_order) = order_stream.fetch_order(event.requestId, None).await {
                                                 let proof_request = order_stream_order.request;
                                                 let signature = order_stream_order.signature;
                                                 order = Some(OrderRequest::new(
                                                     proof_request,
                                                     signature.as_bytes().into(),
+                                                    FulfillmentType::FulfillAfterLockExpire,
+                                                    market_addr,
+                                                    chain_id,
+                                                ));
+                                            }
+                                        }
+                                        if order.is_none() {
+                                            // TODO: we should try to get rid of using get_submitted_request here
+                                            //  1. it is blocking and thus stalls progress of the market monitor overall
+                                            //  2. it incurs RPC calls for every locked order which can be avoided if we indexed the request data in the db when we see the RequestSubmitted event
+                                            if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None, None, log.block_number).await {
+                                                order = Some(OrderRequest::new(
+                                                    proof_request,
+                                                    signature,
                                                     FulfillmentType::FulfillAfterLockExpire,
                                                     market_addr,
                                                     chain_id,
