@@ -917,6 +917,7 @@ where
             config.clone(),
             order_state_tx.clone(),
             self.priority_requestors.clone(),
+            self.allow_requestors.clone(),
             market.clone(),
             self.downloader.clone(),
         ));

@@ -19,7 +19,6 @@
 //! It uses the same pricing logic that provers use, but with minimal defaults
 //! appropriate for requestor-side checks.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use alloy::network::Ethereum;
@@ -251,10 +250,16 @@ where
         self.collateral_token_decimals
     }
 
-    fn check_requestor_allowed(
+    fn check_access_lists(
         &self,
         _order: &OrderRequest,
-        _denied_addresses_opt: Option<&HashSet<Address>>,
+    ) -> Result<Option<OrderPricingOutcome>, OrderPricingError> {
+        Ok(None)
+    }
+
+    fn check_supported_selectors(
+        &self,
+        _order: &OrderRequest,
     ) -> Result<Option<OrderPricingOutcome>, OrderPricingError> {
         Ok(None)
     }
@@ -273,6 +278,10 @@ where
     }
 
     fn is_priority_requestor(&self, _client_addr: &Address) -> bool {
+        false
+    }
+
+    fn is_allow_requestor(&self, _client_addr: &Address) -> bool {
         false
     }
 
