@@ -598,8 +598,8 @@ where
                                 );
                             }
                         }
-                        Err(ref err) => {
-                            if let OrderMonitorErr::PreLockCheckRetry(reason) = err {
+                        Err(ref err) => match err {
+                            OrderMonitorErr::PreLockCheckRetry(reason) => {
                                 const WARN_THRESHOLD: u32 = 5;
                                 let count = order.increment_pre_lock_retries();
                                 if count >= WARN_THRESHOLD {
@@ -612,28 +612,29 @@ where
                                     );
                                 }
                                 should_invalidate = false;
-                            } else {
-                                match err {
-                                    OrderMonitorErr::UnexpectedError(inner) => {
-                                        tracing::error!(
-                                            "Failed to lock order: {order_id} - {} - {inner:?}",
-                                            err.code()
-                                        );
-                                    }
-                                    OrderMonitorErr::AlreadyLocked => {
-                                        tracing::warn!("Soft failed to lock request: {order_id} - {}", err.code());
-                                    }
-                                    _ => {
-                                        tracing::warn!(
-                                            "Soft failed to lock request: {order_id} - {} - {err:?}",
-                                            err.code()
-                                        );
-                                    }
-                                }
+                            }
+                            OrderMonitorErr::UnexpectedError(inner) => {
+                                tracing::error!(
+                                    "Failed to lock order: {order_id} - {} - {inner:?}",
+                                    err.code()
+                                );
                                 if let Err(e) = self.db.insert_skipped_request(order).await {
-                                    tracing::error!(
-                                        "Failed to set DB failure state for order: {order_id} - {e:?}"
-                                    );
+                                    tracing::error!("Failed to set DB failure state for order: {order_id} - {e:?}");
+                                }
+                            }
+                            OrderMonitorErr::AlreadyLocked => {
+                                tracing::warn!("Soft failed to lock request: {order_id} - {}", err.code());
+                                if let Err(e) = self.db.insert_skipped_request(order).await {
+                                    tracing::error!("Failed to set DB failure state for order: {order_id} - {e:?}");
+                                }
+                            }
+                            _ => {
+                                tracing::warn!(
+                                    "Soft failed to lock request: {order_id} - {} - {err:?}",
+                                    err.code()
+                                );
+                                if let Err(e) = self.db.insert_skipped_request(order).await {
+                                    tracing::error!("Failed to set DB failure state for order: {order_id} - {e:?}");
                                 }
                             }
                         }
