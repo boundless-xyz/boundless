@@ -29,15 +29,11 @@ export interface MarketIndexerArgs {
   backfillChainDataBlocks?: pulumi.Input<string>;
   chainDataBatchDelayMs?: pulumi.Input<string>;
   backfillBatchSize?: pulumi.Input<string>;
-  marketImageUri?: string;
-  backfillImageUri?: string;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
   public readonly backfillLambdaName: pulumi.Output<string>;
-  public readonly image: docker_build.Image | undefined;
-  public readonly imageRef: pulumi.Output<string>;
-  public readonly backfillImageRef: pulumi.Output<string>;
+  public readonly image: docker_build.Image;
   public readonly service: awsx.ecs.FargateService;
 
   constructor(name: string, args: MarketIndexerArgs, opts?: pulumi.ComponentResourceOptions) {
@@ -84,57 +80,50 @@ export class MarketIndexer extends pulumi.ComponentResource {
       };
     }
 
-    // When marketImageUri is set (dependent prod stacks), skip the Docker build.
-    if (args.marketImageUri) {
-      this.image = undefined;
-      this.imageRef = pulumi.output(args.marketImageUri);
-    } else {
-      this.image = new docker_build.Image(`${serviceName}-market-img-${infra.databaseVersion}`, {
-        tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}-${infra.databaseVersion}`],
-        context: {
-          location: dockerDir,
-        },
-        platforms: ['linux/amd64'],
-        push: true,
-        dockerfile: {
-          location: `${dockerDir}/dockerfiles/market-indexer.dockerfile`,
-        },
-        builder: dockerRemoteBuilder
-          ? {
-            name: dockerRemoteBuilder,
-          }
-          : undefined,
-        buildArgs: {
-          S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
-        },
-        secrets: buildSecrets,
-        cacheFrom: [
-          {
-            registry: {
-              ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache`,
-            },
+    this.image = new docker_build.Image(`${serviceName}-market-img-${infra.databaseVersion}`, {
+      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}-${infra.databaseVersion}`],
+      context: {
+        location: dockerDir,
+      },
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: {
+        location: `${dockerDir}/dockerfiles/market-indexer.dockerfile`,
+      },
+      builder: dockerRemoteBuilder
+        ? {
+          name: dockerRemoteBuilder,
+        }
+        : undefined,
+      buildArgs: {
+        S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
+      },
+      secrets: buildSecrets,
+      cacheFrom: [
+        {
+          registry: {
+            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache`,
           },
-        ],
-        cacheTo: [
-          {
-            registry: {
-              mode: docker_build.CacheMode.Max,
-              imageManifest: true,
-              ociMediaTypes: true,
-              ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache`,
-            },
+        },
+      ],
+      cacheTo: [
+        {
+          registry: {
+            mode: docker_build.CacheMode.Max,
+            imageManifest: true,
+            ociMediaTypes: true,
+            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache`,
           },
-        ],
-        registries: [
-          {
-            address: infra.ecrRepository.repository.repositoryUrl,
-            password: infra.ecrAuthToken.apply((authToken) => authToken.password),
-            username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
-          },
-        ],
-      }, { parent: this });
-      this.imageRef = this.image.ref;
-    }
+        },
+      ],
+      registries: [
+        {
+          address: infra.ecrRepository.repository.repositoryUrl,
+          password: infra.ecrAuthToken.apply((authToken) => authToken.password),
+          username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
+        },
+      ],
+    }, { parent: this });
 
     const serviceLogGroupName = `${serviceName}-service`;
     const serviceLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
@@ -171,7 +160,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-market-${infra.databaseVersion}`,
-          image: this.imageRef,
+          image: this.image.ref,
           cpu: 2048,
           memory: 2048,
           essential: true,
@@ -238,25 +227,20 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this, dependsOn: [infra.taskRole, infra.taskRolePolicyAttachment] });
 
     // Backfill infrastructure
-    // Build backfill Docker image (or use pre-built image from builder stack)
-    if (args.backfillImageUri) {
-      this.backfillImageRef = pulumi.output(args.backfillImageUri);
-    } else {
-      const backfillImage = new docker_build.Image(`${serviceName}-backfill-img-${infra.databaseVersion}`, {
-        tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-backfill-${dockerTag}-${infra.databaseVersion}`],
-        context: { location: dockerDir },
-        platforms: ['linux/amd64'],
-        push: true,
-        dockerfile: { location: `${dockerDir}/dockerfiles/market-indexer-backfill.dockerfile` },
-        builder: dockerRemoteBuilder ? { name: dockerRemoteBuilder } : undefined,
-        buildArgs: { S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache' },
-        secrets: buildSecrets,
-        cacheFrom: [{ registry: { ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
-        cacheTo: [{ registry: { mode: docker_build.CacheMode.Max, imageManifest: true, ociMediaTypes: true, ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
-        registries: [{ address: infra.ecrRepository.repository.repositoryUrl, password: infra.ecrAuthToken.apply(t => t.password), username: infra.ecrAuthToken.apply(t => t.userName) }],
-      }, { parent: this });
-      this.backfillImageRef = backfillImage.ref;
-    }
+    // Build backfill Docker image
+    const backfillImage = new docker_build.Image(`${serviceName}-backfill-img-${infra.databaseVersion}`, {
+      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-backfill-${dockerTag}-${infra.databaseVersion}`],
+      context: { location: dockerDir },
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: { location: `${dockerDir}/dockerfiles/market-indexer-backfill.dockerfile` },
+      builder: dockerRemoteBuilder ? { name: dockerRemoteBuilder } : undefined,
+      buildArgs: { S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache' },
+      secrets: buildSecrets,
+      cacheFrom: [{ registry: { ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
+      cacheTo: [{ registry: { mode: docker_build.CacheMode.Max, imageManifest: true, ociMediaTypes: true, ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
+      registries: [{ address: infra.ecrRepository.repository.repositoryUrl, password: infra.ecrAuthToken.apply(t => t.password), username: infra.ecrAuthToken.apply(t => t.userName) }],
+    }, { parent: this });
 
     // Create dedicated log group for backfill
     const backfillLogGroupName = `${serviceName}-backfill`;
@@ -292,7 +276,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       taskRole: { roleArn: infra.taskRole.arn },
       container: {
         name: backfillContainerName,
-        image: this.backfillImageRef,
+        image: backfillImage.ref,
         cpu: 2048,
         memory: 2048,
         essential: true,
@@ -575,7 +559,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     this.registerOutputs({
-      imageRef: this.imageRef,
+      imageRef: this.image.ref,
       serviceUrn: this.service.urn,
     });
   }

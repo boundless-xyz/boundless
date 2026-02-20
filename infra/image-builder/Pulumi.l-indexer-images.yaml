@@ -1,5 +1,0 @@
-config:
-  image-builder:SERVICE_NAME: indexer
-  image-builder:DOCKERFILE: market-indexer.dockerfile
-  image-builder:DOCKERFILE_BACKFILL: market-indexer-backfill.dockerfile
-  image-builder:DOCKERFILE_REWARDS: rewards-indexer.dockerfile

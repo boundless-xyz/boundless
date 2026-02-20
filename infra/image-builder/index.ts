@@ -2,6 +2,7 @@ import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
+import * as path from 'path';
 import * as fs from 'fs';
 
 export = () => {
@@ -12,6 +13,15 @@ export = () => {
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const dockerRemoteBuilder = process.env.DOCKER_REMOTE_BUILDER;
+
+  // Each entry is a dockerfile filename relative to the dockerfiles/ directory,
+  // e.g. "slasher.dockerfile". The stem (name without extension) becomes both the
+  // stack output key and the image tag prefix.
+  //
+  // Example stack config:
+  //   image-builder:DOCKERFILES:
+  //     - slasher.dockerfile
+  const dockerfiles = config.requireObject<string[]>('DOCKERFILES');
 
   let buildSecrets: Record<string, pulumi.Input<string>> = {};
   if (ciCacheSecret !== undefined) {
@@ -44,7 +54,8 @@ export = () => {
     username: authToken.userName,
   }];
 
-  function buildImage(name: string, dockerfile: string, tag: string): docker_build.Image {
+  function buildImage(name: string, dockerfile: string): docker_build.Image {
+    const tag = `${name}-${dockerTag}`;
     const tagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${tag}`;
     return new docker_build.Image(`${serviceName}-${name}-image`, {
       tags: [tagPath],
@@ -71,22 +82,11 @@ export = () => {
 
   const outputs: Record<string, pulumi.Output<string>> = {};
 
-  // Primary image (every service has one)
-  const dockerfile = config.require('DOCKERFILE');
-  const primaryImage = buildImage('primary', dockerfile, dockerTag);
-  outputs.imageRef = primaryImage.ref;
-
-  // Optional additional images (indexer has backfill + rewards)
-  const backfillDockerfile = config.get('DOCKERFILE_BACKFILL');
-  if (backfillDockerfile) {
-    const backfillImage = buildImage('backfill', backfillDockerfile, `backfill-${dockerTag}`);
-    outputs.backfillImageRef = backfillImage.ref;
-  }
-
-  const rewardsDockerfile = config.get('DOCKERFILE_REWARDS');
-  if (rewardsDockerfile) {
-    const rewardsImage = buildImage('rewards', rewardsDockerfile, `rewards-${dockerTag}`);
-    outputs.rewardsImageRef = rewardsImage.ref;
+  for (const dockerfile of dockerfiles) {
+    // Derive a stable key from the filename stem, e.g. "slasher.dockerfile" → "slasher"
+    const name = path.basename(dockerfile, path.extname(dockerfile));
+    const image = buildImage(name, dockerfile);
+    outputs[name] = image.ref;
   }
 
   return outputs;

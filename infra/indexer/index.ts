@@ -22,9 +22,6 @@ export = () => {
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const dockerDir = config.get('DOCKER_DIR') || '../../';
   const dockerTag = config.get('DOCKER_TAG') || 'latest';
-  const marketImageUri = config.get('MARKET_IMAGE_URI');
-  const rewardsImageUri = config.get('REWARDS_IMAGE_URI');
-  const backfillImageUri = config.get('BACKFILL_IMAGE_URI');
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const baseStackName = config.require('BASE_STACK');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
@@ -123,8 +120,6 @@ export = () => {
       backfillChainDataBlocks,
       chainDataBatchDelayMs,
       backfillBatchSize,
-      marketImageUri,
-      backfillImageUri,
     }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
@@ -144,22 +139,15 @@ export = () => {
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
-      rewardsImageUri,
     }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
   const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
   if (marketIndexer) {
-    if (marketIndexer.image) {
-      sharedDependencies.push(marketIndexer.image);
-    }
-    sharedDependencies.push(marketIndexer.service);
+    sharedDependencies.push(marketIndexer.image, marketIndexer.service);
   }
   if (rewardsIndexer) {
-    if (rewardsIndexer.image) {
-      sharedDependencies.push(rewardsIndexer.image);
-    }
-    sharedDependencies.push(rewardsIndexer.service);
+    sharedDependencies.push(rewardsIndexer.image, rewardsIndexer.service);
   }
 
   if (shouldDeployMarket && marketIndexer) {
@@ -214,12 +202,6 @@ export = () => {
 
   if (marketIndexer) {
     outputs.backfillLambdaName = marketIndexer.backfillLambdaName;
-    outputs.marketImageRef = marketIndexer.imageRef;
-    outputs.backfillImageRef = marketIndexer.backfillImageRef;
-  }
-
-  if (rewardsIndexer) {
-    outputs.rewardsImageRef = rewardsIndexer.imageRef;
   }
 
   return outputs;

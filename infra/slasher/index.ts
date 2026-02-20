@@ -21,7 +21,10 @@ export = () => {
   const logLevel = config.get('LOG_LEVEL') || 'info';
   const dockerDir = config.get('DOCKER_DIR') || '../../';
   const dockerTag = config.get('DOCKER_TAG') || 'latest';
-  const imageUri = config.get('IMAGE_URI');
+  // When set, the slasher image is read directly from the image-builder stack output
+  // via a Pulumi StackReference rather than being built locally.
+  // Format: "<org>/image-builder/<stack>", e.g. "organization/image-builder/l-slasher-images"
+  const imageBuilderStackName = config.get('IMAGE_BUILDER_STACK');
 
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
   const interval = config.get('INTERVAL') || "60";
@@ -65,12 +68,13 @@ export = () => {
       return hash.digest("hex");
     });
 
-  // When IMAGE_URI is set (by the pipeline for dependent prod stacks), skip the Docker build
-  // and use the pre-built image directly. Otherwise, build the image and push to a per-stack ECR repo.
+  // When IMAGE_BUILDER_STACK is set, read the pre-built image ref directly from that
+  // stack's outputs via a StackReference. Otherwise, build and push the image locally.
   let containerImage: pulumi.Output<string>;
 
-  if (imageUri) {
-    containerImage = pulumi.output(imageUri);
+  if (imageBuilderStackName) {
+    const imageBuilderStack = new pulumi.StackReference(imageBuilderStackName);
+    containerImage = imageBuilderStack.requireOutput('slasher').apply(ref => ref as string);
   } else {
     const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
       name: `${serviceName}-ecr-repo`,

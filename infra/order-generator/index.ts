@@ -12,9 +12,6 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName.includes("dev");
 
-  const config = new pulumi.Config();
-  const imageUri = config.get('IMAGE_URI');
-
   const baseConfig = new pulumi.Config("order-generator-base");
   const chainId = isDev ? getEnvVar("CHAIN_ID") : baseConfig.require('CHAIN_ID');
   const pinataJWT = isDev ? pulumi.output(getEnvVar("PINATA_JWT")) : baseConfig.requireSecret('PINATA_JWT');
@@ -43,84 +40,74 @@ export = () => {
   const minPricePerMCycle = baseConfig.get('MIN_PRICE_PER_MCYCLE') || '0';
   const txTimeout = baseConfig.get('TX_TIMEOUT') || '180';
 
-  // When IMAGE_URI is set (by the pipeline for dependent prod stacks), skip the Docker build
-  // and use the pre-built image directly. Otherwise, build the image and push to a per-stack ECR repo.
-  let containerImage: pulumi.Output<string>;
+  const imageName = getServiceNameV1(stackName, `order-generator`);
+  const repo = new awsx.ecr.Repository(`${imageName}-ecr-repo`, {
+    name: `${imageName}-ecr-repo`,
+    forceDelete: true,
+    lifecyclePolicy: {
+      rules: [
+        {
+          description: 'Delete untagged images after N days',
+          tagStatus: 'untagged',
+          maximumAgeLimit: 7,
+        },
+      ],
+    },
+  });
 
-  if (imageUri) {
-    containerImage = pulumi.output(imageUri);
-  } else {
-    const imageName = getServiceNameV1(stackName, `order-generator`);
-    const repo = new awsx.ecr.Repository(`${imageName}-ecr-repo`, {
-      name: `${imageName}-ecr-repo`,
-      forceDelete: true,
-      lifecyclePolicy: {
-        rules: [
-          {
-            description: 'Delete untagged images after N days',
-            tagStatus: 'untagged',
-            maximumAgeLimit: 7,
-          },
-        ],
-      },
-    });
+  const authToken = aws.ecr.getAuthorizationTokenOutput({
+    registryId: repo.repository.registryId,
+  });
 
-    const authToken = aws.ecr.getAuthorizationTokenOutput({
-      registryId: repo.repository.registryId,
-    });
-
-    let buildSecrets = {};
-    if (githubTokenSecret !== undefined) {
-      buildSecrets = {
-        ...buildSecrets,
-        githubTokenSecret
-      }
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      ...buildSecrets,
+      githubTokenSecret
     }
-
-    const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
-
-    const image = new docker_build.Image(`${imageName}-image`, {
-      tags: [dockerTagPath],
-      context: {
-        location: dockerDir,
-      },
-      builder: dockerRemoteBuilder ? {
-        name: dockerRemoteBuilder,
-      } : undefined,
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      registries: [
-        {
-          address: repo.repository.repositoryUrl,
-          password: authToken.password,
-          username: authToken.userName,
-        },
-      ],
-    });
-
-    containerImage = image.ref;
   }
+
+  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+  const image = new docker_build.Image(`${imageName}-image`, {
+    tags: [dockerTagPath],
+    context: {
+      location: dockerDir,
+    },
+    builder: dockerRemoteBuilder ? {
+      name: dockerRemoteBuilder,
+    } : undefined,
+    platforms: ['linux/amd64'],
+    push: true,
+    dockerfile: {
+      location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+    },
+    secrets: buildSecrets,
+    cacheFrom: [
+      {
+        registry: {
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    cacheTo: [
+      {
+        registry: {
+          mode: docker_build.CacheMode.Max,
+          imageManifest: true,
+          ociMediaTypes: true,
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    registries: [
+      {
+        address: repo.repository.repositoryUrl,
+        password: authToken.password,
+        username: authToken.userName,
+      },
+    ],
+  });
 
   const offchainConfig = new pulumi.Config("order-generator-offchain");
   const offchainAutoDeposit = offchainConfig.get('AUTO_DEPOSIT');
@@ -156,7 +143,7 @@ export = () => {
       offchainConfig: {
         orderStreamUrl,
       },
-      imageRef: containerImage,
+      image,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -213,7 +200,7 @@ export = () => {
       privateKey: onchainPrivateKey,
       pinataJWT,
       ethRpcUrl,
-      imageRef: containerImage,
+      image,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -274,7 +261,7 @@ export = () => {
       autoDeposit: randomRequestorAutoDeposit,
       warnBalanceBelow: randomRequestorWarnBalanceBelow,
       errorBalanceBelow: randomRequestorErrorBalanceBelow,
-      imageRef: containerImage,
+      image,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -335,7 +322,7 @@ export = () => {
       privateKey: evmRequestorPrivateKey,
       pinataJWT,
       ethRpcUrl,
-      imageRef: containerImage,
+      image,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -378,7 +365,7 @@ export = () => {
       ethRpcUrl,
       indexerUrl,
       orderStreamUrl,
-      imageRef: containerImage,
+      image,
       logLevel,
       setVerifierAddr: setVerifierAddr,
       boundlessMarketAddr: boundlessMarketAddr,
@@ -388,8 +375,4 @@ export = () => {
       privateSubnetIds,
     });
   }
-
-  return {
-    imageRef: containerImage,
-  };
 };

@@ -1,7 +1,7 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
-
+import { Image } from '@pulumi/docker-build';
 import { getServiceNameV1 } from '../../util';
 import * as crypto from 'crypto';
 
@@ -16,7 +16,7 @@ interface LoadTestTriggerArgs {
   ethRpcUrl: pulumi.Output<string>;
   indexerUrl: pulumi.Output<string>;
   orderStreamUrl: pulumi.Output<string>;
-  imageRef: pulumi.Input<string>;
+  image: Image;
   logLevel: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
@@ -136,7 +136,7 @@ export class LoadTestTrigger extends pulumi.ComponentResource {
     const taskDef = new awsx.ecs.FargateTaskDefinition(`${serviceName}-task`, {
       container: {
         name: containerName,
-        image: args.imageRef,
+        image: args.image.ref,
         cpu: FARGATE_CPU,
         memory: FARGATE_MEMORY,
         essential: true,

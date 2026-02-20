@@ -37,7 +37,6 @@ export = () => {
   const logLevel = config.require('LOG_LEVEL');
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
-  const imageUri = config.get('IMAGE_URI');
 
   const boundlessMarketAddr = config.get('BOUNDLESS_MARKET_ADDR');
   const setVerifierAddr = config.get('SET_VERIFIER_ADDR');
@@ -93,85 +92,75 @@ export = () => {
       return hash.digest("hex");
     });
 
-  // When IMAGE_URI is set (by the pipeline for dependent prod stacks), skip the Docker build
-  // and use the pre-built image directly. Otherwise, build the image and push to a per-stack ECR repo.
-  let containerImage: pulumi.Output<string>;
+  const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
+    name: `${serviceName}-ecr-repo`,
+    forceDelete: true,
+    lifecyclePolicy: {
+      rules: [
+        {
+          description: 'Delete untagged images after N days',
+          tagStatus: 'untagged',
+          maximumAgeLimit: 7,
+        },
+      ],
+    },
+  });
 
-  if (imageUri) {
-    containerImage = pulumi.output(imageUri);
-  } else {
-    const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
-      name: `${serviceName}-ecr-repo`,
-      forceDelete: true,
-      lifecyclePolicy: {
-        rules: [
-          {
-            description: 'Delete untagged images after N days',
-            tagStatus: 'untagged',
-            maximumAgeLimit: 7,
-          },
-        ],
-      },
-    });
+  const authToken = aws.ecr.getAuthorizationTokenOutput({
+    registryId: repo.repository.registryId,
+  });
 
-    const authToken = aws.ecr.getAuthorizationTokenOutput({
-      registryId: repo.repository.registryId,
-    });
+  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
 
-    const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
-
-    // Optionally add in the gh token secret.
-    let buildSecrets = {};
-    if (githubTokenSecret !== undefined) {
-      buildSecrets = {
-        githubTokenSecret
-      }
+  // Optionally add in the gh token secret.
+  let buildSecrets = {};
+  if (githubTokenSecret !== undefined) {
+    buildSecrets = {
+      githubTokenSecret
     }
-
-    const image = new docker_build.Image(`${serviceName}-image`, {
-      tags: [dockerTagPath],
-      context: {
-        location: dockerDir,
-      },
-      // Due to limitations with cargo-chef, we need to build for amd64, even though distributor doesn't
-      // strictly need r0vm. See `dockerfiles/distributor.dockerfile` for more details.
-      platforms: ['linux/amd64'],
-      secrets: buildSecrets,
-      push: true,
-      builder: dockerRemoteBuilder ? {
-        name: dockerRemoteBuilder,
-      } : undefined,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/distributor.dockerfile`,
-      },
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      registries: [
-        {
-          address: repo.repository.repositoryUrl,
-          password: authToken.password,
-          username: authToken.userName,
-        },
-      ],
-    });
-
-    containerImage = image.ref;
   }
+
+  const image = new docker_build.Image(`${serviceName}-image`, {
+    tags: [dockerTagPath],
+    context: {
+      location: dockerDir,
+    },
+    // Due to limitations with cargo-chef, we need to build for amd64, even though distributor doesn't
+    // strictly need r0vm. See `dockerfiles/distributor.dockerfile` for more details.
+    platforms: ['linux/amd64'],
+    secrets: buildSecrets,
+    push: true,
+    builder: dockerRemoteBuilder ? {
+      name: dockerRemoteBuilder,
+    } : undefined,
+    dockerfile: {
+      location: `${dockerDir}/dockerfiles/distributor.dockerfile`,
+    },
+    cacheFrom: [
+      {
+        registry: {
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    cacheTo: [
+      {
+        registry: {
+          mode: docker_build.CacheMode.Max,
+          imageManifest: true,
+          ociMediaTypes: true,
+          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+        },
+      },
+    ],
+    registries: [
+      {
+        address: repo.repository.repositoryUrl,
+        password: authToken.password,
+        username: authToken.userName,
+      },
+    ],
+  });
 
   // Security group allow outbound, deny inbound
   const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
@@ -286,7 +275,7 @@ export = () => {
     {
       container: {
         name: serviceName,
-        image: containerImage,
+        image: image.ref,
         cpu: 128,
         memory: 512,
         essential: true,
@@ -513,8 +502,4 @@ export = () => {
     actionsEnabled: true,
     alarmActions,
   });
-
-  return {
-    imageRef: containerImage,
-  };
 };

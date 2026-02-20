@@ -30,26 +30,23 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
             { dependsOn: [role] }
         );
 
-        // When an image-builder stack is configured, all prod stacks (including l-prod-84532)
-        // consume the pre-built image via BUILDER_STACK instead of building Docker images.
-        // Qualify with the project name so `pulumi stack output --stack` resolves cross-project.
-        const builderRef = imageBuilderStack ? `image-builder/${imageBuilderStack}` : undefined;
-
+        // Prod deployments read pre-built image refs directly from the image-builder stack
+        // via StackReference in their Pulumi program — no env var plumbing needed here.
         const prodDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-84532-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, builderRef),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
             { dependsOn: [role] }
         );
 
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, builderRef),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
             { dependsOn: [role] }
         );
 
         const prodDeploymentEthSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-11155111-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, builderRef),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
             { dependsOn: [role] }
         );
 
@@ -281,18 +278,6 @@ ${additionalCommandsStr}          - ls -lt
           - npm run build
           - echo "DEPLOYING stack $STACK_NAME"
           - pulumi stack select $STACK_NAME
-          - |
-            if [ -n "$BUILDER_STACK" ]; then
-              echo "Dependent prod stack: reading image refs from builder stack $BUILDER_STACK"
-              IMAGE_REF=$(pulumi stack output imageRef --stack "$BUILDER_STACK" 2>/dev/null) || IMAGE_REF=""
-              [ -n "$IMAGE_REF" ] && pulumi config set IMAGE_URI "$IMAGE_REF" && echo "Set IMAGE_URI=$IMAGE_REF" || true
-              MARKET_REF=$(pulumi stack output marketImageRef --stack "$BUILDER_STACK" 2>/dev/null) || MARKET_REF=""
-              [ -n "$MARKET_REF" ] && pulumi config set MARKET_IMAGE_URI "$MARKET_REF" && echo "Set MARKET_IMAGE_URI" || true
-              REWARDS_REF=$(pulumi stack output rewardsImageRef --stack "$BUILDER_STACK" 2>/dev/null) || REWARDS_REF=""
-              [ -n "$REWARDS_REF" ] && pulumi config set REWARDS_IMAGE_URI "$REWARDS_REF" && echo "Set REWARDS_IMAGE_URI" || true
-              BACKFILL_REF=$(pulumi stack output backfillImageRef --stack "$BUILDER_STACK" 2>/dev/null) || BACKFILL_REF=""
-              [ -n "$BACKFILL_REF" ] && pulumi config set BACKFILL_IMAGE_URI "$BACKFILL_REF" && echo "Set BACKFILL_IMAGE_URI" || true
-            fi
           - pulumi cancel --yes
           - pulumi refresh --yes
           - pulumi up --yes${postBuildSection ? '\n' + postBuildSection : ''}
@@ -307,7 +292,6 @@ ${additionalCommandsStr}          - ls -lt
         dockerUsername: string,
         dockerTokenSecret: aws.secretsmanager.Secret,
         githubTokenSecret: aws.secretsmanager.Secret,
-        builderStack?: string,
     ): aws.codebuild.ProjectArgs {
         const envVars: aws.types.input.codebuild.ProjectEnvironmentEnvironmentVariable[] = [
             {
@@ -341,16 +325,6 @@ ${additionalCommandsStr}          - ls -lt
                 value: dockerTokenSecret.name
             },
         ];
-
-        // Dependent prod stacks receive BUILDER_STACK so the buildspec can read
-        // the pre-built image ref instead of rebuilding the Docker image.
-        if (builderStack) {
-            envVars.push({
-                name: "BUILDER_STACK",
-                type: "PLAINTEXT",
-                value: builderStack,
-            });
-        }
 
         return {
             buildTimeout: this.config.buildTimeout!,

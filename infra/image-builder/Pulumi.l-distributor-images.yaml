@@ -1,3 +1,0 @@
-config:
-  image-builder:SERVICE_NAME: distributor
-  image-builder:DOCKERFILE: distributor.dockerfile

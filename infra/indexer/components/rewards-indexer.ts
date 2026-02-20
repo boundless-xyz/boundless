@@ -4,6 +4,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { IndexerShared } from './indexer-infra';
+import { Severity } from '../../util';
 
 export interface RewardsIndexerArgs {
   infra: IndexerShared;
@@ -19,12 +20,10 @@ export interface RewardsIndexerArgs {
   serviceMetricsNamespace: string;
   boundlessAlertsTopicArns?: string[];
   dockerRemoteBuilder?: string;
-  rewardsImageUri?: string;
 }
 
 export class RewardsIndexer extends pulumi.ComponentResource {
-  public readonly image: docker_build.Image | undefined;
-  public readonly imageRef: pulumi.Output<string>;
+  public readonly image: docker_build.Image;
   public readonly service: awsx.ecs.FargateService;
 
   constructor(name: string, args: RewardsIndexerArgs, opts?: pulumi.ComponentResourceOptions) {
@@ -62,57 +61,50 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       };
     }
 
-    // When rewardsImageUri is set (dependent prod stacks), skip the Docker build.
-    if (args.rewardsImageUri) {
-      this.image = undefined;
-      this.imageRef = pulumi.output(args.rewardsImageUri);
-    } else {
-      this.image = new docker_build.Image(`${serviceName}-rewards-img`, {
-        tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-${dockerTag}`],
-        context: {
-          location: dockerDir,
-        },
-        platforms: ['linux/amd64'],
-        push: true,
-        dockerfile: {
-          location: `${dockerDir}/dockerfiles/rewards-indexer.dockerfile`,
-        },
-        builder: dockerRemoteBuilder
-          ? {
-            name: dockerRemoteBuilder,
-          }
-          : undefined,
-        buildArgs: {
-          S3_CACHE_PREFIX: `private/boundless/${serviceName}/rust-cache-docker-Linux-X64/sccache`,
-        },
-        secrets: buildSecrets,
-        cacheFrom: [
-          {
-            registry: {
-              ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
-            },
+    this.image = new docker_build.Image(`${serviceName}-rewards-img`, {
+      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-${dockerTag}`],
+      context: {
+        location: dockerDir,
+      },
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: {
+        location: `${dockerDir}/dockerfiles/rewards-indexer.dockerfile`,
+      },
+      builder: dockerRemoteBuilder
+        ? {
+          name: dockerRemoteBuilder,
+        }
+        : undefined,
+      buildArgs: {
+        S3_CACHE_PREFIX: `private/boundless/${serviceName}/rust-cache-docker-Linux-X64/sccache`,
+      },
+      secrets: buildSecrets,
+      cacheFrom: [
+        {
+          registry: {
+            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
           },
-        ],
-        cacheTo: [
-          {
-            registry: {
-              mode: docker_build.CacheMode.Max,
-              imageManifest: true,
-              ociMediaTypes: true,
-              ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
-            },
+        },
+      ],
+      cacheTo: [
+        {
+          registry: {
+            mode: docker_build.CacheMode.Max,
+            imageManifest: true,
+            ociMediaTypes: true,
+            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
           },
-        ],
-        registries: [
-          {
-            address: infra.ecrRepository.repository.repositoryUrl,
-            password: infra.ecrAuthToken.apply((authToken) => authToken.password),
-            username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
-          },
-        ],
-      }, { parent: this });
-      this.imageRef = this.image.ref;
-    }
+        },
+      ],
+      registries: [
+        {
+          address: infra.ecrRepository.repository.repositoryUrl,
+          password: infra.ecrAuthToken.apply((authToken) => authToken.password),
+          username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
+        },
+      ],
+    }, { parent: this });
 
     const rewardsServiceLogGroup = `${serviceName}-rewards-service-v2`;
 
@@ -144,7 +136,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-rewards`,
-          image: this.imageRef,
+          image: this.image.ref,
           cpu: 512,
           memory: 256,
           essential: true,
@@ -215,63 +207,65 @@ export class RewardsIndexer extends pulumi.ComponentResource {
 
     const alarmActions = boundlessAlertsTopicArns ?? [];
 
+    const errorLogMetricName = `${serviceName}-rewards-log-err`;
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-rewards-log-err-filter`, {
       name: `${serviceName}-rewards-log-err-filter`,
       logGroupName: rewardsServiceLogGroup,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
-        name: `${serviceName}-rewards-log-err`,
+        name: errorLogMetricName,
         value: '1',
         defaultValue: '0',
       },
       pattern: `"ERROR "`,
     }, { parent: this, dependsOn: [this.service] });
 
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-error-alarm`, {
-      name: `${serviceName}-rewards-log-err`,
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-error-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-rewards-log-err-${Severity.SEV2}`,
       metricQueries: [
         {
           id: 'm1',
           metric: {
             namespace: serviceMetricsNamespace,
-            metricName: `${serviceName}-rewards-log-err`,
-            period: 60,
+            metricName: errorLogMetricName,
+            period: 300,
             stat: 'Sum',
           },
           returnData: true,
         },
       ],
-      threshold: 1,
+      threshold: 2,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 60,
+      evaluationPeriods: 12,
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: 'Rewards indexer log ERROR level',
+      alarmDescription: `Rewards indexer ${name}: 2 periods with ERROR logs within 1 hour ${Severity.SEV2}`,
       actionsEnabled: true,
       alarmActions,
     }, { parent: this });
 
+    const fatalLogMetricName = `${serviceName}-rewards-log-fatal`;
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-rewards-log-fatal-filter`, {
       name: `${serviceName}-rewards-log-fatal-filter`,
       logGroupName: rewardsServiceLogGroup,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
-        name: `${serviceName}-rewards-log-fatal`,
+        name: fatalLogMetricName,
         value: '1',
         defaultValue: '0',
       },
       pattern: 'FATAL',
     }, { parent: this, dependsOn: [this.service] });
 
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-fatal-alarm`, {
-      name: `${serviceName}-rewards-log-fatal`,
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-fatal-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-rewards-log-fatal-${Severity.SEV2}`,
       metricQueries: [
         {
           id: 'm1',
           metric: {
             namespace: serviceMetricsNamespace,
-            metricName: `${serviceName}-rewards-log-fatal`,
-            period: 60,
+            metricName: fatalLogMetricName,
+            period: 300,
             stat: 'Sum',
           },
           returnData: true,
@@ -279,16 +273,16 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       ],
       threshold: 1,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 1,
-      datapointsToAlarm: 1,
+      evaluationPeriods: 12,
+      datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: `Rewards indexer ${name} FATAL (task exited)`,
+      alarmDescription: `Rewards indexer ${name} FATAL 2 periods with ERROR logs within 1 hour ${Severity.SEV2}`,
       actionsEnabled: true,
       alarmActions,
     }, { parent: this });
 
     this.registerOutputs({
-      imageRef: this.imageRef,
+      imageRef: this.image.ref,
       serviceUrn: this.service.urn,
     });
   }
