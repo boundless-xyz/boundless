@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -278,11 +278,6 @@ where
         Ok(config.market.clone())
     }
 
-    fn denied_requestor_addresses(&self) -> Result<Option<HashSet<Address>>, OrderPickerErr> {
-        let config = self.config.lock_all().context("Failed to read config")?;
-        Ok(config.market.deny_requestor_addresses.clone())
-    }
-
     fn supported_selectors(&self) -> &SupportedSelectors {
         &self.supported_selectors
     }
@@ -295,25 +290,34 @@ where
         self.collateral_token_decimals
     }
 
-    fn check_requestor_allowed(
+    /// Two-stage access control gate, evaluated in order:
+    ///   1. Allow list: if any allow source is configured, reject requestors not on the list.
+    ///   2. Deny list: reject requestors on the deny list (even if also on the allow list).
+    ///
+    /// Returns `None` if the order passes both checks.
+    fn check_access_lists(
         &self,
         order: &OrderRequest,
-        denied_addresses_opt: Option<&HashSet<Address>>,
     ) -> Result<Option<OrderPricingOutcome>, OrderPickerErr> {
         let client_addr = order.request.client_address();
-        if !self.allow_requestors.is_allow_requestor(&client_addr) {
-            let has_allow_list = {
-                let config = self.config.lock_all().context("Failed to read config")?;
-                config.market.allow_client_addresses.is_some()
-                    || config.market.allow_requestor_lists.is_some()
-            };
-            if has_allow_list {
-                return Ok(Some(Skip {
-                    reason: format!("order from {client_addr} is not in allow requestors"),
-                }));
-            }
+
+        // 1. Allow list gate: only enforced when at least one allow source is configured.
+        let has_allow_list = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            config.market.allow_requestor_addresses.is_some()
+                || config.market.allow_requestor_lists.is_some()
+        };
+        if has_allow_list && !self.allow_requestors.is_allow_requestor(&client_addr) {
+            return Ok(Some(Skip {
+                reason: format!("order from {client_addr} is not in allow requestors"),
+            }));
         }
 
+        // 2. Deny list gate: unconditionally skip denied addresses.
+        let denied_addresses_opt = {
+            let config = self.config.lock_all().context("Failed to read config")?;
+            config.market.deny_requestor_addresses.clone()
+        };
         if let Some(deny_addresses) = denied_addresses_opt {
             if deny_addresses.contains(&client_addr) {
                 return Ok(Some(Skip {
@@ -325,6 +329,13 @@ where
             }
         }
 
+        Ok(None)
+    }
+
+    fn check_supported_selectors(
+        &self,
+        order: &OrderRequest,
+    ) -> Result<Option<OrderPricingOutcome>, OrderPickerErr> {
         if !self.supported_selectors.is_supported(order.request.requirements.selector) {
             return Ok(Some(Skip {
                 reason: format!(
@@ -337,7 +348,7 @@ where
                         .collect::<Vec<_>>()
                 ),
             }));
-        };
+        }
 
         Ok(None)
     }
@@ -393,6 +404,10 @@ where
 
     fn is_priority_requestor(&self, client_addr: &Address) -> bool {
         self.priority_requestors.is_priority_requestor(client_addr)
+    }
+
+    fn is_allow_requestor(&self, client_addr: &Address) -> bool {
+        self.allow_requestors.is_allow_requestor(client_addr)
     }
 
     async fn check_available_balances(
@@ -1499,7 +1514,8 @@ pub(crate) mod tests {
         {
             config.load_write().unwrap().market.min_mcycle_price =
                 Amount::parse("0.0000001 ETH", None).unwrap();
-            config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
+            config.load_write().unwrap().market.allow_requestor_addresses =
+                Some(vec![Address::ZERO]);
         }
         let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -1826,7 +1842,7 @@ pub(crate) mod tests {
 
         // Check logs for the expected message about skipping mcycle limit
         assert!(logs_contain(&format!(
-            "Order {order_id} exec limit config ignored due to client {} being part of priority requestors.",
+            "Order {order_id} max_mcycle_limit config ignored: client {} is on the priority or allow list.",
             ctx.provider.default_signer_address()
         )));
 

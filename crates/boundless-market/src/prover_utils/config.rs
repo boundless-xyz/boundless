@@ -326,14 +326,27 @@ pub struct MarketConfig {
     /// Orders under this min_cycles will be skipped after preflight
     #[serde(default = "defaults::min_mcycle_limit")]
     pub min_mcycle_limit: u64,
-    /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
+    /// Optional static list of priority requestor addresses.
     ///
-    /// If enabled, the order will be preflighted without constraints.
+    /// Orders from these addresses:
+    ///   1. Resource-limit bypass: `max_mcycle_limit` and `max_file_size` are ignored.
+    ///   2. Ordering priority: sorted ahead of regular orders in both pricing and
+    ///      commitment selection (within that group, the configured priority mode applies).
+    ///
+    /// Limits that still apply to priority requestors: gas-based cycle limits,
+    /// deadline caps (`peak_prove_khz`), `max_journal_bytes`, `max_collateral`,
+    /// `min_deadline`, `max_order_expiry_secs`, and selector requirements.
+    ///
+    /// Merged with addresses fetched from `priority_requestor_lists`.
     #[serde(alias = "priority_requestor_addresses")]
     pub priority_requestor_addresses: Option<Vec<Address>>,
-    /// Optional URLs to fetch requestor priority lists from.
+    /// URLs to fetch remote priority requestor lists from.
     ///
-    /// These lists will be periodically refreshed and merged with priority_requestor_addresses.
+    /// Lists are refreshed every hour and merged with `priority_requestor_addresses`.
+    /// When multiple URLs contain the same address, the first URL in this array takes
+    /// precedence (lists are processed in reverse so earlier entries overwrite later ones).
+    ///
+    /// Defaults to the Boundless-recommended priority list.
     #[serde(default = "defaults::priority_requestor_lists")]
     pub priority_requestor_lists: Option<Vec<String>>,
     /// Max journal size in bytes
@@ -377,18 +390,34 @@ pub struct MarketConfig {
     /// Requests that require a higher collateral amount than this will not be considered.
     #[serde(alias = "max_stake", deserialize_with = "deserialize_max_collateral")]
     pub max_collateral: Amount,
-    /// Optional allow list for customer address.
+    /// Static allow list of requestor addresses (whitelist).
     ///
-    /// If enabled, all requests from clients not in the allow list are skipped.
-    pub allow_client_addresses: Option<Vec<Address>>,
-    /// Optional URLs to fetch requestor allow lists from.
+    /// When any allow source is configured (this field or `allow_requestor_lists`),
+    /// only orders from listed addresses are accepted; all others are skipped.
+    /// When neither is set, all requestors are accepted.
     ///
-    /// These lists will be periodically refreshed and merged with allow_client_addresses.
+    /// Allow-listed requestors also bypass `max_mcycle_limit` and `max_file_size`,
+    /// the same resource-limit bypass that priority requestors receive.
+    ///
+    /// Limits that still apply: gas-based cycle limits, deadline caps
+    /// (`peak_prove_khz`), `max_journal_bytes`, `max_collateral`, `min_deadline`,
+    /// `max_order_expiry_secs`, and selector requirements.
+    ///
+    /// Merged with addresses fetched from `allow_requestor_lists`.
+    #[serde(alias = "allow_client_addresses")]
+    pub allow_requestor_addresses: Option<Vec<Address>>,
+    /// URLs to fetch remote allow requestor lists from.
+    ///
+    /// Lists are refreshed every hour and merged with `allow_requestor_addresses`.
+    /// Multiple lists are unioned: all addresses from all lists are allowed
+    /// (order-independent, unlike priority lists).
     #[serde(default = "defaults::allow_requestor_lists")]
     pub allow_requestor_lists: Option<Vec<String>>,
-    /// Optional deny list for requestor address.
+    /// Static deny list of requestor addresses (blacklist).
     ///
-    /// If enabled, all requests from clients in the deny list are skipped.
+    /// Orders from these addresses are unconditionally skipped, even if the
+    /// address also appears on an allow or priority list. The deny check runs
+    /// after the allow check.
     pub deny_requestor_addresses: Option<HashSet<Address>>,
     /// Transaction priority mode (low, medium, high, or custom)
     ///
@@ -541,7 +570,7 @@ impl Default for MarketConfig {
             events_poll_blocks: defaults::events_poll_blocks(),
             events_poll_ms: defaults::events_poll_ms(),
             max_collateral: Amount::parse("10 USD", None).expect("valid default"),
-            allow_client_addresses: None,
+            allow_requestor_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
             lockin_priority_gas: None,
