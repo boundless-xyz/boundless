@@ -28,8 +28,9 @@ prover_postgres_db: taskdb
 prover_postgres_user: worker
 prover_postgres_password: password
 
-# Redis/Valkey
+# Redis/Valkey (set prover_redis_password for AUTH)
 prover_redis_host: "redis"
+prover_redis_password: ""
 
 # MinIO
 prover_minio_host: "minio"

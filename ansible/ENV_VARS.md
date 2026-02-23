@@ -86,9 +86,10 @@ Explorer hosts also use Caddy variables: `caddy_domain`, `caddy_acme_email`, `ca
 
 ### Redis/Valkey Configuration
 
-| Variable            | Default | Description                          |
-| ------------------- | ------- | ------------------------------------ |
-| `prover_redis_host` | `redis` | Redis hostname (Docker service name) |
+| Variable                | Default | Description                                    |
+| ----------------------- | ------- | ---------------------------------------------- |
+| `prover_redis_host`     | `redis` | Redis hostname (Docker service name)           |
+| `prover_redis_password` | `""`    | Optional Redis AUTH password (empty = no auth) |
 
 ### MinIO/S3 Configuration
 
