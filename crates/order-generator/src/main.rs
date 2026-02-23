@@ -1029,9 +1029,9 @@ mod tests {
     }
 
     /// Full rotation lifecycle:
-    ///   Phase 1 — submit 2 requests from key[0] (no rotation triggered).
-    ///   Phase 2 — advance Anvil time past expiry + buffer, trigger rotation,
-    ///             verify withdrawal from key[0] and 1 new request from key[1].
+    ///   Phase 1 — submit 2 requests (from key 0 or 1 depending on Anvil's initial block time).
+    ///   Phase 2 — advance time past expiry + buffer, trigger rotation to the other key,
+    ///             submit 1 more request, verify 3 total and state rotated.
     #[tokio::test]
     async fn test_rotation() {
         let anvil = Anvil::new().spawn();
@@ -1046,7 +1046,7 @@ mod tests {
         args.private_key = Some(ctx.customer_signer.clone());
         args.mnemonic = Some(BIP39_TEST_MNEMONIC.to_string());
         args.derive_rotation_keys = Some(2);
-        args.address_rotation_interval = 86400; // no rotation during phase 1
+        args.address_rotation_interval = 86400; // long interval so we don't rotate mid-phase 1
         args.rotation_state_file = state_file.clone();
         args.rotation_state_reset = true;
         args.deployment = Some(ctx.deployment.clone());
@@ -1055,7 +1055,7 @@ mod tests {
         args.program = Some(LOOP_PATH.parse().unwrap());
         args.withdrawal_expiry_buffer = 60;
 
-        // Phase 1: 2 requests from key[0].
+        // Phase 1: 2 requests (from whichever key desired_index(now, 86400, 2) chose).
         run(&args).await.unwrap();
 
         let filter = Filter::new()
@@ -1073,20 +1073,18 @@ mod tests {
         assert_eq!(count, 2, "phase 1: expected 2 requests, got {count}");
 
         let state = rotation::RotationState::load(&state_file);
-        assert_eq!(state.current_index, 0);
+        assert!(state.current_index < 2);
         assert!(state.max_expires_at > 0, "max_expires_at must be set after submissions");
 
-        // Advance Anvil time past max_expires_at + buffer.
-        // Use an odd target_ts so that desired_index(target_ts, 1, 2) = target_ts % 2 = 1 ≠ 0,
-        // ensuring the rotation branch is taken in phase 2.
+        // Advance time past expiry + buffer. Choose target_ts so desired_index(target_ts, 1, 2) !=
+        // state.current_index (so we rotate). With interval=1, desired = target_ts % 2.
         let safe_ts = state.max_expires_at + args.withdrawal_expiry_buffer + 1;
-        let target_ts = if safe_ts % 2 == 0 { safe_ts + 1 } else { safe_ts };
+        let target_ts =
+            if (safe_ts % 2) as usize == state.current_index { safe_ts + 1 } else { safe_ts };
         ctx.customer_provider.anvil_set_next_block_timestamp(target_ts).await.unwrap();
         ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
 
-        // Phase 2: rotation_interval=1 → desired = target_ts % 2 = 1 ≠ current(0).
-        // wait_for_expiry passes immediately (target_ts > max_expires_at + buffer),
-        // withdrawal fires, then 1 request is submitted from key[1].
+        // Phase 2: rotation_interval=1 triggers rotation to the other key, then 1 request.
         args.address_rotation_interval = 1;
         args.rotation_state_reset = false;
         args.count = Some(1);
@@ -1104,6 +1102,11 @@ mod tests {
         assert_eq!(count, 3, "phase 2: expected 3 total requests after rotation, got {count}");
 
         let state_after = rotation::RotationState::load(&state_file);
-        assert_eq!(state_after.current_index, 1, "should have rotated to key[1]");
+        let expected_index = (state.current_index + 1) % 2;
+        assert_eq!(
+            state_after.current_index, expected_index,
+            "should have rotated from key {} to key {}",
+            state.current_index, expected_index
+        );
     }
 }
