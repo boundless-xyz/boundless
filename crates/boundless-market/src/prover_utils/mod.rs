@@ -60,14 +60,14 @@ use OrderPricingOutcome::Skip;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
-/// Apply a percentage discount to a reward value for secondary fulfillment probability.
+/// Scale a reward value for secondary fulfillment probability.
 ///
 /// # Arguments
 /// * `reward` - The full reward amount
-/// * `probability_percent` - Probability of winning (0-100)
+/// * `probability_percent` - Scaling factor: < 100 discounts, 100 = no change, > 100 boosts
 ///
 /// # Returns
-/// The discounted reward: `reward * probability_percent / 100`
+/// The scaled reward: `reward * probability_percent / 100`
 pub fn apply_secondary_fulfillment_discount(reward: U256, probability_percent: u32) -> U256 {
     reward.saturating_mul(U256::from(probability_percent)) / U256::from(100u32)
 }

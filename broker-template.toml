@@ -29,9 +29,11 @@
 # winning the proof race.
 min_mcycle_price = "0.00002 USD"
 
-# Expected probability (0-100) of winning the secondary fulfillment race.
+# Expected probability of winning the secondary fulfillment race, expressed as a percentage.
 # When an order's lock expires, multiple provers may race to fulfill it.
-# This discounts the expected reward when evaluating profitability and priority.
+# Scales the expected reward when evaluating profitability and priority.
+# Values below 100 discount the reward, 100 = no adjustment, values above 100 boost the reward
+# to aggressively prioritize secondary fulfillments.
 # Default: 50
 expected_probability_win_secondary_fulfillment = 50
 

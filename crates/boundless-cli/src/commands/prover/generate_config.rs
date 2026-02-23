@@ -597,27 +597,26 @@ impl ProverGenerateConfig {
         // Step 7b: Secondary Fulfillment Configuration
         display.separator();
         display.note("Secondary fulfillment occurs when a prover's lock expires and the order");
-        display.note("becomes available to any prover. Multiple provers may race to fulfill it,");
-        display.note("so expected rewards are discounted by the probability of winning the race.");
+        display.note("becomes available to any prover. Multiple provers may race to fulfill it.");
+        display.note("This multiplier scales the expected reward when evaluating profitability.");
         display.note("");
-        display
-            .note("For example, with a 50% win probability, a 100 ZKC reward is valued at 50 ZKC");
-        display.note("when computing order profitability and priority.");
+        display.note(
+            "For example, with a value of 50, a 100 ZKC reward is valued at 50 ZKC (discounted).",
+        );
+        display.note("Values above 100 boost the perceived reward to prioritize secondaries.");
         display.note("");
 
         let expected_probability_str =
-            Text::new("Expected probability of winning secondary fulfillment (0-100):")
+            Text::new("Expected secondary fulfillment win multiplier (percentage, default 50):")
                 .with_default("50")
-                .with_help_message("Enter a percentage between 0 and 100")
+                .with_help_message(
+                    "< 100 discounts reward, 100 = no change, > 100 boosts reward",
+                )
                 .prompt()
                 .context("Failed to get expected probability")?;
 
         let expected_probability_win_secondary_fulfillment =
             expected_probability_str.parse::<u32>().context("Invalid number format")?;
-
-        if expected_probability_win_secondary_fulfillment > 100 {
-            bail!("Expected probability must be between 0 and 100");
-        }
 
         display.item_colored(
             "Using",

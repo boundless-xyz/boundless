@@ -1,6 +1,5 @@
 [market]
 min_mcycle_price = "0.000000025"
-expected_probability_win_secondary_fulfillment = 100 # assume we win all secondary fulfillments -> min_mcycle_price is used to judge whether to accept a request or not
 lookback_blocks = 300
 peak_prove_khz = 8000
 priority_requestor_lists = [
