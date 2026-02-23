@@ -24,8 +24,6 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-const STATE_VERSION: u32 = 2;
-
 /// Persisted rotation state for restart reliability.
 ///
 /// Tracks the currently active key index and the maximum request expiry seen
@@ -33,8 +31,6 @@ const STATE_VERSION: u32 = 2;
 /// has passed before withdrawing, ensuring no in-flight requests are stranded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotationState {
-    #[serde(default = "default_version")]
-    pub version: u32,
     /// Index into the rotation key array currently used for submissions.
     pub current_index: usize,
     /// Maximum `expires_at` timestamp (block seconds) seen for the current key.
@@ -43,13 +39,9 @@ pub struct RotationState {
     pub max_expires_at: u64,
 }
 
-fn default_version() -> u32 {
-    STATE_VERSION
-}
-
 impl Default for RotationState {
     fn default() -> Self {
-        Self { version: STATE_VERSION, current_index: 0, max_expires_at: 0 }
+        Self { current_index: 0, max_expires_at: 0 }
     }
 }
 
@@ -126,9 +118,8 @@ mod tests {
     #[test]
     fn test_state_roundtrip() {
         let dir = std::env::temp_dir();
-        let path = dir.join("test-rotation-state-v2.json");
-        let state =
-            RotationState { version: STATE_VERSION, current_index: 2, max_expires_at: 9999 };
+        let path = dir.join("test-rotation-state.json");
+        let state = RotationState { current_index: 2, max_expires_at: 9999 };
         state.save(&path).unwrap();
         let loaded = RotationState::load(&path);
         assert_eq!(loaded.current_index, 2);
