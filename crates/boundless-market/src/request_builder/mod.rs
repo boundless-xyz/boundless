@@ -251,6 +251,7 @@ where
             market_address,
             chain_id,
             price_provider,
+            self.offer_layer.price_oracle_manager.clone(),
         )
         .await
         {
@@ -567,11 +568,15 @@ impl RequestParams {
     ///
     /// ```rust
     /// # use boundless_market::request_builder::{RequestParams, OfferParams};
+    /// use boundless_market::price_oracle::{Amount, Asset};
     /// use alloy::primitives::utils::parse_units;
     ///
     /// RequestParams::new()
     ///     .with_offer(OfferParams::builder()
-    ///         .max_price(parse_units("0.01", "ether").unwrap())
+    ///         .max_price(Amount::new(
+    ///             parse_units("0.01", "ether").unwrap().into(),
+    ///             Asset::ETH
+    ///         ))
     ///         .ramp_up_period(30)
     ///         .lock_timeout(120)
     ///         .timeout(240));
@@ -995,6 +1000,7 @@ mod tests {
         StorageLayerConfig,
     };
 
+    use crate::price_oracle::{Amount, Asset};
     use crate::prover_utils::{local_executor::LocalExecutor, prover::Prover};
     use crate::storage::HttpDownloader;
     use crate::{
@@ -1085,7 +1091,7 @@ mod tests {
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder()
                     .ramp_up_period(27)
-                    .lock_collateral(parse_ether("10").unwrap())
+                    .lock_collateral(Amount::new(parse_ether("10").unwrap(), Asset::ZKC))
                     .build()?,
             ))
             .request_id_layer(market)
@@ -1366,7 +1372,7 @@ mod tests {
         let offer_params = OfferParams::default();
         let now = crate::util::now_timestamp();
         let offer_zero_mcycles =
-            layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
+            layer.process((&requirements, &request_id, Some(0u64), None, &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.minPrice, U256::ZERO);
         // Defaults from builder
         assert_eq!(
@@ -1388,8 +1394,9 @@ mod tests {
         assert!(offer_zero_mcycles.maxPrice > U256::ZERO);
 
         // Now create an offer for 100 Mcycles.
-        let offer_more_mcycles =
-            layer.process((&requirements, &request_id, Some(100u64 << 20), &offer_params)).await?;
+        let offer_more_mcycles = layer
+            .process((&requirements, &request_id, Some(100u64 << 20), None, &offer_params))
+            .await?;
         assert!(offer_more_mcycles.maxPrice > offer_zero_mcycles.maxPrice);
 
         // Check that overrides are respected.
@@ -1397,15 +1404,15 @@ mod tests {
         let max_price = U256::from(5u64);
         let bidding_start = now + 100;
         let offer_params = OfferParams::builder()
-            .max_price(max_price)
-            .min_price(min_price)
+            .max_price(Amount::new(max_price, Asset::ETH))
+            .min_price(Amount::new(min_price, Asset::ETH))
             .bidding_start(bidding_start)
             .ramp_up_period(20)
             .lock_timeout(50)
             .timeout(80)
             .into();
         let offer_zero_mcycles =
-            layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
+            layer.process((&requirements, &request_id, Some(0u64), None, &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.maxPrice, max_price);
         assert_eq!(offer_zero_mcycles.minPrice, min_price);
         assert_eq!(offer_zero_mcycles.rampUpPeriod, 20);
@@ -1438,8 +1445,9 @@ mod tests {
         let now = crate::util::now_timestamp();
         let cycle_count = 100_000_000; // 100M cycles
         let offer_params = OfferParams::default();
-        let offer =
-            layer.process((&requirements, &request_id, Some(cycle_count), &offer_params)).await?;
+        let offer = layer
+            .process((&requirements, &request_id, Some(cycle_count), None, &offer_params))
+            .await?;
 
         // Check that ramp up start is calculated based on parameterization mode
         let expected_executor_time = fulfillment_mode.executor_time(Some(cycle_count));

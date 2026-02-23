@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 use crate::{
     chain_monitor::ChainMonitorService,
     config::{ConfigLock, MarketConfig},
@@ -34,9 +35,10 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
+use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::{
-    contracts::boundless_market::BoundlessMarketService, selector::SupportedSelectors,
-    storage::StorageDownloader,
+    contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
+    selector::SupportedSelectors, storage::StorageDownloader,
 };
 use moka::{future::Cache, policy::EvictionPolicy};
 use tokio::{
@@ -44,8 +46,6 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
-
-use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -93,6 +93,7 @@ pub struct OrderPicker<P> {
     priority_requestors: PriorityRequestors,
     allow_requestors: AllowRequestors,
     downloader: ConfigurableDownloader,
+    price_oracle: Arc<PriceOracleManager>,
 }
 
 impl<P> OrderPicker<P>
@@ -114,6 +115,7 @@ where
         priority_requestors: PriorityRequestors,
         allow_requestors: AllowRequestors,
         downloader: ConfigurableDownloader,
+        price_oracle: Arc<PriceOracleManager>,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -150,6 +152,7 @@ where
             priority_requestors,
             allow_requestors,
             downloader,
+            price_oracle,
         }
     }
 
@@ -182,8 +185,10 @@ where
                     max_mcycle_price,
                     current_mcycle_price,
                     config_min_mcycle_price,
+                    journal_len,
                 }) => {
                     order.total_cycles = Some(total_cycles);
+                    order.journal_bytes = Some(journal_len);
                     order.target_timestamp = Some(target_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);
 
@@ -210,7 +215,9 @@ where
                     expiry_secs,
                     mcycle_price,
                     config_min_mcycle_price,
+                    journal_len,
                 }) => {
+                    order.journal_bytes = Some(journal_len);
                     tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", self.format_collateral(mcycle_price), self.format_collateral(config_min_mcycle_price));
                     order.total_cycles = Some(total_cycles);
                     order.target_timestamp = Some(lock_expire_timestamp_secs);
@@ -371,9 +378,13 @@ where
             .await
             .map_err(|err| OrderPickerErr::UnexpectedErr(Arc::new(err.into())))?
         {
-            let gas_estimate =
-                utils::estimate_gas_to_fulfill(config, &self.supported_selectors, &order.request)
-                    .await?;
+            let gas_estimate = utils::estimate_gas_to_fulfill(
+                config,
+                &self.supported_selectors,
+                &order.request,
+                order.journal_bytes,
+            )
+            .await?;
             gas += gas_estimate;
         }
         tracing::debug!("Total gas estimate to fulfill pending orders: {}", gas);
@@ -449,7 +460,35 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128, OrderPickerErr> {
-        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")? as u128)
+        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?)
+    }
+
+    async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPickerErr> {
+        if amount.asset == Asset::ETH {
+            return Ok(amount.clone());
+        }
+
+        self.price_oracle.convert(amount, Asset::ETH).await.map_err(|e| {
+            OrderPickerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ETH: {}",
+                amount,
+                e
+            )))
+        })
+    }
+
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPickerErr> {
+        if amount.asset == Asset::ZKC {
+            return Ok(amount.clone());
+        }
+
+        self.price_oracle.convert(amount, Asset::ZKC).await.map_err(|e| {
+            OrderPickerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ZKC: {}",
+                amount,
+                e
+            )))
+        })
     }
 
     fn prover(&self) -> &ProverObj {
@@ -748,6 +787,7 @@ pub(crate) mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::config::defaults;
     use crate::{
         chain_monitor::ChainMonitorService,
         db::SqliteDb,
@@ -767,10 +807,15 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use async_trait::async_trait;
+    use boundless_market::price_oracle::{
+        sources::StaticPriceSource, Amount, CachedPriceOracle, PriceOracleManager,
+    };
     use boundless_market::{
         contracts::{
             Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         },
+        dynamic_gas_filler::PriorityMode,
+        price_oracle,
         selector::SelectorExt,
         storage::{MockStorageUploader, StorageUploader},
     };
@@ -778,9 +823,24 @@ pub(crate) mod tests {
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
     };
+    use price_oracle::TradingPair;
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::{sha::Digest, Receipt};
     use tracing_test::traced_test;
+
+    /// Create a test price oracle with static prices for ETH and ZKC
+    fn create_test_price_oracle() -> Arc<PriceOracleManager> {
+        let eth_usd = Arc::new(CachedPriceOracle::new(
+            Arc::new(StaticPriceSource::new(TradingPair::EthUsd, 2000.0)), // $2000 per ETH
+        ));
+        let zkc_usd = Arc::new(CachedPriceOracle::new(
+            Arc::new(StaticPriceSource::new(TradingPair::ZkcUsd, 1.0)), // $1 per ZKC
+        ));
+        Arc::new(PriceOracleManager::new(
+            eth_usd, zkc_usd, 60,  // refresh interval
+            300, // max time without update
+        ))
+    }
 
     /// Reusable context for testing the order picker
     pub(crate) struct PickerTestCtx<P> {
@@ -804,6 +864,7 @@ pub(crate) mod tests {
         pub(crate) bidding_start: u64,
         pub(crate) lock_timeout: u32,
         pub(crate) timeout: u32,
+        pub(crate) request_input: Option<Vec<u8>>,
     }
 
     impl Default for OrderParams {
@@ -817,6 +878,7 @@ pub(crate) mod tests {
                 bidding_start: now_timestamp(),
                 lock_timeout: 900,
                 timeout: 1200,
+                request_input: None,
             }
         }
     }
@@ -835,14 +897,12 @@ pub(crate) mod tests {
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
 
+            let input_bytes = params.request_input.unwrap_or(vec![0x41, 0x41, 0x41, 0x41]);
             let request = ProofRequest::new(
                 RequestId::new(self.provider.default_signer_address(), params.order_index),
                 Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
                 image_url,
-                RequestInput::builder()
-                    .write_slice(&[0x41, 0x41, 0x41, 0x41])
-                    .build_inline()
-                    .unwrap(),
+                RequestInput::builder().write_slice(&input_bytes).build_inline().unwrap(),
                 Offer {
                     minPrice: params.min_price,
                     maxPrice: params.max_price,
@@ -934,6 +994,8 @@ pub(crate) mod tests {
         ) -> PickerTestCtx<impl Provider + WalletProvider + Clone + 'static> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
+                .arg("--block-base-fee-per-gas")
+                .arg("1000000000") // 1 gwei
                 .spawn();
             let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
             let provider = Arc::new(
@@ -982,7 +1044,10 @@ pub(crate) mod tests {
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
-            let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+            let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+            let chain_monitor = Arc::new(
+                ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
+            );
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
             let chain_id = provider.get_chain_id().await.unwrap();
@@ -1009,6 +1074,7 @@ pub(crate) mod tests {
                 priority_requestors,
                 allow_requestors,
                 downloader,
+                create_test_price_oracle(),
             );
 
             PickerTestCtx {
@@ -1029,7 +1095,8 @@ pub(crate) mod tests {
     async fn price_order() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -1050,7 +1117,8 @@ pub(crate) mod tests {
     async fn skip_bad_predicate() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -1077,7 +1145,8 @@ pub(crate) mod tests {
     async fn skip_unsupported_selector() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -1104,14 +1173,15 @@ pub(crate) mod tests {
     async fn skip_price_less_than_gas_costs() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
         let order = ctx
             .generate_next_order(OrderParams {
-                min_price: parse_ether("0.0005").unwrap(),
-                max_price: parse_ether("0.0010").unwrap(),
+                min_price: parse_ether("0.00015").unwrap(),
+                max_price: parse_ether("0.0003").unwrap(),
                 ..Default::default()
             })
             .await;
@@ -1129,18 +1199,51 @@ pub(crate) mod tests {
         assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
     }
 
+    const PINNED_BASE_FEE: u128 = 1_000_000_000;
+
+    /// Pin Anvil's base fee to a known value. Call this before any transaction
+    /// or gas price query to ensure deterministic gas pricing. This is to avoid flakiness with
+    /// tests given the base fee adjustment per block.
+    async fn pin_base_fee<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
+        ctx: &PickerTestCtx<P>,
+    ) {
+        ctx.provider.anvil_set_next_block_base_fee_per_gas(PINNED_BASE_FEE).await.unwrap();
+    }
+
+    /// Compute a price between the gas cost of a base order and the gas cost of
+    /// an enhanced order (with `extra_gas` additional gas units). Uses the chain
+    /// monitor's gas price after pinning the Anvil base fee for deterministic
+    /// results.
+    async fn gas_midpoint_price<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
+        ctx: &PickerTestCtx<P>,
+        extra_gas: u64,
+    ) -> U256 {
+        // Pin and mine a block so the chain monitor picks up the stable base fee.
+        pin_base_fee(ctx).await;
+        ctx.provider.anvil_mine(Some(1), None).await.unwrap();
+
+        let gas_price = ctx.picker.current_gas_price().await.unwrap();
+        // Use the midpoint (50%) so the test price has margin above base and below base+extra_gas.
+        let base_gas: u64 = defaults::lockin_gas_estimate() + defaults::fulfill_gas_estimate();
+        let target_gas = base_gas + extra_gas / 2;
+        U256::from(gas_price) * U256::from(target_gas)
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn skip_price_less_than_gas_costs_groth16() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        // Compute a price between the base gas cost and the groth16 gas cost.
+        // Groth16 adds 250k gas units on top of the base 600k.
+        let price = gas_midpoint_price(&ctx, 250_000).await;
+        let min_price = price;
+        let max_price = price;
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1152,9 +1255,11 @@ pub(crate) mod tests {
             })
             .await;
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
@@ -1174,9 +1279,11 @@ pub(crate) mod tests {
         order.request.requirements.selector =
             FixedBytes::from(SelectorExt::groth16_latest() as u32);
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let order_id = order.id();
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
@@ -1192,13 +1299,16 @@ pub(crate) mod tests {
     async fn skip_price_less_than_gas_costs_callback() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        // Compute a price between the base gas cost and the callback gas cost.
+        // The callback adds 200k gas units on top of the base 600k.
+        let price = gas_midpoint_price(&ctx, 200_000).await;
+        let min_price = price;
+        let max_price = price;
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1209,16 +1319,18 @@ pub(crate) mod tests {
                 ..Default::default()
             })
             .await;
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.target_timestamp, Some(0));
 
-        // Order does not have high enough price when groth16 is used.
+        // Order does not have high enough price when a callback is used.
         let mut order = ctx
             .generate_next_order(OrderParams {
                 order_index: 2,
@@ -1234,9 +1346,11 @@ pub(crate) mod tests {
             gasLimit: U96::from(200_000),
         };
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let order_id = order.id();
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
@@ -1252,13 +1366,16 @@ pub(crate) mod tests {
     async fn skip_price_less_than_gas_costs_smart_contract_signature() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.00125").unwrap();
-        let max_price = parse_ether("0.00125").unwrap();
+        // Compute a price between the base gas cost and the smart contract signature gas cost.
+        // Smart contract signature adds 100k gas units to the lock (ERC1271 check).
+        let price = gas_midpoint_price(&ctx, 100_000).await;
+        let min_price = price;
+        let max_price = price;
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1270,16 +1387,18 @@ pub(crate) mod tests {
             })
             .await;
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.target_timestamp, Some(0));
 
-        // Order does not have high enough price when groth16 is used.
+        // Order does not have high enough price when smart contract signature is used.
         let mut order = ctx
             .generate_next_order(OrderParams {
                 order_index: 2,
@@ -1292,9 +1411,11 @@ pub(crate) mod tests {
         order.request.id =
             RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let order_id = order.id();
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
@@ -1307,10 +1428,77 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn skip_price_less_than_gas_costs_large_journal() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.00000000001 ETH", None).unwrap();
+        }
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
+
+        let large_journal_gas = 10_000u64 * 26;
+        let price = gas_midpoint_price(&ctx, large_journal_gas).await;
+        let min_price = price;
+        let max_price = price;
+
+        // Empty journal order should be accepted (gas cost is below the price).
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                request_input: Some(vec![]),
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(0));
+
+        // Large journal order should be rejected (journal calldata gas pushes cost above the price).
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                request_input: Some(vec![0x41; 10_000]),
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let order_id = order.id();
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(
+            logs_contain("after accounting for journal costs")
+                && logs_contain("estimated gas cost to lock and fulfill order of")
+                && logs_contain("exceeds max price")
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn skip_unallowed_addr() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
             config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
         }
         let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
@@ -1339,7 +1527,7 @@ pub(crate) mod tests {
 
         {
             let mut cfg = config.load_write().unwrap();
-            cfg.market.min_mcycle_price = "0.0000001".into();
+            cfg.market.min_mcycle_price = Amount::parse("0.0000001 ETH", None).unwrap();
             cfg.market.deny_requestor_addresses = Some([deny_address].into_iter().collect());
         }
 
@@ -1363,7 +1551,8 @@ pub(crate) mod tests {
     async fn resume_order_pricing() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -1408,23 +1597,29 @@ pub(crate) mod tests {
     #[traced_test]
     async fn cannot_overcommit_collateral() {
         let signer_inital_balance_eth = 2;
-        let lockin_collateral = U256::from(150);
+        let decimals = 6;
+        // 200 ZKC tokens with 6 decimals - enough to avoid balance-related failures
+        let initial_balance = parse_units("200", decimals).unwrap().into();
 
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
-            config.load_write().unwrap().market.max_collateral = "10".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.max_collateral =
+                Amount::parse("10 ZKC", None).unwrap();
         }
 
         let mut ctx = PickerTestCtxBuilder::default()
             .with_initial_signer_eth(signer_inital_balance_eth)
-            .with_initial_hp(lockin_collateral)
+            .with_initial_hp(initial_balance)
             .with_config(config)
             .build()
             .await;
+
+        // First order: lock 5 ZKC (should succeed, below max_collateral)
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_collateral: U256::from(100),
+                lock_collateral: parse_units("5", decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;
@@ -1433,32 +1628,16 @@ pub(crate) mod tests {
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.id(), order1_id);
 
+        // Second order: lock 11 ZKC (should fail due to exceeding max_collateral of 10 ZKC)
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_collateral: lockin_collateral + U256::from(1),
-                ..Default::default()
-            })
-            .await;
-        let order_id = order.id();
-        assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
-        assert!(logs_contain("insufficient available collateral to lock order"));
-        assert_eq!(
-            ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
-            OrderStatus::Skipped
-        );
-
-        let order = ctx
-            .generate_next_order(OrderParams {
-                lock_collateral: parse_units("11", ctx.picker.collateral_token_decimals)
-                    .unwrap()
-                    .into(),
+                lock_collateral: parse_units("11", decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;
         let order_id = order.id();
         assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
-        // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient collateral
         assert_eq!(
             ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
             OrderStatus::Skipped
@@ -1469,10 +1648,12 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn use_gas_to_fulfill_estimate_from_config() {
-        let fulfill_gas = 123_456;
+        let fulfill_gas = defaults::fulfill_gas_estimate();
+        let journal_gas_per_byte = defaults::fulfill_journal_gas_per_byte();
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
             config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
         }
 
@@ -1484,9 +1665,12 @@ pub(crate) mod tests {
 
         // Simulate order being locked
         let order = ctx.priced_orders_rx.try_recv().unwrap();
+        // Use the actual journal size from preflight (now persisted on the order).
+        let journal_bytes = order.journal_bytes.unwrap();
+        let expected_per_order = fulfill_gas + journal_bytes as u64 * journal_gas_per_byte;
         ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
 
-        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfill_gas);
+        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), expected_per_order);
 
         // add another order
         let order =
@@ -1497,7 +1681,10 @@ pub(crate) mod tests {
         ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
 
         // gas estimate stacks (until estimates factor in bundling)
-        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * fulfill_gas);
+        assert_eq!(
+            ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(),
+            2 * expected_per_order
+        );
     }
 
     #[tokio::test]
@@ -1506,7 +1693,8 @@ pub(crate) mod tests {
         // set this by testing a very small limit (1 byte)
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
             config.load_write().unwrap().market.max_journal_bytes = 1;
         }
         let lock_collateral = U256::from(10);
@@ -1536,7 +1724,7 @@ pub(crate) mod tests {
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.min_mcycle_price_collateral_token =
-                "0.0000001".into();
+                Amount::parse("0.0000001 ZKC", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default()
             .with_config(config)
@@ -1578,7 +1766,8 @@ pub(crate) mod tests {
     async fn price_locked_by_other_unprofitable() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price_collateral_token = "0.1".into();
+            config.load_write().unwrap().market.min_mcycle_price_collateral_token =
+                Amount::parse("0.1 ZKC", None).unwrap();
         }
         let ctx = PickerTestCtxBuilder::default()
             .with_collateral_token_decimals(6)
@@ -1619,7 +1808,8 @@ pub(crate) mod tests {
         let exec_limit = 1000;
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
             config.load_write().unwrap().market.max_mcycle_limit = exec_limit;
         }
         let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
@@ -1668,7 +1858,7 @@ pub(crate) mod tests {
         let config = ConfigLock::default();
         {
             let mut cfg = config.load_write().unwrap();
-            cfg.market.min_mcycle_price = "0.0000001".into();
+            cfg.market.min_mcycle_price = Amount::parse("0.0000001 ETH", None).unwrap();
             cfg.market.min_mcycle_limit = 50; // Require at least 50 Mcycles
             cfg.market.min_deadline = 0;
         }
@@ -1699,7 +1889,8 @@ pub(crate) mod tests {
     async fn test_deadline_exec_limit_and_peak_prove_khz() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
             config.load_write().unwrap().market.peak_prove_khz = Some(1);
             config.load_write().unwrap().market.min_deadline = 10;
         }
@@ -1733,7 +1924,7 @@ pub(crate) mod tests {
         let config = ConfigLock::default();
         {
             let mut cfg = config.load_write().unwrap();
-            cfg.market.min_mcycle_price = "0.0000001".into();
+            cfg.market.min_mcycle_price = Amount::parse("0.0000001 ETH", None).unwrap();
             cfg.market.max_concurrent_preflights = 2;
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config.clone()).build().await;
@@ -1784,7 +1975,8 @@ pub(crate) mod tests {
             cfg.market.min_deadline
         };
         {
-            config.load_write().unwrap().market.min_mcycle_price_collateral_token = "1".into();
+            config.load_write().unwrap().market.min_mcycle_price_collateral_token =
+                Amount::parse("1 ZKC", None).unwrap();
         }
         let ctx = PickerTestCtxBuilder::default()
             .with_config(config.clone())
@@ -1943,7 +2135,8 @@ pub(crate) mod tests {
     async fn test_active_tasks_logging() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -2254,7 +2447,8 @@ pub(crate) mod tests {
         // Create context with very low mcycle price and set peak_prove_khz to create different deadline caps
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
             config.load_write().unwrap().market.peak_prove_khz = Some(1000); // Set peak_prove_khz to create deadline caps
             config.load_write().unwrap().market.min_deadline = 0; // Remove min_deadline interference
         }
@@ -2331,7 +2525,8 @@ pub(crate) mod tests {
 
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
         }
         let ctx = PickerTestCtxBuilder::default()
             .with_prover(mock_prover.clone())
@@ -2440,8 +2635,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_collateral() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.001".to_string(); // 0.01 ETH per mcycle
-        market_config.min_mcycle_price_collateral_token = "10".to_string(); // 10 collateral tokens per mcycle
+        market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap(); // 0.01 ETH per mcycle
+        market_config.min_mcycle_price_collateral_token = Amount::parse("10 ZKC", None).unwrap(); // 10 collateral tokens per mcycle
         market_config.max_mcycle_limit = 8000;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2469,7 +2664,7 @@ pub(crate) mod tests {
         // For lock and fulfill, if the exec limit based on ETH is higher than the exec
         // limit based on collateral, we should use the ETH limit.
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.001 ETH/mcycle = 49M cycles
         // collateral based: (100 collateral tokens - 20% collateral burn) * 1M / 10 collateral_tokens/mcycle = 8M cycles
@@ -2482,8 +2677,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_collateral_higher_than_eth_exposes_bug() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.1".to_string(); // 0.1 ETH per mcycle (expensive)
-        market_config.min_mcycle_price_collateral_token = "1".to_string(); // 1 collateral token per mcycle (cheaper)
+        market_config.min_mcycle_price = Amount::parse("0.1 ETH", None).unwrap(); // 0.1 ETH per mcycle (expensive)
+        market_config.min_mcycle_price_collateral_token = Amount::parse("1 ZKC", None).unwrap(); // 1 collateral token per mcycle (cheaper)
         market_config.max_mcycle_limit = 8000;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2509,7 +2704,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.1 ETH/mcycle = 490k cycles
         // collateral based: (1000 collateral tokens - 20% burn) * 1M / 1 collateral_token/mcycle = 800M cycles
@@ -2533,8 +2728,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_fulfill_after_expire_collateral_only() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.0134".to_string(); // Won't be used for FulfillAfterLockExpire
-        market_config.min_mcycle_price_collateral_token = "0.1".to_string(); // 0.1 collateral per mcycle
+        market_config.min_mcycle_price = Amount::parse("0.0134 ETH", None).unwrap(); // Won't be used for FulfillAfterLockExpire
+        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap(); // 0.1 collateral per mcycle
         market_config.max_mcycle_limit = 8000;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2560,7 +2755,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should only use collateral-based pricing for FulfillAfterLockExpire
         // collateral based: (100 collateral tokens - 20% burn) / 0.1 collateral tokens per mcycle = 80M cycles
@@ -2580,8 +2775,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_max_mcycle_cap() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.01".to_string();
-        market_config.min_mcycle_price_collateral_token = "0.1".to_string();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 20; // 20 mcycle limit
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2607,7 +2802,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be capped at 20M cycles regardless of high prices
         let expected_cycles = 20_000_000u64;
@@ -2620,8 +2815,8 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_priority_requestor_unlimited() {
         let priority_address = address!("1234567890123456789012345678901234567890");
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.01".to_string();
-        market_config.min_mcycle_price_collateral_token = "0.1".to_string();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 5; // Low limit normally
         market_config.priority_requestor_addresses = Some(vec![priority_address]);
 
@@ -2651,7 +2846,7 @@ pub(crate) mod tests {
         order.request.id = RequestId::new(priority_address, 1).into();
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
         // For LockAndFulfill orders: preflight uses higher limit (collateral), prove uses ETH-based
@@ -2662,8 +2857,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_timing_constraints() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.01".to_string();
-        market_config.min_mcycle_price_collateral_token = "0.1".to_string();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 8000;
         market_config.peak_prove_khz = Some(1000); // 1M cycles per second
 
@@ -2690,22 +2885,30 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
-        // Should be limited by timing constraints
-        // Prove window: 60 seconds -> 60M cycles max
-        // Both should be capped at 60M cycles despite high prices
+        // Should be limited by timing constraints (peak_prove_khz = 1000 → 1M cycles/sec).
+        // prove_window = lock_expires_at - now ≈ lock_timeout = 60s → ~60M cycles.
+        //
+        // prove_limit may drift down by a few seconds of wall-clock time elapsed between
+        // order creation (bidding_start = now()) and the now() call inside
+        // calculate_exec_limits. preflight_limit is stable because it takes the max
+        // with the fulfill-after-expiry window (timeout - lock_timeout = 60s), which
+        // is constant and not subject to drift.
         let expected_cycles = 60_000_000u64;
 
         assert_eq!(preflight_limit, expected_cycles);
-        assert_eq!(prove_limit, expected_cycles);
+        assert!(
+            prove_limit <= expected_cycles && prove_limit >= expected_cycles - 5_000_000,
+            "prove_limit {prove_limit} should be in [55M, 60M]"
+        );
     }
 
     #[tokio::test]
     async fn test_calculate_exec_limits_zero_collateral_price_unlimited() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.01".to_string();
-        market_config.min_mcycle_price_collateral_token = "0".to_string(); // Zero collateral price
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.min_mcycle_price_collateral_token = Amount::parse("0 ZKC", None).unwrap(); // Zero collateral price
         market_config.max_mcycle_limit = u64::MAX;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2731,7 +2934,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be unlimited (u64::MAX) when collateral price is zero
         assert_eq!(preflight_limit, u64::MAX);
@@ -2741,8 +2944,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_very_short_deadline() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0.01".to_string();
-        market_config.min_mcycle_price_collateral_token = "0.1".to_string();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 8000;
         market_config.peak_prove_khz = Some(1000); // 1M cycles per second
 
@@ -2769,20 +2972,29 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
-        // Should be limited by very short deadline: 1 second = 1M cycles
+        // Should be limited by very short deadline (peak_prove_khz = 1000 → 1M cycles/sec).
+        // prove_window = lock_expires_at - now ≈ 1s → ~1M cycles.
+        //
+        // prove_limit may drop to 0 if even 1 second elapses between order creation
+        // and calculate_exec_limits. preflight_limit is stable because it takes the
+        // max with the fulfill-after-expiry window (timeout - lock_timeout = 1s = 1M
+        // cycles), which is constant.
         let expected_cycles = 1_000_000u64;
 
         assert_eq!(preflight_limit, expected_cycles);
-        assert_eq!(prove_limit, expected_cycles);
+        assert!(
+            prove_limit <= expected_cycles,
+            "prove_limit {prove_limit} should be at most {expected_cycles}"
+        );
     }
 
     #[tokio::test]
     async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
         let mut market_config = MarketConfig::default();
-        market_config.min_mcycle_price = "0".to_string(); // Zero ETH price
-        market_config.min_mcycle_price_collateral_token = "0.1".to_string();
+        market_config.min_mcycle_price = Amount::parse("0 ETH", None).unwrap(); // Zero ETH price
+        market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC", None).unwrap();
         market_config.max_mcycle_limit = u64::MAX;
 
         let ctx = PickerTestCtxBuilder::default()
@@ -2808,7 +3020,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be unlimited (u64::MAX) when ETH mcycle_price is zero
         assert_eq!(preflight_limit, u64::MAX);
@@ -2820,7 +3032,8 @@ pub(crate) mod tests {
     async fn test_zero_mcycle_price_order_processing() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0".into();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -2841,7 +3054,8 @@ pub(crate) mod tests {
     async fn test_zero_collateral_price_order_processing() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price_collateral_token = "0".into();
+            config.load_write().unwrap().market.min_mcycle_price_collateral_token =
+                Amount::parse("0 ZKC", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 

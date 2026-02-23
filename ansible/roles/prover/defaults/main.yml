@@ -65,5 +65,10 @@ prover_povw_log_id: ""
 
 # Broker configuration URL
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
+# Enable MinIO input TTL (lifecycle rule to expire inputs/ objects)
+prover_enable_input_ttl: true
+# Number of days before inputs/ objects expire (only used when prover_enable_input_ttl is true)
+prover_input_ttl_days: 1
+
 prover_docker_compose_profile: "--profile broker --profile miner"
 prover_docker_compose_invoke: ""

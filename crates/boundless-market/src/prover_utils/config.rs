@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::dynamic_gas_filler::PriorityMode;
+use crate::price_oracle::{Amount, Asset, PriceOracleConfig};
 
 pub mod defaults {
     use url::Url;
@@ -54,10 +55,14 @@ pub mod defaults {
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        // Observed cost of a basic single fulfill transaction is ~350k gas.
-        // Additional padding is used to account for journals up to 10kB in size.
-        // https://sepolia.etherscan.io/tx/0x14e54fbaf0c1eda20dd0828ddd64e255ffecee4562492f8c1253b0c3f20af764
-        750_000
+        // Observed cost of a basic single fulfill transaction is ~390k gas. Added a small buffer.
+        // Journal calldata costs are added separately via fulfill_journal_gas_per_byte.
+        450_000
+    }
+
+    pub const fn fulfill_journal_gas_per_byte() -> u64 {
+        // Retrieved from onchain observations.
+        26
     }
 
     pub const fn groth16_verify_gas_estimate() -> u64 {
@@ -127,8 +132,8 @@ pub mod defaults {
         0
     }
 
-    /// Recommended max collateral for standard requestor list (lower risk).
-    pub const MAX_COLLATERAL_STANDARD: &str = "50";
+    /// Recommended max collateral for standard requestor list (lower risk) in USD.
+    pub const MAX_COLLATERAL_STANDARD: &str = "10";
 
     pub const fn min_deadline() -> u64 {
         // Currently 150 seconds
@@ -149,6 +154,10 @@ pub mod defaults {
 
     pub const fn max_concurrent_proofs() -> u32 {
         1
+    }
+
+    pub const fn max_order_expiry_secs() -> Option<u64> {
+        None
     }
 
     pub const fn status_poll_retry_count() -> u64 {
@@ -243,23 +252,65 @@ impl Default for OrderCommitmentPriority {
     }
 }
 
+/// Deserialize Amount with validation that asset is USD or ETH.
+/// Plain numbers without asset suffix default to ETH for backward compatibility.
+fn deserialize_mcycle_price<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ETH], Some(Asset::ETH))
+        .map_err(serde::de::Error::custom)
+}
+
+/// Deserialize Amount with validation that asset is USD or ZKC.
+/// Plain numbers without asset suffix default to ZKC for backward compatibility.
+fn deserialize_max_collateral<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ZKC], Some(Asset::ZKC))
+        .map_err(serde::de::Error::custom)
+}
+
+/// Deserialize Amount with validation that asset is USD or ZKC.
+/// Plain numbers without asset suffix default to ZKC for backward compatibility.
+fn deserialize_mcycle_price_collateral_token<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ZKC], Some(Asset::ZKC))
+        .map_err(serde::de::Error::custom)
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
 pub struct MarketConfig {
-    /// Mega-cycle price, denominated in the native token (e.g. ETH).
+    /// Minimum price per mega-cycle. Asset can be specified: "0.00001 USD" or "0.00000001 ETH"
+    /// Plain numbers default to ETH for backward compatibility.
     ///
-    /// This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
+    /// If USD, converted to target token at runtime via price oracle.
+    ///
+    /// This price is multiplied by the number of mega-cycles (i.e. million RISC-V cycles) that the requested
     /// execution took, as calculated by running the request in preflight. This is one of the inputs to
     /// decide the minimum price to accept for a request.
-    #[serde(alias = "mcycle_price")]
-    pub min_mcycle_price: String,
-    /// Mega-cycle price, denominated in the Boundless collateral token.
+    #[serde(alias = "mcycle_price", deserialize_with = "deserialize_mcycle_price")]
+    pub min_mcycle_price: Amount,
+    /// Mega-cycle price, denominated in the Boundless collateral token. Asset can be specified: "0.001 ZKC" or "1 USD"
+    /// Plain numbers default to ZKC for backward compatibility.
+    ///
+    /// If USD, converted to ZKC at runtime via price oracle.
     ///
     /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
     /// order when paid in collateral tokens, as is the case for orders with an expired lock.
-    #[serde(alias = "mcycle_price_collateral_token")]
-    pub min_mcycle_price_collateral_token: String,
+    #[serde(
+        alias = "mcycle_price_collateral_token",
+        deserialize_with = "deserialize_mcycle_price_collateral_token"
+    )]
+    pub min_mcycle_price_collateral_token: Amount,
     /// Assumption price (in native token)
     ///
     /// DEPRECATED
@@ -319,11 +370,13 @@ pub struct MarketConfig {
     /// but increases RPC load. A higher value reduces RPC calls but may increase response latency.
     #[serde(default = "defaults::events_poll_ms")]
     pub events_poll_ms: u64,
-    /// Max collateral amount, denominated in the Boundless collateral token.
+    /// Max collateral amount. Asset can be specified: "50 ZKC" or "100 USD"
+    /// Plain numbers default to ZKC for backward compatibility.
     ///
+    /// If USD, converted to ZKC at runtime via price oracle.
     /// Requests that require a higher collateral amount than this will not be considered.
-    #[serde(alias = "max_stake")]
-    pub max_collateral: String,
+    #[serde(alias = "max_stake", deserialize_with = "deserialize_max_collateral")]
+    pub max_collateral: Amount,
     /// Optional allow list for customer address.
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
@@ -373,6 +426,12 @@ pub struct MarketConfig {
     /// conservative default will be used.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Gas per byte of journal data submitted on-chain during fulfillment.
+    ///
+    /// Applied only for predicates that require journal data (DigestMatch, PrefixMatch).
+    /// ClaimDigestMatch predicates do not submit journal data and skip this cost.
+    #[serde(default = "defaults::fulfill_journal_gas_per_byte")]
+    pub fulfill_journal_gas_per_byte: u64,
     /// Gas estimate for proof verification using the RiscZeroGroth16Verifier
     ///
     /// Used for estimating the gas costs associated with an order during pricing. If not set a
@@ -454,6 +513,11 @@ pub struct MarketConfig {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
+    /// Maximum order expiry duration in seconds (order_expiry - now).
+    /// Orders with a longer time until expiry will be skipped.
+    /// If not set (None), no maximum is enforced.
+    #[serde(default = "defaults::max_order_expiry_secs")]
+    pub max_order_expiry_secs: Option<u64>,
 }
 
 impl Default for MarketConfig {
@@ -461,8 +525,9 @@ impl Default for MarketConfig {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
-            min_mcycle_price: "0.00001".to_string(),
-            min_mcycle_price_collateral_token: "0.001".to_string(),
+            min_mcycle_price: Amount::parse("0.00002 USD", None).expect("valid default"),
+            min_mcycle_price_collateral_token: Amount::parse("0.001 ZKC", None)
+                .expect("valid default"),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
             min_mcycle_limit: defaults::min_mcycle_limit(),
@@ -475,7 +540,7 @@ impl Default for MarketConfig {
             lookback_blocks: defaults::lookback_blocks(),
             events_poll_blocks: defaults::events_poll_blocks(),
             events_poll_ms: defaults::events_poll_ms(),
-            max_collateral: defaults::MAX_COLLATERAL_STANDARD.to_string(),
+            max_collateral: Amount::parse("10 USD", None).expect("valid default"),
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
@@ -484,6 +549,7 @@ impl Default for MarketConfig {
             max_fetch_retries: defaults::max_fetch_retries(),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            fulfill_journal_gas_per_byte: defaults::fulfill_journal_gas_per_byte(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
             additional_proof_cycles: defaults::additional_proof_cycles(),
             balance_warn_threshold: None,
@@ -499,6 +565,7 @@ impl Default for MarketConfig {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
+            max_order_expiry_secs: defaults::max_order_expiry_secs(),
         }
     }
 }
@@ -653,6 +720,9 @@ pub struct Config {
     /// Aggregation batch configs
     #[serde(default)]
     pub batcher: BatcherConfig,
+    /// Price oracle configuration
+    #[serde(default)]
+    pub price_oracle: PriceOracleConfig,
 }
 
 impl Config {

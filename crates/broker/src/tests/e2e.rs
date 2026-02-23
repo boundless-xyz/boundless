@@ -28,11 +28,14 @@ use alloy::{
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
+use boundless_market::price_oracle::config::PriceValue;
+use boundless_market::price_oracle::Amount;
 use boundless_market::{
     contracts::{
         hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
         RequestId, RequestInput, Requirements,
     },
+    dynamic_gas_filler::PriorityMode,
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType},
     storage::{MockStorageUploader, StorageUploader},
     Deployment,
@@ -119,10 +122,13 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     }
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
-    config.market.min_mcycle_price = "0.00001".into();
-    config.market.min_mcycle_price_collateral_token = "0.0".into();
+    config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
+    config.market.min_mcycle_price_collateral_token = Amount::parse("0.0 ZKC", None).unwrap();
     config.market.min_deadline = min_deadline;
     config.batcher.min_batch_size = min_batch_size;
+    // Use static prices for tests to avoid needing real price sources
+    config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+    config.price_oracle.zkc_usd = PriceValue::Static(1.0);
     config.write(config_file.path()).await.unwrap();
     config_file
 }
@@ -733,6 +739,132 @@ async fn e2e_with_claim_digest_match() {
 
         // When claim digest match is used without a callback, fulfillment data is empty
         assert_eq!(fulfillment_data, FulfillmentData::None);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn gas_estimation_matches_actual_tx_cost() {
+    use boundless_market::prover_utils::MarketConfig;
+
+    let anvil = Anvil::new()
+        .arg("--block-base-fee-per-gas")
+        .arg("1000000000") // 1 gwei
+        .spawn();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    let config = new_config(1).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
+    let broker = Broker::new(
+        args,
+        ctx.prover_provider.clone(),
+        ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+
+    let storage = MockStorageUploader::new();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    let request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    let request_id = U256::from(request.id);
+
+    run_with_broker(broker, async move {
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        ctx.customer_market
+            .wait_for_request_fulfillment(request_id, Duration::from_secs(1), request.expires_at())
+            .await
+            .unwrap();
+
+        let market_config = MarketConfig::default();
+        let estimated_lock_gas = market_config.lockin_gas_estimate;
+        let estimated_fulfill_gas = market_config.fulfill_gas_estimate;
+
+        let estimated_gas_price =
+            PriorityMode::Medium.estimate_max_fee_per_gas(&ctx.prover_provider).await.unwrap();
+
+        let estimated_lock_gas_cost = U256::from(estimated_gas_price) * U256::from(estimated_lock_gas);
+        let estimated_fulfill_gas_cost = U256::from(estimated_gas_price) * U256::from(estimated_fulfill_gas);
+
+        let locked_event =
+            ctx.customer_market.query_request_locked_event(request_id, None, None).await.unwrap();
+        let lock_receipt = ctx
+            .prover_provider
+            .get_transaction_receipt(locked_event.tx_hash)
+            .await
+            .unwrap()
+            .expect("lock transaction receipt should exist");
+
+        let lock_gas_used = lock_receipt.gas_used;
+        let lock_effective_gas_price = lock_receipt.effective_gas_price;
+        let lock_actual_cost = U256::from(lock_effective_gas_price) * U256::from(lock_gas_used);
+
+        let fulfilled_event = ctx
+            .customer_market
+            .query_request_fulfilled_event(request_id, None, None)
+            .await
+            .unwrap();
+        let fulfill_receipt = ctx
+            .prover_provider
+            .get_transaction_receipt(fulfilled_event.tx_hash)
+            .await
+            .unwrap()
+            .expect("fulfill transaction receipt should exist");
+
+        let fulfill_gas_used = fulfill_receipt.gas_used;
+        let fulfill_effective_gas_price = fulfill_receipt.effective_gas_price;
+        let fulfill_actual_cost =
+            U256::from(fulfill_effective_gas_price) * U256::from(fulfill_gas_used);
+
+        assert!(
+            estimated_lock_gas >= lock_gas_used as u64,
+            "lockin_gas_estimate ({estimated_lock_gas}) should be >= \
+             lock tx gas_used ({lock_gas_used})"
+        );
+
+        assert!(
+            estimated_fulfill_gas >= fulfill_gas_used as u64,
+            "fulfill_gas_estimate ({estimated_fulfill_gas}) should be >= \
+             fulfill tx gas_used ({fulfill_gas_used})"
+        );
+
+        assert!(estimated_lock_gas_cost >= lock_actual_cost, "estimated lock gas cost ({estimated_lock_gas_cost}) should be >= lock actual cost ({lock_actual_cost})");
+        assert!(estimated_fulfill_gas_cost >= fulfill_actual_cost, "estimated fulfill gas cost ({estimated_fulfill_gas_cost}) should be >= fulfill actual cost ({fulfill_actual_cost})");
+
+        assert!(
+            estimated_gas_price >= lock_effective_gas_price,
+            "estimated gas price ({estimated_gas_price}) should be >= \
+             lock effective_gas_price ({lock_effective_gas_price})"
+        );
+        assert!(
+            estimated_gas_price >= fulfill_effective_gas_price,
+            "estimated gas price ({estimated_gas_price}) should be >= \
+             fulfill effective_gas_price ({fulfill_effective_gas_price})"
+        );
     })
     .await;
 }
