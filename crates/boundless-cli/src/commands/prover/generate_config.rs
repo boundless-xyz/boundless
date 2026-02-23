@@ -609,9 +609,7 @@ impl ProverGenerateConfig {
         let expected_probability_str =
             Text::new("Expected secondary fulfillment win multiplier (percentage, default 50):")
                 .with_default("50")
-                .with_help_message(
-                    "< 100 discounts reward, 100 = no change, > 100 boosts reward",
-                )
+                .with_help_message("< 100 discounts reward, 100 = no change, > 100 boosts reward")
                 .prompt()
                 .context("Failed to get expected probability")?;
 

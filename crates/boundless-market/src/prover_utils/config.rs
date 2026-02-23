@@ -270,7 +270,6 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
