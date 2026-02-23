@@ -630,23 +630,15 @@ where
         max_price: U256,
         journal_bytes: Option<usize>,
     ) -> anyhow::Result<U256> {
-        // Intentionally more aggressive than PriorityMode::High (50th percentile, 2.5x base fee).
-        // Requestors use the 75th percentile so that `maxPrice` has enough headroom for gas
-        // volatility between request submission and fulfillment.
-        let gas_price: u128 = PriorityMode::Custom {
-            base_fee_multiplier_percentage: 250,
-            priority_fee_multiplier_percentage: 100,
-            priority_fee_percentile: 75.0,
-            dynamic_multiplier_percentage: 7,
-        }
-        .estimate_max_fee_per_gas(&self.provider)
-        .await
-        .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
+        let gas_price: u128 = PriorityMode::High
+            .estimate_max_fee_per_gas(&self.provider)
+            .await
+            .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price, journal_bytes)?;
 
-        // Use 2x the gas cost estimate to account for gas price fluctuations.
-        let gas_cost_estimate = U256::from(2) * gas_cost_estimate;
+        // Use a 20% buffer on the gas cost estimate to account for gas price fluctuations.
+        let gas_cost_estimate = gas_cost_estimate.saturating_mul(U256::from(120)) / U256::from(100);
         let adjusted_max_price = max_price + gas_cost_estimate;
         tracing::debug!(
             "Setting a max price of {} ether: {} max_price + {} gas_cost_estimate [gas price: {} gwei]",
