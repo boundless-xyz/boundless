@@ -161,6 +161,7 @@ pub struct OrderMonitor<P> {
     supported_selectors: SupportedSelectors,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    listen_only: bool,
 }
 
 impl<P> OrderMonitor<P>
@@ -180,6 +181,7 @@ where
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        listen_only: bool,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -232,6 +234,7 @@ where
             supported_selectors: SupportedSelectors::default(),
             rpc_retry_config,
             gas_priority_mode,
+            listen_only,
         };
         Ok(monitor)
     }
@@ -554,6 +557,12 @@ where
             async move {
                 let order_id = order.id();
                 if order.fulfillment_type == FulfillmentType::LockAndFulfill {
+                    if self.listen_only {
+                        tracing::info!("[LISTEN-ONLY] Would lock and prove order: {}", order_id);
+                        self.lock_and_prove_cache.invalidate(&order_id).await;
+                        return;
+                    }
+
                     let request_id = order.request.id;
                     match self.lock_order(order).await {
                         Ok(lock_price) => {
@@ -594,6 +603,14 @@ where
                     }
                     self.lock_and_prove_cache.invalidate(&order_id).await;
                 } else {
+                    if self.listen_only {
+                        tracing::info!(
+                            "[LISTEN-ONLY] Would prove order (after lock expire): {}",
+                            order_id
+                        );
+                        self.prove_cache.invalidate(&order_id).await;
+                        return;
+                    }
                     if let Err(err) = self.db.insert_accepted_request(order, U256::ZERO).await {
                         tracing::error!(
                             "Failed to set order status to pending proving: {} - {err:?}",
@@ -671,11 +688,15 @@ where
         // Get current gas price and available balance
         let gas_price =
             self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
-        let available_balance_wei = self
-            .provider
-            .get_balance(self.provider.default_signer_address())
-            .await
-            .map_err(|err| OrderMonitorErr::RpcErr(err.into()))?;
+        // In listen-only mode, skip balance checks since no transactions will be sent.
+        let available_balance_wei = if self.listen_only {
+            U256::MAX
+        } else {
+            self.provider
+                .get_balance(self.provider.default_signer_address())
+                .await
+                .map_err(|err| OrderMonitorErr::RpcErr(err.into()))?
+        };
 
         // Calculate gas units required for committed orders
         let committed_orders = self.db.get_committed_orders().await?;

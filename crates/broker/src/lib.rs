@@ -872,7 +872,7 @@ where
 
         let prover_addr = self.provider.default_signer_address();
 
-        let (pricing_tx, mut pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
+        let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
         let market = Arc::new(BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
@@ -932,16 +932,36 @@ where
             Ok(())
         });
 
-        if self.args.listen_only {
-            // In listen-only mode, drain the pricing channel so the OrderPicker doesn't block.
-            // Log what would have been locked but take no action.
-            non_critical_tasks.spawn(async move {
-                while let Some(order) = pricing_rx.recv().await {
-                    tracing::info!("[LISTEN-ONLY] Would lock order: {}", order.id());
-                }
-                Ok(())
-            });
-        } else {
+        // Always start the OrderMonitor so its full decision logic (caching, prioritization,
+        // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
+        let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
+            self.db.clone(),
+            self.provider.clone(),
+            chain_monitor.clone(),
+            config.clone(),
+            block_times,
+            prover_addr,
+            self.deployment().boundless_market_address,
+            pricing_rx,
+            collateral_token_decimals,
+            order_monitor::RpcRetryConfig {
+                retry_count: self.args.rpc_retry_max.into(),
+                retry_sleep_ms: self.args.rpc_retry_backoff,
+            },
+            self.gas_priority_mode.clone(),
+            self.args.listen_only,
+        )?);
+        let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(order_monitor, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("Failed to start order monitor")?;
+            Ok(())
+        });
+
+        if !self.args.listen_only {
             let proving_service = Arc::new(proving::ProvingService::new(
                 self.db.clone(),
                 prover.clone(),
@@ -960,32 +980,6 @@ where
                     .spawn()
                     .await
                     .context("Failed to start proving service")?;
-                Ok(())
-            });
-
-            let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
-                self.db.clone(),
-                self.provider.clone(),
-                chain_monitor.clone(),
-                config.clone(),
-                block_times,
-                prover_addr,
-                self.deployment().boundless_market_address,
-                pricing_rx,
-                collateral_token_decimals,
-                order_monitor::RpcRetryConfig {
-                    retry_count: self.args.rpc_retry_max.into(),
-                    retry_sleep_ms: self.args.rpc_retry_backoff,
-                },
-                self.gas_priority_mode.clone(),
-            )?);
-            let cloned_config = config.clone();
-            let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(async move {
-                Supervisor::new(order_monitor, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start order monitor")?;
                 Ok(())
             });
 
