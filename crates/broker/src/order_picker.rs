@@ -237,6 +237,13 @@ where
                         .await
                         .map_err(anyhow::Error::from)?;
                     order.expected_reward_eth = Some(eth_amount.value);
+                    tracing::debug!(
+                        "Secondary order {order_id}: raw_collateral={} ZKC, win_probability={}%, discounted={} ZKC, expected_reward={} ETH",
+                        self.format_collateral(raw_collateral),
+                        config.expected_probability_win_secondary_fulfillment,
+                        self.format_collateral(discounted),
+                        format_ether(eth_amount.value),
+                    );
 
                     self.priced_orders_tx
                         .send(order)

@@ -19,7 +19,7 @@ use crate::{
     FulfillmentType, OrderRequest,
 };
 
-use alloy::primitives::U256;
+use alloy::primitives::{utils::format_ether, U256};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::sync::Arc;
@@ -78,6 +78,56 @@ fn sort_orders_by_priority_and_mode<T>(
     orders.extend(regular_orders);
 }
 
+/// Base reward used to compute the "without random factor" ranking position for secondary orders.
+fn base_reward(order: &OrderRequest, now: u64) -> U256 {
+    if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire) {
+        order.expected_reward_eth.unwrap_or_default()
+    } else {
+        order.request.offer.price_at(now).unwrap_or_default()
+    }
+}
+
+/// After a price-based sort (which applies a random factor to secondary orders), log a single
+/// debug line showing where secondary orders landed and where they would rank without the factor.
+fn log_secondary_ranking<T>(orders: &[T], now: u64)
+where
+    T: AsRef<OrderRequest>,
+{
+    if !tracing::enabled!(tracing::Level::DEBUG) {
+        return;
+    }
+
+    let total = orders.len();
+    let base_rewards: Vec<U256> = orders.iter().map(|o| base_reward(o.as_ref(), now)).collect();
+
+    let secondary_entries: Vec<String> = orders
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            matches!(o.as_ref().fulfillment_type, FulfillmentType::FulfillAfterLockExpire)
+        })
+        .map(|(actual_pos, o)| {
+            let order = o.as_ref();
+            let my_base = order.expected_reward_eth.unwrap_or_default();
+            // Base position: 1 + number of orders with a strictly higher base reward
+            let base_pos = 1 + base_rewards.iter().filter(|&&r| r > my_base).count();
+            format!(
+                "{}=#{}/#{} (expected {}ETH)",
+                order.id(),
+                actual_pos + 1,
+                base_pos,
+                format_ether(my_base),
+            )
+        })
+        .collect();
+
+    if secondary_entries.is_empty() {
+        return;
+    }
+
+    tracing::debug!("Secondary order ranking [{total} total]: {}", secondary_entries.join(", "));
+}
+
 fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
 where
     T: AsRef<OrderRequest>,
@@ -96,6 +146,7 @@ where
         UnifiedPriorityMode::Price => {
             orders
                 .sort_by_key(|o| std::cmp::Reverse(total_reward_amount(o.as_ref(), now, &mut rng)));
+            log_secondary_ranking(orders, now);
         }
         UnifiedPriorityMode::CyclePrice => {
             orders.sort_by_key(|o| {
@@ -107,6 +158,7 @@ where
                         .unwrap_or_default(),
                 )
             });
+            log_secondary_ranking(orders, now);
         }
     }
 }
