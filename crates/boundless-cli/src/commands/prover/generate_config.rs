@@ -47,10 +47,6 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
 
-// Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
-// orders locked by other provers that exceeded their lock timeout
-const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.0005 ZKC";
-
 mod selection_strings {
     // Benchmark performance options
     pub const BENCHMARK_RUN_SUITE: &str =
@@ -92,7 +88,7 @@ struct WizardConfig {
     priority_requestor_lists: Vec<String>,
     max_collateral: String,
     min_mcycle_price: String,
-    min_mcycle_price_collateral_token: String,
+    expected_probability_win_secondary_fulfillment: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -598,38 +594,33 @@ impl ProverGenerateConfig {
                 .context("Failed to get price")?
         };
 
-        // Collateral token pricing
+        // Step 7b: Secondary Fulfillment Configuration
         display.separator();
+        display.note("Secondary fulfillment occurs when a prover's lock expires and the order");
+        display.note("becomes available to any prover. Multiple provers may race to fulfill it.");
+        display.note("This multiplier scales the expected reward when evaluating profitability.");
         display.note("");
-        display.note("Collateral Token Pricing:");
-        display.note("");
-        display.note("When another prover fails to fulfill their locked order within the timeout,");
-        display.note("they are slashed. A portion of their collateral (in ZKC) becomes available");
-        display.note("as a reward for any prover who can fulfill that order in a 'proof race'.");
-        display.note("");
-        display.note("You can specify the price in ZKC or USD:");
-        display.note("  • ZKC: Price in ZKC per mega-cycle (e.g., '0.0005 ZKC')");
         display.note(
-            "  • USD: Price in USD per mega-cycle, converted to ZKC at runtime (e.g., '0.02 USD')",
+            "For example, with a value of 50, a 100 ZKC reward is valued at 50 ZKC (discounted).",
         );
-        display.note(&format!(
-            "The recommended price per Mcycle is: {}",
-            format_amount_with_conversion(
-                DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
-                None,
-                price_oracle.clone(),
-            )
-            .await
-        ));
+        display.note("Values above 100 boost the perceived reward to prioritize secondaries.");
         display.note("");
 
-        let min_mcycle_price_collateral_token = prompt_validated_amount(
-            "Minimum price per Mcycle (collateral rewards):",
-            DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
-            "Format: '<value> ZKC' or '<value> USD'. You can update this later in broker.toml",
-            &[Asset::USD, Asset::ZKC],
-            "min_mcycle_price_collateral_token",
-        )?;
+        let expected_probability_str =
+            Text::new("Expected secondary fulfillment win multiplier (percentage, default 50):")
+                .with_default("50")
+                .with_help_message("< 100 discounts reward, 100 = no change, > 100 boosts reward")
+                .prompt()
+                .context("Failed to get expected probability")?;
+
+        let expected_probability_win_secondary_fulfillment =
+            expected_probability_str.parse::<u32>().context("Invalid number format")?;
+
+        display.item_colored(
+            "Using",
+            format!("{}% expected win probability", expected_probability_win_secondary_fulfillment),
+            "green",
+        );
 
         Ok(WizardConfig {
             num_threads,
@@ -642,7 +633,7 @@ impl ProverGenerateConfig {
             priority_requestor_lists,
             max_collateral,
             min_mcycle_price,
-            min_mcycle_price_collateral_token,
+            expected_probability_win_secondary_fulfillment,
         })
     }
 
@@ -1080,9 +1071,10 @@ impl ProverGenerateConfig {
                 }
             }
 
-            // Update min_mcycle_price_collateral_token
-            if let Some(item) = market.get_mut("min_mcycle_price_collateral_token") {
-                *item = toml_edit::value(config.min_mcycle_price_collateral_token.clone());
+            // Update expected_probability_win_secondary_fulfillment
+            if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment") {
+                *item =
+                    toml_edit::value(config.expected_probability_win_secondary_fulfillment as i64);
             }
         }
 

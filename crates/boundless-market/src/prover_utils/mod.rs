@@ -59,6 +59,18 @@ use OrderPricingOutcome::Skip;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
+/// Scale a reward value for secondary fulfillment probability.
+///
+/// # Arguments
+/// * `reward` - The full reward amount
+/// * `probability_percent` - Scaling factor: < 100 discounts, 100 = no change, > 100 boosts
+///
+/// # Returns
+/// The scaled reward: `reward * probability_percent / 100`
+pub fn apply_secondary_fulfillment_discount(reward: U256, probability_percent: u32) -> U256 {
+    reward.saturating_mul(U256::from(probability_percent)) / U256::from(100u32)
+}
+
 /// Execution limit reasoning details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProveLimitReason {
@@ -87,9 +99,8 @@ impl fmt::Display for ProveLimitReason {
             ProveLimitReason::CollateralPricing { collateral_reward, mcycle_price_collateral } => {
                 write!(
                     f,
-                    "collateral pricing: order collateral reward {} / {} mcycle_price_collateral_token config",
-                    collateral_reward,
-                    mcycle_price_collateral,
+                    "collateral pricing: order collateral reward {} / {} min_mcycle_price (as ZKC)",
+                    collateral_reward, mcycle_price_collateral,
                 )
             }
             ProveLimitReason::EthPricing {
@@ -177,6 +188,7 @@ pub struct OrderRequest {
     pub journal_bytes: Option<usize>,
     pub target_timestamp: Option<u64>,
     pub expire_timestamp: Option<u64>,
+    pub expected_reward_eth: Option<U256>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
 }
@@ -201,6 +213,7 @@ impl OrderRequest {
             journal_bytes: None,
             target_timestamp: None,
             expire_timestamp: None,
+            expected_reward_eth: None,
             cached_id: OnceLock::new(),
         }
     }
@@ -800,7 +813,7 @@ pub trait OrderPricingContext {
                     let required_collateral_price =
                         reward.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
                     format!(
-                        "min_mcycle_price_collateral_token set to {} ZKC/Mcycle in config, order requires min_mcycle_price_collateral_token <= {} ZKC/Mcycle to be considered",
+                        "min_mcycle_price (converted to ZKC) set to {} ZKC/Mcycle in config, order requires min_mcycle_price <= {} ZKC/Mcycle to be considered",
                         mcycle_price_collateral,
                         self.format_collateral(required_collateral_price)
                     )
@@ -911,17 +924,18 @@ pub trait OrderPricingContext {
         // For lock_expired orders, evaluate based on collateral
         if lock_expired {
             // Reward for the order is a fraction of the collateral once the lock has expired
-            let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let raw_price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let price = apply_secondary_fulfillment_discount(
+                raw_price,
+                config.expected_probability_win_secondary_fulfillment,
+            );
             let mcycle_price_in_collateral_tokens =
                 price.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
 
-            // Get the configured price as Amount
-            let config_min_mcycle_price_collateral_token =
-                &config.min_mcycle_price_collateral_token;
-
-            // Convert to ZKC (handles USD via price oracle)
+            // Get the configured price as Amount and convert to ZKC (handles ETH/USD via price oracle)
+            let config_min_mcycle_price_amount = &config.min_mcycle_price;
             let config_min_mcycle_price_zkc =
-                self.convert_to_zkc(config_min_mcycle_price_collateral_token).await?;
+                self.convert_to_zkc(config_min_mcycle_price_amount).await?;
 
             // Scale from Asset ZKC decimals (18) to contract collateral token decimals
             let config_min_mcycle_price_collateral_tokens: U256 = scale_decimals(
@@ -942,7 +956,7 @@ pub trait OrderPricingContext {
             if mcycle_price_in_collateral_tokens < config_min_mcycle_price_collateral_tokens {
                 return Ok(Skip {
                     reason: format!(
-                        "slashed collateral reward too low. {} (collateral reward) < config mcycle_price_collateral_token {}",
+                        "slashed collateral reward too low. {} (collateral reward) < config min_mcycle_price (as ZKC) {}",
                         self.format_collateral(mcycle_price_in_collateral_tokens),
                         self.format_collateral(config_min_mcycle_price_collateral_tokens),
                     ),
@@ -1080,12 +1094,9 @@ pub trait OrderPricingContext {
         let min_mcycle_price_eth = self.convert_to_eth(min_mcycle_price_amount).await?;
         let min_mcycle_price: U256 = min_mcycle_price_eth.value;
 
-        // Get the configured price as Amount
-        let config_min_mcycle_price_collateral_token = &config.min_mcycle_price_collateral_token;
-
-        // Convert to ZKC (handles USD via price oracle)
-        let config_min_mcycle_price_zkc =
-            self.convert_to_zkc(config_min_mcycle_price_collateral_token).await?;
+        // Convert min_mcycle_price to ZKC for collateral-based pricing (handles ETH/USD via price oracle)
+        let config_min_mcycle_price = &config.min_mcycle_price;
+        let config_min_mcycle_price_zkc = self.convert_to_zkc(config_min_mcycle_price).await?;
 
         // Scale from Asset ZKC decimals (18) to contract collateral token decimals
         let min_mcycle_price_collateral_tokens: U256 = scale_decimals(
@@ -1096,10 +1107,18 @@ pub trait OrderPricingContext {
 
         // Pricing based cycle limits: Calculate the cycle limit based on collateral price
         let collateral_based_limit = if min_mcycle_price_collateral_tokens == U256::ZERO {
-            tracing::info!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
+            tracing::info!("min_mcycle_price is 0, collateral pricing unlimited");
             u64::MAX
         } else {
-            let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let raw_price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let price = if is_fulfill_after_lock_expire {
+                apply_secondary_fulfillment_discount(
+                    raw_price,
+                    config.expected_probability_win_secondary_fulfillment,
+                )
+            } else {
+                raw_price
+            };
 
             let initial_collateral_based_limit =
                 (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_collateral_tokens))
