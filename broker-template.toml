@@ -23,28 +23,19 @@
 # cycle count, and the current price of the order, the broker computes the
 # current price per mega-cycle being offered for the order. This value is compared to the
 # `min_mcycle_price` to determine if the order should be locked.
+#
+# This price is also used for secondary fulfillment (lock-expired orders), where it is
+# converted to ZKC via the price oracle and discounted by the expected probability of
+# winning the proof race.
 min_mcycle_price = "0.00002 USD"
 
-# The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
-# to attempt to fulfill an order in the case that the order was locked by another prover
-# but not fulfilled within the lock timeout.
-#
-# If an order is locked by a prover, but not fulfilled within the lock timeout,
-# that prover is slashed by the amount of collateral specified in the order. A
-# portion of this collateral is then used to incentivize other provers to
-# fulfill the order. `min_mcycle_price_collateral_token` determines the minimum
-# price per mega-cycle in collateral token that must be offered by the prover
-# for the broker to attempt to fulfill these orders.
-#
-# Can be specified in USD or ZKC.
-# Plain numbers default to ZKC for backward compatibility.
-# If USD, converted to ZKC at runtime via price oracle.
-
-# Examples: "0.00005 ZKC", "0.00001 USD", "0.00005"
-#
-# Note: attempting to fulfill these orders is a 'proof race' where the first prover
-# to fulfill the order is rewarded with the collateral.
-min_mcycle_price_collateral_token = "0.00005 ZKC"
+# Expected probability of winning the secondary fulfillment race, expressed as a percentage.
+# When an order's lock expires, multiple provers may race to fulfill it.
+# Scales the expected reward when evaluating profitability and priority.
+# Values below 100 discount the reward, 100 = no adjustment, values above 100 boost the reward
+# to aggressively prioritize secondary fulfillments.
+# Default: 50
+expected_probability_win_secondary_fulfillment = 50
 
 # Estimated peak performance of the proving cluster, in kHz.
 #
