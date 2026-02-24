@@ -26,23 +26,17 @@ use serde::{Deserialize, Serialize};
 
 /// Persisted rotation state for restart reliability.
 ///
-/// Tracks the currently active key index and the maximum request expiry seen
-/// for that key. On rotation, the caller waits until `max_expires_at + buffer`
-/// has passed before withdrawing, ensuring no in-flight requests are stranded.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Tracks the currently active key index and the maximum ramp-up end time seen
+/// for that key (offer.rampUpStart + offer.rampUpPeriod). On rotation, the caller
+/// waits until `max_expires_at + buffer` has passed before withdrawing.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RotationState {
     /// Index into the rotation key array currently used for submissions.
     pub current_index: usize,
-    /// Maximum `expires_at` timestamp (block seconds) seen for the current key.
+    /// Maximum ramp-up end (bidding_start + ramp_up_period) in block seconds for the current key.
     /// Zero means no requests have been submitted from this key yet.
     #[serde(default)]
     pub max_expires_at: u64,
-}
-
-impl Default for RotationState {
-    fn default() -> Self {
-        Self { current_index: 0, max_expires_at: 0 }
-    }
 }
 
 impl RotationState {

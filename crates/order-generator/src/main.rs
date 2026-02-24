@@ -100,6 +100,12 @@ struct MainArgs {
     /// Native ETH threshold for top-up (covers deposit + submit tx gas).
     #[clap(long, env = "TOP_UP_NATIVE_THRESHOLD", value_parser = parse_ether, default_value = "0.05")]
     top_up_native_threshold: U256,
+    /// Timeout in seconds for withdrawal/sweep transactions (rotation). Default 120.
+    #[clap(long, env = "WITHDRAWAL_TX_TIMEOUT", default_value = "120")]
+    withdrawal_tx_timeout: u64,
+    /// Retry attempts for the sweep transfer during rotation when confirmation times out.
+    #[clap(long, env = "WITHDRAWAL_SWEEP_RETRIES", default_value = "3")]
+    withdrawal_sweep_retries: u32,
     /// When submitting offchain, auto-deposits an amount in ETH when market balance is below this value.
     ///
     /// This parameter can only be set if order_stream_url is provided.
@@ -341,13 +347,10 @@ async fn run_with_rotation(
         state.save(state_path)?;
     }
 
-    // Pre-build clients for all rotation keys and the funding key to avoid
-    // re-constructing RPC connections and storage uploaders on every iteration.
     let funding_client = build_client_for_signer(args, funding_signer).await?;
-    let mut rotation_clients: Vec<OrderGeneratorClient> = Vec::with_capacity(n_keys);
-    for signer in private_keys {
-        rotation_clients.push(build_client_for_signer(args, signer).await?);
-    }
+    // Build rotation clients on demand to avoid bursting the price oracle at startup.
+    let mut rotation_clients: Vec<Option<OrderGeneratorClient>> =
+        (0..n_keys).map(|_| None).collect();
 
     let ipfs_gateway = args
         .storage_config
@@ -381,24 +384,35 @@ async fn run_with_rotation(
                 state.current_index,
                 desired,
             );
-            // Block until all requests from the current key have expired, then
-            // withdraw and sweep before switching. This ensures no funds are
-            // stranded: we know the current key is idle before we move on.
-            wait_for_expiry(
+            // Block until it's "safe" to withdraw and sweep the current key's funds
+            // This ensures no funds are stranded: we know the current key is idle before we move on.
+            wait_for_lock_expiry(
                 &funding_client.provider(),
                 state.max_expires_at,
                 args.withdrawal_expiry_buffer,
                 poll_interval,
             )
             .await?;
-            perform_rotation_withdrawal(&funding_client, &rotation_clients[state.current_index])
-                .await?;
+            if rotation_clients[state.current_index].is_none() {
+                rotation_clients[state.current_index] =
+                    Some(build_client_for_signer(args, &private_keys[state.current_index]).await?);
+            }
+            perform_rotation_withdrawal(
+                args,
+                &funding_client,
+                rotation_clients[state.current_index].as_ref().unwrap(),
+            )
+            .await?;
             state.current_index = desired;
             state.max_expires_at = 0;
             state.save(state_path)?;
         }
 
-        let client = &rotation_clients[state.current_index];
+        if rotation_clients[state.current_index].is_none() {
+            rotation_clients[state.current_index] =
+                Some(build_client_for_signer(args, &private_keys[state.current_index]).await?);
+        }
+        let client = rotation_clients[state.current_index].as_ref().unwrap();
         top_up_from_funding_source(
             args,
             &funding_client,
@@ -407,25 +421,17 @@ async fn run_with_rotation(
         )
         .await?;
 
-        // Pessimistically extend max_expires_at before submitting. If the service
-        // crashes between tx confirmation and the post-submit state save, the
-        // loaded state still guards against rotating/withdrawing too early.
-        state.max_expires_at = state.max_expires_at.max(now + PESSIMISTIC_REQUEST_TIMEOUT_SECS);
-        state.save(state_path)?;
-
         let result =
             submit_request_with_retry(args, client, &program, &program_url, input.as_deref()).await;
 
         match result {
-            Ok((_, expires_at)) => {
+            Ok((_, _, ramp_up_end)) => {
                 success_count += 1;
-                // Overwrite with actual expiry, which is lower than the pessimistic estimate.
-                state.max_expires_at = state.max_expires_at.max(expires_at);
+                // Wait until after ramp-up (bidding_start + ramp_up_period) before rotating.
+                state.max_expires_at = state.max_expires_at.max(ramp_up_end);
                 state.save(state_path)?;
             }
             Err(e) => {
-                // Keep the pessimistic max_expires_at: the request may have landed
-                // on-chain (e.g., confirmation timeout), so we must not rotate early.
                 let error_msg = format!("{e:?}");
                 last_error = Some(e);
                 if error_msg.contains("Transaction confirmation error") {
@@ -457,7 +463,7 @@ async fn submit_request_with_retry(
     program: &[u8],
     program_url: &Url,
     zeth_input: Option<&[u8]>,
-) -> Result<(U256, u64)> {
+) -> Result<(U256, u64, u64)> {
     let mut result = match args.use_zeth {
         true => {
             let input = zeth_input.ok_or_else(|| anyhow::anyhow!("Zeth input is not provided"))?;
@@ -533,13 +539,6 @@ async fn build_client_for_signer(
     args: &MainArgs,
     signer: &PrivateKeySigner,
 ) -> Result<OrderGeneratorClient> {
-    let wallet = EthereumWallet::from(signer.clone());
-    let balance_alerts = BalanceAlertConfig {
-        watch_address: wallet.default_signer().address(),
-        warn_threshold: args.warn_balance_below,
-        error_threshold: args.error_balance_below,
-    };
-
     let mut client_builder = Client::builder();
     if let Some(rpc_url) = &args.rpc_url {
         client_builder = client_builder.with_rpc_url(rpc_url.clone());
@@ -553,7 +552,6 @@ async fn build_client_for_signer(
         .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(signer.clone())
-        .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
         .with_funding_mode(FundingMode::BelowThreshold(args.top_up_market_threshold))
         .build()
@@ -567,10 +565,6 @@ const GAS_RESERVE: &str = "0.001";
 /// submission attempt. If the service crashes between tx confirmation and the
 /// post-submit state save, the loaded `max_expires_at` still covers the live
 /// request, preventing a premature rotation/withdrawal on restart.
-///
-/// Set well above the 1800 s contract default so it is always safe.
-const PESSIMISTIC_REQUEST_TIMEOUT_SECS: u64 = 3600;
-
 async fn top_up_from_funding_source(
     args: &MainArgs,
     funding_client: &OrderGeneratorClient,
@@ -638,12 +632,11 @@ async fn get_block_timestamp(provider: &impl Provider) -> Result<u64> {
     Ok(block.header.timestamp)
 }
 
-/// Poll block timestamps until the current key's requests have safely expired,
-/// then return so the caller can withdraw and rotate.
-///
-/// If `max_expires_at` is zero (no requests submitted on this key) the check
-/// passes immediately on any real chain whose block timestamp exceeds `buffer_secs`.
-async fn wait_for_expiry(
+/// Poll until the current key's ramp-up windows have passed (max_expires_at is the
+/// maximum over requests of offer.rampUpStart + offer.rampUpPeriod). Then the caller
+/// can withdraw and rotate. If `max_expires_at` is zero the check passes once block
+/// timestamp exceeds `buffer_secs`.
+async fn wait_for_lock_expiry(
     provider: &impl Provider,
     max_expires_at: u64,
     buffer_secs: u64,
@@ -666,7 +659,9 @@ async fn wait_for_expiry(
 
 /// Withdraw the market balance from `old_client` and sweep remaining native ETH
 /// back to the funding address. Called once at rotation time after `wait_for_expiry`.
+/// Uses a longer timeout and retries for the sweep to avoid rotation failure on slow chains.
 async fn perform_rotation_withdrawal(
+    args: &MainArgs,
     funding_client: &OrderGeneratorClient,
     old_client: &OrderGeneratorClient,
 ) -> Result<()> {
@@ -707,16 +702,45 @@ async fn perform_rotation_withdrawal(
         .context("failed to get post-withdraw native balance")?;
     let transfer_amount = post_balance.saturating_sub(gas_reserve);
     if transfer_amount > U256::ZERO {
-        old_client
-            .transfer_value(funding_address, transfer_amount)
-            .await
-            .context("failed to sweep ETH to funding address")?;
+        let sweep_timeout = Duration::from_secs(args.withdrawal_tx_timeout);
+        let max_attempts = args.withdrawal_sweep_retries;
+        let mut last_err = None;
+        for attempt in 1..=max_attempts {
+            match old_client
+                .transfer_value_with_timeout(funding_address, transfer_amount, sweep_timeout)
+                .await
+            {
+                Ok(()) => {
+                    tracing::info!(
+                        "Swept {} ETH from {old_address} to funding {funding_address}",
+                        format_units(transfer_amount, "ether").unwrap_or_default(),
+                    );
+                    last_err = None;
+                    break;
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < max_attempts {
+                        tracing::warn!(
+                            "Sweep attempt {attempt}/{max_attempts} failed (timeout {}s), retrying: {:?}",
+                            args.withdrawal_tx_timeout,
+                            last_err,
+                        );
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        }
+        if let Some(e) = last_err {
+            tracing::warn!(
+                "Failed to sweep {} ETH from {old_address} to funding {funding_address} after {max_attempts} attempts: {e:?}. Rotation will continue.",
+                format_units(transfer_amount, "ether").unwrap_or_default(),
+            );
+        }
     }
     tracing::info!(
-        "Rotated from {old_address}: withdrew {} ETH from market, swept {} ETH to funding {}",
+        "Rotated from {old_address}: withdrew {} ETH from market",
         format_units(market_balance, "ether")?,
-        format_units(transfer_amount, "ether")?,
-        funding_address,
     );
     Ok(())
 }
@@ -726,7 +750,7 @@ async fn handle_loop_request(
     client: &OrderGeneratorClient,
     program: &[u8],
     program_url: &url::Url,
-) -> Result<(U256, u64)> {
+) -> Result<(U256, u64, u64)> {
     let mut rng = rand::rng();
     let nonce: u64 = rng.random();
     let input = match args.input {
@@ -808,7 +832,8 @@ async fn handle_loop_request(
             client.deployment.boundless_market_address,
         );
     }
-    Ok((request_id, expires_at))
+    let ramp_up_end = request.offer.rampUpStart + request.offer.rampUpPeriod as u64;
+    Ok((request_id, expires_at, ramp_up_end))
 }
 
 async fn ensure_auto_deposit(args: &MainArgs, client: &OrderGeneratorClient) -> Result<()> {
@@ -846,7 +871,7 @@ async fn handle_zeth_request(
     program: &[u8],
     program_url: &url::Url,
     input: &[u8],
-) -> Result<(U256, u64)> {
+) -> Result<(U256, u64, u64)> {
     let mut rng = rand::rng();
     let nonce: u32 = rng.random_range(0..=u32::MAX);
     let max_cycles = args.input_max_mcycles.unwrap_or(3000) << 20;
@@ -914,7 +939,8 @@ async fn handle_zeth_request(
             client.deployment.boundless_market_address,
         );
     }
-    Ok((request_id, expires_at))
+    let ramp_up_end = request.offer.rampUpStart + request.offer.rampUpPeriod as u64;
+    Ok((request_id, expires_at, ramp_up_end))
 }
 
 #[cfg(test)]
@@ -968,6 +994,8 @@ mod tests {
             submit_retry_delay_secs: 2,
             top_up_market_threshold: parse_ether("0.01").unwrap(),
             top_up_native_threshold: parse_ether("0.05").unwrap(),
+            withdrawal_tx_timeout: 120,
+            withdrawal_sweep_retries: 3,
             auto_deposit: None,
             submit_offchain: false,
             use_zeth: false,
