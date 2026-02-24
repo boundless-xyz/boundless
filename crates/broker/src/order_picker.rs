@@ -3080,7 +3080,6 @@ pub(crate) mod tests {
     async fn test_calculate_exec_limits_proof_type_override_takes_priority() {
         let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap();
-        market_config.min_mcycle_price_collateral_token = Amount::parse("10 ZKC", None).unwrap();
         market_config.max_mcycle_limit = 100_000;
 
         let config = ConfigLock::default();
