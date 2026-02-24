@@ -71,19 +71,19 @@ pub struct MarketAggregatesParams {
     #[serde(default)]
     pub aggregation: AggregationGranularity,
     /// Pagination cursor for retrieving the next page of results.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
     /// Maximum number of results to return.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
     /// Sort order (e.g., "asc" or "desc").
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort: Option<String>,
     /// Unix timestamp (in seconds) - only return data before this time.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<i64>,
     /// Unix timestamp (in seconds) - only return data after this time.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<i64>,
 }
 
@@ -184,13 +184,14 @@ pub struct MarketAggregatesResponse {
 }
 
 impl IndexerClient {
-    /// Create a new IndexerClient with hardcoded URL based on chain ID
-    /// Can be overridden with INDEXER_API_URL environment variable
+    /// Create a new [`IndexerClient`] with a well-known URL for the given chain ID.
+    ///
+    /// The URL can be overridden at runtime with the `INDEXER_URL` environment variable.
     pub fn new_from_chain_id(chain_id: u64) -> Result<Self> {
         // Check for environment variable override first
-        let base_url = if let Ok(url_str) = std::env::var("INDEXER_API_URL") {
-            tracing::debug!("Using INDEXER_API_URL from environment: {}", url_str);
-            Url::parse(&url_str).context("Invalid INDEXER_API_URL")?
+        let base_url = if let Ok(url_str) = std::env::var("INDEXER_URL") {
+            tracing::debug!("Using INDEXER_URL from environment: {}", url_str);
+            Url::parse(&url_str).context("Invalid INDEXER_URL")?
         } else {
             // Use hardcoded URLs based on chain ID
             let url_str = match chain_id {
@@ -229,51 +230,25 @@ impl IndexerClient {
         &self,
         params: MarketAggregatesParams,
     ) -> Result<MarketAggregatesResponse> {
-        let mut url = self.base_url.join("v1/market/aggregates").context("Failed to build URL")?;
-
-        // Build query parameters manually to avoid non-Send closures from query_pairs_mut()
-        // Collect all query parameters as owned strings first
-        let mut query_parts = Vec::new();
-        query_parts.push(format!("aggregation={}", params.aggregation));
-        if let Some(cursor) = params.cursor {
-            // URL encode cursor manually
-            let encoded_cursor: String =
-                url::form_urlencoded::byte_serialize(cursor.as_bytes()).collect();
-            query_parts.push(format!("cursor={}", encoded_cursor));
-        }
-        if let Some(limit) = params.limit {
-            query_parts.push(format!("limit={}", limit));
-        }
-        if let Some(sort) = params.sort {
-            // URL encode sort manually
-            let encoded_sort: String =
-                url::form_urlencoded::byte_serialize(sort.as_bytes()).collect();
-            query_parts.push(format!("sort={}", encoded_sort));
-        }
-        if let Some(before) = params.before {
-            query_parts.push(format!("before={}", before));
-        }
-        if let Some(after) = params.after {
-            query_parts.push(format!("after={}", after));
-        }
-        if !query_parts.is_empty() {
-            url.set_query(Some(&query_parts.join("&")));
-        }
-
-        // Convert URL to string before capturing in closures to avoid Send issues
+        let url = self.base_url.join("v1/market/aggregates").context("Failed to build URL")?;
         let url_str = url.to_string();
-        let response = self.client.get(url).send().await.with_context(|| {
-            format!("Failed to fetch market aggregates from {}", url_str.clone())
-        })?;
+
+        let response = self
+            .client
+            .get(url)
+            .query(&params)
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch market aggregates from {url_str}"))?;
 
         if !response.status().is_success() {
-            bail!("API error from {}: {}", url_str.clone(), response.status());
+            bail!("API error from {url_str}: {}", response.status());
         }
 
         response
             .json()
             .await
-            .with_context(|| format!("Failed to parse market aggregates response from {}", url_str))
+            .with_context(|| format!("Failed to parse market aggregates response from {url_str}"))
     }
 
     /// Get p10 and p99 lock prices per cycle
@@ -520,26 +495,11 @@ impl IndexerClient {
         params: RequestorRequestsParams,
     ) -> Result<RequestorRequestsPage> {
         let path = format!("v1/market/requestors/{address}/requests");
-        let mut url = self.base_url.join(&path).context("Failed to build URL")?;
-
-        let mut query_parts: Vec<String> = Vec::new();
-        if let Some(cursor) = &params.cursor {
-            let encoded: String = url::form_urlencoded::byte_serialize(cursor.as_bytes()).collect();
-            query_parts.push(format!("cursor={encoded}"));
-        }
-        if let Some(limit) = params.limit {
-            query_parts.push(format!("limit={limit}"));
-        }
-        if let Some(sort_by) = &params.sort_by {
-            query_parts.push(format!("sort_by={sort_by}"));
-        }
-        if !query_parts.is_empty() {
-            url.set_query(Some(&query_parts.join("&")));
-        }
-
+        let url = self.base_url.join(&path).context("Failed to build URL")?;
         let url_str = url.to_string();
+
         let response =
-            self.client.get(url).send().await.with_context(|| {
+            self.client.get(url).query(&params).send().await.with_context(|| {
                 format!("Failed to fetch requests for {address} from {url_str}")
             })?;
 

@@ -95,25 +95,31 @@ You also need a funding source. Either:
 
 ### Rotation Configuration
 
-| Option                        | Default                 | Description                                            |
-| ----------------------------- | ----------------------- | ------------------------------------------------------ |
-| `--address-rotation-interval` | 86400 (1 day)           | Seconds between rotations                              |
-| `--rotation-state-file`       | `./rotation-state.json` | Where to persist rotation state                        |
-| `--withdrawal-expiry-buffer`  | 60                      | Extra seconds after request expiry before withdrawing  |
-| `--rotation-state-reset`      | false                   | Reset state on startup (for testing)                   |
-| `--top-up-market-threshold`   | 0.01                    | Market balance threshold for top-up (ETH)              |
-| `--top-up-native-threshold`   | 0.05                    | Native ETH threshold for top-up (covers deposit + gas) |
+| Option                        | Default       | Description                                                      |
+| ----------------------------- | ------------- | ---------------------------------------------------------------- |
+| `--address-rotation-interval` | 86400 (1 day) | Seconds between rotations                                        |
+| `--top-up-market-threshold`   | 0.01          | Market balance threshold for top-up (ETH)                        |
+| `--top-up-native-threshold`   | 0.05          | Native ETH threshold for top-up (covers deposit + gas)           |
+| `--withdrawal-tx-timeout`     | 60            | Seconds to wait for each sweep transaction before timing out     |
+| `--withdrawal-sweep-retries`  | 3             | Number of retry attempts for the native ETH sweep                |
 
-### State File
+### Safe Withdrawal via Indexer
 
-Rotation state is stored in a JSON file so the process can restart without losing track of which address to use or which withdrawals are pending. The file is updated after each request and each withdrawal.
+The generator is stateless — no state file is needed. Instead, before sweeping a rotated address, it queries the Boundless indexer to check whether all requests from that address have settled:
 
-For deployment, use a writable path (e.g., `/data/rotation-state.json`).
+| Request status | Safe to withdraw?          |
+| -------------- | -------------------------- |
+| `fulfilled`    | Always                     |
+| `expired`      | Always                     |
+| `locked`       | Always                     |
+| `submitted`    | After `now > lock_end`     |
+
+The indexer URL is taken from the deployment config (`INDEXER_URL` env var or `--deployment-chain-id` default). If the indexer is unreachable, the sweep is skipped for that iteration and retried on the next loop.
 
 ### Deployment
 
 - Set the `MNEMONIC` environment variable (or pass `--mnemonic`) when using rotation.
-- Ensure the state file path is writable and persisted across restarts.
+- No persistent storage is required — rotation state is derived from the clock and the indexer.
 - Fund the funding key; it will top up the rotation addresses as needed.
 
 ### Security

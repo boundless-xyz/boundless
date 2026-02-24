@@ -406,13 +406,23 @@ async fn run_with_rotation(
                             rotation_clients[old_idx] =
                                 Some(build_client_for_signer(args, &private_keys[old_idx]).await?);
                         }
-                        perform_rotation_withdrawal(
+                        match perform_rotation_withdrawal(
                             args,
                             &funding_client,
                             rotation_clients[old_idx].as_ref().unwrap(),
                         )
-                        .await?;
-                        swept_keys.insert(old_idx);
+                        .await
+                        {
+                            Ok(()) => {
+                                swept_keys.insert(old_idx);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Sweep failed for key {old_idx} ({old_addr}): {e:?}. \
+                                     Will retry next iteration."
+                                );
+                            }
+                        }
                     } else {
                         let safe_at = next_safe_at(&requests);
                         tracing::info!(
@@ -575,10 +585,6 @@ async fn build_client_for_signer(
 /// Reserve left on funding/old address for gas (withdraw + transfer txs).
 const GAS_RESERVE: &str = "0.001";
 
-/// Conservative upper bound on request lifetime, saved to state *before* each
-/// submission attempt. If the service crashes between tx confirmation and the
-/// post-submit state save, the loaded `max_expires_at` still covers the live
-/// request, preventing a premature rotation/withdrawal on restart.
 async fn top_up_from_funding_source(
     args: &MainArgs,
     funding_client: &OrderGeneratorClient,
@@ -721,10 +727,11 @@ async fn perform_rotation_withdrawal(
             }
         }
         if let Some(e) = last_err {
-            tracing::warn!(
-                "Failed to sweep {} ETH from {old_address} to funding {funding_address} after {max_attempts} attempts: {e:?}. Rotation will continue.",
+            return Err(anyhow::anyhow!(
+                "Failed to sweep {} ETH from {old_address} to funding {funding_address} after \
+                 {max_attempts} attempts: {e:?}",
                 format_units(transfer_amount, "ether").unwrap_or_default(),
-            );
+            ));
         }
     }
     tracing::info!(
@@ -1093,7 +1100,8 @@ mod tests {
             .unwrap();
         let phase1_ts = block.header.timestamp;
         let phase1_index = rotation::desired_index(phase1_ts, 86400, 2);
-        // With interval=1: desired = ts % 2. We want ts % 2 != phase1_index.
+        // Choose target_ts so that ts % 2 != phase1_index; once interval is set to 1
+        // below, desired_index(target_ts, 1, 2) = ts % 2 will point to the other key.
         let target_ts =
             if phase1_ts % 2 == phase1_index as u64 { phase1_ts + 1 } else { phase1_ts };
         ctx.customer_provider.anvil_set_next_block_timestamp(target_ts).await.unwrap();

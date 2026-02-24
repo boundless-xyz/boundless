@@ -316,47 +316,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
       ogArgs.push(`--max-price-cap ${args.maxPriceCap}`);
     }
 
-    // EFS for persistent rotation state (only when using mnemonic-based rotation)
-    let efsFileSystem: aws.efs.FileSystem | undefined;
-    let efsMountTargets: pulumi.Output<aws.efs.MountTarget[]> | undefined;
-    if (useRotation) {
-      ogArgs.push(`--rotation-state-file /data/rotation-state.json`);
-      efsFileSystem = new aws.efs.FileSystem(`${serviceName}-efs`, {
-        encrypted: true,
-        tags: { Name: serviceName },
-      });
-      efsMountTargets = args.privateSubnetIds.apply((subnetIds: string[]) =>
-        subnetIds.map((subnetId, index) =>
-          new aws.efs.MountTarget(`${serviceName}-efs-mount-${index}`, {
-            fileSystemId: efsFileSystem!.id,
-            subnetId,
-            securityGroups: [securityGroup.id],
-          }, { dependsOn: [efsFileSystem!] })
-        )
-      );
-      new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
-        type: 'ingress',
-        fromPort: 2049,
-        toPort: 2049,
-        protocol: 'tcp',
-        securityGroupId: securityGroup.id,
-        sourceSecurityGroupId: securityGroup.id,
-      });
-    }
-
-    const efsVolume = efsFileSystem
-      ? {
-        name: 'rotation-data',
-        efsVolumeConfiguration: {
-          fileSystemId: efsFileSystem.id,
-          rootDirectory: '/',
-        },
-      }
-      : undefined;
-    const mountPoints = efsVolume
-      ? [{ sourceVolume: 'rotation-data', containerPath: '/data', readOnly: false }]
-      : [];
-
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
 
     // Create Fargate definition based on mode
@@ -384,16 +343,12 @@ export class OrderGenerator extends pulumi.ComponentResource {
         scheduleExpression: args.oneShotConfig.scheduleExpression,
       });
 
-      const fargateTaskDeps: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
-      if (efsFileSystem) fargateTaskDeps.push(efsFileSystem);
-      const fargateTaskDependsOn = efsMountTargets
-        ? pulumi.output(efsMountTargets).apply((mounts) => [...fargateTaskDeps, ...mounts])
-        : fargateTaskDeps;
+      const fargateTaskDependsOn: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
 
       const fargateTask = new awsx.ecs.FargateTaskDefinition(
         `${serviceName}-task`,
         {
-          volumes: efsVolume ? [efsVolume] : [],
+          volumes: [],
           container: {
             name: serviceName,
             image: args.image.ref,
@@ -406,7 +361,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             ],
             environment,
             secrets,
-            mountPoints,
+            mountPoints: [],
           },
           logGroup: {
             args: { name: serviceName, retentionInDays: 0 },
@@ -435,11 +390,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       logDependency = fargateTask;
     } else {
       // Service mode, runs indefinitely
-      const serviceDeps: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
-      if (efsFileSystem) serviceDeps.push(efsFileSystem);
-      const serviceDependsOn = efsMountTargets
-        ? pulumi.output(efsMountTargets).apply((mounts) => [...serviceDeps, ...mounts])
-        : serviceDeps;
+      const serviceDependsOn: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
 
       const service = new awsx.ecs.FargateService(
         `${serviceName}-service`,
@@ -451,7 +402,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             subnets: args.privateSubnetIds,
           },
           taskDefinitionArgs: {
-            volumes: efsVolume ? [efsVolume] : [],
+            volumes: [],
             logGroup: {
               args: { name: serviceName, retentionInDays: 0 },
             },
@@ -470,7 +421,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
               ],
               environment,
               secrets,
-              mountPoints,
+              mountPoints: [],
             },
           },
         },
