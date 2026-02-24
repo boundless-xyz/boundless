@@ -164,15 +164,23 @@ async fn test_e2e(pool: sqlx::PgPool) {
     );
 
     // Verify fixed + variable cost consistency
-    // In Anvil tests, fixed_cost may or may not be populated depending on base_fee timing,
-    // but the invariant total_fixed_cost + total_variable_cost == total_fees should hold
-    // when costs are non-zero.
+    // In Anvil tests, fixed_cost may or may not be populated depending on base_fee timing.
+    // When fixed_cost <= total_fees: variable_cost = total_fees - fixed_cost
+    // When fixed_cost > total_fees: variable_cost = 0 (clamped)
     if fulfilled_summary.total_fixed_cost > U256::ZERO {
-        assert_eq!(
-            fulfilled_summary.total_fixed_cost + fulfilled_summary.total_variable_cost,
-            fulfilled_summary.total_fees_locked,
-            "total_fixed_cost + total_variable_cost should equal total_fees_locked"
-        );
+        if fulfilled_summary.total_fees_locked >= fulfilled_summary.total_fixed_cost {
+            assert_eq!(
+                fulfilled_summary.total_variable_cost,
+                fulfilled_summary.total_fees_locked - fulfilled_summary.total_fixed_cost,
+                "total_variable_cost should equal total_fees_locked - total_fixed_cost"
+            );
+        } else {
+            assert_eq!(
+                fulfilled_summary.total_variable_cost,
+                U256::ZERO,
+                "total_variable_cost should be zero when fixed_cost exceeds total_fees"
+            );
+        }
     }
 
     // Verify collateral across all aggregation periods
@@ -221,11 +229,19 @@ async fn test_e2e(pool: sqlx::PgPool) {
 
     // Verify all-time fixed + variable cost consistency
     if latest_all_time.total_fixed_cost > U256::ZERO {
-        assert_eq!(
-            latest_all_time.total_fixed_cost + latest_all_time.total_variable_cost,
-            latest_all_time.total_fees_locked,
-            "All-time total_fixed_cost + total_variable_cost should equal total_fees_locked"
-        );
+        if latest_all_time.total_fees_locked >= latest_all_time.total_fixed_cost {
+            assert_eq!(
+                latest_all_time.total_variable_cost,
+                latest_all_time.total_fees_locked - latest_all_time.total_fixed_cost,
+                "All-time total_variable_cost should equal total_fees - total_fixed_cost"
+            );
+        } else {
+            assert_eq!(
+                latest_all_time.total_variable_cost,
+                U256::ZERO,
+                "All-time total_variable_cost should be zero when fixed_cost exceeds fees"
+            );
+        }
     }
 
     // Verify collateral is cumulative in all-time summaries

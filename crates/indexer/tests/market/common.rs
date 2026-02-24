@@ -904,6 +904,8 @@ pub async fn get_all_time_summaries(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
+            total_fixed_cost,
+            total_variable_cost,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
             best_effective_prove_mhz_prover,
