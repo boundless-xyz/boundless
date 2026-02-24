@@ -185,8 +185,9 @@ enum OrderStatus {
 }
 
 pub use boundless_market::prover_utils::{
-    FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
-    OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue, ProveLimitReason,
+    Erc1271GasCache, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
+    OrderPricingOutcome, OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue,
+    ProveLimitReason,
 };
 
 /// Message sent from MarketMonitor to OrderPicker about order state changes
@@ -889,6 +890,16 @@ where
             Ok(())
         });
 
+        // Shared ERC-1271 gas cache between OrderPicker and OrderMonitor so that estimates
+        // computed during preflight are reused when the monitor locks the same order.
+        let erc1271_gas_cache: Erc1271GasCache = Arc::new(
+            moka::future::Cache::builder()
+                .eviction_policy(moka::policy::EvictionPolicy::lru())
+                .max_capacity(256)
+                .time_to_live(std::time::Duration::from_secs(60 * 60))
+                .build(),
+        );
+
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
@@ -905,6 +916,7 @@ where
             self.allow_requestors.clone(),
             self.downloader.clone(),
             price_oracle.clone(),
+            erc1271_gas_cache.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -952,6 +964,7 @@ where
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
             self.gas_priority_mode.clone(),
+            erc1271_gas_cache,
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();

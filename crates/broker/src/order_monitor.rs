@@ -19,7 +19,7 @@ use crate::{
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, Order, OrderRequest,
+    utils, Erc1271GasCache, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
     network::Ethereum,
@@ -159,13 +159,14 @@ pub struct OrderMonitor<P> {
     lock_and_prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     supported_selectors: SupportedSelectors,
+    erc1271_gas_cache: Erc1271GasCache,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
 }
 
 impl<P> OrderMonitor<P>
 where
-    P: Provider<Ethereum> + WalletProvider,
+    P: Provider<Ethereum> + WalletProvider + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -180,6 +181,7 @@ where
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        erc1271_gas_cache: Erc1271GasCache,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -230,6 +232,7 @@ where
                     .build(),
             ),
             supported_selectors: SupportedSelectors::default(),
+            erc1271_gas_cache,
             rpc_retry_config,
             gas_priority_mode,
         };
@@ -618,17 +621,24 @@ where
     ) -> Result<U256, OrderMonitorErr> {
         // Calculate gas units needed for this order (lock + fulfill)
         let order_gas_units = if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-            U256::from(utils::estimate_gas_to_lock(&self.config, order).await?).saturating_add(
-                U256::from(
-                    utils::estimate_gas_to_fulfill(
-                        &self.config,
-                        &self.supported_selectors,
-                        &order.request,
-                        order.journal_bytes,
-                    )
-                    .await?,
-                ),
+            U256::from(
+                utils::estimate_gas_to_lock(
+                    &self.config,
+                    order,
+                    &self.provider,
+                    &self.erc1271_gas_cache,
+                )
+                .await?,
             )
+            .saturating_add(U256::from(
+                utils::estimate_gas_to_fulfill(
+                    &self.config,
+                    &self.supported_selectors,
+                    &order.request,
+                    order.journal_bytes,
+                )
+                .await?,
+            ))
         } else {
             U256::from(
                 utils::estimate_gas_to_fulfill(
@@ -1198,6 +1208,7 @@ pub(crate) mod tests {
             collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
             gas_priority_mode,
+            Arc::new(Cache::builder().build()),
         )
         .unwrap();
 

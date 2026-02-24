@@ -26,8 +26,8 @@ use crate::{
     provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, ConfigurableDownloader, FulfillmentType, OrderPricingContext, OrderPricingError,
-    OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
+    utils, ConfigurableDownloader, Erc1271GasCache, FulfillmentType, OrderPricingContext,
+    OrderPricingError, OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
 };
 use alloy::{
     network::Ethereum,
@@ -39,7 +39,7 @@ use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::prover_utils::apply_secondary_fulfillment_discount;
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
-    selector::SupportedSelectors, storage::StorageDownloader,
+    prover_utils::estimate_erc1271_gas, selector::SupportedSelectors, storage::StorageDownloader,
 };
 use moka::{future::Cache, policy::EvictionPolicy};
 use tokio::{
@@ -90,6 +90,7 @@ pub struct OrderPicker<P> {
     collateral_token_decimals: u8,
     order_cache: OrderCache,
     preflight_cache: PreflightCache,
+    erc1271_gas_cache: Erc1271GasCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
     allow_requestors: AllowRequestors,
@@ -117,6 +118,7 @@ where
         allow_requestors: AllowRequestors,
         downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
+        erc1271_gas_cache: Erc1271GasCache,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -149,6 +151,7 @@ where
                     .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
                     .build(),
             ),
+            erc1271_gas_cache,
             order_state_tx,
             priority_requestors,
             allow_requestors,
@@ -487,6 +490,10 @@ where
 
     async fn current_gas_price(&self) -> Result<u128, OrderPickerErr> {
         Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?)
+    }
+
+    async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
+        estimate_erc1271_gas(order, &self.provider, &self.erc1271_gas_cache).await
     }
 
     async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPickerErr> {
@@ -1101,6 +1108,7 @@ pub(crate) mod tests {
                 allow_requestors,
                 downloader,
                 create_test_price_oracle(),
+                Arc::new(Cache::builder().build()),
             );
 
             PickerTestCtx {
