@@ -18,15 +18,7 @@ interface OrderGeneratorArgs {
     mnemonic: pulumi.Output<string>;
     deriveRotationKeys: number;
   };
-  /** Pinata JWT for IPFS uploads. Provide either this or s3Config. */
-  pinataJWT?: pulumi.Output<string>;
-  /** S3 storage config with explicit credentials. Provide either this or pinataJWT. */
-  s3Config?: {
-    bucket: string;
-    region: string;
-    accessKeyId: pulumi.Output<string>;
-    secretAccessKey: pulumi.Output<string>;
-  };
+  pinataJWT: pulumi.Output<string>;
   ethRpcUrl: pulumi.Output<string>;
   image: Image;
   logLevel: string;
@@ -81,10 +73,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
     if (useRotation && args.privateKey) {
       throw new Error('privateKey and rotationConfig are mutually exclusive');
     }
-    if (!args.pinataJWT && !args.s3Config) {
-      throw new Error('Either pinataJWT or s3Config must be provided for storage');
-    }
-
     let privateKeySecret: aws.secretsmanager.Secret | undefined;
     if (args.privateKey) {
       privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
@@ -103,29 +91,11 @@ export class OrderGenerator extends pulumi.ComponentResource {
       });
     }
 
-    let pinataJwtSecret: aws.secretsmanager.Secret | undefined;
-    if (args.pinataJWT) {
-      pinataJwtSecret = new aws.secretsmanager.Secret(`${serviceName}-pinata-jwt`);
-      new aws.secretsmanager.SecretVersion(`${serviceName}-pinata-jwt-v1`, {
-        secretId: pinataJwtSecret.id,
-        secretString: args.pinataJWT,
-      });
-    }
-
-    let s3AccessKeySecret: aws.secretsmanager.Secret | undefined;
-    let s3SecretKeySecret: aws.secretsmanager.Secret | undefined;
-    if (args.s3Config) {
-      s3AccessKeySecret = new aws.secretsmanager.Secret(`${serviceName}-s3-access-key`);
-      new aws.secretsmanager.SecretVersion(`${serviceName}-s3-access-key-v1`, {
-        secretId: s3AccessKeySecret.id,
-        secretString: args.s3Config.accessKeyId,
-      });
-      s3SecretKeySecret = new aws.secretsmanager.Secret(`${serviceName}-s3-secret-key`);
-      new aws.secretsmanager.SecretVersion(`${serviceName}-s3-secret-key-v1`, {
-        secretId: s3SecretKeySecret.id,
-        secretString: args.s3Config.secretAccessKey,
-      });
-    }
+    const pinataJwtSecret = new aws.secretsmanager.Secret(`${serviceName}-pinata-jwt`);
+    new aws.secretsmanager.SecretVersion(`${serviceName}-pinata-jwt-v1`, {
+      secretId: pinataJwtSecret.id,
+      secretString: args.pinataJWT,
+    });
 
     const rpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-rpc-url`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-rpc-url`, {
@@ -191,9 +161,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       orderStreamUrlSecret.arn,
       indexerUrlSecret.arn,
     ];
-    if (pinataJwtSecret) execRoleSecretArns.push(pinataJwtSecret.arn);
-    if (s3AccessKeySecret) execRoleSecretArns.push(s3AccessKeySecret.arn);
-    if (s3SecretKeySecret) execRoleSecretArns.push(s3SecretKeySecret.arn);
+    execRoleSecretArns.push(pinataJwtSecret.arn);
     if (privateKeySecret) execRoleSecretArns.push(privateKeySecret.arn);
     if (mnemonicSecret) execRoleSecretArns.push(mnemonicSecret.arn);
 
@@ -228,15 +196,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       { name: 'RPC_URL', valueFrom: rpcUrlSecret.arn },
       { name: 'INDEXER_URL', valueFrom: indexerUrlSecret.arn },
     ];
-    if (pinataJwtSecret) {
-      secrets.push({ name: 'PINATA_JWT', valueFrom: pinataJwtSecret.arn });
-    }
-    if (s3AccessKeySecret && s3SecretKeySecret) {
-      secrets.push({ name: 'AWS_ACCESS_KEY_ID', valueFrom: s3AccessKeySecret.arn });
-      secrets.push({ name: 'AWS_SECRET_ACCESS_KEY', valueFrom: s3SecretKeySecret.arn });
-      environment.push({ name: 'S3_BUCKET', value: args.s3Config!.bucket });
-      environment.push({ name: 'AWS_REGION', value: args.s3Config!.region });
-    }
+    secrets.push({ name: 'PINATA_JWT', valueFrom: pinataJwtSecret.arn });
     if (privateKeySecret) {
       secrets.push({ name: 'PRIVATE_KEY', valueFrom: privateKeySecret.arn });
     }

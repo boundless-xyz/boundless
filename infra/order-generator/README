@@ -17,20 +17,6 @@ ZETH_PRIVATE_KEY=""
 DOCKER_REMOTE_BUILDER=""
 ```
 
-## EVM Requestor S3 Storage
-
-The evm-requestor generator can use S3 instead of Pinata for uploading programs and inputs.
-Set these in the `order-generator-evm-requestor` Pulumi config namespace:
-
-```
-pulumi config set order-generator-evm-requestor:S3_BUCKET <bucket-name>
-pulumi config set order-generator-evm-requestor:AWS_REGION <region>
-pulumi config set --secret order-generator-evm-requestor:S3_ACCESS_KEY_ID <key>
-pulumi config set --secret order-generator-evm-requestor:S3_SECRET_ACCESS_KEY <secret>
-```
-
-When all four are set, the evm-requestor uses S3; otherwise it falls back to the shared Pinata JWT.
-
 `PULUMI_CONFIG_PASSPHRASE` can be left blank as we do not use that feature.
 `DEV_NAME` should be your name. This is used to name resources that you create.
 `DOCKER_REMOTE_BUILDER` is optional, see `infra/builder/README`
