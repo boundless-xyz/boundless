@@ -1,0 +1,593 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Per-job task breakdown (replaces scripts/job_status.sh)",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Job Overview",
+      "type": "row"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(task_id) AS total_tasks FROM tasks WHERE job_id = '${job_id}';",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Tasks",
+      "type": "stat"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS done_tasks FROM tasks WHERE job_id = '${job_id}' AND state = 'done';",
+          "refId": "A"
+        }
+      ],
+      "title": "Completed Tasks",
+      "type": "stat"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "orange", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS remaining FROM tasks WHERE job_id = '${job_id}' AND state != 'done';",
+          "refId": "A"
+        }
+      ],
+      "title": "Remaining Tasks",
+      "type": "stat"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "purple", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  CASE WHEN elapsed_sec > 0 AND total_cycles IS NOT NULL\n       THEN ROUND(CAST(total_cycles AS decimal) / elapsed_sec)\n  END AS hz,\n  total_cycles,\n  ROUND(elapsed_sec::numeric, 1) AS elapsed_sec\nFROM (\n  SELECT\n    (SELECT output->'total_cycles' FROM tasks WHERE task_id = 'init' AND job_id = '${job_id}') AS total_cycles,\n    EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at))) AS elapsed_sec\n  FROM tasks WHERE job_id = '${job_id}'\n) sub;",
+          "refId": "A"
+        }
+      ],
+      "title": "Effective Hz",
+      "type": "stat"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at))) AS elapsed_sec FROM tasks WHERE job_id = '${job_id}';",
+          "refId": "A"
+        }
+      ],
+      "title": "Wall Clock Time",
+      "type": "stat"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 6,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT output->'total_cycles' AS total_cycles FROM tasks WHERE task_id = 'init' AND job_id = '${job_id}';",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Cycles",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Remaining Tasks",
+      "type": "row"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "id": 10,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": true },
+        "showHeader": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  jsonb_object_keys(task_def) AS task_type,\n  COUNT(*) AS remaining_count\nFROM tasks\nWHERE state != 'done' AND job_id = '${job_id}'\nGROUP BY jsonb_object_keys(task_def)\nORDER BY remaining_count DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Remaining Tasks by Type",
+      "type": "table"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "hideFrom": { "legend": false, "tooltip": false, "viz": false } },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+      "id": 11,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "values": ["value"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true },
+        "tooltip": { "maxHeight": 600, "mode": "single", "sort": "none" }
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  jsonb_object_keys(task_def) AS task_type,\n  COUNT(*) AS count\nFROM tasks\nWHERE job_id = '${job_id}'\nGROUP BY jsonb_object_keys(task_def)\nORDER BY count DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "All Tasks by Type",
+      "type": "piechart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+      "id": 102,
+      "title": "Task Timing (Completed)",
+      "type": "row"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "avg_seconds" },
+            "properties": [{ "id": "unit", "value": "s" }, { "id": "decimals", "value": 2 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "min_seconds" },
+            "properties": [{ "id": "unit", "value": "s" }, { "id": "decimals", "value": 2 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "max_seconds" },
+            "properties": [{ "id": "unit", "value": "s" }, { "id": "decimals", "value": 2 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 13 },
+      "id": 20,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "avg_seconds" }]
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  jsonb_object_keys(task_def) AS task_type,\n  COUNT(*) AS completed_count,\n  AVG(EXTRACT(EPOCH FROM updated_at) - EXTRACT(EPOCH FROM started_at)) AS avg_seconds,\n  MIN(EXTRACT(EPOCH FROM updated_at) - EXTRACT(EPOCH FROM started_at)) AS min_seconds,\n  MAX(EXTRACT(EPOCH FROM updated_at) - EXTRACT(EPOCH FROM started_at)) AS max_seconds\nFROM tasks\nWHERE job_id = '${job_id}'\n  AND state = 'done'\n  AND started_at IS NOT NULL\n  AND updated_at IS NOT NULL\nGROUP BY jsonb_object_keys(task_def)\nORDER BY avg_seconds DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Task Times (avg / min / max)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "id": 103,
+      "title": "Task Timing (Totals)",
+      "type": "row"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total_secs" },
+            "properties": [{ "id": "unit", "value": "s" }, { "id": "decimals", "value": 1 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "id": 30,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "total_secs", "reducer": ["sum"], "show": true },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "total_secs" }]
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  jsonb_object_keys(task_def) AS task_type,\n  COUNT(*) AS completed_count,\n  SUM(EXTRACT(EPOCH FROM updated_at) - EXTRACT(EPOCH FROM started_at)) AS total_secs\nFROM tasks\nWHERE job_id = '${job_id}'\n  AND state = 'done'\n  AND started_at IS NOT NULL\n  AND updated_at IS NOT NULL\nGROUP BY jsonb_object_keys(task_def)\nORDER BY total_secs DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Task Times (totals)",
+      "type": "table"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "seconds",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "id": 31,
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": { "maxHeight": 600, "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  jsonb_object_keys(task_def) AS task_type,\n  SUM(EXTRACT(EPOCH FROM updated_at) - EXTRACT(EPOCH FROM started_at)) AS total_secs\nFROM tasks\nWHERE job_id = '${job_id}'\n  AND state = 'done'\n  AND started_at IS NOT NULL\n  AND updated_at IS NOT NULL\nGROUP BY jsonb_object_keys(task_def)\nORDER BY total_secs DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU-Time by Task Type",
+      "type": "barchart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "id": 104,
+      "title": "All Tasks Detail",
+      "type": "row"
+    },
+    {
+      "datasource": "postgres-taskdb",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "elapsed_sec" },
+            "properties": [{ "id": "unit", "value": "s" }, { "id": "decimals", "value": 2 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 31 },
+      "id": 40,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "elapsed_sec" }]
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "postgres-taskdb",
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  task_id,\n  jsonb_object_keys(task_def) AS task_type,\n  state,\n  started_at,\n  updated_at,\n  EXTRACT(EPOCH FROM (updated_at - started_at)) AS elapsed_sec\nFROM tasks\nWHERE job_id = '${job_id}'\nORDER BY started_at ASC;",
+          "refId": "A"
+        }
+      ],
+      "title": "All Tasks",
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["bento", "job-status"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": "postgres-taskdb",
+        "definition": "SELECT DISTINCT job_id FROM tasks ORDER BY job_id DESC LIMIT 50;",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Job ID",
+        "multi": false,
+        "name": "job_id",
+        "options": [],
+        "query": "SELECT DISTINCT job_id FROM tasks ORDER BY job_id DESC LIMIT 50;",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Job Status",
+  "uid": "bento-job-status",
+  "version": 1,
+  "weekStart": ""
+}
