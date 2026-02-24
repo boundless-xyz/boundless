@@ -2903,8 +2903,6 @@ dependencies = [
  "clap",
  "rand 0.9.2",
  "risc0-zkvm",
- "serde",
- "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",
