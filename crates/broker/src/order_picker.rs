@@ -96,6 +96,7 @@ pub struct OrderPicker<P> {
     allow_requestors: AllowRequestors,
     downloader: ConfigurableDownloader,
     price_oracle: Arc<PriceOracleManager>,
+    listen_only: bool,
 }
 
 impl<P> OrderPicker<P>
@@ -119,6 +120,7 @@ where
         downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
         erc1271_gas_cache: Erc1271GasCache,
+        listen_only: bool,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -157,6 +159,7 @@ where
             allow_requestors,
             downloader,
             price_oracle,
+            listen_only,
         }
     }
 
@@ -431,6 +434,11 @@ where
         lock_expired: bool,
         lockin_collateral: U256,
     ) -> Result<Option<OrderPricingOutcome>, OrderPickerErr> {
+        if self.listen_only {
+            // In listen-only mode, skip all balance checks since no transactions will be sent.
+            return Ok(None);
+        }
+
         let balance = self
             .provider
             .get_balance(self.provider.default_signer_address())
@@ -1109,6 +1117,7 @@ pub(crate) mod tests {
                 downloader,
                 create_test_price_oracle(),
                 Arc::new(Cache::builder().build()),
+                false,
             );
 
             PickerTestCtx {
