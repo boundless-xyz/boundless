@@ -423,11 +423,8 @@ where
             }
         }
 
-        let total_variable_cost = if total_fees > total_fixed_cost {
-            total_fees - total_fixed_cost
-        } else {
-            U256::ZERO
-        };
+        let total_variable_cost =
+            if total_fees > total_fixed_cost { total_fees - total_fixed_cost } else { U256::ZERO };
 
         // Compute total collateral from all locked requests (regardless of fulfillment)
         let mut total_collateral = U256::ZERO;

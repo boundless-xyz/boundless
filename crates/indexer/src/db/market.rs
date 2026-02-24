@@ -2094,9 +2094,7 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            total_fixed_cost: padded_string_to_u256(
-                &row.get::<String, _>("total_fixed_cost"),
-            )?,
+            total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))?,
             total_variable_cost: padded_string_to_u256(
                 &row.get::<String, _>("total_variable_cost"),
             )?,
@@ -2206,9 +2204,7 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            total_fixed_cost: padded_string_to_u256(
-                &row.get::<String, _>("total_fixed_cost"),
-            )?,
+            total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))?,
             total_variable_cost: padded_string_to_u256(
                 &row.get::<String, _>("total_variable_cost"),
             )?,
@@ -4315,10 +4311,8 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                total_fixed_cost: padded_string_to_u256(
-                    &row.get::<String, _>("total_fixed_cost"),
-                )
-                .unwrap_or(U256::ZERO),
+                total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))
+                    .unwrap_or(U256::ZERO),
                 total_variable_cost: padded_string_to_u256(
                     &row.get::<String, _>("total_variable_cost"),
                 )
@@ -4515,10 +4509,8 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                total_fixed_cost: padded_string_to_u256(
-                    &row.get::<String, _>("total_fixed_cost"),
-                )
-                .unwrap_or(U256::ZERO),
+                total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))
+                    .unwrap_or(U256::ZERO),
                 total_variable_cost: padded_string_to_u256(
                     &row.get::<String, _>("total_variable_cost"),
                 )
