@@ -166,6 +166,18 @@ pub struct MarketAggregateEntry {
     pub total_program_cycles: String,
     /// Total cycles (program + overhead) in this period (as string).
     pub total_cycles: String,
+    /// Total fixed cost (gas cost) across all locked requests in this period (as string in wei).
+    #[serde(default)]
+    pub total_fixed_cost: String,
+    /// Total fixed cost (formatted for display).
+    #[serde(default)]
+    pub total_fixed_cost_formatted: String,
+    /// Total variable cost (proving cost) across all locked requests in this period (as string in wei).
+    #[serde(default)]
+    pub total_variable_cost: String,
+    /// Total variable cost (formatted for display).
+    #[serde(default)]
+    pub total_variable_cost_formatted: String,
 }
 
 /// Response containing market aggregate data.

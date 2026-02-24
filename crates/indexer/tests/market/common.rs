@@ -952,6 +952,8 @@ pub async fn get_all_time_summaries(
                 as f32,
             total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
             total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),
+            total_fixed_cost: parse_u256(&row.get::<String, _>("total_fixed_cost")),
+            total_variable_cost: parse_u256(&row.get::<String, _>("total_variable_cost")),
             best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
