@@ -94,9 +94,6 @@ struct MainArgs {
     /// Native ETH threshold for top-up (covers deposit + submit tx gas).
     #[clap(long, env = "TOP_UP_NATIVE_THRESHOLD", value_parser = parse_ether, default_value = "0.05")]
     top_up_native_threshold: U256,
-    /// Timeout in seconds for withdrawal/sweep transactions (rotation). Default 120.
-    #[clap(long, env = "WITHDRAWAL_TX_TIMEOUT", default_value = "120")]
-    withdrawal_tx_timeout: u64,
     /// Retry attempts for the sweep transfer during rotation when confirmation times out.
     #[clap(long, env = "WITHDRAWAL_SWEEP_RETRIES", default_value = "3")]
     withdrawal_sweep_retries: u32,
@@ -697,14 +694,10 @@ async fn perform_rotation_withdrawal(
         .context("failed to get post-withdraw native balance")?;
     let transfer_amount = post_balance.saturating_sub(gas_reserve);
     if transfer_amount > U256::ZERO {
-        let sweep_timeout = Duration::from_secs(args.withdrawal_tx_timeout);
         let max_attempts = args.withdrawal_sweep_retries;
         let mut last_err = None;
         for attempt in 1..=max_attempts {
-            match old_client
-                .transfer_value_with_timeout(funding_address, transfer_amount, sweep_timeout)
-                .await
-            {
+            match old_client.transfer_value(funding_address, transfer_amount).await {
                 Ok(()) => {
                     tracing::info!(
                         "Swept {} ETH from {old_address} to funding {funding_address}",
@@ -717,8 +710,7 @@ async fn perform_rotation_withdrawal(
                     last_err = Some(e);
                     if attempt < max_attempts {
                         tracing::warn!(
-                            "Sweep attempt {attempt}/{max_attempts} failed (timeout {}s), retrying: {:?}",
-                            args.withdrawal_tx_timeout,
+                            "Sweep attempt {attempt}/{max_attempts} failed, retrying: {:?}",
                             last_err,
                         );
                         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -987,7 +979,6 @@ mod tests {
             submit_retry_delay_secs: 2,
             top_up_market_threshold: parse_ether("0.01").unwrap(),
             top_up_native_threshold: parse_ether("0.05").unwrap(),
-            withdrawal_tx_timeout: 120,
             withdrawal_sweep_retries: 3,
             auto_deposit: None,
             submit_offchain: false,

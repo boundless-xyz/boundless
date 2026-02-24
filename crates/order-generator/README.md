@@ -95,13 +95,12 @@ You also need a funding source. Either:
 
 ### Rotation Configuration
 
-| Option                        | Default       | Description                                                  |
-| ----------------------------- | ------------- | ------------------------------------------------------------ |
-| `--address-rotation-interval` | 86400 (1 day) | Seconds between rotations                                    |
-| `--top-up-market-threshold`   | 0.01          | Market balance threshold for top-up (ETH)                    |
-| `--top-up-native-threshold`   | 0.05          | Native ETH threshold for top-up (covers deposit + gas)       |
-| `--withdrawal-tx-timeout`     | 60            | Seconds to wait for each sweep transaction before timing out |
-| `--withdrawal-sweep-retries`  | 3             | Number of retry attempts for the native ETH sweep            |
+| Option                        | Default       | Description                                            |
+| ----------------------------- | ------------- | ------------------------------------------------------ |
+| `--address-rotation-interval` | 86400 (1 day) | Seconds between rotations                              |
+| `--top-up-market-threshold`   | 0.01          | Market balance threshold for top-up (ETH)              |
+| `--top-up-native-threshold`   | 0.05          | Native ETH threshold for top-up (covers deposit + gas) |
+| `--withdrawal-sweep-retries`  | 3             | Number of retry attempts for the native ETH sweep      |
 
 ### Safe Withdrawal via Indexer
 

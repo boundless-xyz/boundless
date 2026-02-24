@@ -1009,16 +1009,6 @@ where
     ///
     /// Uses the provider's wallet/signer to sign the transaction.
     pub async fn transfer_value(&self, to: Address, value: U256) -> Result<(), ClientError> {
-        self.transfer_value_with_timeout(to, value, self.boundless_market.timeout()).await
-    }
-
-    /// Like [Self::transfer_value] but with an explicit confirmation timeout (e.g. for withdrawal sweeps).
-    pub async fn transfer_value_with_timeout(
-        &self,
-        to: Address,
-        value: U256,
-        timeout: Duration,
-    ) -> Result<(), ClientError> {
         let tx = TransactionRequest::default().with_to(to).with_value(value);
         let pending = self
             .provider()
@@ -1026,7 +1016,7 @@ where
             .await
             .with_context(|| "failed to send transfer transaction")?;
         pending
-            .with_timeout(Some(timeout))
+            .with_timeout(Some(self.boundless_market.timeout()))
             .watch()
             .await
             .with_context(|| "failed to confirm transfer transaction")?;
