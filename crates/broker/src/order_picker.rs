@@ -1109,6 +1109,7 @@ pub(crate) mod tests {
                 allow_requestors,
                 downloader,
                 create_test_price_oracle(),
+                false,
             );
 
             PickerTestCtx {
