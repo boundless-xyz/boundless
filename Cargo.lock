@@ -2897,6 +2897,7 @@ version = "1.3.2"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-trait",
  "boundless-market",
  "boundless-test-utils",
  "clap",

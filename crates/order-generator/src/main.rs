@@ -13,9 +13,10 @@
 // limitations under the License.
 
 mod derivation;
+mod indexer;
 mod rotation;
 
-use std::{path::PathBuf, time::Duration};
+use std::{collections::HashSet, path::PathBuf, time::Duration};
 
 use alloy::{
     eips::BlockNumberOrTag,
@@ -32,12 +33,14 @@ use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
     client::{Client, FundingMode},
     deployments::Deployment,
+    indexer_client::IndexerClient,
     input::GuestEnv,
     request_builder::StandardRequestBuilder,
     storage::{HttpDownloader, StandardDownloader, StorageDownloader},
     StandardUploader, StorageUploaderConfig,
 };
 use clap::Parser;
+use indexer::{is_safe_to_withdraw, next_safe_at, RequestorIndexer};
 use rand::Rng;
 use risc0_zkvm::Journal;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -76,15 +79,6 @@ struct MainArgs {
     /// Interval in seconds between address rotations (e.g., 86400 = daily).
     #[clap(long, default_value = "86400")]
     address_rotation_interval: u64,
-    /// Path for persistent rotation state.
-    #[clap(long, default_value = "./rotation-state.json")]
-    rotation_state_file: PathBuf,
-    /// Extra seconds after max request expiry before withdrawing from rotated address.
-    #[clap(long, default_value = "60")]
-    withdrawal_expiry_buffer: u64,
-    /// Reset rotation state on startup (for testing).
-    #[clap(long, default_value = "false")]
-    rotation_state_reset: bool,
     /// Transaction timeout in seconds.
     #[clap(long, default_value = "45")]
     tx_timeout: u64,
@@ -328,29 +322,28 @@ async fn run_with_rotation(
     private_keys: &[PrivateKeySigner],
 ) -> Result<()> {
     let n_keys = private_keys.len();
-    let state_path = &args.rotation_state_file;
-    let mut state = rotation::RotationState::load(state_path);
-    if args.rotation_state_reset {
-        state = rotation::RotationState::default();
-        state.save(state_path)?;
-    }
-    // Clamp current_index if state was saved with more keys than we have now.
-    if state.current_index >= n_keys {
-        tracing::warn!(
-            "Rotation state current_index {} >= n_keys {}; resetting to 0. \
-             In-flight requests on the old index may not have expired yet.",
-            state.current_index,
-            n_keys,
-        );
-        state.current_index = 0;
-        state.max_expires_at = 0;
-        state.save(state_path)?;
-    }
 
     let funding_client = build_client_for_signer(args, funding_signer).await?;
     // Build rotation clients on demand to avoid bursting the price oracle at startup.
     let mut rotation_clients: Vec<Option<OrderGeneratorClient>> =
         (0..n_keys).map(|_| None).collect();
+
+    // Build the indexer client used to check request status before sweeping old keys.
+    // Prefer the URL from the deployment config; fall back to chain-ID lookup.
+    let indexer =
+        if let Some(url_str) = args.deployment.as_ref().and_then(|d| d.indexer_url.as_deref()) {
+            let url = url_str.parse::<Url>().context("Invalid indexer URL in deployment config")?;
+            IndexerClient::new(url).context("Failed to build indexer client")?
+        } else {
+            let chain_id = funding_client
+                .provider()
+                .get_chain_id()
+                .await
+                .context("Failed to get chain ID for indexer client")?;
+            IndexerClient::new_from_chain_id(chain_id).context("Failed to build indexer client")?
+        };
+
+    let gas_reserve = parse_ether(GAS_RESERVE).unwrap();
 
     let ipfs_gateway = args
         .storage_config
@@ -364,6 +357,10 @@ async fn run_with_rotation(
     let mut success_count = 0u64;
     let mut last_error: Option<anyhow::Error> = None;
     let poll_interval = Duration::from_secs(args.interval);
+    // Track keys that have been fully swept this rotation cycle so we skip their
+    // balance RPC calls on subsequent iterations. Cleared when a key becomes desired
+    // again (i.e. when keys cycle back around after n_keys * interval).
+    let mut swept_keys: HashSet<usize> = HashSet::new();
 
     loop {
         if let Some(count) = args.count {
@@ -377,59 +374,76 @@ async fn run_with_rotation(
             rotation::now_secs()
         });
         let desired = rotation::desired_index(now, args.address_rotation_interval, n_keys);
+        // When a key becomes desired again it accumulates new balance/requests,
+        // so drop any prior "already swept" marker for it.
+        swept_keys.remove(&desired);
 
-        if desired != state.current_index {
-            tracing::info!(
-                "Rotating from key {} to key {} — waiting for in-flight requests to expire",
-                state.current_index,
-                desired,
-            );
-            // Block until it's "safe" to withdraw and sweep the current key's funds
-            // This ensures no funds are stranded: we know the current key is idle before we move on.
-            wait_for_lock_expiry(
-                &funding_client.provider(),
-                state.max_expires_at,
-                args.withdrawal_expiry_buffer,
-                poll_interval,
-            )
-            .await?;
-            if rotation_clients[state.current_index].is_none() {
-                rotation_clients[state.current_index] =
-                    Some(build_client_for_signer(args, &private_keys[state.current_index]).await?);
+        // For every non-desired key: if it has funds worth sweeping, query the indexer
+        // to check whether all its requests have settled. Sweep immediately if safe,
+        // otherwise log the expected wait time and retry next iteration.
+        for old_idx in 0..n_keys {
+            if old_idx == desired {
+                continue;
             }
-            perform_rotation_withdrawal(
-                args,
-                &funding_client,
-                rotation_clients[state.current_index].as_ref().unwrap(),
-            )
-            .await?;
-            state.current_index = desired;
-            state.max_expires_at = 0;
-            state.save(state_path)?;
+            if swept_keys.contains(&old_idx) {
+                continue; // already swept this rotation cycle — skip balance RPC calls
+            }
+            let old_addr = private_keys[old_idx].address();
+            let market_bal =
+                funding_client.boundless_market.balance_of(old_addr).await.unwrap_or(U256::ZERO);
+            let native_bal =
+                funding_client.provider().get_balance(old_addr).await.unwrap_or(U256::ZERO);
+            if market_bal == U256::ZERO && native_bal <= gas_reserve {
+                continue; // nothing worth sweeping
+            }
+            match indexer.list_requests(old_addr).await {
+                Ok(requests) => {
+                    if is_safe_to_withdraw(&requests, now) {
+                        tracing::info!(
+                            "Sweeping rotated key {old_idx} ({old_addr}): all requests settled"
+                        );
+                        if rotation_clients[old_idx].is_none() {
+                            rotation_clients[old_idx] =
+                                Some(build_client_for_signer(args, &private_keys[old_idx]).await?);
+                        }
+                        perform_rotation_withdrawal(
+                            args,
+                            &funding_client,
+                            rotation_clients[old_idx].as_ref().unwrap(),
+                        )
+                        .await?;
+                        swept_keys.insert(old_idx);
+                    } else {
+                        let safe_at = next_safe_at(&requests);
+                        tracing::info!(
+                            "Key {old_idx} ({old_addr}) has unsettled requests; \
+                             sweep deferred ~{}s",
+                            safe_at.saturating_sub(now),
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Indexer unavailable for {old_addr}, skipping sweep this iteration: {e:?}"
+                    );
+                }
+            }
         }
 
-        if rotation_clients[state.current_index].is_none() {
-            rotation_clients[state.current_index] =
-                Some(build_client_for_signer(args, &private_keys[state.current_index]).await?);
+        if rotation_clients[desired].is_none() {
+            rotation_clients[desired] =
+                Some(build_client_for_signer(args, &private_keys[desired]).await?);
         }
-        let client = rotation_clients[state.current_index].as_ref().unwrap();
-        top_up_from_funding_source(
-            args,
-            &funding_client,
-            client,
-            private_keys[state.current_index].address(),
-        )
-        .await?;
+        let client = rotation_clients[desired].as_ref().unwrap();
+        top_up_from_funding_source(args, &funding_client, client, private_keys[desired].address())
+            .await?;
 
         let result =
             submit_request_with_retry(args, client, &program, &program_url, input.as_deref()).await;
 
         match result {
-            Ok((_, _, ramp_up_end)) => {
+            Ok(_) => {
                 success_count += 1;
-                // Wait until after ramp-up (bidding_start + ramp_up_period) before rotating.
-                state.max_expires_at = state.max_expires_at.max(ramp_up_end);
-                state.save(state_path)?;
             }
             Err(e) => {
                 let error_msg = format!("{e:?}");
@@ -630,31 +644,6 @@ async fn get_block_timestamp(provider: &impl Provider) -> Result<u64> {
         .context("failed to get block")?
         .context("block not found")?;
     Ok(block.header.timestamp)
-}
-
-/// Poll until the current key's ramp-up windows have passed (max_expires_at is the
-/// maximum over requests of offer.rampUpStart + offer.rampUpPeriod). Then the caller
-/// can withdraw and rotate. If `max_expires_at` is zero the check passes once block
-/// timestamp exceeds `buffer_secs`.
-async fn wait_for_lock_expiry(
-    provider: &impl Provider,
-    max_expires_at: u64,
-    buffer_secs: u64,
-    poll_interval: Duration,
-) -> Result<()> {
-    loop {
-        let now = get_block_timestamp(provider).await.unwrap_or_else(|e| {
-            tracing::warn!("Failed to get block timestamp, using system time: {e:?}");
-            rotation::now_secs()
-        });
-        if now > max_expires_at.saturating_add(buffer_secs) {
-            break;
-        }
-        let remaining = max_expires_at.saturating_add(buffer_secs).saturating_sub(now);
-        tracing::info!("Waiting {remaining}s for in-flight requests to expire before rotating...");
-        tokio::time::sleep(poll_interval).await;
-    }
-    Ok(())
 }
 
 /// Withdraw the market balance from `old_client` and sweep remaining native ETH
@@ -968,9 +957,6 @@ mod tests {
             mnemonic: None,
             derive_rotation_keys: None,
             address_rotation_interval: 86400,
-            rotation_state_file: PathBuf::from("./rotation-state.json"),
-            withdrawal_expiry_buffer: 60,
-            rotation_state_reset: false,
             deployment: None,
             interval: 60,
             count: None,
@@ -1036,7 +1022,6 @@ mod tests {
         args.rpc_url = Some(anvil.endpoint_url());
         args.rpc_urls = Some(Vec::new());
         args.private_key = Some(ctx.customer_signer);
-        args.rotation_state_file = std::env::temp_dir().join("og-main-test.json");
         args.deployment = Some(ctx.deployment.clone());
         args.interval = 1;
         args.count = Some(2);
@@ -1057,16 +1042,17 @@ mod tests {
     }
 
     /// Full rotation lifecycle:
-    ///   Phase 1 — submit 2 requests (from key 0 or 1 depending on Anvil's initial block time).
-    ///   Phase 2 — advance time past expiry + buffer, trigger rotation to the other key,
-    ///             submit 1 more request, verify 3 total and state rotated.
+    ///   Phase 1 — submit 2 requests from whichever key desired_index selects.
+    ///   Phase 2 — advance time so desired_index changes, submit 1 more request from
+    ///             the new key, verify 3 total on-chain.
+    ///
+    /// Note: no indexer is available in this test, so the sweep of the old key is skipped
+    /// gracefully (indexer unavailable warning). The test only verifies that submissions
+    /// continue from the newly desired key.
     #[tokio::test]
     async fn test_rotation() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-
-        let state_file = std::env::temp_dir().join("og-rotation-test.json");
-        let _ = std::fs::remove_file(&state_file);
 
         let mut args = base_test_args();
         args.rpc_url = Some(anvil.endpoint_url());
@@ -1075,15 +1061,12 @@ mod tests {
         args.mnemonic = Some(BIP39_TEST_MNEMONIC.to_string());
         args.derive_rotation_keys = Some(2);
         args.address_rotation_interval = 86400; // long interval so we don't rotate mid-phase 1
-        args.rotation_state_file = state_file.clone();
-        args.rotation_state_reset = true;
         args.deployment = Some(ctx.deployment.clone());
         args.interval = 1;
         args.count = Some(2);
         args.program = Some(LOOP_PATH.parse().unwrap());
-        args.withdrawal_expiry_buffer = 60;
 
-        // Phase 1: 2 requests (from whichever key desired_index(now, 86400, 2) chose).
+        // Phase 1: 2 requests from whichever key desired_index(now, 86400, 2) chose.
         run(&args).await.unwrap();
 
         let filter = Filter::new()
@@ -1100,23 +1083,25 @@ mod tests {
             .count();
         assert_eq!(count, 2, "phase 1: expected 2 requests, got {count}");
 
-        let state = rotation::RotationState::load(&state_file);
-        assert!(state.current_index < 2);
-        assert!(state.max_expires_at > 0, "max_expires_at must be set after submissions");
-
-        // Advance time past expiry + buffer. Choose target_ts so desired_index(target_ts, 1, 2) !=
-        // state.current_index (so we rotate). With interval=1, desired = target_ts % 2.
-        let safe_ts = state.max_expires_at + args.withdrawal_expiry_buffer + 1;
+        // Determine which key phase 1 used, then pick a target_ts that makes
+        // desired_index(ts, 1, 2) = ts % 2 point to the *other* key.
+        let block = ctx
+            .customer_provider
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await
+            .unwrap()
+            .unwrap();
+        let phase1_ts = block.header.timestamp;
+        let phase1_index = rotation::desired_index(phase1_ts, 86400, 2);
+        // With interval=1: desired = ts % 2. We want ts % 2 != phase1_index.
         let target_ts =
-            if (safe_ts % 2) as usize == state.current_index { safe_ts + 1 } else { safe_ts };
+            if phase1_ts % 2 == phase1_index as u64 { phase1_ts + 1 } else { phase1_ts };
         ctx.customer_provider.anvil_set_next_block_timestamp(target_ts).await.unwrap();
         ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
 
-        // Phase 2: rotation_interval=1 triggers rotation to the other key, then 1 request.
+        // Phase 2: rotation_interval=1 makes desired_index point to the other key → 1 request.
         args.address_rotation_interval = 1;
-        args.rotation_state_reset = false;
         args.count = Some(1);
-
         run(&args).await.unwrap();
 
         let count = ctx
@@ -1128,13 +1113,5 @@ mod tests {
             .filter_map(|l| l.log_decode::<IBoundlessMarket::RequestSubmitted>().ok())
             .count();
         assert_eq!(count, 3, "phase 2: expected 3 total requests after rotation, got {count}");
-
-        let state_after = rotation::RotationState::load(&state_file);
-        let expected_index = (state.current_index + 1) % 2;
-        assert_eq!(
-            state_after.current_index, expected_index,
-            "should have rotated from key {} to key {}",
-            state.current_index, expected_index
-        );
     }
 }

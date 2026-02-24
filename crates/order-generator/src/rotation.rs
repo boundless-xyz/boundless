@@ -12,67 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Address rotation state for the order generator.
+//! Address rotation helpers for the order generator.
 //!
 //! See [README.md](../README.md#address-rotation) for the full design.
 
-use std::{
-    fs,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-use serde::{Deserialize, Serialize};
-
-/// Persisted rotation state for restart reliability.
-///
-/// Tracks the currently active key index and the maximum ramp-up end time seen
-/// for that key (offer.rampUpStart + offer.rampUpPeriod). On rotation, the caller
-/// waits until `max_expires_at + buffer` has passed before withdrawing.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RotationState {
-    /// Index into the rotation key array currently used for submissions.
-    pub current_index: usize,
-    /// Maximum ramp-up end (bidding_start + ramp_up_period) in block seconds for the current key.
-    /// Zero means no requests have been submitted from this key yet.
-    #[serde(default)]
-    pub max_expires_at: u64,
-}
-
-impl RotationState {
-    /// Load state from file. Returns default on missing file or parse error.
-    pub fn load(path: &Path) -> Self {
-        match fs::read_to_string(path) {
-            Ok(s) => match serde_json::from_str(&s) {
-                Ok(state) => state,
-                Err(e) => {
-                    tracing::warn!("Failed to parse rotation state, starting fresh: {e}");
-                    Self::default()
-                }
-            },
-            Err(e) => {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    tracing::warn!("Failed to read rotation state, starting fresh: {e}");
-                }
-                Self::default()
-            }
-        }
-    }
-
-    /// Atomically save state (write to temp file then rename).
-    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        let filename = path.file_name().map(|f| f.to_string_lossy()).unwrap_or_default();
-        let temp = parent.join(format!(".{filename}.tmp"));
-        let json = serde_json::to_string_pretty(self)?;
-        fs::write(&temp, json)?;
-        if let Err(e) = fs::rename(&temp, path) {
-            let _ = fs::remove_file(&temp);
-            return Err(e.into());
-        }
-        Ok(())
-    }
-}
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Compute the desired rotation index for the given block timestamp.
 ///
@@ -107,25 +51,5 @@ mod tests {
     fn test_desired_index_edge_cases() {
         assert_eq!(desired_index(100, 86400, 0), 0);
         assert_eq!(desired_index(100, 0, 3), 0);
-    }
-
-    #[test]
-    fn test_state_roundtrip() {
-        let dir = std::env::temp_dir();
-        let path = dir.join("test-rotation-state.json");
-        let state = RotationState { current_index: 2, max_expires_at: 9999 };
-        state.save(&path).unwrap();
-        let loaded = RotationState::load(&path);
-        assert_eq!(loaded.current_index, 2);
-        assert_eq!(loaded.max_expires_at, 9999);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn test_load_missing_file_returns_default() {
-        let path = std::path::Path::new("/tmp/nonexistent-rotation-state-xyz.json");
-        let state = RotationState::load(path);
-        assert_eq!(state.current_index, 0);
-        assert_eq!(state.max_expires_at, 0);
     }
 }

@@ -15,6 +15,7 @@ release = false
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "signer-mnemonic"] }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true, features = ["env"] }
 rand = { workspace = true }

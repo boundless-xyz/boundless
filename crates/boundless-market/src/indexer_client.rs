@@ -14,7 +14,7 @@
 
 //! Client for interacting with the Boundless Indexer API to fetch market price aggregates.
 
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -330,6 +330,227 @@ impl IndexerClient {
         }
 
         anyhow::bail!("No price data found")
+    }
+}
+
+/// Query parameters for [`IndexerClient::list_requests_by_requestor`].
+/// Mirrors the API query string: cursor, limit (max 500, default 50), sort_by.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct RequestorRequestsParams {
+    /// Pagination cursor from a previous response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    /// Maximum number of results to return (default 50, max 500).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    /// Sort field: `"created_at"` (default) or `"updated_at"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_by: Option<String>,
+}
+
+/// Full response for a single request returned by the requestor requests endpoint.
+///
+/// Field names and types match the indexer API exactly so that this struct can be
+/// deserialized directly from the JSON response without any intermediate mapping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestStatusResponse {
+    /// Chain ID.
+    pub chain_id: u64,
+    /// Unique request digest (hex string with 0x prefix).
+    pub request_digest: String,
+    /// Request ID — may be non-unique (hex string with 0x prefix).
+    pub request_id: String,
+    /// Status: `"submitted"`, `"locked"`, `"fulfilled"`, or `"expired"`.
+    pub request_status: String,
+    /// Source: `"onchain"`, `"offchain"`, or `"unknown"`.
+    pub source: String,
+    /// Requestor (client) Ethereum address.
+    pub client_address: String,
+    /// Prover address that locked the request, if any.
+    pub lock_prover_address: Option<String>,
+    /// Prover address that fulfilled the request, if any.
+    pub fulfill_prover_address: Option<String>,
+    /// Unix timestamp when the request was created.
+    pub created_at: i64,
+    /// ISO 8601 creation timestamp.
+    pub created_at_iso: String,
+    /// Unix timestamp of last update.
+    pub updated_at: i64,
+    /// ISO 8601 last-updated timestamp.
+    pub updated_at_iso: String,
+    /// Unix timestamp when the request was locked, if applicable.
+    pub locked_at: Option<i64>,
+    /// ISO 8601 locked timestamp, if applicable.
+    pub locked_at_iso: Option<String>,
+    /// Unix timestamp when the request was fulfilled, if applicable.
+    pub fulfilled_at: Option<i64>,
+    /// ISO 8601 fulfilled timestamp, if applicable.
+    pub fulfilled_at_iso: Option<String>,
+    /// Unix timestamp when the request was slashed, if applicable.
+    pub slashed_at: Option<i64>,
+    /// ISO 8601 slashed timestamp, if applicable.
+    pub slashed_at_iso: Option<String>,
+    /// Unix timestamp when the lock prover delivered a proof, if applicable.
+    pub lock_prover_delivered_proof_at: Option<i64>,
+    /// ISO 8601 proof-delivery timestamp, if applicable.
+    pub lock_prover_delivered_proof_at_iso: Option<String>,
+    /// Block number at which the request was submitted, if applicable.
+    pub submit_block: Option<i64>,
+    /// Block number at which the request was locked, if applicable.
+    pub lock_block: Option<i64>,
+    /// Block number at which the request was fulfilled, if applicable.
+    pub fulfill_block: Option<i64>,
+    /// Block number at which the request was slashed, if applicable.
+    pub slashed_block: Option<i64>,
+    /// Minimum price in wei.
+    pub min_price: String,
+    /// Minimum price formatted for display.
+    pub min_price_formatted: String,
+    /// Maximum price in wei.
+    pub max_price: String,
+    /// Maximum price formatted for display.
+    pub max_price_formatted: String,
+    /// Lock collateral in wei.
+    pub lock_collateral: String,
+    /// Lock collateral formatted for display.
+    pub lock_collateral_formatted: String,
+    /// Locked price in wei, if the request was locked.
+    pub lock_price: Option<String>,
+    /// Locked price formatted for display.
+    pub lock_price_formatted: Option<String>,
+    /// Locked price per cycle in wei.
+    pub lock_price_per_cycle: Option<String>,
+    /// Locked price per cycle formatted for display.
+    pub lock_price_per_cycle_formatted: Option<String>,
+    /// Fixed gas cost in wei.
+    pub fixed_cost: Option<String>,
+    /// Fixed gas cost formatted for display.
+    pub fixed_cost_formatted: Option<String>,
+    /// Variable proving cost per cycle in wei.
+    pub variable_cost_per_cycle: Option<String>,
+    /// Variable proving cost per cycle formatted for display.
+    pub variable_cost_per_cycle_formatted: Option<String>,
+    /// Base fee per gas at lock block (wei).
+    pub lock_base_fee: Option<String>,
+    /// Base fee per gas at fulfill block (wei).
+    pub fulfill_base_fee: Option<String>,
+    /// Unix timestamp when the ramp-up period starts.
+    pub ramp_up_start: i64,
+    /// ISO 8601 ramp-up start timestamp.
+    pub ramp_up_start_iso: String,
+    /// Ramp-up period in seconds.
+    pub ramp_up_period: i64,
+    /// Unix timestamp when the request expires.
+    pub expires_at: i64,
+    /// ISO 8601 expiry timestamp.
+    pub expires_at_iso: String,
+    /// Unix timestamp when the lock window closes (locking deadline).
+    pub lock_end: i64,
+    /// ISO 8601 lock-end timestamp.
+    pub lock_end_iso: String,
+    /// Address that receives slashed collateral, if applicable.
+    pub slash_recipient: Option<String>,
+    /// Amount of collateral transferred during slash in wei.
+    pub slash_transferred_amount: Option<String>,
+    /// Slashed transferred amount formatted for display.
+    pub slash_transferred_amount_formatted: Option<String>,
+    /// Amount of collateral burned during slash in wei.
+    pub slash_burned_amount: Option<String>,
+    /// Slashed burned amount formatted for display.
+    pub slash_burned_amount_formatted: Option<String>,
+    /// Guest program cycles only.
+    pub program_cycles: Option<String>,
+    /// Total cycles (program + overhead).
+    pub total_cycles: Option<String>,
+    /// Effective prove rate in MHz from the requestor's perspective.
+    pub effective_prove_mhz: Option<f64>,
+    /// Effective prove rate in MHz from the prover's perspective.
+    pub prover_effective_prove_mhz: Option<f64>,
+    /// Submit transaction hash.
+    pub submit_tx_hash: Option<String>,
+    /// Lock transaction hash.
+    pub lock_tx_hash: Option<String>,
+    /// Fulfill transaction hash.
+    pub fulfill_tx_hash: Option<String>,
+    /// Slash transaction hash.
+    pub slash_tx_hash: Option<String>,
+    /// Circuit image ID.
+    pub image_id: String,
+    /// Circuit image URL.
+    pub image_url: Option<String>,
+    /// Circuit selector.
+    pub selector: String,
+    /// Predicate type.
+    pub predicate_type: String,
+    /// Predicate data (hex).
+    pub predicate_data: String,
+    /// Input type.
+    pub input_type: String,
+    /// Input data (hex).
+    pub input_data: String,
+    /// Fulfillment journal (hex).
+    pub fulfill_journal: Option<String>,
+    /// Fulfillment seal (hex).
+    pub fulfill_seal: Option<String>,
+}
+
+/// Paginated response from [`IndexerClient::list_requests_by_requestor`].
+#[derive(Debug, Deserialize)]
+pub struct RequestorRequestsPage {
+    /// Chain ID.
+    pub chain_id: u64,
+    /// Requests on this page.
+    pub data: Vec<RequestStatusResponse>,
+    /// Cursor for the next page, if any.
+    pub next_cursor: Option<String>,
+    /// Whether more pages exist.
+    pub has_more: bool,
+}
+
+impl IndexerClient {
+    /// List requests submitted by a specific requestor.
+    ///
+    /// `GET /v1/market/requestors/{address}/requests`
+    ///
+    /// Returns a single page. The caller is responsible for pagination using
+    /// [`RequestorRequestsPage::has_more`] and [`RequestorRequestsPage::next_cursor`].
+    pub async fn list_requests_by_requestor(
+        &self,
+        address: Address,
+        params: RequestorRequestsParams,
+    ) -> Result<RequestorRequestsPage> {
+        let path = format!("v1/market/requestors/{address}/requests");
+        let mut url = self.base_url.join(&path).context("Failed to build URL")?;
+
+        let mut query_parts: Vec<String> = Vec::new();
+        if let Some(cursor) = &params.cursor {
+            let encoded: String = url::form_urlencoded::byte_serialize(cursor.as_bytes()).collect();
+            query_parts.push(format!("cursor={encoded}"));
+        }
+        if let Some(limit) = params.limit {
+            query_parts.push(format!("limit={limit}"));
+        }
+        if let Some(sort_by) = &params.sort_by {
+            query_parts.push(format!("sort_by={sort_by}"));
+        }
+        if !query_parts.is_empty() {
+            url.set_query(Some(&query_parts.join("&")));
+        }
+
+        let url_str = url.to_string();
+        let response =
+            self.client.get(url).send().await.with_context(|| {
+                format!("Failed to fetch requests for {address} from {url_str}")
+            })?;
+
+        if !response.status().is_success() {
+            bail!("API error from {url_str}: {}", response.status());
+        }
+
+        response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse requestor requests response from {url_str}"))
     }
 }
 
