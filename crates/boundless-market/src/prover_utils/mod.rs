@@ -192,6 +192,9 @@ pub struct OrderRequest {
     pub journal_bytes: Option<usize>,
     pub target_timestamp: Option<u64>,
     pub expire_timestamp: Option<u64>,
+    /// Total gas units (lock + fulfill) estimated during pricing. Stored so the pre-lock
+    /// check can simply re-multiply by the current gas price instead of re-computing.
+    pub gas_estimate: Option<u64>,
     pub expected_reward_eth: Option<U256>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
@@ -217,6 +220,7 @@ impl OrderRequest {
             journal_bytes: None,
             target_timestamp: None,
             expire_timestamp: None,
+            gas_estimate: None,
             expected_reward_eth: None,
             cached_id: OnceLock::new(),
         }
@@ -717,6 +721,10 @@ pub trait OrderPricingContext {
                         .await?,
             )
         };
+        // Store the gas estimate on the order so the pre-lock check can re-use it
+        // instead of re-computing.
+        order.gas_estimate = Some(order_gas.saturating_to::<u64>());
+
         let mut order_gas_cost = U256::from(gas_price) * order_gas;
         tracing::debug!(
             "Estimated {order_gas} gas to {} order {order_id}; {} ether @ {} gwei",
