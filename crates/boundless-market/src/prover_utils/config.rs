@@ -21,9 +21,12 @@
 
 #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
 use std::path::Path;
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, FixedBytes};
 #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -31,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::dynamic_gas_filler::PriorityMode;
+use crate::price_oracle::{Amount, Asset, PriceOracleConfig};
 
 pub mod defaults {
     use url::Url;
@@ -54,10 +58,14 @@ pub mod defaults {
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        // Observed cost of a basic single fulfill transaction is ~350k gas.
-        // Additional padding is used to account for journals up to 10kB in size.
-        // https://sepolia.etherscan.io/tx/0x14e54fbaf0c1eda20dd0828ddd64e255ffecee4562492f8c1253b0c3f20af764
-        750_000
+        // Observed cost of a basic single fulfill transaction is ~390k gas. Added a small buffer.
+        // Journal calldata costs are added separately via fulfill_journal_gas_per_byte.
+        450_000
+    }
+
+    pub const fn fulfill_journal_gas_per_byte() -> u64 {
+        // Retrieved from onchain observations.
+        26
     }
 
     pub const fn groth16_verify_gas_estimate() -> u64 {
@@ -127,8 +135,8 @@ pub mod defaults {
         0
     }
 
-    /// Recommended max collateral for standard requestor list (lower risk).
-    pub const MAX_COLLATERAL_STANDARD: &str = "50";
+    /// Recommended max collateral for standard requestor list (lower risk) in USD.
+    pub const MAX_COLLATERAL_STANDARD: &str = "10";
 
     pub const fn min_deadline() -> u64 {
         // Currently 150 seconds
@@ -149,6 +157,10 @@ pub mod defaults {
 
     pub const fn max_concurrent_proofs() -> u32 {
         1
+    }
+
+    pub const fn max_order_expiry_secs() -> Option<u64> {
+        None
     }
 
     pub const fn status_poll_retry_count() -> u64 {
@@ -203,6 +215,10 @@ pub mod defaults {
     pub const fn withdraw() -> bool {
         false
     }
+
+    pub const fn expected_probability_win_secondary_fulfillment() -> u32 {
+        50
+    }
 }
 
 /// Order pricing priority mode for determining which orders to price first
@@ -243,23 +259,51 @@ impl Default for OrderCommitmentPriority {
     }
 }
 
+/// Deserialize Amount with validation that asset is USD or ETH.
+/// Plain numbers without asset suffix default to ETH for backward compatibility.
+fn deserialize_mcycle_price<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ETH], Some(Asset::ETH))
+        .map_err(serde::de::Error::custom)
+}
+
+/// Deserialize Amount with validation that asset is USD or ZKC.
+/// Plain numbers without asset suffix default to ZKC for backward compatibility.
+fn deserialize_max_collateral<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ZKC], Some(Asset::ZKC))
+        .map_err(serde::de::Error::custom)
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
 pub struct MarketConfig {
-    /// Mega-cycle price, denominated in the native token (e.g. ETH).
+    /// Minimum price per mega-cycle. Asset can be specified: "0.00001 USD" or "0.00000001 ETH"
+    /// Plain numbers default to ETH for backward compatibility.
     ///
-    /// This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
+    /// If USD, converted to target token at runtime via price oracle.
+    ///
+    /// This price is multiplied by the number of mega-cycles (i.e. million RISC-V cycles) that the requested
     /// execution took, as calculated by running the request in preflight. This is one of the inputs to
     /// decide the minimum price to accept for a request.
-    #[serde(alias = "mcycle_price")]
-    pub min_mcycle_price: String,
-    /// Mega-cycle price, denominated in the Boundless collateral token.
     ///
-    /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
-    /// order when paid in collateral tokens, as is the case for orders with an expired lock.
-    #[serde(alias = "mcycle_price_collateral_token")]
-    pub min_mcycle_price_collateral_token: String,
+    /// This price is also used for secondary fulfillment (lock-expired orders), where it is converted
+    /// to ZKC via the price oracle and compared against the collateral reward.
+    #[serde(alias = "mcycle_price", deserialize_with = "deserialize_mcycle_price")]
+    pub min_mcycle_price: Amount,
+    /// Expected probability of winning the secondary fulfillment race, expressed as a percentage.
+    /// Scales the collateral reward when evaluating profitability and prioritizing orders.
+    /// Values below 100 discount the reward (e.g. 50 = half reward), 100 = no adjustment,
+    /// values above 100 boost the reward to prioritize secondaries (e.g. 150 = 1.5x reward).
+    #[serde(default = "defaults::expected_probability_win_secondary_fulfillment")]
+    pub expected_probability_win_secondary_fulfillment: u32,
     /// Assumption price (in native token)
     ///
     /// DEPRECATED
@@ -319,11 +363,13 @@ pub struct MarketConfig {
     /// but increases RPC load. A higher value reduces RPC calls but may increase response latency.
     #[serde(default = "defaults::events_poll_ms")]
     pub events_poll_ms: u64,
-    /// Max collateral amount, denominated in the Boundless collateral token.
+    /// Max collateral amount. Asset can be specified: "50 ZKC" or "100 USD"
+    /// Plain numbers default to ZKC for backward compatibility.
     ///
+    /// If USD, converted to ZKC at runtime via price oracle.
     /// Requests that require a higher collateral amount than this will not be considered.
-    #[serde(alias = "max_stake")]
-    pub max_collateral: String,
+    #[serde(alias = "max_stake", deserialize_with = "deserialize_max_collateral")]
+    pub max_collateral: Amount,
     /// Optional allow list for customer address.
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
@@ -373,6 +419,12 @@ pub struct MarketConfig {
     /// conservative default will be used.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Gas per byte of journal data submitted on-chain during fulfillment.
+    ///
+    /// Applied only for predicates that require journal data (DigestMatch, PrefixMatch).
+    /// ClaimDigestMatch predicates do not submit journal data and skip this cost.
+    #[serde(default = "defaults::fulfill_journal_gas_per_byte")]
+    pub fulfill_journal_gas_per_byte: u64,
     /// Gas estimate for proof verification using the RiscZeroGroth16Verifier
     ///
     /// Used for estimating the gas costs associated with an order during pricing. If not set a
@@ -454,6 +506,21 @@ pub struct MarketConfig {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
+    /// Per-requestor and per-proof-type `min_mcycle_price` overrides.
+    ///
+    /// The proof type is the 4-byte function selector from the order's requirements
+    /// (`request.requirements.selector`), identifying the verifier entry point.
+    ///
+    /// When the broker evaluates an order, it resolves the effective `min_mcycle_price`
+    /// with priority: `by_requestor_proof_type` > `by_proof_type` > `by_requestor` > global default.
+    /// Changes to this section are picked up automatically when the broker reloads `broker.toml`.
+    #[serde(default)]
+    pub pricing_overrides: PricingOverrides,
+    /// Maximum order expiry duration in seconds (order_expiry - now).
+    /// Orders with a longer time until expiry will be skipped.
+    /// If not set (None), no maximum is enforced.
+    #[serde(default = "defaults::max_order_expiry_secs")]
+    pub max_order_expiry_secs: Option<u64>,
 }
 
 impl Default for MarketConfig {
@@ -461,8 +528,9 @@ impl Default for MarketConfig {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
-            min_mcycle_price: "0.00001".to_string(),
-            min_mcycle_price_collateral_token: "0.001".to_string(),
+            min_mcycle_price: Amount::parse("0.00002 USD", None).expect("valid default"),
+            expected_probability_win_secondary_fulfillment:
+                defaults::expected_probability_win_secondary_fulfillment(),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
             min_mcycle_limit: defaults::min_mcycle_limit(),
@@ -475,7 +543,7 @@ impl Default for MarketConfig {
             lookback_blocks: defaults::lookback_blocks(),
             events_poll_blocks: defaults::events_poll_blocks(),
             events_poll_ms: defaults::events_poll_ms(),
-            max_collateral: defaults::MAX_COLLATERAL_STANDARD.to_string(),
+            max_collateral: Amount::parse("10 USD", None).expect("valid default"),
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
@@ -484,6 +552,7 @@ impl Default for MarketConfig {
             max_fetch_retries: defaults::max_fetch_retries(),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            fulfill_journal_gas_per_byte: defaults::fulfill_journal_gas_per_byte(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
             additional_proof_cycles: defaults::additional_proof_cycles(),
             balance_warn_threshold: None,
@@ -499,6 +568,8 @@ impl Default for MarketConfig {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
+            pricing_overrides: PricingOverrides::default(),
+            max_order_expiry_secs: defaults::max_order_expiry_secs(),
         }
     }
 }
@@ -653,6 +724,9 @@ pub struct Config {
     /// Aggregation batch configs
     #[serde(default)]
     pub batcher: BatcherConfig,
+    /// Price oracle configuration
+    #[serde(default)]
+    pub price_oracle: PriceOracleConfig,
 }
 
 impl Config {
@@ -671,5 +745,240 @@ impl Config {
     pub async fn write(&self, path: &Path) -> Result<()> {
         let data = toml::to_string(&self).context("Failed to serialize config")?;
         fs::write(path, data).await.context("Failed to write Config to disk")
+    }
+}
+
+/// Per-requestor and per-proof-type `min_mcycle_price` overrides.
+///
+/// The proof type is the 4-byte selector from the order's requirements
+/// (i.e. `request.requirements.selector`), which identifies the verifier entry point.
+///
+/// Resolution priority (first match wins):
+/// 1. `by_requestor_proof_type` -- keyed by `"<address>:<proof_type_hex>"`
+/// 2. `by_proof_type` -- keyed by proof type hex (e.g. `"0x12345678"`)
+/// 3. `by_requestor` -- keyed by requestor address
+/// 4. Fall back to global `MarketConfig::min_mcycle_price`
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PricingOverrides {
+    /// Overrides keyed by requestor address (checksummed or lowercase hex).
+    #[serde(default)]
+    pub by_requestor: HashMap<Address, Amount>,
+    /// Overrides keyed by proof type hex (e.g. `"0x12345678"`).
+    #[serde(default)]
+    pub by_proof_type: HashMap<FixedBytes<4>, Amount>,
+    /// Overrides keyed by `"<requestor_address>:<proof_type_hex>"` for the most specific match.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_requestor_proof_type_map",
+        serialize_with = "serialize_requestor_proof_type_map"
+    )]
+    pub by_requestor_proof_type: HashMap<(Address, FixedBytes<4>), Amount>,
+}
+
+fn deserialize_requestor_proof_type_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<(Address, FixedBytes<4>), Amount>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: HashMap<String, Amount> = HashMap::deserialize(deserializer)?;
+    let mut map = HashMap::with_capacity(raw.len());
+    for (key, amount) in raw {
+        let (addr_str, proof_type_str) = key.split_once(':').ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "by_requestor_proof_type key must be '<address>:<proof_type_hex>', got '{key}'"
+            ))
+        })?;
+        let addr: Address = addr_str.parse().map_err(serde::de::Error::custom)?;
+        let proof_type: FixedBytes<4> = proof_type_str.parse().map_err(serde::de::Error::custom)?;
+        map.insert((addr, proof_type), amount);
+    }
+    Ok(map)
+}
+
+fn serialize_requestor_proof_type_map<S>(
+    map: &HashMap<(Address, FixedBytes<4>), Amount>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeMap;
+    let mut ser_map = serializer.serialize_map(Some(map.len()))?;
+    for ((addr, proof_type), amount) in map {
+        ser_map.serialize_entry(&format!("{addr}:{proof_type}"), amount)?;
+    }
+    ser_map.end()
+}
+
+impl PricingOverrides {
+    /// Resolve the effective `min_mcycle_price` for a given requestor and proof type.
+    ///
+    /// Returns `Some(amount)` if an override matches, `None` to use the global default.
+    pub fn resolve(&self, requestor: &Address, proof_type: &FixedBytes<4>) -> Option<&Amount> {
+        self.by_requestor_proof_type
+            .get(&(*requestor, *proof_type))
+            .or_else(|| self.by_proof_type.get(proof_type))
+            .or_else(|| self.by_requestor.get(requestor))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addr(s: &str) -> Address {
+        s.parse().unwrap()
+    }
+
+    fn sel(s: &str) -> FixedBytes<4> {
+        s.parse().unwrap()
+    }
+
+    fn amount(s: &str) -> Amount {
+        Amount::parse(s, None).unwrap()
+    }
+
+    #[test]
+    fn test_resolve_priority_requestor_proof_type_over_individual() {
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let proof_type = sel("0x12345678");
+
+        let mut overrides = PricingOverrides::default();
+        overrides.by_requestor.insert(requestor, amount("0.001 USD"));
+        overrides.by_proof_type.insert(proof_type, amount("0.002 USD"));
+        overrides.by_requestor_proof_type.insert((requestor, proof_type), amount("0.003 USD"));
+
+        let result = overrides.resolve(&requestor, &proof_type);
+        assert_eq!(result.unwrap().to_string(), "0.003 USD");
+    }
+
+    #[test]
+    fn test_resolve_proof_type_over_requestor() {
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let proof_type = sel("0x12345678");
+
+        let mut overrides = PricingOverrides::default();
+        overrides.by_requestor.insert(requestor, amount("0.001 USD"));
+        overrides.by_proof_type.insert(proof_type, amount("0.002 USD"));
+
+        let result = overrides.resolve(&requestor, &proof_type);
+        assert_eq!(result.unwrap().to_string(), "0.002 USD");
+    }
+
+    #[test]
+    fn test_toml_round_trip() {
+        let toml = r#"
+[by_requestor]
+"0x0000000000000000000000000000000000000001" = "0.001 USD"
+
+[by_proof_type]
+"0x12345678" = "0.005 ETH"
+
+[by_requestor_proof_type]
+"0x0000000000000000000000000000000000000001:0x12345678" = "0.01 USD"
+"#;
+        let overrides: PricingOverrides = toml::from_str(toml).unwrap();
+
+        assert_eq!(overrides.by_requestor.len(), 1);
+        assert_eq!(overrides.by_proof_type.len(), 1);
+        assert_eq!(overrides.by_requestor_proof_type.len(), 1);
+
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let proof_type = sel("0x12345678");
+
+        assert_eq!(overrides.resolve(&requestor, &proof_type).unwrap().to_string(), "0.01 USD");
+
+        let other_proof_type = sel("0xdeadbeef");
+        assert_eq!(
+            overrides.resolve(&requestor, &other_proof_type).unwrap().to_string(),
+            "0.001 USD"
+        );
+
+        let other_addr = addr("0x0000000000000000000000000000000000000099");
+        assert_eq!(overrides.resolve(&other_addr, &proof_type).unwrap().to_string(), "0.005 ETH");
+
+        assert!(overrides.resolve(&other_addr, &other_proof_type).is_none());
+    }
+
+    #[test]
+    fn test_toml_multiple_entries() {
+        let toml = r#"
+[by_requestor]
+"0x0000000000000000000000000000000000000001" = "0.001 USD"
+"0x0000000000000000000000000000000000000002" = "0.002 USD"
+
+[by_proof_type]
+"0x12345678" = "0.005 ETH"
+"0xdeadbeef" = "0.01 ETH"
+
+[by_requestor_proof_type]
+"0x0000000000000000000000000000000000000001:0x12345678" = "0.001 USD"
+"0x0000000000000000000000000000000000000002:0xdeadbeef" = "0.002 USD"
+"#;
+        let overrides: PricingOverrides = toml::from_str(toml).unwrap();
+
+        assert_eq!(overrides.by_requestor.len(), 2);
+        assert_eq!(overrides.by_proof_type.len(), 2);
+        assert_eq!(overrides.by_requestor_proof_type.len(), 2);
+
+        // Verify serialize → deserialize round-trip preserves all entries
+        let serialized = toml::to_string(&overrides).unwrap();
+        let deserialized: PricingOverrides = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.by_requestor.len(), 2);
+        assert_eq!(deserialized.by_proof_type.len(), 2);
+        assert_eq!(deserialized.by_requestor_proof_type.len(), 2);
+    }
+
+    #[test]
+    fn test_toml_invalid_requestor_proof_type_key() {
+        let toml = r#"
+[by_requestor_proof_type]
+"bad-key-no-colon" = "0.001 USD"
+"#;
+        let result: Result<PricingOverrides, _> = toml::from_str(toml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_market_config_toml_with_pricing_overrides() {
+        let toml = r#"
+mcycle_price = "0.00002 USD"
+mcycle_price_collateral_token = "0.001 ZKC"
+max_stake = "10 USD"
+
+[pricing_overrides.by_requestor]
+"0x0000000000000000000000000000000000000001" = "0.001 USD"
+
+[pricing_overrides.by_proof_type]
+"0x12345678" = "0.005 ETH"
+
+[pricing_overrides.by_requestor_proof_type]
+"0x0000000000000000000000000000000000000001:0x12345678" = "0.01 USD"
+"#;
+        let config: MarketConfig = toml::from_str(toml).unwrap();
+
+        let requestor = addr("0x0000000000000000000000000000000000000001");
+        let proof_type = sel("0x12345678");
+
+        // requestor+proof_type combo takes highest priority
+        assert_eq!(
+            config.pricing_overrides.resolve(&requestor, &proof_type).unwrap().to_string(),
+            "0.01 USD"
+        );
+        // requestor-only match
+        assert_eq!(
+            config.pricing_overrides.resolve(&requestor, &sel("0xdeadbeef")).unwrap().to_string(),
+            "0.001 USD"
+        );
+        // proof_type-only match
+        assert_eq!(
+            config
+                .pricing_overrides
+                .resolve(&addr("0x0000000000000000000000000000000000000099"), &proof_type)
+                .unwrap()
+                .to_string(),
+            "0.005 ETH"
+        );
     }
 }

@@ -12,13 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::{Path, PathBuf};
-
+use super::benchmark::ProverBenchmark;
+use crate::commands::prover::benchmark::BenchmarkResult;
+use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
+use crate::config_file::Config;
+use crate::display::{obscure_url, DisplayManager};
+use crate::price_oracle_helper::{
+    fetch_and_display_prices, format_amount_with_conversion, prompt_validated_amount,
+    try_convert_to_usd, try_init_price_oracle,
+};
 use alloy::primitives::utils::format_units;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
 use anyhow::{bail, Context, Result};
 use boundless_market::indexer_client::IndexerClient;
+use boundless_market::price_oracle::Asset;
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
@@ -28,13 +36,8 @@ use boundless_market::{
 use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
+use std::path::{Path, PathBuf};
 use url::Url;
-
-use super::benchmark::ProverBenchmark;
-use crate::commands::prover::benchmark::BenchmarkResult;
-use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
-use crate::config_file::Config;
-use crate::display::{obscure_url, DisplayManager};
 
 // Priority requestor list URLs
 const PRIORITY_REQUESTOR_LIST_STANDARD: &str =
@@ -43,10 +46,6 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.large.json";
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
-
-// Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
-// orders locked by other provers that exceeded their lock timeout
-const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.0005";
 
 mod selection_strings {
     // Benchmark performance options
@@ -59,6 +58,7 @@ mod selection_strings {
     pub const FILE_GENERATE_NEW: &str = "Generate new";
     pub const FILE_CANCEL: &str = "Cancel";
 }
+
 /// Generate optimized broker.toml and compose.yml configuration files
 #[derive(Args, Clone, Debug)]
 pub struct ProverGenerateConfig {
@@ -88,7 +88,7 @@ struct WizardConfig {
     priority_requestor_lists: Vec<String>,
     max_collateral: String,
     min_mcycle_price: String,
-    min_mcycle_price_collateral_token: String,
+    expected_probability_win_secondary_fulfillment: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -135,7 +135,7 @@ impl ProverGenerateConfig {
         if let Some(backup_path) = self.backup_file(&self.compose_yml_file)? {
             display.item_colored("Backup saved", backup_path.display(), "cyan");
         }
-        self.generate_compose_yml(&config, compose_strategy, &display)?;
+        self.generate_compose_yml(&config, compose_strategy)?;
         display.item_colored("Created", self.compose_yml_file.display(), "green");
 
         display.separator();
@@ -374,46 +374,8 @@ impl ProverGenerateConfig {
         display.separator();
         display.step(6, 7, "Collateral Configuration");
 
-        let recommended_collateral = match priority_requestor_lists.len() {
-            1 => boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD,
-            2 => "200",
-            _ => "500",
-        };
-
-        display.note(&format!(
-            "We recommend a max collateral of {} ZKC for your configuration.",
-            recommended_collateral
-        ));
-        display.note("  • 50 ZKC: Recommended for the standard requestor list");
-        display.note("    (lower risk)");
-        display.note("  • 200 ZKC: Recommended for standard + large lists");
-        display.note("    (large orders, higher rewards, higher risk)");
-        display.note("  • 500 ZKC: Recommended for standard + large + XL lists");
-        display.note("    (largest orders, highest rewards, highest risk)");
-        display.note("");
-        display
-            .note("Higher collateral enables higher-reward orders but increases slashing risks.");
-
-        let max_collateral = Text::new("Max collateral (ZKC):")
-            .with_default(recommended_collateral)
-            .with_help_message("Press Enter to use recommended value")
-            .prompt()
-            .context("Failed to get max collateral")?;
-
-        display.item_colored("Max collateral", format!("{} ZKC", max_collateral), "green");
-
-        // Step 7: Pricing Configuration
-        display.separator();
-        display.step(7, 7, "Pricing Configuration");
-
-        display.note("Analyzing recent market prices to determine competitive pricing...");
-        display.note("");
-
         // Get RPC URL for market query
         let rpc_url = self.get_or_prompt_rpc_url(display)?;
-
-        // Validate chain ID to ensure it's Base Mainnet
-        display.status("Status", "Validating RPC connection", "yellow");
         let temp_provider = alloy::providers::ProviderBuilder::new()
             .connect(rpc_url.as_ref())
             .await
@@ -424,6 +386,81 @@ impl ProverGenerateConfig {
             .await
             .context("Failed to query chain ID from RPC provider")?;
 
+        // Initialize price oracle for dual-currency display
+        let price_oracle = match try_init_price_oracle(&rpc_url, chain_id).await {
+            Ok(oracle) => {
+                fetch_and_display_prices(oracle.clone(), display).await?;
+                Some(oracle)
+            }
+            Err(e) => {
+                display.note(&format!("⚠  Price oracle initialization failed: {}", e));
+                display.note("   Collateral and pricing will be shown in single currency only.");
+                None
+            }
+        };
+
+        let recommended_collateral = match priority_requestor_lists.len() {
+            1 => &format!(
+                "{} USD",
+                boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
+            ),
+            2 => "30 USD",
+            _ => "80 USD",
+        };
+
+        display.note(&format!(
+            "We recommend a max collateral of {} for your configuration.",
+            recommended_collateral
+        ));
+        display.note(&format!(
+            "  • {}: Recommended for the standard requestor list",
+            format_amount_with_conversion(
+                &format!(
+                    "{} USD",
+                    boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
+                ),
+                Some(Asset::ZKC),
+                price_oracle.clone()
+            )
+            .await
+        ));
+        display.note("    (lower risk)");
+        display.note(&format!(
+            "  • {}: Recommended for standard + large lists",
+            format_amount_with_conversion("50 USD", Some(Asset::ZKC), price_oracle.clone()).await
+        ));
+        display.note("    (large orders, higher rewards, higher risk)");
+        display.note(&format!(
+            "  • {}: Recommended for standard + large + XL lists",
+            format_amount_with_conversion("100 USD", Some(Asset::ZKC), price_oracle.clone()).await
+        ));
+        display.note("    (largest orders, highest rewards, highest risk)");
+        display.note("");
+        display
+            .note("Higher collateral enables higher-reward orders but increases slashing risks.");
+        display.note("");
+        display.note("You can specify collateral in ZKC or USD:");
+        display.note("  • ZKC: Fixed amount in ZKC (e.g., '200 ZKC')");
+        display.note("  • USD: Amount in USD, converted to ZKC at runtime (e.g., '100 USD')");
+        display.note("");
+
+        let max_collateral = prompt_validated_amount(
+            "Max collateral:",
+            recommended_collateral,
+            "Format: '<value> ZKC' or '<value> USD'",
+            &[Asset::USD, Asset::ZKC],
+            "max_collateral",
+        )?;
+
+        // Step 7: Pricing Configuration
+        display.separator();
+        display.step(7, 7, "Pricing Configuration");
+
+        display.note("Analyzing recent market prices to determine competitive pricing...");
+        display.note("");
+
+        // Validate chain ID to ensure it's Base Mainnet
+        display.status("Status", "Validating RPC connection", "yellow");
         if chain_id != 8453 {
             display.note(&format!("⚠  Detected Chain ID: {}", chain_id));
             display.note(
@@ -462,20 +499,38 @@ impl ProverGenerateConfig {
                 display.item_colored(
                     "Median price",
                     format!(
-                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                        format_units(price_percentiles.p50 * U256::from(1_000_000), "ether")?,
-                        format_units(price_percentiles.p50 * U256::from(1_000_000), "gwei")?,
-                        format_units(price_percentiles.p50, "wei")?
+                        "{} / Mcycle",
+                        format_amount_with_conversion(
+                            &format!(
+                                "{} ETH",
+                                format_units(
+                                    price_percentiles.p50 * U256::from(1_000_000),
+                                    "ether"
+                                )?
+                            ),
+                            None,
+                            price_oracle.clone()
+                        )
+                        .await,
                     ),
                     "cyan",
                 );
                 display.item_colored(
                     "25th percentile",
                     format!(
-                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                        format_units(price_percentiles.p25 * U256::from(1_000_000), "ether")?,
-                        format_units(price_percentiles.p25 * U256::from(1_000_000), "gwei")?,
-                        format_units(price_percentiles.p25, "wei")?
+                        "{} / Mcycle",
+                        format_amount_with_conversion(
+                            &format!(
+                                "{} ETH",
+                                format_units(
+                                    price_percentiles.p25 * U256::from(1_000_000),
+                                    "ether"
+                                )?
+                            ),
+                            None,
+                            price_oracle.clone()
+                        )
+                        .await,
                     ),
                     "cyan",
                 );
@@ -492,10 +547,13 @@ impl ProverGenerateConfig {
         let min_mcycle_price = if let Some(pricing) = market_pricing {
             display.note("");
             display.note(&format!(
-                "Recommended minimum price: {} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                format_units(pricing.p25 * U256::from(1_000_000), "ether")?,
-                format_units(pricing.p25 * U256::from(1_000_000), "gwei")?,
-                format_units(pricing.p25, "wei")?
+                "Recommended minimum price: {} / Mcycle",
+                format_amount_with_conversion(
+                    &format!("{} ETH", format_units(pricing.p25 * U256::from(1_000_000), "ether")?),
+                    None,
+                    price_oracle.clone()
+                )
+                .await,
             ));
             display.note("");
             display
@@ -508,63 +566,59 @@ impl ProverGenerateConfig {
             display.note("         offer at least 0.00001 ETH for your broker to accept it.");
             display.note("");
 
-            Text::new("Press Enter to accept or enter custom price:")
-                .with_default(&format!("{:.10}", pricing.p25))
-                .with_help_message("You can update this later in broker.toml")
-                .prompt()
-                .context("Failed to get price")?
+            display.note("You can specify the price in ETH or USD:");
+            display.note("  • ETH: Price in ETH per mega-cycle (e.g., '0.00000001 ETH')");
+            display.note("  • USD: Price in USD per mega-cycle, converted to ETH at runtime (e.g., '0.02 USD')");
+            display.note("");
+
+            prompt_validated_amount(
+                "Minimum price per Mcycle:",
+                &try_convert_to_usd(
+                    &format!(
+                        "{} ETH",
+                        &format_units(pricing.p25 * U256::from(1_000_000), "ether")?
+                    ),
+                    price_oracle.clone(),
+                )
+                .await,
+                "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
+                &[Asset::USD, Asset::ETH],
+                "min_mcycle_price",
+            )?
         } else {
             // Fallback to manual entry if query failed
             Text::new("Minimum price per mcycle (ETH):")
-                .with_default("0.00000001")
+                .with_default("0.00000001 ETH")
                 .with_help_message("You can update this later in broker.toml")
                 .prompt()
                 .context("Failed to get price")?
         };
 
-        // Collateral token pricing
+        // Step 7b: Secondary Fulfillment Configuration
         display.separator();
+        display.note("Secondary fulfillment occurs when a prover's lock expires and the order");
+        display.note("becomes available to any prover. Multiple provers may race to fulfill it.");
+        display.note("This multiplier scales the expected reward when evaluating profitability.");
         display.note("");
-        display.note("Collateral Token Pricing:");
-        display.note("");
-        display.note("When another prover fails to fulfill their locked order within the timeout,");
-        display.note("they are slashed. A portion of their collateral (in ZKC) becomes available");
-        display.note("as a reward for any prover who can fulfill that order in a 'proof race'.");
-        display.note("");
-        display.note("The setting below controls the minimum ZKC reward your broker will accept");
-        display.note("to participate in these proof races.");
-        display.note("");
-        display.note("Example: If set to 0.0005 ZKC/Mcycle, a 1000 Mcycle slashed order must");
-        display.note("         offer at least 0.5 ZKC reward for your broker to compete for it.");
-        display.note("");
-        display.note(&format!(
-            "Default minimum price: {} ZKC/Mcycle",
-            DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN
-        ));
-        display.note("");
-
-        let min_mcycle_price_collateral_token =
-            Text::new("Minimum price per Mcycle (in ZKC collateral rewards):")
-                .with_default(DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN)
-                .with_help_message("You can update this later in broker.toml")
-                .prompt()
-                .context("Failed to get collateral token price")?;
-
-        display.item_colored(
-            "Collateral price",
-            format!("{} ZKC/Mcycle", min_mcycle_price_collateral_token),
-            "green",
+        display.note(
+            "For example, with a value of 50, a 100 ZKC reward is valued at 50 ZKC (discounted).",
         );
+        display.note("Values above 100 boost the perceived reward to prioritize secondaries.");
+        display.note("");
 
-        let price_f64 = min_mcycle_price.parse::<f64>().unwrap_or(0.0);
+        let expected_probability_str =
+            Text::new("Expected secondary fulfillment win multiplier (percentage, default 50):")
+                .with_default("50")
+                .with_help_message("< 100 discounts reward, 100 = no change, > 100 boosts reward")
+                .prompt()
+                .context("Failed to get expected probability")?;
+
+        let expected_probability_win_secondary_fulfillment =
+            expected_probability_str.parse::<u32>().context("Invalid number format")?;
+
         display.item_colored(
-            "Min price",
-            format!(
-                "{} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
-                min_mcycle_price,
-                price_f64 * 1e9,
-                price_f64 * 1e12
-            ),
+            "Using",
+            format!("{}% expected win probability", expected_probability_win_secondary_fulfillment),
             "green",
         );
 
@@ -579,7 +633,7 @@ impl ProverGenerateConfig {
             priority_requestor_lists,
             max_collateral,
             min_mcycle_price,
-            min_mcycle_price_collateral_token,
+            expected_probability_win_secondary_fulfillment,
         })
     }
 
@@ -835,6 +889,13 @@ impl ProverGenerateConfig {
         Ok(Some(backup_path))
     }
 
+    fn extract_price_value(s: &str) -> (f64, Option<&str>) {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        let value = parts.first().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        let asset = parts.get(1).copied();
+        (value, asset)
+    }
+
     fn strip_tagged_section(content: &str, opening_tag: &str, closing_tag: &str) -> String {
         if let Some(start) = content.find(opening_tag) {
             if let Some(end) = content[start..].find(closing_tag) {
@@ -979,21 +1040,26 @@ impl ProverGenerateConfig {
                     FileHandlingStrategy::ModifyExisting => {
                         // Get existing price and compare with recommended price
                         let existing_price_str = item.as_str().unwrap_or("0");
-                        let existing_price = existing_price_str.parse::<f64>().unwrap_or(0.0);
-                        let recommended_price =
-                            config.min_mcycle_price.parse::<f64>().unwrap_or(0.0);
+                        let (existing_value, existing_asset) =
+                            Self::extract_price_value(existing_price_str);
+                        let (recommended_value, recommended_asset) =
+                            Self::extract_price_value(&config.min_mcycle_price);
 
-                        if existing_price <= recommended_price && existing_price > 0.0 {
-                            // Existing price is already competitive, don't raise it
-                            display.note("");
-                            display.note(&format!(
-                                "Your min_mcycle_price is already priced competitively at {} ETH/Mcycle. Not modifying.",
-                                existing_price_str
-                            ));
-                            display.note("");
-                            false
+                        // Only compare if same asset, otherwise always update to new format
+                        if existing_asset == recommended_asset && existing_value > 0.0 {
+                            if existing_value <= recommended_value {
+                                display.note("");
+                                display.note(&format!(
+                                    "Your min_mcycle_price ({}) is already competitive. Not modifying.",
+                                    existing_price_str
+                                ));
+                                display.note("");
+                                false
+                            } else {
+                                true
+                            }
                         } else {
-                            // Recommended price is lower (more competitive), update it
+                            // Different assets or legacy format - update to new value
                             true
                         }
                     }
@@ -1004,6 +1070,12 @@ impl ProverGenerateConfig {
                     *item = toml_edit::value(config.min_mcycle_price.clone());
                 }
             }
+
+            // Update expected_probability_win_secondary_fulfillment
+            if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment") {
+                *item =
+                    toml_edit::value(config.expected_probability_win_secondary_fulfillment as i64);
+            }
         }
 
         // Write to file
@@ -1013,21 +1085,10 @@ impl ProverGenerateConfig {
         Ok(())
     }
 
-    fn count_existing_gpu_agents(&self, content: &str) -> usize {
-        let mut count = 0;
-        for line in content.lines() {
-            if line.starts_with("  gpu_prove_agent") && line.ends_with(":") {
-                count += 1;
-            }
-        }
-        count
-    }
-
     fn generate_compose_yml(
         &self,
         config: &WizardConfig,
         strategy: FileHandlingStrategy,
-        display: &DisplayManager,
     ) -> Result<()> {
         // We use string manipulation instead of YAML parsing libraries because
         // compose.yml uses YAML anchors (&) and aliases (*) which are
@@ -1049,33 +1110,8 @@ impl ProverGenerateConfig {
         // Update segment size
         content = self.update_segment_size(content, config.segment_size)?;
 
-        // Handle GPU agents
-        if matches!(strategy, FileHandlingStrategy::ModifyExisting) {
-            let existing_gpu_count = self.count_existing_gpu_agents(&content);
-            if existing_gpu_count > 1 {
-                // File has already been modified with multiple GPUs
-                display.note("");
-                display.note("ℹ  The compose.yml GPU agents section has already been modified.");
-                display.note(&format!(
-                    "   Found {} GPU agents in the existing file.",
-                    existing_gpu_count
-                ));
-                display.note("");
-                display.note("   To change GPU configuration:");
-                display.note("   1. Manually edit compose.yml");
-                display.note("   2. Add/remove gpu_prove_agentN sections as needed");
-                display.note("   3. Each agent should have a unique device_ids value");
-                display.note("");
-            } else if config.num_gpus > 1 {
-                // Only add GPU agents if file has the default single GPU
-                content = self.add_gpu_agents(content, config.num_gpus)?;
-            }
-        } else {
-            // Generating new file - add GPU agents as needed
-            if config.num_gpus > 1 {
-                content = self.add_gpu_agents(content, config.num_gpus)?;
-            }
-        }
+        // Note: compose.yml has a single gpu_prove_agent service that auto-detects all GPUs
+        // via nvidia-smi and spawns one agent process per GPU. No need to add/remove sections.
 
         // Write to file
         std::fs::write(&self.compose_yml_file, content).context("Failed to write compose.yml")?;
@@ -1131,70 +1167,6 @@ impl ProverGenerateConfig {
         let pattern = "${SEGMENT_SIZE:-21}";
         let replacement = format!("${{SEGMENT_SIZE:-{}}}", segment_size);
         Ok(content.replace(pattern, &replacement))
-    }
-
-    fn add_gpu_agents(&self, content: String, num_gpus: usize) -> Result<String> {
-        let lines: Vec<&str> = content.lines().collect();
-        let mut result: Vec<String> = Vec::new();
-
-        // Find gpu_prove_agent0 section boundaries
-        let mut gpu_agent_start = None;
-        let mut gpu_agent_end = None;
-
-        for (i, line) in lines.iter().enumerate() {
-            if line.starts_with("  gpu_prove_agent0:") {
-                gpu_agent_start = Some(i);
-            } else if gpu_agent_start.is_some() && gpu_agent_end.is_none() {
-                // Look for next service at same indentation level (2 spaces, followed by a letter)
-                if line.starts_with("  ")
-                    && !line.starts_with("    ")
-                    && line.len() > 2
-                    && line.chars().nth(2).unwrap().is_alphabetic()
-                {
-                    gpu_agent_end = Some(i);
-                    break;
-                }
-            }
-        }
-
-        let start =
-            gpu_agent_start.context("Could not find gpu_prove_agent0 section in compose.yml")?;
-        let end = gpu_agent_end.unwrap_or(lines.len());
-
-        // Extract the gpu_prove_agent0 section
-        let gpu_agent_lines: Vec<&str> = lines[start..end].to_vec();
-
-        // Build result: everything up to and including gpu_prove_agent0
-        for line in &lines[..end] {
-            result.push(line.to_string());
-        }
-
-        // Add additional GPU agents
-        for i in 1..num_gpus {
-            result.push(String::new()); // Empty line between services
-
-            for line in &gpu_agent_lines {
-                let mut new_line = line.to_string();
-                // Replace service name
-                if new_line.contains("gpu_prove_agent0") {
-                    new_line =
-                        new_line.replace("gpu_prove_agent0", &format!("gpu_prove_agent{}", i));
-                }
-                // Replace device_ids
-                if new_line.contains(r#"device_ids: ["0"]"#) {
-                    new_line = new_line
-                        .replace(r#"device_ids: ["0"]"#, &format!(r#"device_ids: ["{}"]"#, i));
-                }
-                result.push(new_line);
-            }
-        }
-
-        // Add remaining content
-        for line in &lines[end..] {
-            result.push(line.to_string());
-        }
-
-        Ok(result.join("\n"))
     }
 
     fn ask_file_handling_strategy(

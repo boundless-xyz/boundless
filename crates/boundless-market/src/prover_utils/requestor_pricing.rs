@@ -34,11 +34,13 @@ use moka::policy::EvictionPolicy;
 use super::local_executor::LocalExecutor;
 use super::prover::ProverObj;
 use super::{
-    FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
-    OrderRequest, PreflightCache,
+    Erc1271GasCache, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
+    OrderPricingOutcome, OrderRequest, PreflightCache,
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
+use crate::dynamic_gas_filler::PriorityMode;
+use crate::price_oracle::{Amount, Asset, PriceOracleManager};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
 use crate::storage::{StandardDownloader, StorageDownloader};
@@ -64,6 +66,7 @@ pub async fn requestor_order_preflight<P>(
     market_address: Address,
     chain_id: u64,
     price_provider: Option<PriceProviderArc>,
+    price_oracle: Option<Arc<PriceOracleManager>>,
 ) -> anyhow::Result<Option<u64>>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -81,6 +84,11 @@ where
     let preflight_cache: PreflightCache =
         Arc::new(Cache::builder().eviction_policy(EvictionPolicy::lru()).max_capacity(32).build());
 
+    // Small ERC1271 gas cache scoped to this single preflight call.
+    // No TTL is needed: the context and cache are dropped together once preflight returns.
+    let erc1271_gas_cache: Erc1271GasCache =
+        Arc::new(Cache::builder().eviction_policy(EvictionPolicy::lru()).max_capacity(16).build());
+
     // Build market config, using price provider if available
     let market_config = build_market_config(price_provider).await;
 
@@ -92,8 +100,10 @@ where
         collateral_token_decimals,
         market_config,
         preflight_cache,
+        erc1271_gas_cache,
         Arc::new(executor),
         downloader,
+        price_oracle,
     );
 
     let mut result_cycle_count = None;
@@ -178,9 +188,7 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 
     tracing::debug!("Using market price for preflight: {}", format_ether(min_mcycle_price));
     MarketConfig {
-        min_mcycle_price: format_ether(min_mcycle_price),
-        // Note: collateral cycle price is not available, so ignore this price check during preflight
-        min_mcycle_price_collateral_token: "0".to_string(),
+        min_mcycle_price: Amount::new(min_mcycle_price, Asset::ETH),
         ..MarketConfig::default()
     }
 }
@@ -196,8 +204,10 @@ pub struct RequestorPricingContext<P> {
     market_config: MarketConfig,
     supported_selectors: SupportedSelectors,
     preflight_cache: PreflightCache,
+    erc1271_gas_cache: Erc1271GasCache,
     collateral_token_decimals: u8,
     downloader: Arc<StandardDownloader>,
+    price_oracle: Option<Arc<PriceOracleManager>>,
 }
 
 impl<P> RequestorPricingContext<P>
@@ -205,13 +215,16 @@ where
     P: Provider<Ethereum> + 'static + Clone,
 {
     /// Create a new requestor pricing context.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: Arc<P>,
         collateral_token_decimals: u8,
         market_config: MarketConfig,
         preflight_cache: PreflightCache,
+        erc1271_gas_cache: Erc1271GasCache,
         prover: ProverObj,
         downloader: Arc<StandardDownloader>,
+        price_oracle: Option<Arc<PriceOracleManager>>,
     ) -> Self {
         Self {
             provider,
@@ -219,8 +232,10 @@ where
             market_config,
             supported_selectors: SupportedSelectors::default(),
             preflight_cache,
+            erc1271_gas_cache,
             collateral_token_decimals,
             downloader,
+            price_oracle,
         }
     }
 }
@@ -281,10 +296,54 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128, OrderPricingError> {
-        self.provider
-            .get_gas_price()
+        PriorityMode::default()
+            .estimate_max_fee_per_gas(self.provider.as_ref())
             .await
             .map_err(|err| OrderPricingError::RpcErr(Arc::new(err.into())))
+    }
+
+    async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
+        super::estimate_erc1271_gas(order, &self.provider, &self.erc1271_gas_cache).await
+    }
+
+    async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {
+        if amount.asset == Asset::ETH {
+            return Ok(amount.clone());
+        }
+        let Some(oracle) = self.price_oracle.as_ref() else {
+            tracing::warn!(
+                "Skipping price check: conversion from {} to ETH requires a price oracle (configure one for accurate preflight)",
+                amount.asset
+            );
+            return Ok(Amount::new(U256::ZERO, Asset::ETH));
+        };
+        oracle.convert(amount, Asset::ETH).await.map_err(|e| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ETH: {}",
+                amount,
+                e
+            )))
+        })
+    }
+
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {
+        if amount.asset == Asset::ZKC {
+            return Ok(amount.clone());
+        }
+        let Some(oracle) = self.price_oracle.as_ref() else {
+            tracing::warn!(
+                "Skipping price check: conversion from {} to ZKC requires a price oracle (configure one for accurate preflight)",
+                amount.asset
+            );
+            return Ok(Amount::new(U256::MAX, Asset::ZKC));
+        };
+        oracle.convert(amount, Asset::ZKC).await.map_err(|e| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ZKC: {}",
+                amount,
+                e
+            )))
+        })
     }
 
     fn prover(&self) -> &ProverObj {

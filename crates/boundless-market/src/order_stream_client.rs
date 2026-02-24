@@ -339,7 +339,9 @@ impl OrderStreamClient {
                 Ok(json_body) => {
                     json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
                 }
-                Err(_) => "Failed to read server error message".to_string(),
+                Err(body_err) => {
+                    format!("Failed to read server error body: {body_err}")
+                }
             };
 
             return Err(anyhow::Error::new(err).context(error_message));
@@ -356,14 +358,17 @@ impl OrderStreamClient {
         let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_message = match response.json::<serde_json::Value>().await {
                 Ok(json_body) => {
                     json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
                 }
-                Err(_) => "Failed to read server error message".to_string(),
+                Err(body_err) => {
+                    format!("Failed to read server error body: {body_err}")
+                }
             };
 
-            return Err(anyhow::Error::msg(error_message));
+            return Err(anyhow::anyhow!("Server returned {status}: {error_message}"));
         }
 
         let order_data: Vec<OrderData> = response.json().await?;
@@ -401,14 +406,17 @@ impl OrderStreamClient {
         let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_message = match response.json::<serde_json::Value>().await {
                 Ok(json_body) => {
                     json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
                 }
-                Err(_) => "Failed to read server error message".to_string(),
+                Err(body_err) => {
+                    format!("Failed to read server error body: {body_err}")
+                }
             };
 
-            return Err(anyhow::Error::msg(error_message));
+            return Err(anyhow::anyhow!("Server returned {status}: {error_message}"));
         }
 
         let order_data: Vec<OrderData> = response.json().await?;
@@ -468,14 +476,17 @@ impl OrderStreamClient {
         let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_message = match response.json::<serde_json::Value>().await {
                 Ok(json_body) => {
                     json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
                 }
-                Err(_) => "Failed to read server error message".to_string(),
+                Err(body_err) => {
+                    format!("Failed to read server error body: {body_err}")
+                }
             };
 
-            return Err(anyhow::Error::msg(error_message));
+            return Err(anyhow::anyhow!("Server returned {status}: {error_message}"));
         }
 
         let orders: Vec<OrderData> = response.json().await?;
@@ -537,14 +548,17 @@ impl OrderStreamClient {
         let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_message = match response.json::<serde_json::Value>().await {
                 Ok(json_body) => {
                     json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
                 }
-                Err(_) => "Failed to read server error message".to_string(),
+                Err(body_err) => {
+                    format!("Failed to read server error body: {body_err}")
+                }
             };
 
-            return Err(anyhow::Error::msg(error_message));
+            return Err(anyhow::anyhow!("Server returned {status}: {error_message}"));
         }
 
         let response_data: ListOrdersV2Response = response.json().await?;

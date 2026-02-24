@@ -24,6 +24,7 @@ use alloy::{
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
+use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
@@ -63,6 +64,7 @@ pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
+mod price_oracle;
 pub(crate) mod prioritization;
 pub mod provers;
 pub(crate) mod proving;
@@ -155,6 +157,13 @@ pub struct Args {
     /// Log JSON
     #[clap(long, env, default_value_t = false)]
     pub log_json: bool,
+
+    /// Listen-only mode: monitor the market and evaluate orders without locking, proving, or submitting.
+    ///
+    /// Useful for testing market monitoring and order evaluation without on-chain stake or collateral.
+    /// No transactions will be sent. Balance and collateral checks are skipped.
+    #[clap(long, default_value_t = false)]
+    pub listen_only: bool,
 }
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
@@ -183,8 +192,9 @@ enum OrderStatus {
 }
 
 pub use boundless_market::prover_utils::{
-    FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
-    OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue, ProveLimitReason,
+    Erc1271GasCache, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
+    OrderPricingOutcome, OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue,
+    ProveLimitReason,
 };
 
 /// Message sent from MarketMonitor to OrderPicker about order state changes
@@ -217,6 +227,7 @@ pub(crate) fn order_from_request(order_request: &OrderRequest, status: OrderStat
         image_id: order_request.image_id.clone(),
         input_id: order_request.input_id.clone(),
         total_cycles: order_request.total_cycles,
+        journal_bytes: order_request.journal_bytes,
         target_timestamp: order_request.target_timestamp,
         expire_timestamp: order_request.expire_timestamp,
         proving_started_at: None,
@@ -270,6 +281,9 @@ struct Order {
     /// Total cycles
     /// Populated after initial pricing in order picker
     total_cycles: Option<u64>,
+    /// Journal size in bytes. Populated after preflight.
+    #[serde(default)]
+    journal_bytes: Option<usize>,
     /// Locking status target UNIX timestamp
     target_timestamp: Option<u64>,
     /// When proving was commenced at
@@ -705,6 +719,13 @@ where
         let mut non_critical_tasks: JoinSet<Result<()>> = JoinSet::new();
         let mut critical_tasks: JoinSet<Result<()>> = JoinSet::new();
 
+        if self.args.listen_only {
+            tracing::warn!(
+                "LISTEN-ONLY MODE: Broker will monitor the market and evaluate orders but will NOT \
+                lock, prove, or submit. No on-chain transactions will be sent."
+            );
+        }
+
         let config = self.config_watcher.config.clone();
 
         let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
@@ -726,9 +747,12 @@ where
         let critical_cancel_token = CancellationToken::new();
 
         let chain_monitor = Arc::new(
-            chain_monitor::ChainMonitorService::new(self.provider.clone())
-                .await
-                .context("Failed to initialize chain monitor")?,
+            chain_monitor::ChainMonitorService::new(
+                self.provider.clone(),
+                self.gas_priority_mode.clone(),
+            )
+            .await
+            .context("Failed to initialize chain monitor")?,
         );
 
         let cloned_chain_monitor = chain_monitor.clone();
@@ -774,7 +798,6 @@ where
             self.db.clone(),
             chain_monitor.clone(),
             self.args.private_key.as_ref().expect("Private key must be set").address(),
-            client.clone(),
             new_order_tx.clone(),
             order_state_tx.clone(),
         ));
@@ -861,6 +884,36 @@ where
             .await
             .context("Failed to get stake token decimals. Possible RPC error.")?;
 
+        let named_chain = NamedChain::try_from(chain_id)?;
+        let price_oracle = Arc::new(
+            config
+                .lock_all()
+                .unwrap()
+                .price_oracle
+                .build(named_chain, self.provider.clone())
+                .context("Failed to build price oracle")?,
+        );
+        let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        let price_oracle_clone = price_oracle.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("price oracle failed")?;
+            Ok(())
+        });
+
+        // Shared ERC-1271 gas cache between OrderPicker and OrderMonitor so that estimates
+        // computed during preflight are reused when the monitor locks the same order.
+        let erc1271_gas_cache: Erc1271GasCache = Arc::new(
+            moka::future::Cache::builder()
+                .eviction_policy(moka::policy::EvictionPolicy::lru())
+                .max_capacity(256)
+                .time_to_live(std::time::Duration::from_secs(60 * 60))
+                .build(),
+        );
+
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
@@ -876,6 +929,9 @@ where
             self.priority_requestors.clone(),
             self.allow_requestors.clone(),
             self.downloader.clone(),
+            price_oracle.clone(),
+            erc1271_gas_cache.clone(),
+            self.args.listen_only,
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -887,27 +943,8 @@ where
             Ok(())
         });
 
-        let proving_service = Arc::new(proving::ProvingService::new(
-            self.db.clone(),
-            prover.clone(),
-            aggregation_prover.clone(),
-            config.clone(),
-            order_state_tx.clone(),
-            self.priority_requestors.clone(),
-            market.clone(),
-            self.downloader.clone(),
-        ));
-
-        let cloned_config = config.clone();
-        let cancel_token = critical_cancel_token.clone();
-        critical_tasks.spawn(async move {
-            Supervisor::new(proving_service, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start proving service")?;
-            Ok(())
-        });
-
+        // Always start the OrderMonitor so its full decision logic (caching, prioritization,
+        // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
             self.provider.clone(),
@@ -923,6 +960,8 @@ where
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
             self.gas_priority_mode.clone(),
+            erc1271_gas_cache,
+            self.args.listen_only,
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -934,48 +973,91 @@ where
             Ok(())
         });
 
-        let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
-        let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
-
-        let aggregator = Arc::new(
-            aggregator::AggregatorService::new(
+        if !self.args.listen_only {
+            let proving_service = Arc::new(proving::ProvingService::new(
                 self.db.clone(),
-                chain_id,
-                set_builder_img_id,
-                assessor_img_id,
-                self.deployment().boundless_market_address,
-                prover_addr,
+                prover.clone(),
+                aggregation_prover.clone(),
+                config.clone(),
+                order_state_tx.clone(),
+                self.priority_requestors.clone(),
+                market.clone(),
+                self.downloader.clone(),
+            ));
+
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(proving_service, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start proving service")?;
+                Ok(())
+            });
+
+            let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
+            let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
+
+            let aggregator = Arc::new(
+                aggregator::AggregatorService::new(
+                    self.db.clone(),
+                    chain_id,
+                    set_builder_img_id,
+                    assessor_img_id,
+                    self.deployment().boundless_market_address,
+                    prover_addr,
+                    config.clone(),
+                    aggregation_prover.clone(),
+                )
+                .await
+                .context("Failed to initialize aggregator service")?,
+            );
+
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(aggregator, cloned_config, cancel_token)
+                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                    .spawn()
+                    .await
+                    .context("Failed to start aggregator service")?;
+                Ok(())
+            });
+
+            // Start the ReaperTask to check for expired committed orders
+            let reaper =
+                Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
+            let cloned_config = config.clone();
+            // Using critical cancel token to ensure no stuck expired jobs on shutdown
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(reaper, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start reaper service")?;
+                Ok(())
+            });
+
+            let submitter = Arc::new(submitter::Submitter::new(
+                self.db.clone(),
                 config.clone(),
                 aggregation_prover.clone(),
-            )
-            .await
-            .context("Failed to initialize aggregator service")?,
-        );
-
-        let cloned_config = config.clone();
-        let cancel_token = critical_cancel_token.clone();
-        critical_tasks.spawn(async move {
-            Supervisor::new(aggregator, cloned_config, cancel_token)
-                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                .spawn()
-                .await
-                .context("Failed to start aggregator service")?;
-            Ok(())
-        });
-
-        // Start the ReaperTask to check for expired committed orders
-        let reaper =
-            Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
-        let cloned_config = config.clone();
-        // Using critical cancel token to ensure no stuck expired jobs on shutdown
-        let cancel_token = critical_cancel_token.clone();
-        critical_tasks.spawn(async move {
-            Supervisor::new(reaper, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start reaper service")?;
-            Ok(())
-        });
+                self.provider.clone(),
+                self.deployment().set_verifier_address,
+                self.deployment().boundless_market_address,
+                set_builder_img_id,
+            )?);
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(submitter, cloned_config, cancel_token)
+                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                    .spawn()
+                    .await
+                    .context("Failed to start submitter service")?;
+                Ok(())
+            });
+        }
 
         // Start the RequestorMonitor to periodically fetch priority and allow lists
         let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
@@ -989,26 +1071,6 @@ where
                 .spawn()
                 .await
                 .context("Requestor list monitor panicked")?;
-            Ok(())
-        });
-
-        let submitter = Arc::new(submitter::Submitter::new(
-            self.db.clone(),
-            config.clone(),
-            aggregation_prover.clone(),
-            self.provider.clone(),
-            self.deployment().set_verifier_address,
-            self.deployment().boundless_market_address,
-            set_builder_img_id,
-        )?);
-        let cloned_config = config.clone();
-        let cancel_token = critical_cancel_token.clone();
-        critical_tasks.spawn(async move {
-            Supervisor::new(submitter, cloned_config, cancel_token)
-                .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                .spawn()
-                .await
-                .context("Failed to start submitter service")?;
             Ok(())
         });
 
@@ -1170,6 +1232,8 @@ pub mod test_utils {
     };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
+    use boundless_market::price_oracle::config::PriceValue;
+    use boundless_market::price_oracle::Amount;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
         market::TestCtx,
@@ -1197,9 +1261,12 @@ pub mod test_utils {
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-            config.market.min_mcycle_price = "0.0".into();
+            config.market.min_mcycle_price = Amount::parse("0.0 ETH", None).unwrap();
             config.batcher.min_batch_size = 1;
             config.market.min_deadline = 30;
+            // Use static prices for tests to avoid needing real price sources
+            config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+            config.price_oracle.zkc_usd = PriceValue::Static(1.0);
             config.write(config_file.path()).await.unwrap();
 
             let args = Args {
@@ -1217,6 +1284,7 @@ pub mod test_utils {
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
                 log_json: false,
+                listen_only: false,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }
@@ -1239,6 +1307,68 @@ pub mod test_utils {
                 self.config_file,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    /// Ensures existing DB rows (serialized without journal_bytes) deserialize correctly.
+    #[test]
+    fn journal_bytes_backwards_compat() {
+        use boundless_market::contracts::{
+            Offer, Predicate, RequestId, RequestInput, Requirements,
+        };
+        use risc0_zkvm::sha::Digest;
+
+        let request = ProofRequest::new(
+            RequestId::new(Address::ZERO, 0),
+            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+            "",
+            RequestInput::inline(Bytes::new()),
+            Offer::default(),
+        );
+
+        // Create an Order and serialize it to JSON.
+        let order = Order {
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            fulfillment_type: FulfillmentType::LockAndFulfill,
+            request,
+            status: OrderStatus::PendingProving,
+            updated_at: Utc::now(),
+            total_cycles: Some(1000),
+            journal_bytes: Some(42),
+            target_timestamp: None,
+            proving_started_at: None,
+            image_id: None,
+            input_id: None,
+            proof_id: None,
+            compressed_proof_id: None,
+            expire_timestamp: None,
+            client_sig: Bytes::new(),
+            lock_price: None,
+            error_msg: None,
+            cached_id: OnceLock::new(),
+        };
+        let json = serde_json::to_string(&order).unwrap();
+
+        // Remove journal_bytes from the JSON to simulate an old DB row.
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value.as_object_mut().unwrap().remove("journal_bytes");
+        let json_without_field = serde_json::to_string(&value).unwrap();
+
+        // Deserialize and verify journal_bytes defaults to None.
+        let deserialized: Order = serde_json::from_str(&json_without_field).unwrap();
+        assert!(deserialized.journal_bytes.is_none());
+
+        // Verify that an explicit null also round-trips to None.
+        let mut value_null: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value_null.as_object_mut().unwrap().insert("journal_bytes".into(), serde_json::Value::Null);
+        let json_with_null = serde_json::to_string(&value_null).unwrap();
+        let deserialized_null: Order = serde_json::from_str(&json_with_null).unwrap();
+        assert!(deserialized_null.journal_bytes.is_none());
     }
 }
 

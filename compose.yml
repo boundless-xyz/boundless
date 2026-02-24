@@ -9,7 +9,8 @@ name: bento
 # Anchors:
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-  REDIS_URL: redis://${REDIS_HOST:-redis}:6379
+  # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
+  REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
   S3_URL: http://${MINIO_HOST:-minio}:9000
   S3_BUCKET: ${MINIO_BUCKET:-workflow}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
@@ -25,7 +26,7 @@ x-agent-common: &agent-common
     context: .
     dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
     args:
-      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.0/bento-bundle-linux-amd64.tar.gz}
+      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.1/bento-bundle-linux-amd64.tar.gz}
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
       # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
       USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
@@ -115,7 +116,7 @@ x-broker-common: &broker-common
     context: .
     dockerfile: ${BROKER_DOCKERFILE:-dockerfiles/broker.prebuilt.dockerfile}
     args:
-      BINARY_URL: ${BROKER_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/broker-v1.2.0/broker}
+      BINARY_URL: ${BROKER_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/broker-v1.2.1/broker}
   mem_limit: 2G
   cpus: 2
   stop_grace_period: 3h
@@ -126,13 +127,15 @@ services:
     hostname: ${REDIS_HOST:-redis}
     image: ${REDIS_IMG:-valkey/valkey:9.0}
     restart: always
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
       - 6379:6379
     volumes:
       - redis-data:/data
-    command: valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+    command: ["sh", "-c", "exec valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes $$(test -n \"$$REDIS_PASSWORD\" && echo \"--requirepass $$REDIS_PASSWORD\")"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "sh", "-c", "redis-cli $$(test -n \"$$REDIS_PASSWORD\" && echo \"-a $$REDIS_PASSWORD\") ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -146,11 +149,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-taskdb}
       POSTGRES_USER: ${POSTGRES_USER:-worker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
     ports:
       - "${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    command: -p ${POSTGRES_PORT:-5432}
+    command: ["/bin/sh", "-c", "exec postgres -p $$POSTGRES_PORT -c max_connections=500"]
     healthcheck:
       test:
         [
@@ -181,6 +185,31 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  minio-init:
+    profiles: [input-ttl]
+    image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        mc alias set local http://$${MINIO_HOST}:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+        if [[ "$$(mc ilm rule list local/$${MINIO_BUCKET} --json 2>/dev/null)" == *'"Prefix":"inputs/"'* ]]; then
+          echo "Lifecycle rule for inputs/ already exists, skipping"
+        else
+          mc ilm rule add local/$${MINIO_BUCKET} --prefix "inputs/" --expire-days "$${INPUT_TTL_DAYS}" &&
+          echo "Lifecycle rule set: inputs/ objects expire after $${INPUT_TTL_DAYS} day(s)"
+        fi
+    environment:
+      MINIO_HOST: ${MINIO_HOST:-minio}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASS:-password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-workflow}
+      INPUT_TTL_DAYS: ${INPUT_TTL_DAYS:-1}
 
   grafana:
     image: ${GRAFANA_IMG:-grafana/grafana:11.0.0}
@@ -251,7 +280,7 @@ services:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
       args:
-        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.0/bento-bundle-linux-amd64.tar.gz}
+        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.1/bento-bundle-linux-amd64.tar.gz}
     restart: always
     depends_on:
       postgres:
@@ -314,7 +343,7 @@ services:
       context: .
       dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
       args:
-        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.0/bento-bundle-linux-amd64.tar.gz}
+        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.1/bento-bundle-linux-amd64.tar.gz}
         BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
         # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
         USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}

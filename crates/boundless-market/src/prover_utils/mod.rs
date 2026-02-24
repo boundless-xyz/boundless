@@ -17,30 +17,33 @@ pub mod config;
 pub(crate) mod local_executor;
 pub mod prover;
 pub(crate) mod requestor_pricing;
-pub mod storage;
 
 #[cfg(not(feature = "prover_utils"))]
 pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
-    OrderPricingPriority, ProverConfig,
+    OrderPricingPriority, PricingOverrides, ProverConfig,
 };
 
 use crate::{
     contracts::{
-        FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError, RequestInputType,
+        erc1271::IERC1271, FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError,
+        RequestInputType,
     },
     input::GuestEnv,
+    price_oracle::{scale_decimals, Amount},
     selector::{is_blake3_groth16_selector, SupportedSelectors},
     storage::StorageDownloader,
     util::now_timestamp,
 };
 use alloy::{
+    network::Ethereum,
     primitives::{
-        utils::{format_ether, format_units, parse_units},
+        utils::{format_ether, format_units},
         Address, Bytes, FixedBytes, U256,
     },
+    providers::Provider,
     uint,
 };
 use anyhow::Context;
@@ -60,13 +63,38 @@ use OrderPricingOutcome::Skip;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
+/// Scale a reward value for secondary fulfillment probability.
+///
+/// # Arguments
+/// * `reward` - The full reward amount
+/// * `probability_percent` - Scaling factor: < 100 discounts, 100 = no change, > 100 boosts
+///
+/// # Returns
+/// The scaled reward: `reward * probability_percent / 100`
+pub fn apply_secondary_fulfillment_discount(reward: U256, probability_percent: u32) -> U256 {
+    reward.saturating_mul(U256::from(probability_percent)) / U256::from(100u32)
+}
+
 /// Execution limit reasoning details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProveLimitReason {
-    EthPricing { max_price: U256, gas_cost: U256, mcycle_price_eth: U256 },
-    CollateralPricing { collateral_reward: String, mcycle_price_collateral: String },
-    ConfigCap { max_mcycles: u64 },
-    DeadlineCap { time_remaining_secs: u64, peak_prove_khz: u64 },
+    EthPricing {
+        max_price: U256,
+        gas_cost: U256,
+        mcycle_price_eth: U256,
+        config_mcycle_price: String,
+    },
+    CollateralPricing {
+        collateral_reward: String,
+        mcycle_price_collateral: String,
+    },
+    ConfigCap {
+        max_mcycles: u64,
+    },
+    DeadlineCap {
+        time_remaining_secs: u64,
+        peak_prove_khz: u64,
+    },
 }
 
 impl fmt::Display for ProveLimitReason {
@@ -75,17 +103,22 @@ impl fmt::Display for ProveLimitReason {
             ProveLimitReason::CollateralPricing { collateral_reward, mcycle_price_collateral } => {
                 write!(
                     f,
-                    "collateral pricing: order collateral reward {} / {} mcycle_price_collateral_token config",
-                    collateral_reward,
-                    mcycle_price_collateral,
+                    "collateral pricing: order collateral reward {} / {} min_mcycle_price (as ZKC)",
+                    collateral_reward, mcycle_price_collateral,
                 )
             }
-            ProveLimitReason::EthPricing { max_price, gas_cost, mcycle_price_eth } => {
+            ProveLimitReason::EthPricing {
+                max_price,
+                gas_cost,
+                mcycle_price_eth,
+                config_mcycle_price,
+            } => {
                 write!(
                     f,
-                    "ETH pricing: (order maxPrice {} - gas {}) / mcycle_price config ({} per Mcycle)",
+                    "pricing: (order maxPrice {} - gas {}) / min_mcycle_price {} ({} ETH per Mcycle)",
                     format_ether(*max_price),
                     format_ether(*gas_cost),
+                    config_mcycle_price,
                     format_ether(*mcycle_price_eth)
                 )
             }
@@ -156,8 +189,13 @@ pub struct OrderRequest {
     pub image_id: Option<String>,
     pub input_id: Option<String>,
     pub total_cycles: Option<u64>,
+    pub journal_bytes: Option<usize>,
     pub target_timestamp: Option<u64>,
     pub expire_timestamp: Option<u64>,
+    /// Total gas units (lock + fulfill) estimated during pricing. Stored so the pre-lock
+    /// check can simply re-multiply by the current gas price instead of re-computing.
+    pub gas_estimate: Option<u64>,
+    pub expected_reward_eth: Option<U256>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
 }
@@ -179,8 +217,11 @@ impl OrderRequest {
             image_id: None,
             input_id: None,
             total_cycles: None,
+            journal_bytes: None,
             target_timestamp: None,
             expire_timestamp: None,
+            gas_estimate: None,
+            expected_reward_eth: None,
             cached_id: OnceLock::new(),
         }
     }
@@ -230,6 +271,7 @@ pub enum OrderPricingOutcome {
         max_mcycle_price: U256,
         config_min_mcycle_price: U256,
         current_mcycle_price: U256,
+        journal_len: usize,
     },
     /// Do not lock the order, but consider proving and fulfilling it after the lock expires.
     ProveAfterLockExpire {
@@ -238,6 +280,7 @@ pub enum OrderPricingOutcome {
         expiry_secs: u64,
         mcycle_price: U256,
         config_min_mcycle_price: U256,
+        journal_len: usize,
     },
     /// Do not accept engage order.
     Skip { reason: String },
@@ -270,6 +313,13 @@ pub struct PreflightCacheKey {
 
 /// Cache for preflight results to avoid duplicate computations.
 pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
+
+/// Cache for ERC1271 `isValidSignature` gas estimates, keyed by wallet contract address.
+///
+/// Entries are reused across orders from the same smart-contract wallet because the
+/// gas cost of `isValidSignature` is determined by the wallet's bytecode, not by the
+/// specific hash or signature being verified.
+pub type Erc1271GasCache = Arc<Cache<Address, u64>>;
 
 /// Upload an image to the prover using the provided downloader.
 ///
@@ -396,6 +446,25 @@ pub trait OrderPricingContext {
         lockin_collateral: U256,
     ) -> Result<Option<OrderPricingOutcome>, OrderPricingError>;
     async fn current_gas_price(&self) -> Result<u128, OrderPricingError>;
+
+    /// Estimate the additional gas required for ERC-1271 signature verification on lock.
+    ///
+    /// Returns 0 for non-smart-contract-signed orders. The default implementation falls
+    /// back to the conservative constant `ERC1271_MAX_GAS_FOR_CHECK`. Implementors with
+    /// access to an RPC provider should override this to call `eth_estimateGas` instead.
+    async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
+        if order.request.is_smart_contract_signed() {
+            ERC1271_MAX_GAS_FOR_CHECK
+        } else {
+            0
+        }
+    }
+
+    /// Convert an Amount to ETH (using the price oracle).
+    async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
+
+    /// Convert an Amount to ZKC using the price oracle.
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
 
     /// Access to the prover for preflight operations.
     fn prover(&self) -> &ProverObj;
@@ -576,6 +645,17 @@ pub trait OrderPricingContext {
             });
         }
 
+        // Check if the order expiry exceeds the max allowed duration
+        if let Some(max_expiry) = config.max_order_expiry_secs {
+            if seconds_left > max_expiry {
+                return Ok(Skip {
+                    reason: format!(
+                        "order expiry duration {seconds_left}s exceeds max_order_expiry_secs {max_expiry}s"
+                    ),
+                });
+            }
+        }
+
         // Check if requestor is allowed (from both static config and dynamic lists)
         if let Some(outcome) = self.check_requestor_allowed(order, denied_addresses_opt.as_ref())? {
             return Ok(outcome);
@@ -597,17 +677,22 @@ pub trait OrderPricingContext {
 
         // Check if the collateral is sane and if we can afford it
         // For lock expired orders, we don't check the max collateral because we can't lock those orders.
-        let max_collateral: U256 =
-            parse_units(&config.max_collateral, self.collateral_token_decimals())
-                .context("Failed to parse max_collateral")?
-                .into();
+        let max_collateral_amount = &config.max_collateral;
+        let max_collateral_zkc = self.convert_to_zkc(max_collateral_amount).await?;
+        // Convert from Asset ZKC decimals (18) to contract collateral token decimals (6 or 18 depending on chain)
+        let max_collateral: U256 = scale_decimals(
+            max_collateral_zkc.value,
+            max_collateral_zkc.asset.decimals(),
+            self.collateral_token_decimals(),
+        );
 
         if !lock_expired && lockin_collateral > max_collateral {
             return Ok(Skip {
                 reason: format!(
-                    "order collateral requirement exceeds max_collateral config {} > {}",
+                    "order collateral requirement exceeds max_collateral config {} > {} ({})",
                     self.format_collateral(lockin_collateral),
                     self.format_collateral(max_collateral),
+                    max_collateral_amount,
                 ),
             });
         }
@@ -630,12 +715,17 @@ pub trait OrderPricingContext {
             )
         } else {
             U256::from(
-                estimate_gas_to_lock(&config, order).await?
+                config.lockin_gas_estimate
+                    + self.estimate_erc1271_gas(order).await
                     + estimate_gas_to_fulfill(&config, self.supported_selectors(), &order.request)
                         .await?,
             )
         };
-        let order_gas_cost = U256::from(gas_price) * order_gas;
+        // Store the gas estimate on the order so the pre-lock check can re-use it
+        // instead of re-computing.
+        order.gas_estimate = Some(order_gas.saturating_to::<u64>());
+
+        let mut order_gas_cost = U256::from(gas_price) * order_gas;
         tracing::debug!(
             "Estimated {order_gas} gas to {} order {order_id}; {} ether @ {} gwei",
             if lock_expired { "fulfill" } else { "lock and fulfill" },
@@ -652,7 +742,7 @@ pub trait OrderPricingContext {
 
         // Calculate exec limit (handles priority requestors and config internally)
         let (exec_limit_cycles, prove_limit, prove_limit_reason) =
-            self.calculate_exec_limits(order, order_gas_cost)?;
+            self.calculate_exec_limits(order, order_gas_cost).await?;
 
         if prove_limit < 2 {
             // Exec limit is based on user cycles, and 2 is the minimum number of user cycles for a
@@ -734,7 +824,12 @@ pub trait OrderPricingContext {
             // If the preflight execution has completed, but for the variant is rejected,
             // provide the config value that needs to be updated in order to have accepted.
             let config_info = match &prove_limit_reason {
-                ProveLimitReason::EthPricing { max_price, gas_cost, mcycle_price_eth } => {
+                ProveLimitReason::EthPricing {
+                    max_price,
+                    gas_cost,
+                    mcycle_price_eth,
+                    config_mcycle_price,
+                } => {
                     let max_price_gas_adjusted = max_price.saturating_sub(*gas_cost);
                     let required_price_per_mcycle = max_price_gas_adjusted
                         .saturating_mul(ONE_MILLION)
@@ -742,7 +837,8 @@ pub trait OrderPricingContext {
                     let required_price_per_mcycle_ignore_gas =
                         max_price.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
                     format!(
-                        "min_mcycle_price set to {} ETH/Mcycle in config, order requires min_mcycle_price <= {} ETH/Mcycle to be considered (gas cost: {} ETH, ignoring gas requires min {} ETH/Mcycle)",
+                        "min_mcycle_price set to {} ({} ETH/Mcycle) in config, order requires min_mcycle_price <= {} ETH/Mcycle to be considered (gas cost: {} ETH, ignoring gas requires min {} ETH/Mcycle)",
+                        config_mcycle_price,
                         format_ether(*mcycle_price_eth),
                         format_ether(required_price_per_mcycle),
                         format_ether(*gas_cost),
@@ -755,7 +851,7 @@ pub trait OrderPricingContext {
                     let required_collateral_price =
                         reward.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
                     format!(
-                        "min_mcycle_price_collateral_token set to {} ZKC/Mcycle in config, order requires min_mcycle_price_collateral_token <= {} ZKC/Mcycle to be considered",
+                        "min_mcycle_price (converted to ZKC) set to {} ZKC/Mcycle in config, order requires min_mcycle_price <= {} ZKC/Mcycle to be considered",
                         mcycle_price_collateral,
                         self.format_collateral(required_collateral_price)
                     )
@@ -806,6 +902,7 @@ pub trait OrderPricingContext {
         }
 
         let journal = self.preflight_journal(&exec_session_id).await?;
+        let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)
             && journal.len() > config.max_journal_bytes
@@ -829,6 +926,23 @@ pub trait OrderPricingContext {
             });
         }
 
+        // Refine gas estimate with actual journal size now that preflight is complete.
+        if order_predicate_type != PredicateType::ClaimDigestMatch {
+            let journal_gas = journal_len as u64 * config.fulfill_journal_gas_per_byte;
+            order_gas_cost += U256::from(gas_price) * U256::from(journal_gas);
+        }
+
+        // Re-check gas cost now that journal calldata gas is included.
+        if order_gas_cost > U256::from(order.request.offer.maxPrice) && !lock_expired {
+            return Ok(Skip {
+                reason: format!(
+                    "after accounting for journal costs, estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
+                    format_ether(order_gas_cost),
+                    format_ether(order.request.offer.maxPrice)
+                ),
+            });
+        }
+
         // Validate the predicates:
         let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
             .map_err(|e| OrderPricingError::RequestError(Arc::new(e.into())))?;
@@ -848,16 +962,25 @@ pub trait OrderPricingContext {
         // For lock_expired orders, evaluate based on collateral
         if lock_expired {
             // Reward for the order is a fraction of the collateral once the lock has expired
-            let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let raw_price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let price = apply_secondary_fulfillment_discount(
+                raw_price,
+                config.expected_probability_win_secondary_fulfillment,
+            );
             let mcycle_price_in_collateral_tokens =
                 price.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
 
-            let config_min_mcycle_price_collateral_tokens = parse_units(
-                &config.min_mcycle_price_collateral_token,
+            // Get the configured price as Amount and convert to ZKC (handles ETH/USD via price oracle)
+            let config_min_mcycle_price_amount = &config.min_mcycle_price;
+            let config_min_mcycle_price_zkc =
+                self.convert_to_zkc(config_min_mcycle_price_amount).await?;
+
+            // Scale from Asset ZKC decimals (18) to contract collateral token decimals
+            let config_min_mcycle_price_collateral_tokens: U256 = scale_decimals(
+                config_min_mcycle_price_zkc.value,
+                config_min_mcycle_price_zkc.asset.decimals(),
                 self.collateral_token_decimals(),
-            )
-            .context("Failed to parse min_mcycle_price_collateral_token")?
-            .into();
+            );
 
             tracing::debug!(
                 "Order price: {} (collateral tokens) - cycles: {} - mcycle price: {} (collateral tokens), config_min_mcycle_price_collateral_tokens: {} (collateral tokens)",
@@ -871,7 +994,7 @@ pub trait OrderPricingContext {
             if mcycle_price_in_collateral_tokens < config_min_mcycle_price_collateral_tokens {
                 return Ok(Skip {
                     reason: format!(
-                        "slashed collateral reward too low. {} (collateral reward) < config mcycle_price_collateral_token {}",
+                        "slashed collateral reward too low. {} (collateral reward) < config min_mcycle_price (as ZKC) {}",
                         self.format_collateral(mcycle_price_in_collateral_tokens),
                         self.format_collateral(config_min_mcycle_price_collateral_tokens),
                     ),
@@ -885,12 +1008,19 @@ pub trait OrderPricingContext {
                 expiry_secs: order.request.offer.rampUpStart + order.request.offer.timeout as u64,
                 mcycle_price: mcycle_price_in_collateral_tokens,
                 config_min_mcycle_price: config_min_mcycle_price_collateral_tokens,
+                journal_len,
             })
         } else {
-            // For lockable orders, evaluate based on ETH price
-            let config_min_mcycle_price: U256 = parse_units(&config.min_mcycle_price, 18)
-                .context("Failed to parse min_mcycle_price")?
-                .into();
+            // For lockable orders, evaluate based on ETH price.
+            let config_min_mcycle_price_amount = config
+                .pricing_overrides
+                .resolve(&order.request.client_address(), &order.request.requirements.selector)
+                .unwrap_or(&config.min_mcycle_price);
+
+            // Convert configured price to ETH (i.e., handles USD via price oracle)
+            let config_min_mcycle_price_eth =
+                self.convert_to_eth(config_min_mcycle_price_amount).await?;
+            let config_min_mcycle_price: U256 = config_min_mcycle_price_eth.value;
 
             let order_id = order.id();
 
@@ -904,11 +1034,12 @@ pub trait OrderPricingContext {
                 / U256::from(cycle_count);
 
             tracing::debug!(
-                "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle, {} collateral required, {} ETH gas cost",
+                "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle (min_mcycle_price: {}), {} collateral required, {} ETH gas cost",
                 format_ether(U256::from(order.request.offer.minPrice)),
                 format_ether(U256::from(order.request.offer.maxPrice)),
                 format_ether(mcycle_price_min),
                 format_ether(mcycle_price_max),
+                config_min_mcycle_price_amount,
                 self.format_collateral(order.request.offer.lockCollateral),
                 format_ether(order_gas_cost),
             );
@@ -917,8 +1048,9 @@ pub trait OrderPricingContext {
             if mcycle_price_max < config_min_mcycle_price {
                 return Ok(OrderPricingOutcome::Skip {
                     reason: format!(
-                        "order max price {} is less than mcycle_price config {}",
+                        "order max price {} is less than mcycle_price config {} ({} ETH)",
                         format_ether(U256::from(order.request.offer.maxPrice)),
+                        config_min_mcycle_price_amount,
                         format_ether(config_min_mcycle_price),
                     ),
                 });
@@ -929,30 +1061,35 @@ pub trait OrderPricingContext {
                 .offer
                 .price_at(now_timestamp())
                 .context("Failed to get current mcycle price")?;
-            let (target_mcycle_price, target_timestamp_secs) =
-                if mcycle_price_min >= config_min_mcycle_price {
-                    tracing::info!(
-                        "Selecting order {order_id} at price {} - ASAP",
-                        format_ether(current_mcycle_price)
-                    );
-                    (mcycle_price_min, 0) // Schedule the lock ASAP
-                } else {
-                    let target_min_price = config_min_mcycle_price
-                        .saturating_mul(U256::from(cycle_count))
-                        .div_ceil(ONE_MILLION)
-                        + order_gas_cost;
-                    tracing::debug!(
-                        "Order {order_id} minimum profitable price: {} ETH",
-                        format_ether(target_min_price)
+            let (target_mcycle_price, target_timestamp_secs) = if mcycle_price_min
+                >= config_min_mcycle_price
+            {
+                tracing::info!(
+                    "Selecting order {order_id} at price {} (min_mcycle_price: {} = {} ETH) - ASAP",
+                    format_ether(current_mcycle_price),
+                    config_min_mcycle_price_amount,
+                    format_ether(config_min_mcycle_price)
+                );
+                (mcycle_price_min, 0) // Schedule the lock ASAP
+            } else {
+                let target_min_price = config_min_mcycle_price
+                    .saturating_mul(U256::from(cycle_count))
+                    .div_ceil(ONE_MILLION)
+                    + order_gas_cost;
+                tracing::debug!(
+                        "Order {order_id} minimum profitable price: {} ETH (min_mcycle_price: {} = {} ETH)",
+                        format_ether(target_min_price),
+                        config_min_mcycle_price_amount,
+                        format_ether(config_min_mcycle_price)
                     );
 
-                    let target_time = order
-                        .request
-                        .offer
-                        .time_at_price(target_min_price)
-                        .context("Failed to get target price timestamp")?;
-                    (target_min_price, target_time)
-                };
+                let target_time = order
+                    .request
+                    .offer
+                    .time_at_price(target_min_price)
+                    .context("Failed to get target price timestamp")?;
+                (target_min_price, target_time)
+            };
 
             let expiry_secs =
                 order.request.offer.rampUpStart + order.request.offer.lockTimeout as u64;
@@ -965,6 +1102,7 @@ pub trait OrderPricingContext {
                 max_mcycle_price: mcycle_price_max,
                 config_min_mcycle_price,
                 current_mcycle_price,
+                journal_len,
             })
         }
     }
@@ -977,7 +1115,7 @@ pub trait OrderPricingContext {
     /// expires and to prove after lock expiry so that the execution can be cached and only happen
     /// once. The prove limit is the limit for this specific order variant and decides the max
     /// cycles the order can be for the prover to decide to commit to proving it.
-    fn calculate_exec_limits(
+    async fn calculate_exec_limits(
         &self,
         order: &OrderRequest,
         order_gas_cost: U256,
@@ -991,22 +1129,40 @@ pub trait OrderPricingContext {
         let lock_expiry = order.request.lock_expires_at();
         let order_expiry = order.request.expires_at();
         let config = self.market_config()?;
-        let min_mcycle_price = parse_units(&config.min_mcycle_price, 18)
-            .context("Failed to parse min_mcycle_price")?
-            .into();
-        let min_mcycle_price_collateral_tokens: U256 = parse_units(
-            &config.min_mcycle_price_collateral_token,
+        let min_mcycle_price_amount = config
+            .pricing_overrides
+            .resolve(&order.request.client_address(), &order.request.requirements.selector)
+            .unwrap_or(&config.min_mcycle_price);
+
+        // Convert configured price to ETH (handles USD via price oracle)
+        let min_mcycle_price_eth = self.convert_to_eth(min_mcycle_price_amount).await?;
+        let min_mcycle_price: U256 = min_mcycle_price_eth.value;
+
+        // Convert min_mcycle_price to ZKC for collateral-based pricing (handles ETH/USD via price oracle)
+        let config_min_mcycle_price = &config.min_mcycle_price;
+        let config_min_mcycle_price_zkc = self.convert_to_zkc(config_min_mcycle_price).await?;
+
+        // Scale from Asset ZKC decimals (18) to contract collateral token decimals
+        let min_mcycle_price_collateral_tokens: U256 = scale_decimals(
+            config_min_mcycle_price_zkc.value,
+            config_min_mcycle_price_zkc.asset.decimals(),
             self.collateral_token_decimals(),
-        )
-        .context("Failed to parse min_mcycle_price_collateral_token")?
-        .into();
+        );
 
         // Pricing based cycle limits: Calculate the cycle limit based on collateral price
         let collateral_based_limit = if min_mcycle_price_collateral_tokens == U256::ZERO {
-            tracing::info!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
+            tracing::info!("min_mcycle_price is 0, collateral pricing unlimited");
             u64::MAX
         } else {
-            let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let raw_price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let price = if is_fulfill_after_lock_expire {
+                apply_secondary_fulfillment_discount(
+                    raw_price,
+                    config.expected_probability_win_secondary_fulfillment,
+                )
+            } else {
+                raw_price
+            };
 
             let initial_collateral_based_limit =
                 (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_collateral_tokens))
@@ -1044,18 +1200,19 @@ pub trait OrderPricingContext {
 
             if eth_based_limit > collateral_based_limit {
                 // Eth based limit is higher, use that for both preflight and prove
-                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) > collateral based limit ({collateral_based_limit}), using eth based limit for both preflight and prove");
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) from min_mcycle_price {} > collateral based limit ({collateral_based_limit}), using eth based limit for both preflight and prove", min_mcycle_price_amount);
                 preflight_limit = eth_based_limit;
                 prove_limit = eth_based_limit;
             } else {
                 // Otherwise lower the prove cycle limit for this order variant
-                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) < collateral based limit ({collateral_based_limit}), using eth based limit for prove");
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) from min_mcycle_price {} < collateral based limit ({collateral_based_limit}), using eth based limit for prove", min_mcycle_price_amount);
                 prove_limit = eth_based_limit;
             }
             prove_limit_reason = ProveLimitReason::EthPricing {
                 max_price: U256::from(order.request.offer.maxPrice),
                 gas_cost: order_gas_cost,
                 mcycle_price_eth: min_mcycle_price,
+                config_mcycle_price: min_mcycle_price_amount.to_string(),
             };
         }
 
@@ -1192,12 +1349,63 @@ async fn estimate_gas_to_fulfill(
 /// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
 const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
-async fn estimate_gas_to_lock(config: &MarketConfig, order: &OrderRequest) -> anyhow::Result<u64> {
-    let mut estimate = config.lockin_gas_estimate;
-
-    if order.request.is_smart_contract_signed() {
-        estimate += ERC1271_MAX_GAS_FOR_CHECK;
+/// Estimate the gas used by an ERC-1271 `isValidSignature` call for a smart-contract-signed order.
+///
+/// Results are **cached** per wallet contract address via a caller-supplied [`Erc1271GasCache`].
+///
+/// Returns 0 if the order is not smart-contract-signed.
+/// Returns `ERC1271_MAX_GAS_FOR_CHECK` if the address has no deployed code or the RPC call fails.
+pub async fn estimate_erc1271_gas<P>(
+    order: &OrderRequest,
+    provider: &Arc<P>,
+    cache: &Erc1271GasCache,
+) -> u64
+where
+    P: Provider<Ethereum> + 'static,
+{
+    if !order.request.is_smart_contract_signed() {
+        return 0;
     }
 
-    Ok(estimate)
+    let client_addr = order.request.client_address();
+    let request_hash =
+        match order.request.signing_hash(order.boundless_market_address, order.chain_id) {
+            Ok(h) => h,
+            Err(_) => return ERC1271_MAX_GAS_FOR_CHECK,
+        };
+    let sig = order.client_sig.clone();
+    let provider = provider.clone();
+
+    cache
+        .get_with(client_addr, async move {
+            // An EOA (no deployed bytecode) cannot implement isValidSignature.
+            // eth_estimateGas on an EOA succeeds but returns only the base call
+            // overhead (~21k), not the actual verification cost. Fall back to the
+            // conservative constant whenever the address has no contract code.
+            let code = provider.get_code_at(client_addr).await.unwrap_or_default();
+            if code.is_empty() {
+                tracing::debug!(
+                    "Address {client_addr} has no contract code; using constant ERC1271 gas estimate"
+                );
+                return ERC1271_MAX_GAS_FOR_CHECK;
+            }
+
+            match IERC1271::new(client_addr, &provider)
+                .isValidSignature(request_hash, sig)
+                .estimate_gas()
+                .await
+            {
+                Ok(gas) => {
+                    tracing::debug!("Estimated ERC1271 gas for {client_addr}: {gas}");
+                    gas
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to estimate ERC1271 gas for {client_addr}, using constant: {err}"
+                    );
+                    ERC1271_MAX_GAS_FOR_CHECK
+                }
+            }
+        })
+        .await
 }
