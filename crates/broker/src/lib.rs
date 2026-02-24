@@ -797,7 +797,6 @@ where
             self.db.clone(),
             chain_monitor.clone(),
             self.args.private_key.as_ref().expect("Private key must be set").address(),
-            client.clone(),
             new_order_tx.clone(),
             order_state_tx.clone(),
         ));
