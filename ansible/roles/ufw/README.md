@@ -130,7 +130,13 @@ sudo tail -f /var/log/ufw.log
 
 ## Tags
 
-The role tasks currently do not define dedicated Ansible tags.
+- `ufw` - All UFW tasks
+- `ufw-install` - Installation only
+- `ufw-config` - Configuration only
+- `ufw-rules` - Firewall rules only
+- `ufw-enable` - Enable UFW
+- # `ufw-disable` - Disable UFW
+  The role tasks currently do not define dedicated Ansible tags.
 
 ## Dependencies
 

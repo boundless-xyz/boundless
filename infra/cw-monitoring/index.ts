@@ -103,10 +103,14 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     const prefix = `cw-${stackName}-${node.name}`;
 
     // ── Log Group ────────────────────────────────────────────────────────
+    // Vector creates the log group on first write. We adopt it into Pulumi
+    // state so we can enforce retention and manage it as infra. The import
+    // option tells Pulumi to import the existing resource rather than fail
+    // with ResourceAlreadyExistsException.
     const logGroup = new aws.cloudwatch.LogGroup(`${prefix}-logs`, {
         name: logGroupName,
         retentionInDays: retentionDays,
-    });
+    }, { import: logGroupName });
 
     // ── Alarms (data-driven from nodeConfig) ─────────────────────────────
 
