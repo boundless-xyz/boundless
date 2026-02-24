@@ -211,6 +211,18 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-workflow}
       INPUT_TTL_DAYS: ${INPUT_TTL_DAYS:-1}
 
+  prometheus:
+    image: ${PROMETHEUS_IMG:-prom/prometheus:v2.53.0}
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./dockerfiles/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+
   grafana:
     image: ${GRAFANA_IMG:-grafana/grafana:11.0.0}
     restart: unless-stopped
@@ -234,6 +246,7 @@ services:
       - postgres
       - redis
       - minio
+      - prometheus
 
   exec_agent:
     <<: *exec-agent-common
@@ -382,6 +395,7 @@ volumes:
   redis-data:
   postgres-data:
   minio-data:
+  prometheus-data:
   grafana-data:
   broker-data:
   caddy-data:
