@@ -343,12 +343,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
         scheduleExpression: args.oneShotConfig.scheduleExpression,
       });
 
-      const fargateTaskDependsOn: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
-
       const fargateTask = new awsx.ecs.FargateTaskDefinition(
         `${serviceName}-task`,
         {
-          volumes: [],
           container: {
             name: serviceName,
             image: args.image.ref,
@@ -361,7 +358,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
             ],
             environment,
             secrets,
-            mountPoints: [],
           },
           logGroup: {
             args: { name: serviceName, retentionInDays: 0 },
@@ -370,7 +366,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             roleArn: execRole.arn,
           },
         },
-        { dependsOn: fargateTaskDependsOn }
+        { dependsOn: [execRole, execRolePolicy] }
       );
 
       new aws.cloudwatch.EventTarget(`${serviceName}-task-target`, {
@@ -390,8 +386,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
       logDependency = fargateTask;
     } else {
       // Service mode, runs indefinitely
-      const serviceDependsOn: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
-
       const service = new awsx.ecs.FargateService(
         `${serviceName}-service`,
         {
@@ -402,7 +396,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
             subnets: args.privateSubnetIds,
           },
           taskDefinitionArgs: {
-            volumes: [],
             logGroup: {
               args: { name: serviceName, retentionInDays: 0 },
             },
@@ -421,11 +414,10 @@ export class OrderGenerator extends pulumi.ComponentResource {
               ],
               environment,
               secrets,
-              mountPoints: [],
             },
           },
         },
-        { dependsOn: serviceDependsOn }
+        { dependsOn: [execRole, execRolePolicy] }
       );
       logDependency = service;
     }
