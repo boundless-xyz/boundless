@@ -149,18 +149,20 @@ async fn main() -> Result<()> {
         Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
-    if let Some(deposit_amount) = args.deposit_amount.as_ref() {
-        let boundless_market = BoundlessMarketService::new_for_broker(
-            broker.deployment().boundless_market_address,
-            provider.clone(),
-            provider.default_signer_address(),
-        );
+    if !args.listen_only {
+        if let Some(deposit_amount) = args.deposit_amount.as_ref() {
+            let boundless_market = BoundlessMarketService::new_for_broker(
+                broker.deployment().boundless_market_address,
+                provider.clone(),
+                provider.default_signer_address(),
+            );
 
-        tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
-        boundless_market
-            .deposit_collateral_with_permit(*deposit_amount, &private_key)
-            .await
-            .context("Failed to deposit to market")?;
+            tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
+            boundless_market
+                .deposit_collateral_with_permit(*deposit_amount, &private_key)
+                .await
+                .context("Failed to deposit to market")?;
+        }
     }
 
     // Await broker shutdown before returning from main
