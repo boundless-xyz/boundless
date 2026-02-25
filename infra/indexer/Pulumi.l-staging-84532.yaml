@@ -34,3 +34,5 @@ config:
     secure: v1:r49/xVHhI+yVNEBM:mk3wBWORkdyo2SFq5ZrTgzuOHOCpgrf3hpmkf2trdUB3cQb1aKzW3OsF8ZEb32I9STRas1xAhCLnow==
   indexer:PROXY_SECRET:
     secure: v1:cab3j8bdNyiHTCx+:H7ZL+w6m4WcBbDI1NaIth+rLitNPFho41CByB2PuuP45FPi7jPRxhg==
+  indexer:PREMIUM_API_KEY:
+    secure: v1:KYVaSDinKkoxpgsF:zIpXn1qwPddpt8dYS+CCaFCtXmPig+dPvoXiEQ==
