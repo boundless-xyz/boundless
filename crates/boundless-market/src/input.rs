@@ -19,11 +19,12 @@ use risc0_zkvm::serde::to_vec;
 use risc0_zkvm::ExecutorEnv;
 use rmp_serde;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::contracts::RequestInput;
 
 /// Default zstd compression level for V2 encoding.
-const ZSTD_COMPRESSION_LEVEL: i32 = 3;
+const ZSTD_COMPRESSION_LEVEL: i32 = 10;
 
 /// Maximum decompressed size for V2 inputs (256 MiB).
 const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
@@ -166,12 +167,40 @@ impl GuestEnv {
     /// Encode the [GuestEnv] with zstd compression (V2) for inclusion in a proof request.
     ///
     /// Produces a V2-encoded payload: `[0x02][zstd(msgpack(self))]`.
-    /// Use this when the input data is large enough that compression provides meaningful
-    /// size reduction (e.g. for storage/bandwidth savings).
+    /// If the serialized payload exceeds `MAX_DECOMPRESSED_SIZE` (256 MiB), a warning is logged and
+    /// the input is returned as uncompressed V1 to avoid producing a decompression bomb.
     pub fn encode_compressed(&self) -> Result<Vec<u8>, Error> {
+        self.encode_compressed_with_options(ZSTD_COMPRESSION_LEVEL, MAX_DECOMPRESSED_SIZE)
+    }
+
+    /// Encode with zstd compression using a custom compression level.
+    ///
+    /// See [`Self::encode_compressed`] for details. The `level` parameter controls the zstd
+    /// compression level (higher = better ratio, slower encode).
+    pub fn encode_compressed_with_level(&self, level: i32) -> Result<Vec<u8>, Error> {
+        self.encode_compressed_with_options(level, MAX_DECOMPRESSED_SIZE)
+    }
+
+    /// Encode with zstd compression using custom compression level and size limit.
+    ///
+    /// If the serialized msgpack payload exceeds `max_size` bytes, a warning is logged and
+    /// the input falls back to uncompressed V1 encoding to avoid producing a decompression bomb.
+    pub fn encode_compressed_with_options(
+        &self,
+        level: i32,
+        max_size: usize,
+    ) -> Result<Vec<u8>, Error> {
         let msgpack = rmp_serde::to_vec_named(self)?;
-        let compressed = zstd::encode_all(msgpack.as_slice(), ZSTD_COMPRESSION_LEVEL)
-            .map_err(Error::ZstdCompress)?;
+        if msgpack.len() > max_size {
+            warn!(
+                msgpack_len = msgpack.len(),
+                max_size,
+                "serialized input exceeds max decompressed size, falling back to uncompressed V1"
+            );
+            return self.encode();
+        }
+        let compressed =
+            zstd::encode_all(msgpack.as_slice(), level).map_err(Error::ZstdCompress)?;
         let mut encoded = Vec::with_capacity(1 + compressed.len());
         encoded.push(Version::V2.into());
         encoded.extend_from_slice(&compressed);
@@ -201,6 +230,26 @@ impl From<GuestEnvBuilder> for GuestEnv {
     }
 }
 
+/// Options for zstd compression (V2 encoding).
+///
+/// When provided to [GuestEnvBuilder], enables V2 (MessagePack + zstd) encoding.
+#[derive(Clone, Debug)]
+pub struct CompressionOptions {
+    /// Zstd compression level. Higher values produce better compression at the cost of slower
+    /// encoding. Defaults to [`ZSTD_COMPRESSION_LEVEL`] (10).
+    pub level: i32,
+
+    /// Maximum serialized input size before compression falls back to uncompressed V1.
+    /// Defaults to [`MAX_DECOMPRESSED_SIZE`] (256 MiB).
+    pub max_input_size: usize,
+}
+
+impl Default for CompressionOptions {
+    fn default() -> Self {
+        Self { level: ZSTD_COMPRESSION_LEVEL, max_input_size: MAX_DECOMPRESSED_SIZE }
+    }
+}
+
 /// Input builder, used to build the structured input (i.e. env) for execution and proving.
 ///
 /// Boundless provers decode the input provided in a proving request as a [GuestEnv]. This
@@ -213,22 +262,41 @@ pub struct GuestEnvBuilder {
     /// See [GuestEnv::stdin]
     pub stdin: Vec<u8>,
 
-    /// When true, `build_vec` and `build_inline` produce V2 (zstd-compressed) encoding.
-    compressed: bool,
+    /// Compression options. When `Some`, `build_vec` and `build_inline` produce V2
+    /// (zstd-compressed) encoding. When `None`, uncompressed V1 encoding is used.
+    pub compression: Option<CompressionOptions>,
 }
 
 impl GuestEnvBuilder {
     /// Create a new input builder.
     pub fn new() -> Self {
-        Self { stdin: Vec::new(), compressed: false }
+        Self { stdin: Vec::new(), compression: None }
     }
 
-    /// Enable zstd compression for the encoded output.
+    /// Enable zstd compression with default options for the encoded output.
     ///
     /// When set, [`Self::build_vec`] and [`Self::build_inline`] will produce V2 (MessagePack + zstd) encoding.
-    pub fn with_compression(mut self) -> Self {
-        self.compressed = true;
-        self
+    pub fn with_compression(self) -> Self {
+        let opts = self.compression.unwrap_or_default();
+        Self { compression: Some(opts), ..self }
+    }
+
+    /// Set a custom zstd compression level (default: 10).
+    ///
+    /// Higher values produce better compression at the cost of slower encoding.
+    /// Enables compression if not already enabled.
+    pub fn with_compression_level(self, level: i32) -> Self {
+        let opts = self.compression.unwrap_or_default();
+        Self { compression: Some(CompressionOptions { level, ..opts }), ..self }
+    }
+
+    /// Set a custom maximum input size for compressed encoding (default: 256 MiB).
+    ///
+    /// If the serialized payload exceeds this limit, encoding falls back to uncompressed V1.
+    /// Enables compression if not already enabled.
+    pub fn with_max_compressed_input_size(self, max: usize) -> Self {
+        let opts = self.compression.unwrap_or_default();
+        Self { compression: Some(CompressionOptions { max_input_size: max, ..opts }), ..self }
     }
 
     /// Build the [GuestEnv] for inclusion in a proof request.
@@ -238,20 +306,22 @@ impl GuestEnvBuilder {
 
     /// Build and encode [GuestEnv] for inclusion in a proof request.
     pub fn build_vec(self) -> Result<Vec<u8>, Error> {
-        let compressed = self.compressed;
-        let env = self.build_env();
-        if compressed {
-            env.encode_compressed()
-        } else {
-            env.encode()
+        let Self { stdin, compression } = self;
+        let env = GuestEnv { stdin };
+        match compression {
+            Some(opts) => env.encode_compressed_with_options(opts.level, opts.max_input_size),
+            None => env.encode(),
         }
     }
 
     /// Build and encode the [GuestEnv] into an inline [RequestInput] for inclusion in a proof request.
     pub fn build_inline(self) -> Result<RequestInput, Error> {
-        let compressed = self.compressed;
-        let env = self.build_env();
-        let encoded = if compressed { env.encode_compressed()? } else { env.encode()? };
+        let Self { stdin, compression } = self;
+        let env = GuestEnv { stdin };
+        let encoded = match compression {
+            Some(opts) => env.encode_compressed_with_options(opts.level, opts.max_input_size)?,
+            None => env.encode()?,
+        };
         Ok(RequestInput::inline(encoded))
     }
 
@@ -443,6 +513,42 @@ mod tests {
     fn test_builder_default_no_compression() -> Result<(), Error> {
         let bytes = GuestEnv::builder().write_slice(&[1u8, 2, 3]).build_vec()?;
         assert_eq!(bytes[0], 1u8); // V1
+        Ok(())
+    }
+
+    #[test]
+    fn test_builder_custom_compression_level() -> Result<(), Error> {
+        let data = vec![0x42u8; 1_000];
+        let bytes =
+            GuestEnv::builder().write_slice(&data).with_compression_level(19).build_vec()?;
+        assert_eq!(bytes[0], 2u8); // V2
+        let decoded = GuestEnv::decode(&bytes)?;
+        assert_eq!(decoded.stdin, data);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_compressed_fallback_on_oversize() -> Result<(), Error> {
+        // Use a tiny max_size so the fallback triggers
+        let env = GuestEnv::from_stdin(vec![0u8; 128]);
+        let encoded = env.encode_compressed_with_options(ZSTD_COMPRESSION_LEVEL, 16)?;
+        assert_eq!(encoded[0], 1u8, "should fall back to V1 when payload exceeds max_size");
+        let decoded = GuestEnv::decode(&encoded)?;
+        assert_eq!(decoded, env);
+        Ok(())
+    }
+
+    #[test]
+    fn test_builder_custom_max_compressed_input_size() -> Result<(), Error> {
+        let data = vec![0u8; 128];
+        let bytes = GuestEnv::builder()
+            .write_slice(&data)
+            .with_compression()
+            .with_max_compressed_input_size(16)
+            .build_vec()?;
+        assert_eq!(bytes[0], 1u8, "should fall back to V1 when exceeding custom limit");
+        let decoded = GuestEnv::decode(&bytes)?;
+        assert_eq!(decoded.stdin, data);
         Ok(())
     }
 }
