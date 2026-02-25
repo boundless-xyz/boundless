@@ -7,7 +7,7 @@ Create/update a pull request for the current changes.
 4. Write a clear commit message based on what changed (use commit message style below)
 5. Commit and push to the current branch
 6. Check if an existing PR exists. Ignore warnings about GraphQL: Projects (classic) being deprecated.
-   1. If not, use `gh pr create --web --title <title> --body <body>` to open the pre-populated create PR page with title/description (use PR Title/Description Guidelines below)
+   1. If not, do not submit the PR, but use `gh pr create --web --title <title> --body <body>` to open the create PR page with title/description (use PR Title/Description Guidelines below)
    2. Else update the description with the new changes.
 7. Do not submit the PR. Just return the PR creation page URL when done
 
