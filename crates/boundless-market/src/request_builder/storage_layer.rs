@@ -74,7 +74,7 @@ impl StorageLayerConfig {
     fn encode_env(&self, env: &GuestEnv) -> anyhow::Result<Vec<u8>> {
         match &self.compression {
             Some(opts) => env
-                .encode_compressed_with_options(opts.level, opts.max_input_size)
+                .encode_compressed(opts)
                 .context("failed to compress and encode guest environment"),
             None => env.encode().context("failed to encode guest environment"),
         }

@@ -122,17 +122,17 @@ impl GuestEnv {
 
     /// Parse an encoded [GuestEnv] with version support.
     ///
-    /// For V2 (zstd-compressed) inputs, decompression is capped at `MAX_DECOMPRESSED_SIZE`
-    /// to protect against decompression bombs. Use [`Self::decode_with_limit`] to override the limit.
+    /// For V2 (zstd-compressed) inputs, decompression is capped at 256 MiB by default.
+    /// Use [`Self::decode_with`] to override decompression options.
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        Self::decode_with_limit(bytes, MAX_DECOMPRESSED_SIZE)
+        Self::decode_with(bytes, &DecompressionOptions::default())
     }
 
-    /// Parse an encoded [GuestEnv] with version support and a custom decompression size limit.
+    /// Parse an encoded [GuestEnv] with custom decompression options.
     ///
-    /// The `max_decompressed_bytes` parameter caps the decompressed output for V2 inputs.
-    /// If the decompressed data exceeds this limit, [Error::DecompressionSizeExceeded] is returned.
-    pub fn decode_with_limit(bytes: &[u8], max_decompressed_bytes: usize) -> Result<Self, Error> {
+    /// If the decompressed data exceeds the configured limit,
+    /// [Error::DecompressionSizeExceeded] is returned.
+    pub fn decode_with(bytes: &[u8], opts: &DecompressionOptions) -> Result<Self, Error> {
         if bytes.is_empty() {
             return Err(Error::EmptyEncodedInput);
         }
@@ -142,23 +142,22 @@ impl GuestEnv {
             Version::V2 => {
                 let decoder = zstd::Decoder::new(&bytes[1..]).map_err(Error::ZstdDecompress)?;
                 let mut decompressed = Vec::new();
-                let limit = max_decompressed_bytes as u64;
+                let limit = opts.max_size as u64;
                 decoder
                     .take(limit + 1)
                     .read_to_end(&mut decompressed)
                     .map_err(Error::ZstdDecompress)?;
                 if decompressed.len() as u64 > limit {
-                    return Err(Error::DecompressionSizeExceeded { limit: max_decompressed_bytes });
+                    return Err(Error::DecompressionSizeExceeded { limit: opts.max_size });
                 }
                 Ok(rmp_serde::from_read(decompressed.as_slice())?)
             }
         }
     }
 
-    /// Encode the [GuestEnv] for inclusion in a proof request.
+    /// Encode the [GuestEnv] as uncompressed V1 for inclusion in a proof request.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         let mut encoded = Vec::<u8>::new();
-        // Push the version as the first byte to indicate the message version.
         encoded.push(Version::V1.into());
         encoded.extend_from_slice(&rmp_serde::to_vec_named(&self)?);
         Ok(encoded)
@@ -167,40 +166,20 @@ impl GuestEnv {
     /// Encode the [GuestEnv] with zstd compression (V2) for inclusion in a proof request.
     ///
     /// Produces a V2-encoded payload: `[0x02][zstd(msgpack(self))]`.
-    /// If the serialized payload exceeds `MAX_DECOMPRESSED_SIZE` (256 MiB), a warning is logged and
-    /// the input is returned as uncompressed V1 to avoid producing a decompression bomb.
-    pub fn encode_compressed(&self) -> Result<Vec<u8>, Error> {
-        self.encode_compressed_with_options(ZSTD_COMPRESSION_LEVEL, MAX_DECOMPRESSED_SIZE)
-    }
-
-    /// Encode with zstd compression using a custom compression level.
-    ///
-    /// See [`Self::encode_compressed`] for details. The `level` parameter controls the zstd
-    /// compression level (higher = better ratio, slower encode).
-    pub fn encode_compressed_with_level(&self, level: i32) -> Result<Vec<u8>, Error> {
-        self.encode_compressed_with_options(level, MAX_DECOMPRESSED_SIZE)
-    }
-
-    /// Encode with zstd compression using custom compression level and size limit.
-    ///
-    /// If the serialized msgpack payload exceeds `max_size` bytes, a warning is logged and
-    /// the input falls back to uncompressed V1 encoding to avoid producing a decompression bomb.
-    pub fn encode_compressed_with_options(
-        &self,
-        level: i32,
-        max_size: usize,
-    ) -> Result<Vec<u8>, Error> {
+    /// If the serialized payload exceeds [`CompressionOptions::max_input_size`], a warning is
+    /// logged and the input falls back to uncompressed V1 to avoid producing a decompression bomb.
+    pub fn encode_compressed(&self, opts: &CompressionOptions) -> Result<Vec<u8>, Error> {
         let msgpack = rmp_serde::to_vec_named(self)?;
-        if msgpack.len() > max_size {
+        if msgpack.len() > opts.max_input_size {
             warn!(
                 msgpack_len = msgpack.len(),
-                max_size,
+                max_size = opts.max_input_size,
                 "serialized input exceeds max decompressed size, falling back to uncompressed V1"
             );
             return self.encode();
         }
         let compressed =
-            zstd::encode_all(msgpack.as_slice(), level).map_err(Error::ZstdCompress)?;
+            zstd::encode_all(msgpack.as_slice(), opts.level).map_err(Error::ZstdCompress)?;
         let mut encoded = Vec::with_capacity(1 + compressed.len());
         encoded.push(Version::V2.into());
         encoded.extend_from_slice(&compressed);
@@ -247,6 +226,39 @@ pub struct CompressionOptions {
 impl Default for CompressionOptions {
     fn default() -> Self {
         Self { level: ZSTD_COMPRESSION_LEVEL, max_input_size: MAX_DECOMPRESSED_SIZE }
+    }
+}
+
+impl CompressionOptions {
+    /// Set a custom zstd compression level.
+    pub fn with_level(self, level: i32) -> Self {
+        Self { level, ..self }
+    }
+
+    /// Set a custom maximum input size before falling back to uncompressed V1.
+    pub fn with_max_input_size(self, max: usize) -> Self {
+        Self { max_input_size: max, ..self }
+    }
+}
+
+/// Options for zstd decompression when decoding V2 inputs.
+#[derive(Clone, Debug)]
+pub struct DecompressionOptions {
+    /// Maximum decompressed output size in bytes. If exceeded,
+    /// [Error::DecompressionSizeExceeded] is returned. Defaults to 256 MiB.
+    pub max_size: usize,
+}
+
+impl Default for DecompressionOptions {
+    fn default() -> Self {
+        Self { max_size: MAX_DECOMPRESSED_SIZE }
+    }
+}
+
+impl DecompressionOptions {
+    /// Set a custom maximum decompressed output size.
+    pub fn with_max_size(self, max: usize) -> Self {
+        Self { max_size: max }
     }
 }
 
@@ -309,7 +321,7 @@ impl GuestEnvBuilder {
         let Self { stdin, compression } = self;
         let env = GuestEnv { stdin };
         match compression {
-            Some(opts) => env.encode_compressed_with_options(opts.level, opts.max_input_size),
+            Some(opts) => env.encode_compressed(&opts),
             None => env.encode(),
         }
     }
@@ -319,7 +331,7 @@ impl GuestEnvBuilder {
         let Self { stdin, compression } = self;
         let env = GuestEnv { stdin };
         let encoded = match compression {
-            Some(opts) => env.encode_compressed_with_options(opts.level, opts.max_input_size)?,
+            Some(opts) => env.encode_compressed(&opts)?,
             None => env.encode()?,
         };
         Ok(RequestInput::inline(encoded))
@@ -428,7 +440,7 @@ mod tests {
     #[test]
     fn test_v2_round_trip() -> Result<(), Error> {
         let env = GuestEnv::from_stdin(b"hello, compressed world!".to_vec());
-        let compressed = env.encode_compressed()?;
+        let compressed = env.encode_compressed(&Default::default())?;
         assert_eq!(compressed[0], 2u8); // Version::V2
         let decoded = GuestEnv::decode(&compressed)?;
         assert_eq!(decoded, env);
@@ -437,18 +449,16 @@ mod tests {
 
     #[test]
     fn test_v2_compresses_data() -> Result<(), Error> {
-        // Highly compressible: repeated bytes
         let data = vec![0x42u8; 10_000];
         let env = GuestEnv::from_stdin(data);
         let v1 = env.encode()?;
-        let v2 = env.encode_compressed()?;
+        let v2 = env.encode_compressed(&Default::default())?;
         assert!(
             v2.len() < v1.len(),
             "V2 should be smaller for compressible data: v1={}, v2={}",
             v1.len(),
             v2.len()
         );
-        // Both decode to the same thing
         assert_eq!(GuestEnv::decode(&v1)?, GuestEnv::decode(&v2)?);
         Ok(())
     }
@@ -456,7 +466,7 @@ mod tests {
     #[test]
     fn test_v2_empty_stdin() -> Result<(), Error> {
         let env = GuestEnv::from_stdin(vec![]);
-        let compressed = env.encode_compressed()?;
+        let compressed = env.encode_compressed(&Default::default())?;
         let decoded = GuestEnv::decode(&compressed)?;
         assert_eq!(decoded, env);
         Ok(())
@@ -465,7 +475,7 @@ mod tests {
     #[test]
     fn test_v2_small_data() -> Result<(), Error> {
         let env = GuestEnv::from_stdin(vec![1, 2, 3]);
-        let compressed = env.encode_compressed()?;
+        let compressed = env.encode_compressed(&Default::default())?;
         let decoded = GuestEnv::decode(&compressed)?;
         assert_eq!(decoded, env);
         Ok(())
@@ -481,20 +491,19 @@ mod tests {
 
     #[test]
     fn test_v2_decompression_bomb_protection() -> Result<(), Error> {
-        // Compress a payload that decompresses to more than our test limit
         let large_data = vec![0u8; 1024];
         let env = GuestEnv::from_stdin(large_data);
-        let compressed = env.encode_compressed()?;
+        let compressed = env.encode_compressed(&Default::default())?;
 
-        // Decode with a limit smaller than the decompressed size
-        let result = GuestEnv::decode_with_limit(&compressed, 16);
+        let opts = DecompressionOptions::default().with_max_size(16);
+        let result = GuestEnv::decode_with(&compressed, &opts);
         assert!(
             matches!(result, Err(Error::DecompressionSizeExceeded { limit: 16 })),
             "Expected DecompressionSizeExceeded, got: {result:?}"
         );
 
-        // Decode with a sufficient limit should succeed
-        let decoded = GuestEnv::decode_with_limit(&compressed, 64 * 1024)?;
+        let opts = DecompressionOptions::default().with_max_size(64 * 1024);
+        let decoded = GuestEnv::decode_with(&compressed, &opts)?;
         assert_eq!(decoded, env);
 
         Ok(())
@@ -529,9 +538,9 @@ mod tests {
 
     #[test]
     fn test_encode_compressed_fallback_on_oversize() -> Result<(), Error> {
-        // Use a tiny max_size so the fallback triggers
         let env = GuestEnv::from_stdin(vec![0u8; 128]);
-        let encoded = env.encode_compressed_with_options(ZSTD_COMPRESSION_LEVEL, 16)?;
+        let opts = CompressionOptions::default().with_max_input_size(16);
+        let encoded = env.encode_compressed(&opts)?;
         assert_eq!(encoded[0], 1u8, "should fall back to V1 when payload exceeds max_size");
         let decoded = GuestEnv::decode(&encoded)?;
         assert_eq!(decoded, env);
