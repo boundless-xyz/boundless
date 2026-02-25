@@ -351,6 +351,17 @@ services:
   #     RPC_URL: ${RPC_URL_2}
   #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
+  broker-ui:
+    build:
+      context: .
+      dockerfile: dockerfiles/broker-ui.dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - broker-data:/db:ro
+    profiles: [broker]
+
   miner:
     build:
       context: .

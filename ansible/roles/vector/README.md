@@ -100,6 +100,31 @@ When `vector_track_bento_process` is enabled (default: `true`), Vector runs sche
 
 Checks run every `vector_bento_process_interval_secs` seconds (default: 60). Use these metrics for dashboards and alarms (e.g. bento\_active < 1 or bento\_containers below expected).
 
+### Kailua process and staleness tracking
+
+When `vector_track_kailua_process` is enabled (default: `false`), Vector runs scheduled checks for Kailua and publishes gauges to CloudWatch Metrics:
+
+- **kailua\_active**: `1` when the `kailua` systemd unit is active, `0` otherwise
+- **kailua\_log\_age\_secs**: Seconds since the last `kailua.service` log line. A high value (e.g. > 7200) means the prover has stalled.
+
+Checks run every `vector_kailua_process_interval_secs` seconds (default: 60).
+
+**Recommended CloudWatch Alarm** (stale prover detection):
+
+- **Metric**: `kailua_log_age_secs`, namespace `Boundless/SystemMetrics`
+- **Threshold**: `> 7200` (2 hours with no proof activity)
+- **Period**: 300 seconds, 2 consecutive datapoints
+- **Action**: SNS topic → email/Slack/PagerDuty
+
+Also add `kailua.service` to `vector_monitor_services` so journald logs are shipped to CloudWatch Logs. Example host vars:
+
+```yaml
+vector_monitor_services:
+  - bento.service
+  - kailua.service
+vector_track_kailua_process: true
+```
+
 ### Log error metrics
 
 When `vector_track_log_errors` is enabled (default: `true`), Vector counts journald log lines containing `"ERROR"` and publishes a counter to CloudWatch Metrics:

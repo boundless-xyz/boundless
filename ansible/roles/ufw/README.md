@@ -4,16 +4,16 @@ This Ansible role installs and configures UFW (Uncomplicated Firewall) on Ubuntu
 
 ## Features
 
-* Install UFW
-* Configure default policies (deny incoming, allow outgoing)
-* Allow specific ports
-* Rate limit ports (e.g., SSH brute-force protection)
-* Allow specific networks/IPs
-* Configure logging level
+- Install UFW
+- Configure default policies (deny incoming, allow outgoing)
+- Allow specific ports
+- Rate limit ports (e.g., SSH brute-force protection)
+- Allow specific networks/IPs
+- Configure logging level
 
 ## Requirements
 
-* Ubuntu 22.04 or 24.04
+- Ubuntu 22.04 or 24.04
 
 ## Role Variables
 

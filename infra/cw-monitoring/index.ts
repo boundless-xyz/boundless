@@ -7,7 +7,7 @@
 // Alarm thresholds are tuned per-node in nodeConfig.ts following the same
 // data-driven pattern as infra/indexer/alarmConfig.ts:
 // - period is always explicit (no hidden defaults)
-// - multi-severity escalation (SEV2 warning → SEV1 page)
+// - all alarms are SEV2 (warning/Slack)
 // - descriptions map back to the actual evaluation math
 //
 // Usage:
@@ -245,7 +245,8 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
 
     for (const lp of node.alarms.logPatterns) {
         const severity = lp.alarm?.severity;
-        const filterSuffix = severity ? `${lp.metricName}-${severity}` : lp.metricName;
+        const h = lp.alarm ? descHash(lp.alarm.description) : "";
+        const filterSuffix = severity ? `${lp.metricName}-${severity}-${h}` : lp.metricName;
         const filterName = `${prefix}-${filterSuffix}`;
         const metricFullName = `${node.name}-${filterSuffix}`;
 

@@ -62,6 +62,21 @@ sources:
     command: ["/bin/sh", "-c", "PATH=/usr/bin:/bin docker ps -q --filter label=com.docker.compose.project=bento 2>/dev/null | wc -l"]
 {% endif %}
 
+{% if vector_track_kailua_process | default(false) | bool %}
+  exec_kailua_active:
+    type: exec
+    mode: scheduled
+    scheduled:
+      exec_interval_secs: {{ vector_kailua_process_interval_secs | default(60) }}
+    command: ["/bin/sh", "-c", "/usr/bin/systemctl is-active kailua 2>/dev/null | grep -q active && echo 1 || echo 0"]
+  exec_kailua_log_age:
+    type: exec
+    mode: scheduled
+    scheduled:
+      exec_interval_secs: {{ vector_kailua_process_interval_secs | default(60) }}
+    command: ["/bin/sh", "-c", "l=$(journalctl -u kailua.service --no-pager -o short-unix -n 1 -q 2>/dev/null | awk '{print int($1)}'); n=$(date +%s); [ -z \"$l\" ] || [ \"$l\" -le 0 ] && echo 999999 || echo $((n-l))"]
+{% endif %}
+
 transforms:
   extract_message:
     type: remap
@@ -98,6 +113,35 @@ transforms:
         kind: absolute
 {% endif %}
 
+{% if vector_track_kailua_process | default(false) | bool %}
+  parse_kailua_active:
+    type: remap
+    inputs: ["exec_kailua_active"]
+    source: |
+      .value = to_int(string!(.message)) ?? 0
+  parse_kailua_log_age:
+    type: remap
+    inputs: ["exec_kailua_log_age"]
+    source: |
+      .value = to_int(string!(.message)) ?? 999999
+  kailua_active_gauge:
+    type: log_to_metric
+    inputs: ["parse_kailua_active"]
+    metrics:
+      - type: gauge
+        field: value
+        name: kailua_active
+        kind: absolute
+  kailua_log_age_gauge:
+    type: log_to_metric
+    inputs: ["parse_kailua_log_age"]
+    metrics:
+      - type: gauge
+        field: value
+        name: kailua_log_age_secs
+        kind: absolute
+{% endif %}
+
 {% if vector_track_log_errors | default(true) | bool %}
   filter_log_errors:
     type: filter
@@ -126,7 +170,7 @@ sinks:
       max_size: {{ vector_buffer_max_size }}
       when_full: "{{ vector_buffer_when_full }}"
 
-{% if vector_collect_host_metrics | bool or vector_track_bento_process | default(true) | bool or vector_track_log_errors | default(true) | bool %}
+{% if vector_collect_host_metrics | bool or vector_track_bento_process | default(true) | bool or vector_track_kailua_process | default(false) | bool or vector_track_log_errors | default(true) | bool %}
   cloudwatch_metrics:
     type: aws_cloudwatch_metrics
     inputs:
@@ -136,6 +180,10 @@ sinks:
 {% if vector_track_bento_process | default(true) | bool %}
       - bento_active_gauge
       - bento_containers_gauge
+{% endif %}
+{% if vector_track_kailua_process | default(false) | bool %}
+      - kailua_active_gauge
+      - kailua_log_age_gauge
 {% endif %}
 {% if vector_track_log_errors | default(true) | bool %}
       - bento_log_errors_counter
