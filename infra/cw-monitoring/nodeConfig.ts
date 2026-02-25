@@ -313,6 +313,21 @@ const ALARM_PROFILES: Record<string, SystemAlarms> = {
  * Resolve raw config entries into MonitoredNodes by attaching alarm presets.
  * Throws if an unknown alarmProfile is encountered.
  */
+/**
+ * Strip all SEV1 entries from alarms — staging should never page.
+ * We drop rather than downgrade because multi-severity escalation pairs
+ * share a metricName (SEV2 = warn, SEV1 = page). Downgrading to SEV2
+ * would create duplicate resource names.
+ */
+function dropSev1(alarms: NodeAlarms): void {
+    for (const key of ["bentoDown", "noContainers", "memoryHigh", "diskHigh"] as const) {
+        alarms[key] = alarms[key].filter(a => a.severity !== Severity.SEV1);
+    }
+    alarms.logPatterns = alarms.logPatterns.filter(
+        lp => !(lp.alarm && lp.alarm.severity === Severity.SEV1),
+    );
+}
+
 export function resolveNodes(entries: NodeConfigEntry[]): MonitoredNode[] {
     return entries.map(e => {
         const systemAlarms = ALARM_PROFILES[e.alarmProfile];
@@ -328,12 +343,19 @@ export function resolveNodes(entries: NodeConfigEntry[]): MonitoredNode[] {
             ? buildProverLogPatterns(e.proverType, e.chainId)
             : [];
 
+        const alarms: NodeAlarms = { ...systemAlarms, logPatterns };
+
+        // Staging should never page — drop all SEV1 entries.
+        if (e.alarmProfile === "staging") {
+            dropSev1(alarms);
+        }
+
         return {
             name: e.name,
             hostname: e.hostname,
             role: e.role,
             chainId: e.chainId,
-            alarms: { ...systemAlarms, logPatterns },
+            alarms,
         };
     });
 }
