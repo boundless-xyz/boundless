@@ -121,8 +121,8 @@ impl GuestEnv {
 
     /// Parse an encoded [GuestEnv] with version support.
     ///
-    /// For V2 (zstd-compressed) inputs, decompression is capped at [MAX_DECOMPRESSED_SIZE]
-    /// to protect against decompression bombs. Use [decode_with_limit] to override the limit.
+    /// For V2 (zstd-compressed) inputs, decompression is capped at `MAX_DECOMPRESSED_SIZE`
+    /// to protect against decompression bombs. Use [`Self::decode_with_limit`] to override the limit.
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         Self::decode_with_limit(bytes, MAX_DECOMPRESSED_SIZE)
     }
@@ -225,7 +225,7 @@ impl GuestEnvBuilder {
 
     /// Enable zstd compression for the encoded output.
     ///
-    /// When set, [build_vec] and [build_inline] will produce V2 (MessagePack + zstd) encoding.
+    /// When set, [`Self::build_vec`] and [`Self::build_inline`] will produce V2 (MessagePack + zstd) encoding.
     pub fn with_compression(mut self) -> Self {
         self.compressed = true;
         self
