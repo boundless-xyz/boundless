@@ -36,4 +36,4 @@ config:
   indexer:ALLOWED_IP_ADDRESSES:
     secure: v1:A5Mdx/awHcbvku4U:xbYCVcJVzRrHibChfMILD8Zeb+G9g6qNiTZMoZkR/OU=
   indexer:PREMIUM_API_KEY:
-    secure: v1:0Z3nQsyeMmX5hBjq:r44kbH/8JEUr5V4Ko593+55kd8M4reJpKc7siA==
+    secure: v1:DayfBza07lGx59Ea:dwYVBM9W86XG3yLjkEv+SPKvSJFj+dRoR7d6zw==
