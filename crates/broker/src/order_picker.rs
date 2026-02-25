@@ -272,6 +272,19 @@ where
                         .context("Failed to add skipped order to database")?;
                     Ok(false)
                 }
+                Err(
+                    OrderPricingError::FetchInputErr(ref inner)
+                    | OrderPricingError::FetchImageErr(ref inner),
+                ) => {
+                    tracing::info!(
+                        "Skipping order {order_id}: failed to fetch input/image (this is expected for private inputs that require specific storage credentials): {inner:#}"
+                    );
+                    self.db
+                        .insert_skipped_request(&order)
+                        .await
+                        .context("Failed to skip failed priced order")?;
+                    Ok(false)
+                }
                 Err(err) => {
                     tracing::warn!("Failed to price order {order_id}: {err}");
                     self.db
