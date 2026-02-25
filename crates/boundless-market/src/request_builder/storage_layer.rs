@@ -14,7 +14,10 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::RequestInput, input::GuestEnv, storage::StorageUploader, util::NotProvided,
+    contracts::RequestInput,
+    input::{CompressionOptions, GuestEnv},
+    storage::StorageUploader,
+    util::NotProvided,
     StandardUploader,
 };
 use anyhow::{bail, Context};
@@ -34,12 +37,10 @@ pub struct StorageLayerConfig {
     #[builder(setter(into), default = "Some(2048)")]
     pub inline_input_max_bytes: Option<usize>,
 
-    /// When true, encode inputs using zstd compression (V2 encoding).
-    ///
-    /// This can significantly reduce the size of large inputs, both for inline
-    /// data and for uploaded data.
-    #[builder(default = "false")]
-    pub compress_input: bool,
+    /// Compression options for encoding inputs. When `Some`, inputs are zstd-compressed (V2).
+    /// When `None` (default), uncompressed V1 encoding is used.
+    #[builder(default)]
+    pub compression: Option<CompressionOptions>,
 }
 
 /// A layer responsible for storing programs and inputs.
@@ -71,10 +72,11 @@ impl StorageLayerConfig {
 
     /// Encode the guest environment according to the compression config.
     fn encode_env(&self, env: &GuestEnv) -> anyhow::Result<Vec<u8>> {
-        if self.compress_input {
-            env.encode_compressed().context("failed to compress and encode guest environment")
-        } else {
-            env.encode().context("failed to encode guest environment")
+        match &self.compression {
+            Some(opts) => env
+                .encode_compressed_with_options(opts.level, opts.max_input_size)
+                .context("failed to compress and encode guest environment"),
+            None => env.encode().context("failed to encode guest environment"),
         }
     }
 }
