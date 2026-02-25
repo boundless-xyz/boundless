@@ -23,7 +23,7 @@ pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
-    OrderPricingPriority, ProverConfig,
+    OrderPricingPriority, PricingOverrides, ProverConfig,
 };
 
 use crate::{
@@ -1011,8 +1011,11 @@ pub trait OrderPricingContext {
                 journal_len,
             })
         } else {
-            // For lockable orders, evaluate based on ETH price
-            let config_min_mcycle_price_amount = &config.min_mcycle_price;
+            // For lockable orders, evaluate based on ETH price.
+            let config_min_mcycle_price_amount = config
+                .pricing_overrides
+                .resolve(&order.request.client_address(), &order.request.requirements.selector)
+                .unwrap_or(&config.min_mcycle_price);
 
             // Convert configured price to ETH (i.e., handles USD via price oracle)
             let config_min_mcycle_price_eth =
@@ -1126,7 +1129,10 @@ pub trait OrderPricingContext {
         let lock_expiry = order.request.lock_expires_at();
         let order_expiry = order.request.expires_at();
         let config = self.market_config()?;
-        let min_mcycle_price_amount = &config.min_mcycle_price;
+        let min_mcycle_price_amount = config
+            .pricing_overrides
+            .resolve(&order.request.client_address(), &order.request.requirements.selector)
+            .unwrap_or(&config.min_mcycle_price);
 
         // Convert configured price to ETH (handles USD via price oracle)
         let min_mcycle_price_eth = self.convert_to_eth(min_mcycle_price_amount).await?;
