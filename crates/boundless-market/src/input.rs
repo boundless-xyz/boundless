@@ -288,27 +288,8 @@ impl GuestEnvBuilder {
     /// Enable zstd compression with default options for the encoded output.
     ///
     /// When set, [`Self::build_vec`] and [`Self::build_inline`] will produce V2 (MessagePack + zstd) encoding.
-    pub fn with_compression(self) -> Self {
-        let opts = self.compression.unwrap_or_default();
+    pub fn with_compression(self, opts: CompressionOptions) -> Self {
         Self { compression: Some(opts), ..self }
-    }
-
-    /// Set a custom zstd compression level (default: 10).
-    ///
-    /// Higher values produce better compression at the cost of slower encoding.
-    /// Enables compression if not already enabled.
-    pub fn with_compression_level(self, level: i32) -> Self {
-        let opts = self.compression.unwrap_or_default();
-        Self { compression: Some(CompressionOptions { level, ..opts }), ..self }
-    }
-
-    /// Set a custom maximum input size for compressed encoding (default: 256 MiB).
-    ///
-    /// If the serialized payload exceeds this limit, encoding falls back to uncompressed V1.
-    /// Enables compression if not already enabled.
-    pub fn with_max_compressed_input_size(self, max: usize) -> Self {
-        let opts = self.compression.unwrap_or_default();
-        Self { compression: Some(CompressionOptions { max_input_size: max, ..opts }), ..self }
     }
 
     /// Build the [GuestEnv] for inclusion in a proof request.
@@ -511,7 +492,10 @@ mod tests {
 
     #[test]
     fn test_builder_with_compression() -> Result<(), Error> {
-        let bytes = GuestEnv::builder().write_slice(&[1u8, 2, 3]).with_compression().build_vec()?;
+        let bytes = GuestEnv::builder()
+            .write_slice(&[1u8, 2, 3])
+            .with_compression(Default::default())
+            .build_vec()?;
         assert_eq!(bytes[0], 2u8); // V2
         let decoded = GuestEnv::decode(&bytes)?;
         assert_eq!(decoded.stdin, vec![1, 2, 3]);
@@ -528,8 +512,10 @@ mod tests {
     #[test]
     fn test_builder_custom_compression_level() -> Result<(), Error> {
         let data = vec![0x42u8; 1_000];
-        let bytes =
-            GuestEnv::builder().write_slice(&data).with_compression_level(19).build_vec()?;
+        let bytes = GuestEnv::builder()
+            .write_slice(&data)
+            .with_compression(CompressionOptions::default().with_level(19))
+            .build_vec()?;
         assert_eq!(bytes[0], 2u8); // V2
         let decoded = GuestEnv::decode(&bytes)?;
         assert_eq!(decoded.stdin, data);
@@ -552,8 +538,7 @@ mod tests {
         let data = vec![0u8; 128];
         let bytes = GuestEnv::builder()
             .write_slice(&data)
-            .with_compression()
-            .with_max_compressed_input_size(16)
+            .with_compression(CompressionOptions::default().with_max_input_size(16))
             .build_vec()?;
         assert_eq!(bytes[0], 1u8, "should fall back to V1 when exceeding custom limit");
         let decoded = GuestEnv::decode(&bytes)?;
