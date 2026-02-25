@@ -31,4 +31,4 @@ ufw_logging: low
 # When true, add NAT and FORWARD rules so Docker containers (with daemon "iptables": false) can reach the internet
 ufw_docker_nat_enabled: true
 # Docker default bridge subnet (only used when ufw_docker_nat_enabled is true)
-ufw_docker_subnet: "172.17.0.0/16"
+ufw_docker_subnet: "172.0.0.0/8"

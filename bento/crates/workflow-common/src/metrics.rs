@@ -36,12 +36,6 @@ lazy_static! {
         &["task_type"]
     ).unwrap();
 
-    pub static ref TASK_PROCESSING_DURATION: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("task_processing_duration_seconds", "Duration of task processing")
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
-        &["task_type", "status"]
-    ).unwrap();
-
     // Error metrics
     pub static ref EXECUTION_ERRORS: IntCounterVec = IntCounterVec::new(
         Opts::new("errors_total", "Total number of execution errors by type"),
@@ -99,15 +93,6 @@ lazy_static! {
         "db_connection_pool_active", "Current number of active database connections"
     ).unwrap();
 
-    // Queue metrics
-    pub static ref SEGMENT_QUEUE_SIZE: IntGauge = IntGauge::new(
-        "segment_queue_size", "Current size of segment queue"
-    ).unwrap();
-
-    pub static ref TASK_QUEUE_SIZE_GAUGE: IntGauge = IntGauge::new(
-        "task_queue_size", "Current size of task queue"
-    ).unwrap();
-
     // Assumption metrics
     pub static ref ASSUMPTION_COUNT: IntCounter = IntCounter::new(
         "assumptions_total", "Total number of assumptions processed"
@@ -117,18 +102,6 @@ lazy_static! {
         HistogramOpts::new("assumption_processing_duration_seconds", "Duration of assumption processing")
             .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
         &["assumption_type", "status"]
-    ).unwrap();
-
-    // Resolve POVW specific metrics
-    pub static ref POVW_RESOLVE_DURATION: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("povw_resolve_duration_seconds", "Duration of POVW resolve operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0]),
-        &["operation_type", "status"]
-    ).unwrap();
-
-    pub static ref POVW_RESOLVE_OPERATIONS: IntCounterVec = IntCounterVec::new(
-        Opts::new("povw_resolve_operations_total", "Total number of POVW resolve operations by type"),
-        &["operation_type", "status"]
     ).unwrap();
 
     // General task metrics
@@ -176,7 +149,6 @@ pub mod helpers {
         register_or_log("user_cycles_total", &*USER_CYCLES);
         register_or_log("total_cycles_total", &*TOTAL_CYCLES);
         register_or_log("tasks_created_total", &*TASKS_CREATED);
-        register_or_log("task_processing_duration_seconds", &*TASK_PROCESSING_DURATION);
         register_or_log("errors_total", &*EXECUTION_ERRORS);
         register_or_log("guest_faults_total", &*GUEST_FAULTS);
         register_or_log("s3_operations_total", &*S3_OPERATIONS);
@@ -188,12 +160,8 @@ pub mod helpers {
         register_or_log("db_connection_pool_size", &*DB_CONNECTION_POOL_SIZE);
         register_or_log("db_connection_pool_idle", &*DB_CONNECTION_POOL_IDLE);
         register_or_log("db_connection_pool_active", &*DB_CONNECTION_POOL_ACTIVE);
-        register_or_log("segment_queue_size", &*SEGMENT_QUEUE_SIZE);
-        register_or_log("task_queue_size", &*TASK_QUEUE_SIZE_GAUGE);
         register_or_log("assumptions_total", &*ASSUMPTION_COUNT);
         register_or_log("assumption_processing_duration_seconds", &*ASSUMPTION_PROCESSING_DURATION);
-        register_or_log("povw_resolve_duration_seconds", &*POVW_RESOLVE_DURATION);
-        register_or_log("povw_resolve_operations_total", &*POVW_RESOLVE_OPERATIONS);
         register_or_log("task_duration_seconds", &*TASK_DURATION);
         register_or_log("task_operations_total", &*TASK_OPERATIONS);
         register_or_log("completed_jobs_total", &*COMPLETED_JOBS_METRICS);
