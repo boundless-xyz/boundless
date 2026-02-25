@@ -56,6 +56,7 @@ export = () => {
   const povwAccountingAddress = config.get('POVW_ACCOUNTING_ADDRESS');
   const indexerApiDomain = config.get('INDEXER_API_DOMAIN');
   const allowedIpAddresses = config.getSecret('ALLOWED_IP_ADDRESSES');
+  const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
 
   const shouldDeployMarket = !!boundlessAddress && !!startBlock;
   const shouldDeployRewards = !!vezkcAddress && !!zkcAddress && !!povwAccountingAddress;
@@ -189,6 +190,7 @@ export = () => {
       databaseVersion: infra.databaseVersion,
       proxySecret,
       allowedIpAddresses,
+      premiumApiKey,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
