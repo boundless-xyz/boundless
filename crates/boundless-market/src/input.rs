@@ -24,10 +24,10 @@ use tracing::warn;
 use crate::contracts::RequestInput;
 
 /// Default zstd compression level for V2 encoding.
-const ZSTD_COMPRESSION_LEVEL: i32 = 10;
+pub const ZSTD_COMPRESSION_LEVEL: i32 = 10;
 
 /// Maximum decompressed size for V2 inputs (256 MiB).
-const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
+pub const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 
 // Input version.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -215,7 +215,7 @@ impl From<GuestEnvBuilder> for GuestEnv {
 #[derive(Clone, Debug)]
 pub struct CompressionOptions {
     /// Zstd compression level. Higher values produce better compression at the cost of slower
-    /// encoding. Defaults to [`ZSTD_COMPRESSION_LEVEL`] (10).
+    /// encoding. Defaults to [`ZSTD_COMPRESSION_LEVEL`].
     pub level: i32,
 
     /// Maximum serialized input size before compression falls back to uncompressed V1.

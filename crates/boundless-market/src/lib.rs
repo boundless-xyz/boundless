@@ -67,7 +67,10 @@ pub use deployments::Deployment;
 #[cfg(not(target_os = "zkvm"))]
 pub mod input;
 #[cfg(not(target_os = "zkvm"))]
-pub use input::{CompressionOptions, DecompressionOptions, GuestEnv, GuestEnvBuilder};
+pub use input::{
+    CompressionOptions, DecompressionOptions, GuestEnv, GuestEnvBuilder, MAX_DECOMPRESSED_SIZE,
+    ZSTD_COMPRESSION_LEVEL,
+};
 
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
