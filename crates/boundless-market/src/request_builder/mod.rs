@@ -773,11 +773,15 @@ impl ParameterizationMode {
     /// The ramp up start is calculated as the current timestamp plus the base ramp up delay
     /// or the required executor time, whichever is greater.
     fn recommended_ramp_up_start(&self, cycle_count: Option<u64>) -> u64 {
+        const MAX_RAMP_UP_DELAY: u64 = 3600; // 1 hour
         cycle_count
             .filter(|&count| count > 0)
             .map(|cycle_count| {
                 now_timestamp()
-                    + self.base_ramp_up_delay.max(self.executor_time(Some(cycle_count)) as u64)
+                    + self
+                        .base_ramp_up_delay
+                        .max(self.executor_time(Some(cycle_count)) as u64)
+                        .min(MAX_RAMP_UP_DELAY)
             })
             .unwrap_or(now_timestamp() + self.base_ramp_up_delay)
     }

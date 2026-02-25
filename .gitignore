@@ -73,3 +73,5 @@ sccache-v0.*
 
 # Ignore generated docs
 /docs
+# Nightshift plan artifacts (keep out of version control)
+.nightshift-plan
