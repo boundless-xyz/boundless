@@ -3838,7 +3838,7 @@ mod tests {
         assert_eq!(page1.len(), 2);
         assert!(cursor.is_some(), "should have a next page cursor");
 
-        let (page2, cursor2) = db
+        let (page2, _cursor2) = db
             .list_requests_by_requestor(addr, cursor, 2, RequestSortField::CreatedAt)
             .await
             .unwrap();
