@@ -113,6 +113,7 @@ tracing-test = { version = "0.2", features = ["no-env-filter"] }
 url = "2.5"
 utoipa = "5.2"
 uuid = { version = "1.7", features = ["v4"] }
+zstd = "0.13"
 
 # Apply some optimizations on dev profile, to speed up tests.
 [profile.dev]
