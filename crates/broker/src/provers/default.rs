@@ -17,10 +17,13 @@ use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 use crate::config::ProverConfig;
 use anyhow::{anyhow, Context, Result as AnyhowResult};
 use async_trait::async_trait;
-use boundless_market::prover_utils::prover::{ExecutorResp, ProofResult, Prover, ProverError};
+use boundless_market::prover_utils::prover::{
+    ExecutorResp, ProofResult, Prover, ProverError, ProverReceipt,
+};
 use risc0_zkvm::{
-    default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
-    VERSION,
+    default_executor, default_prover,
+    sha::{Digest, Digestible},
+    ExecutorEnv, ProveInfo, ProverOpts, Receipt, ReceiptClaim, SessionInfo, VERSION,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -320,12 +323,12 @@ impl Prover for DefaultProver {
         Ok(())
     }
 
-    async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+    async fn get_receipt(&self, proof_id: &str) -> Result<Option<ProverReceipt>, ProverError> {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
-        Ok(proof_data.receipt.clone())
+        Ok(proof_data.receipt.as_ref().map(|r| ProverReceipt::Risc0(r.clone())))
     }
 
     async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
@@ -341,14 +344,15 @@ impl Prover for DefaultProver {
         let proof_data = proofs
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
-        Ok(proof_data.receipt.as_ref().map(|receipt| receipt.journal.bytes.clone()))
+        Ok(proof_data.receipt.as_ref().map(|r| r.journal.bytes.clone()))
     }
 
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
-        let receipt = self
+        let prover_receipt = self
             .get_receipt(proof_id)
             .await?
             .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {proof_id}")))?;
+        let receipt = prover_receipt.into_risc0()?;
 
         let proof_id = format!("snark_{}", Uuid::new_v4());
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
@@ -411,10 +415,11 @@ impl Prover for DefaultProver {
 
     async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
         tracing::info!("Compressing proof to blake3 groth16 {proof_id}");
-        let receipt = self
+        let prover_receipt = self
             .get_receipt(proof_id)
             .await?
             .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {proof_id}")))?;
+        let receipt = prover_receipt.into_risc0()?;
         if receipt.journal.bytes.len() != 32 {
             return Err(ProverError::UnexpectedError(anyhow!(
                 "Compressing proof to blake3 groth16 requires a journal of 32 bytes, got {}",
@@ -458,6 +463,18 @@ impl Prover for DefaultProver {
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("blake3 groth16 proof {proof_id}")))?;
         Ok(proof_data.compressed_receipt.as_ref().cloned())
+    }
+
+    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
+        Ok(risc0_zkvm::compute_image_id(elf)?)
+    }
+
+    async fn compute_claim_digest(
+        &self,
+        image_id: Digest,
+        journal: &[u8],
+    ) -> Result<Digest, ProverError> {
+        Ok(ReceiptClaim::ok(image_id, journal.to_vec()).digest())
     }
 }
 
@@ -535,8 +552,8 @@ mod tests {
         let journal = prover.get_journal(&result.id).await.unwrap().unwrap();
         assert_eq!(journal, input_data);
 
-        // Fetch the receipt
-        let receipt = prover.get_receipt(&result.id).await.unwrap().unwrap();
+        // Fetch the receipt and verify
+        let receipt = prover.get_receipt(&result.id).await.unwrap().unwrap().into_risc0().unwrap();
         receipt.verify(image_id).unwrap();
     }
 

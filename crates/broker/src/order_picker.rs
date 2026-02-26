@@ -879,7 +879,7 @@ pub(crate) mod tests {
     };
     use price_oracle::TradingPair;
     use risc0_ethereum_contracts::selector::Selector;
-    use risc0_zkvm::{sha::Digest, Receipt};
+    use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     /// Create a test price oracle with static prices for ETH and ZKC
@@ -2399,7 +2399,10 @@ pub(crate) mod tests {
             self.default_prover.cancel_stark(proof_id).await
         }
 
-        async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+        async fn get_receipt(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<crate::provers::ProverReceipt>, ProverError> {
             self.default_prover.get_receipt(proof_id).await
         }
 
@@ -2433,6 +2436,21 @@ pub(crate) mod tests {
             proof_id: &str,
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_blake3_groth16_receipt(proof_id).await
+        }
+
+        async fn compute_image_id(
+            &self,
+            elf: &[u8],
+        ) -> Result<risc0_zkvm::sha::Digest, ProverError> {
+            self.default_prover.compute_image_id(elf).await
+        }
+
+        async fn compute_claim_digest(
+            &self,
+            image_id: risc0_zkvm::sha::Digest,
+            journal: &[u8],
+        ) -> Result<risc0_zkvm::sha::Digest, ProverError> {
+            self.default_prover.compute_claim_digest(image_id, journal).await
         }
     }
 

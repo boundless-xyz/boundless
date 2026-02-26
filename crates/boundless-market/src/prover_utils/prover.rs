@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use risc0_zkvm::Receipt;
+use risc0_zkvm::sha::{Digest, Digestible};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -81,6 +81,51 @@ pub struct ProofResult {
     pub elapsed_time: f64,
 }
 
+/// Backend-agnostic receipt returned by [`Prover::get_receipt`].
+///
+/// Each variant wraps a backend-specific receipt type. Callers can use the
+/// convenience methods for common operations, or pattern-match for
+/// backend-specific access.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum ProverReceipt {
+    /// A receipt from a RISC Zero zkVM prover.
+    Risc0(risc0_zkvm::Receipt),
+}
+
+impl ProverReceipt {
+    /// Get the journal bytes from the receipt.
+    pub fn journal(&self) -> &[u8] {
+        match self {
+            Self::Risc0(receipt) => &receipt.journal.bytes,
+        }
+    }
+
+    /// Get the claim digest from the receipt.
+    pub fn claim_digest(&self) -> Result<Digest, ProverError> {
+        match self {
+            Self::Risc0(receipt) => {
+                let claim = receipt.claim().map_err(|e| {
+                    ProverError::ProverInternalError(format!("Failed to get claim: {e}"))
+                })?;
+                Ok(claim
+                    .value()
+                    .map_err(|e| {
+                        ProverError::ProverInternalError(format!("Failed to get claim value: {e}"))
+                    })?
+                    .digest())
+            }
+        }
+    }
+
+    /// Extract the inner RISC Zero receipt, or return an error for other variants.
+    pub fn into_risc0(self) -> Result<risc0_zkvm::Receipt, ProverError> {
+        match self {
+            Self::Risc0(receipt) => Ok(receipt),
+        }
+    }
+}
+
 /// Trait for prover implementations.
 ///
 /// This trait defines the interface for zkVM proving operations including
@@ -137,7 +182,7 @@ pub trait Prover {
 
     /// Get the receipt for a completed proof.
     #[allow(unused)]
-    async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError>;
+    async fn get_receipt(&self, proof_id: &str) -> Result<Option<ProverReceipt>, ProverError>;
 
     /// Get the journal from a preflight execution.
     async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
@@ -164,6 +209,16 @@ pub trait Prover {
         &self,
         proof_id: &str,
     ) -> Result<Option<Vec<u8>>, ProverError>;
+
+    /// Compute the image ID for the given ELF binary.
+    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError>;
+
+    /// Compute the claim digest for the given image ID and journal.
+    async fn compute_claim_digest(
+        &self,
+        image_id: Digest,
+        journal: &[u8],
+    ) -> Result<Digest, ProverError>;
 }
 
 /// Type alias for a boxed Prover trait object.

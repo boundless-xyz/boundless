@@ -257,14 +257,11 @@ where
             .get_receipt(assessor_proof_id)
             .await
             .context("Failed to get assessor receipt")?
-            .context("Assessor receipt missing")?;
-        let assessor_claim_digest = assessor_receipt
-            .claim()
-            .with_context(|| format!("Receipt for assessor {assessor_proof_id} missing claim"))?
-            .value()
-            .with_context(|| format!("Receipt for assessor {assessor_proof_id} claims pruned"))?
-            .digest();
-        let assessor_journal = AssessorJournal::abi_decode(&assessor_receipt.journal.bytes)
+            .with_context(|| format!("Assessor receipt missing for {assessor_proof_id}"))?;
+        let assessor_claim_digest =
+            assessor_receipt.claim_digest().context("Failed to get assessor claim digest")?;
+        let assessor_journal_bytes = assessor_receipt.journal().to_vec();
+        let assessor_journal = AssessorJournal::abi_decode(&assessor_journal_bytes)
             .context("Failed to decode assessor journal for {assessor_proof_id}")?;
 
         let inclusion_params =
@@ -825,7 +822,8 @@ mod tests {
 
         let echo_proof =
             prover.prove_and_monitor_stark(&echo_id_str, &input_id, vec![]).await.unwrap();
-        let echo_receipt = prover.get_receipt(&echo_proof.id).await.unwrap().unwrap();
+        let echo_receipt =
+            prover.get_receipt(&echo_proof.id).await.unwrap().unwrap().into_risc0().unwrap();
 
         let order_request = ProofRequest::new(
             RequestId::new(customer_addr, market_customer.index_from_nonce().await.unwrap()),
@@ -870,7 +868,8 @@ mod tests {
             .prove_and_monitor_stark(&assessor_id_str, &assessor_input, vec![echo_proof.id.clone()])
             .await
             .unwrap();
-        let assessor_receipt = prover.get_receipt(&assessor_proof.id).await.unwrap().unwrap();
+        let assessor_receipt =
+            prover.get_receipt(&assessor_proof.id).await.unwrap().unwrap().into_risc0().unwrap();
 
         // Build and finalize the aggregation in one execution.
         let set_builder_input = prover

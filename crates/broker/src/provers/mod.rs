@@ -24,7 +24,7 @@ pub use default::DefaultProver;
 
 // Re-export types from boundless_market::prover_utils::prover
 pub use boundless_market::prover_utils::prover::{
-    ExecutorResp, ProofResult, Prover, ProverError, ProverObj,
+    ExecutorResp, ProofResult, Prover, ProverError, ProverObj, ProverReceipt,
 };
 
 /// Encode inputs for Prover::upload_slice()

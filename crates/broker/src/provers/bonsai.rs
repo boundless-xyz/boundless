@@ -20,7 +20,10 @@ use bonsai_sdk::{
     non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id as Blake3Groth16Id, SnarkId},
     SdkErr,
 };
-use risc0_zkvm::Receipt;
+use risc0_zkvm::{
+    sha::{Digest, Digestible},
+    Receipt, ReceiptClaim,
+};
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
@@ -532,15 +535,19 @@ impl Prover for Bonsai {
         }
     }
 
-    async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+    async fn get_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<super::ProverReceipt>, ProverError> {
         let session_id = SessionId { uuid: proof_id.into() };
-        let receipt = self
+        let bytes = self
             .retry(
                 || async { self.client.receipt_download(&session_id).await.map_err(sdk_err) },
                 "get receipt",
             )
             .await?;
-        Ok(Some(bincode::deserialize(&receipt)?))
+        let receipt: Receipt = bincode::deserialize(&bytes)?;
+        Ok(Some(super::ProverReceipt::Risc0(receipt)))
     }
 
     async fn get_preflight_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
@@ -555,12 +562,7 @@ impl Prover for Bonsai {
     }
 
     async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        let receipt = self.get_receipt(proof_id).await?;
-        let Some(receipt) = receipt else {
-            return Ok(None);
-        };
-
-        Ok(Some(receipt.journal.bytes))
+        Ok(self.get_receipt(proof_id).await?.map(|r| r.journal().to_vec()))
     }
 
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
@@ -646,6 +648,18 @@ impl Prover for Bonsai {
             .await?;
 
         Ok(Some(receipt_buf))
+    }
+
+    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
+        Ok(risc0_zkvm::compute_image_id(elf)?)
+    }
+
+    async fn compute_claim_digest(
+        &self,
+        image_id: Digest,
+        journal: &[u8],
+    ) -> Result<Digest, ProverError> {
+        Ok(ReceiptClaim::ok(image_id, journal.to_vec()).digest())
     }
 }
 

@@ -458,13 +458,11 @@ impl OrderFulfiller {
                 tracing::debug!("Proving order 0x{:x}", req.id);
                 let proof_id =
                     self.prove_stark(&order_image_id_str, order_input.clone(), vec![]).await?;
-                let order_receipt = self
+                let order_journal = self
                     .prover
-                    .get_receipt(&proof_id)
+                    .get_journal(&proof_id)
                     .await?
-                    .ok_or_else(|| anyhow::anyhow!("Order receipt not found"))?;
-
-                let order_journal = order_receipt.journal.bytes.clone();
+                    .ok_or_else(|| anyhow::anyhow!("Order journal not found"))?;
                 let order_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
                     order_image_id,
                     order_journal.clone(),
@@ -510,12 +508,11 @@ impl OrderFulfiller {
 
         tracing::debug!("Proving assessor");
         let assessor_receipt_id = self.assessor(fills.clone(), proof_ids.clone()).await?;
-        let assessor_receipt = self
+        let assessor_journal = self
             .prover
-            .get_receipt(&assessor_receipt_id)
+            .get_journal(&assessor_receipt_id)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("Assessor receipt not found"))?;
-        let assessor_journal = assessor_receipt.journal.bytes.clone();
+            .ok_or_else(|| anyhow::anyhow!("Assessor journal not found"))?;
         let assessor_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
             self.assessor_image_id,
             assessor_journal.clone(),

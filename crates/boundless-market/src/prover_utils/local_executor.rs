@@ -17,7 +17,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use moka::future::Cache;
 use moka::policy::EvictionPolicy;
-use risc0_zkvm::Receipt;
+use risc0_zkvm::sha::Digest;
 use risc0_zkvm::{default_executor, ExecutorEnv, SessionInfo};
 use sha2::{Digest as Sha2Digest, Sha256};
 
@@ -271,7 +271,10 @@ impl Prover for LocalExecutor {
     }
 
     #[allow(unused)]
-    async fn get_receipt(&self, _proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+    async fn get_receipt(
+        &self,
+        _proof_id: &str,
+    ) -> Result<Option<super::prover::ProverReceipt>, ProverError> {
         Err(ProverError::ProverInternalError(
             "LocalExecutor does not support receipts. Use for preflight only.".to_string(),
         ))
@@ -327,6 +330,19 @@ impl Prover for LocalExecutor {
             "LocalExecutor does not support Blake3 Groth16 receipts. Use for preflight only."
                 .to_string(),
         ))
+    }
+
+    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
+        Ok(risc0_zkvm::compute_image_id(elf)?)
+    }
+
+    async fn compute_claim_digest(
+        &self,
+        image_id: Digest,
+        journal: &[u8],
+    ) -> Result<Digest, ProverError> {
+        use risc0_zkvm::{sha::Digestible, ReceiptClaim};
+        Ok(ReceiptClaim::ok(image_id, journal.to_vec()).digest())
     }
 }
 

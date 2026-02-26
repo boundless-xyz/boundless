@@ -97,12 +97,14 @@ impl AggregatorService {
     }
 
     async fn validate_and_extract_claim(&self, proof_id: &str) -> Result<ReceiptClaim> {
-        let receipt = self
+        let prover_receipt = self
             .prover
             .get_receipt(proof_id)
             .await
             .with_context(|| format!("Failed to fetch receipt for {proof_id}"))?
             .with_context(|| format!("Receipt not found for {proof_id}"))?;
+
+        let receipt = prover_receipt.into_risc0()?;
 
         receipt
             .verify_integrity_with_context(&Default::default())
@@ -216,7 +218,7 @@ impl AggregatorService {
                     proof_res.elapsed_time
                 );
 
-                let receipt = self
+                let prover_receipt = self
                     .prover
                     .get_receipt(&proof_res.id)
                     .await
@@ -231,6 +233,8 @@ impl AggregatorService {
                             proof_res.id
                         ))
                     })?;
+
+                let receipt = prover_receipt.into_risc0()?;
 
                 receipt.verify(self.set_builder_guest_id).map_err(|e| {
                     provers::ProverError::ProverInternalError(format!(
@@ -252,7 +256,7 @@ impl AggregatorService {
             .map(|s| s.claim_digests.clone())
             .unwrap_or_default()
             .into_iter()
-            .chain(claims.into_iter().map(|claim| claim.digest()))
+            .chain(claims.iter().map(|claim| claim.digest()))
             .collect();
 
         Ok(AggregationState {
