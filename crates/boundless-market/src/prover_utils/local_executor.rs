@@ -335,7 +335,6 @@ impl Prover for LocalExecutor {
     async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
         Ok(risc0_zkvm::compute_image_id(elf)?)
     }
-
 }
 
 #[cfg(test)]

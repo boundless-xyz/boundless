@@ -20,10 +20,7 @@ use bonsai_sdk::{
     non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id as Blake3Groth16Id, SnarkId},
     SdkErr,
 };
-use risc0_zkvm::{
-    sha::Digest,
-    Receipt,
-};
+use risc0_zkvm::{sha::Digest, Receipt};
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
@@ -653,7 +650,6 @@ impl Prover for Bonsai {
     async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
         Ok(risc0_zkvm::compute_image_id(elf)?)
     }
-
 }
 
 async fn create_pg_pool() -> Result<sqlx::PgPool, sqlx::Error> {

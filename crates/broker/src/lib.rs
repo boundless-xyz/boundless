@@ -659,10 +659,8 @@ where
         };
 
         // Final verification - ensure we have the correct image
-        let computed_id = prover
-            .compute_image_id(&program_bytes)
-            .await
-            .context("Failed to compute image ID")?;
+        let computed_id =
+            prover.compute_image_id(&program_bytes).await.context("Failed to compute image ID")?;
 
         if computed_id != image_id {
             anyhow::bail!(

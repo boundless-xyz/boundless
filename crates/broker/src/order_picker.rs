@@ -2444,7 +2444,6 @@ pub(crate) mod tests {
         ) -> Result<risc0_zkvm::sha::Digest, ProverError> {
             self.default_prover.compute_image_id(elf).await
         }
-
     }
 
     #[tokio::test]
