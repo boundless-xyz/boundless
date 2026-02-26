@@ -2445,13 +2445,6 @@ pub(crate) mod tests {
             self.default_prover.compute_image_id(elf).await
         }
 
-        async fn compute_claim_digest(
-            &self,
-            image_id: risc0_zkvm::sha::Digest,
-            journal: &[u8],
-        ) -> Result<risc0_zkvm::sha::Digest, ProverError> {
-            self.default_prover.compute_claim_digest(image_id, journal).await
-        }
     }
 
     #[tokio::test]

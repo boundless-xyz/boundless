@@ -30,7 +30,7 @@ use boundless_market::contracts::{eip712_domain, ProofRequest};
 use boundless_market::storage::StandardDownloader;
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use clap::Parser;
-use risc0_zkvm::compute_image_id;
+
 use std::sync::Arc;
 use url::Url;
 
@@ -114,12 +114,13 @@ async fn main() -> Result<()> {
     let assessor_program = fetch_url(assessor_url, args.pinata_jwt).await?;
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
 
-    // Compute image IDs
-    let set_builder_image_id = compute_image_id(&set_builder_program)?;
-    let assessor_image_id = compute_image_id(&assessor_program)?;
-
     // Create prover and upload images
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
+
+    // Compute image IDs
+    let set_builder_image_id = prover.compute_image_id(&set_builder_program).await?;
+    let assessor_image_id = prover.compute_image_id(&assessor_program).await?;
+
     prover
         .upload_image(&set_builder_image_id.to_string(), set_builder_program)
         .await

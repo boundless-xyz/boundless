@@ -133,7 +133,9 @@ pub async fn upload_image_uri(
         .await
         .with_context(|| format!("Failed to fetch image URI: {}", request.imageUrl))?;
 
-    let image_id = risc0_zkvm::compute_image_id(&image_data)
+    let image_id = prover
+        .compute_image_id(&image_data)
+        .await
         .context(format!("Failed to compute image ID for request {:x}", request.id))?;
 
     if let Some(ref image_id_str) = image_id_str {

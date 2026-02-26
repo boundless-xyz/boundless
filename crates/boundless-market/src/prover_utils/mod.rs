@@ -349,8 +349,10 @@ async fn upload_image_with_downloader(
         .await
         .with_context(|| format!("Failed to fetch image URI: {image_url}"))?;
 
-    let image_id =
-        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
+    let image_id = prover
+        .compute_image_id(&image_data)
+        .await
+        .context("Failed to compute image ID")?;
 
     if let Some(ref expected_image_id_str) = image_id_str {
         let expected_image_id = risc0_zkvm::sha::Digest::from_hex(expected_image_id_str)?;

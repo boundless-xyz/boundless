@@ -336,14 +336,6 @@ impl Prover for LocalExecutor {
         Ok(risc0_zkvm::compute_image_id(elf)?)
     }
 
-    async fn compute_claim_digest(
-        &self,
-        image_id: Digest,
-        journal: &[u8],
-    ) -> Result<Digest, ProverError> {
-        use risc0_zkvm::{sha::Digestible, ReceiptClaim};
-        Ok(ReceiptClaim::ok(image_id, journal.to_vec()).digest())
-    }
 }
 
 #[cfg(test)]

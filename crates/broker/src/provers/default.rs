@@ -22,8 +22,8 @@ use boundless_market::prover_utils::prover::{
 };
 use risc0_zkvm::{
     default_executor, default_prover,
-    sha::{Digest, Digestible},
-    ExecutorEnv, ProveInfo, ProverOpts, Receipt, ReceiptClaim, SessionInfo, VERSION,
+    sha::Digest,
+    ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo, VERSION,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -469,13 +469,6 @@ impl Prover for DefaultProver {
         Ok(risc0_zkvm::compute_image_id(elf)?)
     }
 
-    async fn compute_claim_digest(
-        &self,
-        image_id: Digest,
-        journal: &[u8],
-    ) -> Result<Digest, ProverError> {
-        Ok(ReceiptClaim::ok(image_id, journal.to_vec()).digest())
-    }
 }
 
 #[cfg(test)]

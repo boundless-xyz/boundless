@@ -627,7 +627,9 @@ where
             // Try default URL first, fall back to contract URL if it fails or ID doesn't match
             match self.download_image(&default_url, "default").await {
                 Ok(bytes) => {
-                    let computed_id = risc0_zkvm::compute_image_id(&bytes)
+                    let computed_id = prover
+                        .compute_image_id(&bytes)
+                        .await
                         .context("Failed to compute image ID")?;
                     if computed_id == image_id {
                         tracing::debug!(
@@ -657,8 +659,10 @@ where
         };
 
         // Final verification - ensure we have the correct image
-        let computed_id =
-            risc0_zkvm::compute_image_id(&program_bytes).context("Failed to compute image ID")?;
+        let computed_id = prover
+            .compute_image_id(&program_bytes)
+            .await
+            .context("Failed to compute image ID")?;
 
         if computed_id != image_id {
             anyhow::bail!(

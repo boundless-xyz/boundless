@@ -46,7 +46,6 @@ use risc0_aggregation::{
 };
 use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
-    compute_image_id,
     sha::{Digest, Digestible},
     Receipt, ReceiptClaim,
 };
@@ -143,7 +142,7 @@ pub async fn ensure_prover_has_image(
     // Try default URL first, fall back to contract URL
     let image_bytes = match downloader.download(default_url).await {
         Ok(bytes) => {
-            let computed_id = compute_image_id(&bytes).with_context(|| {
+            let computed_id = prover.compute_image_id(&bytes).await.with_context(|| {
                 format!("Failed to compute {} image ID from default URL", image_label)
             })?;
 
@@ -175,7 +174,9 @@ pub async fn ensure_prover_has_image(
     };
 
     // Final verification
-    let computed_id = compute_image_id(&image_bytes)
+    let computed_id = prover
+        .compute_image_id(&image_bytes)
+        .await
         .with_context(|| format!("Failed to compute {} image ID", image_label))?;
 
     if computed_id != expected_image_id {
@@ -419,7 +420,7 @@ impl OrderFulfiller {
             async move {
                 // Fetch and upload order image
                 let order_program = downloader.download(&req.imageUrl).await?;
-                let order_image_id = compute_image_id(&order_program)?;
+                let order_image_id = prover.compute_image_id(&order_program).await?;
                 let order_image_id_str = order_image_id.to_string();
 
                 // Upload to prover if not already there

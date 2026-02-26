@@ -212,13 +212,6 @@ pub trait Prover {
 
     /// Compute the image ID for the given ELF binary.
     async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError>;
-
-    /// Compute the claim digest for the given image ID and journal.
-    async fn compute_claim_digest(
-        &self,
-        image_id: Digest,
-        journal: &[u8],
-    ) -> Result<Digest, ProverError>;
 }
 
 /// Type alias for a boxed Prover trait object.
