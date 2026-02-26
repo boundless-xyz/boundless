@@ -3717,65 +3717,64 @@ mod tests {
         let base_ts = 1700000000u64;
 
         // Helper to build a RequestStatus with specific fields
-        let make_status =
-            |request_digest: B256,
-             request_id: U256,
-             status: RequestStatusType,
-             created_at: u64| RequestStatus {
-                request_digest,
-                request_id,
-                request_status: status,
-                slashed_status: SlashedStatus::NotApplicable,
-                source: "onchain".to_string(),
-                client_address: addr,
-                lock_prover_address: None,
-                fulfill_prover_address: None,
-                created_at,
-                updated_at: created_at,
-                locked_at: None,
-                fulfilled_at: None,
-                slashed_at: None,
-                lock_prover_delivered_proof_at: None,
-                submit_block: Some(100),
-                lock_block: None,
-                fulfill_block: None,
-                slashed_block: None,
-                min_price: "1000".to_string(),
-                max_price: "2000".to_string(),
-                lock_collateral: "0".to_string(),
-                ramp_up_start: base_ts,
-                ramp_up_period: 10,
-                expires_at: base_ts + 10000,
-                lock_end: base_ts + 10000,
-                slash_recipient: None,
-                slash_transferred_amount: None,
-                slash_burned_amount: None,
-                program_cycles: None,
-                total_cycles: None,
-                peak_prove_mhz: None,
-                effective_prove_mhz: None,
-                prover_effective_prove_mhz: None,
-                cycle_status: None,
-                lock_price: None,
-                lock_price_per_cycle: None,
-                fixed_cost: None,
-                variable_cost_per_cycle: None,
-                lock_base_fee: None,
-                fulfill_base_fee: None,
-                submit_tx_hash: Some(B256::ZERO),
-                lock_tx_hash: None,
-                fulfill_tx_hash: None,
-                slash_tx_hash: None,
-                image_id: "test".to_string(),
-                image_url: None,
-                selector: "test".to_string(),
-                predicate_type: "digest_match".to_string(),
-                predicate_data: "0x00".to_string(),
-                input_type: "inline".to_string(),
-                input_data: "0x00".to_string(),
-                fulfill_journal: None,
-                fulfill_seal: None,
-            };
+        let make_status = |request_digest: B256,
+                           request_id: U256,
+                           status: RequestStatusType,
+                           created_at: u64| RequestStatus {
+            request_digest,
+            request_id,
+            request_status: status,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: addr,
+            lock_prover_address: None,
+            fulfill_prover_address: None,
+            created_at,
+            updated_at: created_at,
+            locked_at: None,
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: None,
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "0".to_string(),
+            ramp_up_start: base_ts,
+            ramp_up_period: 10,
+            expires_at: base_ts + 10000,
+            lock_end: base_ts + 10000,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: None,
+            lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: None,
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
 
         // --- Test 1: 3 rows with SAME request_id but different statuses ---
         // Only the fulfilled one should be returned.
@@ -3808,11 +3807,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 1, "should deduplicate to single row");
-        assert_eq!(
-            results[0].request_status,
-            RequestStatusType::Fulfilled,
-            "fulfilled should win"
-        );
+        assert_eq!(results[0].request_status, RequestStatusType::Fulfilled, "fulfilled should win");
         assert_eq!(results[0].request_id, shared_req_id);
 
         // --- Test 2: Add rows with DIFFERENT request_ids ---
@@ -3849,10 +3844,7 @@ mod tests {
             .unwrap();
         assert_eq!(page2.len(), 2);
         // Pages should not overlap
-        assert_ne!(
-            page1[0].request_id, page2[0].request_id,
-            "pages should not overlap"
-        );
+        assert_ne!(page1[0].request_id, page2[0].request_id, "pages should not overlap");
 
         // No more results after page 2
         let (page3, _) = db
