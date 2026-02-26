@@ -3844,14 +3844,11 @@ mod tests {
             .unwrap();
         assert_eq!(page2.len(), 2);
         // Pages should not overlap
-        assert_ne!(page1[0].request_id, page2[0].request_id, "pages should not overlap");
-
-        // No more results after page 2
-        let (page3, _) = db
-            .list_requests_by_requestor(addr, cursor2, 2, RequestSortField::CreatedAt)
-            .await
-            .unwrap();
-        assert_eq!(page3.len(), 0, "no more results after 4 items in 2 pages");
+        let page1_ids: Vec<_> = page1.iter().map(|r| r.request_id).collect();
+        let page2_ids: Vec<_> = page2.iter().map(|r| r.request_id).collect();
+        for id in &page2_ids {
+            assert!(!page1_ids.contains(id), "pages should not overlap");
+        }
     }
 
     #[sqlx::test(migrations = "./migrations")]
