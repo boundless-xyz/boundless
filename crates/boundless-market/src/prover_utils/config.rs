@@ -155,6 +155,10 @@ pub mod defaults {
         3000
     }
 
+    pub const fn block_history_size() -> usize {
+        20
+    }
+
     pub const fn max_concurrent_proofs() -> u32 {
         1
     }
@@ -350,19 +354,19 @@ pub struct MarketConfig {
     /// On startup, the number of blocks to look back for possible open orders.
     #[serde(default = "defaults::lookback_blocks")]
     pub lookback_blocks: u64,
-    /// Number of blocks to query per batch when polling for new market events.
-    ///
-    /// After the initial lookback completes, the market monitor will query this many blocks
-    /// at a time when polling for new events. A higher value reduces RPC calls but may increase
-    /// response latency. A lower value provides more real-time updates but increases RPC load.
+    /// DEPRECATED: No longer used. Market events are now delivered via block receipts.
+    /// Kept for backward compatibility with existing config files.
     #[serde(default = "defaults::events_poll_blocks")]
     pub events_poll_blocks: u64,
-    /// Polling interval for market events (in milliseconds).
-    ///
-    /// The time between polls for new market events. A lower value provides more real-time updates
-    /// but increases RPC load. A higher value reduces RPC calls but may increase response latency.
+    /// DEPRECATED: No longer used. Market events are now delivered via block receipts.
+    /// Kept for backward compatibility with existing config files.
     #[serde(default = "defaults::events_poll_ms")]
     pub events_poll_ms: u64,
+    /// Number of recent blocks to retain for local EIP-1559 gas estimation.
+    ///
+    /// A larger window smooths out fee spikes but is slower to adapt to sustained fee changes.
+    #[serde(default = "defaults::block_history_size")]
+    pub block_history_size: usize,
     /// Max collateral amount. Asset can be specified: "50 ZKC" or "100 USD"
     /// Plain numbers default to ZKC for backward compatibility.
     ///
@@ -543,6 +547,7 @@ impl Default for MarketConfig {
             lookback_blocks: defaults::lookback_blocks(),
             events_poll_blocks: defaults::events_poll_blocks(),
             events_poll_ms: defaults::events_poll_ms(),
+            block_history_size: defaults::block_history_size(),
             max_collateral: Amount::parse("10 USD", None).expect("valid default"),
             allow_client_addresses: None,
             deny_requestor_addresses: None,

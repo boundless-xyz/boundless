@@ -55,7 +55,6 @@ const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 const BLOCK_UPDATE_CHANNEL_CAPACITY: usize = 64;
-const BLOCK_HISTORY_SIZE: usize = 20;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
@@ -736,12 +735,12 @@ where
 
         let config = self.config_watcher.config.clone();
 
-        let lookback_blocks = {
+        let (lookback_blocks, block_history_size) = {
             let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
-            config.market.lookback_blocks
+            (config.market.lookback_blocks, config.market.block_history_size)
         };
 
         // Create two cancellation tokens for graceful shutdown:
@@ -765,7 +764,7 @@ where
                     IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
                 ],
                 block_update_tx,
-                BLOCK_HISTORY_SIZE,
+                block_history_size,
             )
             .await
             .context("Failed to initialize chain monitor")?,
