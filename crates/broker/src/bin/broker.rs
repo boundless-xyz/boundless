@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use alloy::{
+    network::AnyNetwork,
     primitives::utils::parse_ether,
     providers::{fillers::ChainIdFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
@@ -137,6 +140,16 @@ async fn main() -> Result<()> {
     // Clone the priority_mode Arc so we can pass it to the broker for runtime updates
     let gas_priority_mode = dynamic_gas_filler.priority_mode.clone();
 
+    // Create an AnyNetwork provider for eth_getBlockReceipts (required for OP Stack receipt compat).
+    // Uses the primary RPC URL directly; retry handled by the retry layer applied to the main client.
+    let any_network_provider = Arc::new(
+        ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .network::<AnyNetwork>()
+            .connect_http(all_rpc_urls[0].clone()),
+    );
+
     let base_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .filler(ChainIdFiller::default())
@@ -145,8 +158,14 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker =
-        Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
+    let broker = Broker::new(
+        args.clone(),
+        provider.clone(),
+        any_network_provider,
+        config_watcher,
+        gas_priority_mode,
+    )
+    .await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if !args.listen_only {

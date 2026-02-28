@@ -19,15 +19,16 @@ use std::{
 };
 
 use alloy::{
-    network::Ethereum,
+    network::{AnyNetwork, Ethereum},
     primitives::{Address, Bytes, FixedBytes, U256},
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
+    sol_types::SolEvent,
 };
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{boundless_market::BoundlessMarketService, ProofRequest},
+    contracts::{boundless_market::BoundlessMarketService, IBoundlessMarket, ProofRequest},
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
@@ -53,8 +54,11 @@ use url::Url;
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
+const BLOCK_UPDATE_CHANNEL_CAPACITY: usize = 64;
+const BLOCK_HISTORY_SIZE: usize = 20;
 
 pub(crate) mod aggregator;
+pub(crate) mod block_history;
 pub(crate) mod chain_monitor;
 pub mod config;
 pub(crate) mod db;
@@ -415,9 +419,10 @@ struct Batch {
     pub error_msg: Option<String>,
 }
 
-pub struct Broker<P> {
+pub struct Broker<P, ANP> {
     args: Args,
     provider: Arc<P>,
+    any_provider: Arc<ANP>,
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
@@ -426,13 +431,15 @@ pub struct Broker<P> {
     downloader: ConfigurableDownloader,
 }
 
-impl<P> Broker<P>
+impl<P, ANP> Broker<P, ANP>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     pub async fn new(
         mut args: Args,
         provider: P,
+        any_provider: Arc<ANP>,
         config_watcher: ConfigWatcher,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
@@ -467,6 +474,7 @@ where
             args,
             db,
             provider: Arc::new(provider),
+            any_provider,
             config_watcher,
             priority_requestors,
             allow_requestors,
@@ -728,16 +736,12 @@ where
 
         let config = self.config_watcher.config.clone();
 
-        let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
+        let lookback_blocks = {
             let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
-            (
-                config.market.lookback_blocks,
-                config.market.events_poll_blocks,
-                config.market.events_poll_ms,
-            )
+            config.market.lookback_blocks
         };
 
         // Create two cancellation tokens for graceful shutdown:
@@ -746,10 +750,22 @@ where
         let non_critical_cancel_token = CancellationToken::new();
         let critical_cancel_token = CancellationToken::new();
 
+        let (block_update_tx, block_update_rx) =
+            mpsc::channel::<chain_monitor::BlockUpdate>(BLOCK_UPDATE_CHANNEL_CAPACITY);
+
         let chain_monitor = Arc::new(
             chain_monitor::ChainMonitorService::new(
                 self.provider.clone(),
+                self.any_provider.clone(),
                 self.gas_priority_mode.clone(),
+                self.deployment().boundless_market_address,
+                vec![
+                    IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH,
+                    IBoundlessMarket::RequestLocked::SIGNATURE_HASH,
+                    IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
+                ],
+                block_update_tx,
+                BLOCK_HISTORY_SIZE,
             )
             .await
             .context("Failed to initialize chain monitor")?,
@@ -791,8 +807,6 @@ where
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             lookback_blocks,
-            events_poll_blocks,
-            events_poll_ms,
             self.deployment().boundless_market_address,
             self.provider.clone(),
             self.db.clone(),
@@ -800,6 +814,7 @@ where
             self.args.private_key.as_ref().expect("Private key must be set").address(),
             new_order_tx.clone(),
             order_state_tx.clone(),
+            block_update_rx,
         ));
 
         let block_times =
@@ -1227,8 +1242,10 @@ pub mod test_utils {
     use std::sync::Arc;
 
     use alloy::{
-        network::Ethereum,
-        providers::{Provider, WalletProvider},
+        network::{AnyNetwork, Ethereum},
+        providers::{
+            fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder, WalletProvider,
+        },
     };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
@@ -1250,6 +1267,7 @@ pub mod test_utils {
         args: Args,
         provider: P,
         config_file: NamedTempFile,
+        rpc_url: Url,
     }
 
     impl<P> BrokerBuilder<P>
@@ -1286,7 +1304,7 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
             };
-            Self { args, provider: ctx.prover_provider.clone(), config_file }
+            Self { args, provider: ctx.prover_provider.clone(), config_file, rpc_url }
         }
 
         pub fn with_db_url(mut self, db_url: String) -> Self {
@@ -1294,12 +1312,22 @@ pub mod test_utils {
             self
         }
 
-        pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
+        pub async fn build(
+            self,
+        ) -> Result<(Broker<P, DynProvider<AnyNetwork>>, NamedTempFile)> {
+            let any_provider: DynProvider<AnyNetwork> = Arc::new(
+                ProviderBuilder::new()
+                    .disable_recommended_fillers()
+                    .filler(ChainIdFiller::default())
+                    .network::<AnyNetwork>()
+                    .connect_http(self.rpc_url),
+            );
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
             Ok((
                 Broker::new(
                     self.args,
                     self.provider,
+                    any_provider,
                     ConfigWatcher::new(self.config_file.path()).await?,
                     gas_priority_mode,
                 )

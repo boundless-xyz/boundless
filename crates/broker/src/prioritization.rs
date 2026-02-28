@@ -184,7 +184,7 @@ where
     }
 }
 
-impl<P> OrderPicker<P> {
+impl<P, ANP> OrderPicker<P, ANP> {
     #[allow(clippy::vec_box)]
     pub(crate) fn select_pricing_orders(
         &self,
@@ -204,7 +204,7 @@ impl<P> OrderPicker<P> {
     }
 }
 
-impl<P> OrderMonitor<P> {
+impl<P, ANP> OrderMonitor<P, ANP> {
     /// Default implementation of order prioritization logic for choosing which order to commit to
     /// prove.
     pub(crate) fn prioritize_orders(

@@ -22,7 +22,7 @@ use crate::{
     utils, Erc1271GasCache, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
-    network::Ethereum,
+    network::{AnyNetwork, Ethereum},
     primitives::{
         utils::{format_ether, parse_units},
         Address, U256,
@@ -152,9 +152,9 @@ pub struct RpcRetryConfig {
 }
 
 #[derive(Clone)]
-pub struct OrderMonitor<P> {
+pub struct OrderMonitor<P, ANP> {
     db: DbObj,
-    chain_monitor: Arc<ChainMonitorService<P>>,
+    chain_monitor: Arc<ChainMonitorService<P, ANP>>,
     block_time: u64,
     config: ConfigLock,
     market: BoundlessMarketService<Arc<P>>,
@@ -170,15 +170,16 @@ pub struct OrderMonitor<P> {
     listen_only: bool,
 }
 
-impl<P> OrderMonitor<P>
+impl<P, ANP> OrderMonitor<P, ANP>
 where
-    P: Provider<Ethereum> + WalletProvider + 'static,
+    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
+        chain_monitor: Arc<ChainMonitorService<P, ANP>>,
         config: ConfigLock,
         block_time: u64,
         prover_addr: Address,
@@ -292,11 +293,7 @@ where
         // Pre-lock gas profitability check: compare gas cost against the order's current
         // reward on the pricing ramp. Retries next block on failure (e.g. gas spike).
         if let Some(gas_estimate) = order.gas_estimate {
-            let gas_price = self
-                .chain_monitor
-                .current_gas_price()
-                .await
-                .map_err(|e| OrderMonitorErr::PreLockCheckRetry(format!("gas price: {e:#}")))?;
+            let gas_price = self.chain_monitor.current_gas_price();
             let gas_cost = U256::from(gas_price) * U256::from(gas_estimate);
             let reward = order
                 .request
@@ -730,8 +727,7 @@ where
         let mut final_orders: Vec<Arc<OrderRequest>> = Vec::with_capacity(capacity_granted);
 
         // Get current gas price and available balance
-        let gas_price =
-            self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
+        let gas_price = self.chain_monitor.current_gas_price();
         // In listen-only mode, skip balance checks since no transactions will be sent.
         let available_balance_wei = if self.listen_only {
             U256::MAX
@@ -961,7 +957,7 @@ where
                 // On each interval, process all pending orders and do the block-based logic
                 _ = interval.tick() => {
                     let ChainHead { block_number, block_timestamp } =
-                        self.chain_monitor.current_chain_head().await?;
+                        self.chain_monitor.current_chain_head();
                     if block_number != last_block {
                         last_block = block_number;
                         if first_block == 0 {
@@ -1073,9 +1069,10 @@ where
     }
 }
 
-impl<P> RetryTask for OrderMonitor<P>
+impl<P, ANP> RetryTask for OrderMonitor<P, ANP>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     type Error = OrderMonitorErr;
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
@@ -1094,7 +1091,7 @@ pub(crate) mod tests {
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
-        network::EthereumWallet,
+        network::{AnyNetwork, EthereumWallet},
         node_bindings::{Anvil, AnvilInstance},
         primitives::{address, Address, Bytes, U256},
         providers::{
@@ -1241,8 +1238,28 @@ pub(crate) mod tests {
         let block_time = 2;
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
+        let any_provider = Arc::new(
+            ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .network::<AnyNetwork>()
+                .connect(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+        let (block_update_tx, _block_update_rx) = mpsc::channel(64);
+        let chain_monitor = Arc::new(
+            ChainMonitorService::new(
+                provider.clone(),
+                any_provider,
+                gas_priority_mode,
+                Address::ZERO,
+                vec![],
+                block_update_tx,
+                20,
+            )
+            .await
+            .unwrap(),
+        );
         tokio::spawn(chain_monitor.spawn(Default::default()));
 
         // Create required channels for tests
