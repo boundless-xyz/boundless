@@ -790,7 +790,6 @@ mod tests {
         providers::{ext::AnvilApi, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
-    use tokio::sync::mpsc;
     use boundless_market::{
         contracts::{
             Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
@@ -800,6 +799,7 @@ mod tests {
     use boundless_test_utils::guests::{
         ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF, SET_BUILDER_ID,
     };
+    use tokio::sync::mpsc;
     use tracing_test::traced_test;
 
     #[tokio::test]

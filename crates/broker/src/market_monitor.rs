@@ -707,8 +707,12 @@ mod tests {
         provider.anvil_mine(Some(10), Some(2)).await.unwrap();
 
         let (chain_monitor, market_monitor, _order_rx, _order_state_tx) =
-            make_chain_monitor_and_market_monitor(provider.clone(), &anvil.endpoint(), Address::ZERO)
-                .await;
+            make_chain_monitor_and_market_monitor(
+                provider.clone(),
+                &anvil.endpoint(),
+                Address::ZERO,
+            )
+            .await;
         tokio::spawn(chain_monitor.spawn(Default::default()));
 
         let block_time = market_monitor.get_block_time().await.unwrap();
