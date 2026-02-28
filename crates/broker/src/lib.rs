@@ -1244,7 +1244,7 @@ pub mod test_utils {
     use alloy::{
         network::{AnyNetwork, Ethereum},
         providers::{
-            fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder, WalletProvider,
+            fillers::ChainIdFiller, Provider, ProviderBuilder, WalletProvider,
         },
     };
     use anyhow::Result;
@@ -1314,8 +1314,21 @@ pub mod test_utils {
 
         pub async fn build(
             self,
-        ) -> Result<(Broker<P, DynProvider<AnyNetwork>>, NamedTempFile)> {
-            let any_provider: DynProvider<AnyNetwork> = Arc::new(
+        ) -> Result<(
+            Broker<
+                P,
+                alloy::providers::fillers::FillProvider<
+                    alloy::providers::fillers::JoinFill<
+                        alloy::providers::Identity,
+                        alloy::providers::fillers::ChainIdFiller,
+                    >,
+                    alloy::providers::RootProvider<AnyNetwork>,
+                    AnyNetwork,
+                >,
+            >,
+            NamedTempFile,
+        )> {
+            let any_provider = Arc::new(
                 ProviderBuilder::new()
                     .disable_recommended_fillers()
                     .filler(ChainIdFiller::default())

@@ -30,7 +30,7 @@ use crate::{
     OrderPricingError, OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
 };
 use alloy::{
-    network::Ethereum,
+    network::{AnyNetwork, Ethereum},
     primitives::{utils::format_ether, Address, U256},
     providers::{Provider, WalletProvider},
 };
@@ -76,12 +76,12 @@ impl CodedError for OrderPricingError {
 }
 
 #[derive(Clone)]
-pub struct OrderPicker<P> {
+pub struct OrderPicker<P, ANP> {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
-    chain_monitor: Arc<ChainMonitorService<P>>,
+    chain_monitor: Arc<ChainMonitorService<P, ANP>>,
     market: BoundlessMarketService<Arc<P>>,
     supported_selectors: SupportedSelectors,
     // TODO ideal not to wrap in mutex, but otherwise would require supervisor refactor, try to find alternative
@@ -99,9 +99,10 @@ pub struct OrderPicker<P> {
     listen_only: bool,
 }
 
-impl<P> OrderPicker<P>
+impl<P, ANP> OrderPicker<P, ANP>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -110,7 +111,7 @@ where
         prover: ProverObj,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
+        chain_monitor: Arc<ChainMonitorService<P, ANP>>,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
@@ -307,16 +308,16 @@ where
     }
 
     async fn gas_balance_reserved(&self) -> Result<U256, OrderPickerErr> {
-        let gas_price =
-            self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
+        let gas_price = self.chain_monitor.current_gas_price();
         let fulfill_pending_gas = self.estimate_gas_to_fulfill_pending().await?;
         Ok(U256::from(gas_price) * U256::from(fulfill_pending_gas))
     }
 }
 
-impl<P> OrderPricingContext for OrderPicker<P>
+impl<P, ANP> OrderPricingContext for OrderPicker<P, ANP>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     fn market_config(&self) -> Result<MarketConfig, OrderPickerErr> {
         let config = self.config.lock_all().context("Failed to read config")?;
@@ -510,7 +511,7 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128, OrderPickerErr> {
-        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?)
+        Ok(self.chain_monitor.current_gas_price())
     }
 
     async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
@@ -642,9 +643,10 @@ fn handle_fulfill_event(
     }
 }
 
-impl<P> RetryTask for OrderPicker<P>
+impl<P, ANP> RetryTask for OrderPicker<P, ANP>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     type Error = OrderPickerErr;
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
@@ -849,7 +851,7 @@ pub(crate) mod tests {
         FulfillmentType, OrderStatus,
     };
     use alloy::{
-        network::EthereumWallet,
+        network::{AnyNetwork, EthereumWallet},
         node_bindings::{Anvil, AnvilInstance},
         primitives::{
             address,
@@ -896,10 +898,13 @@ pub(crate) mod tests {
         ))
     }
 
+    type TestANP = alloy::providers::RootProvider<AnyNetwork>;
+
     /// Reusable context for testing the order picker
-    pub(crate) struct PickerTestCtx<P> {
+    pub(crate) struct PickerTestCtx<P, ANP = TestANP> {
         anvil: AnvilInstance,
-        pub(crate) picker: OrderPicker<P>,
+        pub(crate) picker: OrderPicker<P, ANP>,
+        pub(crate) chain_monitor: Arc<ChainMonitorService<P, ANP>>,
         boundless_market: BoundlessMarketService<Arc<P>>,
         uploader: MockStorageUploader,
         db: DbObj,
@@ -937,9 +942,10 @@ pub(crate) mod tests {
         }
     }
 
-    impl<P> PickerTestCtx<P>
+    impl<P, ANP> PickerTestCtx<P, ANP>
     where
         P: Provider + WalletProvider,
+        ANP: Provider<AnyNetwork> + Clone + 'static,
     {
         pub(crate) fn signer(&self, index: usize) -> PrivateKeySigner {
             self.anvil.keys()[index].clone().into()
@@ -1045,7 +1051,7 @@ pub(crate) mod tests {
         }
         pub(crate) async fn build(
             self,
-        ) -> PickerTestCtx<impl Provider + WalletProvider + Clone + 'static> {
+        ) -> PickerTestCtx<impl Provider + WalletProvider + Clone + 'static, TestANP> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
                 .arg("--block-base-fee-per-gas")
@@ -1099,8 +1105,25 @@ pub(crate) mod tests {
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+            let any_provider: Arc<TestANP> = Arc::new(
+                ProviderBuilder::new()
+                    .disable_recommended_fillers()
+                    .network::<AnyNetwork>()
+                    .connect_http(anvil.endpoint_url()),
+            );
+            let (block_update_tx, _block_update_rx) = mpsc::channel(64);
             let chain_monitor = Arc::new(
-                ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
+                ChainMonitorService::new(
+                    provider.clone(),
+                    any_provider,
+                    gas_priority_mode,
+                    Address::ZERO,
+                    vec![],
+                    block_update_tx,
+                    20,
+                )
+                .await
+                .unwrap(),
             );
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
@@ -1120,7 +1143,7 @@ pub(crate) mod tests {
                 prover,
                 market_address,
                 provider.clone(),
-                chain_monitor,
+                chain_monitor.clone(),
                 new_order_rx,
                 priced_orders_tx,
                 self.collateral_token_decimals.unwrap_or(6),
@@ -1136,6 +1159,7 @@ pub(crate) mod tests {
             PickerTestCtx {
                 anvil,
                 picker,
+                chain_monitor,
                 boundless_market,
                 uploader: storage_uploader,
                 db,
@@ -1261,9 +1285,31 @@ pub(crate) mod tests {
     /// or gas price query to ensure deterministic gas pricing. This is to avoid flakiness with
     /// tests given the base fee adjustment per block.
     async fn pin_base_fee<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
-        ctx: &PickerTestCtx<P>,
+        ctx: &PickerTestCtx<P, TestANP>,
     ) {
         ctx.provider.anvil_set_next_block_base_fee_per_gas(PINNED_BASE_FEE).await.unwrap();
+    }
+
+    /// Wait for the chain monitor to have processed at least `expected_block`.
+    /// The chain monitor runs in a background task and updates atomically, so callers
+    /// must wait after mining blocks before reading `current_gas_price()`.
+    async fn wait_for_chain_monitor_block<
+        P: Provider<Ethereum> + WalletProvider + Clone + 'static,
+    >(
+        ctx: &PickerTestCtx<P, TestANP>,
+        expected_block: u64,
+    ) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if ctx.chain_monitor.current_block_number() >= expected_block {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "Chain monitor did not process block {expected_block} within 10s"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     /// Compute a price between the gas cost of a base order and the gas cost of
@@ -1271,12 +1317,15 @@ pub(crate) mod tests {
     /// monitor's gas price after pinning the Anvil base fee for deterministic
     /// results.
     async fn gas_midpoint_price<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
-        ctx: &PickerTestCtx<P>,
+        ctx: &PickerTestCtx<P, TestANP>,
         extra_gas: u64,
     ) -> U256 {
         // Pin and mine a block so the chain monitor picks up the stable base fee.
         pin_base_fee(ctx).await;
         ctx.provider.anvil_mine(Some(1), None).await.unwrap();
+        let block_number = ctx.provider.get_block_number().await.unwrap();
+        // Wait for the chain monitor to process the mined block so current_gas_price() is stable.
+        wait_for_chain_monitor_block(ctx, block_number).await;
 
         let gas_price = ctx.picker.current_gas_price().await.unwrap();
         // Use the midpoint (50%) so the test price has margin above base and below base+extra_gas.

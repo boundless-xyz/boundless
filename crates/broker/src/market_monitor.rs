@@ -544,8 +544,8 @@ mod tests {
         endpoint: &str,
         market_address: Address,
     ) -> (
-        Arc<ChainMonitorService<P, impl Provider<AnyNetwork>>>,
-        MarketMonitor<P, impl Provider<AnyNetwork>>,
+        Arc<ChainMonitorService<P, impl Provider<AnyNetwork> + Clone + 'static>>,
+        MarketMonitor<P, impl Provider<AnyNetwork> + Clone + 'static>,
         mpsc::Receiver<Box<OrderRequest>>,
         broadcast::Sender<OrderStateChange>,
     ) {

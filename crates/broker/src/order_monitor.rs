@@ -1127,8 +1127,10 @@ pub(crate) mod tests {
         RootProvider,
     >;
 
+    type TestANP = RootProvider<AnyNetwork>;
+
     pub struct TestCtx {
-        pub monitor: OrderMonitor<TestProvider>,
+        pub monitor: OrderMonitor<TestProvider, TestANP>,
         pub anvil: AnvilInstance,
         pub db: DbObj,
         pub market_address: Address,
@@ -1238,13 +1240,11 @@ pub(crate) mod tests {
         let block_time = 2;
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let any_provider = Arc::new(
+        let any_provider: Arc<TestANP> = Arc::new(
             ProviderBuilder::new()
                 .disable_recommended_fillers()
                 .network::<AnyNetwork>()
-                .connect(&anvil.endpoint())
-                .await
-                .unwrap(),
+                .connect_http(anvil.endpoint_url()),
         );
         let (block_update_tx, _block_update_rx) = mpsc::channel(64);
         let chain_monitor = Arc::new(
@@ -1297,9 +1297,10 @@ pub(crate) mod tests {
         }
     }
 
-    async fn run_with_monitor<P, F, T>(monitor: OrderMonitor<P>, f: F) -> T
+    async fn run_with_monitor<P, ANP, F, T>(monitor: OrderMonitor<P, ANP>, f: F) -> T
     where
         P: Provider + WalletProvider + Clone + 'static,
+        ANP: alloy::providers::Provider<AnyNetwork> + Clone + 'static,
         F: Future<Output = T>,
     {
         // A JoinSet automatically aborts all its tasks when dropped

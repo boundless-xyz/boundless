@@ -784,12 +784,13 @@ mod tests {
         BatchStatus, FulfillmentType, Order, OrderStatus,
     };
     use alloy::{
-        network::EthereumWallet,
+        network::{AnyNetwork, EthereumWallet},
         node_bindings::Anvil,
         primitives::{Bytes, U256},
         providers::{ext::AnvilApi, Provider, ProviderBuilder},
         signers::local::PrivateKeySigner,
     };
+    use tokio::sync::mpsc;
     use boundless_market::{
         contracts::{
             Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
@@ -837,8 +838,26 @@ mod tests {
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
+        let any_provider = Arc::new(
+            ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .network::<AnyNetwork>()
+                .connect_http(anvil.endpoint_url()),
+        );
+        let (block_update_tx, _block_update_rx) = mpsc::channel(64);
+        let chain_monitor = Arc::new(
+            ChainMonitorService::new(
+                provider.clone(),
+                any_provider,
+                gas_priority_mode,
+                Address::ZERO,
+                vec![],
+                block_update_tx,
+                20,
+            )
+            .await
+            .unwrap(),
+        );
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
         let chain_id = provider.get_chain_id().await.unwrap();
         let set_builder_id = Digest::from(SET_BUILDER_ID);
@@ -1000,8 +1019,26 @@ mod tests {
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
+        let any_provider = Arc::new(
+            ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .network::<AnyNetwork>()
+                .connect_http(anvil.endpoint_url()),
+        );
+        let (block_update_tx, _block_update_rx) = mpsc::channel(64);
+        let chain_monitor = Arc::new(
+            ChainMonitorService::new(
+                provider.clone(),
+                any_provider,
+                gas_priority_mode,
+                Address::ZERO,
+                vec![],
+                block_update_tx,
+                20,
+            )
+            .await
+            .unwrap(),
+        );
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
         let set_builder_id = Digest::from(SET_BUILDER_ID);
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
@@ -1286,8 +1323,26 @@ mod tests {
             prover.prove_and_monitor_stark(&image_id_str, &input_id, vec![]).await.unwrap();
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
+        let any_provider = Arc::new(
+            ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .network::<AnyNetwork>()
+                .connect_http(anvil.endpoint_url()),
+        );
+        let (block_update_tx, _block_update_rx) = mpsc::channel(64);
+        let chain_monitor = Arc::new(
+            ChainMonitorService::new(
+                provider.clone(),
+                any_provider,
+                gas_priority_mode,
+                Address::ZERO,
+                vec![],
+                block_update_tx,
+                20,
+            )
+            .await
+            .unwrap(),
+        );
 
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
@@ -1410,8 +1465,26 @@ mod tests {
         let prover: ProverObj = Arc::new(mock_prover);
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
+        let any_provider = Arc::new(
+            ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .network::<AnyNetwork>()
+                .connect_http(anvil.endpoint_url()),
+        );
+        let (block_update_tx, _block_update_rx) = mpsc::channel(64);
+        let chain_monitor = Arc::new(
+            ChainMonitorService::new(
+                provider.clone(),
+                any_provider,
+                gas_priority_mode,
+                Address::ZERO,
+                vec![],
+                block_update_tx,
+                20,
+            )
+            .await
+            .unwrap(),
+        );
 
         let _handle = tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
