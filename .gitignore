@@ -75,3 +75,4 @@ sccache-v0.*
 /docs
 # Nightshift plan artifacts (keep out of version control)
 .nightshift-plan
+.worktrees/
