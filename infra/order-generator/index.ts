@@ -228,14 +228,27 @@ export = () => {
 
   const randomRequestorConfig = new pulumi.Config("order-generator-random-requestor");
   let randomRequestorPrivateKey: pulumi.Output<string> | undefined;
+  let randomRequestorMnemonic: pulumi.Output<string> | undefined;
+  let randomRequestorDeriveRotationKeys: number | undefined;
   if (isDev && process.env.RANDOM_REQUESTOR_PRIVATE_KEY) {
     randomRequestorPrivateKey = pulumi.output(process.env.RANDOM_REQUESTOR_PRIVATE_KEY);
+  } else if (isDev && process.env.RANDOM_REQUESTOR_MNEMONIC && process.env.RANDOM_REQUESTOR_DERIVE_ROTATION_KEYS) {
+    randomRequestorMnemonic = pulumi.output(process.env.RANDOM_REQUESTOR_MNEMONIC);
+    const parsed = parseInt(process.env.RANDOM_REQUESTOR_DERIVE_ROTATION_KEYS, 10);
+    randomRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   } else {
-    // We only deploy the random requestor on some networks, so we don't require private key.
     randomRequestorPrivateKey = randomRequestorConfig.getSecret('PRIVATE_KEY');
+    randomRequestorMnemonic = randomRequestorConfig.getSecret('MNEMONIC');
+    const n = randomRequestorConfig.get('DERIVE_ROTATION_KEYS');
+    const parsed = n ? parseInt(n, 10) : NaN;
+    randomRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   }
 
-  if (randomRequestorPrivateKey) {
+  const randomRequestorUsesRotation =
+    !!randomRequestorMnemonic && !!randomRequestorDeriveRotationKeys && randomRequestorDeriveRotationKeys >= 2;
+  const randomRequestorDeploy = randomRequestorPrivateKey || randomRequestorUsesRotation;
+
+  if (randomRequestorDeploy) {
     const randomRequestorInterval = randomRequestorConfig.get('INTERVAL') ?? "180";
     const randomRequestorCount = randomRequestorConfig.get('COUNT') ?? "1";
     const randomRequestorScheduleExpression = randomRequestorConfig.get('SCHEDULE_EXPRESSION') ?? "rate(24 hours)";
@@ -255,7 +268,9 @@ export = () => {
     new OrderGenerator('random-requestor', {
       chainId,
       stackName,
-      privateKey: randomRequestorPrivateKey,
+      ...(randomRequestorUsesRotation
+        ? { rotationConfig: { mnemonic: randomRequestorMnemonic!, deriveRotationKeys: randomRequestorDeriveRotationKeys! } }
+        : { privateKey: randomRequestorPrivateKey! }),
       pinataJWT,
       ethRpcUrl,
       autoDeposit: randomRequestorAutoDeposit,
@@ -296,11 +311,24 @@ export = () => {
   const evmRequestorWarnBalanceBelow = evmRequestorConfig.get('WARN_BALANCE_BELOW');
   const evmRequestorErrorBalanceBelow = evmRequestorConfig.get('ERROR_BALANCE_BELOW');
   let evmRequestorPrivateKey: pulumi.Output<string> | undefined;
+  let evmRequestorMnemonic: pulumi.Output<string> | undefined;
+  let evmRequestorDeriveRotationKeys: number | undefined;
   if (isDev && process.env.EVM_REQUESTOR_PRIVATE_KEY) {
     evmRequestorPrivateKey = pulumi.output(process.env.EVM_REQUESTOR_PRIVATE_KEY);
+  } else if (isDev && process.env.EVM_REQUESTOR_MNEMONIC && process.env.EVM_REQUESTOR_DERIVE_ROTATION_KEYS) {
+    evmRequestorMnemonic = pulumi.output(process.env.EVM_REQUESTOR_MNEMONIC);
+    const parsed = parseInt(process.env.EVM_REQUESTOR_DERIVE_ROTATION_KEYS, 10);
+    evmRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   } else {
     evmRequestorPrivateKey = evmRequestorConfig.getSecret('PRIVATE_KEY');
+    evmRequestorMnemonic = evmRequestorConfig.getSecret('MNEMONIC');
+    const n = evmRequestorConfig.get('DERIVE_ROTATION_KEYS');
+    const parsed = n ? parseInt(n, 10) : NaN;
+    evmRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   }
+  const evmRequestorUsesRotation =
+    !!evmRequestorMnemonic && !!evmRequestorDeriveRotationKeys && evmRequestorDeriveRotationKeys >= 2;
+  const evmRequestorDeploy = evmRequestorPrivateKey || evmRequestorUsesRotation;
   const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
   const evmRequestorRampUp = evmRequestorConfig.get('RAMP_UP');
@@ -312,14 +340,16 @@ export = () => {
   const evmRequestorMaxPricePerMCycle = evmRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
   const evmRequestorMaxPriceCap = evmRequestorConfig.get('MAX_PRICE_CAP');
 
-  if (evmRequestorPrivateKey) {
+  if (evmRequestorDeploy) {
     new OrderGenerator('evm-requestor', {
       chainId,
       stackName,
       autoDeposit: evmRequestorAutoDeposit,
       warnBalanceBelow: evmRequestorWarnBalanceBelow,
       errorBalanceBelow: evmRequestorErrorBalanceBelow,
-      privateKey: evmRequestorPrivateKey,
+      ...(evmRequestorUsesRotation
+        ? { rotationConfig: { mnemonic: evmRequestorMnemonic!, deriveRotationKeys: evmRequestorDeriveRotationKeys! } }
+        : { privateKey: evmRequestorPrivateKey! }),
       pinataJWT,
       ethRpcUrl,
       image,

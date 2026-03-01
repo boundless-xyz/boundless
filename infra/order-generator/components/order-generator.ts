@@ -11,7 +11,13 @@ const FARGATE_MEMORY = 1024;
 interface OrderGeneratorArgs {
   chainId: string;
   stackName: string;
-  privateKey: pulumi.Output<string>;
+  /** Required when not using rotationConfig. */
+  privateKey?: pulumi.Output<string>;
+  /** Use mnemonic + deriveRotationKeys for address rotation. Mutually exclusive with privateKey. */
+  rotationConfig?: {
+    mnemonic: pulumi.Output<string>;
+    deriveRotationKeys: number;
+  };
   pinataJWT: pulumi.Output<string>;
   ethRpcUrl: pulumi.Output<string>;
   image: Image;
@@ -60,12 +66,30 @@ export class OrderGenerator extends pulumi.ComponentResource {
     const isStaging = args.stackName.includes('staging');
 
     const offchainConfig = args.offchainConfig;
+    const useRotation = args.rotationConfig !== undefined;
+    if (!useRotation && !args.privateKey) {
+      throw new Error('Either privateKey or rotationConfig must be provided');
+    }
+    if (useRotation && args.privateKey) {
+      throw new Error('privateKey and rotationConfig are mutually exclusive');
+    }
+    let privateKeySecret: aws.secretsmanager.Secret | undefined;
+    if (args.privateKey) {
+      privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
+      new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
+        secretId: privateKeySecret.id,
+        secretString: args.privateKey,
+      });
+    }
 
-    const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
-    new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
-      secretId: privateKeySecret.id,
-      secretString: args.privateKey,
-    });
+    let mnemonicSecret: aws.secretsmanager.Secret | undefined;
+    if (args.rotationConfig) {
+      mnemonicSecret = new aws.secretsmanager.Secret(`${serviceName}-mnemonic`);
+      new aws.secretsmanager.SecretVersion(`${serviceName}-mnemonic-v1`, {
+        secretId: mnemonicSecret.id,
+        secretString: args.rotationConfig.mnemonic,
+      });
+    }
 
     const pinataJwtSecret = new aws.secretsmanager.Secret(`${serviceName}-pinata-jwt`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-pinata-jwt-v1`, {
@@ -91,15 +115,25 @@ export class OrderGenerator extends pulumi.ComponentResource {
       secretString: args.indexerUrl,
     });
 
-    const secretHash = pulumi
-      .all([args.ethRpcUrl, args.privateKey, offchainConfig?.orderStreamUrl])
-      .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]: [string, string, string | undefined]) => {
-        const hash = crypto.createHash("sha1");
-        hash.update(_ethRpcUrl);
-        hash.update(_privateKey);
-        hash.update(_orderStreamUrl ?? '');
-        return hash.digest("hex");
-      });
+    const secretHash = useRotation
+      ? pulumi
+        .all([args.ethRpcUrl, args.rotationConfig!.mnemonic, offchainConfig?.orderStreamUrl])
+        .apply(([_ethRpcUrl, _mnemonic, _orderStreamUrl]: [string, string, string | undefined]) => {
+          const hash = crypto.createHash("sha1");
+          hash.update(_ethRpcUrl);
+          hash.update(_mnemonic);
+          hash.update(_orderStreamUrl ?? '');
+          return hash.digest("hex");
+        })
+      : pulumi
+        .all([args.ethRpcUrl, args.privateKey!, offchainConfig?.orderStreamUrl])
+        .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]: [string, string, string | undefined]) => {
+          const hash = crypto.createHash("sha1");
+          hash.update(_ethRpcUrl);
+          hash.update(_privateKey);
+          hash.update(_orderStreamUrl ?? '');
+          return hash.digest("hex");
+        });
 
     const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
       name: serviceName,
@@ -122,6 +156,15 @@ export class OrderGenerator extends pulumi.ComponentResource {
       managedPolicyArns: [aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy],
     });
 
+    const execRoleSecretArns: pulumi.Input<string>[] = [
+      rpcUrlSecret.arn,
+      orderStreamUrlSecret.arn,
+      indexerUrlSecret.arn,
+    ];
+    execRoleSecretArns.push(pinataJwtSecret.arn);
+    if (privateKeySecret) execRoleSecretArns.push(privateKeySecret.arn);
+    if (mnemonicSecret) execRoleSecretArns.push(mnemonicSecret.arn);
+
     const execRolePolicy = new aws.iam.RolePolicy(`${serviceName}-exec`, {
       role: execRole.id,
       policy: {
@@ -130,7 +173,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
           {
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn, indexerUrlSecret.arn],
+            Resource: execRoleSecretArns,
           },
         ],
       },
@@ -150,23 +193,20 @@ export class OrderGenerator extends pulumi.ComponentResource {
     ]
 
     let secrets = [
-      {
-        name: 'RPC_URL',
-        valueFrom: rpcUrlSecret.arn,
-      },
-      {
-        name: 'PRIVATE_KEY',
-        valueFrom: privateKeySecret.arn,
-      },
-      {
-        name: 'PINATA_JWT',
-        valueFrom: pinataJwtSecret.arn,
-      },
-      {
-        name: 'INDEXER_URL',
-        valueFrom: indexerUrlSecret.arn,
-      },
+      { name: 'RPC_URL', valueFrom: rpcUrlSecret.arn },
+      { name: 'INDEXER_URL', valueFrom: indexerUrlSecret.arn },
     ];
+    secrets.push({ name: 'PINATA_JWT', valueFrom: pinataJwtSecret.arn });
+    if (privateKeySecret) {
+      secrets.push({ name: 'PRIVATE_KEY', valueFrom: privateKeySecret.arn });
+    }
+    if (mnemonicSecret) {
+      secrets.push({ name: 'MNEMONIC', valueFrom: mnemonicSecret.arn });
+      environment.push({
+        name: 'DERIVE_ROTATION_KEYS',
+        value: String(args.rotationConfig!.deriveRotationKeys),
+      });
+    }
 
     if (args.autoDeposit) {
       environment.push({
