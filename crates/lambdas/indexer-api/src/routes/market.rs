@@ -32,7 +32,7 @@ use crate::{
     utils::{format_eth, format_zkc, is_valid_ethereum_address},
 };
 use boundless_indexer::db::market::{
-    RequestCursor, RequestSortField, RequestStatus, SortDirection,
+    RequestCursor, RequestSortField, RequestStatus, RequestStatusType, SortDirection,
 };
 use boundless_indexer::db::{IndexerDb, ProversDb, RequestorDb};
 
@@ -2378,6 +2378,10 @@ pub struct RequestListParams {
     /// Sort field: "updated_at" or "created_at" (default "created_at")
     #[serde(default)]
     sort_by: Option<String>,
+
+    /// Filter by request status: "submitted", "locked", "fulfilled", or "expired"
+    #[serde(default)]
+    status: Option<String>,
 }
 
 fn encode_request_cursor(cursor: &RequestCursor) -> Result<String, anyhow::Error> {
@@ -2678,7 +2682,19 @@ async fn list_requests_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let (statuses, next_cursor) = state.market_db.list_requests(cursor, limit, sort_by).await?;
+    let status = match params.status.as_deref() {
+        Some("submitted") => Some(RequestStatusType::Submitted),
+        Some("locked") => Some(RequestStatusType::Locked),
+        Some("fulfilled") => Some(RequestStatusType::Fulfilled),
+        Some("expired") => Some(RequestStatusType::Expired),
+        None => None,
+        _ => anyhow::bail!(
+            "Invalid status. Must be 'submitted', 'locked', 'fulfilled', or 'expired'"
+        ),
+    };
+
+    let (statuses, next_cursor) =
+        state.market_db.list_requests(cursor, limit, sort_by, status).await?;
 
     let data =
         statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
