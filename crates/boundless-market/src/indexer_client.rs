@@ -17,7 +17,6 @@
 use alloy_primitives::U256;
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use url::Url;
 
@@ -26,173 +25,15 @@ use crate::{
     price_provider::PricePercentiles,
 };
 
+pub use crate::indexer_types::{
+    AggregationGranularity, MarketAggregateEntry, MarketAggregatesParams, MarketAggregatesResponse,
+};
+
 #[derive(Clone, Debug)]
 /// Client for the Boundless Indexer API
 pub struct IndexerClient {
     client: Client,
     base_url: Url,
-}
-
-/// Granularity level for aggregating market data over time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AggregationGranularity {
-    /// Aggregate data by hour.
-    Hourly,
-    /// Aggregate data by day.
-    Daily,
-    /// Aggregate data by week.
-    Weekly,
-    /// Aggregate data by month.
-    Monthly,
-}
-
-impl Default for AggregationGranularity {
-    fn default() -> Self {
-        Self::Monthly
-    }
-}
-
-impl std::fmt::Display for AggregationGranularity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Hourly => write!(f, "hourly"),
-            Self::Daily => write!(f, "daily"),
-            Self::Weekly => write!(f, "weekly"),
-            Self::Monthly => write!(f, "monthly"),
-        }
-    }
-}
-
-/// Parameters for querying market aggregate data.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct MarketAggregatesParams {
-    /// Time granularity for aggregation (hourly, daily, weekly, or monthly).
-    #[serde(default)]
-    pub aggregation: AggregationGranularity,
-    /// Pagination cursor for retrieving the next page of results.
-    #[serde(default)]
-    pub cursor: Option<String>,
-    /// Maximum number of results to return.
-    #[serde(default)]
-    pub limit: Option<u64>,
-    /// Sort order (e.g., "asc" or "desc").
-    #[serde(default)]
-    pub sort: Option<String>,
-    /// Unix timestamp (in seconds) - only return data before this time.
-    #[serde(default)]
-    pub before: Option<i64>,
-    /// Unix timestamp (in seconds) - only return data after this time.
-    #[serde(default)]
-    pub after: Option<i64>,
-}
-
-/// A single entry in market aggregate data, representing aggregated statistics for a time period.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct MarketAggregateEntry {
-    /// The chain ID.
-    pub chain_id: u64,
-    /// Unix timestamp (in seconds) for this aggregate period.
-    pub timestamp: i64,
-    /// ISO 8601 formatted timestamp for this aggregate period.
-    pub timestamp_iso: String,
-    /// Total number of requests fulfilled in this period.
-    pub total_fulfilled: i64,
-    /// Number of unique provers who locked requests in this period.
-    pub unique_provers_locking_requests: i64,
-    /// Number of unique requesters who submitted requests in this period.
-    pub unique_requesters_submitting_requests: i64,
-    /// Total fees locked in this period (as string, in wei).
-    pub total_fees_locked: String,
-    /// Total fees locked in this period (formatted for display).
-    pub total_fees_locked_formatted: String,
-    /// Total collateral locked in this period (as string, in wei).
-    pub total_collateral_locked: String,
-    /// Total collateral locked in this period (formatted for display).
-    pub total_collateral_locked_formatted: String,
-    /// Total locked and expired collateral in this period (as string, in wei).
-    pub total_locked_and_expired_collateral: String,
-    /// Total locked and expired collateral in this period (formatted for display).
-    pub total_locked_and_expired_collateral_formatted: String,
-    /// 10th percentile lock price per cycle (as string, in wei).
-    pub p10_lock_price_per_cycle: String,
-    /// 10th percentile lock price per cycle (formatted for display).
-    pub p10_lock_price_per_cycle_formatted: String,
-    /// 25th percentile lock price per cycle (as string, in wei).
-    pub p25_lock_price_per_cycle: String,
-    /// 25th percentile lock price per cycle (formatted for display).
-    pub p25_lock_price_per_cycle_formatted: String,
-    /// 50th percentile (median) lock price per cycle (as string, in wei).
-    pub p50_lock_price_per_cycle: String,
-    /// 50th percentile (median) lock price per cycle (formatted for display).
-    pub p50_lock_price_per_cycle_formatted: String,
-    /// 75th percentile lock price per cycle (as string, in wei).
-    pub p75_lock_price_per_cycle: String,
-    /// 75th percentile lock price per cycle (formatted for display).
-    pub p75_lock_price_per_cycle_formatted: String,
-    /// 90th percentile lock price per cycle (as string, in wei).
-    pub p90_lock_price_per_cycle: String,
-    /// 90th percentile lock price per cycle (formatted for display).
-    pub p90_lock_price_per_cycle_formatted: String,
-    /// 95th percentile lock price per cycle (as string, in wei).
-    pub p95_lock_price_per_cycle: String,
-    /// 95th percentile lock price per cycle (formatted for display).
-    pub p95_lock_price_per_cycle_formatted: String,
-    /// 99th percentile lock price per cycle (as string, in wei).
-    pub p99_lock_price_per_cycle: String,
-    /// 99th percentile lock price per cycle (formatted for display).
-    pub p99_lock_price_per_cycle_formatted: String,
-    /// Total number of requests submitted in this period.
-    pub total_requests_submitted: i64,
-    /// Total number of requests submitted on-chain in this period.
-    pub total_requests_submitted_onchain: i64,
-    /// Total number of requests submitted off-chain in this period.
-    pub total_requests_submitted_offchain: i64,
-    /// Total number of requests locked in this period.
-    pub total_requests_locked: i64,
-    /// Total number of requests slashed in this period.
-    pub total_requests_slashed: i64,
-    /// Total number of requests expired in this period.
-    pub total_expired: i64,
-    /// Total number of requests that were both locked and expired in this period.
-    pub total_locked_and_expired: i64,
-    /// Total number of requests that were both locked and fulfilled in this period.
-    pub total_locked_and_fulfilled: i64,
-    /// Total number of secondary fulfillments in this period.
-    pub total_secondary_fulfillments: i64,
-    /// Fulfillment rate for locked orders (as a percentage, 0.0-100.0).
-    pub locked_orders_fulfillment_rate: f32,
-    /// Total program cycles executed in this period (as string).
-    pub total_program_cycles: String,
-    /// Total cycles (program + overhead) in this period (as string).
-    pub total_cycles: String,
-    /// Total fixed cost (gas cost) across all locked requests in this period (as string in wei).
-    #[serde(default)]
-    pub total_fixed_cost: String,
-    /// Total fixed cost (formatted for display).
-    #[serde(default)]
-    pub total_fixed_cost_formatted: String,
-    /// Total variable cost (proving cost) across all locked requests in this period (as string in wei).
-    #[serde(default)]
-    pub total_variable_cost: String,
-    /// Total variable cost (formatted for display).
-    #[serde(default)]
-    pub total_variable_cost_formatted: String,
-}
-
-/// Response containing market aggregate data.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct MarketAggregatesResponse {
-    /// The chain ID.
-    pub chain_id: u64,
-    /// The aggregation granularity used.
-    pub aggregation: AggregationGranularity,
-    /// List of aggregate entries.
-    pub data: Vec<MarketAggregateEntry>,
-    /// Cursor for pagination to retrieve the next page.
-    pub next_cursor: Option<String>,
-    /// Whether there are more results available.
-    pub has_more: bool,
 }
 
 impl IndexerClient {

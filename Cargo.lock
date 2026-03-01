@@ -5909,6 +5909,7 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "boundless-indexer",
+ "boundless-market",
  "chrono",
  "lambda_http",
  "lambda_runtime",

@@ -30,6 +30,7 @@ base64 = "0.22"
 
 # Internal dependencies
 boundless-indexer = { path = "../../indexer" }
+boundless-market = { path = "../../boundless-market", features = ["openapi"] }
 chrono = { workspace = true }
 lambda_http = "0.13.0"
 
