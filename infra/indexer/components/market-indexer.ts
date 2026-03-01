@@ -150,7 +150,6 @@ export class MarketIndexer extends pulumi.ComponentResource {
         rollback: false,
       },
       forceNewDeployment: true,
-      continueBeforeSteadyState: false,
       enableExecuteCommand: true,
       taskDefinitionArgs: {
         logGroup: {
@@ -426,6 +425,124 @@ export class MarketIndexer extends pulumi.ComponentResource {
     new aws.cloudwatch.EventTarget(`${serviceName}-chain-backfill-targ`, {
       rule: chainDataBackfillRule.name,
       arn: chainDataBackfillLambda.arn,
+    }, { parent: this });
+
+    // Market efficiency indexer: run once daily with 2-day lookback
+    const efficiencyImage = new docker_build.Image(`${serviceName}-efficiency-img-${infra.databaseVersion}`, {
+      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-efficiency-${dockerTag}-${infra.databaseVersion}`],
+      context: { location: dockerDir },
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: { location: `${dockerDir}/dockerfiles/market-efficiency-indexer.dockerfile` },
+      builder: dockerRemoteBuilder ? { name: dockerRemoteBuilder } : undefined,
+      buildArgs: { S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache' },
+      secrets: buildSecrets,
+      cacheFrom: [{ registry: { ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
+      cacheTo: [{ registry: { mode: docker_build.CacheMode.Max, imageManifest: true, ociMediaTypes: true, ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
+      registries: [{ address: infra.ecrRepository.repository.repositoryUrl, password: infra.ecrAuthToken.apply(t => t.password), username: infra.ecrAuthToken.apply(t => t.userName) }],
+    }, { parent: this });
+
+    const efficiencyLogGroupName = `${serviceName}-market-efficiency`;
+    const efficiencyLogGroup = new aws.cloudwatch.LogGroup(efficiencyLogGroupName, {
+      name: efficiencyLogGroupName,
+      retentionInDays: 0,
+      skipDestroy: true,
+    }, { parent: this });
+
+    const efficiencyLogGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${efficiencyLogGroupName}:*`;
+    new aws.iam.RolePolicy(`${serviceName}-efficiency-logs-policy`, {
+      role: infra.executionRole.id,
+      policy: {
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Allow',
+          Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+          Resource: efficiencyLogGroupArn,
+        }],
+      },
+    }, { parent: this });
+
+    const efficiencyContainerName = `${serviceName}-market-efficiency-${infra.databaseVersion}`;
+    const efficiencyTaskDef = new awsx.ecs.FargateTaskDefinition(`${serviceName}-market-efficiency-task-${infra.databaseVersion}`, {
+      family: `${serviceName}-market-efficiency-${infra.databaseVersion}`,
+      logGroup: { existing: efficiencyLogGroup },
+      executionRole: { roleArn: infra.executionRole.arn },
+      taskRole: { roleArn: infra.taskRole.arn },
+      container: {
+        name: efficiencyContainerName,
+        image: efficiencyImage.ref,
+        cpu: 1024,
+        memory: 2048,
+        essential: true,
+        linuxParameters: { initProcessEnabled: true },
+        command: ['--once', '--lookback-days', '2', '--log-json'],
+        secrets: [{ name: 'DATABASE_URL', valueFrom: infra.dbUrlSecret.arn }],
+        environment: [
+          { name: 'RUST_LOG', value: 'info' },
+          { name: 'NO_COLOR', value: '1' },
+          { name: 'RUST_BACKTRACE', value: '1' },
+          { name: 'SECRET_HASH', value: infra.secretHash },
+          { name: 'AWS_REGION', value: 'us-west-2' },
+        ],
+      },
+    }, { parent: this, dependsOn: [infra.taskRole, infra.taskRolePolicyAttachment] });
+
+    const efficiencyLambdaRole = new aws.iam.Role(`${serviceName}-efficiency-lambda-role`, {
+      assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: 'lambda.amazonaws.com' }),
+      managedPolicyArns: [aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole],
+    }, { parent: this });
+
+    new aws.iam.RolePolicy(`${serviceName}-efficiency-lambda-policy`, {
+      role: efficiencyLambdaRole.id,
+      policy: pulumi.all([efficiencyTaskDef.taskDefinition.arn, infra.executionRole.arn, infra.taskRole.arn]).apply(
+        ([taskDefArn, execRoleArn, taskRoleArn]) => JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            { Effect: 'Allow', Action: ['ecs:RunTask'], Resource: taskDefArn.replace(/:\d+$/, ':*') },
+            { Effect: 'Allow', Action: ['iam:PassRole'], Resource: [execRoleArn, taskRoleArn] },
+          ],
+        })
+      ),
+    }, { parent: this });
+
+    const efficiencyTriggerLambda = new aws.lambda.Function(`${serviceName}-market-efficiency-trigger`, {
+      name: `${serviceName}-market-efficiency-trigger`,
+      role: efficiencyLambdaRole.arn,
+      runtime: 'nodejs20.x',
+      handler: 'index.handler',
+      timeout: 30,
+      code: new pulumi.asset.AssetArchive({
+        '.': new pulumi.asset.FileArchive('../indexer/market-efficiency-trigger-lambda/build'),
+      }),
+      environment: {
+        variables: {
+          CLUSTER_ARN: infra.cluster.arn,
+          TASK_DEFINITION_ARN: efficiencyTaskDef.taskDefinition.arn,
+          SUBNET_IDS: privSubNetIds.apply(ids => ids.join(',')),
+          SECURITY_GROUP_ID: infra.indexerSecurityGroup.id,
+          AWS_REGION: 'us-west-2',
+        },
+      },
+    }, { parent: this, dependsOn: [efficiencyLambdaRole] });
+
+    const efficiencyScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-market-efficiency-rule`, {
+      name: `${serviceName}-market-efficiency-rule`,
+      description: `Daily market efficiency analysis for ${serviceName} (2-day lookback)`,
+      scheduleExpression: 'cron(0 4 * * ? *)', // Run daily at 4 AM UTC
+      state: 'ENABLED',
+    }, { parent: this });
+
+    new aws.lambda.Permission(`${serviceName}-efficiency-lmbd-perm`, {
+      statementId: `AllowEventBridge-${serviceName}-efficiency`,
+      action: 'lambda:InvokeFunction',
+      function: efficiencyTriggerLambda.name,
+      principal: 'events.amazonaws.com',
+      sourceArn: efficiencyScheduleRule.arn,
+    }, { parent: this });
+
+    new aws.cloudwatch.EventTarget(`${serviceName}-market-efficiency-targ`, {
+      rule: efficiencyScheduleRule.name,
+      arn: efficiencyTriggerLambda.arn,
     }, { parent: this });
 
     // Grant execution role permission to write to this service's specific log group

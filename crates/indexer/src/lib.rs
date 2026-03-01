@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod db;
+pub mod efficiency;
 pub mod market;
 pub mod rewards;
 pub mod test_utils;

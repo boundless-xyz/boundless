@@ -34,6 +34,10 @@ export class IndexerShared extends pulumi.ComponentResource {
     const { vpcId, privSubNetIds, rdsPassword, isDev } = args;
     const serviceName = `${args.serviceName}-base`;
 
+    // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
+    const databaseVersion = 'v19';
+    this.databaseVersion = databaseVersion;
+
     this.ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
       lifecyclePolicy: {
         rules: [
@@ -118,9 +122,6 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     const rdsUser = 'indexer';
 
-    // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
-    const databaseVersion = 'v19';
-    this.databaseVersion = databaseVersion;
     const rdsDbName = `indexer${databaseVersion}`;
     const enhancedMonitoringRole = new aws.iam.Role(`${serviceName}-rds-mon`, {
       assumeRolePolicy: JSON.stringify({

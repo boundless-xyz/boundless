@@ -18,6 +18,10 @@ path = "src/bin/market-indexer.rs"
 name = "rewards-indexer"
 path = "src/bin/rewards-indexer.rs"
 
+[[bin]]
+name = "market-efficiency-indexer"
+path = "src/bin/market-efficiency-indexer.rs"
+
 [features]
 # Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
 test-r0vm = []

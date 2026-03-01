@@ -403,3 +403,238 @@ pub struct DelegationPowerEntry {
     /// Epoch number (for specific epoch data)
     pub epoch: Option<u64>,
 }
+
+/// Market efficiency summary statistics
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EfficiencySummaryResponse {
+    /// Latest hourly efficiency rate (0-1)
+    pub latest_hourly_efficiency_rate: Option<f64>,
+
+    /// Latest daily efficiency rate (0-1)
+    pub latest_daily_efficiency_rate: Option<f64>,
+
+    /// Total number of requests analyzed
+    pub total_requests_analyzed: u64,
+
+    /// Number of requests that were the most profitable when locked
+    pub most_profitable_locked: u64,
+
+    /// Number of requests that were not the most profitable when locked
+    pub not_most_profitable_locked: u64,
+
+    /// Last updated timestamp (ISO 8601)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_updated: Option<String>,
+}
+
+/// Efficiency data type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EfficiencyType {
+    /// Raw efficiency data (default)
+    Raw,
+    /// Gas-adjusted efficiency data (profitability with gas costs)
+    GasAdjusted,
+    /// Gas-adjusted efficiency data excluding certain requestors
+    GasAdjustedWithExclusions,
+}
+
+impl Default for EfficiencyType {
+    fn default() -> Self {
+        EfficiencyType::Raw
+    }
+}
+
+/// Query parameters for efficiency summary
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct EfficiencySummaryParams {
+    /// Efficiency data type: 'raw', 'gas_adjusted', or 'gas_adjusted_with_exclusions' (default: raw)
+    #[serde(default)]
+    #[param(value_type = String)]
+    pub r#type: EfficiencyType,
+}
+
+/// Query parameters for efficiency aggregates
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct EfficiencyAggregatesParams {
+    /// Granularity: 'hourly' or 'daily' (default: hourly)
+    #[serde(default = "default_efficiency_granularity")]
+    pub granularity: String,
+
+    /// Filter results before this Unix timestamp
+    #[serde(default)]
+    pub before: Option<u64>,
+
+    /// Filter results after this Unix timestamp
+    #[serde(default)]
+    pub after: Option<u64>,
+
+    /// Maximum number of results (default: 50, max: 500)
+    #[serde(default = "default_efficiency_limit")]
+    pub limit: u64,
+
+    /// Cursor for pagination (base64-encoded timestamp)
+    #[serde(default)]
+    pub cursor: Option<String>,
+
+    /// Sort order: 'asc' or 'desc' (default: desc)
+    #[serde(default = "default_sort")]
+    pub sort: String,
+
+    /// Efficiency data type: 'raw', 'gas_adjusted', or 'gas_adjusted_with_exclusions' (default: raw)
+    #[serde(default)]
+    #[param(value_type = String)]
+    pub r#type: EfficiencyType,
+}
+
+fn default_efficiency_granularity() -> String {
+    "hourly".to_string()
+}
+
+fn default_efficiency_limit() -> u64 {
+    50
+}
+
+fn default_sort() -> String {
+    "desc".to_string()
+}
+
+/// Single efficiency aggregate data point
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EfficiencyAggregateEntry {
+    /// Period timestamp (Unix timestamp)
+    pub period_timestamp: u64,
+
+    /// Period timestamp (ISO 8601)
+    pub period_timestamp_iso: String,
+
+    /// Number of requests that were most profitable when locked
+    pub num_most_profitable_locked: u64,
+
+    /// Number of requests that were not most profitable when locked
+    pub num_not_most_profitable_locked: u64,
+
+    /// Efficiency rate for this period (0-1)
+    pub efficiency_rate: f64,
+}
+
+/// Response for efficiency aggregates list
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EfficiencyAggregatesResponse {
+    /// List of aggregate entries
+    pub data: Vec<EfficiencyAggregateEntry>,
+
+    /// Whether there are more results
+    pub has_more: bool,
+
+    /// Cursor for next page (if has_more is true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// Query parameters for efficiency requests list
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct EfficiencyRequestsParams {
+    /// Filter results before this Unix timestamp
+    #[serde(default)]
+    pub before: Option<u64>,
+
+    /// Filter results after this Unix timestamp
+    #[serde(default)]
+    pub after: Option<u64>,
+
+    /// Maximum number of results (default: 50, max: 500)
+    #[serde(default = "default_efficiency_limit")]
+    pub limit: u64,
+
+    /// Cursor for pagination (base64-encoded timestamp)
+    #[serde(default)]
+    pub cursor: Option<String>,
+
+    /// Sort order: 'asc' or 'desc' (default: desc)
+    #[serde(default = "default_sort")]
+    pub sort: String,
+}
+
+/// Sample of a more profitable request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MoreProfitableSampleEntry {
+    /// Request digest (hex)
+    pub request_digest: String,
+
+    /// Request ID
+    pub request_id: String,
+
+    /// Requestor (client) address that sent the request
+    pub requestor_address: String,
+
+    /// Lock price at time (wei)
+    pub lock_price_at_time: String,
+
+    /// Program cycles
+    pub program_cycles: String,
+
+    /// Price per cycle at time
+    pub price_per_cycle_at_time: String,
+}
+
+/// Single request efficiency record
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EfficiencyRequestEntry {
+    /// Request digest (hex)
+    pub request_digest: String,
+
+    /// Request ID
+    pub request_id: String,
+
+    /// Timestamp when request was locked (Unix timestamp)
+    pub locked_at: u64,
+
+    /// Timestamp when request was locked (ISO 8601)
+    pub locked_at_iso: String,
+
+    /// Lock price (wei)
+    pub lock_price: String,
+
+    /// Lock price (human-readable)
+    pub lock_price_formatted: String,
+
+    /// Program cycles
+    pub program_cycles: String,
+
+    /// Program cycles (human-readable)
+    pub program_cycles_formatted: String,
+
+    /// Lock price per cycle
+    pub lock_price_per_cycle: String,
+
+    /// Whether this was the most profitable request when locked
+    pub is_most_profitable: bool,
+
+    /// Number of more profitable requests available when locked
+    pub num_requests_more_profitable: u64,
+
+    /// Number of less profitable requests available when locked
+    pub num_requests_less_profitable: u64,
+
+    /// Number of requests available but unfulfilled (no cycle count)
+    pub num_requests_available_unfulfilled: u64,
+
+    /// Sample of up to 5 more profitable requests
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub more_profitable_sample: Option<Vec<MoreProfitableSampleEntry>>,
+}
+
+/// Response for efficiency requests list
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EfficiencyRequestsResponse {
+    /// List of request efficiency entries
+    pub data: Vec<EfficiencyRequestEntry>,
+
+    /// Whether there are more results
+    pub has_more: bool,
+
+    /// Cursor for next page (if has_more is true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}

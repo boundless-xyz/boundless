@@ -76,6 +76,11 @@ use utoipa::OpenApi;
         crate::routes::market::list_requests_by_prover,
         crate::routes::market::get_prover_aggregates,
         crate::routes::market::get_prover_cumulatives,
+        // Efficiency endpoints
+        crate::routes::market::get_efficiency_summary,
+        crate::routes::market::get_efficiency_aggregates,
+        crate::routes::market::list_efficiency_requests,
+        crate::routes::market::get_efficiency_request_by_id,
     ),
     components(schemas(
         // Response models
@@ -142,6 +147,18 @@ use utoipa::OpenApi;
         crate::routes::market::ProverCumulativesParams,
         crate::routes::market::ProverCumulativeEntry,
         crate::routes::market::ProverCumulativesResponse,
+
+        // Efficiency types
+        EfficiencyType,
+        EfficiencySummaryParams,
+        EfficiencySummaryResponse,
+        EfficiencyAggregatesParams,
+        EfficiencyAggregateEntry,
+        EfficiencyAggregatesResponse,
+        EfficiencyRequestsParams,
+        EfficiencyRequestEntry,
+        EfficiencyRequestsResponse,
+        MoreProfitableSampleEntry,
     ))
 )]
 pub struct ApiDoc;
