@@ -231,7 +231,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COUNT(*)\nFROM\n    tasks cross join lateral jsonb_object_keys(tasks.task_def) task_type\nWHERE\n  (\n    state = 'pending' OR state = 'ready'\n  ) AND (\n      task_type = 'Join' OR task_type = 'Prove' OR task_type = 'Resolve'\n  )",
+          "rawSql": "SELECT\n  COUNT(*)\nFROM\n    tasks cross join lateral jsonb_object_keys(tasks.task_def) task_type\nleft join jobs on tasks.job_id = jobs.id\nWHERE\n  (\n    tasks.state = 'pending' OR tasks.state = 'ready'\n  ) AND (\n      task_type = 'Join' OR task_type = 'Prove' OR task_type = 'Resolve'\n  )\nAND jobs.state <> 'failed'",
           "refId": "A",
           "sql": {
             "columns": [
