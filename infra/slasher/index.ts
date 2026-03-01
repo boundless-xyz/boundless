@@ -21,6 +21,10 @@ export = () => {
   const logLevel = config.get('LOG_LEVEL') || 'info';
   const dockerDir = config.get('DOCKER_DIR') || '../../';
   const dockerTag = config.get('DOCKER_TAG') || 'latest';
+  // When set, the slasher image is read directly from the image-builder stack output
+  // via a Pulumi StackReference rather than being built locally.
+  // Format: "<org>/image-builder/<stack>", e.g. "organization/image-builder/l-slasher-images"
+  const imageBuilderStackName = config.get('IMAGE_BUILDER_STACK');
 
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
   const interval = config.get('INTERVAL') || "60";
@@ -64,75 +68,86 @@ export = () => {
       return hash.digest("hex");
     });
 
-  const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
-    name: `${serviceName}-ecr-repo`,
-    forceDelete: true,
-    lifecyclePolicy: {
-      rules: [
+  // When IMAGE_BUILDER_STACK is set, read the pre-built image ref directly from that
+  // stack's outputs via a StackReference. Otherwise, build and push the image locally.
+  let containerImage: pulumi.Output<string>;
+
+  if (imageBuilderStackName) {
+    const imageBuilderStack = new pulumi.StackReference(imageBuilderStackName);
+    containerImage = imageBuilderStack.requireOutput('slasher').apply(ref => ref as string);
+  } else {
+    const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
+      name: `${serviceName}-ecr-repo`,
+      forceDelete: true,
+      lifecyclePolicy: {
+        rules: [
+          {
+            description: 'Delete untagged images after N days',
+            tagStatus: 'untagged',
+            maximumAgeLimit: 7,
+          },
+        ],
+      },
+    });
+
+    const authToken = aws.ecr.getAuthorizationTokenOutput({
+      registryId: repo.repository.registryId,
+    });
+
+    const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+    // Optionally add in the gh token secret and sccache s3 creds to the build ctx
+    let buildSecrets = {};
+    if (githubTokenSecret !== undefined) {
+      buildSecrets = {
+        githubTokenSecret
+      }
+    }
+
+    const image = new docker_build.Image(`${serviceName}-image`, {
+      tags: [dockerTagPath],
+      context: {
+        location: dockerDir,
+      },
+      // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
+      // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
+      platforms: ['linux/amd64'],
+      secrets: buildSecrets,
+      push: true,
+      builder: dockerRemoteBuilder ? {
+        name: dockerRemoteBuilder,
+      } : undefined,
+      dockerfile: {
+        location: `${dockerDir}/dockerfiles/slasher.dockerfile`,
+      },
+      cacheFrom: [
         {
-          description: 'Delete untagged images after N days',
-          tagStatus: 'untagged',
-          maximumAgeLimit: 7,
+          registry: {
+            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+          },
         },
       ],
-    },
-  });
+      cacheTo: [
+        {
+          registry: {
+            mode: docker_build.CacheMode.Max,
+            imageManifest: true,
+            ociMediaTypes: true,
+            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+          },
+        },
+      ],
+      registries: [
+        {
+          address: repo.repository.repositoryUrl,
+          password: authToken.password,
+          username: authToken.userName,
+        },
+      ],
+    });
 
-  const authToken = aws.ecr.getAuthorizationTokenOutput({
-    registryId: repo.repository.registryId,
-  });
-
-  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
-
-  // Optionally add in the gh token secret and sccache s3 creds to the build ctx
-  let buildSecrets = {};
-  if (githubTokenSecret !== undefined) {
-    buildSecrets = {
-      githubTokenSecret
-    }
+    containerImage = image.ref;
   }
-
-  const image = new docker_build.Image(`${serviceName}-image`, {
-    tags: [dockerTagPath],
-    context: {
-      location: dockerDir,
-    },
-    // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
-    // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
-    platforms: ['linux/amd64'],
-    secrets: buildSecrets,
-    push: true,
-    builder: dockerRemoteBuilder ? {
-      name: dockerRemoteBuilder,
-    } : undefined,
-    dockerfile: {
-      location: `${dockerDir}/dockerfiles/slasher.dockerfile`,
-    },
-    cacheFrom: [
-      {
-        registry: {
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-        },
-      },
-    ],
-    cacheTo: [
-      {
-        registry: {
-          mode: docker_build.CacheMode.Max,
-          imageManifest: true,
-          ociMediaTypes: true,
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
-        },
-      },
-    ],
-    registries: [
-      {
-        address: repo.repository.repositoryUrl,
-        password: authToken.password,
-        username: authToken.userName,
-      },
-    ],
-  });
 
   // Security group allow outbound, deny inbound
   const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
@@ -269,7 +284,7 @@ export = () => {
         },
         container: {
           name: serviceName,
-          image: image.ref,
+          image: containerImage,
           cpu: 128,
           memory: 512,
           essential: true,
@@ -385,4 +400,8 @@ export = () => {
     actionsEnabled: true,
     alarmActions,
   });
+
+  return {
+    imageRef: containerImage,
+  };
 };

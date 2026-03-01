@@ -9,6 +9,7 @@ export interface LaunchPipelineConfig {
   additionalBuildSpecCommands?: string[];
   postBuildCommands?: string[];
   branchName?: string;
+  imageBuilderStack?: string;
 }
 
 export const LAUNCH_PIPELINE_DEFAULTS = {

@@ -1,0 +1,4 @@
+config:
+  image-builder:SERVICE_NAME: slasher
+  image-builder:DOCKERFILES:
+    - slasher.dockerfile
