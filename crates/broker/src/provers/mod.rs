@@ -18,9 +18,11 @@ use risc0_zkvm::Receipt;
 
 mod bonsai;
 mod default;
+mod registry;
 
 pub use bonsai::Bonsai;
 pub use default::DefaultProver;
+pub(crate) use registry::{ProverEntry, ProverPriority, ProverRegistry};
 
 // Re-export types from boundless_market::prover_utils::prover
 pub use boundless_market::prover_utils::prover::{

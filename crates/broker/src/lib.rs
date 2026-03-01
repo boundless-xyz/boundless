@@ -18,6 +18,7 @@ use std::{
     time::SystemTime,
 };
 
+use crate::provers::ProverRegistry;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, FixedBytes, U256},
@@ -840,12 +841,12 @@ where
 
         // Construct the prover object interface
         let prover: provers::ProverObj;
-        let aggregation_prover: provers::ProverObj;
+        let high_priority_prover: Option<provers::ProverObj>;
         if is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
             Receipts generated from this process are invalid and should never be used in production.");
             prover = Arc::new(provers::DefaultProver::new());
-            aggregation_prover = Arc::clone(&prover);
+            high_priority_prover = None;
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
@@ -854,7 +855,7 @@ where
                 provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
                     .context("Failed to construct Bonsai client")?,
             );
-            aggregation_prover = Arc::clone(&prover);
+            high_priority_prover = None;
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
@@ -862,15 +863,20 @@ where
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
             );
-            // Initialize aggregation/snark prover with a higher reserved key to prioritize
-            aggregation_prover = Arc::new(
+            // Initialize high-priority prover with a higher reserved key for compression/aggregation
+            high_priority_prover = Some(Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
                     .context("Failed to initialize Bento client")?,
-            );
+            ));
         } else {
             prover = Arc::new(provers::DefaultProver::new());
-            aggregation_prover = Arc::clone(&prover);
+            high_priority_prover = None;
         };
+
+        let default_entry =
+            provers::ProverEntry { standard: prover.clone(), high_priority: high_priority_prover };
+        let registry =
+            ProverRegistry { risc0_default: default_entry.clone(), blake3_groth16: default_entry };
 
         let prover_addr = self.provider.default_signer_address();
 
@@ -978,8 +984,7 @@ where
         if !self.args.listen_only {
             let proving_service = Arc::new(proving::ProvingService::new(
                 self.db.clone(),
-                prover.clone(),
-                aggregation_prover.clone(),
+                registry.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 self.priority_requestors.clone(),
@@ -1009,7 +1014,7 @@ where
                     self.deployment().boundless_market_address,
                     prover_addr,
                     config.clone(),
-                    aggregation_prover.clone(),
+                    registry.high_priority().clone(),
                 )
                 .await
                 .context("Failed to initialize aggregator service")?,
@@ -1043,7 +1048,7 @@ where
             let submitter = Arc::new(submitter::Submitter::new(
                 self.db.clone(),
                 config.clone(),
-                aggregation_prover.clone(),
+                registry.high_priority().clone(),
                 self.provider.clone(),
                 self.deployment().set_verifier_address,
                 self.deployment().boundless_market_address,

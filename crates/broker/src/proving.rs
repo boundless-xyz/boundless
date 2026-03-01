@@ -20,7 +20,7 @@ use crate::{
     errors::CodedError,
     futures_retry::retry_with_context,
     impl_coded_debug, now_timestamp,
-    provers::{self, ProverObj},
+    provers::{self, ProverPriority, ProverRegistry},
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
@@ -30,6 +30,7 @@ use crate::{
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
+use boundless_market::selector::ProofType;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
@@ -64,8 +65,7 @@ impl CodedError for ProvingErr {
 #[derive(Clone)]
 pub struct ProvingService {
     db: DbObj,
-    prover: ProverObj,
-    snark_prover: ProverObj,
+    registry: ProverRegistry,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
@@ -77,8 +77,7 @@ impl ProvingService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
-        prover: ProverObj,
-        snark_prover: ProverObj,
+        registry: ProverRegistry,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
@@ -87,8 +86,7 @@ impl ProvingService {
     ) -> Self {
         Self {
             db,
-            prover,
-            snark_prover,
+            registry,
             config,
             order_state_tx,
             priority_requestors,
@@ -105,7 +103,8 @@ impl ProvingService {
         snark_proof_id: Option<String>,
     ) -> Result<OrderStatus> {
         let proof_res = self
-            .prover
+            .registry
+            .standard()
             .wait_for_stark(stark_proof_id)
             .await
             .context("Monitoring proof (stark) failed")?;
@@ -121,19 +120,24 @@ impl ProvingService {
                 (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
             };
 
+            let compression_proof_type = match compression_type {
+                CompressionType::Groth16 => ProofType::Groth16,
+                CompressionType::Blake3Groth16 => ProofType::Blake3Groth16,
+                CompressionType::None => unreachable!("Compression type should not be None here"),
+            };
+            let snark_prover = self.registry.get(compression_proof_type, ProverPriority::High);
+
             let context = format!("order {order_id}");
             let compressed_proof_id = retry_with_context(
                 retry_count,
                 sleep_ms,
                 || async {
                     let proof_id = match compression_type {
-                        CompressionType::Groth16 => self
-                            .snark_prover
+                        CompressionType::Groth16 => snark_prover
                             .compress(stark_proof_id)
                             .await
                             .context("Failed to compress proof for order {order_id}")?,
-                        CompressionType::Blake3Groth16 => self
-                            .snark_prover
+                        CompressionType::Blake3Groth16 => snark_prover
                             .compress_blake3_groth16(stark_proof_id)
                             .await
                             .context("Failed to compress blake3 groth16 proof for order {order_id}")?,
@@ -146,13 +150,13 @@ impl ProvingService {
                             tracing::trace!(
                                 "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
                             );
-                            provers::verify_groth16_receipt(&self.snark_prover, &proof_id).await?;
+                            provers::verify_groth16_receipt(snark_prover, &proof_id).await?;
                         }
                         CompressionType::Blake3Groth16 => {
                             tracing::trace!(
                                 "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
                             );
-                            provers::verify_blake3_groth16_receipt(&self.snark_prover, &proof_id).await?;
+                            provers::verify_blake3_groth16_receipt(snark_prover, &proof_id).await?;
                         }
                         CompressionType::None => {
                             unreachable!("Compression type should not be None here")
@@ -191,6 +195,8 @@ impl ProvingService {
 
     async fn get_or_create_stark_session(&self, order: Order) -> Result<String> {
         let order_id = order.id();
+        // TODO this will eventually select based on proof system
+        let standard_prover = self.registry.standard();
 
         // Get the proof_id - either from existing order or create new proof
         match order.proof_id.clone() {
@@ -206,7 +212,7 @@ impl ProvingService {
                 // Mostly hit by skipping pre-flight
                 let image_id = match order.image_id.as_ref() {
                     Some(val) => val.clone(),
-                    None => upload_image_uri(&self.prover, &order.request, &self.downloader)
+                    None => upload_image_uri(standard_prover, &order.request, &self.downloader)
                         .await
                         .context(format!("Failed to upload image for order {order_id}"))?,
                 };
@@ -214,7 +220,7 @@ impl ProvingService {
                 let input_id = match order.input_id.as_ref() {
                     Some(val) => val.clone(),
                     None => upload_input_uri(
-                        &self.prover,
+                        standard_prover,
                         &order.request,
                         &self.downloader,
                         &self.priority_requestors,
@@ -223,8 +229,7 @@ impl ProvingService {
                     .context(format!("Failed to upload input for order {order_id}"))?,
                 };
 
-                let proof_id = self
-                    .prover
+                let proof_id = standard_prover
                     .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
                     .await
                     .context(format!("Failed to prove customer proof STARK order {order_id}"))?;
@@ -464,8 +469,14 @@ impl ProvingService {
             Err(ProvingErr::ShouldCancel(reason)) => {
                 tracing::info!("Order {order_id} not actionable, cancelling proof: {reason}");
                 // Config says to cancel - release capacity immediately
-                cancel_proof_and_fail_order(&self.prover, &self.db, &self.config, &order, reason)
-                    .await;
+                cancel_proof_and_fail_order(
+                    self.registry.standard(),
+                    &self.db,
+                    &self.config,
+                    &order,
+                    reason,
+                )
+                .await;
             }
             Err(ProvingErr::CompletedNotActionable(reason)) => {
                 tracing::info!(
@@ -569,7 +580,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         now_timestamp,
-        provers::{encode_input, DefaultProver},
+        provers::{encode_input, DefaultProver, ProverObj, ProverRegistry},
         FulfillmentType, OrderStatus,
     };
     use alloy::{
@@ -674,6 +685,7 @@ mod tests {
         let config = ConfigLock::default();
         let market = mock_market(vec![false; 4]);
         let prover: ProverObj = Arc::new(DefaultProver::new());
+        let registry = ProverRegistry::new_test(prover.clone());
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
         let image_id = Digest::from(ECHO_ID).to_string();
@@ -687,8 +699,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
-            prover.clone(),
-            prover.clone(),
+            registry.clone(),
             config.clone(),
             order_state_tx,
             priority_requestors,
@@ -717,8 +728,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
-            prover.clone(),
-            prover.clone(),
+            registry.clone(),
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,
@@ -759,6 +769,7 @@ mod tests {
         let config = ConfigLock::default();
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
+        let registry = ProverRegistry::new_test(prover.clone());
         let market = mock_market(vec![false; 6]);
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
@@ -776,8 +787,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
-            prover.clone(),
-            prover,
+            registry.clone(),
             config.clone(),
             order_state_tx,
             priority_requestors,
@@ -857,6 +867,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
+        let registry = ProverRegistry::new_test(prover.clone());
         let market = mock_market(vec![false; 6]);
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
@@ -871,8 +882,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
-            prover.clone(),
-            prover.clone(),
+            registry.clone(),
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,
