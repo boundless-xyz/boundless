@@ -22,13 +22,13 @@ x-base-environment: &base-environment
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
   runtime: ${DOCKER_RUNTIME:-nvidia}
+  image: ${AGENT_IMAGE:-bento-agent:local}
   build:
     context: .
     dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
     args:
       BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.1/bento-bundle-linux-amd64.tar.gz}
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
-      # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
       USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
   restart: always
   depends_on:
@@ -133,9 +133,20 @@ services:
       - 6379:6379
     volumes:
       - redis-data:/data
-    command: ["sh", "-c", "exec valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes $$(test -n \"$$REDIS_PASSWORD\" && echo \"--requirepass $$REDIS_PASSWORD\")"]
+    command:
+      [
+        "sh",
+        "-c",
+        'exec valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes $$(test -n "$$REDIS_PASSWORD" && echo "--requirepass $$REDIS_PASSWORD")',
+      ]
     healthcheck:
-      test: ["CMD", "sh", "-c", "redis-cli $$(test -n \"$$REDIS_PASSWORD\" && echo \"-a $$REDIS_PASSWORD\") ping"]
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          'redis-cli $$(test -n "$$REDIS_PASSWORD" && echo "-a $$REDIS_PASSWORD") ping',
+        ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -154,7 +165,8 @@ services:
       - "${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    command: ["postgres", "-p", "${POSTGRES_PORT:-5432}", "-c", "max_connections=500"]
+    command:
+      ["postgres", "-p", "${POSTGRES_PORT:-5432}", "-c", "max_connections=500"]
     healthcheck:
       test:
         [
@@ -289,6 +301,7 @@ services:
               capabilities: [gpu]
 
   rest_api:
+    image: ${REST_API_IMAGE:-bento-rest-api:local}
     build:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
@@ -350,17 +363,6 @@ services:
   #     PRIVATE_KEY: ${PROVER_PRIVATE_KEY:-${PRIVATE_KEY}}
   #     RPC_URL: ${RPC_URL_2}
   #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
-
-  broker-ui:
-    build:
-      context: .
-      dockerfile: dockerfiles/broker-ui.dockerfile
-    restart: unless-stopped
-    ports:
-      - "3001:3001"
-    volumes:
-      - broker-data:/db:ro
-    profiles: [broker]
 
   miner:
     build:
