@@ -701,13 +701,15 @@ where
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
                             let min = U256::ZERO;
-                            let max = percentiles.p99.min(percentiles.p50 * U256::from(2))
-                                * U256::from(cycle_count);
+                            let max_per_cycle =
+                                percentiles.p99.min(percentiles.p50 * U256::from(2));
+                            let max = max_per_cycle * U256::from(cycle_count);
                             tracing::debug!(
-                                "Using market prices from price provider: min={}, max={} (for {} cycles)",
+                                "Using market prices from price provider to set max price: p50_per_cycle: {} p99_per_cycle: {} min price: {} max price: {}",
+                                percentiles.p50,
+                                percentiles.p99,
                                 format_units(min, "ether")?,
                                 format_units(max, "ether")?,
-                                cycle_count
                             );
                             (Some(min), Some(max))
                         }
