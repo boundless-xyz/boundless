@@ -1242,9 +1242,7 @@ pub mod test_utils {
 
     use alloy::{
         network::{AnyNetwork, Ethereum},
-        providers::{
-            fillers::ChainIdFiller, Provider, ProviderBuilder, WalletProvider,
-        },
+        providers::{fillers::ChainIdFiller, Provider, ProviderBuilder, WalletProvider},
     };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
