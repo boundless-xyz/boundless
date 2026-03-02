@@ -11,12 +11,13 @@ extern crate alloc;
 use alloc::vec::Vec;
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolStruct, SolValue};
-use boundless_assessor::{process_tree, AssessorInput};
+use borsh::BorshDeserialize;
+use boundless_assessor::{process_tree, AssessorInput, AssessorPovwClaim};
 use boundless_market::contracts::{
     AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, FulfillmentData,
-    RequestId, UNSPECIFIED_SELECTOR,
+    PoVWClaim, RequestId, UNSPECIFIED_SELECTOR,
 };
-use risc0_zkvm::{guest::env, sha::Digest};
+use risc0_zkvm::{guest::env, sha::{Digest, Digestible}, ReceiptClaim, WorkClaim};
 
 risc0_zkvm::guest::entry!(main);
 
@@ -33,6 +34,8 @@ fn main() {
 
     // list of ReceiptClaim digests used as leaves in the aggregation set
     let mut leaves: Vec<Digest> = Vec::with_capacity(input.fills.len());
+    // claim digest per fill, used for PoVW binding (parallel to fills)
+    let mut claim_digests: Vec<Digest> = Vec::with_capacity(input.fills.len());
     // sparse list of callbacks to be recorded in the journal
     let mut callbacks: Vec<AssessorCallback> = Vec::<AssessorCallback>::new();
     // list of optional Selectors specified as part of the requests requirements
@@ -62,6 +65,7 @@ fn main() {
             fill.verify_signature(&eip_domain_separator).expect("signature does not verify")
         };
         let claim_digest = fill.evaluate_requirements().expect("requirements not met");
+        claim_digests.push(claim_digest);
         let commit = AssessorCommitment {
             index: U256::from(index),
             id: fill.request.id,
@@ -102,11 +106,45 @@ fn main() {
     // compute the merkle root of the commitments
     let root = process_tree(leaves);
 
+    // PoVW binding: for each provided work claim, verify the assumption inline and bind it to the
+    // corresponding fill via the committed claim digest.
+    // The output is a dense array parallel to fills (cycleCount = 0 for unattributed fills).
+    // If absent, workLogId = address(0) and povwClaims = [] — backward compatible.
+    let (work_log_id, povw_claims) = if let Some(ref povw) = input.povw {
+        // Build a dense cycle-count array indexed by fill position.
+        let mut cycle_counts = alloc::vec![0u64; input.fills.len()];
+        for AssessorPovwClaim { index, work_claim } in &povw.claims {
+            let fill_idx = *index as usize;
+            let work_claim: WorkClaim<ReceiptClaim> =
+                WorkClaim::deserialize_reader(&mut work_claim.as_ref())
+                    .expect("failed to decode WorkClaim");
+            // Verify the work claim receipt (host must add it as a zkVM assumption).
+            env::verify_assumption(work_claim.digest(), Digest::ZERO)
+                .expect("work claim verification failed");
+            // Bind: the WorkClaim's ReceiptClaim digest must match the committed claim digest for
+            // this fill, cryptographically tying the cycle count to this specific execution.
+            let rc = work_claim.claim.as_value().expect("work claim.claim pruned");
+            assert_eq!(
+                rc.digest(),
+                claim_digests[fill_idx],
+                "work claim claimDigest does not match fill at index {fill_idx}",
+            );
+            cycle_counts[fill_idx] =
+                work_claim.work.as_value().expect("work claim.work pruned").value;
+        }
+        let claims = cycle_counts.into_iter().map(|c| PoVWClaim { cycleCount: c }).collect();
+        (povw.log_id, claims)
+    } else {
+        (Address::ZERO, Vec::new())
+    };
+
     let journal = AssessorJournal {
         callbacks,
         selectors,
         root: <[u8; 32]>::from(root).into(),
         prover: input.prover_address,
+        workLogId: work_log_id,
+        povwClaims: povw_claims,
     };
 
     env::commit_slice(&journal.abi_encode());

@@ -14,3 +14,7 @@ r0vm --id --elf "${SCRIPT_DIR:?}/elfs/boundless-povw-log-updater.bin" | xxd -r -
 cargo risczero build --manifest-path "${SCRIPT_DIR:?}/mint-calculator/Cargo.toml"
 cp "${SCRIPT_DIR:?}/mint-calculator/target/riscv32im-risc0-zkvm-elf/docker/boundless-povw-mint-calculator.bin" "${SCRIPT_DIR:?}/elfs"
 r0vm --id --elf "${SCRIPT_DIR:?}/elfs/boundless-povw-mint-calculator.bin" | xxd -r -p > "${SCRIPT_DIR:?}/elfs/boundless-povw-mint-calculator.iid"
+
+cargo risczero build --manifest-path "${SCRIPT_DIR:?}/market-log-builder/Cargo.toml"
+cp "${SCRIPT_DIR:?}/market-log-builder/target/riscv32im-risc0-zkvm-elf/docker/boundless-market-log-builder.bin" "${SCRIPT_DIR:?}/elfs"
+r0vm --id --elf "${SCRIPT_DIR:?}/elfs/boundless-market-log-builder.bin" | xxd -r -p > "${SCRIPT_DIR:?}/elfs/boundless-market-log-builder.iid"

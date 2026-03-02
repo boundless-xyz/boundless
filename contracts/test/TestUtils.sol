@@ -11,6 +11,7 @@ import {Selector} from "../src/types/Selector.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
 import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
+import {PoVWClaim} from "../src/types/PoVWClaim.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
 import {MerkleProofish} from "../src/libraries/MerkleProofish.sol";
 
@@ -37,7 +38,7 @@ library TestUtils {
         bytes32 root = MerkleProofish.processTree(leaves);
 
         bytes memory journal =
-            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover}));
+            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover, workLogId: address(0), povwClaims: new PoVWClaim[](0)}));
         return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
     }
 

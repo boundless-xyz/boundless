@@ -301,6 +301,8 @@ async fn test_e2e() {
         selectors: vec![],
         prover: ctx.prover_signer.address(),
         callbacks: vec![],
+        workLogId: Address::ZERO,
+        updateValue: 0u64,
     };
     // fulfill the request
     ctx.prover_market
@@ -374,6 +376,8 @@ async fn test_e2e_merged_submit_fulfill() {
         selectors: vec![],
         prover: ctx.prover_signer.address(),
         callbacks: vec![],
+        workLogId: Address::ZERO,
+        updateValue: 0u64,
     };
     // publish the committed root + fulfillments
     ctx.prover_market
@@ -437,6 +441,8 @@ async fn test_e2e_price_and_fulfill_batch() {
         selectors: vec![],
         prover: ctx.prover_signer.address(),
         callbacks: vec![],
+        workLogId: Address::ZERO,
+        updateValue: 0u64,
     };
 
     // Price and fulfill the request
@@ -522,6 +528,8 @@ async fn test_e2e_no_payment() {
             selectors: vec![],
             prover: some_other_address,
             callbacks: vec![],
+            workLogId: Address::ZERO,
+            updateValue: 0u64,
         };
 
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
@@ -565,6 +573,8 @@ async fn test_e2e_no_payment() {
         selectors: vec![],
         prover: ctx.prover_signer.address(),
         callbacks: vec![],
+        workLogId: Address::ZERO,
+        updateValue: 0u64,
     };
 
     // fulfill the request, this time getting paid.
@@ -649,6 +659,8 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
         selectors: vec![],
         prover: ctx.prover_signer.address(),
         callbacks: vec![],
+        workLogId: Address::ZERO,
+        updateValue: 0u64,
     };
     // fulfill the request
     ctx.prover_market

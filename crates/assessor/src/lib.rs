@@ -116,6 +116,35 @@ impl Fulfillment {
     }
 }
 
+/// One PoVW work claim for a specific fill in an assessor batch.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AssessorPovwClaim {
+    /// Index into [`AssessorInput::fills`] that this work claim corresponds to.
+    pub index: u32,
+    /// Borsh-serialized `WorkClaim<ReceiptClaim>` for this fill's proof.
+    ///
+    /// The corresponding work receipt must be added as a zkVM assumption to the host
+    /// [`ExecutorEnv`] before executing the assessor.
+    pub work_claim: Vec<u8>,
+}
+
+/// PoVW attribution input for an assessor batch.
+///
+/// When present, the assessor verifies each work claim assumption and
+/// emits a dense per-fill cycle-count array in [`AssessorJournal::povwClaims`] (same length as
+/// fills, with `cycleCount = 0` for fills that have no PoVW attribution).
+///
+/// When absent (the default), `workLogId = address(0)` and `povwClaims = []` are emitted,
+/// preserving backward compatibility for provers that do not participate in PoVW.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AssessorPovwInput {
+    /// The prover's PoVW work log ID (their accounting address, may differ from signing key).
+    pub log_id: Address,
+    /// Per-fill work claims.
+    /// The assessor converts this into a dense array parallel to fills.
+    pub claims: Vec<AssessorPovwClaim>,
+}
+
 /// Input of the Assessor guest.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AssessorInput {
@@ -129,6 +158,12 @@ pub struct AssessorInput {
     pub domain: EIP712DomainSaltless,
     /// The address of the prover.
     pub prover_address: Address,
+    /// Optional PoVW attribution.
+    ///
+    /// When present, the assessor verifies each work claim and emits per-fill cycle counts
+    /// in the journal. When absent, `workLogId = address(0)` and `povwClaims = []`.
+    #[serde(default)]
+    pub povw: Option<AssessorPovwInput>,
 }
 
 impl AssessorInput {
@@ -298,6 +333,7 @@ mod tests {
             domain: eip712_domain(Address::ZERO, 1),
             fills: claims,
             prover_address: Address::ZERO,
+            povw: None,
         };
         let mut env_builder = ExecutorEnv::builder();
         env_builder.write_frame(&assessor_input.encode());

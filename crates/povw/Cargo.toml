@@ -8,7 +8,7 @@ repository = { workspace = true }
 publish = false
 
 [package.metadata.risc0]
-methods = ["mint-calculator", "log-updater"]
+methods = ["mint-calculator", "log-updater", "market-log-builder"]
 
 [package.metadata.release]
 release = false

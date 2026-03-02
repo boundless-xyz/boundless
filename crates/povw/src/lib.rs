@@ -20,11 +20,18 @@ mod guest_artifacts {
         include_bytes!("../elfs/boundless-povw-log-updater.bin");
     pub const BOUNDLESS_POVW_LOG_UPDATER_ID: [u32; 8] =
         bytemuck::must_cast(*include_bytes!("../elfs/boundless-povw-log-updater.iid"));
+    // NOTE: The market-log-builder ELF/IID are placeholder files until the guest is built.
+    // Run `cd crates/povw/market-log-builder && cargo build --release` to produce the real files.
+    pub const BOUNDLESS_MARKET_LOG_BUILDER_ELF: &[u8] =
+        include_bytes!("../elfs/boundless-market-log-builder.bin");
+    pub const BOUNDLESS_MARKET_LOG_BUILDER_ID: [u8; 32] =
+        *include_bytes!("../elfs/boundless-market-log-builder.iid");
 }
 
 pub mod contracts;
 #[cfg(feature = "host")]
 pub mod deployments;
 pub mod log_updater;
+pub mod market_log_builder;
 pub mod mint_calculator;
 pub mod zkc;

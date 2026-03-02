@@ -394,8 +394,12 @@ impl OrderFulfiller {
         fills: Vec<Fulfillment>,
         assumption_ids: Vec<String>,
     ) -> Result<String> {
-        let assessor_input =
-            AssessorInput { domain: self.domain.clone(), fills, prover_address: self.address };
+        let assessor_input = AssessorInput {
+            domain: self.domain.clone(),
+            fills,
+            prover_address: self.address,
+            market_log_builder_journal: None,
+        };
 
         let stdin = GuestEnv::builder().write_frame(&assessor_input.encode()).stdin;
 
@@ -622,6 +626,8 @@ impl OrderFulfiller {
             prover: self.address,
             selectors: assessor_receipt_journal.selectors,
             callbacks: assessor_receipt_journal.callbacks,
+            workLogId: assessor_receipt_journal.workLogId,
+            updateValue: assessor_receipt_journal.updateValue,
         };
 
         Ok((boundless_fills, root_receipt, assessor_receipt))

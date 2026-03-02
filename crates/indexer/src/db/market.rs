@@ -4915,6 +4915,8 @@ mod tests {
             callbacks: vec![],
             selectors: vec![],
             seal: Bytes::default(),
+            workLogId: Address::ZERO,
+            updateValue: 0u64,
         };
 
         db.add_assessor_receipts(&[(receipt.clone(), metadata)]).await.unwrap();

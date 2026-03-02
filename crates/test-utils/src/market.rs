@@ -341,8 +341,14 @@ pub fn mock_singleton(
         .into(),
     }
     .eip712_hash_struct();
-    let assessor_journal =
-        AssessorJournal { selectors: vec![], root: assessor_root, prover, callbacks: vec![] };
+    let assessor_journal = AssessorJournal {
+        selectors: vec![],
+        root: assessor_root,
+        prover,
+        callbacks: vec![],
+        workLogId: Address::ZERO,
+        povwClaims: vec![],
+    };
     let assesor_receipt_claim = ReceiptClaim::ok(ASSESSOR_GUEST_ID, assessor_journal.abi_encode());
     let assessor_claim_digest = assesor_receipt_claim.digest();
 

@@ -39,7 +39,15 @@ interface IBoundlessMarket {
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover fulfilling the request.
     /// @param requestDigest The digest of the request.
-    event RequestFulfilled(RequestId indexed requestId, address indexed prover, bytes32 requestDigest);
+    /// @param workLogId PoVW work log ID of the prover for this batch (zero if not provided).
+    /// @param updateValue Number of PoVW work units attributed to this batch (zero if not provided).
+    event RequestFulfilled(
+        RequestId indexed requestId,
+        address indexed prover,
+        bytes32 requestDigest,
+        address workLogId,
+        uint64 updateValue
+    );
 
     /// @notice Event logged when a proof is delivered that satisfies the request's requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. The
@@ -181,6 +189,9 @@ interface IBoundlessMarket {
     /// @notice Error when there is not enough gas to fulfill a callback.
     /// @dev selector 0x1c26714c
     error InsufficientGas();
+
+    /// @notice Error when an address argument is zero.
+    error InvalidAddress();
 
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.

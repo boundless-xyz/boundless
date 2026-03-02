@@ -62,7 +62,7 @@ include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
     AssessorCallback, AssessorCommitment, AssessorJournal, AssessorReceipt, Callback, Fulfillment,
     FulfillmentContext, FulfillmentDataImageIdAndJournal, FulfillmentDataType, IBoundlessMarket,
-    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer,
+    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer, PoVWClaim,
     Predicate as RequestPredicate, PredicateType, ProofRequest, RequestLock, Requirements,
     Selector as AssessorSelector,
 };

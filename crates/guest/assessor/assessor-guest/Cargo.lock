@@ -1121,6 +1121,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
+ "borsh",
  "boundless-assessor",
  "boundless-market",
  "risc0-zkvm",

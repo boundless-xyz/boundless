@@ -151,7 +151,7 @@ contract BoundlessMarket is
     }
 
     function initialize(address initialOwner, string calldata _imageUrl) external initializer {
-        require(initialOwner != address(0), "Invalid initial owner");
+        if (initialOwner == address(0)) revert InvalidAddress();
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
@@ -328,7 +328,9 @@ contract BoundlessMarket is
                     root: batchRoot,
                     callbacks: assessorReceipt.callbacks,
                     selectors: assessorReceipt.selectors,
-                    prover: assessorReceipt.prover
+                    prover: assessorReceipt.prover,
+                    workLogId: assessorReceipt.workLogId,
+                    povwClaims: assessorReceipt.povwClaims
                 })
             )
         );
@@ -379,7 +381,11 @@ contract BoundlessMarket is
         for (uint256 i = 0; i < fills.length; i++) {
             Fulfillment calldata fill = fills[i];
             bool expired;
-            (paymentError[i], expired) = _fulfillAndPay(fill, assessorReceipt.prover);
+            // Per-fill cycle count from the dense array (guaranteed by assessor ZK proof to be
+            // either empty or fills.length; 0 when no PoVW attribution).
+            uint64 fillCycleCount =
+                assessorReceipt.povwClaims.length > 0 ? assessorReceipt.povwClaims[i].cycleCount : 0;
+            (paymentError[i], expired) = _fulfillAndPay(fill, assessorReceipt.prover, assessorReceipt.workLogId, fillCycleCount);
 
             // Skip the callback if this fulfillment is related to an unlocked request. See the note
             // in _fulfillAndPay for more details. This check could potentially be optimized, as it
@@ -431,7 +437,7 @@ contract BoundlessMarket is
     }
 
     /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address prover)
+    function _fulfillAndPay(Fulfillment calldata fill, address prover, address workLogId, uint64 updateValue)
         internal
         returns (bytes memory paymentError, bool expired)
     {
@@ -483,15 +489,15 @@ contract BoundlessMarket is
         // callback is called) the fulfilled flag is set.
         if (locked) {
             if (lock.lockDeadline >= block.timestamp) {
-                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill, fulfilled, prover);
+                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill, fulfilled, prover, workLogId, updateValue);
             } else {
                 // NOTE: If the request is not priced, the context will be all zeroes. We will have
                 // only reached this point if the request digest matches the lock, which is expired.
                 // In this case, the price will be zero, which is correct.
-                paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, context.price, fill, fulfilled, prover);
+                paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, context.price, fill, fulfilled, prover, workLogId, updateValue);
             }
         } else {
-            paymentError = _fulfillAndPayNeverLocked(id, client, idx, context.price, fill, fulfilled, prover);
+            paymentError = _fulfillAndPayNeverLocked(id, client, idx, context.price, fill, fulfilled, prover, workLogId, updateValue);
         }
 
         if (paymentError.length > 0) {
@@ -510,7 +516,9 @@ contract BoundlessMarket is
         uint32 idx,
         Fulfillment calldata fill,
         bool fulfilled,
-        address assessorProver
+        address assessorProver,
+        address workLogId,
+        uint64 updateValue
     ) internal returns (bytes memory paymentError) {
         // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
@@ -519,7 +527,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest, workLogId, updateValue);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
@@ -551,7 +559,9 @@ contract BoundlessMarket is
         uint96 price,
         Fulfillment calldata fill,
         bool fulfilled,
-        address assessorProver
+        address assessorProver,
+        address workLogId,
+        uint64 updateValue
     ) internal returns (bytes memory paymentError) {
         // NOTE: If the prover is paid, the fulfilled flag must be set.
         if (lock.isProverPaid()) {
@@ -560,7 +570,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
+            emit RequestFulfilled(id, assessorProver, fill.requestDigest, workLogId, updateValue);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -618,7 +628,9 @@ contract BoundlessMarket is
         uint96 price,
         Fulfillment calldata fill,
         bool fulfilled,
-        address assessorProver
+        address assessorProver,
+        address workLogId,
+        uint64 updateValue
     ) internal returns (bytes memory paymentError) {
         // When never locked, the fulfilled flag _does_ indicate that we alrady attempted to
         // transfer payment (which will only fail in the InsufficientBalance case below) so we
@@ -629,7 +641,7 @@ contract BoundlessMarket is
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id, assessorProver, fill.requestDigest);
+        emit RequestFulfilled(id, assessorProver, fill.requestDigest, workLogId, updateValue);
 
         // Deduct the funds from client account.
         // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the

@@ -842,6 +842,8 @@ mod tests {
             selectors: vec![],
             prover: ctx.prover_signer.address(),
             callbacks: vec![],
+            workLogId: Address::ZERO,
+            updateValue: 0u64,
         };
         // fulfill the request
         ctx.prover_market

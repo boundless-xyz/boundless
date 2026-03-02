@@ -436,6 +436,8 @@ where
             selectors: assessor_journal.selectors,
             prover: self.prover_address,
             callbacks: assessor_journal.callbacks,
+            workLogId: assessor_journal.workLogId,
+            povwClaims: assessor_journal.povwClaims,
         };
 
         let (single_txn_fulfill, withdraw) = {
@@ -861,6 +863,7 @@ mod tests {
                 ),
             }],
             prover_address: prover_addr,
+            market_log_builder_journal: None,
         };
         let assessor_stdin = GuestEnv::builder().write_frame(&assessor_input.encode()).stdin;
 

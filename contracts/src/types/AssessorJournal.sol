@@ -5,6 +5,7 @@
 pragma solidity ^0.8.26;
 
 import {AssessorCallback} from "./AssessorCallback.sol";
+import {PoVWClaim} from "./PoVWClaim.sol";
 import {Selector} from "./Selector.sol";
 
 /// @title Assessor Journal Struct
@@ -22,4 +23,10 @@ struct AssessorJournal {
     bytes32 root;
     /// @notice The address of the prover that produced the assessor receipt.
     address prover;
+    /// @notice PoVW work log ID of the prover for this fulfillment batch.
+    /// @dev Zero address if the prover did not provide PoVW attribution (backward compatible).
+    address workLogId;
+    /// @notice Per-fill PoVW cycle counts.
+    /// @dev Empty if the prover did not provide PoVW attribution.
+    PoVWClaim[] povwClaims;
 }

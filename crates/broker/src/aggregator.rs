@@ -309,6 +309,9 @@ impl AggregatorService {
             fills,
             domain: eip712_domain(self.market_addr, self.chain_id),
             prover_address: self.prover_addr,
+            // TODO: Populate this field with per-fill WorkClaim receipts once the
+            // remote prover supports returning work receipts alongside STARK receipts.
+            povw: None,
         };
         let stdin = GuestEnv::builder().write_frame(&input.encode()).stdin;
 
