@@ -12,13 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io::Read as _;
+
 use bytemuck::Pod;
 use risc0_zkvm::serde::to_vec;
 use risc0_zkvm::ExecutorEnv;
 use rmp_serde;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::contracts::RequestInput;
+
+/// Default zstd compression level for V2 encoding.
+pub const ZSTD_COMPRESSION_LEVEL: i32 = 10;
+
+/// Maximum decompressed size for V2 inputs (256 MiB).
+pub const MAX_DECOMPRESSED_SIZE: usize = 256 * 1024 * 1024;
 
 // Input version.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +39,8 @@ enum Version {
     // MessagePack encoded version based on [InputV1].
     #[default]
     V1 = 1,
+    // MessagePack encoded + zstd compressed.
+    V2 = 2,
 }
 
 impl From<Version> for u8 {
@@ -45,6 +56,7 @@ impl TryFrom<u8> for Version {
         match v {
             v if v == Version::V0 as u8 => Ok(Version::V0),
             v if v == Version::V1 as u8 => Ok(Version::V1),
+            v if v == Version::V2 as u8 => Ok(Version::V2),
             _ => Err(Error::UnsupportedVersion(v as u64)),
         }
     }
@@ -69,6 +81,18 @@ pub enum Error {
     /// Encoded input buffer is empty, which is an invalid encoding.
     #[error("Cannot decode empty buffer as input")]
     EmptyEncodedInput,
+    /// zstd compression error
+    #[error("zstd compression error: {0}")]
+    ZstdCompress(std::io::Error),
+    /// zstd decompression error
+    #[error("zstd decompression error: {0}")]
+    ZstdDecompress(std::io::Error),
+    /// Decompressed input exceeds maximum size limit.
+    #[error("Decompressed input exceeds maximum size limit of {limit} bytes")]
+    DecompressionSizeExceeded {
+        /// The limit that was exceeded.
+        limit: usize,
+    },
 }
 
 /// Structured input used by the Boundless prover to execute the guest for the proof request.
@@ -97,22 +121,68 @@ impl GuestEnv {
     }
 
     /// Parse an encoded [GuestEnv] with version support.
+    ///
+    /// For V2 (zstd-compressed) inputs, decompression is capped at 256 MiB by default.
+    /// Use [`Self::decode_with`] to override decompression options.
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        Self::decode_with(bytes, &DecompressionOptions::default())
+    }
+
+    /// Parse an encoded [GuestEnv] with custom decompression options.
+    ///
+    /// If the decompressed data exceeds the configured limit,
+    /// [Error::DecompressionSizeExceeded] is returned.
+    pub fn decode_with(bytes: &[u8], opts: &DecompressionOptions) -> Result<Self, Error> {
         if bytes.is_empty() {
             return Err(Error::EmptyEncodedInput);
         }
         match Version::try_from(bytes[0])? {
             Version::V0 => Ok(Self { stdin: bytes[1..].to_vec() }),
             Version::V1 => Ok(rmp_serde::from_read(&bytes[1..])?),
+            Version::V2 => {
+                let decoder = zstd::Decoder::new(&bytes[1..]).map_err(Error::ZstdDecompress)?;
+                let mut decompressed = Vec::new();
+                let limit = opts.max_size as u64;
+                decoder
+                    .take(limit + 1)
+                    .read_to_end(&mut decompressed)
+                    .map_err(Error::ZstdDecompress)?;
+                if decompressed.len() as u64 > limit {
+                    return Err(Error::DecompressionSizeExceeded { limit: opts.max_size });
+                }
+                Ok(rmp_serde::from_read(decompressed.as_slice())?)
+            }
         }
     }
 
-    /// Encode the [GuestEnv] for inclusion in a proof request.
+    /// Encode the [GuestEnv] as uncompressed V1 for inclusion in a proof request.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         let mut encoded = Vec::<u8>::new();
-        // Push the version as the first byte to indicate the message version.
         encoded.push(Version::V1.into());
         encoded.extend_from_slice(&rmp_serde::to_vec_named(&self)?);
+        Ok(encoded)
+    }
+
+    /// Encode the [GuestEnv] with zstd compression (V2) for inclusion in a proof request.
+    ///
+    /// Produces a V2-encoded payload: `[0x02][zstd(msgpack(self))]`.
+    /// If the serialized payload exceeds [`CompressionOptions::max_input_size`], a warning is
+    /// logged and the input falls back to uncompressed V1 to avoid producing a decompression bomb.
+    pub fn encode_compressed(&self, opts: &CompressionOptions) -> Result<Vec<u8>, Error> {
+        let msgpack = rmp_serde::to_vec_named(self)?;
+        if msgpack.len() > opts.max_input_size {
+            warn!(
+                msgpack_len = msgpack.len(),
+                max_size = opts.max_input_size,
+                "serialized input exceeds max decompressed size, falling back to uncompressed V1"
+            );
+            return self.encode();
+        }
+        let compressed =
+            zstd::encode_all(msgpack.as_slice(), opts.level).map_err(Error::ZstdCompress)?;
+        let mut encoded = Vec::with_capacity(1 + compressed.len());
+        encoded.push(Version::V2.into());
+        encoded.extend_from_slice(&compressed);
         Ok(encoded)
     }
 
@@ -139,6 +209,59 @@ impl From<GuestEnvBuilder> for GuestEnv {
     }
 }
 
+/// Options for zstd compression (V2 encoding).
+///
+/// When provided to [GuestEnvBuilder], enables V2 (MessagePack + zstd) encoding.
+#[derive(Clone, Debug)]
+pub struct CompressionOptions {
+    /// Zstd compression level. Higher values produce better compression at the cost of slower
+    /// encoding. Defaults to [`ZSTD_COMPRESSION_LEVEL`].
+    pub level: i32,
+
+    /// Maximum serialized input size before compression falls back to uncompressed V1.
+    /// Defaults to [`MAX_DECOMPRESSED_SIZE`] (256 MiB).
+    pub max_input_size: usize,
+}
+
+impl Default for CompressionOptions {
+    fn default() -> Self {
+        Self { level: ZSTD_COMPRESSION_LEVEL, max_input_size: MAX_DECOMPRESSED_SIZE }
+    }
+}
+
+impl CompressionOptions {
+    /// Set a custom zstd compression level.
+    pub fn with_level(self, level: i32) -> Self {
+        Self { level, ..self }
+    }
+
+    /// Set a custom maximum input size before falling back to uncompressed V1.
+    pub fn with_max_input_size(self, max: usize) -> Self {
+        Self { max_input_size: max, ..self }
+    }
+}
+
+/// Options for zstd decompression when decoding V2 inputs.
+#[derive(Clone, Debug)]
+pub struct DecompressionOptions {
+    /// Maximum decompressed output size in bytes. If exceeded,
+    /// [Error::DecompressionSizeExceeded] is returned. Defaults to 256 MiB.
+    pub max_size: usize,
+}
+
+impl Default for DecompressionOptions {
+    fn default() -> Self {
+        Self { max_size: MAX_DECOMPRESSED_SIZE }
+    }
+}
+
+impl DecompressionOptions {
+    /// Set a custom maximum decompressed output size.
+    pub fn with_max_size(self, max: usize) -> Self {
+        Self { max_size: max }
+    }
+}
+
 /// Input builder, used to build the structured input (i.e. env) for execution and proving.
 ///
 /// Boundless provers decode the input provided in a proving request as a [GuestEnv]. This
@@ -150,12 +273,23 @@ pub struct GuestEnvBuilder {
     ///
     /// See [GuestEnv::stdin]
     pub stdin: Vec<u8>,
+
+    /// Compression options. When `Some`, `build_vec` and `build_inline` produce V2
+    /// (zstd-compressed) encoding. When `None`, uncompressed V1 encoding is used.
+    pub compression: Option<CompressionOptions>,
 }
 
 impl GuestEnvBuilder {
     /// Create a new input builder.
     pub fn new() -> Self {
-        Self { stdin: Vec::new() }
+        Self { stdin: Vec::new(), compression: None }
+    }
+
+    /// Enable zstd compression with default options for the encoded output.
+    ///
+    /// When set, [`Self::build_vec`] and [`Self::build_inline`] will produce V2 (MessagePack + zstd) encoding.
+    pub fn with_compression(self, opts: CompressionOptions) -> Self {
+        Self { compression: Some(opts), ..self }
     }
 
     /// Build the [GuestEnv] for inclusion in a proof request.
@@ -163,14 +297,25 @@ impl GuestEnvBuilder {
         GuestEnv { stdin: self.stdin }
     }
 
-    /// Build the and encode [GuestEnv] for inclusion in a proof request.
+    /// Build and encode [GuestEnv] for inclusion in a proof request.
     pub fn build_vec(self) -> Result<Vec<u8>, Error> {
-        self.build_env().encode()
+        let Self { stdin, compression } = self;
+        let env = GuestEnv { stdin };
+        match compression {
+            Some(opts) => env.encode_compressed(&opts),
+            None => env.encode(),
+        }
     }
 
     /// Build and encode the [GuestEnv] into an inline [RequestInput] for inclusion in a proof request.
     pub fn build_inline(self) -> Result<RequestInput, Error> {
-        Ok(RequestInput::inline(self.build_env().encode()?))
+        let Self { stdin, compression } = self;
+        let env = GuestEnv { stdin };
+        let encoded = match compression {
+            Some(opts) => env.encode_compressed(&opts)?,
+            None => env.encode()?,
+        };
+        Ok(RequestInput::inline(encoded))
     }
 
     /// Write input data.
@@ -256,7 +401,7 @@ mod tests {
         assert_eq!(parsed.stdin, vec![1, 2, 3]);
 
         // Test unsupported version
-        let bytes = vec![2u8, 1, 2, 3];
+        let bytes = vec![255u8, 1, 2, 3];
         let parsed = GuestEnv::decode(&bytes);
         assert!(parsed.is_err());
 
@@ -270,6 +415,134 @@ mod tests {
 
         let decoded_env = GuestEnv::decode(&env.encode()?)?;
         assert_eq!(env, decoded_env);
+        Ok(())
+    }
+
+    #[test]
+    fn test_v2_round_trip() -> Result<(), Error> {
+        let env = GuestEnv::from_stdin(b"hello, compressed world!".to_vec());
+        let compressed = env.encode_compressed(&Default::default())?;
+        assert_eq!(compressed[0], 2u8); // Version::V2
+        let decoded = GuestEnv::decode(&compressed)?;
+        assert_eq!(decoded, env);
+        Ok(())
+    }
+
+    #[test]
+    fn test_v2_compresses_data() -> Result<(), Error> {
+        let data = vec![0x42u8; 10_000];
+        let env = GuestEnv::from_stdin(data);
+        let v1 = env.encode()?;
+        let v2 = env.encode_compressed(&Default::default())?;
+        assert!(
+            v2.len() < v1.len(),
+            "V2 should be smaller for compressible data: v1={}, v2={}",
+            v1.len(),
+            v2.len()
+        );
+        assert_eq!(GuestEnv::decode(&v1)?, GuestEnv::decode(&v2)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_v2_empty_stdin() -> Result<(), Error> {
+        let env = GuestEnv::from_stdin(vec![]);
+        let compressed = env.encode_compressed(&Default::default())?;
+        let decoded = GuestEnv::decode(&compressed)?;
+        assert_eq!(decoded, env);
+        Ok(())
+    }
+
+    #[test]
+    fn test_v2_small_data() -> Result<(), Error> {
+        let env = GuestEnv::from_stdin(vec![1, 2, 3]);
+        let compressed = env.encode_compressed(&Default::default())?;
+        let decoded = GuestEnv::decode(&compressed)?;
+        assert_eq!(decoded, env);
+        Ok(())
+    }
+
+    #[test]
+    fn test_v2_corrupt_data() {
+        let bytes = vec![2u8, 0xFF, 0xFF, 0xFF]; // Version V2 + garbage
+        let result = GuestEnv::decode(&bytes);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::ZstdDecompress(_)));
+    }
+
+    #[test]
+    fn test_v2_decompression_bomb_protection() -> Result<(), Error> {
+        let large_data = vec![0u8; 1024];
+        let env = GuestEnv::from_stdin(large_data);
+        let compressed = env.encode_compressed(&Default::default())?;
+
+        let opts = DecompressionOptions::default().with_max_size(16);
+        let result = GuestEnv::decode_with(&compressed, &opts);
+        assert!(
+            matches!(result, Err(Error::DecompressionSizeExceeded { limit: 16 })),
+            "Expected DecompressionSizeExceeded, got: {result:?}"
+        );
+
+        let opts = DecompressionOptions::default().with_max_size(64 * 1024);
+        let decoded = GuestEnv::decode_with(&compressed, &opts)?;
+        assert_eq!(decoded, env);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_builder_with_compression() -> Result<(), Error> {
+        let bytes = GuestEnv::builder()
+            .write_slice(&[1u8, 2, 3])
+            .with_compression(Default::default())
+            .build_vec()?;
+        assert_eq!(bytes[0], 2u8); // V2
+        let decoded = GuestEnv::decode(&bytes)?;
+        assert_eq!(decoded.stdin, vec![1, 2, 3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_builder_default_no_compression() -> Result<(), Error> {
+        let bytes = GuestEnv::builder().write_slice(&[1u8, 2, 3]).build_vec()?;
+        assert_eq!(bytes[0], 1u8); // V1
+        Ok(())
+    }
+
+    #[test]
+    fn test_builder_custom_compression_level() -> Result<(), Error> {
+        let data = vec![0x42u8; 1_000];
+        let bytes = GuestEnv::builder()
+            .write_slice(&data)
+            .with_compression(CompressionOptions::default().with_level(19))
+            .build_vec()?;
+        assert_eq!(bytes[0], 2u8); // V2
+        let decoded = GuestEnv::decode(&bytes)?;
+        assert_eq!(decoded.stdin, data);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_compressed_fallback_on_oversize() -> Result<(), Error> {
+        let env = GuestEnv::from_stdin(vec![0u8; 128]);
+        let opts = CompressionOptions::default().with_max_input_size(16);
+        let encoded = env.encode_compressed(&opts)?;
+        assert_eq!(encoded[0], 1u8, "should fall back to V1 when payload exceeds max_size");
+        let decoded = GuestEnv::decode(&encoded)?;
+        assert_eq!(decoded, env);
+        Ok(())
+    }
+
+    #[test]
+    fn test_builder_custom_max_compressed_input_size() -> Result<(), Error> {
+        let data = vec![0u8; 128];
+        let bytes = GuestEnv::builder()
+            .write_slice(&data)
+            .with_compression(CompressionOptions::default().with_max_input_size(16))
+            .build_vec()?;
+        assert_eq!(bytes[0], 1u8, "should fall back to V1 when exceeding custom limit");
+        let decoded = GuestEnv::decode(&bytes)?;
+        assert_eq!(decoded.stdin, data);
         Ok(())
     }
 }
