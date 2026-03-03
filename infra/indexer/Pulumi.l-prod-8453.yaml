@@ -35,3 +35,5 @@ config:
     secure: v1:lJlgu7dJjEdBpg+J:49guE+TSvKTHVlf/LXakKarxpItokDS83AbT1XKJ2nAme8PrEX0Gcg==
   indexer:ALLOWED_IP_ADDRESSES:
     secure: v1:A5Mdx/awHcbvku4U:xbYCVcJVzRrHibChfMILD8Zeb+G9g6qNiTZMoZkR/OU=
+  indexer:PREMIUM_API_KEY:
+    secure: v1:DayfBza07lGx59Ea:dwYVBM9W86XG3yLjkEv+SPKvSJFj+dRoR7d6zw==

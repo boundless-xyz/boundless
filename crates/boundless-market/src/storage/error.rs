@@ -24,6 +24,22 @@ pub enum StorageError {
     #[error("unsupported URI scheme: {0}")]
     UnsupportedScheme(String),
 
+    /// URI scheme is supported but the required credentials are not configured.
+    #[error("{scheme}:// download requires credentials that are not configured. If this is a private input, only the intended prover with access to the {scheme}:// bucket can process this order.")]
+    CredentialsUnavailable {
+        /// The URI scheme (e.g. "s3", "gs").
+        scheme: String,
+    },
+
+    /// URI scheme requires a feature flag that was not enabled at compile time.
+    #[error("{scheme}:// support requires the `{feature}` feature flag. Rebuild with feature {feature} enabled to use. Note: {scheme}:// URIs are used for private/sensitive inputs and should only be enabled if you expect to process such orders.")]
+    FeatureNotEnabled {
+        /// The URI scheme (e.g. "s3", "gs").
+        scheme: String,
+        /// The cargo feature flag required (e.g. "s3", "gcs").
+        feature: String,
+    },
+
     /// Invalid URL.
     #[error("invalid URL: {0}")]
     InvalidUrl(&'static str),
