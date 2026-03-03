@@ -8,6 +8,7 @@ Type=simple
 User=root
 WorkingDirectory={{ prover_dir }}
 EnvironmentFile={{ prover_env_file }}
+ExecStartPre=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} build
 ExecStart=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} up {{ prover_docker_compose_invoke }}
 ExecStop=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} down
 Restart=always

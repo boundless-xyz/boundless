@@ -9,7 +9,8 @@ name: bento
 # Anchors:
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-  REDIS_URL: redis://${REDIS_HOST:-redis}:6379
+  # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
+  REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
   S3_URL: http://${MINIO_HOST:-minio}:9000
   S3_BUCKET: ${MINIO_BUCKET:-workflow}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
@@ -126,13 +127,15 @@ services:
     hostname: ${REDIS_HOST:-redis}
     image: ${REDIS_IMG:-valkey/valkey:9.0}
     restart: always
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
       - 6379:6379
     volumes:
       - redis-data:/data
-    command: valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+    command: ["sh", "-c", "exec valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes $$(test -n \"$$REDIS_PASSWORD\" && echo \"--requirepass $$REDIS_PASSWORD\")"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "sh", "-c", "redis-cli $$(test -n \"$$REDIS_PASSWORD\" && echo \"-a $$REDIS_PASSWORD\") ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -146,11 +149,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-taskdb}
       POSTGRES_USER: ${POSTGRES_USER:-worker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
     ports:
       - "${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    command: -p ${POSTGRES_PORT:-5432}
+    command: ["postgres", "-p", "${POSTGRES_PORT:-5432}", "-c", "max_connections=500"]
     healthcheck:
       test:
         [
@@ -182,6 +186,43 @@ services:
       timeout: 5s
       retries: 5
 
+  minio-init:
+    profiles: [input-ttl]
+    image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        mc alias set local http://$${MINIO_HOST}:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+        if [[ "$$(mc ilm rule list local/$${MINIO_BUCKET} --json 2>/dev/null)" == *'"Prefix":"inputs/"'* ]]; then
+          echo "Lifecycle rule for inputs/ already exists, skipping"
+        else
+          mc ilm rule add local/$${MINIO_BUCKET} --prefix "inputs/" --expire-days "$${INPUT_TTL_DAYS}" &&
+          echo "Lifecycle rule set: inputs/ objects expire after $${INPUT_TTL_DAYS} day(s)"
+        fi
+    environment:
+      MINIO_HOST: ${MINIO_HOST:-minio}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASS:-password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-workflow}
+      INPUT_TTL_DAYS: ${INPUT_TTL_DAYS:-1}
+
+  prometheus:
+    image: ${PROMETHEUS_IMG:-prom/prometheus:v2.53.0}
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./dockerfiles/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+
   grafana:
     image: ${GRAFANA_IMG:-grafana/grafana:11.0.0}
     restart: unless-stopped
@@ -205,6 +246,7 @@ services:
       - postgres
       - redis
       - minio
+      - prometheus
 
   exec_agent:
     <<: *exec-agent-common
@@ -353,6 +395,7 @@ volumes:
   redis-data:
   postgres-data:
   minio-data:
+  prometheus-data:
   grafana-data:
   broker-data:
   caddy-data:

@@ -647,6 +647,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id: 1,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         }
@@ -826,6 +827,7 @@ mod tests {
             boundless_market_address: Address::ZERO,
             chain_id: 1,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };

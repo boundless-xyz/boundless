@@ -1,7 +1,7 @@
 [market]
 min_mcycle_price = "0.000000025"
+expected_probability_win_secondary_fulfillment = 150 # boost secondary fulfillment reward by 1.5x to aggressively prioritize them (backstop cluster)
 lookback_blocks = 300
-min_mcycle_price_collateral_token = "0"
 peak_prove_khz = 8000
 priority_requestor_lists = [
     "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
@@ -19,3 +19,4 @@ max_concurrent_proofs = 2
 max_journal_bytes = 20000
 max_file_size = 500000000000
 max_mcycle_limit = 500000000000
+max_order_expiry_secs = 86400

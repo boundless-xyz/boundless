@@ -370,6 +370,7 @@ where
         // Compute fees and per-cycle pricing percentiles from fulfilled requests only
         // (where lock_prover_address == fulfill_prover_address)
         let mut total_fees = U256::ZERO;
+        let mut total_fixed_cost = U256::ZERO;
         let mut prices_per_cycle: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
 
         for lock in locks {
@@ -408,6 +409,12 @@ where
 
             total_fees += price;
 
+            if let Some(fixed_cost_str) = &lock.fixed_cost {
+                if let Ok(fc) = U256::from_str(fixed_cost_str) {
+                    total_fixed_cost += fc;
+                }
+            }
+
             // Use precomputed lock_price_per_cycle if available
             if let Some(price_per_cycle_str) = &lock.lock_price_per_cycle {
                 if let Ok(price_per_cycle) = U256::from_str(price_per_cycle_str) {
@@ -415,6 +422,9 @@ where
                 }
             }
         }
+
+        let total_variable_cost =
+            if total_fees > total_fixed_cost { total_fees - total_fixed_cost } else { U256::ZERO };
 
         // Compute total collateral from all locked requests (regardless of fulfillment)
         let mut total_collateral = U256::ZERO;
@@ -481,6 +491,8 @@ where
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
+            total_fixed_cost,
+            total_variable_cost,
             best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
@@ -516,11 +528,13 @@ pub fn sum_hourly_aggregates_into_base(
         base.total_cycles += hourly.total_cycles;
     }
 
-    // Sum U256 fields (fees, collateral)
+    // Sum U256 fields (fees, collateral, costs)
     for hourly in hourly_summaries {
         base.total_fees_locked += hourly.total_fees_locked;
         base.total_collateral_locked += hourly.total_collateral_locked;
         base.total_locked_and_expired_collateral += hourly.total_locked_and_expired_collateral;
+        base.total_fixed_cost += hourly.total_fixed_cost;
+        base.total_variable_cost += hourly.total_variable_cost;
     }
 
     // Find best metrics (maximum mhz)
@@ -689,6 +703,8 @@ where
                         locked_orders_fulfillment_rate: 0.0,
                         total_program_cycles: U256::ZERO,
                         total_cycles: U256::ZERO,
+                        total_fixed_cost: U256::ZERO,
+                        total_variable_cost: U256::ZERO,
                         best_peak_prove_mhz: 0.0,
                         best_peak_prove_mhz_prover: None,
                         best_peak_prove_mhz_request_id: None,

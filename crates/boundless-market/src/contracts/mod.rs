@@ -69,6 +69,18 @@ pub use boundless_market_contract::{
 
 #[allow(missing_docs)]
 #[cfg(not(target_os = "zkvm"))]
+pub mod erc1271 {
+    use alloy::sol;
+    sol! {
+        #[sol(rpc)]
+        interface IERC1271 {
+            function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4 magicValue);
+        }
+    }
+}
+
+#[allow(missing_docs)]
+#[cfg(not(target_os = "zkvm"))]
 pub mod token {
     use alloy::{
         primitives::{Signature, B256},

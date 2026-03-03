@@ -461,23 +461,47 @@ impl RewardsIndexerService {
         povw_deployment: &PovwDeployment,
         staking_amounts_by_epoch: &HashMap<(Address, u64), U256>,
     ) -> Result<()> {
-        // Get pending epoch total work
-        // For historical indexing (when end_epoch is specified), we don't fetch pending work from blockchain state
-        let pending_epoch_total_work = if self.config.end_epoch.is_some() {
+        // Determine the epoch that should consume pendingEpoch.totalWork.
+        // In live mode this must come from PoVW accounting state, which can lag ZKC getCurrentEpoch()
+        // until finalization occurs.
+        let (povw_pending_epoch, pending_epoch_total_work) = if self.config.end_epoch.is_some() {
             tracing::info!("Historical indexing mode - using finalized epoch data only");
-            U256::ZERO
+            (actual_current_epoch_u64, U256::ZERO)
         } else {
             let povw_accounting =
                 IPovwAccounting::new(povw_deployment.povw_accounting_address, &self.provider);
             let pending_epoch = povw_accounting.pendingEpoch().call().await?;
-            U256::from(pending_epoch.totalWork)
+            let pending_epoch_number = pending_epoch.number.to::<u64>();
+            let pending_total_work = U256::from(pending_epoch.totalWork);
+            if pending_epoch_number != actual_current_epoch_u64 {
+                tracing::warn!(
+                    "PoVW pending epoch {} differs from ZKC current epoch {}; pending total work belongs to epoch {} until finalization",
+                    pending_epoch_number,
+                    actual_current_epoch_u64,
+                    pending_epoch_number
+                );
+                if processing_end_epoch > pending_epoch_number {
+                    tracing::info!(
+                        "Epochs {} through {} are ahead of PoVW pending epoch {}; treating them as started but with zero work until previous epoch finalization",
+                        pending_epoch_number + 1,
+                        processing_end_epoch,
+                        pending_epoch_number
+                    );
+                }
+            }
+            tracing::info!(
+                "Using pending PoVW epoch {} with total work {}",
+                pending_epoch_number,
+                pending_total_work
+            );
+            (pending_epoch_number, pending_total_work)
         };
 
         // Compute rewards for all epochs at once
         tracing::info!("Computing PoVW rewards for all epochs (0 to {})...", processing_end_epoch);
         let povw_result = compute_povw_rewards(
-            actual_current_epoch_u64, // Real current epoch for comparison logic
-            processing_end_epoch,     // Process up to this epoch
+            povw_pending_epoch, // Pending PoVW epoch; can differ from ZKC current epoch if finalization has not run yet
+            processing_end_epoch, // Process up to this epoch
             &povw_cache.work_by_work_log_by_epoch,
             &povw_cache.work_recipients_by_epoch,
             &povw_cache.total_work_by_epoch,
@@ -579,6 +603,12 @@ impl RewardsIndexerService {
         );
         for epoch_data in &povw_result.epoch_rewards {
             let num_participants = epoch_data.rewards_by_work_log_id.len() as u64;
+            tracing::info!(
+                "Updated work done for epoch {}: {} total work across {} work logs",
+                epoch_data.epoch.to::<u64>(),
+                epoch_data.total_work,
+                num_participants
+            );
             let epoch_summary = EpochPoVWSummary {
                 epoch: epoch_data.epoch.to::<u64>(),
                 total_work: epoch_data.total_work,
