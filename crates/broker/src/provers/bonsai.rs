@@ -603,7 +603,24 @@ impl Prover for Bonsai {
         Ok(Some(receipt_buf))
     }
 
-    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+    async fn encode_compressed_seal(&self, proof_id: &str) -> Result<Vec<u8>, ProverError> {
+        super::risc0_encode_compressed_seal(self, proof_id).await
+    }
+
+    async fn verify_compressed_receipt(&self, proof_id: &str) -> Result<(), ProverError> {
+        super::risc0_verify_compressed_receipt(self, proof_id).await
+    }
+
+    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
+        Ok(risc0_zkvm::compute_image_id(elf)?)
+    }
+}
+
+impl Bonsai {
+    pub(crate) async fn compress_blake3_groth16(
+        &self,
+        proof_id: &str,
+    ) -> Result<String, ProverError> {
         let proof_id = self
             .retry(
                 || async { self.client.shrink_bitvm2(proof_id.into()).await.map_err(sdk_err) },
@@ -624,7 +641,7 @@ impl Prover for Bonsai {
         Ok(proof_id.uuid)
     }
 
-    async fn get_blake3_groth16_receipt(
+    pub(crate) async fn get_blake3_groth16_receipt(
         &self,
         proof_id: &str,
     ) -> Result<Option<Vec<u8>>, ProverError> {
@@ -645,10 +662,6 @@ impl Prover for Bonsai {
             .await?;
 
         Ok(Some(receipt_buf))
-    }
-
-    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
-        Ok(risc0_zkvm::compute_image_id(elf)?)
     }
 }
 

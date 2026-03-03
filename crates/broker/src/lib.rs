@@ -18,7 +18,7 @@ use std::{
     time::SystemTime,
 };
 
-use crate::provers::ProverRegistry;
+use crate::provers::{ProverEntry, ProverRegistry};
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, FixedBytes, U256},
@@ -31,7 +31,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
-    selector::{is_blake3_groth16_selector, is_groth16_selector},
+    selector::{selector_proof_type, ProofType},
     storage::StorageDownloader,
     Deployment,
 };
@@ -335,19 +335,11 @@ impl Order {
             .clone()
     }
 
-    pub fn is_groth16(&self) -> bool {
-        is_groth16_selector(self.request.requirements.selector)
-    }
-    fn is_blake3_groth16(&self) -> bool {
-        is_blake3_groth16_selector(self.request.requirements.selector)
-    }
     pub fn compression_type(&self) -> CompressionType {
-        if self.is_groth16() {
-            CompressionType::Groth16
-        } else if self.is_blake3_groth16() {
-            CompressionType::Blake3Groth16
-        } else {
-            CompressionType::None
+        match selector_proof_type(self.request.requirements.selector) {
+            Some(ProofType::Groth16) => CompressionType::Groth16,
+            Some(ProofType::Blake3Groth16) => CompressionType::Blake3Groth16,
+            _ => CompressionType::None,
         }
     }
 }
@@ -840,43 +832,61 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj;
-        let high_priority_prover: Option<provers::ProverObj>;
-        if is_dev_mode() {
+        let registry = if is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
             Receipts generated from this process are invalid and should never be used in production.");
-            prover = Arc::new(provers::DefaultProver::new());
-            high_priority_prover = None;
+            let default = Arc::new(provers::DefaultProver::new());
+            ProverRegistry {
+                risc0_default: ProverEntry::standard_only(default.clone()),
+                risc0_blake3: ProverEntry::standard_only(Arc::new(
+                    provers::Blake3DefaultProver::new(default),
+                )),
+            }
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
-            prover = Arc::new(
+            let bonsai = Arc::new(
                 provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
                     .context("Failed to construct Bonsai client")?,
             );
-            high_priority_prover = None;
+            ProverRegistry {
+                risc0_default: ProverEntry::standard_only(bonsai.clone()),
+                risc0_blake3: ProverEntry::standard_only(Arc::new(provers::Blake3Bonsai::new(
+                    bonsai,
+                ))),
+            }
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
-
-            prover = Arc::new(
-                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
+            let new_bonsai =
+                |key: &str| provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), key);
+            let standard = Arc::new(
+                new_bonsai("v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
             );
-            // Initialize high-priority prover with a higher reserved key for compression/aggregation
-            high_priority_prover = Some(Arc::new(
-                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
-                    .context("Failed to initialize Bento client")?,
-            ));
+            let high_priority = Arc::new(
+                new_bonsai("v1:reserved:2000")
+                    .context("Failed to initialize Bento high-priority client")?,
+            );
+            ProverRegistry {
+                risc0_default: ProverEntry {
+                    standard: standard.clone(),
+                    high_priority: Some(high_priority.clone()),
+                },
+                risc0_blake3: ProverEntry {
+                    standard: Arc::new(provers::Blake3Bonsai::new(standard)),
+                    high_priority: Some(Arc::new(provers::Blake3Bonsai::new(high_priority))),
+                },
+            }
         } else {
-            prover = Arc::new(provers::DefaultProver::new());
-            high_priority_prover = None;
+            let default = Arc::new(provers::DefaultProver::new());
+            ProverRegistry {
+                risc0_default: ProverEntry::standard_only(default.clone()),
+                risc0_blake3: ProverEntry::standard_only(Arc::new(
+                    provers::Blake3DefaultProver::new(default),
+                )),
+            }
         };
-
-        let default_entry =
-            provers::ProverEntry { standard: prover.clone(), high_priority: high_priority_prover };
-        let registry =
-            ProverRegistry { risc0_default: default_entry.clone(), blake3_groth16: default_entry };
 
         let prover_addr = self.provider.default_signer_address();
 
@@ -926,7 +936,7 @@ where
         let order_picker = Arc::new(order_picker::OrderPicker::new(
             self.db.clone(),
             config.clone(),
-            prover.clone(),
+            registry.standard().clone(),
             self.deployment().boundless_market_address,
             self.provider.clone(),
             chain_monitor.clone(),
@@ -1002,8 +1012,9 @@ where
                 Ok(())
             });
 
-            let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
-            let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
+            let set_builder_img_id =
+                self.fetch_and_upload_set_builder_image(registry.standard()).await?;
+            let assessor_img_id = self.fetch_and_upload_assessor_image(registry.standard()).await?;
 
             let aggregator = Arc::new(
                 aggregator::AggregatorService::new(
@@ -1032,8 +1043,11 @@ where
             });
 
             // Start the ReaperTask to check for expired committed orders
-            let reaper =
-                Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
+            let reaper = Arc::new(reaper::ReaperTask::new(
+                self.db.clone(),
+                config.clone(),
+                registry.standard().clone(),
+            ));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
             let cancel_token = critical_cancel_token.clone();
@@ -1048,7 +1062,7 @@ where
             let submitter = Arc::new(submitter::Submitter::new(
                 self.db.clone(),
                 config.clone(),
-                registry.high_priority().clone(),
+                registry.clone(),
                 self.provider.clone(),
                 self.deployment().set_verifier_address,
                 self.deployment().boundless_market_address,

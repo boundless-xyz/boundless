@@ -132,36 +132,11 @@ impl ProvingService {
                 retry_count,
                 sleep_ms,
                 || async {
-                    let proof_id = match compression_type {
-                        CompressionType::Groth16 => snark_prover
-                            .compress(stark_proof_id)
-                            .await
-                            .context("Failed to compress proof for order {order_id}")?,
-                        CompressionType::Blake3Groth16 => snark_prover
-                            .compress_blake3_groth16(stark_proof_id)
-                            .await
-                            .context("Failed to compress blake3 groth16 proof for order {order_id}")?,
-                        CompressionType::None => {
-                            unreachable!("Compression type should not be None here")
-                        }
-                    };
-                    match compression_type {
-                        CompressionType::Groth16 => {
-                            tracing::trace!(
-                                "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
-                            );
-                            provers::verify_groth16_receipt(snark_prover, &proof_id).await?;
-                        }
-                        CompressionType::Blake3Groth16 => {
-                            tracing::trace!(
-                                "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
-                            );
-                            provers::verify_blake3_groth16_receipt(snark_prover, &proof_id).await?;
-                        }
-                        CompressionType::None => {
-                            unreachable!("Compression type should not be None here")
-                        }
-                    }
+                    let proof_id = snark_prover
+                        .compress(stark_proof_id)
+                        .await
+                        .context("Failed to compress proof for order {order_id}")?;
+                    snark_prover.verify_compressed_receipt(&proof_id).await?;
                     Ok::<String, provers::ProverError>(proof_id)
                 },
                 "compress_and_verify",
@@ -580,7 +555,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         now_timestamp,
-        provers::{encode_input, DefaultProver, ProverObj, ProverRegistry},
+        provers::{self, encode_input},
         FulfillmentType, OrderStatus,
     };
     use alloy::{
@@ -684,8 +659,8 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         let market = mock_market(vec![false; 4]);
-        let prover: ProverObj = Arc::new(DefaultProver::new());
-        let registry = ProverRegistry::new_test(prover.clone());
+        let registry = provers::new_test_registry();
+        let prover = registry.standard();
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
         let image_id = Digest::from(ECHO_ID).to_string();
@@ -768,8 +743,8 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
 
-        let prover: ProverObj = Arc::new(DefaultProver::new());
-        let registry = ProverRegistry::new_test(prover.clone());
+        let registry = provers::new_test_registry();
+        let prover = registry.standard();
         let market = mock_market(vec![false; 6]);
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
@@ -866,8 +841,8 @@ mod tests {
     async fn test_fulfillment_event_cancellation() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let prover: ProverObj = Arc::new(DefaultProver::new());
-        let registry = ProverRegistry::new_test(prover.clone());
+        let registry = provers::new_test_registry();
+        let prover = registry.standard();
         let market = mock_market(vec![false; 6]);
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 

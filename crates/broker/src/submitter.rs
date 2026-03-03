@@ -24,28 +24,27 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
-use blake3_groth16::Blake3Groth16Receipt;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
-        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
+        AssessorJournal, AssessorReceipt, Fulfillment,
         FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
-    selector::{is_blake3_groth16_selector, is_groth16_selector},
+    selector::{selector_proof_type, ProofType},
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
-    MaybePruned, Receipt, ReceiptClaim,
+    MaybePruned, ReceiptClaim,
 };
 
 use crate::{
     config::ConfigLock,
     db::DbObj,
     impl_coded_debug, is_dev_mode, now_timestamp,
-    provers::ProverObj,
+    provers::{ProverPriority, ProverRegistry},
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType, Order,
 };
@@ -98,7 +97,7 @@ impl CodedError for SubmitterErr {
 #[derive(Clone)]
 pub struct Submitter<P> {
     db: DbObj,
-    prover: ProverObj,
+    registry: ProverRegistry,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
@@ -115,7 +114,7 @@ where
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
+        registry: ProverRegistry,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
@@ -146,7 +145,7 @@ where
 
         Ok(Self {
             db,
-            prover,
+            registry,
             market,
             set_verifier,
             set_verifier_addr,
@@ -156,40 +155,20 @@ where
         })
     }
 
-    async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
-        let groth16_receipt = self
-            .prover
-            .get_compressed_receipt(g16_proof_id)
+    async fn fetch_encode_compressed(
+        &self,
+        proof_type: ProofType,
+        proof_id: &str,
+    ) -> Result<Vec<u8>> {
+        let prover = self.registry.get(proof_type, ProverPriority::High);
+        let mut encoded_seal = prover
+            .encode_compressed_seal(proof_id)
             .await
-            .context("Failed to fetch g16 receipt")?
-            .context("Groth16 receipt missing")?;
+            .context("Failed to fetch and encode compressed seal")?;
 
-        let groth16_receipt: Receipt =
-            bincode::deserialize(&groth16_receipt).context("Failed to deserialize g16 receipt")?;
-
-        let encoded_seal =
-            encode_seal(&groth16_receipt).context("Failed to encode g16 receipt seal")?;
-
-        Ok(encoded_seal)
-    }
-
-    async fn fetch_encode_b3_g16(&self, b3_g16_proof_id: &str) -> Result<Vec<u8>> {
-        let blake3_receipt = self
-            .prover
-            .get_blake3_groth16_receipt(b3_g16_proof_id)
-            .await
-            .context("Failed to fetch blake3 groth16 receipt")?
-            .context("Blake3 Groth16 receipt missing")?;
-
-        let blake3_receipt: Blake3Groth16Receipt = bincode::deserialize(&blake3_receipt)
-            .context("Failed to deserialize Blake3 Groth16 receipt")?;
-
-        let mut encoded_seal = encode_seal(&blake3_receipt.into())
-            .context("Failed to encode Blake3 Groth16 receipt seal")?;
-        if is_dev_mode() {
+        if proof_type == ProofType::Blake3Groth16 && is_dev_mode() {
             // In dev mode, we use the fake selector for Blake3 Groth16 proofs.
             let fake_selector = &[0xFFu8, 0xFF, 0x00, 0x00];
-            // Replace the first 4 bytes with the fake selector
             encoded_seal.splice(0..4, fake_selector.iter().cloned());
         }
 
@@ -240,7 +219,9 @@ where
         }
 
         // Collect the needed parts for the new merkle root:
-        let batch_seal = self.fetch_encode_g16(groth16_proof_id).await?;
+        let batch_seal = self
+            .fetch_encode_compressed(ProofType::Groth16, groth16_proof_id)
+            .await?;
         let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
@@ -253,7 +234,8 @@ where
         // Collect the needed parts for the fulfillBatch:
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
         let assessor_receipt = self
-            .prover
+            .registry
+            .high_priority()
             .get_receipt(assessor_proof_id)
             .await
             .context("Failed to get assessor receipt")?
@@ -306,7 +288,8 @@ where
                 order_prices.insert(order_id, OrderPrice { price: lock_price, collateral_reward });
 
                 let order_journal = self
-                    .prover
+                    .registry
+                    .high_priority()
                     .get_journal(&order_proof_id)
                     .await
                     .context("Failed to get order journal from prover")?
@@ -316,22 +299,17 @@ where
                 let order_claim =
                     ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
                 let order_claim_digest = order_claim.digest();
-                let seal = if is_groth16_selector(order_request.requirements.selector) {
+                let proof_type =
+                    selector_proof_type(order_request.requirements.selector);
+                let seal = if let Some(
+                    pt @ (ProofType::Groth16 | ProofType::Blake3Groth16),
+                ) = proof_type
+                {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
-                    self.fetch_encode_g16(&compressed_proof_id)
-                        .await
-                        .context("Failed to fetch and encode g16 proof")?
-                } else if is_blake3_groth16_selector(order_request.requirements.selector) {
-                    let compressed_proof_id =
-                        self.db.get_order_compressed_proof_id(order_id).await.context(
-                            "Failed to get order compressed proof ID from DB for submission",
-                        )?;
-                    self.fetch_encode_b3_g16(&compressed_proof_id)
-                        .await
-                        .context("Failed to fetch and encode blake3 groth16 proof")?
+                    self.fetch_encode_compressed(pt, &compressed_proof_id).await?
                 } else {
                     let order_claim_index = aggregation_state
                         .claim_digests
@@ -710,7 +688,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         now_timestamp,
-        provers::{encode_input, DefaultProver},
+        provers::{self, encode_input},
         AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
     use alloy::{
@@ -802,7 +780,8 @@ mod tests {
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let registry = provers::new_test_registry();
+        let prover = registry.standard().clone();
 
         let echo_id = Digest::from(ECHO_ID);
         let echo_id_str = echo_id.to_string();
@@ -961,7 +940,7 @@ mod tests {
         let submitter = Submitter::new(
             db.clone(),
             config,
-            prover.clone(),
+            registry,
             provider.clone(),
             set_verifier,
             market_address,

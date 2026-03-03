@@ -28,7 +28,9 @@ use anyhow::{bail, ensure, Context, Result};
 use boundless_cli::{OrderFulfilled, OrderFulfiller};
 use boundless_market::contracts::{eip712_domain, ProofRequest};
 use boundless_market::storage::StandardDownloader;
-use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
+use broker::provers::{
+    Blake3DefaultProver, DefaultProver as BrokerDefaultProver, Prover, ProverEntry, ProverRegistry,
+};
 use clap::Parser;
 
 use std::sync::Arc;
@@ -115,23 +117,29 @@ async fn main() -> Result<()> {
     let domain = eip712_domain(args.boundless_market_address, args.chain_id.try_into()?);
 
     // Create prover and upload images
-    let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
+    let default_prover = Arc::new(BrokerDefaultProver::default());
 
     // Compute image IDs
-    let set_builder_image_id = prover.compute_image_id(&set_builder_program).await?;
-    let assessor_image_id = prover.compute_image_id(&assessor_program).await?;
+    let set_builder_image_id = default_prover.compute_image_id(&set_builder_program).await?;
+    let assessor_image_id = default_prover.compute_image_id(&assessor_program).await?;
 
-    prover
+    default_prover
         .upload_image(&set_builder_image_id.to_string(), set_builder_program)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to upload set builder image: {}", e))?;
-    prover
+    default_prover
         .upload_image(&assessor_image_id.to_string(), assessor_program)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to upload assessor image: {}", e))?;
 
+    let registry = ProverRegistry {
+        risc0_default: ProverEntry::standard_only(default_prover.clone()),
+        risc0_blake3: ProverEntry::standard_only(Arc::new(Blake3DefaultProver::new(
+            default_prover,
+        ))),
+    };
     let prover = OrderFulfiller::new(
-        prover,
+        registry,
         Arc::new(StandardDownloader::new().await),
         set_builder_image_id,
         assessor_image_id,

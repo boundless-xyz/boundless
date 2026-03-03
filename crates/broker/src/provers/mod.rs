@@ -12,77 +12,72 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use blake3_groth16::Blake3Groth16Receipt;
 use boundless_market::input::GuestEnv;
-use risc0_zkvm::Receipt;
 
 mod bonsai;
 mod default;
-mod registry;
+mod risc0_blake3;
 
 pub use bonsai::Bonsai;
 pub use default::DefaultProver;
-pub(crate) use registry::{ProverEntry, ProverPriority, ProverRegistry};
+pub use risc0_blake3::{Blake3Bonsai, Blake3DefaultProver};
 
-// Re-export types from boundless_market::prover_utils::prover
 pub use boundless_market::prover_utils::prover::{
-    ExecutorResp, ProofResult, Prover, ProverError, ProverObj, ProverReceipt,
+    ExecutorResp, ProofResult, Prover, ProverEntry, ProverError, ProverObj, ProverPriority,
+    ProverReceipt, ProverRegistry,
 };
 
-/// Encode inputs for Prover::upload_slice()
 pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Error> {
     Ok(GuestEnv::builder().write(input)?.stdin)
 }
 
-/// Verify a Groth16 compressed receipt
-///
-/// This helper fetches the compressed receipt, deserializes it, and verifies its integrity.
-/// Used by both aggregator and proving services to validate Groth16 proofs before submission.
-pub(crate) async fn verify_groth16_receipt(
-    prover: &ProverObj,
+/// Fetch a compressed receipt from a [`Prover`], deserialize as a standard
+/// `risc0_zkvm::Receipt`, and encode it as a seal.
+pub(crate) async fn risc0_encode_compressed_seal(
+    prover: &impl Prover,
     proof_id: &str,
-) -> Result<(), ProverError> {
-    tracing::trace!("Verifying Groth16 receipt locally for proof_id: {proof_id}");
-
+) -> Result<Vec<u8>, ProverError> {
     let receipt_bytes = prover
         .get_compressed_receipt(proof_id)
         .await?
-        .ok_or_else(|| ProverError::NotFound(format!("Groth16 receipt not found: {proof_id}")))?;
+        .ok_or_else(|| ProverError::NotFound(format!("Compressed receipt not found: {proof_id}")))?;
 
-    let receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
+    let receipt: risc0_zkvm::Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
         ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
     })?;
 
-    receipt.verify_integrity_with_context(&Default::default()).map_err(|e| {
-        ProverError::ProverInternalError(format!("Groth16 verification failed: {e}"))
-    })?;
-
-    tracing::debug!("Groth16 verification passed for proof_id: {proof_id}");
-    Ok(())
+    risc0_ethereum_contracts::encode_seal(&receipt).map_err(|e| {
+        ProverError::ProverInternalError(format!("Failed to encode seal: {e}"))
+    })
 }
 
-/// Verify a blake3 Groth16 compressed receipt
-///
-/// This helper fetches the compressed receipt, deserializes it, and verifies its integrity.
-/// Used by both aggregator and proving services to validate Groth16 proofs before submission.
-pub(crate) async fn verify_blake3_groth16_receipt(
-    prover: &ProverObj,
+/// Fetch a compressed receipt from a [`Prover`], deserialize as a standard
+/// `risc0_zkvm::Receipt`, and verify its integrity.
+pub(crate) async fn risc0_verify_compressed_receipt(
+    prover: &impl Prover,
     proof_id: &str,
 ) -> Result<(), ProverError> {
-    tracing::trace!("Verifying Blake3 Groth16 receipt locally for proof_id: {proof_id}");
+    let receipt_bytes = prover
+        .get_compressed_receipt(proof_id)
+        .await?
+        .ok_or_else(|| ProverError::NotFound(format!("Compressed receipt not found: {proof_id}")))?;
 
-    let receipt_bytes = prover.get_blake3_groth16_receipt(proof_id).await?.ok_or_else(|| {
-        ProverError::NotFound(format!("Blake3 Groth16 receipt not found: {proof_id}"))
-    })?;
-
-    let receipt: Blake3Groth16Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
+    let receipt: risc0_zkvm::Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
         ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
     })?;
 
-    receipt.verify_integrity().map_err(|e| {
-        ProverError::ProverInternalError(format!("Blake3 Groth16 verification failed: {e}"))
-    })?;
+    receipt
+        .verify_integrity_with_context(&Default::default())
+        .map_err(|e| ProverError::ProverInternalError(format!("Groth16 verification failed: {e}")))
+}
 
-    tracing::debug!("Blake3 Groth16 verification passed for proof_id: {proof_id}");
-    Ok(())
+#[cfg(test)]
+pub fn new_test_registry() -> ProverRegistry {
+    let default = std::sync::Arc::new(DefaultProver::new());
+    ProverRegistry {
+        risc0_default: ProverEntry::standard_only(default.clone()),
+        risc0_blake3: ProverEntry::standard_only(std::sync::Arc::new(Blake3DefaultProver::new(
+            default,
+        ))),
+    }
 }

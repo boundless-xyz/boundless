@@ -235,28 +235,26 @@ impl SupportedSelectors {
     }
 }
 
+/// Determine the [`ProofType`] for a selector, or `None` if the selector is unrecognized.
+pub fn selector_proof_type(selector: FixedBytes<4>) -> Option<ProofType> {
+    let sel = SelectorExt::from_bytes(selector.into())?;
+    match sel.get_type() {
+        SelectorExtType::FakeReceipt | SelectorExtType::Groth16 => Some(ProofType::Groth16),
+        SelectorExtType::FakeBlake3Groth16 | SelectorExtType::Blake3Groth16 => {
+            Some(ProofType::Blake3Groth16)
+        }
+        _ => None,
+    }
+}
+
 /// Check if a selector is a groth16 selector.
 pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
-    let sel = SelectorExt::from_bytes(selector.into());
-    match sel {
-        Some(selector) => {
-            selector.get_type() == SelectorExtType::FakeReceipt
-                || selector.get_type() == SelectorExtType::Groth16
-        }
-        None => false,
-    }
+    selector_proof_type(selector) == Some(ProofType::Groth16)
 }
 
 /// Check if a selector is a blake3 groth16 selector.
 pub fn is_blake3_groth16_selector(selector: FixedBytes<4>) -> bool {
-    let sel = SelectorExt::from_bytes(selector.into());
-    match sel {
-        Some(selector) => {
-            selector.get_type() == SelectorExtType::FakeBlake3Groth16
-                || selector.get_type() == SelectorExtType::Blake3Groth16
-        }
-        None => false,
-    }
+    selector_proof_type(selector) == Some(ProofType::Blake3Groth16)
 }
 
 #[cfg(test)]

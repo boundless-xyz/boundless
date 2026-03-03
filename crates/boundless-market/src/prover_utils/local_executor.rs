@@ -313,22 +313,15 @@ impl Prover for LocalExecutor {
         ))
     }
 
-    #[allow(unused)]
-    async fn compress_blake3_groth16(&self, _proof_id: &str) -> Result<String, ProverError> {
+    async fn encode_compressed_seal(&self, _proof_id: &str) -> Result<Vec<u8>, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support Blake3 Groth16 compression. Use for preflight only."
-                .to_string(),
+            "LocalExecutor does not support compression. Use for preflight only.".to_string(),
         ))
     }
 
-    #[allow(unused)]
-    async fn get_blake3_groth16_receipt(
-        &self,
-        _proof_id: &str,
-    ) -> Result<Option<Vec<u8>>, ProverError> {
+    async fn verify_compressed_receipt(&self, _proof_id: &str) -> Result<(), ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support Blake3 Groth16 receipts. Use for preflight only."
-                .to_string(),
+            "LocalExecutor does not support compression. Use for preflight only.".to_string(),
         ))
     }
 

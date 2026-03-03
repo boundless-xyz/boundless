@@ -35,10 +35,12 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Context, Result};
-use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use broker::{
-    provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover},
+    provers::{
+        Blake3Bonsai, Blake3DefaultProver, Bonsai, DefaultProver as BrokerDefaultProver, Prover,
+        ProverEntry, ProverPriority, ProverRegistry,
+    },
     utils::prune_receipt_claim_journal,
 };
 use risc0_aggregation::{
@@ -57,7 +59,7 @@ use boundless_market::{
         Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType, RequestInputType,
     },
     input::GuestEnv,
-    selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
+    selector::{ProofType, SupportedSelectors},
     storage::StorageDownloader,
     ProofRequest,
 };
@@ -218,7 +220,7 @@ pub async fn ensure_prover_has_image(
 /// * `broker::provers::DefaultProver` for local proving
 /// * `broker::provers::Bonsai` for Bento/Bonsai remote proving
 pub struct OrderFulfiller {
-    prover: Arc<dyn Prover + Send + Sync>,
+    registry: ProverRegistry,
     downloader: Arc<dyn StorageDownloader + Send + Sync>,
     set_builder_image_id: Digest,
     assessor_image_id: Digest,
@@ -230,7 +232,7 @@ pub struct OrderFulfiller {
 impl OrderFulfiller {
     /// Creates a new [OrderFulfiller].
     pub fn new(
-        prover: Arc<dyn Prover + Send + Sync>,
+        registry: ProverRegistry,
         downloader: Arc<dyn StorageDownloader>,
         set_builder_image_id: Digest,
         assessor_image_id: Digest,
@@ -240,7 +242,7 @@ impl OrderFulfiller {
         let supported_selectors =
             SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
         Ok(Self {
-            prover,
+            registry,
             downloader,
             set_builder_image_id,
             assessor_image_id,
@@ -260,24 +262,30 @@ impl OrderFulfiller {
     {
         prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
 
-        let prover: Arc<dyn Prover + Send + Sync> = if prover_config
-            .proving_backend
-            .use_default_prover
-        {
+        let registry = if prover_config.proving_backend.use_default_prover {
             if let Ok(url) = std::env::var("BONSAI_API_URL") {
                 tracing::info!("Default prover selected but BONSAI_API_URL is set, using Bonsai");
-                Arc::new(Bonsai::new(
+                let bonsai = Arc::new(Bonsai::new(
                     broker::config::ConfigLock::default(),
                     &url,
                     &std::env::var("BONSAI_API_KEY")
-                        .clone()
                         .unwrap_or_else(|_| "v1:reserved:50".to_string()),
-                )?)
+                )?);
+                ProverRegistry {
+                    risc0_default: ProverEntry::standard_only(bonsai.clone()),
+                    risc0_blake3: ProverEntry::standard_only(Arc::new(Blake3Bonsai::new(bonsai))),
+                }
             } else {
-                Arc::new(BrokerDefaultProver::default())
+                let default = Arc::new(BrokerDefaultProver::default());
+                ProverRegistry {
+                    risc0_default: ProverEntry::standard_only(default.clone()),
+                    risc0_blake3: ProverEntry::standard_only(Arc::new(Blake3DefaultProver::new(
+                        default,
+                    ))),
+                }
             }
         } else {
-            Arc::new(Bonsai::new(
+            let bonsai = Arc::new(Bonsai::new(
                 broker::config::ConfigLock::default(),
                 &prover_config.proving_backend.bento_api_url,
                 &prover_config
@@ -285,15 +293,19 @@ impl OrderFulfiller {
                     .bento_api_key
                     .clone()
                     .unwrap_or_else(|| "v1:reserved:50".to_string()),
-            )?)
+            )?);
+            ProverRegistry {
+                risc0_default: ProverEntry::standard_only(bonsai.clone()),
+                risc0_blake3: ProverEntry::standard_only(Arc::new(Blake3Bonsai::new(bonsai))),
+            }
         };
 
-        Self::initialize(prover, client).await
+        Self::initialize(registry, client).await
     }
 
-    /// Initialize an OrderFulfiller from a provided Prover instance.
+    /// Initialize an OrderFulfiller from a provided [ProverRegistry] and client.
     pub async fn initialize<P, St, D, R, Si>(
-        prover: Arc<dyn Prover + Send + Sync>,
+        registry: ProverRegistry,
         client: &boundless_market::Client<P, St, D, R, Si>,
     ) -> Result<Self>
     where
@@ -310,9 +322,11 @@ impl OrderFulfiller {
         let assessor_image_id = Digest::try_from(assessor_image_id_bytes.as_slice())?;
         let set_builder_image_id = Digest::try_from(set_builder_image_id_bytes.as_slice())?;
 
+        let prover = registry.standard();
+
         tracing::debug!("Fetching Assessor program (ID: {})", assessor_image_id);
         ensure_prover_has_image(
-            &prover,
+            prover,
             "assessor",
             assessor_image_id,
             ASSESSOR_DEFAULT_IMAGE_URL,
@@ -323,7 +337,7 @@ impl OrderFulfiller {
 
         tracing::debug!("Fetching SetBuilder program (ID: {})", set_builder_image_id);
         ensure_prover_has_image(
-            &prover,
+            prover,
             "set builder",
             set_builder_image_id,
             SET_BUILDER_DEFAULT_IMAGE_URL,
@@ -333,7 +347,7 @@ impl OrderFulfiller {
         .await?;
 
         OrderFulfiller::new(
-            prover,
+            registry,
             downloader,
             set_builder_image_id,
             assessor_image_id,
@@ -349,20 +363,18 @@ impl OrderFulfiller {
         input: Vec<u8>,
         assumption_ids: Vec<String>,
     ) -> Result<String> {
-        let input_id = self
-            .prover
+        let prover = self.registry.standard();
+        let input_id = prover
             .upload_input(input)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to upload input: {}", e))?;
 
-        let proof_id = self
-            .prover
+        let proof_id = prover
             .prove_stark(image_id, &input_id, assumption_ids)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to start proof: {}", e))?;
 
-        let _result = self
-            .prover
+        let _result = prover
             .wait_for_stark(&proof_id)
             .await
             .map_err(|e| anyhow::anyhow!("Proof failed: {}", e))?;
@@ -386,7 +398,7 @@ impl OrderFulfiller {
 
         // In finalize, compress to groth16
         tracing::debug!("Compressing finalized proof");
-        Ok(self.prover.compress(&stark_id).await?)
+        Ok(self.registry.standard().compress(&stark_id).await?)
     }
 
     // Proves the assessor.
@@ -414,7 +426,7 @@ impl OrderFulfiller {
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
         tracing::debug!("Fulfilling {} orders", orders.len());
         let orders_jobs = orders.iter().cloned().enumerate().map(move |(idx, (req, sig))| {
-            let prover = self.prover.clone();
+            let prover = self.registry.standard().clone();
             let downloader = self.downloader.clone();
             let supported_selectors = self.supported_selectors.clone();
             async move {
@@ -460,7 +472,8 @@ impl OrderFulfiller {
                 let proof_id =
                     self.prove_stark(&order_image_id_str, order_input.clone(), vec![]).await?;
                 let order_journal = self
-                    .prover
+                    .registry
+                    .standard()
                     .get_journal(&proof_id)
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Order journal not found"))?;
@@ -510,7 +523,8 @@ impl OrderFulfiller {
         tracing::debug!("Proving assessor");
         let assessor_receipt_id = self.assessor(fills.clone(), proof_ids.clone()).await?;
         let assessor_journal = self
-            .prover
+            .registry
+            .standard()
             .get_journal(&assessor_receipt_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("Assessor journal not found"))?;
@@ -532,7 +546,8 @@ impl OrderFulfiller {
             )
             .await?;
         let compressed_receipt_bytes = self
-            .prover
+            .registry
+            .standard()
             .get_compressed_receipt(&root_receipt_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("Root receipt not found"))?;
@@ -551,46 +566,22 @@ impl OrderFulfiller {
                 verifier_parameters.digest(),
             );
             let (req, _sig) = &orders[order_idx];
-            let order_seal = if is_groth16_selector(req.requirements.selector) {
-                let compressed_proof_id = self
-                    .prover
-                    .compress(&proof_ids[i])
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to compress order proof: {}", e))?;
+            let proof_type = self.supported_selectors.proof_type(req.requirements.selector);
+            let order_seal = match proof_type {
+                Some(pt @ (ProofType::Groth16 | ProofType::Blake3Groth16)) => {
+                    let compress_prover =
+                        self.registry.get(pt, ProverPriority::Standard);
+                    let compressed_proof_id = compress_prover
+                        .compress(&proof_ids[i])
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Failed to compress order proof: {}", e))?;
 
-                let compressed_receipt_bytes = self
-                    .prover
-                    .get_compressed_receipt(&compressed_proof_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to get compressed order receipt: {}", e))?
-                    .ok_or_else(|| anyhow::anyhow!("Compressed order receipt not found"))?;
-
-                let compressed_receipt: Receipt =
-                    bincode::deserialize(&compressed_receipt_bytes)
-                        .context("Failed to deserialize compressed order receipt")?;
-
-                encode_seal(&compressed_receipt)?
-            } else if is_blake3_groth16_selector(req.requirements.selector) {
-                let compressed_proof_id = self
-                    .prover
-                    .compress_blake3_groth16(&proof_ids[i])
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to compress order proof: {}", e))?;
-
-                let compressed_receipt_bytes = self
-                    .prover
-                    .get_blake3_groth16_receipt(&compressed_proof_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to get compressed order receipt: {}", e))?
-                    .ok_or_else(|| anyhow::anyhow!("Compressed order receipt not found"))?;
-
-                let blake3_receipt: Blake3Groth16Receipt =
-                    bincode::deserialize(&compressed_receipt_bytes)
-                        .context("Failed to deserialize Blake3 Groth16 receipt")?;
-
-                encode_seal(&blake3_receipt.into())?
-            } else {
-                order_inclusion_receipt.abi_encode_seal()?
+                    compress_prover
+                        .encode_compressed_seal(&compressed_proof_id)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Failed to encode order seal: {}", e))?
+                }
+                _ => order_inclusion_receipt.abi_encode_seal()?,
             };
 
             let (fulfillment_data_type, fulfillment_data) =
@@ -692,8 +683,12 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let (request, signature) =
             setup_proving_request_and_signature(&signer, Some(SelectorExt::groth16_latest())).await;
-        let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let default = Arc::new(BrokerDefaultProver::default());
+        let registry = ProverRegistry {
+            risc0_default: ProverEntry::standard_only(default.clone()),
+            risc0_blake3: ProverEntry::standard_only(Arc::new(Blake3DefaultProver::new(default))),
+        };
+        let mut fulfiller = OrderFulfiller::initialize(registry, &client).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -712,8 +707,12 @@ mod tests {
 
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
-        let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let default = Arc::new(BrokerDefaultProver::default());
+        let registry = ProverRegistry {
+            risc0_default: ProverEntry::standard_only(default.clone()),
+            risc0_blake3: ProverEntry::standard_only(Arc::new(Blake3DefaultProver::new(default))),
+        };
+        let mut fulfiller = OrderFulfiller::initialize(registry, &client).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -749,8 +748,14 @@ mod tests {
 
         let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
 
-        let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let default_prover = Arc::new(BrokerDefaultProver::default());
+        let registry = ProverRegistry {
+            risc0_default: ProverEntry::standard_only(default_prover.clone()),
+            risc0_blake3: ProverEntry::standard_only(Arc::new(Blake3DefaultProver::new(
+                default_prover,
+            ))),
+        };
+        let mut fulfiller = OrderFulfiller::initialize(registry, &client).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();

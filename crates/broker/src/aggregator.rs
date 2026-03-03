@@ -712,7 +712,7 @@ impl AggregatorService {
                 sleep_ms,
                 || async {
                     let proof_id = self.prover.compress(&aggregation_proof_id).await?;
-                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                    self.prover.verify_compressed_receipt(&proof_id).await?;
                     Ok::<String, provers::ProverError>(proof_id)
                 },
                 "compress_and_verify",

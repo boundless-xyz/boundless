@@ -2427,15 +2427,16 @@ pub(crate) mod tests {
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_compressed_receipt(proof_id).await
         }
-        async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
-            self.default_prover.compress_blake3_groth16(proof_id).await
-        }
 
-        async fn get_blake3_groth16_receipt(
+        async fn encode_compressed_seal(
             &self,
             proof_id: &str,
-        ) -> Result<Option<Vec<u8>>, ProverError> {
-            self.default_prover.get_blake3_groth16_receipt(proof_id).await
+        ) -> Result<Vec<u8>, ProverError> {
+            self.default_prover.encode_compressed_seal(proof_id).await
+        }
+
+        async fn verify_compressed_receipt(&self, proof_id: &str) -> Result<(), ProverError> {
+            self.default_prover.verify_compressed_receipt(proof_id).await
         }
 
         async fn compute_image_id(

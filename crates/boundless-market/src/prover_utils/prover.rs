@@ -199,16 +199,11 @@ pub trait Prover {
     #[allow(unused)]
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
 
-    /// Compress a STARK proof to Blake3 Groth16.
-    #[allow(unused)]
-    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError>;
+    /// Fetch a compressed receipt and encode it as a seal.
+    async fn encode_compressed_seal(&self, proof_id: &str) -> Result<Vec<u8>, ProverError>;
 
-    /// Get the Blake3 Groth16 receipt.
-    #[allow(unused)]
-    async fn get_blake3_groth16_receipt(
-        &self,
-        proof_id: &str,
-    ) -> Result<Option<Vec<u8>>, ProverError>;
+    /// Verify a compressed receipt's integrity.
+    async fn verify_compressed_receipt(&self, proof_id: &str) -> Result<(), ProverError>;
 
     /// Compute the image ID for the given ELF binary.
     async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError>;
@@ -216,3 +211,69 @@ pub trait Prover {
 
 /// Type alias for a boxed Prover trait object.
 pub type ProverObj = Arc<dyn Prover + Send + Sync>;
+
+/// Priority level for selecting a prover backend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProverPriority {
+    /// Standard priority.
+    Standard,
+    /// High priority (e.g. for time-sensitive requests).
+    High,
+}
+
+/// Prover entry for a single proof type, with optional high-priority override.
+#[derive(Clone)]
+pub struct ProverEntry {
+    /// The standard-priority prover.
+    pub standard: ProverObj,
+    /// Falls back to `standard` if `None`.
+    pub high_priority: Option<ProverObj>,
+}
+
+impl ProverEntry {
+    /// Create an entry that uses the same prover for all priorities.
+    pub fn standard_only(prover: ProverObj) -> Self {
+        Self { standard: prover, high_priority: None }
+    }
+
+    /// Get the prover for the given priority.
+    pub fn get(&self, priority: ProverPriority) -> &ProverObj {
+        match priority {
+            ProverPriority::Standard => &self.standard,
+            ProverPriority::High => self.high_priority.as_ref().unwrap_or(&self.standard),
+        }
+    }
+}
+
+/// Maps proof types and priorities to [`ProverObj`] instances.
+#[derive(Clone)]
+pub struct ProverRegistry {
+    /// Prover entry for standard RISC Zero proofs.
+    pub risc0_default: ProverEntry,
+    /// Prover entry for Blake3 Groth16 proofs.
+    pub risc0_blake3: ProverEntry,
+}
+
+impl ProverRegistry {
+    /// Get the prover for the given proof type and priority.
+    pub fn get(
+        &self,
+        proof_type: crate::selector::ProofType,
+        priority: ProverPriority,
+    ) -> &ProverObj {
+        match proof_type {
+            crate::selector::ProofType::Blake3Groth16 => self.risc0_blake3.get(priority),
+            _ => self.risc0_default.get(priority),
+        }
+    }
+
+    /// Get the standard-priority default prover.
+    pub fn standard(&self) -> &ProverObj {
+        self.risc0_default.get(ProverPriority::Standard)
+    }
+
+    /// Get the high-priority default prover.
+    pub fn high_priority(&self) -> &ProverObj {
+        self.risc0_default.get(ProverPriority::High)
+    }
+}

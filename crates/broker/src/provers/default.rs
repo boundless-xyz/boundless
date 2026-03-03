@@ -27,7 +27,7 @@ use risc0_zkvm::{
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct DefaultProver {
     state: Arc<ProverState>,
 }
@@ -412,7 +412,24 @@ impl Prover for DefaultProver {
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
 
-    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+    async fn encode_compressed_seal(&self, proof_id: &str) -> Result<Vec<u8>, ProverError> {
+        super::risc0_encode_compressed_seal(self, proof_id).await
+    }
+
+    async fn verify_compressed_receipt(&self, proof_id: &str) -> Result<(), ProverError> {
+        super::risc0_verify_compressed_receipt(self, proof_id).await
+    }
+
+    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
+        Ok(risc0_zkvm::compute_image_id(elf)?)
+    }
+}
+
+impl DefaultProver {
+    pub(crate) async fn compress_blake3_groth16(
+        &self,
+        proof_id: &str,
+    ) -> Result<String, ProverError> {
         tracing::info!("Compressing proof to blake3 groth16 {proof_id}");
         let prover_receipt = self
             .get_receipt(proof_id)
@@ -453,7 +470,8 @@ impl Prover for DefaultProver {
             }
         }
     }
-    async fn get_blake3_groth16_receipt(
+
+    pub(crate) async fn get_blake3_groth16_receipt(
         &self,
         proof_id: &str,
     ) -> Result<Option<Vec<u8>>, ProverError> {
@@ -462,10 +480,6 @@ impl Prover for DefaultProver {
             .get(proof_id)
             .ok_or_else(|| ProverError::NotFound(format!("blake3 groth16 proof {proof_id}")))?;
         Ok(proof_data.compressed_receipt.as_ref().cloned())
-    }
-
-    async fn compute_image_id(&self, elf: &[u8]) -> Result<Digest, ProverError> {
-        Ok(risc0_zkvm::compute_image_id(elf)?)
     }
 }
 
