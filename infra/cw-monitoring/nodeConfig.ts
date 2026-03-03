@@ -7,8 +7,8 @@
 // - Each alarm category is an array: empty = disabled, multiple entries = multi-severity.
 // - `period` is always required — no hidden defaults.
 // - Every description maps back to the actual evaluation math.
-// - Profiles: "prod" = tight thresholds + pages, "nightly" = relaxed error thresholds,
-//   "staging" = relaxed everything.
+// - Profiles: "prod" = tight thresholds, "nightly" = relaxed error thresholds,
+//   "staging" = relaxed everything. All alarms are SEV2 (no paging).
 
 import { Severity } from "../util";
 import * as aws from "@pulumi/aws";
@@ -100,8 +100,8 @@ export interface MonitoredNode {
 // Reusable building blocks. Each alarm is self-documenting: description maps to
 // the actual period × evaluationPeriods × datapointsToAlarm math.
 //
-// Multi-severity escalation: prod alarms use SEV2 as an early warning and SEV1
-// as a page, matching the indexer pattern (e.g. Base mainnet og_offchain).
+// All alarms are SEV2 (warning/Slack). Tighter-threshold entries provide
+// earlier detection without paging.
 
 // ── Bento service down ──────────────────────────────────────────────────────
 // Vector publishes bento_active gauge (0 or 1). Missing data = breaching
@@ -121,7 +121,7 @@ const PROD_BENTO_DOWN: AlarmConfig[] = [
         },
     },
     {
-        severity: Severity.SEV1,
+        severity: Severity.SEV2,
         description: "bento service down for 6 consecutive 5-min periods (30 min)",
         metricConfig: { period: 300 },
         alarmConfig: {
@@ -168,7 +168,7 @@ const PROD_NO_CONTAINERS: AlarmConfig[] = [
         },
     },
     {
-        severity: Severity.SEV1,
+        severity: Severity.SEV2,
         description: "no containers running for 6 consecutive 5-min periods (30 min)",
         metricConfig: { period: 300 },
         alarmConfig: {
@@ -199,7 +199,7 @@ const STAGING_NO_CONTAINERS: AlarmConfig[] = [
 // ── Memory pressure ─────────────────────────────────────────────────────────
 // Metric math: (memory_used_bytes / memory_total_bytes) * 100.
 // Prover nodes routinely use high memory — 90% is a warning, 95% means OOM
-// risk and should page.
+// risk and needs attention.
 
 const PROD_MEMORY_HIGH: AlarmConfig[] = [
     {
@@ -213,7 +213,7 @@ const PROD_MEMORY_HIGH: AlarmConfig[] = [
         },
     },
     {
-        severity: Severity.SEV1,
+        severity: Severity.SEV2,
         description: "memory >95% for 3 consecutive 5-min periods (15 min)",
         metricConfig: { period: 300 },
         alarmConfig: {
@@ -224,7 +224,7 @@ const PROD_MEMORY_HIGH: AlarmConfig[] = [
     },
 ];
 
-// Staging can run hotter without paging.
+// Staging can run hotter — fewer alarms.
 const STAGING_MEMORY_HIGH: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
@@ -255,7 +255,7 @@ const PROD_DISK_HIGH: AlarmConfig[] = [
         },
     },
     {
-        severity: Severity.SEV1,
+        severity: Severity.SEV2,
         description: "disk >95% for 2 consecutive 5-min periods (10 min)",
         metricConfig: { period: 300 },
         alarmConfig: {
@@ -298,7 +298,7 @@ const ALARM_PROFILES: Record<string, SystemAlarms> = {
         diskHigh: STAGING_DISK_HIGH,
     },
     // Nightly builds break more often. Relax error/fatal thresholds but still
-    // page on infra issues (service down, disk full, OOM).
+    // alert on infra issues (service down, disk full, OOM).
     nightly: {
         bentoDown: PROD_BENTO_DOWN,
         noContainers: PROD_NO_CONTAINERS,
@@ -313,21 +313,6 @@ const ALARM_PROFILES: Record<string, SystemAlarms> = {
  * Resolve raw config entries into MonitoredNodes by attaching alarm presets.
  * Throws if an unknown alarmProfile is encountered.
  */
-/**
- * Strip all SEV1 entries from alarms — staging should never page.
- * We drop rather than downgrade because multi-severity escalation pairs
- * share a metricName (SEV2 = warn, SEV1 = page). Downgrading to SEV2
- * would create duplicate resource names.
- */
-function dropSev1(alarms: NodeAlarms): void {
-    for (const key of ["bentoDown", "noContainers", "memoryHigh", "diskHigh"] as const) {
-        alarms[key] = alarms[key].filter(a => a.severity !== Severity.SEV1);
-    }
-    alarms.logPatterns = alarms.logPatterns.filter(
-        lp => !(lp.alarm && lp.alarm.severity === Severity.SEV1),
-    );
-}
-
 export function resolveNodes(entries: NodeConfigEntry[]): MonitoredNode[] {
     return entries.map(e => {
         const systemAlarms = ALARM_PROFILES[e.alarmProfile];
@@ -344,11 +329,6 @@ export function resolveNodes(entries: NodeConfigEntry[]): MonitoredNode[] {
             : [];
 
         const alarms: NodeAlarms = { ...systemAlarms, logPatterns };
-
-        // Staging should never page — drop all SEV1 entries.
-        if (e.alarmProfile === "staging") {
-            dropSev1(alarms);
-        }
 
         return {
             name: e.name,
