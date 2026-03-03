@@ -22,7 +22,6 @@ x-base-environment: &base-environment
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
   runtime: ${DOCKER_RUNTIME:-nvidia}
-  image: ${AGENT_IMAGE:-bento-agent:local}
   build:
     context: .
     dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
