@@ -37,10 +37,10 @@ async fn test_efficiency_summary() {
 
     // If we have efficiency rates, they should be valid
     if let Some(rate) = response.latest_hourly_efficiency_rate {
-        assert!(rate >= 0.0 && rate <= 1.0, "hourly efficiency rate should be 0-1: {}", rate);
+        assert!((0.0..=1.0).contains(&rate), "hourly efficiency rate should be 0-1: {}", rate);
     }
     if let Some(rate) = response.latest_daily_efficiency_rate {
-        assert!(rate >= 0.0 && rate <= 1.0, "daily efficiency rate should be 0-1: {}", rate);
+        assert!((0.0..=1.0).contains(&rate), "daily efficiency rate should be 0-1: {}", rate);
     }
 }
 
@@ -147,7 +147,7 @@ async fn test_efficiency_summary_gas_adjusted() {
         "total should equal sum of most + not most profitable"
     );
     if let Some(rate) = response.latest_hourly_efficiency_rate {
-        assert!(rate >= 0.0 && rate <= 1.0, "hourly efficiency rate should be 0-1: {}", rate);
+        assert!((0.0..=1.0).contains(&rate), "hourly efficiency rate should be 0-1: {}", rate);
     }
 }
 
