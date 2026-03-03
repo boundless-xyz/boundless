@@ -554,6 +554,11 @@ pub struct EfficiencyRequestsParams {
     /// Sort order: 'asc' or 'desc' (default: desc)
     #[serde(default = "default_sort")]
     pub sort: String,
+
+    /// Efficiency data type: 'raw', 'gas_adjusted', or 'gas_adjusted_with_exclusions' (default: raw)
+    #[serde(default)]
+    #[param(value_type = String)]
+    pub efficiency_type: EfficiencyType,
 }
 
 /// Sample of a more profitable request

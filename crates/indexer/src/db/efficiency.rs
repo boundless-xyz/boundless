@@ -183,6 +183,24 @@ pub trait EfficiencyDb {
         sort_desc: bool,
     ) -> Result<Vec<MarketEfficiencyOrder>, DbError>;
 
+    async fn get_efficiency_requests_paginated_gas_adjusted(
+        &self,
+        before: Option<u64>,
+        after: Option<u64>,
+        limit: u64,
+        cursor: Option<u64>,
+        sort_desc: bool,
+    ) -> Result<Vec<MarketEfficiencyOrder>, DbError>;
+
+    async fn get_efficiency_requests_paginated_gas_adjusted_with_exclusions(
+        &self,
+        before: Option<u64>,
+        after: Option<u64>,
+        limit: u64,
+        cursor: Option<u64>,
+        sort_desc: bool,
+    ) -> Result<Vec<MarketEfficiencyOrder>, DbError>;
+
     async fn get_efficiency_request_by_id(
         &self,
         request_id: &str,
@@ -631,85 +649,53 @@ impl EfficiencyDb for EfficiencyDbImpl {
         cursor: Option<u64>,
         sort_desc: bool,
     ) -> Result<Vec<MarketEfficiencyOrder>, DbError> {
-        let order_dir = if sort_desc { "DESC" } else { "ASC" };
-        let cursor_op = if sort_desc { "<" } else { ">" };
+        self.get_requests_from_table(
+            "market_efficiency_orders",
+            before,
+            after,
+            limit,
+            cursor,
+            sort_desc,
+        )
+        .await
+    }
 
-        let mut conditions = Vec::new();
-        let mut bind_values: Vec<i64> = Vec::new();
+    async fn get_efficiency_requests_paginated_gas_adjusted(
+        &self,
+        before: Option<u64>,
+        after: Option<u64>,
+        limit: u64,
+        cursor: Option<u64>,
+        sort_desc: bool,
+    ) -> Result<Vec<MarketEfficiencyOrder>, DbError> {
+        self.get_requests_from_table(
+            "market_efficiency_orders_gas_adjusted",
+            before,
+            after,
+            limit,
+            cursor,
+            sort_desc,
+        )
+        .await
+    }
 
-        if let Some(b) = before {
-            bind_values.push(b as i64);
-            conditions.push(format!("locked_at < ${}", bind_values.len()));
-        }
-        if let Some(a) = after {
-            bind_values.push(a as i64);
-            conditions.push(format!("locked_at > ${}", bind_values.len()));
-        }
-        if let Some(c) = cursor {
-            bind_values.push(c as i64);
-            conditions.push(format!("locked_at {} ${}", cursor_op, bind_values.len()));
-        }
-
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
-
-        bind_values.push(limit as i64);
-        let limit_param = bind_values.len();
-
-        let query = format!(
-            r#"
-            SELECT 
-                request_digest, request_id, locked_at, lock_price, program_cycles,
-                lock_price_per_cycle, num_orders_more_profitable, num_orders_less_profitable,
-                num_orders_available_unfulfilled, is_most_profitable, more_profitable_sample
-            FROM market_efficiency_orders
-            {}
-            ORDER BY locked_at {}
-            LIMIT ${}
-            "#,
-            where_clause, order_dir, limit_param
-        );
-
-        let mut q = sqlx::query(&query);
-        for val in &bind_values {
-            q = q.bind(*val);
-        }
-
-        let rows = q.fetch_all(&self.pool).await?;
-
-        let mut results = Vec::with_capacity(rows.len());
-        for row in rows {
-            let request_digest_str: String = row.get("request_digest");
-            let request_digest = B256::from_str(&request_digest_str)
-                .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid request_digest: {}", e)))?;
-
-            let sample: Option<Vec<MoreProfitableSample>> = row
-                .get::<Option<serde_json::Value>, _>("more_profitable_sample")
-                .and_then(|v| serde_json::from_value(v).ok());
-
-            results.push(MarketEfficiencyOrder {
-                request_digest,
-                request_id: padded_string_to_u256(&row.get::<String, _>("request_id"))?,
-                locked_at: row.get::<i64, _>("locked_at") as u64,
-                lock_price: padded_string_to_u256(&row.get::<String, _>("lock_price"))?,
-                program_cycles: padded_string_to_u256(&row.get::<String, _>("program_cycles"))?,
-                lock_price_per_cycle: padded_string_to_u256(
-                    &row.get::<String, _>("lock_price_per_cycle"),
-                )?,
-                num_orders_more_profitable: row.get::<i64, _>("num_orders_more_profitable") as u64,
-                num_orders_less_profitable: row.get::<i64, _>("num_orders_less_profitable") as u64,
-                num_orders_available_unfulfilled: row
-                    .get::<i64, _>("num_orders_available_unfulfilled")
-                    as u64,
-                is_most_profitable: row.get("is_most_profitable"),
-                more_profitable_sample: sample,
-            });
-        }
-
-        Ok(results)
+    async fn get_efficiency_requests_paginated_gas_adjusted_with_exclusions(
+        &self,
+        before: Option<u64>,
+        after: Option<u64>,
+        limit: u64,
+        cursor: Option<u64>,
+        sort_desc: bool,
+    ) -> Result<Vec<MarketEfficiencyOrder>, DbError> {
+        self.get_requests_from_table(
+            "market_efficiency_orders_gas_adjusted_with_exclusions",
+            before,
+            after,
+            limit,
+            cursor,
+            sort_desc,
+        )
+        .await
     }
 
     async fn get_efficiency_request_by_id(
@@ -877,6 +863,96 @@ impl EfficiencyDb for EfficiencyDbImpl {
 }
 
 impl EfficiencyDbImpl {
+    async fn get_requests_from_table(
+        &self,
+        table: &str,
+        before: Option<u64>,
+        after: Option<u64>,
+        limit: u64,
+        cursor: Option<u64>,
+        sort_desc: bool,
+    ) -> Result<Vec<MarketEfficiencyOrder>, DbError> {
+        let order_dir = if sort_desc { "DESC" } else { "ASC" };
+        let cursor_op = if sort_desc { "<" } else { ">" };
+
+        let mut conditions = Vec::new();
+        let mut bind_values: Vec<i64> = Vec::new();
+
+        if let Some(b) = before {
+            bind_values.push(b as i64);
+            conditions.push(format!("locked_at < ${}", bind_values.len()));
+        }
+        if let Some(a) = after {
+            bind_values.push(a as i64);
+            conditions.push(format!("locked_at > ${}", bind_values.len()));
+        }
+        if let Some(c) = cursor {
+            bind_values.push(c as i64);
+            conditions.push(format!("locked_at {} ${}", cursor_op, bind_values.len()));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        bind_values.push(limit as i64);
+        let limit_param = bind_values.len();
+
+        let query = format!(
+            r#"
+            SELECT
+                request_digest, request_id, locked_at, lock_price, program_cycles,
+                lock_price_per_cycle, num_orders_more_profitable, num_orders_less_profitable,
+                num_orders_available_unfulfilled, is_most_profitable, more_profitable_sample
+            FROM {}
+            {}
+            ORDER BY locked_at {}
+            LIMIT ${}
+            "#,
+            table, where_clause, order_dir, limit_param
+        );
+
+        let mut q = sqlx::query(&query);
+        for val in &bind_values {
+            q = q.bind(*val);
+        }
+
+        let rows = q.fetch_all(&self.pool).await?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let request_digest_str: String = row.get("request_digest");
+            let request_digest = B256::from_str(&request_digest_str)
+                .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid request_digest: {}", e)))?;
+
+            let sample: Option<Vec<MoreProfitableSample>> = row
+                .get::<Option<serde_json::Value>, _>("more_profitable_sample")
+                .and_then(|v| serde_json::from_value(v).ok());
+
+            results.push(MarketEfficiencyOrder {
+                request_digest,
+                request_id: padded_string_to_u256(&row.get::<String, _>("request_id"))?,
+                locked_at: row.get::<i64, _>("locked_at") as u64,
+                lock_price: padded_string_to_u256(&row.get::<String, _>("lock_price"))?,
+                program_cycles: padded_string_to_u256(&row.get::<String, _>("program_cycles"))?,
+                lock_price_per_cycle: padded_string_to_u256(
+                    &row.get::<String, _>("lock_price_per_cycle"),
+                )?,
+                num_orders_more_profitable: row.get::<i64, _>("num_orders_more_profitable") as u64,
+                num_orders_less_profitable: row.get::<i64, _>("num_orders_less_profitable") as u64,
+                num_orders_available_unfulfilled: row
+                    .get::<i64, _>("num_orders_available_unfulfilled")
+                    as u64,
+                is_most_profitable: row.get("is_most_profitable"),
+                more_profitable_sample: sample,
+            });
+        }
+
+        Ok(results)
+    }
+
     async fn upsert_orders_to_table(
         &self,
         table: &str,

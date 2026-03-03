@@ -3457,16 +3457,44 @@ async fn list_efficiency_requests_impl(
     };
 
     // Request one extra to determine if more pages exist
-    let mut requests = state
-        .efficiency_db
-        .get_efficiency_requests_paginated(
-            params.before,
-            params.after,
-            limit + 1,
-            cursor,
-            sort_desc,
-        )
-        .await?;
+    let mut requests = match params.efficiency_type {
+        EfficiencyType::GasAdjustedWithExclusions => {
+            state
+                .efficiency_db
+                .get_efficiency_requests_paginated_gas_adjusted_with_exclusions(
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::GasAdjusted => {
+            state
+                .efficiency_db
+                .get_efficiency_requests_paginated_gas_adjusted(
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::Raw => {
+            state
+                .efficiency_db
+                .get_efficiency_requests_paginated(
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+    };
 
     let has_more = requests.len() > limit as usize;
     if has_more {

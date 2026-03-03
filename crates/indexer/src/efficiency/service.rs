@@ -220,12 +220,8 @@ impl MarketEfficiencyService {
                 };
                 let r_gas_cost = estimate_gas_cost(&r.selector, base_fee);
                 let r_profit = r_lock_price.saturating_sub(r_gas_cost);
-                let ppc = if r_program_cycles > U256::ZERO {
-                    r_profit / r_program_cycles
-                } else {
-                    U256::ZERO
-                };
-                (ppc, r_lock_price / r_program_cycles)
+
+                (r_profit / r_program_cycles, r_lock_price / r_program_cycles)
             } else {
                 let ppc = match &r.lock_price_per_cycle {
                     Some(p) => *p,
@@ -290,11 +286,7 @@ impl MarketEfficiencyService {
                     let base_fee = r.lock_base_fee.unwrap();
                     let o_gas_cost = estimate_gas_cost(&o.selector, base_fee);
                     let o_profit = o_lock_price_at_time.saturating_sub(o_gas_cost);
-                    if o_program_cycles > U256::ZERO {
-                        o_profit / o_program_cycles
-                    } else {
-                        U256::ZERO
-                    }
+                    o_profit / o_program_cycles
                 } else {
                     o_lock_price_at_time / o_program_cycles
                 };
@@ -302,6 +294,7 @@ impl MarketEfficiencyService {
                 let o_price_per_cycle_at_time = o_lock_price_at_time / o_program_cycles;
 
                 if o_profitability_metric > r_profitability_metric {
+                    // tracing::info!("Found more profitable order: R {} (ppc {}) vs O {} (ppc {}). delta time: R locked at {}, O created at {:?}, delta time: {} seconds",r.request_id, r_profitability_metric, o.request_id, o_profitability_metric, lock_time, o.created_at, lock_time-o.created_at);
                     more_profitable.push((o, o_price_per_cycle_at_time));
                 } else {
                     less_profitable_count += 1;
