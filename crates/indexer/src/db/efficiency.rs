@@ -962,8 +962,7 @@ impl EfficiencyDbImpl {
             return Ok(());
         }
 
-        let total_chunks =
-            (orders.len() + EFFICIENCY_UPSERT_BATCH_SIZE - 1) / EFFICIENCY_UPSERT_BATCH_SIZE;
+        let total_chunks = orders.len().div_ceil(EFFICIENCY_UPSERT_BATCH_SIZE);
 
         for (chunk_idx, chunk) in orders.chunks(EFFICIENCY_UPSERT_BATCH_SIZE).enumerate() {
             if chunk.is_empty() {

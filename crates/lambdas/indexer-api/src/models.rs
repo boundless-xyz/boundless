@@ -428,21 +428,16 @@ pub struct EfficiencySummaryResponse {
 }
 
 /// Efficiency data type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ToSchema)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EfficiencyType {
     /// Raw efficiency data (default)
+    #[default]
     Raw,
     /// Gas-adjusted efficiency data (profitability with gas costs)
     GasAdjusted,
     /// Gas-adjusted efficiency data excluding certain requestors
     GasAdjustedWithExclusions,
-}
-
-impl Default for EfficiencyType {
-    fn default() -> Self {
-        EfficiencyType::Raw
-    }
 }
 
 /// Query parameters for efficiency summary
