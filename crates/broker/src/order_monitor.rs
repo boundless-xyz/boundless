@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    chain_monitor::{ChainHead, ChainMonitorService},
+    chain_monitor::{ChainHead, ChainMonitor},
     config::{ConfigLock, OrderCommitmentPriority},
     db::DbObj,
     errors::CodedError,
@@ -154,7 +154,7 @@ pub struct RpcRetryConfig {
 #[derive(Clone)]
 pub struct OrderMonitor<P, ANP> {
     db: DbObj,
-    chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+    chain_monitor: Arc<ChainMonitor<P, ANP>>,
     block_time: u64,
     config: ConfigLock,
     market: BoundlessMarketService<Arc<P>>,
@@ -179,7 +179,7 @@ where
     pub fn new(
         db: DbObj,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+        chain_monitor: Arc<ChainMonitor<P, ANP>>,
         config: ConfigLock,
         block_time: u64,
         prover_addr: Address,
@@ -1088,6 +1088,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::chain_monitor::ChainMonitor;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
@@ -1246,21 +1247,19 @@ pub(crate) mod tests {
                 .network::<AnyNetwork>()
                 .connect_http(anvil.endpoint_url()),
         );
-        let (block_update_tx, _block_update_rx) = mpsc::channel(64);
-        let chain_monitor = Arc::new(
-            ChainMonitorService::new(
-                provider.clone(),
-                any_provider,
-                gas_priority_mode,
-                Address::ZERO,
-                vec![],
-                block_update_tx,
-                20,
-            )
-            .await
-            .unwrap(),
-        );
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+
+        let (chain_monitor, _block_update_rx) = ChainMonitor::new(
+            provider.clone(),
+            any_provider,
+            gas_priority_mode,
+            Address::ZERO,
+            vec![],
+            20,
+            64,
+        )
+        .await
+        .unwrap();
+        let chain_monitor = Arc::new(chain_monitor);
 
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);

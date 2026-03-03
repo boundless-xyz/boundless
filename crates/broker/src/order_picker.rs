@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 use crate::{
-    chain_monitor::ChainMonitorService,
+    chain_monitor::ChainMonitor,
     config::{ConfigLock, MarketConfig},
     db::DbObj,
     errors::CodedError,
@@ -81,7 +81,7 @@ pub struct OrderPicker<P, ANP> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
-    chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+    chain_monitor: Arc<ChainMonitor<P, ANP>>,
     market: BoundlessMarketService<Arc<P>>,
     supported_selectors: SupportedSelectors,
     // TODO ideal not to wrap in mutex, but otherwise would require supervisor refactor, try to find alternative
@@ -111,7 +111,7 @@ where
         prover: ProverObj,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+        chain_monitor: Arc<ChainMonitor<P, ANP>>,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
@@ -845,7 +845,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::config::defaults;
     use crate::{
-        chain_monitor::ChainMonitorService,
+        chain_monitor::ChainMonitor,
         db::SqliteDb,
         provers::{DefaultProver, ProofResult, Prover, ProverError},
         FulfillmentType, OrderStatus,
@@ -904,7 +904,7 @@ pub(crate) mod tests {
     pub(crate) struct PickerTestCtx<P, ANP = TestANP> {
         anvil: AnvilInstance,
         pub(crate) picker: OrderPicker<P, ANP>,
-        pub(crate) chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+        pub(crate) chain_monitor: Arc<ChainMonitor<P, ANP>>,
         boundless_market: BoundlessMarketService<Arc<P>>,
         uploader: MockStorageUploader,
         db: DbObj,
@@ -1111,21 +1111,25 @@ pub(crate) mod tests {
                     .network::<AnyNetwork>()
                     .connect_http(anvil.endpoint_url()),
             );
-            let (block_update_tx, _block_update_rx) = mpsc::channel(64);
-            let chain_monitor = Arc::new(
-                ChainMonitorService::new(
-                    provider.clone(),
-                    any_provider,
-                    gas_priority_mode,
-                    Address::ZERO,
-                    vec![],
-                    block_update_tx,
-                    20,
-                )
-                .await
-                .unwrap(),
-            );
-            tokio::spawn(chain_monitor.spawn(Default::default()));
+
+            let (chain_monitor, _block_update_rx) = ChainMonitor::new(
+                provider.clone(),
+                any_provider,
+                gas_priority_mode,
+                Address::ZERO,
+                vec![],
+                20,
+                64,
+            )
+            .await
+            .unwrap();
+            let chain_monitor = Arc::new(chain_monitor);
+            tokio::spawn({
+                let m = chain_monitor.clone();
+                async move {
+                    let _ = m.spawn(CancellationToken::new()).await;
+                }
+            });
 
             let chain_id = provider.get_chain_id().await.unwrap();
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
@@ -1293,9 +1297,7 @@ pub(crate) mod tests {
     /// Wait for the chain monitor to have processed at least `expected_block`.
     /// The chain monitor runs in a background task and updates atomically, so callers
     /// must wait after mining blocks before reading `current_gas_price()`.
-    async fn wait_for_chain_monitor_block<
-        P: Provider<Ethereum> + WalletProvider + Clone + 'static,
-    >(
+    async fn wait_for_chain_head_block<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
         ctx: &PickerTestCtx<P, TestANP>,
         expected_block: u64,
     ) {
@@ -1325,7 +1327,7 @@ pub(crate) mod tests {
         ctx.provider.anvil_mine(Some(1), None).await.unwrap();
         let block_number = ctx.provider.get_block_number().await.unwrap();
         // Wait for the chain monitor to process the mined block so current_gas_price() is stable.
-        wait_for_chain_monitor_block(ctx, block_number).await;
+        wait_for_chain_head_block(ctx, block_number).await;
 
         let gas_price = ctx.picker.current_gas_price().await.unwrap();
         // Use the midpoint (50%) so the test price has margin above base and below base+extra_gas.

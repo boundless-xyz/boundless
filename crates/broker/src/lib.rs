@@ -58,6 +58,7 @@ const BLOCK_UPDATE_CHANNEL_CAPACITY: usize = 64;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
+pub(crate) mod block_processor;
 pub(crate) mod chain_monitor;
 pub mod config;
 pub(crate) mod db;
@@ -749,30 +750,28 @@ where
         let non_critical_cancel_token = CancellationToken::new();
         let critical_cancel_token = CancellationToken::new();
 
-        let (block_update_tx, block_update_rx) =
-            mpsc::channel::<chain_monitor::BlockUpdate>(BLOCK_UPDATE_CHANNEL_CAPACITY);
-
-        let chain_monitor = Arc::new(
-            chain_monitor::ChainMonitorService::new(
-                self.provider.clone(),
-                self.any_provider.clone(),
-                self.gas_priority_mode.clone(),
-                self.deployment().boundless_market_address,
-                vec![
-                    IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH,
-                    IBoundlessMarket::RequestLocked::SIGNATURE_HASH,
-                    IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
-                ],
-                block_update_tx,
-                block_history_size,
-            )
-            .await
-            .context("Failed to initialize chain monitor")?,
-        );
+        // Chain monitor: polls eth_getBlockByNumber(Latest), fetches receipts per block,
+        // extracts market logs, and updates gas estimates. Owns all chain state atomics.
+        let (chain_monitor, block_update_rx) = chain_monitor::ChainMonitor::new(
+            self.provider.clone(),
+            self.any_provider.clone(),
+            self.gas_priority_mode.clone(),
+            self.deployment().boundless_market_address,
+            vec![
+                IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH,
+                IBoundlessMarket::RequestLocked::SIGNATURE_HASH,
+                IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
+            ],
+            block_history_size,
+            BLOCK_UPDATE_CHANNEL_CAPACITY,
+        )
+        .await
+        .context("Failed to initialize chain monitor")?;
+        let chain_monitor = Arc::new(chain_monitor);
 
         let cloned_chain_monitor = chain_monitor.clone();
         let cloned_config = config.clone();
-        // Critical task, as is relied on to query current chain state
+        // Critical task — all consumers depend on this for chain state and gas estimates.
         let cancel_token = critical_cancel_token.clone();
         critical_tasks.spawn(async move {
             Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)

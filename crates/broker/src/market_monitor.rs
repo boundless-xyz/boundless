@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use alloy::{
-    network::{AnyNetwork, Ethereum},
+    network::Ethereum,
     primitives::{Address, U256},
     providers::Provider,
     rpc::types::Filter,
@@ -34,7 +34,8 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    chain_monitor::{BlockUpdate, ChainMonitorService},
+    block_processor::BlockUpdate,
+    chain_monitor::ChainMonitor,
     db::{DbError, DbObj},
     errors::{impl_coded_debug, CodedError},
     task::{RetryRes, RetryTask, SupervisorErr},
@@ -73,7 +74,7 @@ pub struct MarketMonitor<P, ANP> {
     market_addr: Address,
     provider: Arc<P>,
     db: DbObj,
-    chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+    chain_monitor: Arc<ChainMonitor<P, ANP>>,
     prover_addr: Address,
     new_order_tx: mpsc::Sender<Box<OrderRequest>>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
@@ -94,7 +95,7 @@ const ERC1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
 impl<P, ANP> MarketMonitor<P, ANP>
 where
     P: Provider<Ethereum> + 'static + Clone,
-    ANP: Provider<AnyNetwork> + 'static + Clone,
+    ANP: Provider<alloy::network::AnyNetwork> + 'static + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -102,7 +103,7 @@ where
         market_addr: Address,
         provider: Arc<P>,
         db: DbObj,
-        chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+        chain_monitor: Arc<ChainMonitor<P, ANP>>,
         prover_addr: Address,
         new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
@@ -149,7 +150,7 @@ where
         lookback_blocks: u64,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P, ANP>>,
+        chain_monitor: Arc<ChainMonitor<P, ANP>>,
         new_order_tx: &mpsc::Sender<Box<OrderRequest>>,
     ) -> Result<u64, MarketMonitorErr> {
         let current_block = chain_monitor.current_block_number();
@@ -450,7 +451,7 @@ where
 impl<P, ANP> RetryTask for MarketMonitor<P, ANP>
 where
     P: Provider<Ethereum> + 'static + Clone,
-    ANP: Provider<AnyNetwork> + 'static + Clone,
+    ANP: Provider<alloy::network::AnyNetwork> + 'static + Clone,
 {
     type Error = MarketMonitorErr;
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
@@ -514,6 +515,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chain_monitor::ChainMonitor;
     use crate::{db::SqliteDb, now_timestamp};
     use alloy::{
         network::{AnyNetwork, EthereumWallet},
@@ -539,25 +541,20 @@ mod tests {
     };
     use risc0_zkvm::sha::Digest;
 
-    async fn make_chain_monitor_and_market_monitor<P: Provider<Ethereum> + 'static + Clone>(
+    async fn make_chain_monitor_and_market_monitor<
+        P: Provider<Ethereum> + 'static + Clone,
+        ANP: Provider<AnyNetwork> + 'static + Clone,
+    >(
         provider: Arc<P>,
-        endpoint: &str,
+        any_provider: Arc<ANP>,
         market_address: Address,
     ) -> (
-        Arc<ChainMonitorService<P, impl Provider<AnyNetwork> + Clone + 'static>>,
-        MarketMonitor<P, impl Provider<AnyNetwork> + Clone + 'static>,
+        Arc<ChainMonitor<P, ANP>>,
+        MarketMonitor<P, ANP>,
         mpsc::Receiver<Box<OrderRequest>>,
         broadcast::Sender<OrderStateChange>,
     ) {
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let any_provider = Arc::new(
-            ProviderBuilder::new()
-                .disable_recommended_fillers()
-                .network::<AnyNetwork>()
-                .connect(endpoint)
-                .await
-                .unwrap(),
-        );
 
         let event_signatures = vec![
             IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH,
@@ -565,20 +562,18 @@ mod tests {
             IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
         ];
 
-        let (block_update_tx, block_update_rx) = mpsc::channel(64);
-        let chain_monitor = Arc::new(
-            ChainMonitorService::new(
-                provider.clone(),
-                any_provider,
-                gas_priority_mode,
-                market_address,
-                event_signatures,
-                block_update_tx,
-                20,
-            )
-            .await
-            .unwrap(),
-        );
+        let (chain_monitor, block_update_rx) = ChainMonitor::new(
+            provider.clone(),
+            any_provider,
+            gas_priority_mode,
+            market_address,
+            event_signatures,
+            20,
+            64,
+        )
+        .await
+        .unwrap();
+        let chain_monitor = Arc::new(chain_monitor);
 
         let (order_tx, order_rx) = mpsc::channel(16);
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
@@ -659,21 +654,18 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let (block_update_tx, block_update_rx) = mpsc::channel(64);
-        let chain_monitor = Arc::new(
-            ChainMonitorService::new(
-                provider.clone(),
-                any_provider,
-                gas_priority_mode,
-                market_address,
-                vec![IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH],
-                block_update_tx,
-                20,
-            )
-            .await
-            .unwrap(),
-        );
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+        let (chain_monitor, _block_update_rx) = ChainMonitor::new(
+            provider.clone(),
+            any_provider,
+            gas_priority_mode,
+            market_address,
+            vec![IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH],
+            20,
+            64,
+        )
+        .await
+        .unwrap();
+        let chain_monitor = Arc::new(chain_monitor);
 
         let (order_tx, mut order_rx) = mpsc::channel(16);
         let orders = MarketMonitor::<_, _>::find_open_orders(
@@ -687,7 +679,6 @@ mod tests {
         .unwrap();
         assert_eq!(orders, 1);
 
-        let _ = block_update_rx; // keep alive
         order_rx.try_recv().unwrap();
         assert!(order_rx.try_recv().is_err());
     }
@@ -704,16 +695,20 @@ mod tests {
                 .unwrap(),
         );
 
+        let any_provider = Arc::new(
+            ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .network::<AnyNetwork>()
+                .connect(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+
         provider.anvil_mine(Some(10), Some(2)).await.unwrap();
 
-        let (chain_monitor, market_monitor, _order_rx, _order_state_tx) =
-            make_chain_monitor_and_market_monitor(
-                provider.clone(),
-                &anvil.endpoint(),
-                Address::ZERO,
-            )
-            .await;
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+        let (_chain_monitor, market_monitor, _order_rx, _order_state_tx) =
+            make_chain_monitor_and_market_monitor(provider.clone(), any_provider, Address::ZERO)
+                .await;
 
         let block_time = market_monitor.get_block_time().await.unwrap();
         assert_eq!(block_time, 2);
