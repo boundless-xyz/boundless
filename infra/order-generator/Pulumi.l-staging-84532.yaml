@@ -50,11 +50,13 @@ config:
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-base:ETH_RPC_URL:
     secure: v1:7O6m336P0g3ziaFC:CTmzggzb9qhX5GPZsSc8HfIoYW0Ef07gVMvI2xh3Udnz/z7b4LRezN8oLRg1IP01VakRSuXV2FC+TaFyxMLumMqaYL9Fe3EcUbyag4fGU/+U8GpjJfaMvAqiombg/xjREqL9LFJKANB1qTo+2CoQMw==
-  order-generator-random-requestor:PRIVATE_KEY:
-    secure: v1:613J8wSpSQteAYHw:l8qQcM5kByXDvi0arJJJ/5QkrSPxlk2HoSdBtnGF0gMyjgb9iM4fydeMT0DfX/58e3fNQae8ka0je2YUOk0fp29nhgn5lTS1jp2F+b36N1s=
   order-generator-random-requestor:INPUT_MAX_MCYCLES: "100"
   order-generator-random-requestor:SCHEDULE_EXPRESSION: "rate(2 hours)"
   order-generator-random-requestor:COUNT: "1"
+  order-generator-random-requestor:DERIVE_ROTATION_KEYS: "100"
+  order-generator-random-requestor:MNEMONIC:
+    secure: v1:sQ7JPHEbXpQyNrII:6lC2GprsM+YdReKb6h2QL+JJRFsb4p7TnmJoA3Xe3zmRecWUOEGHlgUGfLH2h2VHp0aYNqiEFzaX+Nv/spw4PltLweYKBoj2ERBpiNgR9TbJgE0fh2TKMtTd6UA7bj9plFc=
+  order-generator-random-requestor:ADDRESS_ROTATION_INTERVAL: "7200"
   order-generator-base:INDEXER_URL:
     secure: v1:AyqlqSdgcfvvLoyp:hkoHj+aUun30/mxi/XSI87aSznhLR2FVtZdRuJb0Y29u0j6FpzdCIeZsM+V4O9wItUX9Qro=
   order-generator-evm-requestor:AUTO_DEPOSIT: "0.015"
@@ -68,7 +70,9 @@ config:
   order-generator-evm-requestor:SECONDS_PER_MCYCLE: "7"
   order-generator-evm-requestor:TIMEOUT: "1800"
   order-generator-evm-requestor:WARN_BALANCE_BELOW: "0.01"
-  order-generator-evm-requestor:PRIVATE_KEY:
-    secure: v1:sdES+zehOwgvl1Bg:Ot5ghjSgZev6GKdx7K9eGsqsrBtPf9UHDuBz0lDU9d9k2I6wfjHFZs1+HFkiXqRVmQLLrabbuurHpVHL9VqFOlvugWMXm0Bxjtk6a0W/3Kn8RA==
+  order-generator-evm-requestor:DERIVE_ROTATION_KEYS: "100"
+  order-generator-evm-requestor:MNEMONIC:
+    secure: v1:4DWXstLsCXpLtoTn:1eoBK/iGfh408TFhSr1d9r8rg5xbuixb6k8HV9XHHenGm5cxpYGVL/uvJFTcR2b3NUbGHz6lpmD8iOzSRo5R9MpDnVyq1dj4xzoOw2dtI6FBlWMRbOfQy+18
+  order-generator-evm-requestor:ADDRESS_ROTATION_INTERVAL: "3600"
   order-generator-load-test:PRIVATE_KEY:
     secure: v1:ChVQWU0t9kskqHTT:nZ6oAyNMjW29fa1wYrJSGbOXAF0+SL3r7OEdvFO3Cpa2IIzBi/sWVWgGzmV09OnbqHz4ChZMWugYunv4oz9M0tJPG7MxsVYSZcygyCV4CqQ=

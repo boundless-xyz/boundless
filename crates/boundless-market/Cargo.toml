@@ -74,7 +74,7 @@ httpmock = { workspace = true, optional = true }
 hyper-util = { version = "0.1", optional = true, features = ["server-auto", "tokio"] }
 moka = { version = "0.12.12", features = ["future"] }
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["json", "multipart", "stream", "rustls"] }
+reqwest = { workspace = true, features = ["json", "multipart", "query", "stream", "rustls"] }
 reqwest-middleware = "0.5"
 reqwest-retry = "0.9"
 risc0-aggregation = { workspace = true }

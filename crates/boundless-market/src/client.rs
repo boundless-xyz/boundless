@@ -15,10 +15,11 @@
 use std::{cmp::max, future::Future, str::FromStr, sync::Arc, time::Duration};
 
 use alloy::{
-    network::{Ethereum, EthereumWallet, TxSigner},
+    network::{Ethereum, EthereumWallet, TransactionBuilder, TxSigner},
     primitives::{Address, Bytes, U256},
     providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
     rpc::client::RpcClient,
+    rpc::types::TransactionRequest,
     signers::{
         local::{LocalSignerError, PrivateKeySigner},
         Signer,
@@ -1002,6 +1003,24 @@ where
     /// Get the provider
     pub fn provider(&self) -> P {
         self.boundless_market.instance().provider().clone()
+    }
+
+    /// Send ETH from the client's address to the given address.
+    ///
+    /// Uses the provider's wallet/signer to sign the transaction.
+    pub async fn transfer_value(&self, to: Address, value: U256) -> Result<(), ClientError> {
+        let tx = TransactionRequest::default().with_to(to).with_value(value);
+        let pending = self
+            .provider()
+            .send_transaction(tx)
+            .await
+            .with_context(|| "failed to send transfer transaction")?;
+        pending
+            .with_timeout(Some(self.boundless_market.timeout()))
+            .watch()
+            .await
+            .with_context(|| "failed to confirm transfer transaction")?;
+        Ok(())
     }
 
     /// Get the caller address
