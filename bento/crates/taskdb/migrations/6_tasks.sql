@@ -25,7 +25,7 @@ BEGIN
       WHERE tasks.stream_id = stream
         AND tasks.state = 'ready'
       ORDER BY
-        (SELECT MIN(t2.created_at) FROM tasks t2 WHERE t2.job_id = tasks.job_id AND t2.state = 'ready'),
+        (SELECT MIN(t2.created_at) FROM tasks t2 WHERE t2.job_id = tasks.job_id),
         created_at ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
