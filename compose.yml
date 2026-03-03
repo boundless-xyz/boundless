@@ -300,7 +300,6 @@ services:
               capabilities: [gpu]
 
   rest_api:
-    image: ${REST_API_IMAGE:-bento-rest-api:local}
     build:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
