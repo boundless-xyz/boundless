@@ -2,6 +2,7 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFCa/zNCXXInx7bopVPzKZHAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMPbyPph6KlRSzW5D/AgEQgDvuPDJbrdmF5c2X+KogM8uJYOZjjWElwNtZALLdBeQr3ex9ihno0SfoIAi5O6k6VpDsmGLM9W7tZ/FLGA==
 config:
   slasher:BASE_STACK: organization/bootstrap/services-prod
+  slasher:IMAGE_BUILDER_STACK: organization/image-builder/l-slasher-images
   slasher:BOUNDLESS_MARKET_ADDR: 0xc211b581cb62e3a6d396a592bab34979e1bbba7d
   slasher:CHAIN_ID: "11155111"
   slasher:DOCKER_DIR: ../../
