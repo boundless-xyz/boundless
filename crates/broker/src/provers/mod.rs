@@ -37,18 +37,16 @@ pub(crate) async fn risc0_encode_compressed_seal(
     prover: &impl Prover,
     proof_id: &str,
 ) -> Result<Vec<u8>, ProverError> {
-    let receipt_bytes = prover
-        .get_compressed_receipt(proof_id)
-        .await?
-        .ok_or_else(|| ProverError::NotFound(format!("Compressed receipt not found: {proof_id}")))?;
+    let receipt_bytes = prover.get_compressed_receipt(proof_id).await?.ok_or_else(|| {
+        ProverError::NotFound(format!("Compressed receipt not found: {proof_id}"))
+    })?;
 
     let receipt: risc0_zkvm::Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
         ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
     })?;
 
-    risc0_ethereum_contracts::encode_seal(&receipt).map_err(|e| {
-        ProverError::ProverInternalError(format!("Failed to encode seal: {e}"))
-    })
+    risc0_ethereum_contracts::encode_seal(&receipt)
+        .map_err(|e| ProverError::ProverInternalError(format!("Failed to encode seal: {e}")))
 }
 
 /// Fetch a compressed receipt from a [`Prover`], deserialize as a standard
@@ -57,10 +55,9 @@ pub(crate) async fn risc0_verify_compressed_receipt(
     prover: &impl Prover,
     proof_id: &str,
 ) -> Result<(), ProverError> {
-    let receipt_bytes = prover
-        .get_compressed_receipt(proof_id)
-        .await?
-        .ok_or_else(|| ProverError::NotFound(format!("Compressed receipt not found: {proof_id}")))?;
+    let receipt_bytes = prover.get_compressed_receipt(proof_id).await?.ok_or_else(|| {
+        ProverError::NotFound(format!("Compressed receipt not found: {proof_id}"))
+    })?;
 
     let receipt: risc0_zkvm::Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
         ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))

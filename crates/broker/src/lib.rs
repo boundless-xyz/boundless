@@ -861,8 +861,7 @@ where
             let new_bonsai =
                 |key: &str| provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), key);
             let standard = Arc::new(
-                new_bonsai("v1:reserved:1000")
-                    .context("Failed to initialize Bento client")?,
+                new_bonsai("v1:reserved:1000").context("Failed to initialize Bento client")?,
             );
             let high_priority = Arc::new(
                 new_bonsai("v1:reserved:2000")

@@ -569,8 +569,7 @@ impl OrderFulfiller {
             let proof_type = self.supported_selectors.proof_type(req.requirements.selector);
             let order_seal = match proof_type {
                 Some(pt @ (ProofType::Groth16 | ProofType::Blake3Groth16)) => {
-                    let compress_prover =
-                        self.registry.get(pt, ProverPriority::Standard);
+                    let compress_prover = self.registry.get(pt, ProverPriority::Standard);
                     let compressed_proof_id = compress_prover
                         .compress(&proof_ids[i])
                         .await

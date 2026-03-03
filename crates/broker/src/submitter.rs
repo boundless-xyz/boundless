@@ -27,8 +27,8 @@ use anyhow::{anyhow, Context, Result};
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
-        AssessorJournal, AssessorReceipt, Fulfillment,
-        FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
+        AssessorJournal, AssessorReceipt, Fulfillment, FulfillmentDataImageIdAndJournal,
+        FulfillmentDataType, PredicateType,
     },
     selector::{selector_proof_type, ProofType},
 };
@@ -219,9 +219,7 @@ where
         }
 
         // Collect the needed parts for the new merkle root:
-        let batch_seal = self
-            .fetch_encode_compressed(ProofType::Groth16, groth16_proof_id)
-            .await?;
+        let batch_seal = self.fetch_encode_compressed(ProofType::Groth16, groth16_proof_id).await?;
         let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
@@ -299,11 +297,9 @@ where
                 let order_claim =
                     ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
                 let order_claim_digest = order_claim.digest();
-                let proof_type =
-                    selector_proof_type(order_request.requirements.selector);
-                let seal = if let Some(
-                    pt @ (ProofType::Groth16 | ProofType::Blake3Groth16),
-                ) = proof_type
+                let proof_type = selector_proof_type(order_request.requirements.selector);
+                let seal = if let Some(pt @ (ProofType::Groth16 | ProofType::Blake3Groth16)) =
+                    proof_type
                 {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(

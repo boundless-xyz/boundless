@@ -2428,10 +2428,7 @@ pub(crate) mod tests {
             self.default_prover.get_compressed_receipt(proof_id).await
         }
 
-        async fn encode_compressed_seal(
-            &self,
-            proof_id: &str,
-        ) -> Result<Vec<u8>, ProverError> {
+        async fn encode_compressed_seal(&self, proof_id: &str) -> Result<Vec<u8>, ProverError> {
             self.default_prover.encode_compressed_seal(proof_id).await
         }
 
