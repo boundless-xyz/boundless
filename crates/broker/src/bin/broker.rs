@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use alloy::{
+    network::AnyNetwork,
     primitives::utils::parse_ether,
     providers::{fillers::ChainIdFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
@@ -77,31 +80,35 @@ async fn main() -> Result<()> {
     );
 
     // Build RPC client with fallback support if multiple URLs are provided
-    let client = if all_rpc_urls.len() > 1 {
-        // Multiple URLs - use fallback transport
-        let transports: Vec<Http<_>> =
-            all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
-
-        let active_count =
-            std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
-        let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
-
-        tracing::info!(
-            "Configuring broker with fallback RPC support: {} URLs: {:?}",
-            all_rpc_urls.len(),
-            all_rpc_urls
-        );
-
-        let transport =
-            ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
-
-        RpcClient::builder().transport(transport, false)
-    } else {
+    // let client = if all_rpc_urls.len() > 1 {
+    //     // Multiple URLs - use fallback transport
+    //     let transports: Vec<Http<_>> =
+    //         all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
+    //
+    //     let active_count =
+    //         std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
+    //     let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
+    //
+    //     tracing::info!(
+    //         "Configuring broker with fallback RPC support: {} URLs: {:?}",
+    //         all_rpc_urls.len(),
+    //         all_rpc_urls
+    //     );
+    //
+    //     let transport =
+    //         ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
+    //
+    //     RpcClient::builder().transport(transport, false)
+    // } else {
         // Single URL - use regular provider
         let single_url = &all_rpc_urls[0];
         tracing::info!("Configuring broker with single RPC URL: {}", single_url);
-        RpcClient::builder().layer(retry_layer).http(single_url.clone())
-    };
+
+        let metrics_layer = broker::rpcmetrics::RpcMetricsLayer::new();
+        let stats = metrics_layer.stats();
+
+        let client = RpcClient::builder().layer(retry_layer).layer(metrics_layer).http(single_url.clone());
+    // };
 
     // Read config for balance alerts (scope the guard so we can move config_watcher later)
     let balance_alerts_config = {
@@ -137,6 +144,16 @@ async fn main() -> Result<()> {
     // Clone the priority_mode Arc so we can pass it to the broker for runtime updates
     let gas_priority_mode = dynamic_gas_filler.priority_mode.clone();
 
+    // Create an AnyNetwork provider for eth_getBlockReceipts (required for OP Stack receipt compat).
+    // Uses the primary RPC URL directly; retry handled by the retry layer applied to the main client.
+    let any_network_provider = Arc::new(
+        ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .network::<AnyNetwork>()
+            .connect_http(all_rpc_urls[0].clone()),
+    );
+
     let base_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .filler(ChainIdFiller::default())
@@ -145,8 +162,14 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker =
-        Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
+    let broker = Broker::new(
+        args.clone(),
+        provider.clone(),
+        any_network_provider,
+        config_watcher,
+        gas_priority_mode,
+    )
+    .await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if !args.listen_only {
@@ -167,6 +190,8 @@ async fn main() -> Result<()> {
 
     // Await broker shutdown before returning from main
     broker.start_service().await.context("Broker service failed")?;
+
+    stats.summary();
 
     Ok(())
 }
