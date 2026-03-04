@@ -4008,8 +4008,9 @@ impl MarketDb {
         .fetch_one(&self.pool)
         .await?;
 
-        let value = U256::from_str_radix(&net_collateral, 10)
-            .map_err(|e| DbError::Error(anyhow::anyhow!("Failed to parse collateral U256: {}", e)))?;
+        let value = U256::from_str_radix(&net_collateral, 10).map_err(|e| {
+            DbError::Error(anyhow::anyhow!("Failed to parse collateral U256: {}", e))
+        })?;
         Ok(value)
     }
 

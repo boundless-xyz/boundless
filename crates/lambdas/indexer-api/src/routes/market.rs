@@ -2351,10 +2351,7 @@ async fn get_prover_cumulatives_impl(
         })
         .collect();
 
-    let market_collateral = state
-        .market_db
-        .get_prover_market_collateral(prover_address)
-        .await?;
+    let market_collateral = state.market_db.get_prover_market_collateral(prover_address).await?;
     let market_collateral_str = market_collateral.to_string();
 
     Ok(ProverCumulativesResponse {
