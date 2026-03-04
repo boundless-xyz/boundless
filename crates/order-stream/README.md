@@ -2,7 +2,7 @@
 
 ## Telemetry
 
-The order stream exposes two telemetry endpoints that brokers use to report operational metrics. Payloads are authenticated with EIP-191 signatures and forwarded to AWS Kinesis Data Streams, which feed into Redshift Serverless for long-term storage and analytics.
+The order stream exposes two telemetry endpoints that brokers use to report operational metrics. Payloads are authenticated with EIP-191 signatures and can be forwarded to a data store of users choosing. (the repo provides an implementation for forwarding to AWS Kinesis Data Streams).
 
 ### `POST /api/v2/heartbeats`
 
@@ -24,7 +24,7 @@ Both endpoints require an `X-Signature` header containing a hex-encoded EIP-191 
 
 An end-to-end integration test lives at `tests/telemetry.rs`. It sends telemetry to a live order-stream deployment on AWS, then polls Redshift to verify the data arrived.
 
-The test is skipped automatically as it is intended to test the AWS specific funtionality of the crate, and thus requires AWS credentials. It is only intended for manually running to verify the Kinesis -> Redshift integration logic.
+The test is skipped automatically as it is intended to test the AWS specific funtionality of the crate, and thus requires AWS credentials. It is only intended for manually running to verify the Order Stream -> AWS Kinesis logic.
 
 ### Required Environment Variables
 
@@ -38,6 +38,7 @@ The test is skipped automatically as it is intended to test the AWS specific fun
 
 ### Running
 
+E.g:
 ```bash
 export ORDER_STREAM_URL="https://order-stream-dev.example.com"
 export PRIVATE_KEY="0xabc..."

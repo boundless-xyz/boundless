@@ -45,8 +45,6 @@ pub(crate) fn new_balance_cache() -> BalanceCache {
 }
 
 // TelemetryForwarder trait + implementations
-
-/// Abstraction over the telemetry forwarding backend (Kinesis in prod).
 #[async_trait::async_trait]
 pub(crate) trait TelemetryForwarder: Send + Sync {
     /// Forward a single heartbeat payload.
@@ -184,8 +182,6 @@ impl TelemetryForwarder for NoopForwarder {
     }
 }
 
-// Auth helpers
-
 /// Recover the signer address from an EIP-191 personal_sign signature over the raw body bytes.
 fn recover_signer(body: &[u8], sig_hex: &str) -> Result<Address, AppError> {
     let sig_bytes = hex::decode(sig_hex.strip_prefix("0x").unwrap_or(sig_hex))
@@ -259,8 +255,6 @@ async fn verify_heartbeat_auth(
 
     Ok(())
 }
-
-// Handlers
 
 /// POST /api/v2/heartbeats
 ///
