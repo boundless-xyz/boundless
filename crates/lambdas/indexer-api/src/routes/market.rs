@@ -1071,6 +1071,8 @@ pub struct ProverCumulativeEntry {
 pub struct ProverCumulativesResponse {
     pub chain_id: u64,
     pub prover_address: String,
+    pub market_collateral: String,
+    pub market_collateral_formatted: String,
     pub data: Vec<ProverCumulativeEntry>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
@@ -2349,9 +2351,17 @@ async fn get_prover_cumulatives_impl(
         })
         .collect();
 
+    let market_collateral = state
+        .market_db
+        .get_prover_market_collateral(prover_address)
+        .await?;
+    let market_collateral_str = market_collateral.to_string();
+
     Ok(ProverCumulativesResponse {
         chain_id: state.chain_id,
         prover_address: format!("{:#x}", prover_address),
+        market_collateral: market_collateral_str.clone(),
+        market_collateral_formatted: format_zkc(&market_collateral_str),
         data,
         next_cursor,
         has_more,

@@ -3990,6 +3990,29 @@ impl IndexerDb for MarketDb {
 }
 
 impl MarketDb {
+    pub async fn get_prover_market_collateral(
+        &self,
+        prover_address: Address,
+    ) -> Result<U256, DbError> {
+        let account = format!("{prover_address:x}");
+        let net_collateral: String = sqlx::query_scalar(
+            "SELECT CAST(GREATEST(
+                COALESCE((SELECT SUM(CAST(value AS NUMERIC)) FROM collateral_deposit_events WHERE account = $1), 0) -
+                COALESCE((SELECT SUM(CAST(value AS NUMERIC)) FROM collateral_withdrawal_events WHERE account = $1), 0) -
+                COALESCE((SELECT SUM(CAST(slash_burned_amount AS NUMERIC) + CAST(slash_transferred_amount AS NUMERIC)) FROM request_status WHERE lock_prover_address = $1 AND slashed_at IS NOT NULL), 0) -
+                COALESCE((SELECT SUM(CAST(lock_collateral AS NUMERIC)) FROM request_status WHERE lock_prover_address = $1 AND request_status = 'locked' AND slashed_at IS NULL), 0),
+                0
+            ) AS TEXT) as net_collateral",
+        )
+        .bind(&account)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let value = U256::from_str_radix(&net_collateral, 10)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Failed to parse collateral U256: {}", e)))?;
+        Ok(value)
+    }
+
     // Generic helper for upserting market summaries to avoid code duplication
     async fn upsert_market_summary_generic(
         &self,
@@ -7257,5 +7280,68 @@ mod tests {
         // Test with empty array
         let empty_results = db.get_request_params_for_execution(&[]).await.unwrap();
         assert!(empty_results.is_empty());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_market_collateral(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+        let market_db = MarketDb { pool: test_db.pool.clone() };
+        let prover = Address::repeat_byte(0xAA);
+
+        // No events — zero
+        assert_eq!(market_db.get_prover_market_collateral(prover).await.unwrap(), U256::ZERO);
+
+        // Deposit 1000
+        let meta1 = TxMetadata::new(B256::repeat_byte(0x01), Address::ZERO, 100, 1000, 0);
+        db.add_collateral_deposit_events(&[(prover, U256::from(1000), meta1)]).await.unwrap();
+        assert_eq!(market_db.get_prover_market_collateral(prover).await.unwrap(), U256::from(1000));
+
+        // Withdraw 300 → 700
+        let meta2 = TxMetadata::new(B256::repeat_byte(0x02), Address::ZERO, 101, 1001, 0);
+        db.add_collateral_withdrawal_events(&[(prover, U256::from(300), meta2)]).await.unwrap();
+        assert_eq!(market_db.get_prover_market_collateral(prover).await.unwrap(), U256::from(700));
+
+        // Lock 200 → 500
+        let mut locked = create_test_status(B256::repeat_byte(0x10), RequestStatusType::Locked);
+        locked.lock_prover_address = Some(prover);
+        locked.locked_at = Some(1000);
+        locked.lock_collateral = "200".to_string();
+        locked.request_id = U256::from(1);
+        db.upsert_request_statuses(&[locked]).await.unwrap();
+        assert_eq!(market_db.get_prover_market_collateral(prover).await.unwrap(), U256::from(500));
+
+        // Slash 100 (50 burned + 50 transferred) → 400
+        let mut slashed = create_test_status(B256::repeat_byte(0x20), RequestStatusType::Locked);
+        slashed.lock_prover_address = Some(prover);
+        slashed.locked_at = Some(1000);
+        slashed.slashed_at = Some(1500);
+        slashed.slashed_status = SlashedStatus::Slashed;
+        slashed.lock_collateral = "100".to_string();
+        slashed.slash_burned_amount = Some("50".to_string());
+        slashed.slash_transferred_amount = Some("50".to_string());
+        slashed.request_id = U256::from(2);
+        db.upsert_request_statuses(&[slashed]).await.unwrap();
+        assert_eq!(market_db.get_prover_market_collateral(prover).await.unwrap(), U256::from(400));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_market_collateral_clamps_to_zero(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+        let market_db = MarketDb { pool: test_db.pool.clone() };
+        let prover = Address::repeat_byte(0xAA);
+
+        let meta1 = TxMetadata::new(B256::repeat_byte(0x01), Address::ZERO, 100, 1000, 0);
+        db.add_collateral_deposit_events(&[(prover, U256::from(100), meta1)]).await.unwrap();
+
+        let mut locked = create_test_status(B256::repeat_byte(0x10), RequestStatusType::Locked);
+        locked.lock_prover_address = Some(prover);
+        locked.locked_at = Some(1000);
+        locked.lock_collateral = "500".to_string();
+        locked.request_id = U256::from(1);
+        db.upsert_request_statuses(&[locked]).await.unwrap();
+
+        assert_eq!(market_db.get_prover_market_collateral(prover).await.unwrap(), U256::ZERO);
     }
 }
