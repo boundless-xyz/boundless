@@ -35,6 +35,41 @@ Installs [Kailua](https://github.com/boundless-xyz/kailua) from a GitHub release
 | `kailua_order_stream_url`      | `""`                                | Exported as `BOUNDLESS_ORDER_STREAM_URL`.     |
 | `kailua_env`                   | (see defaults)                      | Extra env for the process.                    |
 
+### `kailua_env` defaults
+
+The `kailua_env` dict is exported as environment variables by the launcher. Defaults match a
+production Kailua prover configuration. Override individual keys in inventory/host\_vars.
+
+| Key                                    | Default            | Description                                         |
+| -------------------------------------- | ------------------ | --------------------------------------------------- |
+| `NUM_CONCURRENT_PROVERS`               | `4`                | Prover instances running in parallel.               |
+| `NUM_CONCURRENT_PREFLIGHTS`            | `4`                | Preflight data fetch threads.                       |
+| `NUM_CONCURRENT_PROOFS`                | `64`               | Max pending proofs on the market.                   |
+| `NUM_CONCURRENT_WITGENS`               | `10`               | Witness generation threads.                         |
+| `NUM_CONCURRENT_R0VM`                  | `10`               | RISC0 Executor instances in parallel.               |
+| `NTH_PROOF_TO_PROCESS`                 | `1`                | Process every Nth workload (1 = all).               |
+| `MAX_WITNESS_SIZE`                     | `47185920`         | Max input data per proof request (bytes, ~45 MB).   |
+| `MAX_BLOCK_DERIVATIONS`                | `180`              | Divide workload into tasks of N blocks.             |
+| `MAX_PROOF_STITCHES`                   | `10`               | Max SNARKs recursively verified during composition. |
+| `ENABLE_EXPERIMENTAL_WITNESS_ENDPOINT` | `true`             | Bulk witness fetch via `debug_executionWitness`.    |
+| `EXPORT_PROFILE_CSV`                   | `true`             | Emit profiling CSV.                                 |
+| `CLEAR_CACHE_DATA`                     | `true`             | Clean cache after proof creation.                   |
+| `BOUNDLESS_CYCLE_MAX_WEI`              | `60000`            | Max wei per cycle.                                  |
+| `BOUNDLESS_CYCLE_MIN_WEI`              | `15000`            | Min wei per cycle.                                  |
+| `BOUNDLESS_MEGA_CYCLE_COLLATERAL`      | `5000000000000000` | Collateral per mega-cycle (wei).                    |
+| `BOUNDLESS_ORDER_BID_DELAY_FACTOR`     | `0.5`              | Bid delay factor.                                   |
+| `BOUNDLESS_ORDER_RAMP_UP_FACTOR`       | `0.75`             | Ramp-up factor.                                     |
+| `BOUNDLESS_ORDER_LOCK_TIMEOUT_FACTOR`  | `1.75`             | Lock timeout factor.                                |
+| `BOUNDLESS_ORDER_EXPIRY_FACTOR`        | `1.0`              | Order expiry factor.                                |
+| `BOUNDLESS_ORDER_SUBMISSION_COOLDOWN`  | `1`                | Cooldown between order submissions (seconds).       |
+| `STORAGE_PROVIDER`                     | `s3`               | Storage backend (`s3`).                             |
+| `S3_BUCKET`                            | `""`               | S3/R2 bucket name. **Set in inventory.**            |
+| `AWS_REGION`                           | `""`               | AWS/R2 region. **Set in inventory.**                |
+| `R2_DOMAIN`                            | `""`               | R2 public domain. **Set in inventory.**             |
+| `S3_ACCESS_KEY`                        | `""`               | S3/R2 access key. **Set in inventory.**             |
+| `S3_SECRET_KEY`                        | `""`               | S3/R2 secret key. **Set in inventory.**             |
+| `S3_URL`                               | `""`               | S3/R2 endpoint URL. **Set in inventory.**           |
+
 ## Example
 
 ```yaml

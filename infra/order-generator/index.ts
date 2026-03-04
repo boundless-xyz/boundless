@@ -119,6 +119,7 @@ export = () => {
   } else {
     offchainPrivateKey = offchainConfig.requireSecret('PRIVATE_KEY');
   }
+  const offchainInputMinMCycles = offchainConfig.get('INPUT_MIN_MCYCLES');
   const offchainInputMaxMCycles = offchainConfig.get('INPUT_MAX_MCYCLES') ?? "1000";
   const offchainRampUp = offchainConfig.get('RAMP_UP');
   const offchainLockTimeout = offchainConfig.get('LOCK_TIMEOUT');
@@ -156,6 +157,7 @@ export = () => {
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
+      inputMinMCycles: offchainInputMinMCycles,
       inputMaxMCycles: offchainInputMaxMCycles,
       rampUp: offchainRampUp,
       rampUpSecondsPerMCycle: offchainRampUpSecondsPerMCycle,
@@ -179,6 +181,7 @@ export = () => {
   } else {
     onchainPrivateKey = onchainConfig.requireSecret('PRIVATE_KEY');
   }
+  const onchainInputMinMCycles = onchainConfig.get('INPUT_MIN_MCYCLES');
   const onchainInputMaxMCycles = onchainConfig.get('INPUT_MAX_MCYCLES');
   const onchainRampUp = onchainConfig.get('RAMP_UP');
   const onchainLockTimeout = onchainConfig.get('LOCK_TIMEOUT');
@@ -208,6 +211,7 @@ export = () => {
       interval: onchainInterval ?? interval,
       lockCollateralRaw,
       rampUp: onchainRampUp,
+      inputMinMCycles: onchainInputMinMCycles,
       inputMaxMCycles: onchainInputMaxMCycles,
       minPricePerMCycle,
       maxPricePerMCycle: onchainMaxPricePerMCycle,
@@ -242,6 +246,7 @@ export = () => {
     const randomRequestorAutoDeposit = randomRequestorConfig.get('AUTO_DEPOSIT');
     const randomRequestorWarnBalanceBelow = randomRequestorConfig.get('WARN_BALANCE_BELOW');
     const randomRequestorErrorBalanceBelow = randomRequestorConfig.get('ERROR_BALANCE_BELOW');
+    const randomRequestorInputMinMCycles = randomRequestorConfig.get('INPUT_MIN_MCYCLES');
     const randomRequestorInputMaxMCycles = randomRequestorConfig.get('INPUT_MAX_MCYCLES');
     const randomRequestorRampUp = randomRequestorConfig.get('RAMP_UP');
     const randomRequestorLockTimeout = randomRequestorConfig.get('LOCK_TIMEOUT');
@@ -269,6 +274,7 @@ export = () => {
       interval: randomRequestorInterval,
       lockCollateralRaw,
       rampUp: randomRequestorRampUp,
+      inputMinMCycles: randomRequestorInputMinMCycles,
       inputMaxMCycles: randomRequestorInputMaxMCycles,
       minPricePerMCycle,
       maxPricePerMCycle: randomRequestorMaxPricePerMCycle,
@@ -302,6 +308,7 @@ export = () => {
     evmRequestorPrivateKey = evmRequestorConfig.getSecret('PRIVATE_KEY');
   }
   const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
+  const evmRequestorInputMinMCycles = evmRequestorConfig.get('INPUT_MIN_MCYCLES');
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
   const evmRequestorRampUp = evmRequestorConfig.get('RAMP_UP');
   const evmRequestorLockTimeout = evmRequestorConfig.get('LOCK_TIMEOUT');
@@ -330,6 +337,7 @@ export = () => {
       interval: evmRequestorInterval ?? interval,
       lockCollateralRaw,
       rampUp: evmRequestorRampUp,
+      inputMinMCycles: evmRequestorInputMinMCycles,
       inputMaxMCycles: evmRequestorInputMaxMCycles,
       minPricePerMCycle,
       maxPricePerMCycle: evmRequestorMaxPricePerMCycle,
