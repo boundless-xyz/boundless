@@ -39,6 +39,7 @@ The test is skipped automatically as it is intended to test the AWS specific fun
 ### Running
 
 E.g:
+
 ```bash
 export ORDER_STREAM_URL="https://order-stream-dev.example.com"
 export PRIVATE_KEY="0xabc..."

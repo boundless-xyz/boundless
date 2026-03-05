@@ -12,7 +12,7 @@ Broker --> Order Stream --> Kinesis Data Streams --> Redshift Materialized Views
                                                     request_completions)
 ```
 
-Three separate Kinesis streams are provisioned (heartbeats, evaluations, completions), each mapped to a raw materialized view in Redshift that stores the full JSON payload as a `SUPER` column. 
+Three separate Kinesis streams are provisioned (heartbeats, evaluations, completions), each mapped to a raw materialized view in Redshift that stores the full JSON payload as a `SUPER` column.
 
 Typed SQL views are then created from the materialized views, that extract and cast individual fields.
 
