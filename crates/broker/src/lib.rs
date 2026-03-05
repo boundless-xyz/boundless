@@ -780,7 +780,20 @@ where
             .args
             .experimental_rpc
         {
-            let l1_monitor = Arc::new(l1_monitor::L1Monitor::new());
+            let l1_monitor = Arc::new(
+                l1_monitor::L1Monitor::new(
+                    self.db.clone(),
+                    self.provider.clone(),
+                    self.deployment().boundless_market_address,
+                    self.args.private_key.as_ref().expect("Private key must be set").address(),
+                    lookback_blocks,
+                    chain_id,
+                    new_order_tx.clone(),
+                    order_state_tx.clone(),
+                )
+                .await
+                .context("Failed to initialize L1Monitor")?,
+            );
 
             let cloned = l1_monitor.clone();
             let cloned_config = config.clone();
@@ -793,11 +806,7 @@ where
                 Ok(())
             });
 
-            let block_times = l1_monitor
-                .get_block_time()
-                .await
-                .context("Failed to sample block times from L1Monitor")?;
-
+            let block_times = l1_monitor.block_time();
             (l1_monitor as chain_monitor::ChainMonitorObj, block_times)
         } else {
             let chain_monitor_service = Arc::new(
