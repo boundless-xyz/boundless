@@ -98,5 +98,5 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<Cle
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(CleanupKeys::many(vec![left_path_key, right_path_key]))
+    Ok(CleanupKeys(vec![left_path_key, right_path_key]))
 }

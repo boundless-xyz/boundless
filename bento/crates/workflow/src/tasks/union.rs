@@ -69,5 +69,5 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<C
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(CleanupKeys::many(vec![left_receipt_key, right_receipt_key]))
+    Ok(CleanupKeys(vec![left_receipt_key, right_receipt_key]))
 }

@@ -43,10 +43,6 @@ impl CleanupKeys {
     pub(crate) fn one(key: String) -> Self {
         Self(vec![key])
     }
-
-    pub(crate) fn many(keys: Vec<String>) -> Self {
-        Self(keys)
-    }
 }
 
 /// Reads the [`IMAGE_ID_FILE`] and returns a [Digest]
