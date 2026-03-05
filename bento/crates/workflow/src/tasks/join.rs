@@ -6,7 +6,7 @@
 use crate::{
     Agent,
     redis::{self, AsyncCommands},
-    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{CleanupKeys, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt};
@@ -15,7 +15,7 @@ use uuid::Uuid;
 use workflow_common::{JoinReq, metrics::helpers};
 
 /// Run the join operation
-pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()> {
+pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<CleanupKeys> {
     let start_time = Instant::now();
     let mut conn = agent.redis_pool.get().await?;
     // Build the redis keys for the right and left joins
@@ -90,17 +90,6 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
 
     tracing::debug!("Join Complete {job_id} - {}", request.left);
 
-    // Clean up intermediate receipts
-    let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&[&left_path_key, &right_path_key]).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation(
-        "unlink",
-        cleanup_status,
-        cleanup_start.elapsed().as_secs_f64(),
-    );
-    cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete join receipt keys"))?;
-
     // Record total task duration and success
     helpers::record_task_operation(
         "join",
@@ -109,5 +98,5 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(())
+    Ok(CleanupKeys::many(vec![left_path_key, right_path_key]))
 }

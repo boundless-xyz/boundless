@@ -6,7 +6,7 @@
 use crate::{
     Agent,
     redis::{self, AsyncCommands},
-    tasks::{deserialize_obj, serialize_obj},
+    tasks::{CleanupKeys, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use std::time::Instant;
@@ -14,7 +14,7 @@ use uuid::Uuid;
 use workflow_common::{KECCAK_RECEIPT_PATH, UnionReq, metrics::helpers};
 
 /// Run the union operation
-pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {
+pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<CleanupKeys> {
     let start_time = Instant::now();
     tracing::debug!("Starting union for job_id: {job_id}");
     let mut conn = agent.redis_pool.get().await?;
@@ -61,18 +61,6 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
         .context("[BENTO-UNION-007] Failed to set redis key for union receipt")?;
 
     tracing::debug!("Union complete {job_id} - {}", request.left);
-    // Clean up intermediate receipts
-    let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key]).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation(
-        "unlink",
-        cleanup_status,
-        cleanup_start.elapsed().as_secs_f64(),
-    );
-    cleanup_result
-        .map_err(|e| anyhow::anyhow!(e).context("Failed to delete union receipt keys"))?;
-
     // Record total task duration and success
     helpers::record_task_operation(
         "union",
@@ -81,5 +69,5 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(())
+    Ok(CleanupKeys::many(vec![left_receipt_key, right_receipt_key]))
 }

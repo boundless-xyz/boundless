@@ -5,8 +5,8 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
-    tasks::{COPROC_CB_PATH, serialize_obj},
+    redis,
+    tasks::{COPROC_CB_PATH, CleanupKeys, serialize_obj},
 };
 use anyhow::{Context, Result, anyhow, bail};
 use risc0_zkvm::ProveKeccakRequest;
@@ -31,7 +31,7 @@ pub async fn keccak(
     job_id: &Uuid,
     task_id: &str,
     request: &KeccakReq,
-) -> Result<()> {
+) -> Result<CleanupKeys> {
     let start_time = Instant::now();
     let mut conn = agent.redis_pool.get().await?;
     let keccak_input_path =
@@ -110,5 +110,5 @@ pub async fn keccak(
         "success",
         start_time.elapsed().as_secs_f64(),
     );
-    Ok(())
+    Ok(CleanupKeys::one(keccak_input_path))
 }

@@ -5,8 +5,8 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
-    tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
+    redis,
+    tasks::{CleanupKeys, RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
@@ -15,7 +15,7 @@ use uuid::Uuid;
 use workflow_common::{ProveReq, metrics::helpers};
 
 /// Run a prove request
-pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<()> {
+pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<CleanupKeys> {
     let start_time = Instant::now();
     let index = request.index;
     let mut conn = agent.redis_pool.get().await?;
@@ -112,17 +112,6 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
             .context("Failed to set receipt key with expiry")?;
     }
 
-    // Clean up segment
-    let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&segment_key).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation(
-        "unlink",
-        cleanup_status,
-        cleanup_start.elapsed().as_secs_f64(),
-    );
-    cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete segment key"))?;
-
     // Record total task duration and success
     helpers::record_task_operation(
         "prove",
@@ -131,5 +120,5 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(())
+    Ok(CleanupKeys::one(segment_key))
 }

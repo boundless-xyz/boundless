@@ -6,7 +6,7 @@
 use crate::{
     Agent,
     redis::{self, AsyncCommands},
-    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{CleanupKeys, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
@@ -15,7 +15,7 @@ use uuid::Uuid;
 use workflow_common::{JoinReq, metrics::helpers};
 
 /// Run a POVW join request
-pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()> {
+pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<CleanupKeys> {
     let start_time = Instant::now();
     let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
@@ -95,17 +95,6 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     .await
     .map_err(|e| anyhow::anyhow!("Failed to write joined POVW receipt to Redis: {e}"))?;
 
-    // Clean up intermediate POVW receipts
-    let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key]).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation(
-        "unlink",
-        cleanup_status,
-        cleanup_start.elapsed().as_secs_f64(),
-    );
-    cleanup_result.map_err(|e| anyhow::anyhow!("Failed to delete POVW join receipt keys: {e}"))?;
-
     // Record total task duration and success
     helpers::record_task_operation(
         "join_povw",
@@ -113,5 +102,5 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
         "success",
         start_time.elapsed().as_secs_f64(),
     );
-    Ok(())
+    Ok(CleanupKeys::many(vec![left_receipt_key, right_receipt_key]))
 }
