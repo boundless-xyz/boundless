@@ -12,21 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for market indexer
+mod service;
 
-// Common test utilities
-#[path = "market/common.rs"]
-mod common;
-
-// Test modules
-#[path = "market/basic.rs"]
-mod basic;
-
-#[path = "market/basic_backfill.rs"]
-mod basic_backfill;
-
-#[path = "market/execution.rs"]
-mod execution;
-
-#[path = "market/market_efficiency.rs"]
-mod market_efficiency;
+pub use service::{MarketEfficiencyService, MarketEfficiencyServiceConfig};
