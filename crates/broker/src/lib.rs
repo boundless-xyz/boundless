@@ -19,7 +19,7 @@ use std::{
 };
 
 use alloy::{
-    network::Ethereum,
+    network::{AnyNetwork, Ethereum},
     primitives::{Address, Bytes, FixedBytes, U256},
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
@@ -423,6 +423,7 @@ struct Batch {
 pub struct Broker<P> {
     args: Args,
     provider: Arc<P>,
+    any_provider: DynProvider<AnyNetwork>,
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
@@ -438,6 +439,7 @@ where
     pub async fn new(
         mut args: Args,
         provider: P,
+        any_provider: DynProvider<AnyNetwork>,
         config_watcher: ConfigWatcher,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
@@ -472,6 +474,7 @@ where
             args,
             db,
             provider: Arc::new(provider),
+            any_provider,
             config_watcher,
             priority_requestors,
             allow_requestors,
@@ -784,6 +787,7 @@ where
                 l1_monitor::L1Monitor::new(
                     self.db.clone(),
                     self.provider.clone(),
+                    Arc::new(self.any_provider.clone()),
                     self.deployment().boundless_market_address,
                     self.args.private_key.as_ref().expect("Private key must be set").address(),
                     lookback_blocks,
@@ -1272,8 +1276,10 @@ pub mod test_utils {
     use std::sync::Arc;
 
     use alloy::{
-        network::Ethereum,
-        providers::{Provider, WalletProvider},
+        network::{AnyNetwork, Ethereum},
+        providers::{
+            fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder, WalletProvider,
+        },
     };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
@@ -1342,10 +1348,23 @@ pub mod test_utils {
 
         pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+            let rpc_url = self
+                .args
+                .rpc_url
+                .as_deref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| "http://localhost:8545".parse().unwrap());
+            let any_provider = DynProvider::new(
+                ProviderBuilder::new()
+                    .network::<AnyNetwork>()
+                    .filler(ChainIdFiller::default())
+                    .connect_http(rpc_url),
+            );
             Ok((
                 Broker::new(
                     self.args,
                     self.provider,
+                    any_provider,
                     ConfigWatcher::new(self.config_file.path()).await?,
                     gas_priority_mode,
                 )

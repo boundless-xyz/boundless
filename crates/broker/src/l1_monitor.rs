@@ -40,10 +40,9 @@ use crate::{
 };
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
-    network::Ethereum,
+    network::{AnyNetwork, AnyTransactionReceipt, Ethereum},
     primitives::Address,
     providers::Provider,
-    rpc::types::TransactionReceipt,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -88,9 +87,10 @@ impl CodedError for L1MonitorErr {
 /// The chain-head atomics are updated on every tick and read synchronously by
 /// [`ChainMonitorApi`] callers (e.g. `OrderPicker`, `OrderMonitor`).
 #[derive(Clone)]
-pub(crate) struct L1Monitor<P> {
+pub(crate) struct L1Monitor<P, ANP> {
     db: DbObj,
     provider: Arc<P>,
+    any_provider: Arc<ANP>,
 
     market_addr: Address,
     prover_addr: Address,
@@ -107,14 +107,16 @@ pub(crate) struct L1Monitor<P> {
     head_block_timestamp: Arc<AtomicU64>,
 }
 
-impl<P> L1Monitor<P>
+impl<P, ANP> L1Monitor<P, ANP>
 where
     P: Provider<Ethereum> + Send + Sync + 'static,
+    ANP: Provider<AnyNetwork> + Send + Sync + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn new(
         db: DbObj,
         provider: Arc<P>,
+        any_provider: Arc<ANP>,
         market_addr: Address,
         prover_addr: Address,
         lookback_blocks: u64,
@@ -143,6 +145,7 @@ where
         Ok(Self {
             db,
             provider,
+            any_provider,
             market_addr,
             prover_addr,
             lookback_blocks,
@@ -209,7 +212,7 @@ where
                     for block_num in (last_processed + 1)..=latest_number {
                         let block_id = BlockId::Number(block_num.into());
                         let receipts = match self
-                            .provider
+                            .any_provider
                             .get_block_receipts(block_id)
                             .await
                         {
@@ -254,7 +257,7 @@ where
     /// Iterate all logs in `receipts`, filter by market address, decode and dispatch.
     async fn process_block_receipts(
         &self,
-        receipts: Vec<TransactionReceipt>,
+        receipts: Vec<AnyTransactionReceipt>,
         block_number: u64,
     ) -> Result<()> {
         let receipts_len = receipts.len();
@@ -337,7 +340,11 @@ where
 }
 
 #[async_trait]
-impl<P: Provider<Ethereum> + Send + Sync + 'static> ChainMonitorApi for L1Monitor<P> {
+impl<P, ANP> ChainMonitorApi for L1Monitor<P, ANP>
+where
+    P: Provider<Ethereum> + Send + Sync + 'static,
+    ANP: Provider<AnyNetwork> + Send + Sync + 'static,
+{
     async fn current_chain_head(&self) -> Result<ChainHead> {
         Ok(ChainHead {
             block_number: self.head_block_number.load(Ordering::Relaxed),
@@ -351,9 +358,10 @@ impl<P: Provider<Ethereum> + Send + Sync + 'static> ChainMonitorApi for L1Monito
     }
 }
 
-impl<P> RetryTask for L1Monitor<P>
+impl<P, ANP> RetryTask for L1Monitor<P, ANP>
 where
     P: Provider<Ethereum> + Send + Sync + Clone + 'static,
+    ANP: Provider<AnyNetwork> + Send + Sync + Clone + 'static,
 {
     type Error = L1MonitorErr;
 

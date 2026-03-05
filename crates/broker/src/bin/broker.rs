@@ -13,8 +13,12 @@
 // limitations under the License.
 
 use alloy::{
+    network::AnyNetwork,
     primitives::utils::parse_ether,
-    providers::{fillers::ChainIdFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
+    providers::{
+        fillers::ChainIdFiller, network::EthereumWallet, DynProvider, ProviderBuilder,
+        WalletProvider,
+    },
     rpc::client::RpcClient,
     transports::{
         http::Http,
@@ -145,8 +149,32 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker =
-        Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
+
+    // Build a separate AnyNetwork provider for get_block_receipts.
+    // Needed on OP Stack chains where deposit receipts don't fit the standard Ethereum type.
+    let any_rpc_client = RpcClient::builder()
+        .layer(RetryBackoffLayer::new_with_policy(
+            args.rpc_retry_max,
+            args.rpc_retry_backoff,
+            args.rpc_retry_cu,
+            CustomRetryPolicy,
+        ))
+        .http(all_rpc_urls[0].clone());
+    let any_provider = DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .filler(ChainIdFiller::default())
+            .connect_client(any_rpc_client),
+    );
+
+    let broker = Broker::new(
+        args.clone(),
+        provider.clone(),
+        any_provider,
+        config_watcher,
+        gas_priority_mode,
+    )
+    .await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if !args.listen_only {

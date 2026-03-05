@@ -19,13 +19,14 @@ use crate::{
     now_timestamp, Args, Broker,
 };
 use alloy::{
+    network::AnyNetwork,
     node_bindings::Anvil,
     primitives::{
         aliases::U96,
         utils::{self, parse_ether},
         Address, Bytes, FixedBytes, U256,
     },
-    providers::{Provider, WalletProvider},
+    providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use boundless_market::price_oracle::config::PriceValue;
@@ -59,6 +60,16 @@ fn is_dev_mode() -> bool {
         .map(|x| x.to_lowercase())
         .filter(|x| x == "1" || x == "true" || x == "yes")
         .is_some()
+}
+
+fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
+    let url: url::Url = args.rpc_url.as_deref().unwrap().parse().unwrap();
+    DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .filler(ChainIdFiller::default())
+            .connect_http(url),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -212,9 +223,11 @@ async fn simple_e2e() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
@@ -291,9 +304,11 @@ async fn simple_e2e_with_callback() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider.clone(),
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
@@ -378,9 +393,11 @@ async fn e2e_fulfill_after_lock_expiry() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
@@ -454,9 +471,11 @@ async fn e2e_with_selector() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
@@ -524,9 +543,11 @@ async fn e2e_with_blake3_groth16_selector() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
@@ -597,9 +618,11 @@ async fn e2e_with_multiple_requests() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
@@ -693,9 +716,11 @@ async fn e2e_with_claim_digest_match() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
@@ -769,9 +794,11 @@ async fn gas_estimation_matches_actual_tx_cost() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider.clone(),
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
     )
