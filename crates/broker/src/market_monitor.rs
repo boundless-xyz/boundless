@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use alloy::rpc::types::Log;
 use alloy::{
     network::Ethereum,
     primitives::{Address, U256},
@@ -22,7 +23,6 @@ use alloy::{
     sol,
     sol_types::SolEvent,
 };
-
 use anyhow::{Context, Result};
 use async_stream::stream;
 use boundless_market::contracts::{
@@ -51,6 +51,7 @@ pub enum MarketMonitorErr {
     #[error("{code} Event polling failed: {0:#}", code = self.code())]
     EventPollingErr(anyhow::Error),
 
+    #[allow(dead_code)]
     #[error("{code} Log processing failed: {0:#}", code = self.code())]
     LogProcessingFailed(anyhow::Error),
 
@@ -96,9 +97,67 @@ sol! {
 
 const ERC1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
 
+pub(crate) async fn get_block_times<P>(current_block: u64, provider: Arc<P>) -> Result<u64>
+where
+    P: Provider<Ethereum>,
+{
+    let mut timestamps = vec![];
+    let sample_start = current_block - std::cmp::min(current_block, BLOCK_TIME_SAMPLE_SIZE);
+    for i in sample_start..current_block {
+        let block = provider
+            .get_block_by_number(i.into())
+            .await
+            .with_context(|| format!("Failed get block {i}"))?
+            .with_context(|| format!("Missing block {i}"))?;
+
+        timestamps.push(block.header.timestamp);
+    }
+
+    let mut block_times = timestamps.windows(2).map(|elm| elm[1] - elm[0]).collect::<Vec<u64>>();
+    block_times.sort();
+
+    Ok(block_times[block_times.len() / 2])
+}
+
+pub(crate) fn process_log(log: Log) -> Option<(MarketEvent, Log)> {
+    match log.topic0() {
+        Some(t) if t == &IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH => {
+            match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
+                Ok(res) => Some((MarketEvent::Submitted(res.inner.data), log)),
+                Err(err) => {
+                    tracing::error!("Failed to decode RequestSubmitted log: {err:?}");
+                    None
+                }
+            }
+        }
+        Some(t) if t == &IBoundlessMarket::RequestLocked::SIGNATURE_HASH => {
+            match log.log_decode::<IBoundlessMarket::RequestLocked>() {
+                Ok(res) => Some((MarketEvent::Locked(res.inner.data), log)),
+                Err(err) => {
+                    tracing::error!("Failed to decode RequestLocked log: {err:?}");
+                    None
+                }
+            }
+        }
+        Some(t) if t == &IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH => {
+            match log.log_decode::<IBoundlessMarket::RequestFulfilled>() {
+                Ok(res) => Some((MarketEvent::Fulfilled(res.inner.data), log)),
+                Err(err) => {
+                    tracing::error!("Failed to decode RequestFulfilled log: {err:?}");
+                    None
+                }
+            }
+        }
+        _ => {
+            tracing::debug!("Skipping unknown topic0 log: {:?}", log.topic0());
+            None
+        }
+    }
+}
+
 /// All market event types from the [IBoundlessMarket] contract.
 #[derive(Debug, Clone)]
-enum MarketEvent {
+pub(crate) enum MarketEvent {
     Submitted(IBoundlessMarket::RequestSubmitted),
     Locked(IBoundlessMarket::RequestLocked),
     Fulfilled(IBoundlessMarket::RequestFulfilled),
@@ -139,24 +198,7 @@ where
     pub async fn get_block_time(&self) -> Result<u64> {
         let current_block = self.chain_monitor.current_block_number().await?;
 
-        let mut timestamps = vec![];
-        let sample_start = current_block - std::cmp::min(current_block, BLOCK_TIME_SAMPLE_SIZE);
-        for i in sample_start..current_block {
-            let block = self
-                .provider
-                .get_block_by_number(i.into())
-                .await
-                .with_context(|| format!("Failed get block {i}"))?
-                .with_context(|| format!("Missing block {i}"))?;
-
-            timestamps.push(block.header.timestamp);
-        }
-
-        let mut block_times =
-            timestamps.windows(2).map(|elm| elm[1] - elm[0]).collect::<Vec<u64>>();
-        block_times.sort();
-
-        Ok(block_times[block_times.len() / 2])
+        get_block_times(current_block, self.provider.clone()).await
     }
 
     async fn find_open_orders(
@@ -258,12 +300,11 @@ where
         events_poll_blocks: u64,
         poll_interval_ms: u64,
         filter_fn: FilterFn,
-    ) -> impl futures_util::Stream<Item = Result<(T, alloy::rpc::types::Log), MarketMonitorErr>>
+    ) -> impl futures_util::Stream<Item = Result<(T, Log), MarketMonitorErr>>
     where
         T: Send + 'static,
         FilterFn: Fn(Arc<P>, Address, u64, u64) -> FilterFut + Send + 'static,
-        FilterFut: std::future::Future<Output = Result<Vec<(T, alloy::rpc::types::Log)>, anyhow::Error>>
-            + Send,
+        FilterFut: std::future::Future<Output = Result<Vec<(T, Log)>, anyhow::Error>> + Send,
     {
         stream! {
             let current_block = chain_monitor
@@ -349,41 +390,7 @@ where
                 let mut out: Vec<(MarketEvent, alloy::rpc::types::Log)> =
                     Vec::with_capacity(logs.len());
                 for log in logs.into_iter() {
-                    match log.topic0() {
-                        Some(t) if t == &IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH => {
-                            match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
-                                Ok(res) => {
-                                    out.push((MarketEvent::Submitted(res.inner.data), log.clone()))
-                                }
-                                Err(err) => tracing::error!(
-                                    "Failed to decode RequestSubmitted log: {err:?}"
-                                ),
-                            }
-                        }
-                        Some(t) if t == &IBoundlessMarket::RequestLocked::SIGNATURE_HASH => {
-                            match log.log_decode::<IBoundlessMarket::RequestLocked>() {
-                                Ok(res) => {
-                                    out.push((MarketEvent::Locked(res.inner.data), log.clone()))
-                                }
-                                Err(err) => {
-                                    tracing::error!("Failed to decode RequestLocked log: {err:?}")
-                                }
-                            }
-                        }
-                        Some(t) if t == &IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH => {
-                            match log.log_decode::<IBoundlessMarket::RequestFulfilled>() {
-                                Ok(res) => {
-                                    out.push((MarketEvent::Fulfilled(res.inner.data), log.clone()))
-                                }
-                                Err(err) => tracing::error!(
-                                    "Failed to decode RequestFulfilled log: {err:?}"
-                                ),
-                            }
-                        }
-                        _ => {
-                            tracing::debug!("Skipping unknown topic0 log: {:?}", log.topic0());
-                        }
-                    }
+                    out.extend(process_log(log));
                 }
 
                 tracing::trace!(
@@ -411,93 +418,38 @@ where
                         Ok((event, log)) => {
                             match event {
                                 MarketEvent::Submitted(event) => {
-                                    if let Err(err) = Self::process_order_submitted(
+                                    if let Err(err) = process_order_submitted(
                                         event,
                                         provider.clone(),
                                         market_addr,
                                         chain_id,
                                         &new_order_tx,
                                     ).await {
-                                        let event_err = MarketMonitorErr::LogProcessingFailed(err);
-                                        tracing::error!("Failed to process RequestSubmitted: {event_err:?}");
+                                        tracing::error!("Failed to process RequestSubmitted: {err:?}");
                                     }
                                 }
                                 MarketEvent::Locked(event) => {
-                                    tracing::debug!(
-                                        "Detected request 0x{:x} locked by 0x{:x}",
-                                        event.requestId,
-                                        event.prover,
-                                    );
-                                    if let Err(e) = db
-                                        .set_request_locked(
-                                            U256::from(event.requestId),
-                                            &event.prover.to_string(),
-                                            log.block_number.unwrap(),
-                                        )
-                                        .await
-                                    {
-                                        match e {
-                                            DbError::SqlUniqueViolation(_) => {
-                                                tracing::warn!("Duplicate request locked detected {:x}: {e:?}", event.requestId);
-                                            }
-                                            _ => {
-                                                tracing::error!("Failed to store request locked for request {:x} in db: {e:?}", event.requestId);
-                                            }
-                                        }
-                                    }
-
-                                    // Send order state change message for any active preflight of this order
-                                    let state_change = OrderStateChange::Locked {
-                                        request_id: U256::from(event.requestId),
-                                        prover: event.prover,
-                                    };
-                                    if let Err(e) = order_state_tx.send(state_change) {
-                                        tracing::warn!("Failed to send order state change message for request {:x}: {e:?}", event.requestId);
-                                    }
-
-                                    // If the request was not locked by the prover, we create an order to evaluate the request
-                                    // for fulfilling after the lock expires.
-                                    if event.prover != prover_addr {
-                                        let order = OrderRequest::new(
-                                            event.request.clone(),
-                                            event.clientSignature,
-                                            FulfillmentType::FulfillAfterLockExpire,
-                                            market_addr,
-                                            chain_id,
-                                        );
-
-                                        if let Err(e) = new_order_tx.send(Box::new(order)).await {
-                                            tracing::error!("Failed to send order locked by another prover, {:x}: {e} {e:?}", event.requestId);
-                                        }
+                                    if let Err(err) = process_request_locked(
+                                        event,
+                                        log.block_number.unwrap(),
+                                        chain_id,
+                                        market_addr,
+                                        prover_addr,
+                                        &db,
+                                        &new_order_tx,
+                                        &order_state_tx,
+                                    ).await {
+                                        tracing::error!("Failed to process RequestLocked: {err:?}");
                                     }
                                 }
                                 MarketEvent::Fulfilled(event) => {
-                                    tracing::debug!("Detected request fulfilled 0x{:x}", event.requestId);
-                                    if let Err(e) = db
-                                        .set_request_fulfilled(
-                                            U256::from(event.requestId),
-                                            log.block_number.unwrap(),
-                                        )
-                                        .await
-                                    {
-                                        match e {
-                                            DbError::SqlUniqueViolation(_) => {
-                                                tracing::warn!("Duplicate fulfillment event detected: {e:?}");
-                                            }
-                                            _ => {
-                                                tracing::error!(
-                                                    "Failed to store fulfillment for request id {:x}: {e:?}",
-                                                    event.requestId
-                                                );
-                                            }
-                                        }
-                                    }
-
-                                    let state_change = OrderStateChange::Fulfilled {
-                                        request_id: U256::from(event.requestId),
-                                    };
-                                    if let Err(e) = order_state_tx.send(state_change) {
-                                        tracing::warn!("Failed to send order state change message for fulfilled request {:x}: {e:?}", event.requestId);
+                                    if let Err(err) = process_request_fulfilled(
+                                        event,
+                                        log.block_number.unwrap(),
+                                        &db,
+                                        &order_state_tx,
+                                    ).await {
+                                        tracing::error!("Failed to process RequestFulfilled: {err:?}");
                                     }
                                 }
                             }
@@ -514,80 +466,169 @@ where
             }
         }
     }
+}
 
-    async fn process_order_submitted(
-        event: IBoundlessMarket::RequestSubmitted,
-        provider: Arc<P>,
-        market_addr: Address,
-        chain_id: u64,
-        new_order_tx: &mpsc::Sender<Box<OrderRequest>>,
-    ) -> Result<()> {
-        tracing::info!("Detected new on-chain request 0x{:x}", event.requestId);
-        // Check the request id flag to determine if the request is smart contract signed. If so we verify the
-        // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we verify the
-        // the signature as an ECDSA signature.
-        let request_id = RequestId::from_lossy(event.requestId);
-        if request_id.smart_contract_signed {
-            let erc1271 = IERC1271::new(request_id.addr, provider);
-            let request_hash = event.request.signing_hash(market_addr, chain_id)?;
-            tracing::debug!(
-                "Validating ERC1271 signature for request 0x{:x}, calling contract: {} with hash {:x}",
-                event.requestId,
-                request_id.addr,
-                request_hash
-            );
-            match erc1271.isValidSignature(request_hash, event.clientSignature.clone()).call().await
-            {
-                Ok(magic_value) => {
-                    if magic_value != ERC1271_MAGIC_VALUE {
-                        tracing::warn!("Invalid ERC1271 signature for request 0x{:x}, contract: {} returned magic value: 0x{:x}", event.requestId, request_id.addr, magic_value);
-                        return Ok(());
-                    }
-                }
-                Err(err) => {
-                    tracing::warn!("Failed to call ERC1271 isValidSignature for request 0x{:x}, contract: {} - {err:?}", event.requestId, request_id.addr);
+pub(crate) async fn process_order_submitted<P: Provider<Ethereum>>(
+    event: IBoundlessMarket::RequestSubmitted,
+    provider: Arc<P>,
+    market_addr: Address,
+    chain_id: u64,
+    new_order_tx: &mpsc::Sender<Box<OrderRequest>>,
+) -> Result<()> {
+    tracing::info!("Detected new on-chain request 0x{:x}", event.requestId);
+    // Check the request id flag to determine if the request is smart contract signed. If so we verify the
+    // ERC1271 signature by calling isValidSignature on the smart contract client. Otherwise we verify the
+    // the signature as an ECDSA signature.
+    let request_id = RequestId::from_lossy(event.requestId);
+    if request_id.smart_contract_signed {
+        let erc1271 = IERC1271::new(request_id.addr, provider);
+        let request_hash = event.request.signing_hash(market_addr, chain_id)?;
+        tracing::debug!(
+            "Validating ERC1271 signature for request 0x{:x}, calling contract: {} with hash {:x}",
+            event.requestId,
+            request_id.addr,
+            request_hash
+        );
+        match erc1271.isValidSignature(request_hash, event.clientSignature.clone()).call().await {
+            Ok(magic_value) => {
+                if magic_value != ERC1271_MAGIC_VALUE {
+                    tracing::warn!("Invalid ERC1271 signature for request 0x{:x}, contract: {} returned magic value: 0x{:x}", event.requestId, request_id.addr, magic_value);
                     return Ok(());
                 }
             }
-        } else if let Err(err) =
-            event.request.verify_signature(&event.clientSignature, market_addr, chain_id)
-        {
-            tracing::warn!("Failed to validate order signature: 0x{:x} - {err:?}", event.requestId);
-            return Ok(()); // Return early without propagating the error if signature verification fails.
+            Err(err) => {
+                tracing::warn!("Failed to call ERC1271 isValidSignature for request 0x{:x}, contract: {} - {err:?}", event.requestId, request_id.addr);
+                return Ok(());
+            }
         }
+    } else if let Err(err) =
+        event.request.verify_signature(&event.clientSignature, market_addr, chain_id)
+    {
+        tracing::warn!("Failed to validate order signature: 0x{:x} - {err:?}", event.requestId);
+        return Ok(()); // Return early without propagating the error if signature verification fails.
+    }
 
-        let new_order = Box::new(OrderRequest::new(
-            event.request.clone(),
-            event.clientSignature.clone(),
-            FulfillmentType::LockAndFulfill,
-            market_addr,
-            chain_id,
-        ));
+    let new_order = Box::new(OrderRequest::new(
+        event.request.clone(),
+        event.clientSignature.clone(),
+        FulfillmentType::LockAndFulfill,
+        market_addr,
+        chain_id,
+    ));
 
-        let order_id = new_order.id();
-        if let Err(error) = new_order_tx.try_send(new_order.clone()) {
-            match error {
-                TrySendError::Full(_) => {
-                    tracing::warn!("Failed to send new on-chain order {} to OrderPicker: channel is full, blocking until space is available.", order_id);
-                    if let Err(e) = new_order_tx.send(new_order).await {
-                        tracing::error!(
-                            "Failed to send new on-chain order {} to OrderPicker: {e:?}",
-                            order_id
-                        );
-                    }
-                }
-                _ => {
+    let order_id = new_order.id();
+    if let Err(error) = new_order_tx.try_send(new_order.clone()) {
+        match error {
+            TrySendError::Full(_) => {
+                tracing::warn!("Failed to send new on-chain order {} to OrderPicker: channel is full, blocking until space is available.", order_id);
+                if let Err(e) = new_order_tx.send(new_order).await {
                     tracing::error!(
-                        "Failed to send new on-chain order {} to OrderPicker: {error:?}",
+                        "Failed to send new on-chain order {} to OrderPicker: {e:?}",
                         order_id
                     );
                 }
             }
-        } else {
-            tracing::debug!("Sent new on-chain order {} to OrderPicker via channel.", order_id);
+            _ => {
+                tracing::error!(
+                    "Failed to send new on-chain order {} to OrderPicker: {error:?}",
+                    order_id
+                );
+            }
         }
-        Ok(())
+    } else {
+        tracing::debug!("Sent new on-chain order {} to OrderPicker via channel.", order_id);
     }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn process_request_locked(
+    event: IBoundlessMarket::RequestLocked,
+    block_number: u64,
+    chain_id: u64,
+    market_addr: Address,
+    prover_addr: Address,
+    db: &DbObj,
+    new_order_tx: &mpsc::Sender<Box<OrderRequest>>,
+    order_state_tx: &broadcast::Sender<OrderStateChange>,
+) -> Result<()> {
+    tracing::debug!("Detected request 0x{:x} locked by 0x{:x}", event.requestId, event.prover,);
+    if let Err(e) = db
+        .set_request_locked(U256::from(event.requestId), &event.prover.to_string(), block_number)
+        .await
+    {
+        match e {
+            DbError::SqlUniqueViolation(_) => {
+                tracing::warn!("Duplicate request locked detected {:x}: {e:?}", event.requestId);
+            }
+            _ => {
+                tracing::error!(
+                    "Failed to store request locked for request {:x} in db: {e:?}",
+                    event.requestId
+                );
+            }
+        }
+    }
+
+    // Send order state change message for any active preflight of this order
+    let state_change =
+        OrderStateChange::Locked { request_id: U256::from(event.requestId), prover: event.prover };
+    if let Err(e) = order_state_tx.send(state_change) {
+        tracing::warn!(
+            "Failed to send order state change message for request {:x}: {e:?}",
+            event.requestId
+        );
+    }
+
+    // If the request was not locked by the prover, we create an order to evaluate the request
+    // for fulfilling after the lock expires.
+    if event.prover != prover_addr {
+        let order = OrderRequest::new(
+            event.request.clone(),
+            event.clientSignature,
+            FulfillmentType::FulfillAfterLockExpire,
+            market_addr,
+            chain_id,
+        );
+        if let Err(e) = new_order_tx.send(Box::new(order)).await {
+            tracing::error!(
+                "Failed to send order locked by another prover, {:x}: {e} {e:?}",
+                event.requestId
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn process_request_fulfilled(
+    event: IBoundlessMarket::RequestFulfilled,
+    block_number: u64,
+    db: &DbObj,
+    order_state_tx: &broadcast::Sender<OrderStateChange>,
+) -> Result<()> {
+    tracing::debug!("Detected request fulfilled 0x{:x}", event.requestId);
+    if let Err(e) = db.set_request_fulfilled(U256::from(event.requestId), block_number).await {
+        match e {
+            DbError::SqlUniqueViolation(_) => {
+                tracing::warn!("Duplicate fulfillment event detected: {e:?}");
+            }
+            _ => {
+                tracing::error!(
+                    "Failed to store fulfillment for request id {:x}: {e:?}",
+                    event.requestId
+                );
+            }
+        }
+    }
+
+    let state_change = OrderStateChange::Fulfilled { request_id: U256::from(event.requestId) };
+    if let Err(e) = order_state_tx.send(state_change) {
+        tracing::warn!(
+            "Failed to send order state change message for fulfilled request {:x}: {e:?}",
+            event.requestId
+        );
+    }
+    Ok(())
 }
 
 impl<P> RetryTask for MarketMonitor<P>
@@ -896,9 +937,7 @@ mod tests {
             5,
             50,
             |_provider: Arc<_>, _market_addr: Address, _from: u64, _to: u64| async move {
-                Err::<Vec<((), alloy::rpc::types::Log)>, _>(anyhow::anyhow!(
-                    "simulated get_logs failure"
-                ))
+                Err::<Vec<((), Log)>, _>(anyhow::anyhow!("simulated get_logs failure"))
             },
         );
         tokio::pin!(stream);
