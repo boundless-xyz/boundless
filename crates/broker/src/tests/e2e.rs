@@ -166,6 +166,7 @@ fn broker_args(
         rpc_retry_cu: 1000,
         log_json: false,
         listen_only: false,
+        experimental_rpc: false,
     }
 }
 
