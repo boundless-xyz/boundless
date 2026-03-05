@@ -4,8 +4,7 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    Agent,
-    redis,
+    Agent, redis,
     tasks::{CleanupKeys, RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
@@ -15,7 +14,12 @@ use uuid::Uuid;
 use workflow_common::{ProveReq, metrics::helpers};
 
 /// Run a prove request
-pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<CleanupKeys> {
+pub async fn prover(
+    agent: &Agent,
+    job_id: &Uuid,
+    task_id: &str,
+    request: &ProveReq,
+) -> Result<CleanupKeys> {
     let start_time = Instant::now();
     let index = request.index;
     let mut conn = agent.redis_pool.get().await?;

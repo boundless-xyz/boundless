@@ -4,8 +4,7 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    Agent,
-    redis,
+    Agent, redis,
     tasks::{COPROC_CB_PATH, CleanupKeys, serialize_obj},
 };
 use anyhow::{Context, Result, anyhow, bail};
