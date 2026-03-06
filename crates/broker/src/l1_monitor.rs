@@ -28,13 +28,14 @@ use std::{
 
 use crate::market_monitor::process_new_logs;
 use crate::{
+    block_history::{BlockHistory, BlockHistoryEntry},
     chain_monitor::{ChainHead, ChainMonitorApi},
     db::DbObj,
     errors::CodedError,
     impl_coded_debug,
     market_monitor::{
-        get_block_times, process_log, process_order_submitted, process_request_fulfilled,
-        process_request_locked, MarketEvent,
+        process_log, process_order_submitted, process_request_fulfilled, process_request_locked,
+        MarketEvent,
     },
     task::{RetryRes, RetryTask, SupervisorErr},
     OrderRequest, OrderStateChange,
@@ -43,15 +44,18 @@ use alloy::{
     eips::{BlockId, BlockNumberOrTag},
     network::{AnyNetwork, AnyTransactionReceipt, Ethereum},
     primitives::Address,
-    providers::Provider,
+    providers::{utils::EIP1559_FEE_ESTIMATION_PAST_BLOCKS, Provider},
     rpc::types::{Filter, Log},
     sol_types::SolEvent,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use boundless_market::contracts::{boundless_market::BoundlessMarketService, IBoundlessMarket};
+use boundless_market::{
+    contracts::{boundless_market::BoundlessMarketService, IBoundlessMarket},
+    dynamic_gas_filler::PriorityMode,
+};
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
@@ -110,6 +114,12 @@ pub(crate) struct L1Monitor<P, ANP> {
     head_block_number: Arc<AtomicU64>,
     head_block_timestamp: Arc<AtomicU64>,
     open_orders_found: Arc<AtomicBool>,
+
+    gas_priority_mode: Arc<RwLock<PriorityMode>>,
+    /// Ring buffer of recent block fee data for local EIP-1559 gas estimation.
+    block_history: Arc<RwLock<BlockHistory>>,
+    /// Estimated max_fee_per_gas (wei), updated on each processed block.
+    gas_price: Arc<RwLock<u128>>,
 }
 
 impl<P, ANP> L1Monitor<P, ANP>
@@ -128,6 +138,7 @@ where
         chain_id: u64,
         new_order_tx: mpsc::Sender<Box<OrderRequest>>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
+        gas_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
         let initial_block = provider
             .get_block_by_number(BlockNumberOrTag::Latest)
@@ -138,14 +149,56 @@ where
         let initial_number = initial_block.header.number;
         let initial_timestamp = initial_block.header.timestamp;
 
-        let block_time = get_block_times(initial_number, provider.clone()).await?;
+        // Fetch recent blocks for block-time sampling and to seed the gas history.
+        // Uses the same window size as EIP1559_FEE_ESTIMATION_PAST_BLOCKS (10).
+        let history_size = EIP1559_FEE_ESTIMATION_PAST_BLOCKS as usize;
+        let sample_start = initial_number.saturating_sub(history_size as u64);
+        let mut timestamps: Vec<u64> = Vec::new();
+        let mut block_history = BlockHistory::new(history_size);
+
+        for block_num in sample_start..initial_number {
+            let block = provider
+                .get_block_by_number(BlockNumberOrTag::Number(block_num))
+                .await
+                .with_context(|| format!("Failed to get block {block_num}"))?
+                .with_context(|| format!("Missing block {block_num}"))?;
+
+            timestamps.push(block.header.timestamp);
+            block_history.push(BlockHistoryEntry {
+                block_number: block.header.number,
+                base_fee_per_gas: block.header.base_fee_per_gas.map(|f| f as u128),
+                priority_fees: vec![], // no receipts at startup; falls back to EIP1559_MIN_PRIORITY_FEE
+            });
+        }
+        // Also seed with the already-fetched latest block.
+        timestamps.push(initial_block.header.timestamp);
+        block_history.push(BlockHistoryEntry {
+            block_number: initial_block.header.number,
+            base_fee_per_gas: initial_block.header.base_fee_per_gas.map(|f| f as u128),
+            priority_fees: vec![],
+        });
+
+        let mut block_times: Vec<u64> =
+            timestamps.windows(2).map(|w| w[1].saturating_sub(w[0])).collect();
+        block_times.sort_unstable();
+        let block_time =
+            if block_times.is_empty() { 0 } else { block_times[block_times.len() / 2] };
+
         let poll_interval = if block_time > 0 {
             Duration::from_secs(block_time).mul_f32(0.6)
         } else {
             Duration::from_secs(2)
         };
 
-        tracing::info!("L1Monitor initialized at block {initial_number}, block_time={block_time}s, poll_interval={poll_interval:?}");
+        let initial_gas_price = {
+            let mode = gas_priority_mode.read().await.clone();
+            block_history.estimate_gas_price(&mode).unwrap_or(0)
+        };
+
+        tracing::info!(
+            "L1Monitor initialized at block {initial_number}, block_time={block_time}s, \
+             poll_interval={poll_interval:?}, initial_gas_price={initial_gas_price}"
+        );
 
         Ok(Self {
             db,
@@ -162,6 +215,9 @@ where
             head_block_number: Arc::new(AtomicU64::new(initial_number)),
             head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
             open_orders_found: Arc::new(AtomicBool::new(false)),
+            gas_priority_mode,
+            block_history: Arc::new(RwLock::new(block_history)),
+            gas_price: Arc::new(RwLock::new(initial_gas_price)),
         })
     }
 
@@ -294,6 +350,29 @@ where
 
                     // Walk every new block and process its receipts.
                     for block_num in (last_processed + 1)..=latest_number {
+                        // Fetch the block header to get base_fee_per_gas for gas estimation.
+                        // Reuse the already-fetched latest block in the common case (0 extra RPCs).
+                        let base_fee_per_gas = if block_num == latest_number {
+                            latest_block.header.base_fee_per_gas.map(|f| f as u128)
+                        } else {
+                            match self
+                                .provider
+                                .get_block_by_number(BlockNumberOrTag::Number(block_num))
+                                .await
+                            {
+                                Ok(Some(b)) => b.header.base_fee_per_gas.map(|f| f as u128),
+                                Ok(None) => {
+                                    tracing::warn!("No block returned for {block_num}");
+                                    None
+                                }
+                                Err(e) => {
+                                    return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                        "Failed to get block header for {block_num}: {e:#}"
+                                    )));
+                                }
+                            }
+                        };
+
                         let block_id = BlockId::Number(block_num.into());
                         let receipts = match self
                             .any_provider
@@ -315,6 +394,30 @@ where
                         };
 
                         tracing::debug!("Fetched {} receipts for block {block_num}", receipts.len());
+
+                        // Extract priority fees and update gas estimate.
+                        let priority_fees: Vec<u128> = base_fee_per_gas
+                            .map(|bf| {
+                                receipts
+                                    .iter()
+                                    .map(|r| r.effective_gas_price.saturating_sub(bf))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+
+                        let mode = self.gas_priority_mode.read().await.clone();
+                        let gas_price = {
+                            let mut history = self.block_history.write().await;
+                            history.push(BlockHistoryEntry {
+                                block_number: block_num,
+                                base_fee_per_gas,
+                                priority_fees,
+                            });
+                            history.estimate_gas_price(&mode)
+                        };
+                        if let Some(gp) = gas_price {
+                            *self.gas_price.write().await = gp;
+                        }
 
                         if let Err(e) = self
                             .process_block_receipts(receipts, block_num)
@@ -437,8 +540,7 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128> {
-        // TODO: implement gas estimation
-        Ok(0)
+        Ok(*self.gas_price.read().await)
     }
 }
 

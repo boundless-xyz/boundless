@@ -55,6 +55,7 @@ const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 
 pub(crate) mod aggregator;
+pub(crate) mod block_history;
 pub(crate) mod chain_monitor;
 pub mod config;
 pub(crate) mod db;
@@ -794,6 +795,7 @@ where
                     chain_id,
                     new_order_tx.clone(),
                     order_state_tx.clone(),
+                    self.gas_priority_mode.clone(),
                 )
                 .await
                 .context("Failed to initialize L1Monitor")?,
