@@ -20,10 +20,7 @@ use alloy::{
         WalletProvider,
     },
     rpc::client::RpcClient,
-    transports::{
-        http::Http,
-        layers::{FallbackLayer, RetryBackoffLayer},
-    },
+    transports::{http::Http, layers::RetryBackoffLayer},
 };
 use anyhow::{Context, Result};
 use boundless_market::{
@@ -32,12 +29,14 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use broker::{config::ConfigWatcher, Args, Broker, CustomRetryPolicy};
+use broker::{
+    config::ConfigWatcher, rpcmetrics::RpcMetricsLayer,
+    sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
+};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
-use broker::rpcmetrics::RpcMetricsLayer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -83,24 +82,25 @@ async fn main() -> Result<()> {
 
     // Build RPC client with fallback support if multiple URLs are provided
     let client = if all_rpc_urls.len() > 1 {
-        // Multiple URLs - use fallback transport
-        let transports: Vec<Http<_>> =
-            all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
-
-        let active_count =
-            std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
-        let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
+        // Multiple URLs - sequential fallback: always try primary first, only fall back on failure.
+        // RetryBackoffLayer is applied per-transport so retries happen on the same RPC before
+        // the sequential fallback tries the next one.
+        let transports: Vec<_> = all_rpc_urls
+            .iter()
+            .map(|url| {
+                ServiceBuilder::new().layer(retry_layer.clone()).service(Http::new(url.clone()))
+            })
+            .collect();
 
         tracing::info!(
-            "Configuring broker with fallback RPC support: {} URLs: {:?}",
+            "Configuring broker with sequential fallback RPC support: {} URLs: {:?}",
             all_rpc_urls.len(),
             all_rpc_urls
         );
 
         let transport = ServiceBuilder::new()
             .layer(RpcMetricsLayer::new())
-            .layer(retry_layer)
-            .layer(fallback_layer)
+            .layer(SequentialFallbackLayer)
             .service(transports);
 
         RpcClient::builder().transport(transport, false)
@@ -153,25 +153,18 @@ async fn main() -> Result<()> {
         .filler(ChainIdFiller::default())
         .filler(dynamic_gas_filler)
         .layer(balance_alerts_layer)
-        .connect_client(client);
+        .connect_client(client.clone());
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
 
-    // Build a separate AnyNetwork provider for get_block_receipts.
+    // Build a separate AnyNetwork provider for get_block_receipts, reusing the same transport.
     // Needed on OP Stack chains where deposit receipts don't fit the standard Ethereum type.
-    let any_rpc_client = RpcClient::builder()
-        .layer(RetryBackoffLayer::new_with_policy(
-            args.rpc_retry_max,
-            args.rpc_retry_backoff,
-            args.rpc_retry_cu,
-            CustomRetryPolicy,
-        ))
-        .http(all_rpc_urls[0].clone());
+    // RpcClient is Clone (Arc-backed), so both providers share the same underlying connection.
     let any_provider = DynProvider::new(
         ProviderBuilder::new()
             .network::<AnyNetwork>()
             .filler(ChainIdFiller::default())
-            .connect_client(any_rpc_client),
+            .connect_client(client),
     );
 
     let broker = Broker::new(

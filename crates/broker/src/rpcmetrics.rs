@@ -62,7 +62,8 @@ where
 
     fn call(&mut self, req: RequestPacket) -> Self::Future {
         if !tracing::enabled!(tracing::Level::DEBUG) {
-            return self.inner.call(req);
+            let mut inner = self.inner.clone();
+            return Box::pin(async move { inner.call(req).await });
         }
 
         let (methods, req_bytes) = match &req {
