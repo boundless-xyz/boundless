@@ -1447,8 +1447,9 @@ async fn delete_job_test(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-/// Run AUX maintenance to recalculate stream priorities and counters
-pub async fn maint_streams(pool: &PgPool) -> Result<(), TaskDbErr> {
-    sqlx::query("SELECT maint_streams()").execute(pool).await?;
+/// Bulk refresh stream ready/running counters from actual task counts.
+/// Called periodically by aux workers (e.g. every 1–2s) instead of per-row triggers.
+pub async fn refresh_stream_counters(pool: &PgPool) -> Result<(), TaskDbErr> {
+    sqlx::query("SELECT refresh_stream_counters()").execute(pool).await?;
     Ok(())
 }
