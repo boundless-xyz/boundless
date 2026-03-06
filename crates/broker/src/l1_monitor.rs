@@ -184,11 +184,8 @@ where
         let block_time =
             if block_times.is_empty() { 0 } else { block_times[block_times.len() / 2] };
 
-        let poll_interval = if block_time > 0 {
-            Duration::from_secs(block_time).mul_f32(0.6)
-        } else {
-            Duration::from_secs(2)
-        };
+        let poll_interval =
+            if block_time > 0 { Duration::from_secs(block_time) } else { Duration::from_secs(2) };
 
         let initial_gas_price = {
             let mode = gas_priority_mode.read().await.clone();
@@ -381,6 +378,7 @@ where
                         {
                             Ok(Some(receipts)) => receipts,
                             Ok(None) => {
+                                // TODO: this should probably be an error and lead to retry
                                 tracing::warn!("No receipts returned for block {block_num}");
                                 continue;
                             }
