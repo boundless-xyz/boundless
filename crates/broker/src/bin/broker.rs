@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use alloy::{
+    network::AnyNetwork,
     primitives::utils::parse_ether,
-    providers::{fillers::ChainIdFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
-    rpc::client::RpcClient,
-    transports::{
-        http::Http,
-        layers::{FallbackLayer, RetryBackoffLayer},
+    providers::{
+        fillers::ChainIdFiller, network::EthereumWallet, DynProvider, ProviderBuilder,
+        WalletProvider,
     },
+    rpc::client::RpcClient,
+    transports::{http::Http, layers::RetryBackoffLayer},
 };
 use anyhow::{Context, Result};
 use boundless_market::{
@@ -28,7 +29,10 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use broker::{config::ConfigWatcher, Args, Broker, CustomRetryPolicy};
+use broker::{
+    config::ConfigWatcher, rpcmetrics::RpcMetricsLayer,
+    sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
+};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -78,29 +82,36 @@ async fn main() -> Result<()> {
 
     // Build RPC client with fallback support if multiple URLs are provided
     let client = if all_rpc_urls.len() > 1 {
-        // Multiple URLs - use fallback transport
-        let transports: Vec<Http<_>> =
-            all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
-
-        let active_count =
-            std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
-        let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
+        // Multiple URLs - sequential fallback: always try primary first, only fall back on failure.
+        // RetryBackoffLayer is applied per-transport so retries happen on the same RPC before
+        // the sequential fallback tries the next one.
+        let transports: Vec<_> = all_rpc_urls
+            .iter()
+            .map(|url| {
+                ServiceBuilder::new().layer(retry_layer.clone()).service(Http::new(url.clone()))
+            })
+            .collect();
 
         tracing::info!(
-            "Configuring broker with fallback RPC support: {} URLs: {:?}",
+            "Configuring broker with sequential fallback RPC support: {} URLs: {:?}",
             all_rpc_urls.len(),
             all_rpc_urls
         );
 
-        let transport =
-            ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
+        let transport = ServiceBuilder::new()
+            .layer(RpcMetricsLayer::new())
+            .layer(SequentialFallbackLayer)
+            .service(transports);
 
         RpcClient::builder().transport(transport, false)
     } else {
         // Single URL - use regular provider
         let single_url = &all_rpc_urls[0];
         tracing::info!("Configuring broker with single RPC URL: {}", single_url);
-        RpcClient::builder().layer(retry_layer).http(single_url.clone())
+        RpcClient::builder()
+            .layer(RpcMetricsLayer::new())
+            .layer(retry_layer)
+            .http(single_url.clone())
     };
 
     // Read config for balance alerts (scope the guard so we can move config_watcher later)
@@ -142,11 +153,28 @@ async fn main() -> Result<()> {
         .filler(ChainIdFiller::default())
         .filler(dynamic_gas_filler)
         .layer(balance_alerts_layer)
-        .connect_client(client);
+        .connect_client(client.clone());
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker =
-        Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
+
+    // Build a separate AnyNetwork provider for get_block_receipts, reusing the same transport.
+    // Needed on OP Stack chains where deposit receipts don't fit the standard Ethereum type.
+    // RpcClient is Clone (Arc-backed), so both providers share the same underlying connection.
+    let any_provider = DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .filler(ChainIdFiller::default())
+            .connect_client(client),
+    );
+
+    let broker = Broker::new(
+        args.clone(),
+        provider.clone(),
+        any_provider,
+        config_watcher,
+        gas_priority_mode,
+    )
+    .await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if !args.listen_only {

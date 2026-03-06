@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 use crate::{
-    chain_monitor::ChainMonitorService,
+    chain_monitor::ChainMonitorObj,
     config::{ConfigLock, MarketConfig},
     db::DbObj,
     errors::CodedError,
@@ -81,7 +81,7 @@ pub struct OrderPicker<P> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
-    chain_monitor: Arc<ChainMonitorService<P>>,
+    chain_monitor: ChainMonitorObj,
     market: BoundlessMarketService<Arc<P>>,
     supported_selectors: SupportedSelectors,
     // TODO ideal not to wrap in mutex, but otherwise would require supervisor refactor, try to find alternative
@@ -110,7 +110,7 @@ where
         prover: ProverObj,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
+        chain_monitor: ChainMonitorObj,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
@@ -1099,10 +1099,11 @@ pub(crate) mod tests {
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-            let chain_monitor = Arc::new(
+            let chain_monitor_service = Arc::new(
                 ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
             );
-            tokio::spawn(chain_monitor.spawn(Default::default()));
+            tokio::spawn(chain_monitor_service.spawn(Default::default()));
+            let chain_monitor: ChainMonitorObj = chain_monitor_service;
 
             let chain_id = provider.get_chain_id().await.unwrap();
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);

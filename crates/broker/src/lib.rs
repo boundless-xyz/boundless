@@ -19,7 +19,7 @@ use std::{
 };
 
 use alloy::{
-    network::Ethereum,
+    network::{AnyNetwork, Ethereum},
     primitives::{Address, Bytes, FixedBytes, U256},
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
@@ -55,11 +55,13 @@ const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 
 pub(crate) mod aggregator;
+pub(crate) mod block_history;
 pub(crate) mod chain_monitor;
 pub mod config;
 pub(crate) mod db;
 pub(crate) mod errors;
 pub mod futures_retry;
+pub(crate) mod l1_monitor;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
@@ -71,6 +73,8 @@ pub(crate) mod proving;
 pub(crate) mod reaper;
 pub(crate) mod requestor_monitor;
 pub(crate) mod rpc_retry_policy;
+pub mod rpcmetrics;
+pub mod sequential_fallback;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
@@ -164,6 +168,10 @@ pub struct Args {
     /// No transactions will be sent. Balance and collateral checks are skipped.
     #[clap(long, default_value_t = false)]
     pub listen_only: bool,
+
+    /// Use the experimental L1Monitor implementation using eth_getBlockReceipts instead of eth_getLogs.
+    #[clap(long, default_value_t = false)]
+    pub experimental_rpc: bool,
 }
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
@@ -418,6 +426,7 @@ struct Batch {
 pub struct Broker<P> {
     args: Args,
     provider: Arc<P>,
+    any_provider: DynProvider<AnyNetwork>,
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
@@ -433,6 +442,7 @@ where
     pub async fn new(
         mut args: Args,
         provider: P,
+        any_provider: DynProvider<AnyNetwork>,
         config_watcher: ConfigWatcher,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
@@ -467,6 +477,7 @@ where
             args,
             db,
             provider: Arc::new(provider),
+            any_provider,
             config_watcher,
             priority_requestors,
             allow_requestors,
@@ -746,27 +757,6 @@ where
         let non_critical_cancel_token = CancellationToken::new();
         let critical_cancel_token = CancellationToken::new();
 
-        let chain_monitor = Arc::new(
-            chain_monitor::ChainMonitorService::new(
-                self.provider.clone(),
-                self.gas_priority_mode.clone(),
-            )
-            .await
-            .context("Failed to initialize chain monitor")?,
-        );
-
-        let cloned_chain_monitor = chain_monitor.clone();
-        let cloned_config = config.clone();
-        // Critical task, as is relied on to query current chain state
-        let cancel_token = critical_cancel_token.clone();
-        critical_tasks.spawn(async move {
-            Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start chain monitor")?;
-            Ok(())
-        });
-
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
         let client = self
             .deployment()
@@ -782,40 +772,103 @@ where
             })
             .transpose()?;
 
+        // TODO: create inside the L1 monitor and return
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
 
         // Create a broadcast channel for order state change messages
         let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
 
-        // spin up a supervisor for the market monitor
-        let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
-            lookback_blocks,
-            events_poll_blocks,
-            events_poll_ms,
-            self.deployment().boundless_market_address,
-            self.provider.clone(),
-            self.db.clone(),
-            chain_monitor.clone(),
-            self.args.private_key.as_ref().expect("Private key must be set").address(),
-            new_order_tx.clone(),
-            order_state_tx.clone(),
-        ));
+        // Set up chain + market monitoring. Either use the standard ChainMonitorService +
+        // MarketMonitor pair, or the experimental L1Monitor (--experimental-rpc) which
+        // replaces both with a single implementation.
+        let (chain_monitor, block_times): (chain_monitor::ChainMonitorObj, u64) = if self
+            .args
+            .experimental_rpc
+        {
+            let l1_monitor = Arc::new(
+                l1_monitor::L1Monitor::new(
+                    self.db.clone(),
+                    self.provider.clone(),
+                    Arc::new(self.any_provider.clone()),
+                    self.deployment().boundless_market_address,
+                    self.args.private_key.as_ref().expect("Private key must be set").address(),
+                    lookback_blocks,
+                    chain_id,
+                    new_order_tx.clone(),
+                    order_state_tx.clone(),
+                    self.gas_priority_mode.clone(),
+                )
+                .await
+                .context("Failed to initialize L1Monitor")?,
+            );
 
-        let block_times =
-            market_monitor.get_block_time().await.context("Failed to sample block times")?;
+            let cloned = l1_monitor.clone();
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(cloned, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start L1Monitor")?;
+                Ok(())
+            });
+
+            let block_times = l1_monitor.block_time();
+            (l1_monitor as chain_monitor::ChainMonitorObj, block_times)
+        } else {
+            let chain_monitor_service = Arc::new(
+                chain_monitor::ChainMonitorService::new(
+                    self.provider.clone(),
+                    self.gas_priority_mode.clone(),
+                )
+                .await
+                .context("Failed to initialize chain monitor")?,
+            );
+
+            let cloned_chain_monitor = chain_monitor_service.clone();
+            let cloned_config = config.clone();
+            // Critical task, as is relied on to query current chain state
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start chain monitor")?;
+                Ok(())
+            });
+
+            // spin up a supervisor for the market monitor
+            let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
+                lookback_blocks,
+                events_poll_blocks,
+                events_poll_ms,
+                self.deployment().boundless_market_address,
+                self.provider.clone(),
+                self.db.clone(),
+                chain_monitor_service.clone(),
+                self.args.private_key.as_ref().expect("Private key must be set").address(),
+                new_order_tx.clone(),
+                order_state_tx.clone(),
+            ));
+
+            let block_times =
+                market_monitor.get_block_time().await.context("Failed to sample block times")?;
+
+            let cloned_config = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                Supervisor::new(market_monitor, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start market monitor")?;
+                Ok(())
+            });
+
+            (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
+        };
 
         tracing::debug!("Estimated block time: {block_times}");
-
-        let cloned_config = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(market_monitor, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start market monitor")?;
-            Ok(())
-        });
 
         // spin up a supervisor for the offchain market monitor
         if let Some(client_clone) = client {
@@ -1227,8 +1280,10 @@ pub mod test_utils {
     use std::sync::Arc;
 
     use alloy::{
-        network::Ethereum,
-        providers::{Provider, WalletProvider},
+        network::{AnyNetwork, Ethereum},
+        providers::{
+            fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder, WalletProvider,
+        },
     };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
@@ -1285,6 +1340,7 @@ pub mod test_utils {
                 rpc_retry_cu: 1000,
                 log_json: false,
                 listen_only: false,
+                experimental_rpc: false,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }
@@ -1296,10 +1352,23 @@ pub mod test_utils {
 
         pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+            let rpc_url = self
+                .args
+                .rpc_url
+                .as_deref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| "http://localhost:8545".parse().unwrap());
+            let any_provider = DynProvider::new(
+                ProviderBuilder::new()
+                    .network::<AnyNetwork>()
+                    .filler(ChainIdFiller::default())
+                    .connect_http(rpc_url),
+            );
             Ok((
                 Broker::new(
                     self.args,
                     self.provider,
+                    any_provider,
                     ConfigWatcher::new(self.config_file.path()).await?,
                     gas_priority_mode,
                 )
