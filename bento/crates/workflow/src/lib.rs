@@ -161,6 +161,12 @@ pub struct Args {
     #[clap(env, long, default_value_t = 60 * 60)]
     cleanup_poll_interval: u64,
 
+    /// Stream counter refresh interval in seconds
+    ///
+    /// How often aux workers bulk-refresh stream ready/running counts (e.g. 1–2s).
+    #[clap(env, long, default_value_t = 5)]
+    stream_refresh_interval: u64,
+
     /// Disable cron to clean up completed jobs in taskdb.
     #[clap(long, default_value_t = true, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
     disable_completed_cleanup: bool,
@@ -339,6 +345,25 @@ impl Agent {
                     }
                 });
             }
+
+            // Enable stream counter refresh for aux workers (bulk refresh ready/running per stream)
+            let term_sig_copy = term_sig.clone();
+            let db_pool_copy = self.db_pool.clone();
+            let stream_refresh_interval = self.args.stream_refresh_interval;
+            tokio::spawn(async move {
+                loop {
+                    if let Err(e) = Self::poll_for_stream_refresh(
+                        term_sig_copy.clone(),
+                        db_pool_copy.clone(),
+                        stream_refresh_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!("[BENTO-WF-134] Stream counter refresh failed: {:#}", e);
+                        time::sleep(time::Duration::from_secs(stream_refresh_interval)).await;
+                    }
+                }
+            });
         }
 
         while !term_sig.load(Ordering::Relaxed) {
@@ -590,6 +615,24 @@ impl Agent {
                     cleared_count as u64,
                 );
             }
+        }
+
+        Ok(())
+    }
+
+    /// Background task to bulk-refresh stream ready/running counters from task counts.
+    ///
+    /// Keeps stream priority correct for request_work without per-row triggers.
+    async fn poll_for_stream_refresh(
+        term_sig: Arc<AtomicBool>,
+        db_pool: PgPool,
+        poll_interval: u64,
+    ) -> Result<()> {
+        while !term_sig.load(Ordering::Relaxed) {
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+
+            tracing::debug!("Refreshing stream counters...");
+            taskdb::refresh_stream_counters(&db_pool).await?;
         }
 
         Ok(())
