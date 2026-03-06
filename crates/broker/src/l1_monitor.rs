@@ -20,12 +20,13 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
 };
 
+use crate::market_monitor::process_new_logs;
 use crate::{
     chain_monitor::{ChainHead, ChainMonitorApi},
     db::DbObj,
@@ -43,9 +44,12 @@ use alloy::{
     network::{AnyNetwork, AnyTransactionReceipt, Ethereum},
     primitives::Address,
     providers::Provider,
+    rpc::types::{Filter, Log},
+    sol_types::SolEvent,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use boundless_market::contracts::{boundless_market::BoundlessMarketService, IBoundlessMarket};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -105,6 +109,7 @@ pub(crate) struct L1Monitor<P, ANP> {
 
     head_block_number: Arc<AtomicU64>,
     head_block_timestamp: Arc<AtomicU64>,
+    open_orders_found: Arc<AtomicBool>,
 }
 
 impl<P, ANP> L1Monitor<P, ANP>
@@ -156,6 +161,7 @@ where
             order_state_tx,
             head_block_number: Arc::new(AtomicU64::new(initial_number)),
             head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
+            open_orders_found: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -164,9 +170,87 @@ where
         self.block_time
     }
 
+    /// Walk `start_block..=end_block` using `get_logs`, automatically discovering the maximum
+    /// chunk size accepted by the RPC provider via binary search on first failure.
+    async fn adaptive_get_logs(
+        &self,
+        filter: Filter,
+        start_block: u64,
+        end_block: u64,
+    ) -> Result<Vec<Log>, L1MonitorErr> {
+        if start_block > end_block {
+            return Ok(vec![]);
+        }
+
+        let total_range = end_block - start_block;
+        let mut chunk_size = total_range.max(1);
+        let mut chunk_found = false;
+        let mut from = start_block;
+        let mut all_logs: Vec<Log> = Vec::new();
+
+        while from <= end_block {
+            let to = (from + chunk_size).min(end_block);
+            let ranged_filter = filter.clone().from_block(from).to_block(to);
+
+            match self.provider.get_logs(&ranged_filter).await {
+                Ok(logs) => {
+                    all_logs.extend(logs);
+                    chunk_found = true;
+                    from = to + 1;
+                }
+                Err(e) => {
+                    if chunk_found {
+                        // Chunk size is already validated; unexpected failure.
+                        return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                            "get_logs failed for blocks {from}..{to}: {e:#}"
+                        )));
+                    }
+                    if chunk_size <= 1 {
+                        return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                            "get_logs failed with chunk_size=1 for block {from}: {e:#}"
+                        )));
+                    }
+                    tracing::debug!(
+                        "get_logs failed for chunk_size={chunk_size} (blocks {from}..{to}), halving: {e:#}"
+                    );
+                    chunk_size /= 2;
+                }
+            }
+        }
+
+        Ok(all_logs)
+    }
+
     async fn find_open_orders(&self) -> Result<(), L1MonitorErr> {
-        // TODO: implement — query historical RequestSubmitted events and replay open orders.
-        tracing::info!("find_open_orders stubbed (lookback_blocks={})", self.lookback_blocks,);
+        let current_block = self.head_block_number.load(Ordering::Relaxed);
+        let start_block = current_block.saturating_sub(self.lookback_blocks);
+
+        tracing::info!("Searching for existing open orders: {start_block} - {current_block}");
+
+        let market = BoundlessMarketService::new_for_broker(
+            self.market_addr,
+            self.provider.clone(),
+            Address::ZERO,
+        );
+
+        let filter = Filter::new()
+            .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
+            .from_block(start_block)
+            .address(self.market_addr);
+
+        let logs = self.adaptive_get_logs(filter, start_block, current_block).await?;
+
+        process_new_logs(
+            self.lookback_blocks,
+            self.market_addr,
+            &self.new_order_tx,
+            self.chain_id,
+            market,
+            logs,
+        )
+        .await
+        .map_err(|e| L1MonitorErr::RpcErr(anyhow::anyhow!(e)))?;
+
         Ok(())
     }
 
@@ -371,7 +455,10 @@ where
         Box::pin(async move {
             tracing::info!("Starting L1Monitor");
 
-            self_clone.find_open_orders().await.map_err(SupervisorErr::Recover)?;
+            if !self_clone.open_orders_found.load(Ordering::Relaxed) {
+                self_clone.find_open_orders().await.map_err(SupervisorErr::Recover)?;
+                self_clone.open_orders_found.store(true, Ordering::Relaxed);
+            }
 
             self_clone.monitor_l1(cancel_token).await.map_err(SupervisorErr::Recover)?;
 

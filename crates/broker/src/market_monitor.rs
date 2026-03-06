@@ -43,6 +43,7 @@ use crate::{
     FulfillmentType, OrderRequest, OrderStateChange,
 };
 use thiserror::Error;
+use tokio::sync::mpsc::Sender;
 
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
 
@@ -227,65 +228,8 @@ where
         // don't have a lot of clean log decoding samples, and the Event::query()
         // interface would randomly fail for me?
         let logs = provider.get_logs(&filter).await.context("Failed to get logs")?;
-        let decoded_logs = logs.iter().filter_map(|log| {
-            match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
-                Ok(res) => Some(res),
-                Err(err) => {
-                    tracing::error!("Failed to decode RequestSubmitted log: {err:?}");
-                    None
-                }
-            }
-        });
 
-        tracing::debug!("Found {} possible in the past {} blocks", logs.len(), lookback_blocks);
-        let mut order_count = 0;
-        for log in decoded_logs {
-            let event = &log.inner.data;
-            let request_id = U256::from(event.requestId);
-
-            let req_status =
-                match market.get_status(request_id, Some(event.request.expires_at())).await {
-                    Ok(val) => val,
-                    Err(err) => {
-                        tracing::warn!("Failed to get request status: {err:?}");
-                        continue;
-                    }
-                };
-
-            if !matches!(req_status, RequestStatus::Unknown) {
-                tracing::debug!(
-                    "Skipping order {request_id:x} reason: order status no longer bidding: {req_status:?}",
-                );
-                continue;
-            }
-
-            let fulfillment_type = match req_status {
-                RequestStatus::Locked => FulfillmentType::FulfillAfterLockExpire,
-                _ => FulfillmentType::LockAndFulfill,
-            };
-
-            tracing::info!(
-                "Found open order: {request_id:x} with request status: {req_status:?}, preparing to process with fulfillment type: {fulfillment_type:?}",
-            );
-
-            let new_order = OrderRequest::new(
-                event.request.clone(),
-                event.clientSignature.clone(),
-                fulfillment_type,
-                market_addr,
-                chain_id,
-            );
-
-            new_order_tx
-                .send(Box::new(new_order))
-                .await
-                .map_err(|_| MarketMonitorErr::ReceiverDropped)?;
-            order_count += 1;
-        }
-
-        tracing::info!("Found {order_count} open orders");
-
-        Ok(order_count)
+        process_new_logs(lookback_blocks, market_addr, new_order_tx, chain_id, market, logs).await
     }
 
     /// Creates a stream that polls for market events in chunks
@@ -466,6 +410,75 @@ where
             }
         }
     }
+}
+
+pub(crate) async fn process_new_logs<P: Provider<Ethereum>>(
+    lookback_blocks: u64,
+    market_addr: Address,
+    new_order_tx: &Sender<Box<OrderRequest>>,
+    chain_id: u64,
+    market: BoundlessMarketService<Arc<P>>,
+    logs: Vec<Log>,
+) -> Result<u64, MarketMonitorErr> {
+    let decoded_logs = logs.iter().filter_map(|log| {
+        match log.log_decode::<IBoundlessMarket::RequestSubmitted>() {
+            Ok(res) => Some(res),
+            Err(err) => {
+                tracing::error!("Failed to decode RequestSubmitted log: {err:?}");
+                None
+            }
+        }
+    });
+
+    tracing::debug!("Found {} possible in the past {} blocks", logs.len(), lookback_blocks);
+    let mut order_count = 0;
+    for log in decoded_logs {
+        let event = &log.inner.data;
+        let request_id = U256::from(event.requestId);
+
+        let req_status = match market.get_status(request_id, Some(event.request.expires_at())).await
+        {
+            Ok(val) => val,
+            Err(err) => {
+                tracing::warn!("Failed to get request status: {err:?}");
+                continue;
+            }
+        };
+
+        if !matches!(req_status, RequestStatus::Unknown) {
+            tracing::debug!(
+                    "Skipping order {request_id:x} reason: order status no longer bidding: {req_status:?}",
+                );
+            continue;
+        }
+
+        let fulfillment_type = match req_status {
+            RequestStatus::Locked => FulfillmentType::FulfillAfterLockExpire,
+            _ => FulfillmentType::LockAndFulfill,
+        };
+
+        tracing::info!(
+                "Found open order: {request_id:x} with request status: {req_status:?}, preparing to process with fulfillment type: {fulfillment_type:?}",
+            );
+
+        let new_order = OrderRequest::new(
+            event.request.clone(),
+            event.clientSignature.clone(),
+            fulfillment_type,
+            market_addr,
+            chain_id,
+        );
+
+        new_order_tx
+            .send(Box::new(new_order))
+            .await
+            .map_err(|_| MarketMonitorErr::ReceiverDropped)?;
+        order_count += 1;
+    }
+
+    tracing::info!("Found {order_count} open orders");
+
+    Ok(order_count)
 }
 
 pub(crate) async fn process_order_submitted<P: Provider<Ethereum>>(
