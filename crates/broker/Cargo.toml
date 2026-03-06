@@ -28,6 +28,7 @@ alloy = { workspace = true, features = [
     "signer-local",
     "rpc",
     "rpc-types",
+    "json-rpc",
 ] }
 alloy-chains = "0.2.0"
 anyhow = { workspace = true }

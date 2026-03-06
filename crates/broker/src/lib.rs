@@ -73,6 +73,7 @@ pub(crate) mod proving;
 pub(crate) mod reaper;
 pub(crate) mod requestor_monitor;
 pub(crate) mod rpc_retry_policy;
+pub mod rpcmetrics;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;

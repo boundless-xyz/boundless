@@ -37,6 +37,7 @@ use clap::Parser;
 use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
+use broker::rpcmetrics::RpcMetricsLayer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -96,15 +97,21 @@ async fn main() -> Result<()> {
             all_rpc_urls
         );
 
-        let transport =
-            ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
+        let transport = ServiceBuilder::new()
+            .layer(RpcMetricsLayer::new())
+            .layer(retry_layer)
+            .layer(fallback_layer)
+            .service(transports);
 
         RpcClient::builder().transport(transport, false)
     } else {
         // Single URL - use regular provider
         let single_url = &all_rpc_urls[0];
         tracing::info!("Configuring broker with single RPC URL: {}", single_url);
-        RpcClient::builder().layer(retry_layer).http(single_url.clone())
+        RpcClient::builder()
+            .layer(RpcMetricsLayer::new())
+            .layer(retry_layer)
+            .http(single_url.clone())
     };
 
     // Read config for balance alerts (scope the guard so we can move config_watcher later)
