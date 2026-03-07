@@ -22,7 +22,7 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
       - name: Find or create a Linear Issue
-        uses: risc0/action-find-or-create-linear-issue@risc0
+        uses: ctriolo/action-find-or-create-linear-issue@v0.7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           linear-api-key: ${{ secrets.LINEAR_API_KEY }}
