@@ -20,7 +20,7 @@ use super::super::{
 use super::epochs::EPOCH_AGGREGATION_RECOMPUTE_COUNT;
 use crate::db::market::{AllTimeMarketSummary, IndexerDb, PeriodMarketSummary};
 use crate::market::{
-    pricing::compute_percentiles,
+    pricing::{compute_percentiles, compute_percentiles_u64},
     time_boundaries::{
         get_day_start, get_hour_start, get_month_start, get_week_start, iter_daily_periods,
         iter_hourly_periods, iter_monthly_periods, iter_weekly_periods,
@@ -372,6 +372,8 @@ where
         let mut total_fees = U256::ZERO;
         let mut total_fixed_cost = U256::ZERO;
         let mut prices_per_cycle: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
+        let mut times_to_lock: Vec<u64> = Vec::new();
+        let mut times_to_fulfill: Vec<u64> = Vec::new();
 
         for lock in locks {
             // Use precomputed lock_price if available, otherwise compute it
@@ -421,6 +423,14 @@ where
                     prices_per_cycle.push(price_per_cycle);
                 }
             }
+
+            // Collect time-to-lock (locked_at - created_at) and time-to-fulfill (fulfilled_at - locked_at)
+            if lock.lock_timestamp > 0 && lock.created_at > 0 {
+                times_to_lock.push(lock.lock_timestamp.saturating_sub(lock.created_at));
+            }
+            if lock.fulfilled_at > 0 && lock.lock_timestamp > 0 {
+                times_to_fulfill.push(lock.fulfilled_at.saturating_sub(lock.lock_timestamp));
+            }
         }
 
         let total_variable_cost =
@@ -451,6 +461,10 @@ where
         } else {
             vec![U256::ZERO; 7]
         };
+
+        // Compute latency percentiles: p50, p90
+        let latency_lock = compute_percentiles_u64(&mut times_to_lock, &[50, 90]);
+        let latency_fulfill = compute_percentiles_u64(&mut times_to_fulfill, &[50, 90]);
 
         // TODO: Populate best prover metrics from fulfilled requests
         let best_peak_prove_mhz = 0.0;
@@ -499,6 +513,10 @@ where
             best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
             best_effective_prove_mhz_request_id,
+            p50_time_to_lock_seconds: latency_lock[0],
+            p90_time_to_lock_seconds: latency_lock[1],
+            p50_time_to_fulfill_seconds: latency_fulfill[0],
+            p90_time_to_fulfill_seconds: latency_fulfill[1],
         })
     }
 }

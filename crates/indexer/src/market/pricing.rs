@@ -81,6 +81,46 @@ pub fn compute_percentiles(values: &mut [U256], percentiles: &[u8]) -> Vec<U256>
     percentiles.iter().map(|&p| compute_percentile(values, p)).collect()
 }
 
+/// Computes a single percentile from a sorted list of u64 values.
+pub fn compute_percentile_u64(values: &[u64], percentile: u8) -> u64 {
+    if values.is_empty() {
+        return 0;
+    }
+
+    if percentile == 0 {
+        return values[0];
+    }
+
+    if percentile >= 100 {
+        return values[values.len() - 1];
+    }
+
+    let rank = (percentile as f64 / 100.0) * (values.len() - 1) as f64;
+    let lower_idx = rank.floor() as usize;
+    let upper_idx = rank.ceil() as usize;
+
+    if lower_idx == upper_idx {
+        return values[lower_idx];
+    }
+
+    let lower_val = values[lower_idx];
+    let upper_val = values[upper_idx];
+    let fraction = rank - lower_idx as f64;
+
+    lower_val + ((upper_val.saturating_sub(lower_val)) as f64 * fraction) as u64
+}
+
+/// Computes multiple percentiles from a list of u64 values (sorted in place).
+pub fn compute_percentiles_u64(values: &mut [u64], percentiles: &[u8]) -> Vec<u64> {
+    if values.is_empty() {
+        return vec![0; percentiles.len()];
+    }
+
+    values.sort();
+
+    percentiles.iter().map(|&p| compute_percentile_u64(values, p)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +156,30 @@ mod tests {
         assert_eq!(percentiles[0], U256::from(10)); // min
         assert_eq!(percentiles[2], U256::from(30)); // median
         assert_eq!(percentiles[4], U256::from(50)); // max
+    }
+
+    #[test]
+    fn test_compute_percentile_u64_empty() {
+        let values: Vec<u64> = vec![];
+        assert_eq!(compute_percentile_u64(&values, 50), 0);
+    }
+
+    #[test]
+    fn test_compute_percentile_u64_single() {
+        let values = vec![42u64];
+        assert_eq!(compute_percentile_u64(&values, 50), 42);
+    }
+
+    #[test]
+    fn test_compute_percentiles_u64_latency() {
+        // Simulate time-to-lock values in seconds: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50
+        let mut values: Vec<u64> = (1..=10).map(|i| i * 5).collect();
+        let percentiles = compute_percentiles_u64(&mut values, &[50, 90]);
+
+        // p50 should be around 25-27 (median of 10 values)
+        assert!(percentiles[0] >= 25 && percentiles[0] <= 30, "p50 = {}", percentiles[0]);
+        // p90 should be around 45-47
+        assert!(percentiles[1] >= 45 && percentiles[1] <= 50, "p90 = {}", percentiles[1]);
+        assert!(percentiles[0] <= percentiles[1]);
     }
 }

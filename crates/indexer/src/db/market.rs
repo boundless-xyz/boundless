@@ -185,6 +185,10 @@ pub struct PeriodMarketSummary {
     pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
+    pub p50_time_to_lock_seconds: u64,
+    pub p90_time_to_lock_seconds: u64,
+    pub p50_time_to_fulfill_seconds: u64,
+    pub p90_time_to_fulfill_seconds: u64,
 }
 
 // Type aliases for different aggregation periods - they all use the same struct
@@ -556,6 +560,8 @@ pub struct LockPricingData {
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
     pub fixed_cost: Option<String>,
+    pub created_at: u64,
+    pub fulfilled_at: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -3628,7 +3634,9 @@ impl IndexerDb for MarketDb {
                 rs.locked_at as lock_timestamp,
                 rs.lock_price,
                 rs.lock_price_per_cycle,
-                rs.fixed_cost
+                rs.fixed_cost,
+                rs.created_at,
+                rs.fulfilled_at
              FROM request_status rs
              WHERE rs.fulfilled_at >= $1
                AND rs.fulfilled_at < $2
@@ -3654,6 +3662,9 @@ impl IndexerDb for MarketDb {
             let lock_price_per_cycle: Option<String> =
                 row.try_get("lock_price_per_cycle").ok().flatten();
 
+            let created_at: i64 = row.get("created_at");
+            let fulfilled_at: i64 = row.get("fulfilled_at");
+
             results.push(LockPricingData {
                 min_price,
                 max_price,
@@ -3665,6 +3676,8 @@ impl IndexerDb for MarketDb {
                 lock_price,
                 lock_price_per_cycle,
                 fixed_cost: row.try_get("fixed_cost").ok().flatten(),
+                created_at: created_at as u64,
+                fulfilled_at: fulfilled_at as u64,
             });
         }
 
@@ -4033,8 +4046,12 @@ impl MarketDb {
                 best_effective_prove_mhz_request_id,
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2,
+                p50_time_to_lock_seconds,
+                p90_time_to_lock_seconds,
+                p50_time_to_fulfill_seconds,
+                p90_time_to_fulfill_seconds,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, CAST($34 AS DOUBLE PRECISION), CAST($35 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, CAST($34 AS DOUBLE PRECISION), CAST($35 AS DOUBLE PRECISION), $36, $37, $38, $39, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 epoch_number_period_start = EXCLUDED.epoch_number_period_start,
                 total_fulfilled = EXCLUDED.total_fulfilled,
@@ -4070,6 +4087,10 @@ impl MarketDb {
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
                 best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
+                p50_time_to_lock_seconds = EXCLUDED.p50_time_to_lock_seconds,
+                p90_time_to_lock_seconds = EXCLUDED.p90_time_to_lock_seconds,
+                p50_time_to_fulfill_seconds = EXCLUDED.p50_time_to_fulfill_seconds,
+                p90_time_to_fulfill_seconds = EXCLUDED.p90_time_to_fulfill_seconds,
                 updated_at = CURRENT_TIMESTAMP",
             table_name
         );
@@ -4110,6 +4131,10 @@ impl MarketDb {
             .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
             .bind(summary.best_peak_prove_mhz.to_string())
             .bind(summary.best_effective_prove_mhz.to_string())
+            .bind(summary.p50_time_to_lock_seconds as i64)
+            .bind(summary.p90_time_to_lock_seconds as i64)
+            .bind(summary.p50_time_to_fulfill_seconds as i64)
+            .bind(summary.p90_time_to_fulfill_seconds as i64)
             .execute(&self.pool)
             .await?;
 
@@ -4206,7 +4231,11 @@ impl MarketDb {
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
                 best_peak_prove_mhz_v2,
-                best_effective_prove_mhz_v2
+                best_effective_prove_mhz_v2,
+                p50_time_to_lock_seconds,
+                p90_time_to_lock_seconds,
+                p50_time_to_fulfill_seconds,
+                p90_time_to_fulfill_seconds
             FROM {}
             {}
             {}
@@ -4345,6 +4374,26 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str_radix(&s, 16).ok()),
+                p50_time_to_lock_seconds: row
+                    .try_get::<Option<i64>, _>("p50_time_to_lock_seconds")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0) as u64,
+                p90_time_to_lock_seconds: row
+                    .try_get::<Option<i64>, _>("p90_time_to_lock_seconds")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0) as u64,
+                p50_time_to_fulfill_seconds: row
+                    .try_get::<Option<i64>, _>("p50_time_to_fulfill_seconds")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0) as u64,
+                p90_time_to_fulfill_seconds: row
+                    .try_get::<Option<i64>, _>("p90_time_to_fulfill_seconds")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0) as u64,
             })
             .collect();
 
@@ -5141,6 +5190,10 @@ mod tests {
                 best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: 0,
+                p90_time_to_lock_seconds: 0,
+                p50_time_to_fulfill_seconds: 0,
+                p90_time_to_fulfill_seconds: 0,
             };
             db.upsert_hourly_market_summary(summary).await.unwrap();
         }
@@ -5328,6 +5381,10 @@ mod tests {
                 best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: 0,
+                p90_time_to_lock_seconds: 0,
+                p50_time_to_fulfill_seconds: 0,
+                p90_time_to_fulfill_seconds: 0,
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }
@@ -5388,6 +5445,10 @@ mod tests {
                 best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: 0,
+                p90_time_to_lock_seconds: 0,
+                p50_time_to_fulfill_seconds: 0,
+                p90_time_to_fulfill_seconds: 0,
             };
             db.upsert_weekly_market_summary(summary).await.unwrap();
         }
@@ -5452,6 +5513,10 @@ mod tests {
                 best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: 0,
+                p90_time_to_lock_seconds: 0,
+                p50_time_to_fulfill_seconds: 0,
+                p90_time_to_fulfill_seconds: 0,
             };
             db.upsert_monthly_market_summary(summary).await.unwrap();
         }
@@ -5634,6 +5699,10 @@ mod tests {
                 best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: 0,
+                p90_time_to_lock_seconds: 0,
+                p50_time_to_fulfill_seconds: 0,
+                p90_time_to_fulfill_seconds: 0,
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }

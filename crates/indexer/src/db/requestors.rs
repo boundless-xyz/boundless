@@ -980,6 +980,8 @@ pub trait RequestorDb: IndexerDb {
                 lock_price,
                 lock_price_per_cycle,
                 fixed_cost,
+                created_at: 0,
+                fulfilled_at: 0,
             });
         }
 

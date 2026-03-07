@@ -607,6 +607,18 @@ pub struct MarketAggregateEntry {
 
     /// Epoch number at the start of this period (None if timestamp is before epoch 0)
     pub epoch_number_start: Option<i64>,
+
+    /// Median (p50) time from request submission to prover lock, in seconds
+    pub p50_time_to_lock_seconds: i64,
+
+    /// 90th percentile time from request submission to prover lock, in seconds
+    pub p90_time_to_lock_seconds: i64,
+
+    /// Median (p50) time from prover lock to proof delivery, in seconds
+    pub p50_time_to_fulfill_seconds: i64,
+
+    /// 90th percentile time from prover lock to proof delivery, in seconds
+    pub p90_time_to_fulfill_seconds: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1314,6 +1326,10 @@ async fn get_market_aggregates_impl(
                 total_variable_cost: summary.total_variable_cost.to_string(),
                 total_variable_cost_formatted: format_eth(&summary.total_variable_cost.to_string()),
                 epoch_number_start,
+                p50_time_to_lock_seconds: summary.p50_time_to_lock_seconds as i64,
+                p90_time_to_lock_seconds: summary.p90_time_to_lock_seconds as i64,
+                p50_time_to_fulfill_seconds: summary.p50_time_to_fulfill_seconds as i64,
+                p90_time_to_fulfill_seconds: summary.p90_time_to_fulfill_seconds as i64,
             }
         })
         .collect();
@@ -1422,6 +1438,10 @@ async fn get_epoch_market_aggregates_impl(
                 total_variable_cost: summary.total_variable_cost.to_string(),
                 total_variable_cost_formatted: format_eth(&summary.total_variable_cost.to_string()),
                 epoch_number_start,
+                p50_time_to_lock_seconds: summary.p50_time_to_lock_seconds as i64,
+                p90_time_to_lock_seconds: summary.p90_time_to_lock_seconds as i64,
+                p50_time_to_fulfill_seconds: summary.p50_time_to_fulfill_seconds as i64,
+                p90_time_to_fulfill_seconds: summary.p90_time_to_fulfill_seconds as i64,
             }
         })
         .collect();
