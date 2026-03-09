@@ -147,6 +147,7 @@ async fn main() -> Result<()> {
     // prover filtering is done only inside the guest.
     let filter = alloy::rpc::types::Filter::new()
         .address(market_address)
+        .topic2(args.prover_address)
         .event_signature(IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH)
         .from_block(from_block)
         .to_block(to_block);
@@ -177,6 +178,7 @@ async fn main() -> Result<()> {
 
         Event::preflight::<IBoundlessMarket::RequestFulfilled>(env)
             .address(market_address)
+            .topic2(args.prover_address)
             .query()
             .await
             .with_context(|| {

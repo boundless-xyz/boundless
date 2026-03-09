@@ -38,6 +38,7 @@ fn main() {
         // Query all RequestFulfilled events at the market address for this block.
         let events = Event::new::<IBoundlessMarket::RequestFulfilled>(env)
             .address(market_address)
+            .topic2(prover_address)
             .query();
 
         // Filter by the target prover address and count matches.
