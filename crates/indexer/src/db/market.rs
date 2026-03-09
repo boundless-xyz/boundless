@@ -5311,7 +5311,6 @@ mod tests {
                 total_fees_locked: U256::from(i * 1000),
                 total_collateral_locked: U256::from(i * 2000),
                 total_locked_and_expired_collateral: U256::ZERO,
-                total_locked_and_expired_collateral: U256::ZERO,
                 p5_lock_price_per_cycle: U256::from(i * 50),
                 p10_lock_price_per_cycle: U256::from(i * 100),
                 p25_lock_price_per_cycle: U256::from(i * 250),
@@ -5371,7 +5370,6 @@ mod tests {
                 unique_provers_locking_requests: i * 20,
                 unique_requesters_submitting_requests: i * 30,
                 total_fees_locked: U256::from(i * 10000),
-                total_collateral_locked: U256::from(i * 20000),
                 total_collateral_locked: U256::from(i * 20000),
                 total_locked_and_expired_collateral: U256::ZERO,
                 p5_lock_price_per_cycle: U256::from(i * 500),
@@ -5436,7 +5434,6 @@ mod tests {
                 total_fulfilled: i * 1000,
                 unique_provers_locking_requests: i * 200,
                 unique_requesters_submitting_requests: i * 300,
-                total_fees_locked: U256::from(i * 100000),
                 total_fees_locked: U256::from(i * 100000),
                 total_collateral_locked: U256::from(i * 200000),
                 total_locked_and_expired_collateral: U256::ZERO,
@@ -5620,7 +5617,6 @@ mod tests {
                 total_fulfilled: i,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
-                unique_requesters_submitting_requests: i * 3,
                 total_fees_locked: U256::from(i * 1000),
                 total_collateral_locked: U256::from(i * 2000),
                 total_locked_and_expired_collateral: U256::ZERO,
@@ -5778,8 +5774,6 @@ mod tests {
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000u64;
-        let day_in_seconds = 86400u64;
-
         // Insert a summary with distinct p5 value
         let summary = DailyMarketSummary {
             period_timestamp: base_timestamp,
