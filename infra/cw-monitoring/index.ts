@@ -97,6 +97,19 @@ function descHash(s: string): string {
         .toString(16).substring(0, 4);
 }
 
+const RUNBOOK_BASE_URL = "https://github.com/boundless-xyz/runbooks/blob/main";
+
+/** Append a runbook link to an alarm description if a runbook exists for the given slug. */
+function withRunbook(description: string, slug: string): string {
+    return `${description} | Runbook: ${RUNBOOK_BASE_URL}/${slug}.md`;
+}
+
+/** Extract a runbook slug from a log pattern's error code (e.g. "[B-SUB-001]" → "b-sub-001"). */
+function getSlugFromPattern(pattern: string): string | undefined {
+    const match = pattern.match(/\[([A-Z]+-[A-Z]+-\w+)\]/);
+    return match ? match[1].toLowerCase() : undefined;
+}
+
 function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     const { metricsNamespace, alarmNamespace, logGroupPrefix, retentionDays, alarmActions, stackName } = opts;
     const logGroupName = `${logGroupPrefix}/${node.hostname}`;
@@ -126,7 +139,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             statistic: "Minimum",
             period: ac.metricConfig.period,
             ...a,
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "bento-down"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -144,7 +157,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             statistic: "Minimum",
             period: ac.metricConfig.period,
             ...a,
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "no-containers"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -188,7 +201,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ],
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "memory-high"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -232,7 +245,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ],
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "disk-high"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -286,7 +299,11 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                 evaluationPeriods: lp.alarm.alarmConfig.evaluationPeriods,
                 datapointsToAlarm: lp.alarm.alarmConfig.datapointsToAlarm,
                 treatMissingData: lp.alarm.alarmConfig.treatMissingData ?? "notBreaching",
-                alarmDescription: `${lp.alarm.severity}: ${lp.alarm.description} on ${node.name}`,
+                alarmDescription: (() => {
+                    const desc = `${lp.alarm.severity}: ${lp.alarm.description} on ${node.name}`;
+                    const slug = getSlugFromPattern(lp.pattern);
+                    return slug ? withRunbook(desc, slug) : desc;
+                })(),
                 actionsEnabled: true,
                 alarmActions,
             });
