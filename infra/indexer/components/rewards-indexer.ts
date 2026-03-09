@@ -122,7 +122,6 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         rollback: false,
       },
       forceNewDeployment: true,
-      continueBeforeSteadyState: false,
       enableExecuteCommand: true,
       taskDefinitionArgs: {
         logGroup: {

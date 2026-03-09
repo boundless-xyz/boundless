@@ -47,7 +47,15 @@ where
     T: FromRedisValue + Send + Sync + 'static,
 {
     let redis_start = Instant::now();
-    let result = conn.get::<_, T>(key).await;
+    let result: RedisResult<T> = match conn.get::<_, redis::Value>(key).await {
+        Ok(redis::Value::Nil) => Err(redis::RedisError::from((
+            redis::ErrorKind::TypeError,
+            "Key not found (nil response)",
+            key.to_string(),
+        ))),
+        Ok(val) => T::from_redis_value(&val),
+        Err(e) => Err(e),
+    };
     let elapsed = redis_start.elapsed().as_secs_f64();
     let status = if result.is_ok() { "success" } else { "error" };
     helpers::record_redis_operation("get", status, elapsed);

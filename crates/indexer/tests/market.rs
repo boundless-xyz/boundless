@@ -27,3 +27,6 @@ mod basic_backfill;
 
 #[path = "market/execution.rs"]
 mod execution;
+
+#[path = "market/market_efficiency.rs"]
+mod market_efficiency;
