@@ -1,0 +1,47 @@
+[package]
+name = "fulfillment-counter"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.risc0]
+methods = ["guest"]
+
+[features]
+default = ["host"]
+host = [
+    "risc0-op-steel/host",
+    "risc0-steel/host",
+    "dep:alloy",
+    "dep:boundless-market",
+    "dep:clap",
+    "dep:op-alloy-network",
+    "dep:tokio",
+    "dep:tracing-subscriber",
+    "dep:url",
+]
+build-guest = ["dep:risc0-build"]
+
+[dependencies]
+alloy = { version = "1.0", features = ["providers", "rpc-types"], optional = true }
+alloy-primitives = "1.0"
+alloy-sol-types = "1.0"
+anyhow = "1.0"
+boundless-market = { path = "../boundless-market", default-features = false, optional = true }
+bytemuck = { version = "1.23", features = ["must_cast"] }
+clap = { version = "4", features = ["derive", "env"], optional = true }
+op-alloy-network = { version = "0.24", optional = true }
+risc0-op-steel = { git = "https://github.com/boundless-xyz/steel", branch = "feat/multiblock" }
+risc0-steel = { git = "https://github.com/boundless-xyz/steel", branch = "feat/multiblock" }
+risc0-zkvm = { version = "3.0.4", features = ["client", "unstable"] }
+serde = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+url = { version = "2", optional = true }
+
+[build-dependencies]
+risc0-build = { version = "3.0.4", features = ["unstable"], optional = true }
+
+[[bin]]
+name = "fulfillment-counter"
+path = "src/main.rs"
+required-features = ["host"]
