@@ -1238,12 +1238,12 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcdb4c7013139a150f9fc55d123186dbfaba0d912817466282c73ac49e71fb45"
+version = "0.3.15"
+source = "git+https://github.com/risc0/blst?tag=v0.3.15-risczero.1#3d1833ff0c2457cf16068758b33d03f6b624a522"
 dependencies = [
  "cc",
  "glob",
+ "risc0-bigint2",
  "threadpool",
  "zeroize",
 ]
@@ -1333,11 +1333,11 @@ dependencies = [
 
 [[package]]
 name = "c-kzg"
-version = "2.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a0f582957c24870b7bfd12bf562c40b4734b533cafbaf8ded31d6d85f462c01"
+version = "2.1.5"
+source = "git+https://github.com/risc0/c-kzg-4844?tag=v2.1.5-risczero.0#f09162713bbf948e5ad766fd692b98e3d63236c9"
 dependencies = [
  "blst",
+ "bytemuck",
  "cc",
  "glob",
  "hex",
@@ -2171,10 +2171,16 @@ dependencies = [
  "alloy-sol-types",
  "alloy-transport",
  "alloy-tx-macros",
+ "blst",
+ "c-kzg",
  "fulfillment-counter",
+ "k256",
+ "revm",
  "risc0-op-steel",
  "risc0-steel",
  "risc0-zkvm",
+ "substrate-bn",
+ "tiny-keccak",
 ]
 
 [[package]]
@@ -2811,6 +2817,7 @@ dependencies = [
  "risc0-bigint2",
  "serdect",
  "sha2",
+ "signature",
 ]
 
 [[package]]
@@ -4148,9 +4155,9 @@ dependencies = [
 
 [[package]]
 name = "revm-precompile"
-version = "32.1.0"
+version = "32.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2ec11f45deec71e4945e1809736bb20d454285f9167ab53c5159dae1deb603f"
+checksum = "50c1285c848d240678bf69cb0f6179ff5a4aee6fc8e921d89708087197a0aff3"
 dependencies = [
  "ark-bls12-381",
  "ark-bn254",
@@ -4159,6 +4166,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "arrayref",
  "aurora-engine-modexp",
+ "blst",
  "c-kzg",
  "cfg-if",
  "k256",
@@ -4167,6 +4175,7 @@ dependencies = [
  "ripemd",
  "secp256k1 0.31.1",
  "sha2",
+ "substrate-bn",
 ]
 
 [[package]]
@@ -5081,6 +5090,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "substrate-bn"
+version = "0.6.0"
+source = "git+https://github.com/risc0/paritytech-bn?tag=v0.6.0-risczero.0#22108fe8c6ea1ebc1358fc4fd6854a6bf46e3509"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+ "crunchy",
+ "crypto-bigint",
+ "lazy_static",
+ "rand 0.8.5",
+ "risc0-bigint2",
+ "rustc-hex",
 ]
 
 [[package]]
@@ -6280,13 +6304,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "blst"
-version = "0.3.15"
-source = "git+https://github.com/risc0/blst?tag=v0.3.15-risczero.1#3d1833ff0c2457cf16068758b33d03f6b624a522"
-
-[[patch.unused]]
-name = "c-kzg"
-version = "2.1.1"
-source = "git+https://github.com/risc0/c-kzg-4844?tag=c-kzg%2Fv2.1.1-risczero.2#0dabfecbf87539982c16bdafb951615c8a06ead1"
