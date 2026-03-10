@@ -2737,7 +2737,7 @@ mod tests {
         // Insert slash event: burn 20 + transfer 10 = 30 slashed
         // Insert tx first (required FK)
         sqlx::query(
-            "INSERT INTO transactions (tx_hash, from_address, block_number, block_timestamp, log_index)
+            "INSERT INTO transactions (tx_hash, from_address, block_number, block_timestamp, transaction_index)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT DO NOTHING",
         )
@@ -2788,7 +2788,7 @@ mod tests {
 
         // Insert slash event: burn 40 + transfer 20 = 60 slashed
         sqlx::query(
-            "INSERT INTO transactions (tx_hash, from_address, block_number, block_timestamp, log_index)
+            "INSERT INTO transactions (tx_hash, from_address, block_number, block_timestamp, transaction_index)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT DO NOTHING",
         )
