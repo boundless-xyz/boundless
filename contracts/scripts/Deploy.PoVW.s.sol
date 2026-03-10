@@ -166,11 +166,16 @@ contract DeployPoVW is BoundlessScriptBase, RiscZeroCheats {
         // PoVW image IDs (use mock values in dev mode)
         bytes32 logUpdaterId;
         bytes32 mintCalculatorId;
+        bytes32 marketContributionCalculatorId;
+        address marketAddress;
 
         if (devMode) {
             // Use mock image IDs when in dev mode
             logUpdaterId = bytes32(uint256(0x1111111111111111111111111111111111111111111111111111111111111111));
             mintCalculatorId = bytes32(uint256(0x2222222222222222222222222222222222222222222222222222222222222222));
+            marketContributionCalculatorId =
+                bytes32(uint256(0x3333333333333333333333333333333333333333333333333333333333333333));
+            marketAddress = address(0xdead);
             console2.log("Using mock PoVW image IDs for dev mode");
         } else {
             // Check if environment variables are set first
@@ -192,6 +197,15 @@ contract DeployPoVW is BoundlessScriptBase, RiscZeroCheats {
             // Require that we have valid image IDs
             logUpdaterId = BoundlessScript.requireLib(logUpdaterId, "Log Updater ID");
             mintCalculatorId = BoundlessScript.requireLib(mintCalculatorId, "Mint Calculator ID");
+
+            // Market contribution calculator ID and market address from env or deployment config
+            marketContributionCalculatorId = vm.envOr("POVW_MARKET_CONTRIBUTION_CALCULATOR_ID", bytes32(0));
+            marketContributionCalculatorId =
+                BoundlessScript.requireLib(marketContributionCalculatorId, "Market Contribution Calculator ID");
+            marketAddress = vm.envOr("BOUNDLESS_MARKET_ADDRESS", address(0));
+            if (marketAddress == address(0)) {
+                marketAddress = BoundlessScript.requireLib(deploymentConfig.boundlessMarket, "BoundlessMarket");
+            }
         }
 
         console2.log("Log Updater ID: %s", vm.toString(logUpdaterId));
@@ -216,6 +230,8 @@ contract DeployPoVW is BoundlessScriptBase, RiscZeroCheats {
                 verifier,
                 PovwAccounting(povwAccountingAddress),
                 mintCalculatorId,
+                marketContributionCalculatorId,
+                marketAddress,
                 IZKC(zkcAddress),
                 IZKCRewards(vezkcAddress)
             )

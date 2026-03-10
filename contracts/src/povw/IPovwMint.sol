@@ -16,6 +16,21 @@ pragma solidity ^0.8.26;
 
 import {Steel} from "steel/Steel.sol";
 
+/// A prover's market contribution delta over an epoch range.
+struct MarketContribution {
+    address prover;
+    uint256 contribution;
+}
+
+/// Journal committed by the market contribution calculator guest.
+struct MarketContributionJournal {
+    MarketContribution[] contributions;
+    address marketAddress;
+    uint256 epochStart;
+    uint256 epochEnd;
+    Steel.Commitment steelCommit;
+}
+
 /// An update to the commitment for the processing of a work log.
 struct MintCalculatorUpdate {
     /// Work log ID associated that is updated.
@@ -61,9 +76,31 @@ interface IPovwMint {
     error IncorrectSteelContractAddress(address expected, address received);
     /// @dev selector 0xf4a2b615
     error IncorrectInitialUpdateCommit(bytes32 expected, bytes32 received);
+    error CommitAlreadyProcessed(bytes32 commitId);
+    error InvalidPool1FractionBps(uint256 value);
+    error IncorrectMarketAddress(address expected, address received);
+    error EpochCoverageInsufficient(
+        uint256 requiredStart, uint256 requiredEnd, uint256 providedStart, uint256 providedEnd
+    );
 
-    /// @notice Mint tokens as a reward for verifiable work.
+    event EpochCommitted(
+        bytes32 indexed commitId, uint256 totalBase, uint256 totalMarketContribution, uint256 pool1FractionBps
+    );
+    event Pool1FractionBpsUpdated(uint256 oldValue, uint256 newValue);
+
+    /// @notice Emergency mint tokens at 1x (no pool split). Owner only.
     function mint(bytes calldata journalBytes, bytes calldata seal) external;
+
+    /// @notice Commit epoch: verify both proofs, compute two-pool split, mint for all provers. Permissionless.
+    function commitEpoch(
+        bytes calldata mintJournalBytes,
+        bytes calldata mintSeal,
+        bytes calldata marketJournalBytes,
+        bytes calldata marketSeal
+    ) external;
+
+    /// @notice Governance: set Pool 1 fraction in basis points [0, 10000].
+    function setPool1FractionBps(uint256 bps) external;
 
     /// @notice Get the current work log commitment for the given work log.
     /// @dev This commits to the consumed nonces for all updates that have been included in a mint operation.

@@ -122,6 +122,16 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IRiscZeroVerifier public immutable APPLICATION_VERIFIER;
 
+    /// @notice Qualified requestors.
+    mapping(address => bool) public qualifiedRequestors;
+    /// Cumulative sum of each prover's market contribution (sum of fulfilled request prices).
+    mapping(address => uint256) public proverCumulativeContribution;
+
+    /// @notice Array of all prover addresses that have at least one recorded contribution.
+    address[] public contributingProvers;
+    /// @notice Dedup guard for contributingProvers.
+    mapping(address => bool) private _isContributingProver;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         IRiscZeroVerifier verifier,
@@ -536,6 +546,7 @@ contract BoundlessMarket is
         }
         accounts[assessorProver].balance += price;
         accounts[assessorProver].collateralBalance += lock.collateral;
+        _recordContribution(id, assessorProver, lock.price);
     }
 
     /// @notice For a request that was locked, and now the lock has expired. Marks the request as fulfilled,
@@ -603,6 +614,7 @@ contract BoundlessMarket is
             finalPrice = _applyMarketFee(finalPrice);
         }
         accounts[assessorProver].balance += finalPrice;
+        _recordContribution(id, assessorProver, lock.price);
         if (partialPayment) {
             return abi.encodeWithSelector(PartialPayment.selector, price, finalPrice);
         }
@@ -645,6 +657,22 @@ contract BoundlessMarket is
             price = _applyMarketFee(price);
         }
         accounts[assessorProver].balance += price;
+        _recordContribution(id, assessorProver, price);
+    }
+
+    function _recordContribution(RequestId requestId, address prover, uint96 price) internal {
+        if (qualifiedRequestors[requestId.client()]) {
+            proverCumulativeContribution[prover] += price;
+            if (!_isContributingProver[prover]) {
+                _isContributingProver[prover] = true;
+                contributingProvers.push(prover);
+            }
+        }
+    }
+
+    /// @notice Returns the number of provers that have at least one recorded contribution.
+    function contributingProversLength() external view returns (uint256) {
+        return contributingProvers.length;
     }
 
     function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {

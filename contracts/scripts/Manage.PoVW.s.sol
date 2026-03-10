@@ -182,6 +182,24 @@ contract UpgradePoVWMint is BoundlessScriptBase {
 
         console2.log("Mint Calculator ID: %s", vm.toString(mintCalculatorId));
 
+        // Get market contribution calculator ID
+        bytes32 marketContributionCalculatorId;
+        address marketAddress;
+        if (devMode) {
+            marketContributionCalculatorId =
+                bytes32(uint256(0x3333333333333333333333333333333333333333333333333333333333333333));
+            marketAddress = address(0xdead);
+            console2.log("Using mock market contribution calculator ID for dev mode");
+        } else {
+            marketContributionCalculatorId = vm.envOr("POVW_MARKET_CONTRIBUTION_CALCULATOR_ID", bytes32(0));
+            marketContributionCalculatorId =
+                BoundlessScript.requireLib(marketContributionCalculatorId, "Market Contribution Calculator ID");
+            marketAddress = vm.envOr("BOUNDLESS_MARKET_ADDRESS", address(0));
+            if (marketAddress == address(0)) {
+                marketAddress = BoundlessScript.requireLib(deploymentConfig.boundlessMarket, "BoundlessMarket");
+            }
+        }
+
         // Handle ZKC addresses - if zero address, don't upgrade (production should have real ZKC)
         address zkcAddress = BoundlessScript.requireLib(deploymentConfig.zkc, "zkc");
         address vezkcAddress = BoundlessScript.requireLib(deploymentConfig.vezkc, "vezkc");
@@ -192,7 +210,9 @@ contract UpgradePoVWMint is BoundlessScriptBase {
         UpgradeOptions memory opts;
         opts.referenceContract = "build-info-reference:PovwMint";
         opts.referenceBuildInfoDir = "contracts/build-info-reference";
-        opts.constructorData = abi.encode(verifier, povwAccounting, mintCalculatorId, zkc, vezkc);
+        opts.constructorData = abi.encode(
+            verifier, povwAccounting, mintCalculatorId, marketContributionCalculatorId, marketAddress, zkc, vezkc
+        );
 
         // Check if safety checks should be skipped
         bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);

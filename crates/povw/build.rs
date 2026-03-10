@@ -130,7 +130,7 @@ mod build_contracts {
     fn get_contract_constructor(contract: &str) -> &str {
         match contract {
             "PovwAccounting" => "constructor(address verifier, address zkc, bytes32 logUpdaterId) {}\n        function initialize(address initialOwner) {}",
-            "PovwMint" => "constructor(address verifier, address povwAccounting, bytes32 mintCalculatorId, address zkc, address zkcRewards) {}\n        function initialize(address initialOwner) {}",
+            "PovwMint" => "constructor(address verifier, address povwAccounting, bytes32 mintCalculatorId, bytes32 marketContributionCalculatorId, address marketAddress, address zkc, address zkcRewards) {}\n        function initialize(address initialOwner) {}\n        function initializeV2(uint256 _pool1FractionBps) {}",
             _ => "",
         }
     }
