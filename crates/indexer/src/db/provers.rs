@@ -1694,8 +1694,7 @@ async fn get_prover_collateral_balances_impl(
     }
     let received_rows = query_builder.fetch_all(pool).await?;
 
-    let mut received: std::collections::HashMap<Address, U256> =
-        std::collections::HashMap::new();
+    let mut received: std::collections::HashMap<Address, U256> = std::collections::HashMap::new();
     for row in received_rows {
         let addr_str: String = row.try_get("collateral_recipient")?;
         let total_str: String = row.try_get("total_received")?;
@@ -2825,10 +2824,7 @@ mod tests {
 
         // prover1 balance = 200 - 30 (withdrawn) - 30 (slashed: burn 20 + transfer 10) = 140
         // recipient balance = 50 (deposited) + 10 (received transfer_value from slash) = 60
-        let balances = db
-            .get_prover_collateral_balances(&[prover1, recipient])
-            .await
-            .unwrap();
+        let balances = db.get_prover_collateral_balances(&[prover1, recipient]).await.unwrap();
         assert_eq!(balances.get(&prover1), Some(&U256::from(140)));
         assert_eq!(balances.get(&recipient), Some(&U256::from(60)));
     }
