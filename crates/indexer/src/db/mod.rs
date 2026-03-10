@@ -35,7 +35,7 @@ pub use market::{
     RequestCursor, RequestSortField, RequestStatus, SortDirection, TxMetadata, WeeklyProverSummary,
     WeeklyRequestorSummary,
 };
-pub use provers::ProversDb;
+pub use provers::{MarketCollateralStats, ProversDb};
 pub use requestors::RequestorDb;
 
 #[derive(Error, Debug)]
