@@ -47,6 +47,7 @@ use crate::{
     impl_coded_debug, is_dev_mode, now_timestamp,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
+    telemetry::TelemetryHandle,
     Batch, FulfillmentType, Order,
 };
 use thiserror::Error;
@@ -105,6 +106,7 @@ pub struct Submitter<P> {
     set_builder_img_id: Digest,
     prover_address: Address,
     config: ConfigLock,
+    telemetry: TelemetryHandle,
 }
 
 impl<P> Submitter<P>
@@ -120,6 +122,7 @@ where
         set_verifier_addr: Address,
         market_addr: Address,
         set_builder_img_id: Digest,
+        telemetry: TelemetryHandle,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -153,6 +156,7 @@ where
             set_builder_img_id,
             prover_address,
             config,
+            telemetry,
         })
     }
 
@@ -516,6 +520,10 @@ where
                 );
                 continue;
             }
+
+            self.telemetry.record(crate::telemetry::TelemetryEvent::Fulfilled {
+                order_id: order_id.to_string(),
+            });
             let order_price = order_prices
                 .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, collateral_reward: U256::ZERO });
@@ -710,6 +718,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::telemetry::TelemetryHandle;
     use crate::{
         db::SqliteDb,
         now_timestamp,
@@ -967,6 +976,7 @@ mod tests {
             set_verifier,
             market_address,
             set_builder_id,
+            TelemetryHandle::noop(),
         )
         .unwrap();
 

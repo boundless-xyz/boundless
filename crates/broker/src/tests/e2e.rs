@@ -15,7 +15,7 @@
 use std::{future::Future, path::PathBuf};
 
 use crate::{
-    config::{Config, ConfigWatcher},
+    config::{Config, ConfigWatcher, TelemetryMode},
     now_timestamp, Args, Broker,
 };
 use alloy::{
@@ -109,10 +109,27 @@ fn generate_request(
 }
 
 async fn new_config(min_batch_size: u32) -> NamedTempFile {
-    new_config_with_min_deadline(min_batch_size, 100).await
+    new_config_with_options(min_batch_size, 100, TelemetryMode::Disabled).await
 }
 
-async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
+async fn new_config_with_telemetry(
+    min_batch_size: u32,
+    mode: TelemetryMode,
+    heartbeat_interval_secs: u64,
+) -> NamedTempFile {
+    let config_file = new_config_with_options(min_batch_size, 100, mode).await;
+    let mut config = Config::load(config_file.path()).await.unwrap();
+    config.market.request_heartbeat_interval_secs = heartbeat_interval_secs;
+    config.market.broker_heartbeat_interval_secs = heartbeat_interval_secs;
+    config.write(config_file.path()).await.unwrap();
+    config_file
+}
+
+async fn new_config_with_options(
+    min_batch_size: u32,
+    min_deadline: u64,
+    telemetry_mode: TelemetryMode,
+) -> NamedTempFile {
     let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let mut config = Config::default();
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -125,6 +142,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
     config.market.expected_probability_win_secondary_fulfillment = 50;
     config.market.min_deadline = min_deadline;
+    config.market.telemetry_mode = telemetry_mode;
     config.batcher.min_batch_size = min_batch_size;
     // Use static prices for tests to avoid needing real price sources
     config.price_oracle.eth_usd = PriceValue::Static(2500.0);
@@ -370,7 +388,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         .unwrap();
     locker_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    let config = new_config_with_min_deadline(1, 0).await;
+    let config = new_config_with_options(1, 0, TelemetryMode::Disabled).await;
     let args = broker_args(
         config.path().to_path_buf(),
         ctx.deployment.clone(),
@@ -866,6 +884,80 @@ async fn gas_estimation_matches_actual_tx_cost() {
             "estimated gas price ({estimated_gas_price}) should be >= \
              fulfill effective_gas_price ({fulfill_effective_gas_price})"
         );
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn e2e_telemetry_events() {
+    let anvil = Anvil::new().spawn();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    let config = new_config_with_telemetry(1, TelemetryMode::Debug, 2).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
+
+    let broker = Broker::new(
+        args,
+        ctx.prover_provider,
+        ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+
+    let storage = MockStorageUploader::new();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    let request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    run_with_broker(broker, async move {
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+
+        // Wait for the telemetry service to process all events through the full pipeline
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        // The TelemetryService aggregates raw events into a RequestCompleted object
+        // and always logs the final summary regardless of mode.
+        assert!(logs_contain("Request completion summary"));
+        assert!(logs_contain("outcome=Fulfilled"));
+        assert!(logs_contain("fulfillment_type=LockAndFulfill"));
+        assert!(logs_contain("proof_type=Merkle"));
+        assert!(logs_contain("error_code=None"));
+
+        // Wait for the heartbeat interval (2s) to fire
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(logs_contain("Request heartbeat (debug mode)"));
+        assert!(logs_contain("Broker heartbeat (debug mode)"));
     })
     .await;
 }

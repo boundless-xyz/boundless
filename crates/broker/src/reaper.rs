@@ -22,10 +22,10 @@ use tracing::{debug, error, info, warn};
 use crate::{
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
-    errors::CodedError,
+    errors::{cancel_proof_and_fail, BrokerFailure, CodedError},
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils::cancel_proof_and_fail_order,
+    telemetry::TelemetryHandle,
 };
 
 #[derive(Error, Debug)]
@@ -51,11 +51,17 @@ pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
+    telemetry: TelemetryHandle,
 }
 
 impl ReaperTask {
-    pub fn new(db: DbObj, config: ConfigLock, prover: ProverObj) -> Self {
-        Self { db, config, prover }
+    pub fn new(
+        db: DbObj,
+        config: ConfigLock,
+        prover: ProverObj,
+        telemetry: TelemetryHandle,
+    ) -> Self {
+        Self { db, config, prover, telemetry }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -73,12 +79,13 @@ impl ReaperTask {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
-                cancel_proof_and_fail_order(
+                cancel_proof_and_fail(
                     &self.prover,
                     &self.db,
+                    &self.telemetry,
                     &self.config,
                     &order,
-                    "Order expired in reaper",
+                    &BrokerFailure::new("[B-REAP-003]", "Order expired in reaper"),
                 )
                 .await;
             }
@@ -126,6 +133,7 @@ impl RetryTask for ReaperTask {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::telemetry::TelemetryHandle;
     use crate::{
         db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus,
     };
@@ -186,7 +194,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let reaper = ReaperTask::new(db.clone(), config, prover, TelemetryHandle::noop());
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -222,7 +230,7 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let reaper = ReaperTask::new(db.clone(), config, prover, TelemetryHandle::noop());
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -252,9 +260,15 @@ mod tests {
         let stored_expired2 = db.get_order(&expired_order2.id()).await.unwrap().unwrap();
 
         assert_eq!(stored_expired1.status, OrderStatus::Failed);
-        assert_eq!(stored_expired1.error_msg, Some("Order expired in reaper".to_string()));
+        assert_eq!(
+            stored_expired1.error_msg,
+            Some("[B-REAP-003] Order expired in reaper".to_string())
+        );
         assert_eq!(stored_expired2.status, OrderStatus::Failed);
-        assert_eq!(stored_expired2.error_msg, Some("Order expired in reaper".to_string()));
+        assert_eq!(
+            stored_expired2.error_msg,
+            Some("[B-REAP-003] Order expired in reaper".to_string())
+        );
 
         // Check non-expired orders remain unchanged
         let stored_active = db.get_order(&active_order.id()).await.unwrap().unwrap();
@@ -273,7 +287,7 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let reaper = ReaperTask::new(db.clone(), config, prover, TelemetryHandle::noop());
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -300,7 +314,10 @@ mod tests {
         for order in orders {
             let stored_order = db.get_order(&order.id()).await.unwrap().unwrap();
             assert_eq!(stored_order.status, OrderStatus::Failed);
-            assert_eq!(stored_order.error_msg, Some("Order expired in reaper".to_string()));
+            assert_eq!(
+                stored_order.error_msg,
+                Some("[B-REAP-003] Order expired in reaper".to_string())
+            );
         }
     }
 }

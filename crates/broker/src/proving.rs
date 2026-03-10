@@ -18,13 +18,14 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
+    errors::{cancel_proof_and_fail, handle_order_failure, BrokerFailure},
     futures_retry::retry_with_context,
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils::cancel_proof_and_fail_order,
+    telemetry::{TelemetryEvent, TelemetryHandle},
     CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
@@ -71,6 +72,7 @@ pub struct ProvingService {
     priority_requestors: PriorityRequestors,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
     downloader: ConfigurableDownloader,
+    telemetry: TelemetryHandle,
 }
 
 impl ProvingService {
@@ -84,6 +86,7 @@ impl ProvingService {
         priority_requestors: PriorityRequestors,
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
         downloader: ConfigurableDownloader,
+        telemetry: TelemetryHandle,
     ) -> Self {
         Self {
             db,
@@ -94,6 +97,7 @@ impl ProvingService {
             priority_requestors,
             fulfillment_market,
             downloader,
+            telemetry,
         }
     }
 
@@ -394,6 +398,7 @@ impl ProvingService {
     async fn prove_and_update_db(&self, mut order: Order) {
         let order_id = order.id();
         let request_id = order.request.id;
+        let proving_start = std::time::Instant::now();
 
         let (proof_retry_count, proof_retry_sleep_ms) = {
             let config = self.config.lock_all().unwrap();
@@ -416,7 +421,13 @@ impl ProvingService {
                 tracing::error!(
                     "Failed to create stark session for order {order_id}: {proving_err:?}"
                 );
-                handle_order_failure(&self.db, &order_id, "Proving session create failed").await;
+                handle_order_failure(
+                    &self.db,
+                    &self.telemetry,
+                    &order_id,
+                    &BrokerFailure::new(proving_err.code(), "Proving session create failed"),
+                )
+                .await;
                 return;
             }
         };
@@ -432,9 +443,27 @@ impl ProvingService {
         )
         .await;
 
+        let stark_proving_secs = Some(proving_start.elapsed().as_secs_f64());
+
+        // Compression timing: only set when the request's selector requires Groth16 or
+        // Blake3Groth16. Currently measured as total proving wall-clock since STARK and
+        // compression happen inside the same monitor_proof_internal call.
+        let proof_compression_secs = if order.compression_type() != CompressionType::None {
+            Some(proving_start.elapsed().as_secs_f64())
+        } else {
+            None
+        };
+
         match result {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
+
+                self.telemetry.record(TelemetryEvent::ProvingCompleted {
+                    order_id: order_id.clone(),
+                    total_cycles: order.total_cycles,
+                    stark_proving_secs,
+                    proof_compression_secs,
+                });
 
                 // Note: this sanity check isn't strictly necessary, but is to avoid submitting the
                 // order when the fulfillment event was missed.
@@ -451,8 +480,13 @@ impl ProvingService {
                         .unwrap_or(false);
                     if is_fulfilled {
                         tracing::warn!("Fulfillment event was missed, skipping aggregation for fulfilled order {order_id}");
-                        handle_order_failure(&self.db, &order_id, "Fulfilled before aggregation")
-                            .await;
+                        handle_order_failure(
+                            &self.db,
+                            &self.telemetry,
+                            &order_id,
+                            &BrokerFailure::new("[B-PRO-503]", "Fulfilled before aggregation"),
+                        )
+                        .await;
                         return;
                     }
                 }
@@ -463,17 +497,29 @@ impl ProvingService {
             }
             Err(ProvingErr::ShouldCancel(reason)) => {
                 tracing::info!("Order {order_id} not actionable, cancelling proof: {reason}");
-                // Config says to cancel - release capacity immediately
-                cancel_proof_and_fail_order(&self.prover, &self.db, &self.config, &order, reason)
-                    .await;
+                cancel_proof_and_fail(
+                    &self.prover,
+                    &self.db,
+                    &self.telemetry,
+                    &self.config,
+                    &order,
+                    &BrokerFailure::new("[B-PRO-502]", reason),
+                )
+                .await;
             }
             Err(ProvingErr::CompletedNotActionable(reason)) => {
                 tracing::info!(
                     "Order {order_id} proof completed but order not actionable: {reason}"
                 );
-                handle_order_failure(&self.db, &order_id, reason).await;
+                handle_order_failure(
+                    &self.db,
+                    &self.telemetry,
+                    &order_id,
+                    &BrokerFailure::new("[B-PRO-503]", reason),
+                )
+                .await;
             }
-            Err(err) => {
+            Err(ref err) => {
                 tracing::error!(
                     "Order {} with job id {} failed to prove after {} retries: {err:?}",
                     order_id,
@@ -481,7 +527,13 @@ impl ProvingService {
                     proof_retry_count
                 );
 
-                handle_order_failure(&self.db, &order_id, "Proving failed").await;
+                handle_order_failure(
+                    &self.db,
+                    &self.telemetry,
+                    &order_id,
+                    &BrokerFailure::new(err.code(), "Proving failed"),
+                )
+                .await;
             }
         }
     }
@@ -496,7 +548,7 @@ impl ProvingService {
 
             if order.proof_id.is_none() {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
-                handle_order_failure(&self.db, &order_id, "Proving status missing proof_id").await;
+                set_order_failure(&self.db, &order_id, "Proving status missing proof_id").await;
                 continue;
             }
 
@@ -557,7 +609,7 @@ impl RetryTask for ProvingService {
     }
 }
 
-async fn handle_order_failure(db: &DbObj, order_id: &str, failure_reason: &'static str) {
+async fn set_order_failure(db: &DbObj, order_id: &str, failure_reason: &str) {
     if let Err(inner_err) = db.set_order_failure(order_id, failure_reason).await {
         tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
     }
@@ -566,6 +618,7 @@ async fn handle_order_failure(db: &DbObj, order_id: &str, failure_reason: &'stat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::telemetry::TelemetryHandle;
     use crate::{
         db::SqliteDb,
         now_timestamp,
@@ -694,6 +747,7 @@ mod tests {
             priority_requestors,
             market.clone(),
             downloader.clone(),
+            TelemetryHandle::noop(),
         );
 
         let order = create_test_order(
@@ -724,6 +778,7 @@ mod tests {
             priority_requestors,
             market.clone(),
             downloader.clone(),
+            TelemetryHandle::noop(),
         );
 
         let lock_and_fulfill_order = create_test_order(
@@ -783,6 +838,7 @@ mod tests {
             priority_requestors,
             market,
             downloader,
+            TelemetryHandle::noop(),
         );
 
         let order_id = U256::ZERO;
@@ -878,6 +934,7 @@ mod tests {
             priority_requestors,
             market,
             downloader,
+            TelemetryHandle::noop(),
         );
 
         let request_id = U256::from(123);

@@ -19,6 +19,7 @@ use crate::{
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
+    telemetry::{TelemetryEvent, TelemetryHandle},
     utils, Erc1271GasCache, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
@@ -168,6 +169,7 @@ pub struct OrderMonitor<P> {
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
     listen_only: bool,
+    telemetry: TelemetryHandle,
 }
 
 impl<P> OrderMonitor<P>
@@ -189,6 +191,7 @@ where
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
+        telemetry: TelemetryHandle,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -243,6 +246,7 @@ where
             rpc_retry_config,
             gas_priority_mode,
             listen_only,
+            telemetry,
         };
         Ok(monitor)
     }
@@ -597,11 +601,17 @@ where
                         return;
                     }
 
-                    let request_id = order.request.id;
                     let mut should_invalidate = true;
                     match self.lock_order(order).await {
                         Ok(lock_price) => {
-                            tracing::info!("Locked request: 0x{:x}", request_id);
+                            tracing::info!("Locked request: 0x{:x}", order.request.id);
+                            let concurrent_count = self.db.get_committed_orders().await
+                                .map(|o| o.len() as u32).unwrap_or(0);
+                            self.telemetry.record(TelemetryEvent::OrderCommitted {
+                                order_id: order_id.clone(),
+                                committed_at: std::time::Instant::now(),
+                                concurrent_proving_jobs: concurrent_count,
+                            });
                             if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
                                 tracing::error!(
                                     "FATAL STAKE AT RISK: {} failed to move from locking -> proving status {}",
@@ -620,6 +630,11 @@ where
                                 } else {
                                     tracing::warn!("Failed to lock order: {order_id} - {err:?}");
                                 }
+                                self.telemetry.record(TelemetryEvent::Failed {
+                                    order_id: order_id.clone(),
+                                    error_code: err.code().to_string(),
+                                    error_reason: "Lock failed".to_string(),
+                                });
                                 if let Err(e) = self.db.insert_skipped_request(order).await {
                                     tracing::error!("Failed to set DB failure state for order: {order_id} - {e:?}");
                                 }
@@ -638,6 +653,13 @@ where
                         self.prove_cache.invalidate(&order_id).await;
                         return;
                     }
+                    let concurrent_count = self.db.get_committed_orders().await
+                        .map(|o| o.len() as u32).unwrap_or(0);
+                    self.telemetry.record(TelemetryEvent::OrderCommitted {
+                        order_id: order_id.clone(),
+                        committed_at: std::time::Instant::now(),
+                        concurrent_proving_jobs: concurrent_count,
+                    });
                     if let Err(err) = self.db.insert_accepted_request(order, U256::ZERO).await {
                         tracing::error!(
                             "Failed to set order status to pending proving: {} - {err:?}",
@@ -1091,6 +1113,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::telemetry::TelemetryHandle;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
@@ -1264,6 +1287,7 @@ pub(crate) mod tests {
             gas_priority_mode,
             Arc::new(Cache::builder().build()),
             false,
+            TelemetryHandle::noop(),
         )
         .unwrap();
 

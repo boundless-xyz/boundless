@@ -37,7 +37,7 @@ use boundless_market::{
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 pub use config::Config;
-use config::ConfigWatcher;
+use config::{ConfigWatcher, TelemetryMode};
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -53,6 +53,7 @@ use url::Url;
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
+const TELEMETRY_CHANNEL_CAPACITY: usize = 40960;
 
 pub(crate) mod aggregator;
 pub(crate) mod chain_monitor;
@@ -74,6 +75,7 @@ pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
+pub(crate) mod telemetry;
 pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
@@ -782,6 +784,59 @@ where
             })
             .transpose()?;
 
+        let signer = self.args.private_key.clone().expect("Private key must be set");
+        let telemetry_mode =
+            config.lock_all().map(|c| c.market.telemetry_mode.clone()).unwrap_or_default();
+
+        let telemetry_handle = match telemetry_mode {
+            TelemetryMode::Disabled => telemetry::TelemetryHandle::noop(),
+            TelemetryMode::Enabled => {
+                if let Some(ref client) = client {
+                    let (tx, rx) =
+                        mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                    let handle = telemetry::TelemetryHandle::new(tx);
+                    let service = telemetry::TelemetryService::new(
+                        rx,
+                        handle.clone(),
+                        client.clone(),
+                        signer.clone(),
+                        config.clone(),
+                        self.db.clone(),
+                    );
+                    let cancel_token = non_critical_cancel_token.clone();
+                    non_critical_tasks.spawn(async move {
+                        telemetry::run_telemetry_service(service, cancel_token)
+                            .await
+                            .context("Telemetry service failed")?;
+                        Ok(())
+                    });
+                    handle
+                } else {
+                    telemetry::TelemetryHandle::noop()
+                }
+            }
+            TelemetryMode::Debug => {
+                let (tx, rx) =
+                    mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                let handle = telemetry::TelemetryHandle::new(tx);
+                let service = telemetry::TelemetryService::new_debug(
+                    rx,
+                    handle.clone(),
+                    signer.clone(),
+                    config.clone(),
+                    self.db.clone(),
+                );
+                let cancel_token = non_critical_cancel_token.clone();
+                non_critical_tasks.spawn(async move {
+                    telemetry::run_telemetry_service(service, cancel_token)
+                        .await
+                        .context("Telemetry service failed")?;
+                    Ok(())
+                });
+                handle
+            }
+        };
+
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
 
@@ -932,6 +987,7 @@ where
             price_oracle.clone(),
             erc1271_gas_cache.clone(),
             self.args.listen_only,
+            telemetry_handle.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -962,6 +1018,7 @@ where
             self.gas_priority_mode.clone(),
             erc1271_gas_cache,
             self.args.listen_only,
+            telemetry_handle.clone(),
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -983,6 +1040,7 @@ where
                 self.priority_requestors.clone(),
                 market.clone(),
                 self.downloader.clone(),
+                telemetry_handle.clone(),
             ));
 
             let cloned_config = config.clone();
@@ -1008,6 +1066,7 @@ where
                     prover_addr,
                     config.clone(),
                     aggregation_prover.clone(),
+                    telemetry_handle.clone(),
                 )
                 .await
                 .context("Failed to initialize aggregator service")?,
@@ -1025,8 +1084,12 @@ where
             });
 
             // Start the ReaperTask to check for expired committed orders
-            let reaper =
-                Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
+            let reaper = Arc::new(reaper::ReaperTask::new(
+                self.db.clone(),
+                config.clone(),
+                prover.clone(),
+                telemetry_handle.clone(),
+            ));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
             let cancel_token = critical_cancel_token.clone();
@@ -1046,6 +1109,7 @@ where
                 self.deployment().set_verifier_address,
                 self.deployment().boundless_market_address,
                 set_builder_img_id,
+                telemetry_handle.clone(),
             )?);
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
