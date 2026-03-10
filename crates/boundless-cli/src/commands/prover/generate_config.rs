@@ -291,7 +291,7 @@ impl ProverGenerateConfig {
         display.item_colored("  Result", format!("{} exec agents", max_exec_agents), "cyan");
         display.note("");
 
-        let max_concurrent_preflights = max_exec_agents.saturating_sub(2).max(1);
+        let max_concurrent_preflights = max_exec_agents.saturating_sub(2).max(8);
         display.note("  Formula: max_concurrent_preflights =");
         display.note("    (");
         display.note(&format!("      {} exec agents", max_exec_agents));
