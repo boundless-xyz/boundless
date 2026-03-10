@@ -153,6 +153,14 @@
       "description": "",
       "tags": [],
       "extensions": {}
+    },
+    {
+      "address": "0x2ade4c1473b147bd00ba91526505ffca948e4340",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
     }
   ]
 }

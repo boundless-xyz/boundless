@@ -520,6 +520,12 @@ pub struct MarketAggregateEntry {
     /// Total collateral from locked requests that expired (formatted for display)
     pub total_locked_and_expired_collateral_formatted: String,
 
+    /// 5th percentile lock price per cycle (as string)
+    pub p5_lock_price_per_cycle: String,
+
+    /// 5th percentile lock price per cycle (formatted for display)
+    pub p5_lock_price_per_cycle_formatted: String,
+
     /// 10th percentile lock price per cycle (as string)
     pub p10_lock_price_per_cycle: String,
 
@@ -1263,6 +1269,7 @@ async fn get_market_aggregates_impl(
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
                 summary.total_locked_and_expired_collateral.to_string();
+            let p5_lock_price_per_cycle = summary.p5_lock_price_per_cycle.to_string();
             let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
             let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
             let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
@@ -1296,6 +1303,8 @@ async fn get_market_aggregates_impl(
                 total_locked_and_expired_collateral_formatted: format_zkc(
                     &total_locked_and_expired_collateral,
                 ),
+                p5_lock_price_per_cycle: p5_lock_price_per_cycle.clone(),
+                p5_lock_price_per_cycle_formatted: format_eth(&p5_lock_price_per_cycle),
                 p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
                 p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
                 p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
@@ -1389,6 +1398,7 @@ async fn get_epoch_market_aggregates_impl(
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
                 summary.total_locked_and_expired_collateral.to_string();
+            let p5_lock_price_per_cycle = summary.p5_lock_price_per_cycle.to_string();
             let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
             let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
             let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
@@ -1413,6 +1423,8 @@ async fn get_epoch_market_aggregates_impl(
                 total_locked_and_expired_collateral_formatted: format_zkc(
                     &total_locked_and_expired_collateral,
                 ),
+                p5_lock_price_per_cycle: p5_lock_price_per_cycle.clone(),
+                p5_lock_price_per_cycle_formatted: format_eth(&p5_lock_price_per_cycle),
                 p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
                 p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
                 p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
