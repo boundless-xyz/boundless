@@ -197,7 +197,6 @@ pub(crate) struct TelemetryService {
     eval_buffer: Vec<RequestEvaluated>,
     comp_buffer: Vec<RequestCompleted>,
     uptime_start: Instant,
-    debug_mode: bool,
     request_heartbeat_interval_secs: u64,
     broker_heartbeat_interval_secs: u64,
 }
@@ -225,7 +224,6 @@ impl TelemetryService {
             eval_buffer: Vec::new(),
             comp_buffer: Vec::new(),
             uptime_start: Instant::now(),
-            debug_mode: false,
             request_heartbeat_interval_secs: req_interval,
             broker_heartbeat_interval_secs: broker_interval,
         }
@@ -252,7 +250,6 @@ impl TelemetryService {
             eval_buffer: Vec::new(),
             comp_buffer: Vec::new(),
             uptime_start: Instant::now(),
-            debug_mode: true,
             request_heartbeat_interval_secs: req_interval,
             broker_heartbeat_interval_secs: broker_interval,
         }
@@ -287,7 +284,7 @@ impl TelemetryService {
                 entry.total_cycles = total_cycles;
                 entry.received_at_timestamp = received_at_timestamp;
 
-                self.eval_buffer.push(RequestEvaluated {
+                let evaluated = RequestEvaluated {
                     broker_address: self.broker_address,
                     order_id,
                     request_id: format!("0x{request_id:x}"),
@@ -304,7 +301,15 @@ impl TelemetryService {
                     preflight_duration_ms,
                     received_at_timestamp,
                     evaluated_at: Utc::now(),
-                });
+                };
+
+                tracing::debug!(
+                    payload = %serde_json::to_string(&evaluated).unwrap_or_default(),
+                    "(Telemetry) Request Evaluated: {}",
+                    evaluated.order_id,
+                );
+
+                self.eval_buffer.push(evaluated);
             }
             TelemetryEvent::OrderCommitted { order_id, committed_at, concurrent_proving_jobs } => {
                 let entry = self.in_flight.entry(order_id).or_insert_with(InFlightRequest::new);
@@ -416,24 +421,10 @@ impl TelemetryService {
             completed_at: Utc::now(),
         };
 
-        tracing::info!(
-            order_id = %order_id,
-            outcome = ?completed.outcome,
-            total_duration_secs = completed.total_duration_secs,
-            proving_duration_secs = ?completed.proving_duration_secs,
-            aggregation_duration_secs = ?completed.aggregation_duration_secs,
-            submission_duration_secs = ?completed.submission_duration_secs,
-            stark_proving_secs = ?completed.stark_proving_secs,
-            proof_compression_secs = ?completed.proof_compression_secs,
-            set_builder_proving_secs = ?completed.set_builder_proving_secs,
-            assessor_proving_secs = ?completed.assessor_proving_secs,
-            assessor_compression_proof_secs = ?completed.assessor_compression_proof_secs,
-            proof_type = %completed.proof_type,
-            fulfillment_type = %completed.fulfillment_type,
-            total_cycles = ?completed.total_cycles,
-            error_code = ?completed.error_code,
-            error_reason = ?completed.error_reason,
-            "Request completion summary"
+        tracing::debug!(
+            payload = %serde_json::to_string(&completed).unwrap_or_default(),
+            "(Telemetry) Request Completed: {}",
+            order_id,
         );
 
         self.comp_buffer.push(completed);
@@ -464,33 +455,23 @@ impl TelemetryService {
             timestamp: Utc::now(),
         };
 
-        if self.debug_mode {
-            tracing::debug!(
-                broker = %heartbeat.broker_address,
-                committed_orders = heartbeat.committed_orders_count,
-                pending_preflight = heartbeat.pending_preflight_count,
-                version = %heartbeat.version,
-                uptime_secs = heartbeat.uptime_secs,
-                events_dropped = heartbeat.events_dropped,
-                "Broker heartbeat (debug mode)"
-            );
-            return;
-        }
-
-        let Some(ref client) = self.client else { return };
-        if let Err(e) = client.submit_heartbeat(&heartbeat, &self.signer).await {
-            tracing::warn!("Failed to send broker heartbeat: {e}");
+        let submitted = if let Some(ref client) = self.client {
+            match client.submit_heartbeat(&heartbeat, &self.signer).await {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::warn!("Failed to send broker heartbeat: {e}");
+                    false
+                }
+            }
         } else {
-            tracing::info!(
-                broker = %heartbeat.broker_address,
-                committed_orders = heartbeat.committed_orders_count,
-                pending_preflight = heartbeat.pending_preflight_count,
-                version = %heartbeat.version,
-                uptime_secs = heartbeat.uptime_secs,
-                events_dropped = heartbeat.events_dropped,
-                "Broker heartbeat"
-            );
-        }
+            false
+        };
+
+        tracing::debug!(
+            submitted,
+            payload = %serde_json::to_string(&heartbeat).unwrap_or_default(),
+            "(Telemetry) Broker Heartbeat",
+        );
     }
 
     async fn send_request_heartbeat(&mut self) {
@@ -506,31 +487,27 @@ impl TelemetryService {
             timestamp: Utc::now(),
         };
 
-        if self.debug_mode {
-            tracing::debug!(
-                evaluations = heartbeat.evaluated.len(),
-                completions = heartbeat.completed.len(),
-                events_dropped = heartbeat.events_dropped,
-                "Request heartbeat (debug mode)"
-            );
-            return;
-        }
-
-        let Some(ref client) = self.client else { return };
-        if let Err(e) = client.submit_request_heartbeat(&heartbeat, &self.signer).await {
-            tracing::warn!(
-                "Failed to send request heartbeat ({} evals, {} completions): {e}",
-                heartbeat.evaluated.len(),
-                heartbeat.completed.len()
-            );
+        let submitted = if let Some(ref client) = self.client {
+            match client.submit_request_heartbeat(&heartbeat, &self.signer).await {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to send request heartbeat ({} evals, {} completions): {e}",
+                        heartbeat.evaluated.len(),
+                        heartbeat.completed.len()
+                    );
+                    false
+                }
+            }
         } else {
-            tracing::debug!(
-                evaluations = heartbeat.evaluated.len(),
-                completions = heartbeat.completed.len(),
-                events_dropped = heartbeat.events_dropped,
-                "Request heartbeat sent"
-            );
-        }
+            false
+        };
+
+        tracing::debug!(
+            submitted,
+            payload = %serde_json::to_string(&heartbeat).unwrap_or_default(),
+            "(Telemetry) Request Heartbeat",
+        );
     }
 
     fn evict_stale_entries(&mut self) {
