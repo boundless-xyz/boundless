@@ -150,9 +150,9 @@ mod tests {
         let p90 = percentiles[1].to::<u64>();
 
         // p50 should be around the median (between 15 and 20)
-        assert!(p50 >= 15 && p50 <= 20, "p50 should be ~15-20, got {}", p50);
+        assert!((15..=20).contains(&p50), "p50 should be ~15-20, got {}", p50);
         // p90 should be near the top (between 45 and 60)
-        assert!(p90 >= 45 && p90 <= 60, "p90 should be ~45-60, got {}", p90);
+        assert!((45..=60).contains(&p90), "p90 should be ~45-60, got {}", p90);
         // p90 >= p50 always
         assert!(p90 >= p50, "p90 ({}) should be >= p50 ({})", p90, p50);
     }
