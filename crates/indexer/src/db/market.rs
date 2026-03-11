@@ -5885,6 +5885,10 @@ mod tests {
             best_effective_prove_mhz: 0.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
+            p50_time_to_lock_seconds: 0,
+            p90_time_to_lock_seconds: 0,
+            p50_time_to_fulfill_seconds: 0,
+            p90_time_to_fulfill_seconds: 0,
         };
         db.upsert_daily_market_summary(summary).await.unwrap();
 
