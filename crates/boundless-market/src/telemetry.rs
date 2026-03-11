@@ -76,8 +76,11 @@ pub enum EvalOutcome {
 pub struct RequestEvaluated {
     /// Ethereum address of the broker that evaluated this request.
     pub broker_address: Address,
-    /// Hex-encoded request ID.
+    /// Hex-encoded request ID (on-chain sequential ID).
     pub request_id: String,
+    /// Hex-encoded request digest (content hash). The true unique identifier for orders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_digest: Option<String>,
     /// Address of the requestor who submitted the proof request.
     pub requestor: Address,
     /// Evaluation outcome.
@@ -128,8 +131,11 @@ pub enum CompletionOutcome {
 pub struct RequestCompleted {
     /// Ethereum address of the broker that processed this request.
     pub broker_address: Address,
-    /// Hex-encoded request ID.
+    /// Hex-encoded request ID (on-chain sequential ID).
     pub request_id: String,
+    /// Hex-encoded request digest (content hash). The true unique identifier for orders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_digest: Option<String>,
     /// Terminal outcome.
     pub outcome: CompletionOutcome,
     /// Broker error code (e.g. "[B-SUB-001]"), if applicable.

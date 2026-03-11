@@ -92,13 +92,16 @@ async fn telemetry_end_to_end() {
 
     // Send RequestHeartbeat with one evaluation and one completion
     let eval_request_id = format!("0x{run_id}e");
+    let eval_request_digest = format!("0x{run_id}ed");
     let comp_request_id = format!("0x{run_id}c");
+    let comp_request_digest = format!("0x{run_id}cd");
 
     let request_heartbeat = RequestHeartbeat {
         broker_address,
         evaluated: vec![RequestEvaluated {
             broker_address,
             request_id: eval_request_id.clone(),
+            request_digest: Some(eval_request_digest.clone()),
             requestor: Address::ZERO,
             outcome: EvalOutcome::Locked,
             skip_reason: None,
@@ -113,6 +116,7 @@ async fn telemetry_end_to_end() {
         completed: vec![RequestCompleted {
             broker_address,
             request_id: comp_request_id.clone(),
+            request_digest: Some(comp_request_digest.clone()),
             outcome: CompletionOutcome::Fulfilled,
             error_code: None,
             lock_duration_secs: Some(5),
