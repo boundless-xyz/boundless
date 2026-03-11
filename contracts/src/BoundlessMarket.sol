@@ -849,20 +849,31 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function depositCollateral(uint256 value) external {
         // Transfer tokens from user to market
-        _depositCollateral(msg.sender, value);
+        _depositCollateral(msg.sender, msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function depositCollateralTo(address to, uint256 value) external {
+        _depositCollateral(msg.sender, to, value);
     }
 
     /// @inheritdoc IBoundlessMarket
     function depositCollateralWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         // Transfer tokens from user to market
         try ERC20(COLLATERAL_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
-        _depositCollateral(msg.sender, value);
+        _depositCollateral(msg.sender, msg.sender, value);
     }
 
-    function _depositCollateral(address from, uint256 value) internal {
+    /// @inheritdoc IBoundlessMarket
+    function depositCollateralWithPermitTo(address to, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+        try ERC20(COLLATERAL_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
+        _depositCollateral(msg.sender, to, value);
+    }
+
+    function _depositCollateral(address from, address to, uint256 value) internal {
         ERC20(COLLATERAL_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
-        accounts[from].collateralBalance += value.toUint96();
-        emit CollateralDeposit(from, value);
+        accounts[to].collateralBalance += value.toUint96();
+        emit CollateralDeposit(to, value);
     }
 
     /// @inheritdoc IBoundlessMarket
