@@ -92,7 +92,9 @@ async fn telemetry_end_to_end() {
 
     // Send RequestHeartbeat with one evaluation and one completion
     let eval_request_id = format!("0x{run_id}e");
+    let eval_request_digest = format!("0x{run_id}ed");
     let comp_request_id = format!("0x{run_id}c");
+    let comp_request_digest = format!("0x{run_id}cd");
 
     let request_heartbeat = RequestHeartbeat {
         broker_address,
@@ -157,6 +159,19 @@ async fn telemetry_end_to_end() {
         .connect(&env.redshift_url)
         .await
         .expect("failed to connect to Redshift");
+
+    // Verify that Redshift migrations have been applied before polling.
+    let schema_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'telemetry')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("failed to query information_schema");
+    assert!(
+        schema_exists,
+        "Redshift schema 'telemetry' does not exist. \
+         Run the migration script first: infra/order-stream/redshift-migrations/apply.sh <stack>"
+    );
 
     let broker_addr_str = format!("{broker_address:#x}");
     let max_attempts = 18;

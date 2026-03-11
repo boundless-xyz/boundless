@@ -41,57 +41,99 @@ SELECT
 FROM kds."${KINESIS_COMPLETIONS_STREAM}"
 WHERE CAN_JSON_PARSE(kinesis_data);
 
--- Layer 2: Typed views (easily replaceable when fields are added)
+-- Layer 2: Typed views with deduplication via ROW_NUMBER().
+-- Streaming materialized views are append-only, so broker retries produce
+-- duplicates. These views keep only the latest record per natural key.
 
 CREATE OR REPLACE VIEW telemetry.broker_heartbeats AS
 SELECT
-    data.broker_address::VARCHAR(42)       AS broker_address,
-    data.config                            AS config,
-    data.committed_orders_count::INTEGER   AS committed_orders_count,
-    data.pending_preflight_count::INTEGER  AS pending_preflight_count,
-    data.version::VARCHAR(64)              AS version,
-    data.uptime_secs::BIGINT               AS uptime_secs,
-    data.events_dropped::BIGINT            AS events_dropped,
-    data.timestamp::TIMESTAMPTZ            AS timestamp,
-    received_at
-FROM telemetry.heartbeats_raw;
+    broker_address, config, committed_orders_count, pending_preflight_count,
+    version, uptime_secs, events_dropped, "timestamp", received_at
+FROM (
+    SELECT
+        data.broker_address::VARCHAR(42)       AS broker_address,
+        data.config                            AS config,
+        data.committed_orders_count::INTEGER   AS committed_orders_count,
+        data.pending_preflight_count::INTEGER  AS pending_preflight_count,
+        data.version::VARCHAR(64)              AS version,
+        data.uptime_secs::BIGINT               AS uptime_secs,
+        data.events_dropped::BIGINT            AS events_dropped,
+        data."timestamp"::TIMESTAMPTZ          AS "timestamp",
+        received_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY data.broker_address, data."timestamp"
+            ORDER BY received_at DESC
+        ) AS rn
+    FROM telemetry.heartbeats_raw
+)
+WHERE rn = 1;
 
 CREATE OR REPLACE VIEW telemetry.request_evaluations AS
 SELECT
-    data.broker_address::VARCHAR(42)              AS broker_address,
-    data.request_id::VARCHAR(78)                  AS request_id,
-    data.requestor::VARCHAR(42)                   AS requestor,
-    data.outcome::VARCHAR(32)                     AS outcome,
-    data.skip_reason::VARCHAR(512)                AS skip_reason,
-    data.total_cycles::BIGINT                     AS total_cycles,
-    data.estimated_proving_time_secs::BIGINT      AS estimated_proving_time_secs,
-    data.fulfillment_type::VARCHAR(32)            AS fulfillment_type,
-    data.preflight_cache_hit::BOOLEAN             AS preflight_cache_hit,
-    data.queue_duration_ms::BIGINT                AS queue_duration_ms,
-    data.preflight_duration_ms::BIGINT            AS preflight_duration_ms,
-    data.evaluated_at::TIMESTAMPTZ                AS evaluated_at,
-    received_at
-FROM telemetry.evaluations_raw;
+    broker_address, request_digest, request_id, requestor, outcome,
+    skip_reason, total_cycles, estimated_proving_time_secs,
+    fulfillment_type, preflight_cache_hit, queue_duration_ms,
+    preflight_duration_ms, evaluated_at, received_at
+FROM (
+    SELECT
+        data.broker_address::VARCHAR(42)              AS broker_address,
+        data.request_digest::VARCHAR(78)              AS request_digest,
+        data.request_id::VARCHAR(78)                  AS request_id,
+        data.requestor::VARCHAR(42)                   AS requestor,
+        data.outcome::VARCHAR(32)                     AS outcome,
+        data.skip_reason::VARCHAR(512)                AS skip_reason,
+        data.total_cycles::BIGINT                     AS total_cycles,
+        data.estimated_proving_time_secs::BIGINT      AS estimated_proving_time_secs,
+        data.fulfillment_type::VARCHAR(32)            AS fulfillment_type,
+        data.preflight_cache_hit::BOOLEAN             AS preflight_cache_hit,
+        data.queue_duration_ms::BIGINT                AS queue_duration_ms,
+        data.preflight_duration_ms::BIGINT            AS preflight_duration_ms,
+        data.evaluated_at::TIMESTAMPTZ                AS evaluated_at,
+        received_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY data.broker_address,
+                         data.request_digest,
+                         data.outcome
+            ORDER BY received_at DESC
+        ) AS rn
+    FROM telemetry.evaluations_raw
+)
+WHERE rn = 1;
 
 CREATE OR REPLACE VIEW telemetry.request_completions AS
 SELECT
-    data.broker_address::VARCHAR(42)              AS broker_address,
-    data.request_id::VARCHAR(78)                  AS request_id,
-    data.outcome::VARCHAR(32)                     AS outcome,
-    data.error_code::VARCHAR(32)                  AS error_code,
-    data.lock_duration_secs::BIGINT               AS lock_duration_secs,
-    data.proving_duration_secs::BIGINT            AS proving_duration_secs,
-    data.aggregation_duration_secs::BIGINT        AS aggregation_duration_secs,
-    data.submission_duration_secs::BIGINT         AS submission_duration_secs,
-    data.total_duration_secs::BIGINT              AS total_duration_secs,
-    data.estimated_proving_time_secs::BIGINT      AS estimated_proving_time_secs,
-    data.actual_proving_time_secs::BIGINT         AS actual_proving_time_secs,
-    data.concurrent_proving_jobs::INTEGER         AS concurrent_proving_jobs,
-    data.total_cycles::BIGINT                     AS total_cycles,
-    data.fulfillment_type::VARCHAR(32)            AS fulfillment_type,
-    data.completed_at::TIMESTAMPTZ                AS completed_at,
-    received_at
-FROM telemetry.completions_raw;
+    broker_address, request_digest, request_id, outcome, error_code,
+    lock_duration_secs, proving_duration_secs, aggregation_duration_secs,
+    submission_duration_secs, total_duration_secs, estimated_proving_time_secs,
+    actual_proving_time_secs, concurrent_proving_jobs, total_cycles,
+    fulfillment_type, completed_at, received_at
+FROM (
+    SELECT
+        data.broker_address::VARCHAR(42)              AS broker_address,
+        data.request_digest::VARCHAR(78)              AS request_digest,
+        data.request_id::VARCHAR(78)                  AS request_id,
+        data.outcome::VARCHAR(32)                     AS outcome,
+        data.error_code::VARCHAR(32)                  AS error_code,
+        data.lock_duration_secs::BIGINT               AS lock_duration_secs,
+        data.proving_duration_secs::BIGINT            AS proving_duration_secs,
+        data.aggregation_duration_secs::BIGINT        AS aggregation_duration_secs,
+        data.submission_duration_secs::BIGINT         AS submission_duration_secs,
+        data.total_duration_secs::BIGINT              AS total_duration_secs,
+        data.estimated_proving_time_secs::BIGINT      AS estimated_proving_time_secs,
+        data.actual_proving_time_secs::BIGINT         AS actual_proving_time_secs,
+        data.concurrent_proving_jobs::INTEGER         AS concurrent_proving_jobs,
+        data.total_cycles::BIGINT                     AS total_cycles,
+        data.fulfillment_type::VARCHAR(32)            AS fulfillment_type,
+        data.completed_at::TIMESTAMPTZ                AS completed_at,
+        received_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY data.broker_address,
+                         data.request_digest
+            ORDER BY received_at DESC
+        ) AS rn
+    FROM telemetry.completions_raw
+)
+WHERE rn = 1;
 
 -- Read-only user grants (user created by apply.sh before running migrations)
 GRANT USAGE ON SCHEMA telemetry TO readonly;
