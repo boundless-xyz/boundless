@@ -867,6 +867,18 @@ pub struct RequestorAggregateEntry {
     /// Total variable cost (formatted for display)
     pub total_variable_cost_formatted: String,
 
+    /// Median (p50) time-to-lock in seconds (locked_at - created_at)
+    pub p50_time_to_lock_seconds: Option<f64>,
+
+    /// 90th percentile time-to-lock in seconds (locked_at - created_at)
+    pub p90_time_to_lock_seconds: Option<f64>,
+
+    /// Median (p50) time-to-fulfill in seconds (fulfilled_at - locked_at)
+    pub p50_time_to_fulfill_seconds: Option<f64>,
+
+    /// 90th percentile time-to-fulfill in seconds (fulfilled_at - locked_at)
+    pub p90_time_to_fulfill_seconds: Option<f64>,
+
     /// Epoch number at the start of this period (None if timestamp is before epoch 0)
     pub epoch_number_start: Option<i64>,
 }
@@ -1861,6 +1873,10 @@ async fn get_requestor_aggregates_impl(
                 total_fixed_cost_formatted: format_eth(&summary.total_fixed_cost.to_string()),
                 total_variable_cost: summary.total_variable_cost.to_string(),
                 total_variable_cost_formatted: format_eth(&summary.total_variable_cost.to_string()),
+                p50_time_to_lock_seconds: summary.p50_time_to_lock_seconds,
+                p90_time_to_lock_seconds: summary.p90_time_to_lock_seconds,
+                p50_time_to_fulfill_seconds: summary.p50_time_to_fulfill_seconds,
+                p90_time_to_fulfill_seconds: summary.p90_time_to_fulfill_seconds,
                 epoch_number_start,
             }
         })
