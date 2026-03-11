@@ -159,6 +159,27 @@ mod tests {
     }
 
     #[test]
+    fn test_compute_percentiles_with_p5() {
+        // 20 values: 1, 2, 3, ..., 20
+        let mut values: Vec<U256> = (1..=20).map(U256::from).collect();
+        let percentiles = compute_percentiles(&mut values, &[5, 10, 25, 50, 75, 90, 95, 99]);
+
+        // p5 should be near the bottom of the distribution
+        assert!(percentiles[0] <= percentiles[1], "p5 <= p10");
+        assert!(percentiles[1] <= percentiles[2], "p10 <= p25");
+        assert!(percentiles[2] <= percentiles[3], "p25 <= p50");
+        assert!(percentiles[3] <= percentiles[4], "p50 <= p75");
+        assert!(percentiles[4] <= percentiles[5], "p75 <= p90");
+        assert!(percentiles[5] <= percentiles[6], "p90 <= p95");
+        assert!(percentiles[6] <= percentiles[7], "p95 <= p99");
+
+        // p5 of [1..=20] with linear interpolation: rank = 0.05 * 19 = 0.95
+        // lower = values[0] = 1, upper = values[1] = 2, frac = 0.95
+        // result = 1 + 0.95 * (2 - 1) = 1.95, truncated to 1 (U256 integer math)
+        assert!(percentiles[0] >= U256::from(1) && percentiles[0] <= U256::from(2));
+    }
+
+    #[test]
     fn test_compute_percentile_u64_empty() {
         let values: Vec<u64> = vec![];
         assert_eq!(compute_percentile_u64(&values, 50), 0);

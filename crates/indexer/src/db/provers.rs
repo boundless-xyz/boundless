@@ -858,6 +858,42 @@ pub trait ProversDb: IndexerDb {
     ) -> Result<std::collections::HashMap<Address, u64>, DbError> {
         get_prover_last_activity_times_impl(self.pool(), prover_addresses).await
     }
+
+    /// Get current collateral balances for a list of provers.
+    /// Computed as SUM(deposits) - SUM(withdrawals) - SUM(slashed) + SUM(received_from_slashing) from indexed events.
+    async fn get_prover_collateral_balances(
+        &self,
+        prover_addresses: &[Address],
+    ) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+        get_prover_collateral_balances_impl(self.pool(), prover_addresses).await
+    }
+
+    /// Get currently locked collateral for a list of provers.
+    /// Sum of lock_collateral from request_status where status is 'locked'.
+    async fn get_prover_currently_locked_collateral(
+        &self,
+        prover_addresses: &[Address],
+    ) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+        get_prover_currently_locked_collateral_impl(self.pool(), prover_addresses).await
+    }
+
+    /// Get market-wide collateral stats: total deposited across all provers
+    /// and count of provers with deposited balance >= threshold.
+    async fn get_market_collateral_stats(
+        &self,
+        eligible_threshold: U256,
+    ) -> Result<MarketCollateralStats, DbError> {
+        get_market_collateral_stats_impl(self.pool(), eligible_threshold).await
+    }
+}
+
+/// Market-wide collateral statistics
+#[derive(Debug, Clone)]
+pub struct MarketCollateralStats {
+    /// Total ZKC deposited across all provers (current, not cumulative)
+    pub total_collateral_deposited: U256,
+    /// Number of provers with deposited balance >= threshold
+    pub eligible_prover_count: u64,
 }
 
 // Blanket implementation for anything that implements IndexerDb
@@ -1425,6 +1461,8 @@ async fn get_prover_leaderboard_impl(
             best_effective_prove_mhz,
             locked_order_fulfillment_rate,
             last_activity_time: 0,
+            collateral_deposited_zkc: U256::ZERO,
+            collateral_available_zkc: U256::ZERO,
         });
     }
 
@@ -1554,12 +1592,255 @@ async fn get_prover_last_activity_times_impl(
     Ok(result)
 }
 
+/// Get current collateral balance for provers by computing
+/// SUM(deposits) - SUM(withdrawals) - SUM(slashed) + SUM(received_from_slashing) from indexed on-chain events.
+async fn get_prover_collateral_balances_impl(
+    pool: &PgPool,
+    prover_addresses: &[Address],
+) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+    if prover_addresses.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let placeholders: Vec<String> =
+        (1..=prover_addresses.len()).map(|i| format!("${}", i)).collect();
+    let placeholders_str = placeholders.join(", ");
+
+    // Get total deposits per prover
+    let deposit_query = format!(
+        "SELECT account, LPAD(SUM(CAST(value AS NUMERIC))::TEXT, 78, '0') as total_deposited
+        FROM collateral_deposit_events
+        WHERE account IN ({})
+        GROUP BY account",
+        placeholders_str
+    );
+
+    let mut query_builder = sqlx::query(&deposit_query);
+    for addr in prover_addresses {
+        query_builder = query_builder.bind(format!("{:x}", addr));
+    }
+    let deposit_rows = query_builder.fetch_all(pool).await?;
+
+    let mut deposits: std::collections::HashMap<Address, U256> = std::collections::HashMap::new();
+    for row in deposit_rows {
+        let addr_str: String = row.try_get("account")?;
+        let total_str: String = row.try_get("total_deposited")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        deposits.insert(addr, padded_string_to_u256(&total_str)?);
+    }
+
+    // Get total withdrawals per prover
+    let withdrawal_query = format!(
+        "SELECT account, LPAD(SUM(CAST(value AS NUMERIC))::TEXT, 78, '0') as total_withdrawn
+        FROM collateral_withdrawal_events
+        WHERE account IN ({})
+        GROUP BY account",
+        placeholders_str
+    );
+
+    let mut query_builder = sqlx::query(&withdrawal_query);
+    for addr in prover_addresses {
+        query_builder = query_builder.bind(format!("{:x}", addr));
+    }
+    let withdrawal_rows = query_builder.fetch_all(pool).await?;
+
+    let mut withdrawals: std::collections::HashMap<Address, U256> =
+        std::collections::HashMap::new();
+    for row in withdrawal_rows {
+        let addr_str: String = row.try_get("account")?;
+        let total_str: String = row.try_get("total_withdrawn")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        withdrawals.insert(addr, padded_string_to_u256(&total_str)?);
+    }
+
+    // Get total slashed collateral per prover (burn_value + transfer_value)
+    let slashed_query = format!(
+        "SELECT prover_address,
+                LPAD(SUM(CAST(burn_value AS NUMERIC) + CAST(transfer_value AS NUMERIC))::TEXT, 78, '0') as total_slashed
+        FROM prover_slashed_events
+        WHERE prover_address IN ({})
+        GROUP BY prover_address",
+        placeholders_str
+    );
+
+    let mut query_builder = sqlx::query(&slashed_query);
+    for addr in prover_addresses {
+        query_builder = query_builder.bind(format!("{:x}", addr));
+    }
+    let slashed_rows = query_builder.fetch_all(pool).await?;
+
+    let mut slashed: std::collections::HashMap<Address, U256> = std::collections::HashMap::new();
+    for row in slashed_rows {
+        let addr_str: String = row.try_get("prover_address")?;
+        let total_str: String = row.try_get("total_slashed")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        slashed.insert(addr, padded_string_to_u256(&total_str)?);
+    }
+
+    // Get total transfer_value received as collateral_recipient from slashing events
+    let received_query = format!(
+        "SELECT collateral_recipient,
+                LPAD(SUM(CAST(transfer_value AS NUMERIC))::TEXT, 78, '0') as total_received
+        FROM prover_slashed_events
+        WHERE collateral_recipient IN ({})
+        GROUP BY collateral_recipient",
+        placeholders_str
+    );
+
+    let mut query_builder = sqlx::query(&received_query);
+    for addr in prover_addresses {
+        query_builder = query_builder.bind(format!("{:x}", addr));
+    }
+    let received_rows = query_builder.fetch_all(pool).await?;
+
+    let mut received: std::collections::HashMap<Address, U256> = std::collections::HashMap::new();
+    for row in received_rows {
+        let addr_str: String = row.try_get("collateral_recipient")?;
+        let total_str: String = row.try_get("total_received")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        received.insert(addr, padded_string_to_u256(&total_str)?);
+    }
+
+    // Compute balance = deposits - withdrawals - slashed + received_from_slashing for each prover
+    let mut result = std::collections::HashMap::new();
+    for addr in prover_addresses {
+        let deposited = deposits.get(addr).copied().unwrap_or(U256::ZERO);
+        let withdrawn = withdrawals.get(addr).copied().unwrap_or(U256::ZERO);
+        let slashed_amt = slashed.get(addr).copied().unwrap_or(U256::ZERO);
+        let received_amt = received.get(addr).copied().unwrap_or(U256::ZERO);
+        let balance = deposited
+            .saturating_sub(withdrawn)
+            .saturating_sub(slashed_amt)
+            .saturating_add(received_amt);
+        result.insert(*addr, balance);
+    }
+
+    Ok(result)
+}
+
+/// Get currently locked collateral for provers from active locks in request_status.
+async fn get_prover_currently_locked_collateral_impl(
+    pool: &PgPool,
+    prover_addresses: &[Address],
+) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+    if prover_addresses.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let placeholders: Vec<String> =
+        (1..=prover_addresses.len()).map(|i| format!("${}", i)).collect();
+    let placeholders_str = placeholders.join(", ");
+
+    let query = format!(
+        "SELECT lock_prover_address,
+                LPAD(SUM(CAST(lock_collateral AS NUMERIC))::TEXT, 78, '0') as total_locked
+        FROM request_status
+        WHERE lock_prover_address IN ({})
+          AND request_status = 'locked'
+        GROUP BY lock_prover_address",
+        placeholders_str
+    );
+
+    let mut query_builder = sqlx::query(&query);
+    for addr in prover_addresses {
+        query_builder = query_builder.bind(format!("{:x}", addr));
+    }
+    let rows = query_builder.fetch_all(pool).await?;
+
+    let mut result = std::collections::HashMap::new();
+    for row in rows {
+        let addr_str: String = row.try_get("lock_prover_address")?;
+        let total_str: String = row.try_get("total_locked")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        result.insert(addr, padded_string_to_u256(&total_str)?);
+    }
+
+    Ok(result)
+}
+
+/// Get market-wide collateral stats across all provers.
+async fn get_market_collateral_stats_impl(
+    pool: &PgPool,
+    eligible_threshold: U256,
+) -> Result<MarketCollateralStats, DbError> {
+    // Compute per-prover balance = deposits - withdrawals - slashed + received_from_slashing, then aggregate
+    let row = sqlx::query(
+        "WITH deposits AS (
+            SELECT account, SUM(CAST(value AS NUMERIC)) AS total_deposited
+            FROM collateral_deposit_events
+            GROUP BY account
+        ),
+        withdrawals AS (
+            SELECT account, SUM(CAST(value AS NUMERIC)) AS total_withdrawn
+            FROM collateral_withdrawal_events
+            GROUP BY account
+        ),
+        slashed AS (
+            SELECT prover_address AS account,
+                   SUM(CAST(burn_value AS NUMERIC) + CAST(transfer_value AS NUMERIC)) AS total_slashed
+            FROM prover_slashed_events
+            GROUP BY prover_address
+        ),
+        received_from_slashing AS (
+            SELECT collateral_recipient AS account,
+                   SUM(CAST(transfer_value AS NUMERIC)) AS total_received
+            FROM prover_slashed_events
+            GROUP BY collateral_recipient
+        ),
+        all_accounts AS (
+            SELECT account FROM deposits
+            UNION
+            SELECT account FROM received_from_slashing
+        ),
+        prover_balances AS (
+            SELECT
+                a.account,
+                COALESCE(d.total_deposited, 0)
+                    - COALESCE(w.total_withdrawn, 0)
+                    - COALESCE(s.total_slashed, 0)
+                    + COALESCE(r.total_received, 0) AS balance
+            FROM all_accounts a
+            LEFT JOIN deposits d ON a.account = d.account
+            LEFT JOIN withdrawals w ON a.account = w.account
+            LEFT JOIN slashed s ON a.account = s.account
+            LEFT JOIN received_from_slashing r ON a.account = r.account
+            WHERE COALESCE(d.total_deposited, 0)
+                    - COALESCE(w.total_withdrawn, 0)
+                    - COALESCE(s.total_slashed, 0)
+                    + COALESCE(r.total_received, 0) > 0
+        )
+        SELECT
+            COALESCE(LPAD(SUM(balance)::TEXT, 78, '0'), LPAD('0', 78, '0')) as total_deposited,
+            COUNT(CASE WHEN balance >= CAST($1 AS NUMERIC) THEN 1 END)::BIGINT as eligible_count
+        FROM prover_balances",
+    )
+    .bind(eligible_threshold.to_string())
+    .fetch_one(pool)
+    .await?;
+
+    let total_str: String = row.try_get("total_deposited")?;
+    let eligible_count: i64 = row.try_get("eligible_count")?;
+
+    Ok(MarketCollateralStats {
+        total_collateral_deposited: padded_string_to_u256(&total_str)?,
+        eligible_prover_count: eligible_count as u64,
+    })
+}
+
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::{
-        db::market::{RequestStatusType, SlashedStatus},
+        db::{
+            events::EventsDb,
+            market::{RequestStatusType, SlashedStatus, TxMetadata},
+        },
         test_utils::TestDb,
     };
     use alloy::primitives::{B256, U256};
@@ -2259,5 +2540,371 @@ mod tests {
             db.get_prover_leaderboard(1700000000, 1700003600, true, None, None, 10).await.unwrap();
 
         assert!(results.is_empty());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_collateral_balances(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+        let prover2 = Address::from([0xBB; 20]);
+        let prover3 = Address::from([0xCC; 20]); // no deposits
+
+        // Insert deposit events for prover1: two deposits totaling 150
+        let deposits = vec![
+            (
+                prover1,
+                U256::from(100),
+                TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 1, 1000, 0),
+            ),
+            (
+                prover1,
+                U256::from(50),
+                TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 2, 1001, 0),
+            ),
+            // prover2: one deposit of 200
+            (
+                prover2,
+                U256::from(200),
+                TxMetadata::new(B256::from([0x03; 32]), Address::ZERO, 3, 1002, 0),
+            ),
+        ];
+        db.add_collateral_deposit_events(&deposits).await.unwrap();
+
+        // Insert withdrawal for prover1: withdraw 30
+        let withdrawals = vec![(
+            prover1,
+            U256::from(30),
+            TxMetadata::new(B256::from([0x04; 32]), Address::ZERO, 4, 1003, 0),
+        )];
+        db.add_collateral_withdrawal_events(&withdrawals).await.unwrap();
+
+        // Query balances
+        let balances =
+            db.get_prover_collateral_balances(&[prover1, prover2, prover3]).await.unwrap();
+
+        // prover1: 100 + 50 - 30 = 120
+        assert_eq!(balances.get(&prover1), Some(&U256::from(120)));
+        // prover2: 200 - 0 = 200
+        assert_eq!(balances.get(&prover2), Some(&U256::from(200)));
+        // prover3: no deposits = 0
+        assert_eq!(balances.get(&prover3), Some(&U256::ZERO));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_collateral_balances_empty(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let result = db.get_prover_collateral_balances(&[]).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_currently_locked_collateral(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+        let prover2 = Address::from([0xBB; 20]);
+        let client = Address::from([0x11; 20]);
+        let base_ts = 1700000000u64;
+
+        // Create locked requests for prover1
+        let mut statuses = Vec::new();
+        for i in 0..2u8 {
+            statuses.push(RequestStatus {
+                request_digest: B256::from([i + 1; 32]),
+                request_id: U256::from(i),
+                request_status: RequestStatusType::Locked,
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: client,
+                lock_prover_address: Some(prover1),
+                fulfill_prover_address: None,
+                created_at: base_ts,
+                updated_at: base_ts,
+                locked_at: Some(base_ts),
+                fulfilled_at: None,
+                slashed_at: None,
+                lock_prover_delivered_proof_at: None,
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: None,
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: "500".to_string(),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 10000,
+                lock_end: base_ts + 10000,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: None,
+                total_cycles: None,
+                peak_prove_mhz: None,
+                effective_prove_mhz: None,
+                prover_effective_prove_mhz: None,
+                cycle_status: None,
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("100".to_string()),
+                fixed_cost: None,
+                variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
+                submit_tx_hash: Some(B256::ZERO),
+                lock_tx_hash: Some(B256::from([0x10 + i; 32])),
+                fulfill_tx_hash: None,
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: None,
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: "0x00".to_string(),
+                fulfill_journal: None,
+                fulfill_seal: None,
+            });
+        }
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        let locked = db.get_prover_currently_locked_collateral(&[prover1, prover2]).await.unwrap();
+
+        // prover1: 2 locked requests * 500 = 1000
+        assert_eq!(locked.get(&prover1), Some(&U256::from(1000)));
+        // prover2: no locked requests
+        assert_eq!(locked.get(&prover2), None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_market_collateral_stats(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+        let prover2 = Address::from([0xBB; 20]);
+        let prover3 = Address::from([0xCC; 20]);
+
+        // prover1 deposits 100
+        let deposits = vec![
+            (
+                prover1,
+                U256::from(100),
+                TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 1, 1000, 0),
+            ),
+            // prover2 deposits 50
+            (
+                prover2,
+                U256::from(50),
+                TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 2, 1001, 0),
+            ),
+            // prover3 deposits 10
+            (
+                prover3,
+                U256::from(10),
+                TxMetadata::new(B256::from([0x03; 32]), Address::ZERO, 3, 1002, 0),
+            ),
+        ];
+        db.add_collateral_deposit_events(&deposits).await.unwrap();
+
+        // Threshold = 50: prover1 (100) and prover2 (50) are eligible
+        let stats = db.get_market_collateral_stats(U256::from(50)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(160)); // 100 + 50 + 10
+        assert_eq!(stats.eligible_prover_count, 2); // prover1 and prover2
+
+        // Threshold = 100: only prover1 is eligible
+        let stats = db.get_market_collateral_stats(U256::from(100)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(160));
+        assert_eq!(stats.eligible_prover_count, 1);
+
+        // Threshold = 200: no one eligible
+        let stats = db.get_market_collateral_stats(U256::from(200)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(160));
+        assert_eq!(stats.eligible_prover_count, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_market_collateral_stats_with_withdrawals(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+
+        // Deposit 100
+        let deposits = vec![(
+            prover1,
+            U256::from(100),
+            TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 1, 1000, 0),
+        )];
+        db.add_collateral_deposit_events(&deposits).await.unwrap();
+
+        // Withdraw 80 (balance = 20)
+        let withdrawals = vec![(
+            prover1,
+            U256::from(80),
+            TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 2, 1001, 0),
+        )];
+        db.add_collateral_withdrawal_events(&withdrawals).await.unwrap();
+
+        // Threshold = 50: prover1 has 20, not eligible
+        let stats = db.get_market_collateral_stats(U256::from(50)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(20));
+        assert_eq!(stats.eligible_prover_count, 0);
+
+        // Threshold = 10: prover1 has 20, eligible
+        let stats = db.get_market_collateral_stats(U256::from(10)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(20));
+        assert_eq!(stats.eligible_prover_count, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_collateral_balances_with_slashing(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+        let recipient = Address::from([0xDD; 20]);
+
+        // Deposit 200 for prover1, 50 for recipient
+        let deposits = vec![
+            (
+                prover1,
+                U256::from(200),
+                TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 1, 1000, 0),
+            ),
+            (
+                recipient,
+                U256::from(50),
+                TxMetadata::new(B256::from([0x06; 32]), Address::ZERO, 6, 1005, 0),
+            ),
+        ];
+        db.add_collateral_deposit_events(&deposits).await.unwrap();
+
+        // Withdraw 30 from prover1
+        let withdrawals = vec![(
+            prover1,
+            U256::from(30),
+            TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 2, 1001, 0),
+        )];
+        db.add_collateral_withdrawal_events(&withdrawals).await.unwrap();
+
+        // Insert slash event: burn 20 + transfer 10 to recipient = 30 slashed from prover1
+        // Insert tx first (required FK)
+        sqlx::query(
+            "INSERT INTO transactions (tx_hash, from_address, block_number, block_timestamp, transaction_index)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(format!("{:x}", B256::from([0x03; 32])))
+        .bind(format!("{:x}", Address::ZERO))
+        .bind(3i64)
+        .bind(1002i64)
+        .bind(0i64)
+        .fetch_optional(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO prover_slashed_events (request_id, prover_address, burn_value, transfer_value, collateral_recipient, tx_hash, block_number, block_timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind("1")
+        .bind(format!("{:x}", prover1))
+        .bind("20")
+        .bind("10")
+        .bind(format!("{:x}", recipient))
+        .bind(format!("{:x}", B256::from([0x03; 32])))
+        .bind(3i64)
+        .bind(1002i64)
+        .fetch_optional(&test_db.pool)
+        .await
+        .unwrap();
+
+        // prover1 balance = 200 - 30 (withdrawn) - 30 (slashed: burn 20 + transfer 10) = 140
+        // recipient balance = 50 (deposited) + 10 (received transfer_value from slash) = 60
+        let balances = db.get_prover_collateral_balances(&[prover1, recipient]).await.unwrap();
+        assert_eq!(balances.get(&prover1), Some(&U256::from(140)));
+        assert_eq!(balances.get(&recipient), Some(&U256::from(60)));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_market_collateral_stats_with_slashing(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+        let recipient = Address::from([0xDD; 20]);
+
+        // Deposit 100 for prover1
+        let deposits = vec![(
+            prover1,
+            U256::from(100),
+            TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 1, 1000, 0),
+        )];
+        db.add_collateral_deposit_events(&deposits).await.unwrap();
+
+        // Insert slash event: burn 40 + transfer 20 to recipient = 60 slashed from prover1
+        sqlx::query(
+            "INSERT INTO transactions (tx_hash, from_address, block_number, block_timestamp, transaction_index)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(format!("{:x}", B256::from([0x05; 32])))
+        .bind(format!("{:x}", Address::ZERO))
+        .bind(5i64)
+        .bind(1004i64)
+        .bind(0i64)
+        .fetch_optional(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO prover_slashed_events (request_id, prover_address, burn_value, transfer_value, collateral_recipient, tx_hash, block_number, block_timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind("99")
+        .bind(format!("{:x}", prover1))
+        .bind("40")
+        .bind("20")
+        .bind(format!("{:x}", recipient))
+        .bind(format!("{:x}", B256::from([0x05; 32])))
+        .bind(5i64)
+        .bind(1004i64)
+        .fetch_optional(&test_db.pool)
+        .await
+        .unwrap();
+
+        // prover1 balance = 100 - 60 (slashed) = 40
+        // recipient balance = 0 (no deposits) + 20 (received transfer_value) = 20
+        // total = 40 + 20 = 60 (burn_value of 40 is destroyed, not in anyone's balance)
+
+        // Threshold = 50: not eligible (prover1=40, recipient=20)
+        let stats = db.get_market_collateral_stats(U256::from(50)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(60));
+        assert_eq!(stats.eligible_prover_count, 0);
+
+        // Threshold = 30: only prover1 eligible (40 >= 30, recipient 20 < 30)
+        let stats = db.get_market_collateral_stats(U256::from(30)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(60));
+        assert_eq!(stats.eligible_prover_count, 1);
+
+        // Threshold = 15: both eligible (prover1=40 >= 15, recipient=20 >= 15)
+        let stats = db.get_market_collateral_stats(U256::from(15)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::from(60));
+        assert_eq!(stats.eligible_prover_count, 2);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_market_collateral_stats_empty(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let stats = db.get_market_collateral_stats(U256::from(20)).await.unwrap();
+        assert_eq!(stats.total_collateral_deposited, U256::ZERO);
+        assert_eq!(stats.eligible_prover_count, 0);
     }
 }
