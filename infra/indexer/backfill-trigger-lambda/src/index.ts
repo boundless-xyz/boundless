@@ -160,7 +160,7 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
     };
   }
 
-  // Build command
+  // Build command - backfill image has ENTRYPOINT set to the binary
   const command: string[] = [
     '--mode', mode,
     '--rpc-url', process.env.RPC_URL!,

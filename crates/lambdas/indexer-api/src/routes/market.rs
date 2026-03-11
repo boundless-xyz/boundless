@@ -29,6 +29,12 @@ use utoipa;
 use crate::{
     db::AppState,
     handler::{bad_request_invalid_address, cache_control, handle_error, AddressRole},
+    models::{
+        EfficiencyAggregateEntry, EfficiencyAggregatesParams, EfficiencyAggregatesResponse,
+        EfficiencyRequestEntry, EfficiencyRequestsParams, EfficiencyRequestsResponse,
+        EfficiencySummaryParams, EfficiencySummaryResponse, EfficiencyType,
+        MoreProfitableSampleEntry,
+    },
     utils::{format_eth, format_zkc, is_valid_ethereum_address},
 };
 use boundless_indexer::db::market::{
@@ -57,6 +63,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/provers/:address/requests", get(list_requests_by_prover))
         .route("/provers/:address/aggregates", get(get_prover_aggregates))
         .route("/provers/:address/cumulatives", get(get_prover_cumulatives))
+        .route("/efficiency", get(get_efficiency_summary))
+        .route("/efficiency/aggregates", get(get_efficiency_aggregates))
+        .route("/efficiency/requests", get(list_efficiency_requests))
+        .route("/efficiency/requests/:request_id", get(get_efficiency_request_by_id))
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -400,6 +410,14 @@ pub struct ProverLeaderboardEntry {
     pub best_effective_prove_mhz: f64,
     /// Locked order fulfillment rate as percentage (0-100)
     pub locked_order_fulfillment_rate: f32,
+    /// Current ZKC deposited by this prover (as string, computed from deposit/withdrawal events)
+    pub collateral_deposited_zkc: String,
+    /// Current ZKC deposited (formatted for display)
+    pub collateral_deposited_zkc_formatted: String,
+    /// ZKC available for new locks: deposited minus currently locked (as string)
+    pub collateral_available_zkc: String,
+    /// ZKC available for new locks (formatted for display)
+    pub collateral_available_zkc_formatted: String,
     /// Last activity timestamp (Unix)
     pub last_activity_time: i64,
     /// Last activity timestamp (ISO 8601)
@@ -501,6 +519,12 @@ pub struct MarketAggregateEntry {
 
     /// Total collateral from locked requests that expired (formatted for display)
     pub total_locked_and_expired_collateral_formatted: String,
+
+    /// 5th percentile lock price per cycle (as string)
+    pub p5_lock_price_per_cycle: String,
+
+    /// 5th percentile lock price per cycle (formatted for display)
+    pub p5_lock_price_per_cycle_formatted: String,
 
     /// 10th percentile lock price per cycle (as string)
     pub p10_lock_price_per_cycle: String,
@@ -608,6 +632,12 @@ pub struct MarketAggregatesResponse {
     pub data: Vec<MarketAggregateEntry>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
+    /// Total ZKC currently deposited across all provers (current on-chain state, not cumulative)
+    pub total_collateral_deposited: String,
+    /// Total ZKC currently deposited (formatted for display)
+    pub total_collateral_deposited_formatted: String,
+    /// Number of provers with deposited collateral >= eligibility threshold
+    pub eligible_prover_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1239,6 +1269,7 @@ async fn get_market_aggregates_impl(
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
                 summary.total_locked_and_expired_collateral.to_string();
+            let p5_lock_price_per_cycle = summary.p5_lock_price_per_cycle.to_string();
             let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
             let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
             let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
@@ -1272,6 +1303,8 @@ async fn get_market_aggregates_impl(
                 total_locked_and_expired_collateral_formatted: format_zkc(
                     &total_locked_and_expired_collateral,
                 ),
+                p5_lock_price_per_cycle: p5_lock_price_per_cycle.clone(),
+                p5_lock_price_per_cycle_formatted: format_eth(&p5_lock_price_per_cycle),
                 p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
                 p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
                 p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
@@ -1308,12 +1341,21 @@ async fn get_market_aggregates_impl(
         })
         .collect();
 
+    // Fetch current market-wide collateral stats
+    // 20 ZKC = 20 * 10^18 wei
+    let eligible_threshold = U256::from(20) * U256::from(10).pow(U256::from(18));
+    let collateral_stats = state.market_db.get_market_collateral_stats(eligible_threshold).await?;
+    let total_deposited_str = collateral_stats.total_collateral_deposited.to_string();
+
     Ok(MarketAggregatesResponse {
         chain_id: state.chain_id,
         aggregation: params.aggregation,
         data,
         next_cursor,
         has_more,
+        total_collateral_deposited: total_deposited_str.clone(),
+        total_collateral_deposited_formatted: format_zkc(&total_deposited_str),
+        eligible_prover_count: collateral_stats.eligible_prover_count,
     })
 }
 
@@ -1356,6 +1398,7 @@ async fn get_epoch_market_aggregates_impl(
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
                 summary.total_locked_and_expired_collateral.to_string();
+            let p5_lock_price_per_cycle = summary.p5_lock_price_per_cycle.to_string();
             let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
             let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
             let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
@@ -1380,6 +1423,8 @@ async fn get_epoch_market_aggregates_impl(
                 total_locked_and_expired_collateral_formatted: format_zkc(
                     &total_locked_and_expired_collateral,
                 ),
+                p5_lock_price_per_cycle: p5_lock_price_per_cycle.clone(),
+                p5_lock_price_per_cycle_formatted: format_eth(&p5_lock_price_per_cycle),
                 p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
                 p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
                 p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
@@ -1416,12 +1461,20 @@ async fn get_epoch_market_aggregates_impl(
         })
         .collect();
 
+    // Fetch current market-wide collateral stats
+    let eligible_threshold = U256::from(20) * U256::from(10).pow(U256::from(18));
+    let collateral_stats = state.market_db.get_market_collateral_stats(eligible_threshold).await?;
+    let total_deposited_str = collateral_stats.total_collateral_deposited.to_string();
+
     Ok(MarketAggregatesResponse {
         chain_id: state.chain_id,
         aggregation: AggregationGranularity::Epoch,
         data,
         next_cursor,
         has_more,
+        total_collateral_deposited: total_deposited_str.clone(),
+        total_collateral_deposited_formatted: format_zkc(&total_deposited_str),
+        eligible_prover_count: collateral_stats.eligible_prover_count,
     })
 }
 
@@ -3192,10 +3245,13 @@ async fn list_provers_impl(
     // Get addresses for batch queries
     let addresses: Vec<Address> = entries.iter().map(|e| e.prover_address).collect();
 
-    // Fetch median lock prices and last activity times in batch
+    // Fetch median lock prices, last activity times, and collateral balances in batch
     let median_prices =
         state.market_db.get_prover_median_lock_prices(&addresses, start_ts, end_ts).await?;
     let last_activities = state.market_db.get_prover_last_activity_times(&addresses).await?;
+    let collateral_balances = state.market_db.get_prover_collateral_balances(&addresses).await?;
+    let locked_collateral =
+        state.market_db.get_prover_currently_locked_collateral(&addresses).await?;
 
     // Build response entries
     let data: Vec<ProverLeaderboardEntry> = entries
@@ -3210,6 +3266,12 @@ async fn list_provers_impl(
             let last_activity_iso = DateTime::<Utc>::from_timestamp(last_activity as i64, 0)
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
                 .unwrap_or_default();
+
+            let deposited =
+                collateral_balances.get(&entry.prover_address).copied().unwrap_or(U256::ZERO);
+            let currently_locked =
+                locked_collateral.get(&entry.prover_address).copied().unwrap_or(U256::ZERO);
+            let available = deposited.saturating_sub(currently_locked);
 
             ProverLeaderboardEntry {
                 chain_id: state.chain_id,
@@ -3226,6 +3288,10 @@ async fn list_provers_impl(
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
                 best_effective_prove_mhz: entry.best_effective_prove_mhz,
                 locked_order_fulfillment_rate: entry.locked_order_fulfillment_rate,
+                collateral_deposited_zkc: deposited.to_string(),
+                collateral_deposited_zkc_formatted: format_zkc(&deposited.to_string()),
+                collateral_available_zkc: available.to_string(),
+                collateral_available_zkc_formatted: format_zkc(&available.to_string()),
                 last_activity_time: last_activity as i64,
                 last_activity_time_iso: last_activity_iso,
             }
@@ -3252,4 +3318,409 @@ async fn list_provers_impl(
         next_cursor,
         has_more,
     })
+}
+
+const MAX_EFFICIENCY_RESULTS: u64 = 500;
+
+/// GET /v1/market/efficiency
+/// Returns market efficiency summary statistics
+#[utoipa::path(
+    get,
+    path = "/v1/market/efficiency",
+    tag = "Market",
+    params(EfficiencySummaryParams),
+    responses(
+        (status = 200, description = "Market efficiency summary", body = EfficiencySummaryResponse),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn get_efficiency_summary(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<EfficiencySummaryParams>,
+) -> Response {
+    match get_efficiency_summary_impl(state, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_efficiency_summary_impl(
+    state: Arc<AppState>,
+    params: EfficiencySummaryParams,
+) -> anyhow::Result<EfficiencySummaryResponse> {
+    let summary = match params.r#type {
+        EfficiencyType::GasAdjustedWithExclusions => {
+            state.efficiency_db.get_efficiency_summary_gas_adjusted_with_exclusions().await?
+        }
+        EfficiencyType::GasAdjusted => {
+            state.efficiency_db.get_efficiency_summary_gas_adjusted().await?
+        }
+        EfficiencyType::Raw => state.efficiency_db.get_efficiency_summary().await?,
+    };
+
+    let last_updated = summary.last_updated.map(|ts| {
+        DateTime::<Utc>::from_timestamp(ts, 0)
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+            .unwrap_or_default()
+    });
+
+    Ok(EfficiencySummaryResponse {
+        latest_hourly_efficiency_rate: summary.latest_hourly_efficiency_rate,
+        latest_daily_efficiency_rate: summary.latest_daily_efficiency_rate,
+        total_requests_analyzed: summary.total_requests_analyzed,
+        most_profitable_locked: summary.most_profitable_locked,
+        not_most_profitable_locked: summary.not_most_profitable_locked,
+        last_updated,
+    })
+}
+
+/// GET /v1/market/efficiency/aggregates
+/// Returns time-series efficiency aggregates
+#[utoipa::path(
+    get,
+    path = "/v1/market/efficiency/aggregates",
+    tag = "Market",
+    params(EfficiencyAggregatesParams),
+    responses(
+        (status = 200, description = "Efficiency aggregates", body = EfficiencyAggregatesResponse),
+        (status = 400, description = "Invalid parameters"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn get_efficiency_aggregates(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<EfficiencyAggregatesParams>,
+) -> Response {
+    match get_efficiency_aggregates_impl(state, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_efficiency_aggregates_impl(
+    state: Arc<AppState>,
+    params: EfficiencyAggregatesParams,
+) -> anyhow::Result<EfficiencyAggregatesResponse> {
+    let limit = params.limit.min(MAX_EFFICIENCY_RESULTS);
+    let sort_desc = params.sort.to_lowercase() != "asc";
+
+    // Decode cursor if provided
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        let decoded =
+            BASE64.decode(cursor_str).map_err(|e| anyhow::anyhow!("Invalid cursor: {}", e))?;
+        let cursor_val: u64 = String::from_utf8(decoded)
+            .map_err(|e| anyhow::anyhow!("Invalid cursor encoding: {}", e))?
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid cursor value: {}", e))?;
+        Some(cursor_val)
+    } else {
+        None
+    };
+
+    // Request one extra to determine if more pages exist
+    let mut aggregates = match params.r#type {
+        EfficiencyType::GasAdjustedWithExclusions => {
+            state
+                .efficiency_db
+                .get_efficiency_aggregates_gas_adjusted_with_exclusions(
+                    &params.granularity,
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::GasAdjusted => {
+            state
+                .efficiency_db
+                .get_efficiency_aggregates_gas_adjusted(
+                    &params.granularity,
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::Raw => {
+            state
+                .efficiency_db
+                .get_efficiency_aggregates(
+                    &params.granularity,
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+    };
+
+    let has_more = aggregates.len() > limit as usize;
+    if has_more {
+        aggregates.pop();
+    }
+
+    let data: Vec<EfficiencyAggregateEntry> = aggregates
+        .into_iter()
+        .map(|agg| {
+            let period_timestamp_iso =
+                DateTime::<Utc>::from_timestamp(agg.period_timestamp as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                    .unwrap_or_default();
+
+            EfficiencyAggregateEntry {
+                period_timestamp: agg.period_timestamp,
+                period_timestamp_iso,
+                num_most_profitable_locked: agg.num_most_profitable_locked,
+                num_not_most_profitable_locked: agg.num_not_most_profitable_locked,
+                efficiency_rate: agg.efficiency_rate,
+            }
+        })
+        .collect();
+
+    let next_cursor = if has_more && !data.is_empty() {
+        let last = data.last().unwrap();
+        Some(BASE64.encode(last.period_timestamp.to_string()))
+    } else {
+        None
+    };
+
+    Ok(EfficiencyAggregatesResponse { data, has_more, next_cursor })
+}
+
+/// GET /v1/market/efficiency/requests
+/// Returns individual request efficiency records
+#[utoipa::path(
+    get,
+    path = "/v1/market/efficiency/requests",
+    tag = "Market",
+    params(EfficiencyRequestsParams),
+    responses(
+        (status = 200, description = "Efficiency request records", body = EfficiencyRequestsResponse),
+        (status = 400, description = "Invalid parameters"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn list_efficiency_requests(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<EfficiencyRequestsParams>,
+) -> Response {
+    match list_efficiency_requests_impl(state, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn list_efficiency_requests_impl(
+    state: Arc<AppState>,
+    params: EfficiencyRequestsParams,
+) -> anyhow::Result<EfficiencyRequestsResponse> {
+    let limit = params.limit.min(MAX_EFFICIENCY_RESULTS);
+    let sort_desc = params.sort.to_lowercase() != "asc";
+
+    // Decode cursor if provided
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        let decoded =
+            BASE64.decode(cursor_str).map_err(|e| anyhow::anyhow!("Invalid cursor: {}", e))?;
+        let cursor_val: u64 = String::from_utf8(decoded)
+            .map_err(|e| anyhow::anyhow!("Invalid cursor encoding: {}", e))?
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid cursor value: {}", e))?;
+        Some(cursor_val)
+    } else {
+        None
+    };
+
+    // Request one extra to determine if more pages exist
+    let mut requests = match params.efficiency_type {
+        EfficiencyType::GasAdjustedWithExclusions => {
+            state
+                .efficiency_db
+                .get_efficiency_requests_paginated_gas_adjusted_with_exclusions(
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::GasAdjusted => {
+            state
+                .efficiency_db
+                .get_efficiency_requests_paginated_gas_adjusted(
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+        EfficiencyType::Raw => {
+            state
+                .efficiency_db
+                .get_efficiency_requests_paginated(
+                    params.before,
+                    params.after,
+                    limit + 1,
+                    cursor,
+                    sort_desc,
+                )
+                .await?
+        }
+    };
+
+    let has_more = requests.len() > limit as usize;
+    if has_more {
+        requests.pop();
+    }
+
+    let data: Vec<EfficiencyRequestEntry> = requests
+        .into_iter()
+        .map(|req| {
+            let locked_at_iso = DateTime::<Utc>::from_timestamp(req.locked_at as i64, 0)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .unwrap_or_default();
+
+            let more_profitable_sample = req.more_profitable_sample.map(|samples| {
+                samples
+                    .into_iter()
+                    .map(|s| MoreProfitableSampleEntry {
+                        request_digest: s.request_digest,
+                        request_id: s.request_id,
+                        requestor_address: s.requestor_address,
+                        lock_price_at_time: s.lock_price_at_time,
+                        program_cycles: s.program_cycles,
+                        price_per_cycle_at_time: s.price_per_cycle_at_time,
+                    })
+                    .collect()
+            });
+
+            EfficiencyRequestEntry {
+                request_digest: format!("0x{:x}", req.request_digest),
+                request_id: req.request_id.to_string(),
+                locked_at: req.locked_at,
+                locked_at_iso,
+                lock_price: req.lock_price.to_string(),
+                lock_price_formatted: format_eth(&req.lock_price.to_string()),
+                program_cycles: req.program_cycles.to_string(),
+                program_cycles_formatted: format_cycles(req.program_cycles),
+                lock_price_per_cycle: req.lock_price_per_cycle.to_string(),
+                is_most_profitable: req.is_most_profitable,
+                num_requests_more_profitable: req.num_orders_more_profitable,
+                num_requests_less_profitable: req.num_orders_less_profitable,
+                num_requests_available_unfulfilled: req.num_orders_available_unfulfilled,
+                more_profitable_sample,
+            }
+        })
+        .collect();
+
+    let next_cursor = if has_more && !data.is_empty() {
+        let last = data.last().unwrap();
+        Some(BASE64.encode(last.locked_at.to_string()))
+    } else {
+        None
+    };
+
+    Ok(EfficiencyRequestsResponse { data, has_more, next_cursor })
+}
+
+/// GET /v1/market/efficiency/requests/:request_id
+/// Returns efficiency details for a specific request
+#[utoipa::path(
+    get,
+    path = "/v1/market/efficiency/requests/{request_id}",
+    tag = "Market",
+    params(
+        ("request_id" = String, Path, description = "Request ID")
+    ),
+    responses(
+        (status = 200, description = "Request efficiency details", body = EfficiencyRequestEntry),
+        (status = 404, description = "Request not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn get_efficiency_request_by_id(
+    State(state): State<Arc<AppState>>,
+    Path(request_id): Path<String>,
+) -> Response {
+    match get_efficiency_request_by_id_impl(state, request_id).await {
+        Ok(Some(response)) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
+            res
+        }
+        Ok(None) => {
+            let error_response = serde_json::json!({
+                "error": "Request not found"
+            });
+            (axum::http::StatusCode::NOT_FOUND, Json(error_response)).into_response()
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_efficiency_request_by_id_impl(
+    state: Arc<AppState>,
+    request_id: String,
+) -> anyhow::Result<Option<EfficiencyRequestEntry>> {
+    let req = state.efficiency_db.get_efficiency_request_by_id(&request_id).await?;
+
+    match req {
+        Some(req) => {
+            let locked_at_iso = DateTime::<Utc>::from_timestamp(req.locked_at as i64, 0)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .unwrap_or_default();
+
+            let more_profitable_sample = req.more_profitable_sample.map(|samples| {
+                samples
+                    .into_iter()
+                    .map(|s| MoreProfitableSampleEntry {
+                        request_digest: s.request_digest,
+                        request_id: s.request_id,
+                        requestor_address: s.requestor_address,
+                        lock_price_at_time: s.lock_price_at_time,
+                        program_cycles: s.program_cycles,
+                        price_per_cycle_at_time: s.price_per_cycle_at_time,
+                    })
+                    .collect()
+            });
+
+            Ok(Some(EfficiencyRequestEntry {
+                request_digest: format!("0x{:x}", req.request_digest),
+                request_id: req.request_id.to_string(),
+                locked_at: req.locked_at,
+                locked_at_iso,
+                lock_price: req.lock_price.to_string(),
+                lock_price_formatted: format_eth(&req.lock_price.to_string()),
+                program_cycles: req.program_cycles.to_string(),
+                program_cycles_formatted: format_cycles(req.program_cycles),
+                lock_price_per_cycle: req.lock_price_per_cycle.to_string(),
+                is_most_profitable: req.is_most_profitable,
+                num_requests_more_profitable: req.num_orders_more_profitable,
+                num_requests_less_profitable: req.num_orders_less_profitable,
+                num_requests_available_unfulfilled: req.num_orders_available_unfulfilled,
+                more_profitable_sample,
+            }))
+        }
+        None => Ok(None),
+    }
 }

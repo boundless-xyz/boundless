@@ -28,7 +28,6 @@ export function buildProverLogPatterns(
     const brokerUnexpectedThreshold = isBento ? 5 : 25;
     const supervisorUnexpectedThreshold = isBento ? 5 : 25;
     const svcUnexpectedThreshold = isBento ? 2 : 15;
-    const svcUnexpectedThresholdSev1 = isBento ? 3 : 15;
     const dbLockedThreshold = isBento ? 1 : 10;
     const isSepolia = chainId === ChainId.ETH_SEPOLIA || chainId === ChainId.BASE_SEPOLIA;
 
@@ -113,7 +112,7 @@ export function buildProverLogPatterns(
             pattern: 'ERROR "[B-BAL-ETH]"',
             metricName: "low-balance-alert-eth",
             alarm: {
-                severity: Severity.SEV1,
+                severity: Severity.SEV2,
                 description: "critical ETH balance error in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 1 },
@@ -123,7 +122,7 @@ export function buildProverLogPatterns(
             pattern: 'ERROR "[B-BAL-STK]"',
             metricName: "low-balance-alert-stk",
             alarm: {
-                severity: Severity.SEV1,
+                severity: Severity.SEV2,
                 description: "critical stake balance error in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 1 },
@@ -216,16 +215,6 @@ export function buildProverLogPatterns(
             metricName: "market-monitor-event-polling-error",
             alarm: {
                 severity: Severity.SEV2,
-                description: ">=3 market monitor event polling errors in 5 min",
-                metricConfig: { period: 300 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 3 },
-            },
-        },
-        {
-            pattern: '"[B-MM-501]"',
-            metricName: "market-monitor-event-polling-error",
-            alarm: {
-                severity: Severity.SEV1,
                 description: ">=10 market monitor event polling errors in 30 min",
                 metricConfig: { period: 1800 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 10 },
@@ -251,16 +240,6 @@ export function buildProverLogPatterns(
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 2 },
             },
         },
-        {
-            pattern: '"[B-MM-500]"',
-            metricName: "market-monitor-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
-                description: ">=3 market monitor unexpected errors in 5 min",
-                metricConfig: { period: 300 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 3 },
-            },
-        },
 
         // ── Chain Monitor alarms ─────────────────────────────────────────
         // RPC errors can occur transiently.
@@ -284,16 +263,6 @@ export function buildProverLogPatterns(
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 2 },
             },
         },
-        {
-            pattern: '"[B-CHM-500]"',
-            metricName: "chain-monitor-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
-                description: ">=3 chain monitor unexpected errors in 5 min",
-                metricConfig: { period: 300 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 3 },
-            },
-        },
 
         // ── Off-chain Market Monitor alarms ──────────────────────────────
         {
@@ -301,16 +270,6 @@ export function buildProverLogPatterns(
             metricName: "off-chain-market-monitor-websocket-error",
             alarm: {
                 severity: Severity.SEV2,
-                description: ">=3 off-chain market monitor websocket errors in 15 min",
-                metricConfig: { period: 900 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 3 },
-            },
-        },
-        {
-            pattern: '"[B-OMM-001]"',
-            metricName: "off-chain-market-monitor-websocket-error",
-            alarm: {
-                severity: Severity.SEV1,
                 description: ">=10 off-chain market monitor websocket errors in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 10 },
@@ -326,16 +285,6 @@ export function buildProverLogPatterns(
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 2 },
             },
         },
-        {
-            pattern: '"[B-OMM-500]"',
-            metricName: "off-chain-market-monitor-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
-                description: ">=3 off-chain market monitor unexpected errors in 5 min",
-                metricConfig: { period: 300 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 3 },
-            },
-        },
 
         // ── Order Picker alarms ──────────────────────────────────────────
         {
@@ -346,16 +295,6 @@ export function buildProverLogPatterns(
                 description: ">=2 order picker unexpected errors in 30 min",
                 metricConfig: { period: 1800 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 2 },
-            },
-        },
-        {
-            pattern: '"[B-OP-500]"',
-            metricName: "order-picker-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
-                description: ">=3 order picker unexpected errors in 5 min",
-                metricConfig: { period: 300 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 3 },
             },
         },
         // Metric only — errors fetching images/inputs may be user error.
@@ -383,16 +322,6 @@ export function buildProverLogPatterns(
                 description: ">=2 order monitor unexpected errors in 30 min",
                 metricConfig: { period: 1800 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 2 },
-            },
-        },
-        {
-            pattern: '"[B-OM-500]"',
-            metricName: "order-monitor-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
-                description: ">=4 order monitor unexpected errors in 5 min",
-                metricConfig: { period: 300 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 4 },
             },
         },
         // Metric only — expected when another prover locks before us.
@@ -450,20 +379,6 @@ export function buildProverLogPatterns(
             },
         },
         {
-            pattern: '"[B-PRO-500]"',
-            metricName: "prover-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
-                description: `>=${svcUnexpectedThresholdSev1} prover unexpected errors in 5 min`,
-                metricConfig: { period: 300 },
-                alarmConfig: {
-                    evaluationPeriods: 1,
-                    datapointsToAlarm: 1,
-                    threshold: svcUnexpectedThresholdSev1,
-                },
-            },
-        },
-        {
             pattern: '"[B-PRO-501]"',
             metricName: "prover-proving-failed",
             alarm: {
@@ -497,20 +412,6 @@ export function buildProverLogPatterns(
                     evaluationPeriods: 1,
                     datapointsToAlarm: 1,
                     threshold: svcUnexpectedThreshold,
-                },
-            },
-        },
-        {
-            pattern: '"[B-AGG-500]"',
-            metricName: "aggregator-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
-                description: `>=${svcUnexpectedThresholdSev1} aggregator unexpected errors in 5 min`,
-                metricConfig: { period: 300 },
-                alarmConfig: {
-                    evaluationPeriods: 1,
-                    datapointsToAlarm: 1,
-                    threshold: svcUnexpectedThresholdSev1,
                 },
             },
         },
@@ -607,16 +508,6 @@ export function buildProverLogPatterns(
             metricName: "submitter-unexpected-error",
             alarm: {
                 severity: Severity.SEV2,
-                description: "any unexpected submitter error in 1 min",
-                metricConfig: { period: 60 },
-                alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 1 },
-            },
-        },
-        {
-            pattern: '"[B-SUB-500]"',
-            metricName: "submitter-unexpected-error",
-            alarm: {
-                severity: Severity.SEV1,
                 description: ">=3 unexpected submitter errors in 5 min",
                 metricConfig: { period: 300 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 3 },
