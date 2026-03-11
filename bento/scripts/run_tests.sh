@@ -23,23 +23,17 @@ print_status() {
 
 # Function to check if Docker containers are running
 check_docker_services() {
-    local postgres_running=false
     local redis_running=false
-
-    if docker ps --format "{{.Names}}" | grep -q "^bento-postgres-test$"; then
-        postgres_running=true
-    fi
 
     if docker ps --format "{{.Names}}" | grep -q "^bento-redis-test$"; then
         redis_running=true
     fi
 
-    if [ "$postgres_running" = true ] && [ "$redis_running" = true ]; then
+    if [ "$redis_running" = true ]; then
         print_status $GREEN "✅ Docker services are running"
         return 0
     else
         print_status $RED "❌ Docker services are not running"
-        echo "   PostgreSQL running: $postgres_running"
         echo "   Redis running: $redis_running"
         echo ""
         print_status $YELLOW "💡 Run './scripts/docker-setup.sh' to start services"
@@ -55,7 +49,6 @@ run_crate_tests() {
     echo ""
     print_status $BLUE "🧪 Testing crate: $crate_name"
     echo "   Command: cargo test -p $crate_name $test_args"
-    echo "   Environment: DATABASE_URL=$DATABASE_URL"
     echo "   Environment: REDIS_URL=$REDIS_URL"
     echo ""
 
@@ -73,7 +66,6 @@ run_all_tests() {
     echo ""
     print_status $BLUE "🧪 Running all tests..."
     echo "   Command: cargo test --workspace"
-    echo "   Environment: DATABASE_URL=$DATABASE_URL"
     echo "   Environment: REDIS_URL=$REDIS_URL"
     echo ""
 
@@ -137,12 +129,10 @@ if ! check_docker_services; then
 fi
 
 # Set environment variables
-export DATABASE_URL="postgres://postgres:password@localhost:5432/bento_test"
 export REDIS_URL="redis://localhost:6379"
 export RISC0_DEV_MODE=true
 
 print_status $BLUE "📋 Environment variables set:"
-echo "   DATABASE_URL=$DATABASE_URL"
 echo "   REDIS_URL=$REDIS_URL"
 echo "   RISC0_DEV_MODE=$RISC0_DEV_MODE"
 echo ""

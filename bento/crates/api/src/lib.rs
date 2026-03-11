@@ -7,26 +7,29 @@ use anyhow::{Context, Error as AnyhowErr, Result};
 use axum::{
     Json, Router, async_trait,
     body::{Body, to_bytes},
-    extract::{FromRequestParts, Host, Path, State},
-    http::{StatusCode, request::Parts},
+    extract::{FromRequestParts, Host, Path, Query, State},
+    http::{StatusCode, header::CONTENT_TYPE, request::Parts},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use bonsai_sdk::responses::{
-    CreateSessRes, ImgUploadRes, ProofReq, ReceiptDownload, SessionStats, SessionStatusRes,
-    SnarkReq, SnarkStatusRes, UploadRes,
+    CreateSessRes, ImgUploadRes, ReceiptDownload, SessionStats, SessionStatusRes, SnarkStatusRes,
+    UploadRes,
 };
 use clap::Parser;
+use deadpool_redis::{Config as RedisConfig, Pool as RedisPool, Runtime, redis::AsyncCommands};
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use taskdb::{JobState, TaskDbErr};
+use taskdb::{JobState, Priority, ReadyTask, TaskDb, TaskDbErr};
 use thiserror::Error;
 use uuid::Uuid;
 use workflow_common::{
-    CompressType, ExecutorReq, SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT,
-    SnarkReq as WorkflowSnarkReq, TaskType,
+    COPROC_WORK_TYPE, CompressType, ExecutorReq, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
+    SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT, SNARK_WORK_TYPE, SP1_RETRIES_DEFAULT,
+    SP1_TIMEOUT_DEFAULT, SP1_WORK_TYPE, SnarkReq as WorkflowSnarkReq, Sp1Req as WorkflowSp1Req,
+    TaskType,
     s3::{
         BLAKE3_GROTH16_BUCKET_DIR, ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR,
         PREFLIGHT_JOURNALS_BUCKET_DIR, RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR,
@@ -64,6 +67,84 @@ pub struct WorkReceiptInfo {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkReceiptList {
     pub receipts: Vec<WorkReceiptInfo>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct WorkerTask {
+    job_id: String,
+    task_id: String,
+    task_def: serde_json::Value,
+    prereqs: serde_json::Value,
+    max_retries: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TaskUpdateRes {
+    updated: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TaskDoneReq {
+    output: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TaskFailedReq {
+    error: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkerClaimQuery {
+    wait_timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TaskRetriesRunningRes {
+    retries: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HotBlobPutQuery {
+    ttl_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct StarkApiReq {
+    img: String,
+    input: String,
+    #[serde(default)]
+    assumptions: Vec<String>,
+    #[serde(default)]
+    execute_only: bool,
+    exec_cycle_limit: Option<u64>,
+    #[serde(default)]
+    priority: Priority,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct SnarkApiReq {
+    session_id: String,
+    #[serde(default)]
+    priority: Priority,
+}
+
+fn is_gpu_worker_stream(task_stream: &str) -> bool {
+    matches!(
+        task_stream,
+        PROVE_WORK_TYPE | JOIN_WORK_TYPE | COPROC_WORK_TYPE | SNARK_WORK_TYPE | SP1_WORK_TYPE
+    )
+}
+
+impl From<ReadyTask> for WorkerTask {
+    fn from(task: ReadyTask) -> Self {
+        Self {
+            job_id: task.job_id.to_string(),
+            task_id: task.task_id,
+            task_def: task.task_def,
+            prereqs: task.prereqs,
+            max_retries: task.max_retries,
+        }
+    }
 }
 
 pub struct ExtractApiKey(pub String);
@@ -116,6 +197,15 @@ pub enum AppError {
     #[error("preflight journal does not exist: {0}")]
     JournalMissing(String),
 
+    #[error("asset does not exist: {0}")]
+    AssetMissing(String),
+
+    #[error("hot data does not exist: {0}")]
+    HotDataMissing(String),
+
+    #[error("invalid gpu worker stream: {0}")]
+    InvalidGpuWorkerStream(String),
+
     #[error("Database error")]
     DbError(#[from] TaskDbErr),
 
@@ -133,6 +223,9 @@ impl AppError {
             Self::ReceiptAlreadyExists(_) => "ReceiptAlreadyExists",
             Self::ReceiptMissing(_) => "ReceiptMissing",
             Self::JournalMissing(_) => "JournalMissing",
+            Self::AssetMissing(_) => "AssetMissing",
+            Self::HotDataMissing(_) => "HotDataMissing",
+            Self::InvalidGpuWorkerStream(_) => "InvalidGpuWorkerStream",
             Self::DbError(_) => "DbError",
             Self::InternalErr(_) => "InternalErr",
         }
@@ -153,7 +246,11 @@ impl IntoResponse for AppError {
             Self::ImgAlreadyExists(_)
             | Self::InputAlreadyExists(_)
             | Self::ReceiptAlreadyExists(_) => StatusCode::NO_CONTENT,
-            Self::ReceiptMissing(_) | Self::JournalMissing(_) => StatusCode::NOT_FOUND,
+            Self::InvalidGpuWorkerStream(_) => StatusCode::BAD_REQUEST,
+            Self::ReceiptMissing(_)
+            | Self::JournalMissing(_)
+            | Self::AssetMissing(_)
+            | Self::HotDataMissing(_) => StatusCode::NOT_FOUND,
             Self::InternalErr(_) | Self::DbError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -173,33 +270,21 @@ pub struct Args {
     #[clap(long, default_value = "0.0.0.0:8081")]
     bind_addr: String,
 
-    /// SQL DB Connection pool connections
-    #[clap(long, default_value_t = 10)]
-    db_max_connections: u32,
+    /// taskdb redis URL (defaults to `redis_url`)
+    #[clap(env, long)]
+    taskdb_redis_url: Option<String>,
 
-    /// taskdb postgres DATABASE_URL
-    #[clap(env)]
-    database_url: String,
+    /// redis taskdb namespace prefix
+    #[clap(env, long, default_value = "taskdb")]
+    taskdb_redis_namespace: String,
 
-    /// S3 / Minio bucket
-    #[clap(env)]
-    s3_bucket: String,
+    /// Local disk path used as object storage root.
+    #[clap(env, long, default_value = "./data/object_store")]
+    storage_dir: String,
 
-    /// S3 / Minio access key
-    #[clap(env)]
-    s3_access_key: String,
-
-    /// S3 / Minio secret key
-    #[clap(env)]
-    s3_secret_key: String,
-
-    /// S3 / Minio url
-    #[clap(env)]
-    s3_url: String,
-
-    /// S3 region, can be anything if using minio
-    #[clap(env, default_value = "us-west-2")]
-    s3_region: String,
+    /// redis connection URL used for hot worker data
+    #[clap(env, long)]
+    redis_url: String,
 
     /// Executor timeout in seconds
     #[clap(long, default_value_t = 4 * 60 * 60)]
@@ -216,42 +301,50 @@ pub struct Args {
     /// Snark retries
     #[clap(long, default_value_t = SNARK_RETRIES_DEFAULT)]
     snark_retries: i32,
+
+    /// SP1 timeout in seconds
+    #[clap(long, default_value_t = SP1_TIMEOUT_DEFAULT)]
+    sp1_timeout: i32,
+
+    /// SP1 retries
+    #[clap(long, default_value_t = SP1_RETRIES_DEFAULT)]
+    sp1_retries: i32,
 }
 
 pub struct AppState {
-    db_pool: PgPool,
+    task_db: TaskDb,
+    redis_pool: RedisPool,
     s3_client: S3Client,
     exec_timeout: i32,
     exec_retries: i32,
     snark_timeout: i32,
     snark_retries: i32,
+    sp1_timeout: i32,
+    sp1_retries: i32,
 }
 
 impl AppState {
     pub async fn new(args: &Args) -> Result<Arc<Self>> {
-        let db_pool = PgPoolOptions::new()
-            .max_connections(args.db_max_connections)
-            .connect(&args.database_url)
-            .await
-            .context("Failed to initialize postgresql pool")?;
+        let taskdb_redis_url = args.taskdb_redis_url.as_deref().unwrap_or(&args.redis_url);
+        let task_db = TaskDb::connect_redis(taskdb_redis_url, &args.taskdb_redis_namespace)
+            .context("Failed to initialize redis taskdb backend")?;
 
-        let s3_client = S3Client::from_minio(
-            &args.s3_url,
-            &args.s3_bucket,
-            &args.s3_access_key,
-            &args.s3_secret_key,
-            &args.s3_region,
-        )
-        .await
-        .context("Failed to initialize s3 client / bucket")?;
+        let s3_client = S3Client::from_local_dir(&args.storage_dir)
+            .context("Failed to initialize local object storage")?;
+        let redis_pool = RedisConfig::from_url(&args.redis_url)
+            .create_pool(Some(Runtime::Tokio1))
+            .context("Failed to initialize redis pool")?;
 
         Ok(Arc::new(Self {
-            db_pool,
+            task_db,
+            redis_pool,
             s3_client,
             exec_timeout: args.exec_timeout,
             exec_retries: args.exec_retries,
             snark_timeout: args.snark_timeout,
             snark_retries: args.snark_retries,
+            sp1_timeout: args.sp1_timeout,
+            sp1_retries: args.sp1_retries,
         }))
     }
 }
@@ -298,10 +391,22 @@ async fn image_upload_put(
     let body_bytes =
         to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
 
-    let comp_img_id =
-        compute_image_id(&body_bytes).context("Failed to compute image id")?.to_string();
-    if comp_img_id != image_id {
-        return Err(AppError::ImageIdMismatch(image_id, comp_img_id));
+    // Accept either a RISC Zero image ID or an SP1 SHA256 image ID.
+    // Both can appear as 64-hex strings, so format alone is ambiguous.
+    let risc0_image_id = compute_image_id(&body_bytes).ok().map(|id| id.to_string());
+    let mut hasher = Sha256::new();
+    hasher.update(&body_bytes);
+    let sp1_hash = hex::encode(hasher.finalize());
+
+    let matches_risc0 = risc0_image_id.as_deref() == Some(image_id.as_str());
+    let matches_sp1 = sp1_hash == image_id;
+
+    if !matches_risc0 && !matches_sp1 {
+        let computed = match risc0_image_id {
+            Some(risc0_id) => format!("risc0:{risc0_id} sha256:{sp1_hash}"),
+            None => format!("sha256:{sp1_hash}"),
+        };
+        return Err(AppError::ImageIdMismatch(image_id, computed));
     }
 
     state
@@ -377,7 +482,7 @@ async fn receipt_upload(
         .await
         .context("Failed to check if object exists")?
     {
-        return Err(AppError::ReceiptAlreadyExists(receipt_id.to_string()));
+        return Err(AppError::InputAlreadyExists(receipt_id.to_string()));
     }
 
     Ok(Json(UploadRes {
@@ -399,7 +504,7 @@ async fn receipt_upload_put(
         .await
         .context("Failed to check if object exists")?
     {
-        return Err(AppError::ReceiptAlreadyExists(receipt_id.to_string()));
+        return Err(AppError::InputAlreadyExists(receipt_id.to_string()));
     }
 
     // TODO: Support streaming uploads
@@ -420,10 +525,10 @@ const STARK_PROVING_START_PATH: &str = "/sessions/create";
 async fn prove_stark(
     State(state): State<Arc<AppState>>,
     ExtractApiKey(api_key): ExtractApiKey,
-    Json(start_req): Json<ProofReq>,
+    Json(start_req): Json<StarkApiReq>,
 ) -> Result<Json<CreateSessRes>, AppError> {
     let (_aux_stream, exec_stream, _gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
-        helpers::get_or_create_streams(&state.db_pool, &api_key)
+        helpers::get_or_create_streams(&state.task_db, &api_key)
             .await
             .context("Failed to get / create steams")?;
 
@@ -438,16 +543,18 @@ async fn prove_stark(
     }))
     .context("Failed to serialize ExecutorReq")?;
 
-    let job_id = taskdb::create_job(
-        &state.db_pool,
-        &exec_stream,
-        &task_def,
-        state.exec_retries,
-        state.exec_timeout,
-        &api_key,
-    )
-    .await
-    .context("Failed to create exec / init task")?;
+    let job_id = state
+        .task_db
+        .create_job_with_priority(
+            &exec_stream,
+            &task_def,
+            state.exec_retries,
+            state.exec_timeout,
+            &api_key,
+            start_req.priority,
+        )
+        .await
+        .context("Failed to create exec / init task")?;
 
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
@@ -459,10 +566,12 @@ async fn stark_status(
     Path(job_id): Path<Uuid>,
     ExtractApiKey(api_key): ExtractApiKey,
 ) -> Result<Json<SessionStatusRes>, AppError> {
-    let job_state_result = taskdb::get_job_state(&state.db_pool, &job_id, &api_key).await;
+    let job_state_result = state.task_db.get_job_state(&job_id, &api_key).await;
 
-    // If job not found in taskdb, check MinIO for completed receipt
-    if let Err(TaskDbErr::SqlError(sqlx::Error::RowNotFound)) = &job_state_result {
+    // If job not found in taskdb, check object storage for completed receipt.
+    if let Err(err) = &job_state_result
+        && err.is_not_found()
+    {
         let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
         if state
             .s3_client
@@ -486,7 +595,7 @@ async fn stark_status(
     let job_state = job_state_result.context("Failed to get job state")?;
 
     let (exec_stats, receipt_url) = if job_state == JobState::Done {
-        let exec_stats = helpers::get_exec_stats(&state.db_pool, &job_id)
+        let exec_stats = helpers::get_exec_stats(&state.task_db, &job_id)
             .await
             .context("Failed to get exec stats")?;
         (
@@ -503,7 +612,9 @@ async fn stark_status(
 
     let error_msg = if job_state == JobState::Failed {
         Some(
-            taskdb::get_job_failure(&state.db_pool, &job_id)
+            state
+                .task_db
+                .get_job_failure(&job_id)
                 .await
                 .context("Failed to get job error message")?,
         )
@@ -595,10 +706,10 @@ const SNARK_START_PATH: &str = "/snark/create";
 async fn prove_groth16(
     State(state): State<Arc<AppState>>,
     ExtractApiKey(api_key): ExtractApiKey,
-    Json(start_req): Json<SnarkReq>,
+    Json(start_req): Json<SnarkApiReq>,
 ) -> Result<Json<CreateSessRes>, AppError> {
     let (_aux_stream, _exec_stream, gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
-        helpers::get_or_create_streams(&state.db_pool, &api_key)
+        helpers::get_or_create_streams(&state.task_db, &api_key)
             .await
             .context("Failed to get / create steams")?;
 
@@ -608,16 +719,18 @@ async fn prove_groth16(
     }))
     .context("Failed to serialize ExecutorReq")?;
 
-    let job_id = taskdb::create_job(
-        &state.db_pool,
-        &gpu_prove_stream,
-        &task_def,
-        state.snark_retries,
-        state.snark_timeout,
-        &api_key,
-    )
-    .await
-    .context("Failed to create exec / init task")?;
+    let job_id = state
+        .task_db
+        .create_job_with_priority(
+            &gpu_prove_stream,
+            &task_def,
+            state.snark_retries,
+            state.snark_timeout,
+            &api_key,
+            start_req.priority,
+        )
+        .await
+        .context("Failed to create exec / init task")?;
 
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
@@ -626,10 +739,10 @@ const BLAKE3_GROTH16_START_PATH: &str = "/shrink_bitvm2/create";
 async fn prove_blake3_groth16(
     State(state): State<Arc<AppState>>,
     ExtractApiKey(api_key): ExtractApiKey,
-    Json(start_req): Json<SnarkReq>,
+    Json(start_req): Json<SnarkApiReq>,
 ) -> Result<Json<CreateSessRes>, AppError> {
     let (_aux_stream, _exec_stream, gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
-        helpers::get_or_create_streams(&state.db_pool, &api_key)
+        helpers::get_or_create_streams(&state.task_db, &api_key)
             .await
             .context("Failed to get / create steams")?;
 
@@ -639,16 +752,18 @@ async fn prove_blake3_groth16(
     }))
     .context("Failed to serialize ExecutorReq")?;
 
-    let job_id = taskdb::create_job(
-        &state.db_pool,
-        &gpu_prove_stream,
-        &task_def,
-        state.snark_retries,
-        state.snark_timeout,
-        &api_key,
-    )
-    .await
-    .context("Failed to create exec / init task")?;
+    let job_id = state
+        .task_db
+        .create_job_with_priority(
+            &gpu_prove_stream,
+            &task_def,
+            state.snark_retries,
+            state.snark_timeout,
+            &api_key,
+            start_req.priority,
+        )
+        .await
+        .context("Failed to create exec / init task")?;
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
 
@@ -659,28 +774,8 @@ async fn blake3_groth16_status(
     Path(job_id): Path<Uuid>,
     Host(hostname): Host,
 ) -> Result<Json<SnarkStatusRes>, AppError> {
-    let job_state_result = taskdb::get_job_state(&state.db_pool, &job_id, &api_key).await;
-
-    // If job not found in taskdb, check MinIO for completed receipt
-    if let Err(TaskDbErr::SqlError(sqlx::Error::RowNotFound)) = &job_state_result {
-        let receipt_key =
-            format!("{RECEIPT_BUCKET_DIR}/{BLAKE3_GROTH16_BUCKET_DIR}/{job_id}.bincode");
-        if state
-            .s3_client
-            .object_exists(&receipt_key)
-            .await
-            .context("Failed to check if receipt exists")?
-        {
-            // Receipt exists - job was completed and cleaned up from taskdb
-            return Ok(Json(SnarkStatusRes {
-                status: JobState::Done.to_string(),
-                error_msg: None,
-                output: Some(format!("http://{hostname}/receipts/shrink_bitvm2/receipt/{job_id}")),
-            }));
-        }
-    }
-    let job_state = job_state_result.context("Failed to get job state")?;
-
+    let job_state =
+        state.task_db.get_job_state(&job_id, &api_key).await.context("Failed to get job state")?;
     let (error_msg, output) = match job_state {
         JobState::Running => (None, None),
         JobState::Done => {
@@ -688,7 +783,9 @@ async fn blake3_groth16_status(
         }
         JobState::Failed => (
             Some(
-                taskdb::get_job_failure(&state.db_pool, &job_id)
+                state
+                    .task_db
+                    .get_job_failure(&job_id)
                     .await
                     .context("Failed to get job error message")?,
             ),
@@ -705,10 +802,12 @@ async fn groth16_status(
     Path(job_id): Path<Uuid>,
     Host(hostname): Host,
 ) -> Result<Json<SnarkStatusRes>, AppError> {
-    let job_state_result = taskdb::get_job_state(&state.db_pool, &job_id, &api_key).await;
+    let job_state_result = state.task_db.get_job_state(&job_id, &api_key).await;
 
-    // If job not found in taskdb, check MinIO for completed receipt
-    if let Err(TaskDbErr::SqlError(sqlx::Error::RowNotFound)) = &job_state_result {
+    // If job not found in taskdb, check object storage for completed receipt.
+    if let Err(err) = &job_state_result
+        && err.is_not_found()
+    {
         let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
         if state
             .s3_client
@@ -734,7 +833,9 @@ async fn groth16_status(
         }
         JobState::Failed => (
             Some(
-                taskdb::get_job_failure(&state.db_pool, &job_id)
+                state
+                    .task_db
+                    .get_job_failure(&job_id)
                     .await
                     .context("Failed to get job error message")?,
             ),
@@ -742,6 +843,139 @@ async fn groth16_status(
         ),
     };
     Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
+}
+
+// SP1 routes
+
+const SP1_START_PATH: &str = "/sp1/create";
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Sp1ApiReq {
+    pub image: String,
+    pub input: String,
+    #[serde(default)]
+    pub priority: Priority,
+}
+
+async fn prove_sp1(
+    State(state): State<Arc<AppState>>,
+    ExtractApiKey(api_key): ExtractApiKey,
+    Json(start_req): Json<Sp1ApiReq>,
+) -> Result<Json<CreateSessRes>, AppError> {
+    let (_aux_stream, _exec_stream, _gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
+        helpers::get_or_create_streams(&state.task_db, &api_key)
+            .await
+            .context("Failed to get / create streams")?;
+
+    // Get or create SP1 stream
+    let reserved = helpers::extract_reserved(&api_key);
+    let sp1_stream = if let Some(stream) = state
+        .task_db
+        .get_stream(&api_key, SP1_WORK_TYPE)
+        .await
+        .context("Failed to get SP1 stream")?
+    {
+        stream
+    } else {
+        tracing::info!("Creating a new SP1 stream for key: {api_key}");
+        state
+            .task_db
+            .create_stream(SP1_WORK_TYPE, reserved, 1.0, &api_key)
+            .await
+            .context("Failed to create SP1 stream")?
+    };
+
+    let task_def = serde_json::to_value(TaskType::Sp1(WorkflowSp1Req {
+        image: start_req.image,
+        input: start_req.input,
+    }))
+    .context("Failed to serialize Sp1Req")?;
+
+    let job_id = state
+        .task_db
+        .create_job_with_priority(
+            &sp1_stream,
+            &task_def,
+            state.sp1_retries,
+            state.sp1_timeout,
+            &api_key,
+            start_req.priority,
+        )
+        .await
+        .context("Failed to create SP1 task")?;
+
+    Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
+}
+
+const SP1_STATUS_PATH: &str = "/sp1/status/:job_id";
+async fn sp1_status(
+    State(state): State<Arc<AppState>>,
+    ExtractApiKey(api_key): ExtractApiKey,
+    Path(job_id): Path<Uuid>,
+    Host(hostname): Host,
+) -> Result<Json<SnarkStatusRes>, AppError> {
+    let job_state_result = state.task_db.get_job_state(&job_id, &api_key).await;
+
+    // If job not found in taskdb, check object storage for completed proof.
+    if let Err(err) = &job_state_result
+        && err.is_not_found()
+    {
+        let proof_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
+        if state
+            .s3_client
+            .object_exists(&proof_key)
+            .await
+            .context("Failed to check if proof exists")?
+        {
+            // Proof exists - job was completed and cleaned up from taskdb
+            return Ok(Json(SnarkStatusRes {
+                status: JobState::Done.to_string(),
+                error_msg: None,
+                output: Some(format!("http://{hostname}/receipts/sp1/receipt/{job_id}")),
+            }));
+        }
+    }
+
+    let job_state = job_state_result.context("Failed to get job state")?;
+
+    let (error_msg, output) = match job_state {
+        JobState::Running => (None, None),
+        JobState::Done => (None, Some(format!("http://{hostname}/receipts/sp1/receipt/{job_id}"))),
+        JobState::Failed => (
+            Some(
+                state
+                    .task_db
+                    .get_job_failure(&job_id)
+                    .await
+                    .context("Failed to get job error message")?,
+            ),
+            None,
+        ),
+    };
+    Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
+}
+
+const GET_SP1_PATH: &str = "/receipts/sp1/receipt/:job_id";
+async fn sp1_download(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<Uuid>,
+) -> Result<Vec<u8>, AppError> {
+    let proof_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
+    if !state
+        .s3_client
+        .object_exists(&proof_key)
+        .await
+        .context("Failed to check if object exists")?
+    {
+        return Err(AppError::ReceiptMissing(job_id.to_string()));
+    }
+
+    let proof = state
+        .s3_client
+        .read_buf_from_s3(&proof_key)
+        .await
+        .context("Failed to read from object store")?;
+
+    Ok(proof)
 }
 
 const GET_GROTH16_PATH: &str = "/receipts/groth16/receipt/:job_id";
@@ -814,6 +1048,149 @@ async fn get_work_receipt(
         .context("Failed to read from object store")?;
 
     Ok(receipt)
+}
+
+const GET_ASSET_PATH: &str = "/assets/*object_key";
+async fn asset_download(
+    State(state): State<Arc<AppState>>,
+    Path(object_key): Path<String>,
+) -> Result<Response, AppError> {
+    if !state
+        .s3_client
+        .object_exists(&object_key)
+        .await
+        .context("Failed to check if asset exists")?
+    {
+        return Err(AppError::AssetMissing(object_key));
+    }
+
+    let asset = state
+        .s3_client
+        .read_buf_from_s3(&object_key)
+        .await
+        .context("Failed to read asset from object store")?;
+
+    Ok(([(CONTENT_TYPE, "application/octet-stream")], asset).into_response())
+}
+
+const GPU_WORK_CLAIM_PATH: &str = "/worker/gpu/tasks/claim/:task_stream";
+async fn claim_gpu_work(
+    State(state): State<Arc<AppState>>,
+    Path(task_stream): Path<String>,
+    Query(query): Query<WorkerClaimQuery>,
+) -> Result<Json<Option<WorkerTask>>, AppError> {
+    if !is_gpu_worker_stream(&task_stream) {
+        return Err(AppError::InvalidGpuWorkerStream(task_stream));
+    }
+
+    let wait_timeout_secs = query.wait_timeout_secs.unwrap_or_default();
+    let task = state
+        .task_db
+        .request_work_wait(&task_stream, wait_timeout_secs)
+        .await
+        .context("Failed to claim GPU work")?
+        .map(WorkerTask::from);
+
+    Ok(Json(task))
+}
+
+const GPU_TASK_DONE_PATH: &str = "/worker/gpu/tasks/:job_id/:task_id/done";
+async fn gpu_task_done(
+    State(state): State<Arc<AppState>>,
+    Path((job_id, task_id)): Path<(Uuid, String)>,
+    Json(req): Json<TaskDoneReq>,
+) -> Result<Json<TaskUpdateRes>, AppError> {
+    Ok(Json(TaskUpdateRes {
+        updated: state
+            .task_db
+            .update_task_done(&job_id, &task_id, req.output)
+            .await
+            .context("Failed to update GPU task as done")?,
+    }))
+}
+
+const GPU_TASK_FAILED_PATH: &str = "/worker/gpu/tasks/:job_id/:task_id/failed";
+async fn gpu_task_failed(
+    State(state): State<Arc<AppState>>,
+    Path((job_id, task_id)): Path<(Uuid, String)>,
+    Json(req): Json<TaskFailedReq>,
+) -> Result<Json<TaskUpdateRes>, AppError> {
+    Ok(Json(TaskUpdateRes {
+        updated: state
+            .task_db
+            .update_task_failed(&job_id, &task_id, &req.error)
+            .await
+            .context("Failed to update GPU task as failed")?,
+    }))
+}
+
+const GPU_TASK_RETRY_PATH: &str = "/worker/gpu/tasks/:job_id/:task_id/retry";
+async fn gpu_task_retry(
+    State(state): State<Arc<AppState>>,
+    Path((job_id, task_id)): Path<(Uuid, String)>,
+) -> Result<Json<TaskUpdateRes>, AppError> {
+    Ok(Json(TaskUpdateRes {
+        updated: state
+            .task_db
+            .update_task_retry(&job_id, &task_id)
+            .await
+            .context("Failed to retry GPU task")?,
+    }))
+}
+
+const GPU_TASK_RETRIES_RUNNING_PATH: &str = "/worker/gpu/tasks/:job_id/:task_id/retries-running";
+async fn gpu_task_retries_running(
+    State(state): State<Arc<AppState>>,
+    Path((job_id, task_id)): Path<(Uuid, String)>,
+) -> Result<Json<TaskRetriesRunningRes>, AppError> {
+    Ok(Json(TaskRetriesRunningRes {
+        retries: state
+            .task_db
+            .get_task_retries_running(&job_id, &task_id)
+            .await
+            .context("Failed to fetch GPU task retries")?,
+    }))
+}
+
+const WORKER_HOT_PATH: &str = "/worker/hot/*key";
+async fn worker_hot_get(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> Result<Response, AppError> {
+    let mut conn = state.redis_pool.get().await.context("Failed to acquire redis connection")?;
+    let value: Option<Vec<u8>> = conn.get(&key).await.context("Failed to fetch hot data")?;
+    let value = value.ok_or_else(|| AppError::HotDataMissing(key))?;
+    Ok(([(CONTENT_TYPE, "application/octet-stream")], value).into_response())
+}
+
+async fn worker_hot_put(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+    Query(query): Query<HotBlobPutQuery>,
+    body: Body,
+) -> Result<StatusCode, AppError> {
+    let body_bytes =
+        to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to read hot data request body")?;
+    let mut conn = state.redis_pool.get().await.context("Failed to acquire redis connection")?;
+    if let Some(ttl_secs) = query.ttl_secs {
+        conn.set_ex::<_, _, ()>(&key, body_bytes.to_vec(), ttl_secs)
+            .await
+            .context("Failed to store hot data with TTL")?;
+    } else {
+        conn.set::<_, _, ()>(&key, body_bytes.to_vec())
+            .await
+            .context("Failed to store hot data")?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn worker_hot_delete(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let mut conn = state.redis_pool.get().await.context("Failed to acquire redis connection")?;
+    conn.unlink::<_, ()>(&key).await.context("Failed to delete hot data")?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 const LIST_WORK_RECEIPTS_PATH: &str = "/work-receipts";
@@ -954,6 +1331,18 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(BLAKE3_GROTH16_STATUS_PATH, get(blake3_groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
         .route(GET_BLAKE3_GROTH16_PATH, get(blake3_groth16_download))
+        .route(SP1_START_PATH, post(prove_sp1))
+        .route(SP1_STATUS_PATH, get(sp1_status))
+        .route(GET_SP1_PATH, get(sp1_download))
+        .route(GET_ASSET_PATH, get(asset_download))
+        .route(GPU_WORK_CLAIM_PATH, post(claim_gpu_work))
+        .route(GPU_TASK_DONE_PATH, post(gpu_task_done))
+        .route(GPU_TASK_FAILED_PATH, post(gpu_task_failed))
+        .route(GPU_TASK_RETRY_PATH, post(gpu_task_retry))
+        .route(GPU_TASK_RETRIES_RUNNING_PATH, get(gpu_task_retries_running))
+        .route(WORKER_HOT_PATH, get(worker_hot_get))
+        .route(WORKER_HOT_PATH, put(worker_hot_put))
+        .route(WORKER_HOT_PATH, delete(worker_hot_delete))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
         .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .with_state(state)

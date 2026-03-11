@@ -5,7 +5,6 @@
 
 use crate::{
     Agent,
-    redis::{self},
     tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
@@ -25,11 +24,9 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
     tracing::debug!("Starting resolve for job_id: {job_id}, max_idx: {max_idx}");
 
-    let mut conn = agent.redis_pool.get().await?;
     // Get root receipt using Redis helper
-    let receipt: Vec<u8> = redis::get_key(&mut conn, &root_receipt_key).await.map_err(|e| {
-        anyhow::anyhow!(e)
-            .context(format!("segment data not found for root receipt key: {root_receipt_key}"))
+    let receipt: Vec<u8> = agent.hot_get_bytes(&root_receipt_key).await.with_context(|| {
+        format!("segment data not found for root receipt key: {root_receipt_key}")
     })?;
 
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
@@ -65,9 +62,9 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         "Deserializing union_root_receipt_key: {union_root_receipt_key}"
                     );
                     let union_receipt: Vec<u8> =
-                        redis::get_key(&mut conn, &union_root_receipt_key).await.context(
-                            format!("Failed to get union receipt: {union_root_receipt_key}"),
-                        )?;
+                        agent.hot_get_bytes(&union_root_receipt_key).await.with_context(|| {
+                            format!("Failed to get union receipt: {union_root_receipt_key}")
+                        })?;
                     let union_receipt: SuccinctReceipt<Unknown> =
                         deserialize_obj(&union_receipt).context(
                             "[BENTO-RESOLVE-004] Failed to deserialize to SuccinctReceipt<Unknown> type",
@@ -112,7 +109,7 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
                     let assumption_bytes: Vec<u8> =
-                        redis::get_key(&mut conn, &assumption_key).await.context(format!(
+                        agent.hot_get_bytes(&assumption_key).await.context(format!(
                             "corroborating receipt not found: key {assumption_key}"
                         ))?;
 
@@ -162,14 +159,10 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
     // Store resolved receipt using Redis helper
     tracing::debug!("Writing resolved receipt to Redis key: {root_receipt_key}");
-    redis::set_key_with_expiry(
-        &mut conn,
-        &root_receipt_key,
-        serialized_asset,
-        Some(agent.args.redis_ttl),
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("Failed to set root receipt key with expiry: {e}"))?;
+    agent
+        .hot_set_bytes(&root_receipt_key, serialized_asset)
+        .await
+        .context("Failed to set root receipt key with expiry")?;
 
     // Record total task duration and success
     helpers::record_task_operation(

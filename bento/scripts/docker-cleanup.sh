@@ -20,8 +20,7 @@ print_status() {
     echo -e "${color}${message}${NC}"
 }
 
-# Container names
-POSTGRES_CONTAINER="bento-postgres-test"
+# Container name
 REDIS_CONTAINER="bento-redis-test"
 
 # Network name
@@ -46,18 +45,6 @@ network_exists() {
 
 # Stop and remove containers
 print_status $BLUE "🛑 Stopping and removing containers..."
-
-if container_exists "$POSTGRES_CONTAINER"; then
-    if container_running "$POSTGRES_CONTAINER"; then
-        print_status $YELLOW "⏹️  Stopping PostgreSQL container..."
-        docker stop "$POSTGRES_CONTAINER"
-    fi
-    print_status $YELLOW "🗑️  Removing PostgreSQL container..."
-    docker rm "$POSTGRES_CONTAINER"
-    print_status $GREEN "✅ PostgreSQL container cleaned up"
-else
-    print_status $GREEN "✅ PostgreSQL container not found"
-fi
 
 if container_exists "$REDIS_CONTAINER"; then
     if container_running "$REDIS_CONTAINER"; then

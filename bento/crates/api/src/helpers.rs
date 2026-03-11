@@ -4,7 +4,7 @@
 // as found in the LICENSE-BSL file.
 
 use anyhow::{Context, Result};
-use sqlx::PgPool;
+use taskdb::TaskDb;
 use uuid::Uuid;
 use workflow_common::{
     AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, ExecutorResp, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
@@ -24,43 +24,82 @@ pub fn extract_reserved(api_key: &str) -> i32 {
 }
 
 pub async fn get_or_create_streams(
-    pool: &PgPool,
+    task_db: &TaskDb,
     user_id: &str,
 ) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid)> {
     let reserved = extract_reserved(user_id);
-    let aux_stream = taskdb::get_or_create_stream(pool, AUX_WORK_TYPE, reserved, 1.0, user_id)
+    let aux_stream = if let Some(res) =
+        task_db.get_stream(user_id, AUX_WORK_TYPE).await.context("Failed to get aux stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new aux stream for key: {user_id}");
+        task_db
+            .create_stream(AUX_WORK_TYPE, reserved, 1.0, user_id)
+            .await
+            .context("Failed to create taskdb aux stream")?
+    };
+
+    let exec_stream = if let Some(res) =
+        task_db.get_stream(user_id, EXEC_WORK_TYPE).await.context("Failed to get exec stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new cpu stream for key: {user_id}");
+        task_db
+            .create_stream(EXEC_WORK_TYPE, reserved, 1.0, user_id)
+            .await
+            .context("Failed to create taskdb exec stream")?
+    };
+
+    let gpu_prove_stream = if let Some(res) = task_db
+        .get_stream(user_id, PROVE_WORK_TYPE)
         .await
-        .context("Failed to get/create aux stream")?;
+        .context("Failed to get gpu prove stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new gpu stream for key: {user_id}");
+        task_db
+            .create_stream(PROVE_WORK_TYPE, reserved, 1.0, user_id)
+            .await
+            .context("Failed to create taskdb gpu prove stream")?
+    };
 
-    let exec_stream = taskdb::get_or_create_stream(pool, EXEC_WORK_TYPE, reserved, 1.0, user_id)
+    let gpu_coproc_stream = if let Some(res) = task_db
+        .get_stream(user_id, COPROC_WORK_TYPE)
         .await
-        .context("Failed to get/create exec stream")?;
-
-    let gpu_prove_stream =
-        taskdb::get_or_create_stream(pool, PROVE_WORK_TYPE, reserved, 1.0, user_id)
+        .context("Failed to get gpu coproc stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new gpu coproc stream for key: {user_id}");
+        task_db
+            .create_stream(COPROC_WORK_TYPE, reserved, 1.0, user_id)
             .await
-            .context("Failed to get/create prove stream")?;
+            .context("Failed to create taskdb gpu coproc stream")?
+    };
 
-    let gpu_coproc_stream =
-        taskdb::get_or_create_stream(pool, COPROC_WORK_TYPE, reserved, 1.0, user_id)
+    let gpu_join_stream = if let Some(res) = task_db
+        .get_stream(user_id, JOIN_WORK_TYPE)
+        .await
+        .context("Failed to get gpu join stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new gpu join stream for key: {user_id}");
+        task_db
+            .create_stream(JOIN_WORK_TYPE, reserved, 1.0, user_id)
             .await
-            .context("Failed to get/create coproc stream")?;
-
-    let gpu_join_stream =
-        taskdb::get_or_create_stream(pool, JOIN_WORK_TYPE, reserved, 1.0, user_id)
-            .await
-            .context("Failed to get/create join stream")?;
+            .context("Failed to create taskdb gpu join stream")?
+    };
 
     Ok((aux_stream, exec_stream, gpu_prove_stream, gpu_coproc_stream, gpu_join_stream))
 }
 
-pub async fn get_exec_stats(pool: &PgPool, job_id: &Uuid) -> Result<ExecutorResp> {
-    let res: sqlx::types::Json<ExecutorResp> =
-        sqlx::query_scalar("SELECT output FROM tasks WHERE job_id = $1 AND task_id = 'init'")
-            .bind(job_id)
-            .fetch_one(pool)
-            .await
-            .context("Failed to get task output as exec response")?;
-
-    Ok(res.0)
+pub async fn get_exec_stats(task_db: &TaskDb, job_id: &Uuid) -> Result<ExecutorResp> {
+    task_db
+        .get_task_output(job_id, taskdb::INIT_TASK)
+        .await
+        .context("Failed to get init task output as exec response")
 }

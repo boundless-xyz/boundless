@@ -5,7 +5,6 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
     tasks::{deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
@@ -17,7 +16,6 @@ use workflow_common::{KECCAK_RECEIPT_PATH, UnionReq, metrics::helpers};
 pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {
     let start_time = Instant::now();
     tracing::debug!("Starting union for job_id: {job_id}");
-    let mut conn = agent.redis_pool.get().await?;
 
     // setup redis keys
     let keccak_receipts_prefix = format!("job:{job_id}:{KECCAK_RECEIPT_PATH}");
@@ -25,12 +23,14 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     let right_receipt_key = format!("{keccak_receipts_prefix}:{0}", request.right);
 
     // get assets from redis
-    let (left_receipt_bytes, right_receipt_bytes): (Vec<u8>, Vec<u8>) = conn
-        .mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_receipt_key, &right_receipt_key])
+    let left_receipt_bytes = agent
+        .hot_get_bytes(&left_receipt_key)
         .await
-        .with_context(|| {
-            format!("failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}")
-        })?;
+        .with_context(|| format!("failed to get receipt for key: {left_receipt_key}"))?;
+    let right_receipt_bytes = agent
+        .hot_get_bytes(&right_receipt_key)
+        .await
+        .with_context(|| format!("failed to get receipt for key: {right_receipt_key}"))?;
 
     let left_receipt = deserialize_obj(&left_receipt_bytes)
         .context("[BENTO-UNION-001] Failed to deserialize left receipt")?;
@@ -56,22 +56,25 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     let union_result =
         serialize_obj(&unioned).context("[BENTO-UNION-006] Failed to serialize union receipt")?;
     let output_key = format!("{keccak_receipts_prefix}:{}", request.idx);
-    redis::set_key_with_expiry(&mut conn, &output_key, union_result, Some(agent.args.redis_ttl))
+    agent
+        .hot_set_bytes(&output_key, union_result)
         .await
-        .context("[BENTO-UNION-007] Failed to set redis key for union receipt")?;
+        .context("[BENTO-UNION-007] Failed to set hot-store key for union receipt")?;
 
     tracing::debug!("Union complete {job_id} - {}", request.left);
     // Clean up intermediate receipts
     let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key]).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    let cleanup_left = agent.hot_delete(&left_receipt_key).await;
+    let cleanup_right = agent.hot_delete(&right_receipt_key).await;
+    let cleanup_status =
+        if cleanup_left.is_ok() && cleanup_right.is_ok() { "success" } else { "error" };
     helpers::record_redis_operation(
         "unlink",
         cleanup_status,
         cleanup_start.elapsed().as_secs_f64(),
     );
-    cleanup_result
-        .map_err(|e| anyhow::anyhow!(e).context("Failed to delete union receipt keys"))?;
+    cleanup_left.context("Failed to delete left union receipt key")?;
+    cleanup_right.context("Failed to delete right union receipt key")?;
 
     // Record total task duration and success
     helpers::record_task_operation(

@@ -5,7 +5,6 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
     tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
@@ -17,7 +16,6 @@ use workflow_common::{JoinReq, metrics::helpers};
 /// Run a POVW join request
 pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()> {
     let start_time = Instant::now();
-    let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
 
     // Get the left and right receipts
@@ -25,14 +23,14 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     let right_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.right);
 
     // Get receipts using Redis helper
-    let (left_receipt_bytes, right_receipt_bytes): (Vec<u8>, Vec<u8>) = conn
-        .mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_receipt_key, &right_receipt_key])
+    let left_receipt_bytes = agent
+        .hot_get_bytes(&left_receipt_key)
         .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}: {e}"
-            )
-        })?;
+        .with_context(|| format!("failed to get receipt for key: {left_receipt_key}"))?;
+    let right_receipt_bytes = agent
+        .hot_get_bytes(&right_receipt_key)
+        .await
+        .with_context(|| format!("failed to get receipt for key: {right_receipt_key}"))?;
 
     // Deserialize POVW receipts
     let (left_receipt, right_receipt): (
@@ -86,25 +84,24 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
         .context("[BENTO-JOINPOVW-004] Failed to serialize joined POVW receipt")?;
 
     // Store joined POVW receipt using Redis helper
-    redis::set_key_with_expiry(
-        &mut conn,
-        &povw_output_key,
-        povw_receipt_asset,
-        Some(agent.args.redis_ttl),
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("Failed to write joined POVW receipt to Redis: {e}"))?;
+    agent
+        .hot_set_bytes(&povw_output_key, povw_receipt_asset)
+        .await
+        .context("Failed to write joined POVW receipt to hot store")?;
 
     // Clean up intermediate POVW receipts
     let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key]).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    let cleanup_left = agent.hot_delete(&left_receipt_key).await;
+    let cleanup_right = agent.hot_delete(&right_receipt_key).await;
+    let cleanup_status =
+        if cleanup_left.is_ok() && cleanup_right.is_ok() { "success" } else { "error" };
     helpers::record_redis_operation(
         "unlink",
         cleanup_status,
         cleanup_start.elapsed().as_secs_f64(),
     );
-    cleanup_result.map_err(|e| anyhow::anyhow!("Failed to delete POVW join receipt keys: {e}"))?;
+    cleanup_left.context("Failed to delete left POVW join receipt key")?;
+    cleanup_right.context("Failed to delete right POVW join receipt key")?;
 
     // Record total task duration and success
     helpers::record_task_operation(

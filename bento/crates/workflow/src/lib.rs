@@ -7,11 +7,10 @@
 
 //! Workflow processing Agent service
 
-use crate::redis::RedisPool;
+use crate::{assets::ApiClient, redis::RedisPool};
 use anyhow::{Context, Result};
 use clap::Parser;
 use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
-use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
     rc::Rc,
     str::FromStr,
@@ -20,21 +19,40 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use taskdb::ReadyTask;
+use taskdb::{ReadyTask, TaskDb};
 use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
+mod assets;
 mod redis;
 mod tasks;
 
 pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
-    SNARK_TIMEOUT_DEFAULT, s3::S3Client,
+    SNARK_TIMEOUT_DEFAULT, SP1_WORK_TYPE, s3::S3Client,
 };
+
+fn uses_gpu_worker_api(task_stream: &str) -> bool {
+    matches!(
+        task_stream,
+        PROVE_WORK_TYPE
+            | JOIN_WORK_TYPE
+            | COPROC_WORK_TYPE
+            | workflow_common::SNARK_WORK_TYPE
+            | SP1_WORK_TYPE
+    )
+}
+
+fn needs_prover_server(task_stream: &str) -> bool {
+    matches!(
+        task_stream,
+        PROVE_WORK_TYPE | JOIN_WORK_TYPE | COPROC_WORK_TYPE | workflow_common::SNARK_WORK_TYPE
+    )
+}
 
 /// Workflow agent
 ///
 /// Monitors taskdb for new tasks on the selected stream and processes the work.
-/// Requires redis / task (psql) access
+/// CPU / aux workers use direct taskdb + redis access, while GPU workers use the API.
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -50,21 +68,21 @@ pub struct Args {
     #[arg(env, short, long, default_value_t = 1)]
     pub poll_time: u64,
 
-    /// taskdb postgres DATABASE_URL
-    #[clap(env)]
-    pub database_url: String,
+    /// taskdb redis URL (defaults to `redis_url`)
+    #[clap(env, long)]
+    pub taskdb_redis_url: Option<String>,
+
+    /// redis taskdb namespace prefix
+    #[clap(env, long, default_value = "taskdb")]
+    pub taskdb_redis_namespace: String,
 
     /// redis connection URL
     #[clap(env)]
-    pub redis_url: String,
+    pub redis_url: Option<String>,
 
     /// risc0 segment po2 arg
     #[clap(env, short, long, default_value_t = 20)]
     pub segment_po2: u32,
-
-    /// max connections to SQL db in connection pool
-    #[clap(env, long, default_value_t = 1)]
-    pub db_max_connections: u32,
 
     /// Redis TTL, seconds before objects expire automatically
     ///
@@ -76,25 +94,13 @@ pub struct Args {
     #[clap(env, short, long, default_value_t = 100_000)]
     pub exec_cycle_limit: u64,
 
-    /// S3 / Minio bucket
-    #[clap(env)]
-    pub s3_bucket: String,
+    /// Local disk path used as object storage root.
+    #[clap(env, long, default_value = "./data/object_store")]
+    pub storage_dir: String,
 
-    /// S3 / Minio access key
-    #[clap(env)]
-    pub s3_access_key: String,
-
-    /// S3 / Minio secret key
-    #[clap(env)]
-    pub s3_secret_key: String,
-
-    /// S3 / Minio url
-    #[clap(env)]
-    pub s3_url: String,
-
-    /// S3 region, can be anything if using minio
-    #[clap(env, default_value = "us-west-2")]
-    pub s3_region: String,
+    /// Base URL for the Bento API used to fetch input assets.
+    #[clap(env = "BENTO_API_URL", long, default_value = "http://localhost:8081")]
+    pub api_url: String,
 
     /// Enables a background thread to monitor for tasks that need to be retried / timed-out
     #[clap(env, long, default_value_t = false)]
@@ -161,12 +167,6 @@ pub struct Args {
     #[clap(env, long, default_value_t = 60 * 60)]
     cleanup_poll_interval: u64,
 
-    /// Stream counter refresh interval in seconds
-    ///
-    /// How often aux workers bulk-refresh stream ready/running counts (e.g. 1–2s).
-    #[clap(env, long, default_value_t = 5)]
-    stream_refresh_interval: u64,
-
     /// Disable cron to clean up completed jobs in taskdb.
     #[clap(long, default_value_t = true, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
     disable_completed_cleanup: bool,
@@ -178,14 +178,16 @@ pub struct Args {
 
 /// Core agent context to hold all optional clients / pools and state
 pub struct Agent {
-    /// Postgresql database connection pool
-    pub db_pool: PgPool,
+    /// Redis-backed taskdb client.
+    task_db: Option<TaskDb>,
     /// segment po2 config
     pub segment_po2: u32,
     /// redis connection pool
-    pub redis_pool: RedisPool,
-    /// S3 client
+    redis_pool: Option<RedisPool>,
+    /// Object storage client
     pub s3_client: S3Client,
+    /// API-backed worker client used for assets and GPU task execution
+    api_client: ApiClient,
     /// all configuration params:
     args: Args,
     /// risc0 Prover server
@@ -200,13 +202,26 @@ impl Agent {
         std::env::var("POVW_LOG_ID").is_ok()
     }
 
-    /// Update database connection pool metrics
+    /// Update database metrics.
     pub fn update_db_pool_metrics(&self) {
-        use workflow_common::metrics::helpers;
-        let size = self.db_pool.size() as i64;
-        let idle = self.db_pool.num_idle() as i64;
-        let active = size - idle;
-        helpers::update_db_pool_metrics(size, idle, active);
+        // Taskdb is Redis-only; SQL pool metrics are obsolete.
+    }
+
+    /// Returns the direct taskdb handle when this worker is configured to use one.
+    pub fn direct_task_db(&self) -> Option<&TaskDb> {
+        self.task_db.as_ref()
+    }
+
+    pub(crate) fn task_db(&self) -> Result<&TaskDb> {
+        self.task_db
+            .as_ref()
+            .context("[BENTO-WF-200] This worker stream is API-backed and has no direct taskdb")
+    }
+
+    pub(crate) fn redis_pool(&self) -> Result<&RedisPool> {
+        self.redis_pool
+            .as_ref()
+            .context("[BENTO-WF-201] This worker stream is API-backed and has no direct redis")
     }
 
     /// Initialize the [Agent] from the [Args] config params
@@ -222,44 +237,181 @@ impl Agent {
             tracing::debug!("POVW disabled");
         }
 
-        let db_pool = PgPoolOptions::new()
-            .max_connections(args.db_max_connections)
-            .connect(&args.database_url)
-            .await
-            .context("[BENTO-WF-100] Failed to initialize postgresql pool")?;
-        let redis_pool = crate::redis::create_pool(&args.redis_url)?;
-        let s3_client = S3Client::from_minio(
-            &args.s3_url,
-            &args.s3_bucket,
-            &args.s3_access_key,
-            &args.s3_secret_key,
-            &args.s3_region,
-        )
-        .await
-        .context("[BENTO-WF-101] Failed to initialize s3 client / bucket")?;
+        let api_backed_gpu_worker = uses_gpu_worker_api(&args.task_stream);
+        let task_db = if api_backed_gpu_worker {
+            None
+        } else {
+            let redis_taskdb_url = args
+                .taskdb_redis_url
+                .clone()
+                .or_else(|| args.redis_url.clone())
+                .context("[BENTO-WF-100] TASKDB_REDIS_URL or REDIS_URL is required")?;
+            let task_db = TaskDb::connect_redis(&redis_taskdb_url, &args.taskdb_redis_namespace)
+                .context("[BENTO-WF-100] Failed to initialize redis taskdb backend")?;
+            Some(task_db)
+        };
+        let redis_pool = if api_backed_gpu_worker {
+            None
+        } else {
+            Some(crate::redis::create_pool(
+                args.redis_url
+                    .as_deref()
+                    .context("[BENTO-WF-101] REDIS_URL is required for non-GPU worker streams")?,
+            )?)
+        };
+        let api_client = ApiClient::new(&args.api_url)
+            .context("[BENTO-WF-102] Failed to initialize API client")?;
+        let s3_client = S3Client::from_local_dir(&args.storage_dir)
+            .context("[BENTO-WF-103] Failed to initialize local object storage")?;
 
         let verifier_ctx = VerifierContext::default();
-        let prover = if args.task_stream == PROVE_WORK_TYPE
-            || args.task_stream == JOIN_WORK_TYPE
-            || args.task_stream == COPROC_WORK_TYPE
-        {
+        let prover = if needs_prover_server(&args.task_stream) {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts)
-                .context("[BENTO-WF-102] Failed to initialize prover server")?;
+                .context("[BENTO-WF-104] Failed to initialize prover server")?;
             Some(prover)
         } else {
             None
         };
 
         Ok(Self {
-            db_pool,
+            task_db,
             segment_po2: args.segment_po2,
             redis_pool,
             s3_client,
+            api_client,
             args,
             prover,
             verifier_ctx,
         })
+    }
+
+    async fn request_work(&self) -> Result<Option<ReadyTask>> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .claim_gpu_work(&self.args.task_stream, self.args.poll_time)
+                .await
+                .context("[BENTO-WF-105] Failed to claim GPU work from API")
+        } else {
+            self.task_db()?
+                .request_work_wait(&self.args.task_stream, self.args.poll_time)
+                .await
+                .context("[BENTO-WF-107] Failed to request_work")
+        }
+    }
+
+    async fn update_task_done(
+        &self,
+        job_id: &uuid::Uuid,
+        task_id: &str,
+        output: serde_json::Value,
+    ) -> Result<bool> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .update_task_done(job_id, task_id, output)
+                .await
+                .context("[BENTO-WF-133] Failed to report task done through API")
+        } else {
+            self.task_db()?
+                .update_task_done(job_id, task_id, output)
+                .await
+                .context("[BENTO-WF-133] Failed to report task done")
+        }
+    }
+
+    async fn update_task_failed(
+        &self,
+        job_id: &uuid::Uuid,
+        task_id: &str,
+        error: &str,
+    ) -> Result<bool> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .update_task_failed(job_id, task_id, error)
+                .await
+                .context("[BENTO-WF-110] Failed to report task failure through API")
+        } else {
+            self.task_db()?
+                .update_task_failed(job_id, task_id, error)
+                .await
+                .context("[BENTO-WF-110] Failed to report task failure")
+        }
+    }
+
+    async fn update_task_retry(&self, job_id: &uuid::Uuid, task_id: &str) -> Result<bool> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .update_task_retry(job_id, task_id)
+                .await
+                .context("[BENTO-WF-111] Failed to update task retries through API")
+        } else {
+            self.task_db()?
+                .update_task_retry(job_id, task_id)
+                .await
+                .context("[BENTO-WF-111] Failed to update task retries")
+        }
+    }
+
+    async fn get_task_retries_running(
+        &self,
+        job_id: &uuid::Uuid,
+        task_id: &str,
+    ) -> Result<Option<i32>> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .get_task_retries_running(job_id, task_id)
+                .await
+                .context("[BENTO-WF-109] Failed to read current retries through API")
+        } else {
+            self.task_db()?
+                .get_task_retries_running(job_id, task_id)
+                .await
+                .context("[BENTO-WF-109] Failed to read current retries")
+        }
+    }
+
+    pub(crate) async fn hot_get_bytes(&self, key: &str) -> Result<Vec<u8>> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .hot_get_bytes(key)
+                .await
+                .with_context(|| format!("[BENTO-WF-202] Failed to fetch hot-store key {key}"))
+        } else {
+            let mut conn = self.redis_pool()?.get().await?;
+            crate::redis::get_key(&mut conn, key)
+                .await
+                .with_context(|| format!("[BENTO-WF-202] Failed to fetch redis key {key}"))
+        }
+    }
+
+    pub(crate) async fn hot_set_bytes(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .hot_set_bytes(key, value, Some(self.args.redis_ttl))
+                .await
+                .with_context(|| format!("[BENTO-WF-203] Failed to write hot-store key {key}"))
+        } else {
+            let mut conn = self.redis_pool()?.get().await?;
+            crate::redis::set_key_with_expiry(&mut conn, key, value, Some(self.args.redis_ttl))
+                .await
+                .with_context(|| format!("[BENTO-WF-203] Failed to write redis key {key}"))?;
+            Ok(())
+        }
+    }
+
+    pub(crate) async fn hot_delete(&self, key: &str) -> Result<()> {
+        if uses_gpu_worker_api(&self.args.task_stream) {
+            self.api_client
+                .hot_delete(key)
+                .await
+                .with_context(|| format!("[BENTO-WF-205] Failed to delete hot-store key {key}"))
+        } else {
+            let mut conn = self.redis_pool()?.get().await?;
+            let _: () = redis::AsyncCommands::unlink(&mut conn, key)
+                .await
+                .with_context(|| format!("[BENTO-WF-205] Failed to delete redis key {key}"))?;
+            Ok(())
+        }
     }
 
     /// Create a signal hook to flip a boolean if its triggered
@@ -284,14 +436,17 @@ impl Agent {
         // cluster
         if self.args.monitor_requeue {
             let term_sig_copy = term_sig.clone();
-            let db_pool_copy = self.db_pool.clone();
+            let task_db_copy = self
+                .direct_task_db()
+                .cloned()
+                .context("[BENTO-WF-104] monitor_requeue requires direct taskdb access")?;
             let requeue_interval = self.args.requeue_poll_interval;
 
             tokio::spawn(async move {
                 loop {
                     if let Err(e) = Self::poll_for_requeue(
                         term_sig_copy.clone(),
-                        db_pool_copy.clone(),
+                        task_db_copy.clone(),
                         requeue_interval,
                     )
                     .await
@@ -307,13 +462,16 @@ impl Agent {
         if self.args.task_stream == AUX_WORK_TYPE {
             if !self.args.disable_stuck_task_cleanup {
                 let term_sig_copy = term_sig.clone();
-                let db_pool_copy = self.db_pool.clone();
+                let task_db_copy = self
+                    .direct_task_db()
+                    .cloned()
+                    .context("[BENTO-WF-105] AUX maintenance requires direct taskdb access")?;
                 let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
                 tokio::spawn(async move {
                     loop {
                         if let Err(e) = Self::poll_for_stuck_tasks(
                             term_sig_copy.clone(),
-                            db_pool_copy.clone(),
+                            task_db_copy.clone(),
                             stuck_tasks_interval,
                         )
                         .await
@@ -328,13 +486,16 @@ impl Agent {
             // Enable completed job cleanup for aux workers
             if !self.args.disable_completed_cleanup {
                 let term_sig_copy = term_sig.clone();
-                let db_pool_copy = self.db_pool.clone();
+                let task_db_copy = self
+                    .direct_task_db()
+                    .cloned()
+                    .context("[BENTO-WF-106] AUX cleanup requires direct taskdb access")?;
                 let cleanup_interval = self.args.cleanup_poll_interval;
                 tokio::spawn(async move {
                     loop {
                         if let Err(e) = Self::poll_for_completed_job_cleanup(
                             term_sig_copy.clone(),
-                            db_pool_copy.clone(),
+                            task_db_copy.clone(),
                             cleanup_interval,
                         )
                         .await
@@ -345,36 +506,14 @@ impl Agent {
                     }
                 });
             }
-
-            // Enable stream counter refresh for aux workers (bulk refresh ready/running per stream)
-            let term_sig_copy = term_sig.clone();
-            let db_pool_copy = self.db_pool.clone();
-            let stream_refresh_interval = self.args.stream_refresh_interval;
-            tokio::spawn(async move {
-                loop {
-                    if let Err(e) = Self::poll_for_stream_refresh(
-                        term_sig_copy.clone(),
-                        db_pool_copy.clone(),
-                        stream_refresh_interval,
-                    )
-                    .await
-                    {
-                        tracing::error!("[BENTO-WF-134] Stream counter refresh failed: {:#}", e);
-                        time::sleep(time::Duration::from_secs(stream_refresh_interval)).await;
-                    }
-                }
-            });
         }
 
         while !term_sig.load(Ordering::Relaxed) {
             // Update database pool metrics periodically
             self.update_db_pool_metrics();
 
-            let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
-                .await
-                .context("[BENTO-WF-107] Failed to request_work")?;
+            let task = self.request_work().await?;
             let Some(task) = task else {
-                time::sleep(time::Duration::from_secs(self.args.poll_time)).await;
                 continue;
             };
 
@@ -388,50 +527,28 @@ impl Agent {
 
                 if task.max_retries > 0 {
                     // If the next retry would exceed the limit, set a final error now
-                    if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
-                        "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
-                    )
-                    .bind(task.job_id)
-                    .bind(&task.task_id)
-                    .fetch_optional(&self.db_pool)
-                    .await
-                    .context("[BENTO-WF-109] Failed to read current retries")?
-                        && current_retries + 1 > task.max_retries {
-                            // Prevent massive errors from being reported to the DB
-                            err_str.truncate(1024);
-                            let final_err = if err_str.is_empty() {
-                                "retry max hit".to_string()
-                            } else {
-                                format!("retry max hit: {}", err_str)
-                            };
-                            taskdb::update_task_failed(
-                                &self.db_pool,
-                                &task.job_id,
-                                &task.task_id,
-                                &final_err,
-                            )
-                            .await
-                            .context("[BENTO-WF-110] Failed to report task failure")?;
-                            continue;
-                        }
-
-                    if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
-                        .await
-                        .context("[BENTO-WF-111] Failed to update task retries")?
+                    if let Some(current_retries) =
+                        self.get_task_retries_running(&task.job_id, &task.task_id).await?
+                        && current_retries + 1 > task.max_retries
                     {
+                        // Prevent massive errors from being reported to the DB
+                        err_str.truncate(1024);
+                        let final_err = if err_str.is_empty() {
+                            "retry max hit".to_string()
+                        } else {
+                            format!("retry max hit: {}", err_str)
+                        };
+                        self.update_task_failed(&task.job_id, &task.task_id, &final_err).await?;
+                        continue;
+                    }
+
+                    if !self.update_task_retry(&task.job_id, &task.task_id).await? {
                         tracing::info!("update_task_retried failed: {}", task.job_id);
                     }
                 } else {
                     // Prevent massive errors from being reported to the DB
                     err_str.truncate(1024);
-                    taskdb::update_task_failed(
-                        &self.db_pool,
-                        &task.job_id,
-                        &task.task_id,
-                        &err_str,
-                    )
-                    .await
-                    .context("[BENTO-WF-112] Failed to report task failure")?;
+                    self.update_task_failed(&task.job_id, &task.task_id, &err_str).await?;
                 }
                 continue;
             }
@@ -520,11 +637,15 @@ impl Agent {
                     .context("[BENTO-WF-131] Union failed")?,
             )
             .context("[BENTO-WF-132] failed to serialize union response")?,
+            TaskType::Sp1(req) => serde_json::to_value(
+                tasks::sp1::prove_sp1(self, &task.job_id, &req)
+                    .await
+                    .context("[BENTO-WF-133] SP1 failed")?,
+            )
+            .context("[BENTO-WF-134] failed to serialize SP1 response")?,
         };
 
-        taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, res)
-            .await
-            .context("[BENTO-WF-133] Failed to report task done")?;
+        self.update_task_done(&task.job_id, &task.task_id, res).await?;
 
         Ok(())
     }
@@ -535,12 +656,12 @@ impl Agent {
     /// the agent will catch and fail max retries.
     async fn poll_for_requeue(
         term_sig: Arc<AtomicBool>,
-        db_pool: PgPool,
+        task_db: TaskDb,
         poll_interval: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
             tracing::debug!("Triggering a requeue job...");
-            let retry_tasks = taskdb::requeue_tasks(&db_pool, 100).await?;
+            let retry_tasks = task_db.requeue_tasks(100).await?;
             if retry_tasks > 0 {
                 tracing::info!("Found {retry_tasks} tasks that needed to be retried");
             }
@@ -556,7 +677,7 @@ impl Agent {
     /// because all their dependencies are complete, and fix them.
     async fn poll_for_stuck_tasks(
         term_sig: Arc<AtomicBool>,
-        db_pool: PgPool,
+        task_db: TaskDb,
         poll_interval: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
@@ -566,7 +687,7 @@ impl Agent {
             tracing::debug!("Checking for stuck pending tasks...");
 
             // First check if there are any stuck tasks
-            let stuck_tasks = taskdb::check_stuck_pending_tasks(&db_pool).await?;
+            let stuck_tasks = task_db.check_stuck_pending_tasks().await?;
             if !stuck_tasks.is_empty() {
                 tracing::warn!("Found {} stuck pending tasks", stuck_tasks.len());
 
@@ -583,7 +704,7 @@ impl Agent {
                 }
 
                 // Fix the stuck tasks
-                let fixed_count = taskdb::fix_stuck_pending_tasks(&db_pool).await?;
+                let fixed_count = task_db.fix_stuck_pending_tasks().await?;
                 if fixed_count > 0 {
                     tracing::info!("Fixed {} stuck pending tasks", fixed_count);
                 }
@@ -599,7 +720,7 @@ impl Agent {
     /// to prevent database bloat over time.
     async fn poll_for_completed_job_cleanup(
         term_sig: Arc<AtomicBool>,
-        db_pool: PgPool,
+        task_db: TaskDb,
         poll_interval: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
@@ -608,31 +729,13 @@ impl Agent {
 
             tracing::debug!("Cleaning up completed jobs...");
 
-            let cleared_count = taskdb::clear_completed_jobs(&db_pool).await?;
+            let cleared_count = task_db.clear_completed_jobs().await?;
             if cleared_count > 0 {
                 tracing::info!("Cleared {} completed jobs", cleared_count);
                 workflow_common::metrics::helpers::record_completed_jobs_garbage_collection_metrics(
                     cleared_count as u64,
                 );
             }
-        }
-
-        Ok(())
-    }
-
-    /// Background task to bulk-refresh stream ready/running counters from task counts.
-    ///
-    /// Keeps stream priority correct for request_work without per-row triggers.
-    async fn poll_for_stream_refresh(
-        term_sig: Arc<AtomicBool>,
-        db_pool: PgPool,
-        poll_interval: u64,
-    ) -> Result<()> {
-        while !term_sig.load(Ordering::Relaxed) {
-            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
-
-            tracing::debug!("Refreshing stream counters...");
-            taskdb::refresh_stream_counters(&db_pool).await?;
         }
 
         Ok(())

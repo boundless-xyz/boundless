@@ -42,7 +42,7 @@ The central orchestration service that manages task distribution and execution.
 
 #### 2. **Task Database** (`crates/taskdb`)
 
-PostgreSQL-based task management system with sophisticated dependency resolution.
+Redis-based task management system with dependency resolution, priority scheduling, and push wakeups.
 
 **Features:**
 
@@ -80,7 +80,7 @@ Shared data structures and constants used across the workflow system.
 **Components:**
 
 - Task request/response types
-- S3 client for object storage
+- Object storage client (local disk backend)
 - Compression type definitions
 - Work type constants
 
@@ -100,13 +100,11 @@ Example RISC Zero guest programs and methods for testing and development.
 
 - **RISC Zero zkVM**: Zero-knowledge virtual machine for secure computation
 - **Rust**: Primary programming language for performance and safety
-- **PostgreSQL**: Task database with advanced querying capabilities
-- **Redis**: High-performance caching and session storage
-- **S3/MinIO**: Object storage for images, inputs, and receipts
+- **Redis**: Task database, hot storage, and worker wakeup backbone
+- **Local Disk Storage**: Object storage for images, inputs, and receipts
 
 ### Dependencies
 
-- **sqlx**: Async database toolkit with compile-time query checking
 - **tokio**: Async runtime for high-performance I/O
 - **serde**: Serialization framework
 - **anyhow**: Error handling utilities
@@ -118,8 +116,7 @@ Example RISC Zero guest programs and methods for testing and development.
 ### Prerequisites
 
 - **Rust**: Latest stable version (1.70+)
-- **Docker**: For running PostgreSQL and Redis
-- **PostgreSQL**: 13+ (or use Docker)
+- **Docker**: For running Redis
 - **Redis**: 6+ (or use Docker)
 
 ### Quick Start with Docker
@@ -147,28 +144,15 @@ Example RISC Zero guest programs and methods for testing and development.
 
 ### Manual Setup
 
-1. **Install dependencies**
+1. **Set environment variables**
    ```bash
-   cargo install sqlx-cli --no-default-features --features postgres
+export REDIS_URL="redis://localhost:6379"
+export STORAGE_DIR="./data/object_store"
+export BENTO_API_URL="http://localhost:8081"
+export RISC0_DEV_MODE=true
    ```
 
-2. **Set environment variables**
-   ```bash
-   export DATABASE_URL="postgres://user:password@localhost:5432/bento"
-   export REDIS_URL="redis://localhost:6379"
-   export RISC0_DEV_MODE=true
-   ```
-
-3. **Run database migrations**
-   ```bash
-   cd crates/taskdb && sqlx database create && sqlx migrate run
-   cd ../broker && sqlx migrate run
-   cd ../indexer && sqlx migrate run
-   cd ../order-stream && sqlx migrate run
-   cd ../slasher && sqlx migrate run
-   ```
-
-4. **Build and test**
+2. **Build and test**
    ```bash
    cargo build
    cargo test --workspace
@@ -180,20 +164,20 @@ Example RISC Zero guest programs and methods for testing and development.
 
 ```bash
 # Start an executor agent
-cargo run -p workflow -- exec --task-stream exec --database-url $DATABASE_URL --redis-url $REDIS_URL
+cargo run -p workflow -- --task-stream exec --redis-url $REDIS_URL --storage-dir $STORAGE_DIR --api-url $BENTO_API_URL
 
-# Start a prover agent
-cargo run -p workflow -- prove --task-stream prove --database-url $DATABASE_URL --redis-url $REDIS_URL
+# Start a prover agent (GPU workers only need the API and storage path)
+cargo run -p workflow -- --task-stream prove --storage-dir $STORAGE_DIR --api-url $BENTO_API_URL
 
-# Start a join agent
-cargo run -p workflow -- join --task-stream join --database-url $DATABASE_URL --redis-url $REDIS_URL
+# Start a join agent (GPU workers only need the API and storage path)
+cargo run -p workflow -- --task-stream join --storage-dir $STORAGE_DIR --api-url $BENTO_API_URL
 ```
 
 ### Submitting Jobs via API
 
 ```bash
 # Start the API service
-cargo run -p api -- --database-url $DATABASE_URL --redis-url $REDIS_URL
+cargo run -p api -- --redis-url $REDIS_URL --storage-dir $STORAGE_DIR
 
 # Submit a job (example)
 curl -X POST http://localhost:8081/jobs \
@@ -266,13 +250,13 @@ When POVW is enabled:
 ### Test Types
 
 - **Basic Tests**: No external dependencies, fast execution
-- **Integration Tests**: Require PostgreSQL and Redis
+- **Integration Tests**: Require Redis
 - **Unit Tests**: Individual component testing
 
 ### Running Tests
 
 ```bash
-# Full tests (with database)
+# Full tests (with Redis)
 ./scripts/run_tests.sh
 ```
 
@@ -282,7 +266,6 @@ When POVW is enabled:
 
 | Variable         | Description                  | Default                 |
 | ---------------- | ---------------------------- | ----------------------- |
-| `DATABASE_URL`   | PostgreSQL connection string | Required                |
 | `REDIS_URL`      | Redis connection string      | Required                |
 | `RISC0_DEV_MODE` | Enable development mode      | `false`                 |
 | `POVW_LOG_ID`    | POVW log identifier          | Required to enable POVW |
@@ -304,8 +287,7 @@ When POVW is enabled:
 --join-retries <count>          # Join retry attempts (default: 3)
 --join-timeout <minutes>        # Join timeout (default: 10)
 
-# Database and Redis
---db-max-connections <count>    # Database connection pool size (default: 1)
+# Redis and storage
 --redis-ttl <seconds>          # Redis TTL (default: 8 hours)
 ```
 
@@ -315,15 +297,14 @@ When POVW is enabled:
 
 - **Horizontal Scaling**: Run multiple agents of each type
 - **Load Balancing**: Distribute tasks across multiple workers
-- **Database Scaling**: Use connection pooling and read replicas
 - **Redis Clustering**: For high-availability caching
-- **Object Storage**: S3-compatible storage for large files
+- **Object Storage**: Shared local disk storage for large files
 
 ### Monitoring and Observability
 
 - **Structured Logging**: Uses `tracing` for comprehensive logging
 - **Metrics**: Task completion rates, processing times, error rates
-- **Health Checks**: Database and Redis connectivity monitoring
+- **Health Checks**: Redis and object storage connectivity monitoring
 - **Alerting**: Task failure and timeout notifications
 
 ### Security

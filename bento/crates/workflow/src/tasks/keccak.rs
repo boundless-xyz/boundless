@@ -5,7 +5,6 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
     tasks::{COPROC_CB_PATH, serialize_obj},
 };
 use anyhow::{Context, Result, anyhow, bail};
@@ -33,13 +32,12 @@ pub async fn keccak(
     request: &KeccakReq,
 ) -> Result<()> {
     let start_time = Instant::now();
-    let mut conn = agent.redis_pool.get().await?;
     let keccak_input_path =
         format!("job:{job_id}:{}:{task_id}:{}", COPROC_CB_PATH, request.claim_digest);
 
     // Get keccak input using Redis helper, preferring the task-scoped key but falling back to the
     // legacy location to handle in-progress tasks during upgrade.
-    let keccak_input: Vec<u8> = match redis::get_key(&mut conn, &keccak_input_path).await {
+    let keccak_input: Vec<u8> = match agent.hot_get_bytes(&keccak_input_path).await {
         Ok(input) => input,
         Err(_) => {
             tracing::warn!(
@@ -49,7 +47,7 @@ pub async fn keccak(
             );
             let legacy_keccak_input_path =
                 format!("job:{job_id}:{}:{}", COPROC_CB_PATH, request.claim_digest);
-            redis::get_key(&mut conn, &legacy_keccak_input_path).await?
+            agent.hot_get_bytes(&legacy_keccak_input_path).await?
         }
     };
 
@@ -92,16 +90,23 @@ pub async fn keccak(
         .context("[BENTO-KECCAK-005] Failed to serialize keccak receipt")?;
 
     // Store keccak receipt using Redis helper
-    redis::set_key_with_expiry(
-        &mut conn,
-        &receipts_key,
-        keccak_receipt_bytes,
-        Some(agent.args.redis_ttl),
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!(e).context("Failed to write keccak receipt to redis"))?;
+    agent
+        .hot_set_bytes(&receipts_key, keccak_receipt_bytes)
+        .await
+        .context("Failed to write keccak receipt to hot store")?;
 
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
+
+    // Clean up keccak input
+    let cleanup_start = Instant::now();
+    let cleanup_result = agent.hot_delete(&keccak_input_path).await;
+    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(
+        "unlink",
+        cleanup_status,
+        cleanup_start.elapsed().as_secs_f64(),
+    );
+    cleanup_result.context("Failed to delete keccak input path key")?;
 
     // Record total task duration and success
     helpers::record_task_operation(

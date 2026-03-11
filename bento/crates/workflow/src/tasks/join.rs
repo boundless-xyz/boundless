@@ -5,7 +5,6 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
     tasks::{RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
@@ -17,7 +16,6 @@ use workflow_common::{JoinReq, metrics::helpers};
 /// Run the join operation
 pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()> {
     let start_time = Instant::now();
-    let mut conn = agent.redis_pool.get().await?;
     // Build the redis keys for the right and left joins
     let job_prefix = format!("job:{job_id}");
     let recur_receipts_prefix = format!("{job_prefix}:{RECUR_RECEIPT_PATH}");
@@ -26,14 +24,14 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     let right_path_key = format!("{recur_receipts_prefix}:{}", request.right);
 
     // Get receipts using Redis helper
-    let (left_receipt, right_receipt): (Vec<u8>, Vec<u8>) = conn
-        .mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_path_key, &right_path_key])
+    let left_receipt = agent
+        .hot_get_bytes(&left_path_key)
         .await
-        .map_err(|e| {
-            anyhow::anyhow!(e).context(format!(
-                "failed to get receipts for keys: {left_path_key}, {right_path_key}"
-            ))
-        })?;
+        .with_context(|| format!("failed to get receipt for key: {left_path_key}"))?;
+    let right_receipt = agent
+        .hot_get_bytes(&right_path_key)
+        .await
+        .with_context(|| format!("failed to get receipt for key: {right_path_key}"))?;
 
     let left_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&left_receipt)
         .context("[BENTO-JOIN-001] Failed to deserialize left receipt")?;
@@ -84,22 +82,26 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     let output_key = format!("{recur_receipts_prefix}:{}", request.idx);
 
     // Store joined receipt using Redis helper
-    redis::set_key_with_expiry(&mut conn, &output_key, join_result, Some(agent.args.redis_ttl))
+    agent
+        .hot_set_bytes(&output_key, join_result)
         .await
-        .map_err(|e| anyhow::anyhow!(e).context("Failed to store joined receipt"))?;
+        .context("Failed to store joined receipt")?;
 
     tracing::debug!("Join Complete {job_id} - {}", request.left);
 
     // Clean up intermediate receipts
     let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&[&left_path_key, &right_path_key]).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    let cleanup_left = agent.hot_delete(&left_path_key).await;
+    let cleanup_right = agent.hot_delete(&right_path_key).await;
+    let cleanup_status =
+        if cleanup_left.is_ok() && cleanup_right.is_ok() { "success" } else { "error" };
     helpers::record_redis_operation(
         "unlink",
         cleanup_status,
         cleanup_start.elapsed().as_secs_f64(),
     );
-    cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete join receipt keys"))?;
+    cleanup_left.context("Failed to delete left join receipt key")?;
+    cleanup_right.context("Failed to delete right join receipt key")?;
 
     // Record total task duration and success
     helpers::record_task_operation(

@@ -5,7 +5,6 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
     tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
@@ -18,14 +17,13 @@ use workflow_common::{ProveReq, metrics::helpers};
 pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<()> {
     let start_time = Instant::now();
     let index = request.index;
-    let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
     let segment_key = format!("{job_prefix}:{SEGMENTS_PATH}:{index}");
 
     tracing::debug!("Starting proof of idx: {job_id} - {index}");
 
     // Record Redis operation for segment retrieval
-    let segment_vec: Vec<u8> = match redis::get_key(&mut conn, &segment_key).await {
+    let segment_vec: Vec<u8> = match agent.hot_get_bytes(&segment_key).await {
         Ok(data) => data,
         Err(e) => {
             return Err(anyhow::anyhow!(e)
@@ -85,7 +83,8 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         // Write out lifted POVW receipt
         let lift_asset =
             serialize_obj(&lift_receipt).expect("Failed to serialize the POVW segment");
-        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
+        agent
+            .hot_set_bytes(&output_key, lift_asset)
             .await
             .context("Failed to set POVW receipt key with expiry")?;
     } else {
@@ -107,21 +106,22 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
         // Write out lifted regular receipt
         let lift_asset = serialize_obj(&lift_receipt).expect("Failed to serialize the segment");
-        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
+        agent
+            .hot_set_bytes(&output_key, lift_asset)
             .await
             .context("Failed to set receipt key with expiry")?;
     }
 
     // Clean up segment
     let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&segment_key).await;
+    let cleanup_result = agent.hot_delete(&segment_key).await;
     let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
     helpers::record_redis_operation(
         "unlink",
         cleanup_status,
         cleanup_start.elapsed().as_secs_f64(),
     );
-    cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete segment key"))?;
+    cleanup_result.context("Failed to delete segment key")?;
 
     // Record total task duration and success
     helpers::record_task_operation(

@@ -1,0 +1,1048 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+                "enable": false,
+                "hide": false,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "target": { "limit": 100, "matchAny": false, "tags": [], "type": "dashboard" },
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+            "id": 100,
+            "title": "Overview",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "thresholds" },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            { "color": "green", "value": null },
+                            { "color": "yellow", "value": 100 },
+                            { "color": "red", "value": 500 }
+                        ]
+                    },
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+            "id": 1,
+            "options": {
+                "colorMode": "background_gradient",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=~\"redis:.*\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "success",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total Throughput (ops/s)",
+            "type": "stat"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "thresholds" },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            { "color": "green", "value": null },
+                            { "color": "red", "value": 1 }
+                        ]
+                    },
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+            "id": 2,
+            "options": {
+                "colorMode": "background_gradient",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=~\"redis:.*\", status=\"error\"}[$__rate_interval]))",
+                    "legendFormat": "errors",
+                    "refId": "A"
+                }
+            ],
+            "title": "Error Rate (ops/s)",
+            "type": "stat"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "thresholds" },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            { "color": "green", "value": null },
+                            { "color": "yellow", "value": 0.05 },
+                            { "color": "red", "value": 0.1 }
+                        ]
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
+            "id": 3,
+            "options": {
+                "colorMode": "background_gradient",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:.*\"}[$__rate_interval])))",
+                    "legendFormat": "p50",
+                    "refId": "A"
+                }
+            ],
+            "title": "Global p50 Latency",
+            "type": "stat"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "thresholds" },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            { "color": "green", "value": null },
+                            { "color": "yellow", "value": 0.1 },
+                            { "color": "red", "value": 0.5 }
+                        ]
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
+            "id": 4,
+            "options": {
+                "colorMode": "background_gradient",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.99, sum by (le) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:.*\"}[$__rate_interval])))",
+                    "legendFormat": "p99",
+                    "refId": "A"
+                }
+            ],
+            "title": "Global p99 Latency",
+            "type": "stat"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+            "id": 101,
+            "title": "Throughput",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 15,
+                        "gradientMode": "none",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 0, "y": 8 },
+            "id": 10,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "sortBy": "Mean", "sortDesc": true },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum by (operation_type) (rate(db_operations_total{operation_type=~\"redis:.*\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Success Rate by Operation",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 15,
+                        "gradientMode": "none",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 12, "y": 8 },
+            "id": 11,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "sortBy": "Mean", "sortDesc": true },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum by (operation_type) (rate(db_operations_total{operation_type=~\"redis:.*\", status=\"error\"}[$__rate_interval]))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Error Rate by Operation",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+            "id": 102,
+            "title": "Latency — Hot Path",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "scheme",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+            "id": 20,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "sortBy": "Mean", "sortDesc": true },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le, operation_type) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:(request_work|create_job|create_task|update_task_done)\"}[$__rate_interval])))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Hot Path — p50 Latency",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "scheme",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 12, "y": 18 },
+            "id": 21,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "sortBy": "Mean", "sortDesc": true },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.99, sum by (le, operation_type) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:(request_work|create_job|create_task|update_task_done)\"}[$__rate_interval])))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Hot Path — p99 Latency",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+            "id": 103,
+            "title": "Latency — All Operations",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "scheme",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 0, "y": 28 },
+            "id": 30,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "sortBy": "Mean", "sortDesc": true },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le, operation_type) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:.*\"}[$__rate_interval])))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "All Operations — p50 Latency",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "scheme",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 12, "y": 28 },
+            "id": 31,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "sortBy": "Mean", "sortDesc": true },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.99, sum by (le, operation_type) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:.*\"}[$__rate_interval])))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "All Operations — p99 Latency",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+            "id": 104,
+            "title": "Per-Operation Detail",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "scheme",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 38 },
+            "id": 40,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(db_operation_duration_seconds_bucket{operation_type=\"${operation}\"}[$__rate_interval])))",
+                    "legendFormat": "p50",
+                    "refId": "A"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.90, sum by (le) (rate(db_operation_duration_seconds_bucket{operation_type=\"${operation}\"}[$__rate_interval])))",
+                    "legendFormat": "p90",
+                    "refId": "B"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.99, sum by (le) (rate(db_operation_duration_seconds_bucket{operation_type=\"${operation}\"}[$__rate_interval])))",
+                    "legendFormat": "p99",
+                    "refId": "C"
+                }
+            ],
+            "title": "${operation} — Latency Percentiles",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 15,
+                        "gradientMode": "none",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "ops"
+                },
+                "overrides": [
+                    {
+                        "matcher": { "id": "byName", "options": "error" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+                    }
+                ]
+            },
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 38 },
+            "id": 41,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum by (status) (rate(db_operations_total{operation_type=\"${operation}\"}[$__rate_interval]))",
+                    "legendFormat": "{{ status }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "${operation} — Throughput",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "fillOpacity": 20,
+                        "gradientMode": "scheme",
+                        "lineWidth": 0,
+                        "stacking": { "group": "A", "mode": "normal" }
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 24, "x": 0, "y": 46 },
+            "id": 42,
+            "options": {
+                "legend": { "calcs": [], "displayMode": "list", "placement": "bottom" },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum by (le) (increase(db_operation_duration_seconds_bucket{operation_type=\"${operation}\"}[$__rate_interval]))",
+                    "legendFormat": "≤ {{le}}s",
+                    "refId": "A",
+                    "format": "heatmap"
+                }
+            ],
+            "title": "${operation} — Latency Heatmap",
+            "type": "histogram"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 54 },
+            "id": 105,
+            "title": "Slowest Operations",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "continuous-RdYlGr", "fixedColor": "green" },
+                    "custom": { "align": "auto", "cellOptions": { "type": "color-background", "mode": "gradient" }, "inspect": false },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            { "color": "green", "value": null },
+                            { "color": "yellow", "value": 0.01 },
+                            { "color": "red", "value": 0.1 }
+                        ]
+                    },
+                    "unit": "s"
+                },
+                "overrides": [
+                    {
+                        "matcher": { "id": "byName", "options": "operation_type" },
+                        "properties": [
+                            { "id": "custom.cellOptions", "value": { "type": "auto" } },
+                            { "id": "custom.width", "value": 280 }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": { "h": 10, "w": 24, "x": 0, "y": 55 },
+            "id": 50,
+            "options": {
+                "showHeader": true,
+                "sortBy": [{ "desc": true, "displayName": "p99" }],
+                "cellHeight": "sm"
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le, operation_type) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:.*\"}[$__rate_interval])))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "A",
+                    "instant": true,
+                    "format": "table"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.99, sum by (le, operation_type) (rate(db_operation_duration_seconds_bucket{operation_type=~\"redis:.*\"}[$__rate_interval])))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "B",
+                    "instant": true,
+                    "format": "table"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum by (operation_type) (rate(db_operations_total{operation_type=~\"redis:.*\"}[$__rate_interval]))",
+                    "legendFormat": "{{ operation_type }}",
+                    "refId": "C",
+                    "instant": true,
+                    "format": "table"
+                }
+            ],
+            "title": "All Operations — Summary Table",
+            "type": "table",
+            "transformations": [
+                {
+                    "id": "seriesToColumns",
+                    "options": { "byField": "operation_type" }
+                },
+                {
+                    "id": "organize",
+                    "options": {
+                        "excludeByName": { "Time 1": true, "Time 2": true, "Time 3": true },
+                        "renameByName": {
+                            "Value #A": "p50",
+                            "Value #B": "p99",
+                            "Value #C": "ops/s"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 65 },
+            "id": 106,
+            "title": "Job Lifecycle",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 20,
+                        "gradientMode": "scheme",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "ops"
+                },
+                "overrides": [
+                    {
+                        "matcher": { "id": "byName", "options": "jobs created" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "tasks done" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "tasks failed" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "tasks retried" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+                    }
+                ]
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 0, "y": 66 },
+            "id": 60,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=\"redis:create_job\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "jobs created",
+                    "refId": "A"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=\"redis:update_task_done\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "tasks done",
+                    "refId": "B"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=\"redis:update_task_failed\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "tasks failed",
+                    "refId": "C"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=\"redis:update_task_retry\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "tasks retried",
+                    "refId": "D"
+                }
+            ],
+            "title": "Job & Task Lifecycle Rates",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 20,
+                        "gradientMode": "scheme",
+                        "lineInterpolation": "smooth",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "showPoints": "never",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "ops"
+                },
+                "overrides": [
+                    {
+                        "matcher": { "id": "byName", "options": "tasks created" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "work assigned" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "jobs deleted" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "semi-dark-red", "mode": "fixed" } }]
+                    }
+                ]
+            },
+            "gridPos": { "h": 9, "w": 12, "x": 12, "y": 66 },
+            "id": 61,
+            "options": {
+                "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=\"redis:create_task\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "tasks created",
+                    "refId": "A"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=\"redis:request_work\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "work assigned",
+                    "refId": "B"
+                },
+                {
+                    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+                    "editorMode": "code",
+                    "expr": "sum(rate(db_operations_total{operation_type=\"redis:delete_job\", status=\"success\"}[$__rate_interval]))",
+                    "legendFormat": "jobs deleted",
+                    "refId": "C"
+                }
+            ],
+            "title": "Task Scheduling Rates",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 75 },
+            "id": 107,
+            "title": "Job Lookup (by job_id — requires Loki)",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "loki", "uid": "${loki_ds}" },
+            "gridPos": { "h": 10, "w": 24, "x": 0, "y": 76 },
+            "id": 70,
+            "options": {
+                "dedupStrategy": "none",
+                "enableLogDetails": true,
+                "prettifyLogMessage": true,
+                "showCommonLabels": false,
+                "showLabels": false,
+                "showTime": true,
+                "sortOrder": "Ascending",
+                "wrapLogMessage": true
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "loki", "uid": "${loki_ds}" },
+                    "editorMode": "code",
+                    "expr": "{job=~\".+\"} |= `${job_id}` | json | event != `` | line_format `{{.event}} {{if .task_id}}task={{.task_id}}{{end}} {{if .error}}error={{.error}}{{end}} {{if .retried}}retried={{.retried}}{{end}}`",
+                    "legendFormat": "",
+                    "refId": "A"
+                }
+            ],
+            "title": "Job Timeline — ${job_id}",
+            "type": "logs"
+        },
+        {
+            "datasource": { "type": "loki", "uid": "${loki_ds}" },
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "points",
+                        "fillOpacity": 0,
+                        "lineWidth": 0,
+                        "pointSize": 8,
+                        "showPoints": "always",
+                        "stacking": { "group": "A", "mode": "none" },
+                        "thresholdsStyle": { "mode": "off" }
+                    },
+                    "unit": "short"
+                },
+                "overrides": [
+                    {
+                        "matcher": { "id": "byName", "options": "job_created" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "task_created" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "light-blue", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "work_assigned" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "task_done" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "task_failed" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "task_retry" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+                    },
+                    {
+                        "matcher": { "id": "byName", "options": "job_deleted" },
+                        "properties": [{ "id": "color", "value": { "fixedColor": "dark-red", "mode": "fixed" } }]
+                    }
+                ]
+            },
+            "gridPos": { "h": 8, "w": 24, "x": 0, "y": 86 },
+            "id": 71,
+            "options": {
+                "legend": { "calcs": [], "displayMode": "list", "placement": "bottom" },
+                "tooltip": { "mode": "multi", "sort": "none" }
+            },
+            "targets": [
+                {
+                    "datasource": { "type": "loki", "uid": "${loki_ds}" },
+                    "editorMode": "code",
+                    "expr": "sum by (event) (count_over_time({job=~\".+\"} |= `${job_id}` | json | event != `` | keep event [1m]))",
+                    "legendFormat": "{{ event }}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Job Events Over Time — ${job_id}",
+            "type": "timeseries"
+        }
+    ],
+    "schemaVersion": 39,
+    "tags": ["redis", "taskdb", "bento"],
+    "templating": {
+        "list": [
+            {
+                "current": {},
+                "hide": 0,
+                "includeAll": false,
+                "name": "datasource",
+                "options": [],
+                "query": "prometheus",
+                "refresh": 1,
+                "regex": "",
+                "type": "datasource"
+            },
+            {
+                "current": {},
+                "hide": 0,
+                "includeAll": false,
+                "name": "loki_ds",
+                "options": [],
+                "query": "loki",
+                "refresh": 1,
+                "regex": "",
+                "type": "datasource"
+            },
+            {
+                "current": { "selected": true, "text": "redis:request_work", "value": "redis:request_work" },
+                "hide": 0,
+                "includeAll": false,
+                "name": "operation",
+                "options": [
+                    { "selected": false, "text": "redis:create_stream", "value": "redis:create_stream" },
+                    { "selected": false, "text": "redis:create_job", "value": "redis:create_job" },
+                    { "selected": false, "text": "redis:create_task", "value": "redis:create_task" },
+                    { "selected": true, "text": "redis:request_work", "value": "redis:request_work" },
+                    { "selected": false, "text": "redis:update_task_done", "value": "redis:update_task_done" },
+                    { "selected": false, "text": "redis:update_task_failed", "value": "redis:update_task_failed" },
+                    { "selected": false, "text": "redis:update_task_progress", "value": "redis:update_task_progress" },
+                    { "selected": false, "text": "redis:update_task_retry", "value": "redis:update_task_retry" },
+                    { "selected": false, "text": "redis:requeue_tasks", "value": "redis:requeue_tasks" },
+                    { "selected": false, "text": "redis:get_job_state", "value": "redis:get_job_state" },
+                    { "selected": false, "text": "redis:get_stream", "value": "redis:get_stream" },
+                    { "selected": false, "text": "redis:get_job_unresolved", "value": "redis:get_job_unresolved" },
+                    { "selected": false, "text": "redis:get_concurrent_jobs", "value": "redis:get_concurrent_jobs" },
+                    { "selected": false, "text": "redis:get_task_retries_running", "value": "redis:get_task_retries_running" },
+                    { "selected": false, "text": "redis:get_job_failure", "value": "redis:get_job_failure" },
+                    { "selected": false, "text": "redis:get_task_output", "value": "redis:get_task_output" },
+                    { "selected": false, "text": "redis:delete_job", "value": "redis:delete_job" },
+                    { "selected": false, "text": "redis:clear_completed_jobs", "value": "redis:clear_completed_jobs" }
+                ],
+                "type": "custom"
+            },
+            {
+                "current": { "selected": false, "text": "", "value": "" },
+                "description": "Paste a job UUID to see its full event timeline",
+                "hide": 0,
+                "label": "Job ID",
+                "name": "job_id",
+                "options": [{ "selected": true, "text": "", "value": "" }],
+                "query": "",
+                "type": "textbox"
+            }
+        ]
+    },
+    "time": { "from": "now-1h", "to": "now" },
+    "timepicker": {},
+    "timezone": "",
+    "title": "Redis TaskDB",
+    "uid": "redis-taskdb",
+    "version": 2
+}

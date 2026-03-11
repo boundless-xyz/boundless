@@ -14,10 +14,10 @@ use risc0_zkvm::{
     CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
     ProveKeccakRequest, Receipt, Segment, compute_image_id, sha::Digestible,
 };
-use sqlx::postgres::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
+use taskdb::TaskDb;
 use taskdb::planner::{
     Planner,
     task::{Command as TaskCmd, Task},
@@ -48,7 +48,7 @@ const CONCURRENT_SEGMENTS: usize = 50; // This peaks around ~4GB
 #[allow(clippy::too_many_arguments)]
 async fn process_task(
     args: &Args,
-    pool: &PgPool,
+    task_db: &TaskDb,
     prove_stream: &Uuid,
     join_stream: &Uuid,
     snark_stream: &Uuid,
@@ -71,18 +71,18 @@ async fn process_task(
             let task_def = serde_json::to_value(TaskType::Keccak(keccak_req))
                 .context("[BENTO-EXEC-002] Failed to serialize coproc (keccak) task-type")?;
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_id,
-                prove_stream,
-                &task_def,
-                &prereqs,
-                args.prove_retries,
-                args.prove_timeout,
-            )
-            .await
-            .context("[BENTO-EXEC-003] create_task failure during keccak task creation")?;
+            task_db
+                .create_task(
+                    job_id,
+                    &task_id,
+                    prove_stream,
+                    &task_def,
+                    &prereqs,
+                    args.prove_retries,
+                    args.prove_timeout,
+                )
+                .await
+                .context("[BENTO-EXEC-003] create_task failure during keccak task creation")?;
         }
         TaskCmd::Segment => {
             TASKS_CREATED.with_label_values(&["segment"]).inc();
@@ -106,18 +106,18 @@ async fn process_task(
             let prereqs = serde_json::json!([]);
             let task_name = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_name,
-                prove_stream,
-                &task_def,
-                &prereqs,
-                args.prove_retries,
-                args.prove_timeout,
-            )
-            .await
-            .context("[BENTO-EXEC-006] create_task failure during segment creation")?;
+            task_db
+                .create_task(
+                    job_id,
+                    &task_name,
+                    prove_stream,
+                    &task_def,
+                    &prereqs,
+                    args.prove_retries,
+                    args.prove_timeout,
+                )
+                .await
+                .context("[BENTO-EXEC-006] create_task failure during segment creation")?;
         }
         TaskCmd::Join => {
             TASKS_CREATED.with_label_values(&["join"]).inc();
@@ -133,18 +133,18 @@ async fn process_task(
             ]);
             let task_name = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_name,
-                join_stream,
-                &task_def,
-                &prereqs,
-                args.join_retries,
-                args.join_timeout,
-            )
-            .await
-            .context("[BENTO-EXEC-008] create_task failure during join creation")?;
+            task_db
+                .create_task(
+                    job_id,
+                    &task_name,
+                    join_stream,
+                    &task_def,
+                    &prereqs,
+                    args.join_retries,
+                    args.join_timeout,
+                )
+                .await
+                .context("[BENTO-EXEC-008] create_task failure during join creation")?;
         }
         TaskCmd::Union => {
             TASKS_CREATED.with_label_values(&["union"]).inc();
@@ -160,18 +160,18 @@ async fn process_task(
             ]);
             let task_id = format!("{}", tree_task.task_number);
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                &task_id,
-                union_stream,
-                &task_def,
-                &prereqs,
-                args.join_retries,
-                args.join_timeout,
-            )
-            .await
-            .context("[BENTO-EXEC-010] create_task failure during Union creation")?;
+            task_db
+                .create_task(
+                    job_id,
+                    &task_id,
+                    union_stream,
+                    &task_def,
+                    &prereqs,
+                    args.join_retries,
+                    args.join_timeout,
+                )
+                .await
+                .context("[BENTO-EXEC-010] create_task failure during Union creation")?;
         }
         TaskCmd::Finalize => {
             TASKS_CREATED.with_label_values(&["finalize"]).inc();
@@ -195,18 +195,20 @@ async fn process_task(
             .context("[BENTO-EXEC-012] Failed to serialize resolve req")?;
             let task_id = "resolve";
 
-            taskdb::create_task(
-                pool,
-                job_id,
-                task_id,
-                join_stream,
-                &task_def,
-                &serde_json::json!(prereqs),
-                args.resolve_retries,
-                args.resolve_timeout * assumption_count,
-            )
-            .await
-            .context("[BENTO-EXEC-013] create_task (resolve) failure during resolve creation")?;
+            task_db
+                .create_task(
+                    job_id,
+                    task_id,
+                    join_stream,
+                    &task_def,
+                    &serde_json::json!(prereqs),
+                    args.resolve_retries,
+                    args.resolve_timeout * assumption_count,
+                )
+                .await
+                .context(
+                    "[BENTO-EXEC-013] create_task (resolve) failure during resolve creation",
+                )?;
 
             let task_def = serde_json::to_value(TaskType::Finalize(FinalizeReq {
                 max_idx: tree_task.depends_on[0],
@@ -215,18 +217,18 @@ async fn process_task(
             let prereqs = serde_json::json!([task_id]);
 
             let finalize_name = "finalize";
-            taskdb::create_task(
-                pool,
-                job_id,
-                finalize_name,
-                aux_stream,
-                &task_def,
-                &prereqs,
-                args.finalize_retries,
-                args.finalize_timeout,
-            )
-            .await
-            .context("[BENTO-EXEC-015] create_task failure during finalize creation")?;
+            task_db
+                .create_task(
+                    job_id,
+                    finalize_name,
+                    aux_stream,
+                    &task_def,
+                    &prereqs,
+                    args.finalize_retries,
+                    args.finalize_timeout,
+                )
+                .await
+                .context("[BENTO-EXEC-015] create_task failure during finalize creation")?;
 
             if compress_type != CompressType::None {
                 let task_def = serde_json::to_value(TaskType::Snark(SnarkReq {
@@ -235,18 +237,18 @@ async fn process_task(
                 }))
                 .context("[BENTO-EXEC-016] Failed to serialize snark task-type")?;
 
-                taskdb::create_task(
-                    pool,
-                    job_id,
-                    "snark",
-                    snark_stream,
-                    &task_def,
-                    &serde_json::json!([finalize_name]),
-                    args.snark_retries,
-                    args.snark_timeout,
-                )
-                .await
-                .context("[BENTO-EXEC-017] create_task for snark compression failed")?;
+                task_db
+                    .create_task(
+                        job_id,
+                        "snark",
+                        snark_stream,
+                        &task_def,
+                        &serde_json::json!([finalize_name]),
+                        args.snark_retries,
+                        args.snark_timeout,
+                    )
+                    .await
+                    .context("[BENTO-EXEC-017] create_task for snark compression failed")?;
             }
         }
     };
@@ -298,14 +300,14 @@ enum SenderType {
 /// tasks to complete before exiting.
 pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Result<ExecutorResp> {
     let start_time = Instant::now();
-    let mut conn = agent.redis_pool.get().await?;
+    let mut conn = agent.redis_pool()?.get().await?;
     let job_prefix = format!("job:{job_id}");
 
     // Fetch ELF binary data
     let elf_key = format!("{ELF_BUCKET_DIR}/{}", request.image);
     tracing::debug!("Downloading - {}", elf_key);
     let s3_start = Instant::now();
-    let elf_data = match agent.s3_client.read_buf_from_s3(&elf_key).await {
+    let elf_data = match agent.api_client.read_asset_buf(&elf_key).await {
         Ok(data) => {
             S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
             helpers::record_s3_operation("read", "success", s3_start.elapsed().as_secs_f64());
@@ -333,7 +335,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // Fetch input data
     let input_key = format!("{INPUT_BUCKET_DIR}/{}", request.input);
     let input_s3_start = Instant::now();
-    let input_data = match agent.s3_client.read_buf_from_s3(&input_key).await {
+    let input_data = match agent.api_client.read_asset_buf(&input_key).await {
         Ok(data) => {
             S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
             helpers::record_s3_operation("read", "success", input_s3_start.elapsed().as_secs_f64());
@@ -370,7 +372,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         let assumption_start = Instant::now();
         let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
         let receipt_s3_start = Instant::now();
-        let receipt_bytes = match agent.s3_client.read_buf_from_s3(&receipt_key).await {
+        let receipt_bytes = match agent.api_client.read_asset_buf(&receipt_key).await {
             Ok(bytes) => {
                 helpers::record_s3_operation(
                     "read",
@@ -469,7 +471,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let (task_tx, mut task_rx) = tokio::sync::mpsc::channel::<SenderType>(TASK_QUEUE_SIZE);
     let task_tx_clone = task_tx.clone();
 
-    let mut writer_conn = agent.redis_pool.get().await?;
+    let mut writer_conn = agent.redis_pool()?.get().await?;
     let segments_prefix_clone = segments_prefix.clone();
     let redis_ttl = agent.args.redis_ttl;
 
@@ -502,18 +504,22 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         Ok(())
     });
 
-    let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
+    let task_db = agent.task_db()?;
+    let aux_stream = task_db
+        .get_stream(&request.user_id, AUX_WORK_TYPE)
         .await
         .context("[BENTO-EXEC-025] Failed to get AUX stream")?
         .with_context(|| format!("Customer {} missing aux stream", request.user_id))?;
 
-    let prove_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, PROVE_WORK_TYPE)
+    let prove_stream = task_db
+        .get_stream(&request.user_id, PROVE_WORK_TYPE)
         .await
         .context("[BENTO-EXEC-026] Failed to get GPU Prove stream")?
         .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
 
     let join_stream = if std::env::var("JOIN_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        task_db
+            .get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("[BENTO-EXEC-027] Failed to get GPU Join stream")?
             .with_context(|| format!("Customer {} missing gpu join stream", request.user_id))?
@@ -522,7 +528,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let snark_stream = if std::env::var("SNARK_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, SNARK_WORK_TYPE)
+        task_db
+            .get_stream(&request.user_id, SNARK_WORK_TYPE)
             .await
             .context("[BENTO-EXEC-028] Failed to get GPU Snark stream")?
             .with_context(|| format!("Customer {} missing gpu snark stream", request.user_id))?
@@ -531,7 +538,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let union_stream = if std::env::var("UNION_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+        task_db
+            .get_stream(&request.user_id, JOIN_WORK_TYPE)
             .await
             .context("[BENTO-EXEC-028] Failed to get GPU Union stream")?
             .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?
@@ -540,7 +548,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
+        task_db
+            .get_stream(&request.user_id, COPROC_WORK_TYPE)
             .await
             .context("[BENTO-EXEC-029] Failed to get GPU Coproc stream")?
             .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?
@@ -549,7 +558,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     let job_id_copy = *job_id;
-    let pool_copy = agent.db_pool.clone();
+    let task_db_copy = task_db.clone();
     let assumptions = request.assumptions.clone();
     let assumption_count = assumptions.len();
     let args_copy = agent.args.clone();
@@ -558,7 +567,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
     // Write keccak data to redis + schedule proving
     let coproc = Coprocessor::new(task_tx_clone.clone());
-    let mut coproc_redis = agent.redis_pool.get().await?;
+    let mut coproc_redis = agent.redis_pool()?.get().await?;
     let coproc_prefix = format!("{job_prefix}:{COPROC_CB_PATH}");
     let mut guest_fault = false;
 
@@ -576,7 +585,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     while let Some(tree_task) = planner.next_task() {
                         if let Err(e) = process_task(
                             &args_copy,
-                            &pool_copy,
+                            &task_db_copy,
                             &prove_stream,
                             &join_stream,
                             &snark_stream,
@@ -638,7 +647,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
                         if let Err(e) = process_task(
                             &args_copy,
-                            &pool_copy,
+                            &task_db_copy,
                             &coproc_stream,
                             &join_stream,
                             &snark_stream,
@@ -672,7 +681,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             while let Some(tree_task) = planner.next_task() {
                 if let Err(e) = process_task(
                     &args_copy,
-                    &pool_copy,
+                    &task_db_copy,
                     &prove_stream,
                     &join_stream,
                     &snark_stream,
@@ -736,9 +745,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 segments += 1;
                 // Send segments to write queue, blocking if the queue is full.
                 if !exec_only {
-                    segment_tx.blocking_send(segment).map_err(|e| {
-                        anyhow!("[BENTO-EXEC-039] Failed to enqueue segment for writer task: {e}")
-                    })?;
+                    segment_tx.blocking_send(segment).unwrap();
                 }
                 Ok(Box::new(NullSegmentRef {}))
             }) {

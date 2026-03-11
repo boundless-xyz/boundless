@@ -19,4 +19,5 @@ prometheus = "0.13"
 prometheus_exporter = { workspace = true }
 risc0-zkvm = { workspace = true }
 serde = { workspace = true }
+tempfile = { workspace = true }
 tracing = { workspace = true }
