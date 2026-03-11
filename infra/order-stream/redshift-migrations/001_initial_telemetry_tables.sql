@@ -48,7 +48,7 @@ WHERE CAN_JSON_PARSE(kinesis_data);
 CREATE OR REPLACE VIEW telemetry.broker_heartbeats AS
 SELECT
     broker_address, config, committed_orders_count, pending_preflight_count,
-    version, uptime_secs, events_dropped, timestamp, received_at
+    version, uptime_secs, events_dropped, "timestamp", received_at
 FROM (
     SELECT
         data.broker_address::VARCHAR(42)       AS broker_address,
@@ -58,10 +58,10 @@ FROM (
         data.version::VARCHAR(64)              AS version,
         data.uptime_secs::BIGINT               AS uptime_secs,
         data.events_dropped::BIGINT            AS events_dropped,
-        data.timestamp::TIMESTAMPTZ            AS timestamp,
+        data."timestamp"::TIMESTAMPTZ          AS "timestamp",
         received_at,
         ROW_NUMBER() OVER (
-            PARTITION BY data.broker_address, data.timestamp
+            PARTITION BY data.broker_address, data."timestamp"
             ORDER BY received_at DESC
         ) AS rn
     FROM telemetry.heartbeats_raw

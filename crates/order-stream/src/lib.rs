@@ -1457,6 +1457,7 @@ mod tests {
                 evaluated: vec![RequestEvaluated {
                     broker_address,
                     request_id: "0x01".to_string(),
+                    request_digest: Some("0xdigest01".to_string()),
                     requestor: Address::ZERO,
                     outcome: EvalOutcome::Locked,
                     skip_reason: None,
@@ -1471,6 +1472,7 @@ mod tests {
                 completed: vec![RequestCompleted {
                     broker_address,
                     request_id: "0x02".to_string(),
+                    request_digest: Some("0xdigest02".to_string()),
                     outcome: CompletionOutcome::Fulfilled,
                     error_code: None,
                     lock_duration_secs: Some(5),

@@ -31,6 +31,7 @@ export class TelemetryInfra extends pulumi.ComponentResource {
 
     const { serviceName, vpcId, pubSubNetIds, redshiftAdminPassword } = args;
     const retentionHours = 72;
+    const version = 'v3';
 
     // Kinesis Data Streams
 
@@ -154,9 +155,9 @@ export class TelemetryInfra extends pulumi.ComponentResource {
     );
 
     const namespace = new aws.redshiftserverless.Namespace(
-      `${serviceName}-rs-ns-v2`,
+      `${serviceName}-rs-ns-${version}`,
       {
-        namespaceName: `${serviceName}-telem`,
+        namespaceName: `${serviceName}-telem-${version}`,
         adminUsername: 'admin',
         adminUserPassword: redshiftAdminPassword,
         dbName: 'telemetry',
@@ -167,9 +168,9 @@ export class TelemetryInfra extends pulumi.ComponentResource {
     );
 
     const workgroup = new aws.redshiftserverless.Workgroup(
-      `${serviceName}-rs-wg-v2`,
+      `${serviceName}-rs-wg-${version}`,
       {
-        workgroupName: `${serviceName}-telem`,
+        workgroupName: `${serviceName}-telem-${version}`,
         namespaceName: namespace.namespaceName,
         baseCapacity: 8,
         publiclyAccessible: true,

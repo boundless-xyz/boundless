@@ -147,6 +147,19 @@ async fn telemetry_end_to_end() {
         .await
         .expect("failed to connect to Redshift");
 
+    // Verify that Redshift migrations have been applied before polling.
+    let schema_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'telemetry')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("failed to query information_schema");
+    assert!(
+        schema_exists,
+        "Redshift schema 'telemetry' does not exist. \
+         Run the migration script first: infra/order-stream/redshift-migrations/apply.sh <stack>"
+    );
+
     let broker_addr_str = format!("{broker_address:#x}");
     let max_attempts = 18;
     let poll_interval = Duration::from_secs(5);
