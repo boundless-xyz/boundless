@@ -257,7 +257,7 @@ where
             .context("Failed to get request status")
             .map_err(OrderMonitorErr::RpcErr)?;
         if order_status != RequestStatus::Unknown {
-            tracing::info!("Request {:x} not open: {order_status:?}, skipping", request_id);
+            tracing::info!("Request 0x{:x} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
             return Err(OrderMonitorErr::AlreadyLocked);
@@ -477,10 +477,10 @@ where
         ) -> bool {
             let expiration = order.expiry();
             if expiration < current_block_timestamp {
-                tracing::info!("Request {:x} has now expired. Skipping.", order.request.id);
+                tracing::info!("Request 0x{:x} has now expired. Skipping.", order.request.id);
                 false
             } else if expiration.saturating_sub(now_timestamp()) < min_deadline {
-                tracing::info!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, expiration, min_deadline);
+                tracing::info!("Request 0x{:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, expiration, min_deadline);
                 false
             } else {
                 true
@@ -493,7 +493,7 @@ where
                 Some(target_timestamp) => {
                     if current_block_timestamp < target_timestamp {
                         tracing::trace!(
-                            "Request {:x} target timestamp {} not yet reached (current: {}). Waiting.",
+                            "Request 0x{:x} target timestamp {} not yet reached (current: {}). Waiting.",
                             order.request.id,
                             target_timestamp,
                             current_block_timestamp
@@ -506,7 +506,7 @@ where
                 None => {
                     // Should not happen, just warning for safety as this condition is not strictly
                     // enforced at compile time.
-                    tracing::warn!("Request {:x} has no target timestamp set", order.request.id);
+                    tracing::warn!("Request 0x{:x} has no target timestamp set", order.request.id);
                     false
                 }
             }
@@ -543,7 +543,7 @@ where
         for (_, order) in self.lock_and_prove_cache.iter() {
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
-                tracing::info!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
+                tracing::info!("Request 0x{:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
                 self.skip_order(&order, "lock expired before we locked").await;
             } else if let Some((locker, _)) =
                 self.db.get_request_locked(U256::from(order.request.id)).await?
