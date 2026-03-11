@@ -10,7 +10,7 @@ import { ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS } from "../../util";
 
 const APP_NAME = "prover-ansible";
 const CW_APP_NAME = "cw-monitoring";
-const BUILD_TIMEOUT = 90;
+const BUILD_TIMEOUT = 180;
 const COMPUTE_TYPE = "BUILD_GENERAL1_MEDIUM";
 
 export interface LProverAnsiblePipelineArgs extends BasePipelineArgs { }
