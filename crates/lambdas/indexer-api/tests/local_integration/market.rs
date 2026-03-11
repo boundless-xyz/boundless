@@ -1213,6 +1213,48 @@ async fn test_requestor_aggregates() {
             "locked_orders_fulfillment_rate_adjusted should be 0-100: {}",
             first_entry.locked_orders_fulfillment_rate_adjusted
         );
+        // Verify latency percentile fields are present and valid when populated
+        if let Some(p50_ttl) = first_entry.p50_time_to_lock_seconds {
+            assert!(p50_ttl >= 0.0, "p50_time_to_lock_seconds should be non-negative: {}", p50_ttl);
+        }
+        if let Some(p90_ttl) = first_entry.p90_time_to_lock_seconds {
+            assert!(p90_ttl >= 0.0, "p90_time_to_lock_seconds should be non-negative: {}", p90_ttl);
+        }
+        if let Some(p50_ttf) = first_entry.p50_time_to_fulfill_seconds {
+            assert!(
+                p50_ttf >= 0.0,
+                "p50_time_to_fulfill_seconds should be non-negative: {}",
+                p50_ttf
+            );
+        }
+        if let Some(p90_ttf) = first_entry.p90_time_to_fulfill_seconds {
+            assert!(
+                p90_ttf >= 0.0,
+                "p90_time_to_fulfill_seconds should be non-negative: {}",
+                p90_ttf
+            );
+        }
+        // p90 should be >= p50 when both are present
+        if let (Some(p50), Some(p90)) =
+            (first_entry.p50_time_to_lock_seconds, first_entry.p90_time_to_lock_seconds)
+        {
+            assert!(
+                p90 >= p50,
+                "p90_time_to_lock_seconds ({}) should be >= p50_time_to_lock_seconds ({})",
+                p90,
+                p50
+            );
+        }
+        if let (Some(p50), Some(p90)) =
+            (first_entry.p50_time_to_fulfill_seconds, first_entry.p90_time_to_fulfill_seconds)
+        {
+            assert!(
+                p90 >= p50,
+                "p90_time_to_fulfill_seconds ({}) should be >= p50_time_to_fulfill_seconds ({})",
+                p90,
+                p50
+            );
+        }
     }
 
     // Verify no hour gaps for hourly aggregates
