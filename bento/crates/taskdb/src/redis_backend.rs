@@ -3,14 +3,439 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use redis::{AsyncCommands, Script};
+use redis::AsyncCommands;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use crate::{JobState, Priority, ReadyTask, TaskDbErr};
+
+/// Redis/Valkey 7+ function library. Load with FUNCTION LOAD REPLACE; then invoke with FCALL <function> 0 <args...>.
+const TASKDB_LIBRARY: &str = r#"#!lua name=taskdb
+local function ready_queue_key(p, worker_type, priority)
+  return p .. ':ready:' .. worker_type .. ':' .. priority
+end
+
+local function notify_worker(p, worker_type)
+  if not worker_type then
+    return
+  end
+  local notify_key = p .. ':notify:' .. worker_type
+  redis.call('RPUSH', notify_key, '1')
+  redis.call('LTRIM', notify_key, -4096, -1)
+end
+
+local function task_ready_queue_key(p, task_key)
+  local worker_type = redis.call('HGET', task_key, 'worker_type')
+  local priority = redis.call('HGET', task_key, 'priority')
+  if not worker_type or not priority then
+    return nil
+  end
+  return ready_queue_key(p, worker_type, priority)
+end
+
+local function enqueue_task(p, task_key, compound)
+  local ready_key = task_ready_queue_key(p, task_key)
+  local worker_type = redis.call('HGET', task_key, 'worker_type')
+  local sort_seq = tonumber(redis.call('HGET', task_key, 'sort_seq') or '0')
+  if not ready_key or not worker_type or sort_seq <= 0 then
+    return 0
+  end
+  local was_added = redis.call('ZADD', ready_key, 'NX', sort_seq, compound)
+  if was_added == 1 then
+    notify_worker(p, worker_type)
+  end
+  return was_added
+end
+
+local function remove_task_from_ready(p, task_key, compound)
+  local ready_key = task_ready_queue_key(p, task_key)
+  if ready_key then
+    redis.call('ZREM', ready_key, compound)
+  end
+end
+
+redis.register_function('create_stream', function(keys, args)
+  local p = args[1]
+  local worker_type = args[2]
+  local reserved = args[3]
+  local be_mult = args[4]
+  local user_id = args[5]
+  local stream_id = args[6]
+  local lookup_key = p .. ':stream:lookup:' .. user_id .. ':' .. worker_type
+  local existing = redis.call('GET', lookup_key)
+  if existing then
+    return existing
+  end
+  redis.call('SET', lookup_key, stream_id)
+  local stream_key = p .. ':stream:' .. stream_id
+  redis.call('HSET', stream_key,
+    'worker_type', worker_type,
+    'reserved', reserved,
+    'be_mult', be_mult,
+    'user_id', user_id,
+    'running', '0',
+    'ready', '0',
+    'priority', 'inf')
+  redis.call('ZADD', p .. ':streams:priority:' .. worker_type, 'inf', stream_id)
+  return stream_id
+end)
+
+redis.register_function('create_job', function(keys, args)
+  local p = args[1]
+  local stream_id = args[2]
+  local task_def = args[3]
+  local max_retries = args[4]
+  local timeout_secs = args[5]
+  local user_id = args[6]
+  local job_id = args[7]
+  local now = args[8]
+  local priority = args[9]
+  local stream_key = p .. ':stream:' .. stream_id
+  if redis.call('EXISTS', stream_key) == 0 then
+    return redis.error_reply('missing stream: ' .. stream_id)
+  end
+  local worker_type = redis.call('HGET', stream_key, 'worker_type')
+  local sort_seq = tostring(redis.call('INCR', p .. ':task_sequence'))
+  redis.call('HSET',
+    p .. ':job:' .. job_id .. ':meta',
+    'state', 'running',
+    'error', '',
+    'user_id', user_id,
+    'reported', '0',
+    'priority', priority)
+  redis.call('SADD', p .. ':jobs:running:' .. user_id, job_id)
+  local task_key = p .. ':task:' .. job_id .. ':init'
+  redis.call('HSET',
+    task_key,
+    'stream_id', stream_id,
+    'worker_type', worker_type,
+    'priority', priority,
+    'sort_seq', sort_seq,
+    'task_def', task_def,
+    'prerequisites', '[]',
+    'state', 'ready',
+    'created_at', now,
+    'started_at', '',
+    'updated_at', now,
+    'waiting_on', '0',
+    'progress', '0.0',
+    'retries', '0',
+    'max_retries', max_retries,
+    'timeout_secs', timeout_secs,
+    'output', '',
+    'error', '')
+  redis.call('SADD', p .. ':tasks:by_job:' .. job_id, 'init')
+  enqueue_task(p, task_key, job_id .. '|init')
+  return job_id
+end)
+
+redis.register_function('create_task', function(keys, args)
+  local p = args[1]
+  local job_id = args[2]
+  local task_id = args[3]
+  local stream_id = args[4]
+  local task_def = args[5]
+  local prereqs_json = args[6]
+  local max_retries = args[7]
+  local timeout_secs = args[8]
+  local now = args[9]
+  if redis.call('EXISTS', p .. ':job:' .. job_id .. ':meta') == 0 then
+    return redis.error_reply('missing job: ' .. job_id)
+  end
+  if redis.call('EXISTS', p .. ':stream:' .. stream_id) == 0 then
+    return redis.error_reply('missing stream: ' .. stream_id)
+  end
+  local stream_key = p .. ':stream:' .. stream_id
+  local worker_type = redis.call('HGET', stream_key, 'worker_type')
+  local priority = redis.call('HGET', p .. ':job:' .. job_id .. ':meta', 'priority') or '1'
+  local sort_seq = tostring(redis.call('INCR', p .. ':task_sequence'))
+  local task_key = p .. ':task:' .. job_id .. ':' .. task_id
+  if redis.call('EXISTS', task_key) == 1 then
+    return redis.error_reply('task already exists: ' .. task_id)
+  end
+  local prereqs = cjson.decode(prereqs_json)
+  local waiting_on = 0
+  for _, pre_task_id in ipairs(prereqs) do
+    local pre_task_key = p .. ':task:' .. job_id .. ':' .. pre_task_id
+    if redis.call('EXISTS', pre_task_key) == 0 then
+      return redis.error_reply('missing prerequisite task: ' .. pre_task_id)
+    end
+    redis.call('SADD', p .. ':deps:' .. job_id .. ':' .. pre_task_id, task_id)
+    local pre_state = redis.call('HGET', pre_task_key, 'state')
+    if pre_state ~= 'done' then
+      waiting_on = waiting_on + 1
+    end
+  end
+  local state = 'pending'
+  if waiting_on <= 0 then
+    waiting_on = 0
+    state = 'ready'
+  end
+  redis.call('HSET',
+    task_key,
+    'stream_id', stream_id,
+    'worker_type', worker_type,
+    'priority', priority,
+    'sort_seq', sort_seq,
+    'task_def', task_def,
+    'prerequisites', prereqs_json,
+    'state', state,
+    'created_at', now,
+    'started_at', '',
+    'updated_at', now,
+    'waiting_on', tostring(waiting_on),
+    'progress', '0.0',
+    'retries', '0',
+    'max_retries', max_retries,
+    'timeout_secs', timeout_secs,
+    'output', '',
+    'error', '')
+  redis.call('SADD', p .. ':tasks:by_job:' .. job_id, task_id)
+  if state == 'ready' then
+    enqueue_task(p, task_key, job_id .. '|' .. task_id)
+  end
+  return 1
+end)
+
+redis.register_function('request_work', function(keys, args)
+  local p = args[1]
+  local worker_type = args[2]
+  local now = tonumber(args[3])
+  for priority = 0, 2 do
+    local ready_key = ready_queue_key(p, worker_type, tostring(priority))
+    while true do
+      local ready = redis.call('ZPOPMIN', ready_key, 1)
+      if #ready == 0 then
+        break
+      end
+      local compound = ready[1]
+      local sep = string.find(compound, '|', 1, true)
+      if not sep then
+        return redis.error_reply('invalid compound task id: ' .. compound)
+      end
+      local job_id = string.sub(compound, 1, sep - 1)
+      local task_id = string.sub(compound, sep + 1)
+      local task_key = p .. ':task:' .. job_id .. ':' .. task_id
+      local state = redis.call('HGET', task_key, 'state')
+      if state == 'ready' then
+        redis.call('HSET', task_key,
+          'state', 'running',
+          'started_at', tostring(now),
+          'updated_at', tostring(now))
+        local timeout = tonumber(redis.call('HGET', task_key, 'timeout_secs') or '0')
+        if timeout < 0 then
+          timeout = 0
+        end
+        redis.call('ZADD', p .. ':tasks:running', now + timeout, compound)
+        return {
+          job_id,
+          task_id,
+          redis.call('HGET', task_key, 'task_def'),
+          redis.call('HGET', task_key, 'prerequisites'),
+          redis.call('HGET', task_key, 'max_retries')
+        }
+      end
+    end
+  end
+  return nil
+end)
+
+redis.register_function('update_task_done', function(keys, args)
+  local p = args[1]
+  local job_id = args[2]
+  local task_id = args[3]
+  local output = args[4]
+  local now = tonumber(args[5])
+  local task_key = p .. ':task:' .. job_id .. ':' .. task_id
+  local state = redis.call('HGET', task_key, 'state')
+  if state ~= 'ready' and state ~= 'running' then
+    return 0
+  end
+  local compound = job_id .. '|' .. task_id
+  redis.call('HSET', task_key,
+    'state', 'done',
+    'output', output,
+    'progress', '1.0',
+    'updated_at', tostring(now))
+  redis.call('ZREM', p .. ':tasks:running', compound)
+  if state == 'ready' then
+    remove_task_from_ready(p, task_key, compound)
+  end
+  local dependents = redis.call('SMEMBERS', p .. ':deps:' .. job_id .. ':' .. task_id)
+  for _, dep_tid in ipairs(dependents) do
+    local dep_key = p .. ':task:' .. job_id .. ':' .. dep_tid
+    local dep_state = redis.call('HGET', dep_key, 'state')
+    if dep_state and dep_state ~= 'failed' and dep_state ~= 'done' then
+      local remaining = redis.call('HINCRBY', dep_key, 'waiting_on', -1)
+      if remaining <= 0 then
+        redis.call('HSET', dep_key, 'waiting_on', '0', 'state', 'ready', 'updated_at', tostring(now))
+        local dep_compound = job_id .. '|' .. dep_tid
+        enqueue_task(p, dep_key, dep_compound)
+      end
+    end
+  end
+  local all_done = true
+  local all_tasks = redis.call('SMEMBERS', p .. ':tasks:by_job:' .. job_id)
+  for _, tid in ipairs(all_tasks) do
+    local current = redis.call('HGET', p .. ':task:' .. job_id .. ':' .. tid, 'state')
+    if current ~= 'done' then
+      all_done = false
+      break
+    end
+  end
+  if all_done then
+    local job_key = p .. ':job:' .. job_id .. ':meta'
+    redis.call('HSET', job_key, 'state', 'done')
+    local job_user = redis.call('HGET', job_key, 'user_id')
+    if job_user then
+      redis.call('SREM', p .. ':jobs:running:' .. job_user, job_id)
+    end
+  end
+  return 1
+end)
+
+redis.register_function('update_task_failed', function(keys, args)
+  local p = args[1]
+  local job_id = args[2]
+  local task_id = args[3]
+  local err = args[4]
+  local now = tonumber(args[5])
+  local task_key = p .. ':task:' .. job_id .. ':' .. task_id
+  local state = redis.call('HGET', task_key, 'state')
+  if state ~= 'ready' and state ~= 'running' and state ~= 'pending' then
+    return 0
+  end
+  redis.call('HSET', task_key,
+    'state', 'failed',
+    'error', err,
+    'progress', '1.0',
+    'updated_at', tostring(now))
+  local compound = job_id .. '|' .. task_id
+  if state == 'running' then
+    redis.call('ZREM', p .. ':tasks:running', compound)
+  elseif state == 'ready' then
+    remove_task_from_ready(p, task_key, compound)
+  end
+  local job_key = p .. ':job:' .. job_id .. ':meta'
+  redis.call('HSET', job_key, 'state', 'failed', 'error', err)
+  local job_user = redis.call('HGET', job_key, 'user_id')
+  if job_user then
+    redis.call('SREM', p .. ':jobs:running:' .. job_user, job_id)
+  end
+  return 1
+end)
+
+redis.register_function('update_task_progress', function(keys, args)
+  local p = args[1]
+  local job_id = args[2]
+  local task_id = args[3]
+  local progress = tonumber(args[4])
+  local now = tonumber(args[5])
+  local task_key = p .. ':task:' .. job_id .. ':' .. task_id
+  local state = redis.call('HGET', task_key, 'state')
+  if state ~= 'ready' and state ~= 'running' then
+    return 0
+  end
+  local current = tonumber(redis.call('HGET', task_key, 'progress') or '0')
+  if progress > current then
+    redis.call('HSET', task_key, 'progress', tostring(progress))
+  end
+  redis.call('HSET', task_key, 'updated_at', tostring(now))
+  return 1
+end)
+
+redis.register_function('update_task_retry', function(keys, args)
+  local p = args[1]
+  local job_id = args[2]
+  local task_id = args[3]
+  local now = tonumber(args[4])
+  local task_key = p .. ':task:' .. job_id .. ':' .. task_id
+  local state = redis.call('HGET', task_key, 'state')
+  if state ~= 'running' then
+    return 0
+  end
+  local retries = redis.call('HINCRBY', task_key, 'retries', 1)
+  local max_retries = tonumber(redis.call('HGET', task_key, 'max_retries') or '0')
+  local compound = job_id .. '|' .. task_id
+  redis.call('ZREM', p .. ':tasks:running', compound)
+  if retries > max_retries then
+    redis.call('HSET',
+      task_key,
+      'state', 'failed',
+      'error', 'retry max hit',
+      'progress', '1.0',
+      'updated_at', tostring(now))
+    local job_key = p .. ':job:' .. job_id .. ':meta'
+    redis.call('HSET', job_key, 'state', 'failed', 'error', 'retry max hit')
+    local job_user = redis.call('HGET', job_key, 'user_id')
+    if job_user then
+      redis.call('SREM', p .. ':jobs:running:' .. job_user, job_id)
+    end
+    return 0
+  end
+  redis.call('HSET',
+    task_key,
+    'state', 'ready',
+    'error', '',
+    'progress', '0.0',
+    'updated_at', tostring(now))
+  enqueue_task(p, task_key, compound)
+  return 1
+end)
+
+redis.register_function('delete_job', function(keys, args)
+  local p = args[1]
+  local job_id = args[2]
+  local job_key = p .. ':job:' .. job_id .. ':meta'
+  local user_id = redis.call('HGET', job_key, 'user_id')
+  if user_id then
+    redis.call('SREM', p .. ':jobs:running:' .. user_id, job_id)
+  end
+  local all_tasks = redis.call('SMEMBERS', p .. ':tasks:by_job:' .. job_id)
+  for _, tid in ipairs(all_tasks) do
+    local tkey = p .. ':task:' .. job_id .. ':' .. tid
+    local state = redis.call('HGET', tkey, 'state')
+    local compound = job_id .. '|' .. tid
+    if state == 'ready' then
+      remove_task_from_ready(p, tkey, compound)
+    elseif state == 'running' then
+      redis.call('ZREM', p .. ':tasks:running', compound)
+    end
+    local prereqs_json = redis.call('HGET', tkey, 'prerequisites') or '[]'
+    local prereqs = cjson.decode(prereqs_json)
+    for _, pre in ipairs(prereqs) do
+      redis.call('SREM', p .. ':deps:' .. job_id .. ':' .. pre, tid)
+    end
+    redis.call('DEL', p .. ':deps:' .. job_id .. ':' .. tid)
+    redis.call('DEL', tkey)
+  end
+  redis.call('DEL', p .. ':tasks:by_job:' .. job_id)
+  redis.call('DEL', job_key)
+  return 1
+end)
+"#;
+
+static TASKDB_LIBRARY_LOADED: AtomicBool = AtomicBool::new(false);
+
+async fn ensure_functions_loaded(
+    conn: &mut redis::aio::MultiplexedConnection,
+) -> Result<(), TaskDbErr> {
+    if TASKDB_LIBRARY_LOADED.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    redis::cmd("FUNCTION")
+        .arg("LOAD")
+        .arg("REPLACE")
+        .arg(TASKDB_LIBRARY)
+        .query_async::<_, String>(conn)
+        .await?;
+    TASKDB_LIBRARY_LOADED.store(true, Ordering::Release);
+    Ok(())
+}
 
 async fn record<T, Fut>(op: &str, f: Fut) -> Result<T, TaskDbErr>
 where
@@ -25,478 +450,6 @@ where
         start.elapsed().as_secs_f64(),
     );
     result
-}
-
-/// Shared Lua helpers for Redis taskdb scripts.
-const LUA_HELPERS: &str = r#"
-local function ready_queue_key(p, worker_type, priority)
-  return p .. ':ready:' .. worker_type .. ':' .. priority
-end
-
-local function notify_worker(p, worker_type)
-  if not worker_type then
-    return
-  end
-
-  local notify_key = p .. ':notify:' .. worker_type
-  redis.call('RPUSH', notify_key, '1')
-  redis.call('LTRIM', notify_key, -4096, -1)
-end
-
-local function task_ready_queue_key(p, task_key)
-  local worker_type = redis.call('HGET', task_key, 'worker_type')
-  local priority = redis.call('HGET', task_key, 'priority')
-  if not worker_type or not priority then
-    return nil
-  end
-
-  return ready_queue_key(p, worker_type, priority)
-end
-
-local function enqueue_task(p, task_key, compound)
-  local ready_key = task_ready_queue_key(p, task_key)
-  local worker_type = redis.call('HGET', task_key, 'worker_type')
-  local sort_seq = tonumber(redis.call('HGET', task_key, 'sort_seq') or '0')
-  if not ready_key or not worker_type or sort_seq <= 0 then
-    return 0
-  end
-
-  local was_added = redis.call('ZADD', ready_key, 'NX', sort_seq, compound)
-  if was_added == 1 then
-    notify_worker(p, worker_type)
-  end
-  return was_added
-end
-
-local function remove_task_from_ready(p, task_key, compound)
-  local ready_key = task_ready_queue_key(p, task_key)
-  if ready_key then
-    redis.call('ZREM', ready_key, compound)
-  end
-end
-"#;
-
-const CREATE_STREAM_LUA: &str = r#"
-local p = ARGV[1]
-local worker_type = ARGV[2]
-local reserved = ARGV[3]
-local be_mult = ARGV[4]
-local user_id = ARGV[5]
-local stream_id = ARGV[6]
-
-local lookup_key = p .. ':stream:lookup:' .. user_id .. ':' .. worker_type
-local existing = redis.call('GET', lookup_key)
-if existing then
-  return existing
-end
-
-redis.call('SET', lookup_key, stream_id)
-local stream_key = p .. ':stream:' .. stream_id
-redis.call('HSET', stream_key,
-  'worker_type', worker_type,
-  'reserved', reserved,
-  'be_mult', be_mult,
-  'user_id', user_id,
-  'running', '0',
-  'ready', '0',
-  'priority', 'inf')
-
-redis.call('ZADD', p .. ':streams:priority:' .. worker_type, 'inf', stream_id)
-return stream_id
-"#;
-
-const CREATE_JOB_BODY: &str = r#"
-local p = ARGV[1]
-local stream_id = ARGV[2]
-local task_def = ARGV[3]
-local max_retries = ARGV[4]
-local timeout_secs = ARGV[5]
-local user_id = ARGV[6]
-local job_id = ARGV[7]
-local now = ARGV[8]
-local priority = ARGV[9]
-
-local stream_key = p .. ':stream:' .. stream_id
-if redis.call('EXISTS', stream_key) == 0 then
-  return redis.error_reply('missing stream: ' .. stream_id)
-end
-
-local worker_type = redis.call('HGET', stream_key, 'worker_type')
-local sort_seq = tostring(redis.call('INCR', p .. ':task_sequence'))
-
-redis.call('HSET',
-  p .. ':job:' .. job_id .. ':meta',
-  'state', 'running',
-  'error', '',
-  'user_id', user_id,
-  'reported', '0',
-  'priority', priority)
-
-redis.call('SADD', p .. ':jobs:running:' .. user_id, job_id)
-
-local task_key = p .. ':task:' .. job_id .. ':init'
-redis.call('HSET',
-  task_key,
-  'stream_id', stream_id,
-  'worker_type', worker_type,
-  'priority', priority,
-  'sort_seq', sort_seq,
-  'task_def', task_def,
-  'prerequisites', '[]',
-  'state', 'ready',
-  'created_at', now,
-  'started_at', '',
-  'updated_at', now,
-  'waiting_on', '0',
-  'progress', '0.0',
-  'retries', '0',
-  'max_retries', max_retries,
-  'timeout_secs', timeout_secs,
-  'output', '',
-  'error', '')
-
-redis.call('SADD', p .. ':tasks:by_job:' .. job_id, 'init')
-enqueue_task(p, task_key, job_id .. '|init')
-
-return job_id
-"#;
-
-const CREATE_TASK_BODY: &str = r#"
-local p = ARGV[1]
-local job_id = ARGV[2]
-local task_id = ARGV[3]
-local stream_id = ARGV[4]
-local task_def = ARGV[5]
-local prereqs_json = ARGV[6]
-local max_retries = ARGV[7]
-local timeout_secs = ARGV[8]
-local now = ARGV[9]
-
-if redis.call('EXISTS', p .. ':job:' .. job_id .. ':meta') == 0 then
-  return redis.error_reply('missing job: ' .. job_id)
-end
-
-if redis.call('EXISTS', p .. ':stream:' .. stream_id) == 0 then
-  return redis.error_reply('missing stream: ' .. stream_id)
-end
-
-local stream_key = p .. ':stream:' .. stream_id
-local worker_type = redis.call('HGET', stream_key, 'worker_type')
-local priority = redis.call('HGET', p .. ':job:' .. job_id .. ':meta', 'priority') or '1'
-local sort_seq = tostring(redis.call('INCR', p .. ':task_sequence'))
-
-local task_key = p .. ':task:' .. job_id .. ':' .. task_id
-if redis.call('EXISTS', task_key) == 1 then
-  return redis.error_reply('task already exists: ' .. task_id)
-end
-
-local prereqs = cjson.decode(prereqs_json)
-local waiting_on = 0
-
-for _, pre_task_id in ipairs(prereqs) do
-  local pre_task_key = p .. ':task:' .. job_id .. ':' .. pre_task_id
-  if redis.call('EXISTS', pre_task_key) == 0 then
-    return redis.error_reply('missing prerequisite task: ' .. pre_task_id)
-  end
-
-  redis.call('SADD', p .. ':deps:' .. job_id .. ':' .. pre_task_id, task_id)
-  local pre_state = redis.call('HGET', pre_task_key, 'state')
-  if pre_state ~= 'done' then
-    waiting_on = waiting_on + 1
-  end
-end
-
-local state = 'pending'
-if waiting_on <= 0 then
-  waiting_on = 0
-  state = 'ready'
-end
-
-redis.call('HSET',
-  task_key,
-  'stream_id', stream_id,
-  'worker_type', worker_type,
-  'priority', priority,
-  'sort_seq', sort_seq,
-  'task_def', task_def,
-  'prerequisites', prereqs_json,
-  'state', state,
-  'created_at', now,
-  'started_at', '',
-  'updated_at', now,
-  'waiting_on', tostring(waiting_on),
-  'progress', '0.0',
-  'retries', '0',
-  'max_retries', max_retries,
-  'timeout_secs', timeout_secs,
-  'output', '',
-  'error', '')
-
-redis.call('SADD', p .. ':tasks:by_job:' .. job_id, task_id)
-
-if state == 'ready' then
-  enqueue_task(p, task_key, job_id .. '|' .. task_id)
-end
-
-return 1
-"#;
-
-const REQUEST_WORK_BODY: &str = r#"
-local p = ARGV[1]
-local worker_type = ARGV[2]
-local now = tonumber(ARGV[3])
-
-for priority = 0, 2 do
-  local ready_key = ready_queue_key(p, worker_type, tostring(priority))
-  while true do
-    local ready = redis.call('ZPOPMIN', ready_key, 1)
-    if #ready == 0 then
-      break
-    end
-
-    local compound = ready[1]
-    local sep = string.find(compound, '|', 1, true)
-    if not sep then
-      return redis.error_reply('invalid compound task id: ' .. compound)
-    end
-
-    local job_id = string.sub(compound, 1, sep - 1)
-    local task_id = string.sub(compound, sep + 1)
-    local task_key = p .. ':task:' .. job_id .. ':' .. task_id
-    local state = redis.call('HGET', task_key, 'state')
-    if state == 'ready' then
-      redis.call('HSET', task_key,
-        'state', 'running',
-        'started_at', tostring(now),
-        'updated_at', tostring(now))
-
-      local timeout = tonumber(redis.call('HGET', task_key, 'timeout_secs') or '0')
-      if timeout < 0 then
-        timeout = 0
-      end
-      redis.call('ZADD', p .. ':tasks:running', now + timeout, compound)
-
-      return {
-        job_id,
-        task_id,
-        redis.call('HGET', task_key, 'task_def'),
-        redis.call('HGET', task_key, 'prerequisites'),
-        redis.call('HGET', task_key, 'max_retries')
-      }
-    end
-  end
-end
-
-return nil
-"#;
-
-const UPDATE_TASK_DONE_BODY: &str = r#"
-local p = ARGV[1]
-local job_id = ARGV[2]
-local task_id = ARGV[3]
-local output = ARGV[4]
-local now = tonumber(ARGV[5])
-
-local task_key = p .. ':task:' .. job_id .. ':' .. task_id
-local state = redis.call('HGET', task_key, 'state')
-if state ~= 'ready' and state ~= 'running' then
-  return 0
-end
-
-local compound = job_id .. '|' .. task_id
-redis.call('HSET', task_key,
-  'state', 'done',
-  'output', output,
-  'progress', '1.0',
-  'updated_at', tostring(now))
-
-redis.call('ZREM', p .. ':tasks:running', compound)
-if state == 'ready' then
-  remove_task_from_ready(p, task_key, compound)
-end
-
-local dependents = redis.call('SMEMBERS', p .. ':deps:' .. job_id .. ':' .. task_id)
-for _, dep_tid in ipairs(dependents) do
-  local dep_key = p .. ':task:' .. job_id .. ':' .. dep_tid
-  local dep_state = redis.call('HGET', dep_key, 'state')
-  if dep_state and dep_state ~= 'failed' and dep_state ~= 'done' then
-    local remaining = redis.call('HINCRBY', dep_key, 'waiting_on', -1)
-    if remaining <= 0 then
-      redis.call('HSET', dep_key, 'waiting_on', '0', 'state', 'ready', 'updated_at', tostring(now))
-      local dep_compound = job_id .. '|' .. dep_tid
-      enqueue_task(p, dep_key, dep_compound)
-    end
-  end
-end
-
-local all_done = true
-local all_tasks = redis.call('SMEMBERS', p .. ':tasks:by_job:' .. job_id)
-for _, tid in ipairs(all_tasks) do
-  local current = redis.call('HGET', p .. ':task:' .. job_id .. ':' .. tid, 'state')
-  if current ~= 'done' then
-    all_done = false
-    break
-  end
-end
-
-if all_done then
-  local job_key = p .. ':job:' .. job_id .. ':meta'
-  redis.call('HSET', job_key, 'state', 'done')
-  local job_user = redis.call('HGET', job_key, 'user_id')
-  if job_user then
-    redis.call('SREM', p .. ':jobs:running:' .. job_user, job_id)
-  end
-end
-
-return 1
-"#;
-
-const UPDATE_TASK_FAILED_BODY: &str = r#"
-local p = ARGV[1]
-local job_id = ARGV[2]
-local task_id = ARGV[3]
-local err = ARGV[4]
-local now = tonumber(ARGV[5])
-
-local task_key = p .. ':task:' .. job_id .. ':' .. task_id
-local state = redis.call('HGET', task_key, 'state')
-if state ~= 'ready' and state ~= 'running' and state ~= 'pending' then
-  return 0
-end
-
-redis.call('HSET', task_key,
-  'state', 'failed',
-  'error', err,
-  'progress', '1.0',
-  'updated_at', tostring(now))
-
-local compound = job_id .. '|' .. task_id
-if state == 'running' then
-  redis.call('ZREM', p .. ':tasks:running', compound)
-elseif state == 'ready' then
-  remove_task_from_ready(p, task_key, compound)
-end
-
-local job_key = p .. ':job:' .. job_id .. ':meta'
-redis.call('HSET', job_key, 'state', 'failed', 'error', err)
-local job_user = redis.call('HGET', job_key, 'user_id')
-if job_user then
-  redis.call('SREM', p .. ':jobs:running:' .. job_user, job_id)
-end
-
-return 1
-"#;
-
-const UPDATE_TASK_PROGRESS_LUA: &str = r#"
-local p = ARGV[1]
-local job_id = ARGV[2]
-local task_id = ARGV[3]
-local progress = tonumber(ARGV[4])
-local now = tonumber(ARGV[5])
-
-local task_key = p .. ':task:' .. job_id .. ':' .. task_id
-local state = redis.call('HGET', task_key, 'state')
-if state ~= 'ready' and state ~= 'running' then
-  return 0
-end
-
-local current = tonumber(redis.call('HGET', task_key, 'progress') or '0')
-if progress > current then
-  redis.call('HSET', task_key, 'progress', tostring(progress))
-end
-redis.call('HSET', task_key, 'updated_at', tostring(now))
-
-return 1
-"#;
-
-const UPDATE_TASK_RETRY_BODY: &str = r#"
-local p = ARGV[1]
-local job_id = ARGV[2]
-local task_id = ARGV[3]
-local now = tonumber(ARGV[4])
-
-local task_key = p .. ':task:' .. job_id .. ':' .. task_id
-local state = redis.call('HGET', task_key, 'state')
-if state ~= 'running' then
-  return 0
-end
-
-local retries = redis.call('HINCRBY', task_key, 'retries', 1)
-local max_retries = tonumber(redis.call('HGET', task_key, 'max_retries') or '0')
-
-local compound = job_id .. '|' .. task_id
-redis.call('ZREM', p .. ':tasks:running', compound)
-
-if retries > max_retries then
-  redis.call('HSET',
-    task_key,
-    'state', 'failed',
-    'error', 'retry max hit',
-    'progress', '1.0',
-    'updated_at', tostring(now))
-
-  local job_key = p .. ':job:' .. job_id .. ':meta'
-  redis.call('HSET', job_key, 'state', 'failed', 'error', 'retry max hit')
-  local job_user = redis.call('HGET', job_key, 'user_id')
-  if job_user then
-    redis.call('SREM', p .. ':jobs:running:' .. job_user, job_id)
-  end
-
-  return 0
-end
-
-redis.call('HSET',
-  task_key,
-  'state', 'ready',
-  'error', '',
-  'progress', '0.0',
-  'updated_at', tostring(now))
-enqueue_task(p, task_key, compound)
-
-return 1
-"#;
-
-const DELETE_JOB_BODY: &str = r#"
-local p = ARGV[1]
-local job_id = ARGV[2]
-
-local job_key = p .. ':job:' .. job_id .. ':meta'
-local user_id = redis.call('HGET', job_key, 'user_id')
-if user_id then
-  redis.call('SREM', p .. ':jobs:running:' .. user_id, job_id)
-end
-
-local all_tasks = redis.call('SMEMBERS', p .. ':tasks:by_job:' .. job_id)
-for _, tid in ipairs(all_tasks) do
-  local tkey = p .. ':task:' .. job_id .. ':' .. tid
-  local state = redis.call('HGET', tkey, 'state')
-  local compound = job_id .. '|' .. tid
-
-  if state == 'ready' then
-    remove_task_from_ready(p, tkey, compound)
-  elseif state == 'running' then
-    redis.call('ZREM', p .. ':tasks:running', compound)
-  end
-
-  local prereqs_json = redis.call('HGET', tkey, 'prerequisites') or '[]'
-  local prereqs = cjson.decode(prereqs_json)
-  for _, pre in ipairs(prereqs) do
-    redis.call('SREM', p .. ':deps:' .. job_id .. ':' .. pre, tid)
-  end
-
-  redis.call('DEL', p .. ':deps:' .. job_id .. ':' .. tid)
-  redis.call('DEL', tkey)
-end
-
-redis.call('DEL', p .. ':tasks:by_job:' .. job_id)
-redis.call('DEL', job_key)
-
-return 1
-"#;
-
-/// Build a Redis `Script` by prepending the shared Lua helpers.
-fn lua_with_helpers(body: &str) -> Script {
-    Script::new(&format!("{LUA_HELPERS}\n{body}"))
 }
 
 #[derive(Clone, Debug)]
@@ -592,15 +545,18 @@ impl RedisTaskDb {
 
             let stream_id = Uuid::new_v4();
             let mut conn = self.conn().await?;
+            ensure_functions_loaded(&mut conn).await?;
 
-            let created_id: String = Script::new(CREATE_STREAM_LUA)
+            let created_id: String = redis::cmd("FCALL")
+                .arg("create_stream")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(worker_type)
                 .arg(reserved)
                 .arg(be_mult)
                 .arg(user_id)
                 .arg(stream_id.to_string())
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
             Ok(parse_uuid(&created_id, "stream id")?)
@@ -642,7 +598,11 @@ impl RedisTaskDb {
             let task_def_str = serde_json::to_string(task_def)?;
 
             let mut conn = self.conn().await?;
-            let created_id: String = lua_with_helpers(CREATE_JOB_BODY)
+            ensure_functions_loaded(&mut conn).await?;
+
+            let created_id: String = redis::cmd("FCALL")
+                .arg("create_job")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(stream_id.to_string())
                 .arg(task_def_str)
@@ -652,7 +612,7 @@ impl RedisTaskDb {
                 .arg(job_id.to_string())
                 .arg(now)
                 .arg(priority.bucket())
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
             Ok(parse_uuid(&created_id, "job id")?)
@@ -677,7 +637,11 @@ impl RedisTaskDb {
             let prereqs_str = serde_json::to_string(prereqs)?;
 
             let mut conn = self.conn().await?;
-            let _: i32 = lua_with_helpers(CREATE_TASK_BODY)
+            ensure_functions_loaded(&mut conn).await?;
+
+            let _: i32 = redis::cmd("FCALL")
+                .arg("create_task")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(job_id.to_string())
                 .arg(task_id)
@@ -687,7 +651,7 @@ impl RedisTaskDb {
                 .arg(max_retries)
                 .arg(timeout_secs)
                 .arg(now)
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
             Ok(())
@@ -698,13 +662,16 @@ impl RedisTaskDb {
     async fn request_work_inner(&self, worker_type: &str) -> Result<Option<ReadyTask>, TaskDbErr> {
         let now = now_seconds();
         let mut conn = self.conn().await?;
-        let raw: Option<(String, String, String, String, i32)> =
-            lua_with_helpers(REQUEST_WORK_BODY)
-                .arg(&self.namespace)
-                .arg(worker_type)
-                .arg(now)
-                .invoke_async(&mut conn)
-                .await?;
+        ensure_functions_loaded(&mut conn).await?;
+
+        let raw: Option<(String, String, String, String, i32)> = redis::cmd("FCALL")
+            .arg("request_work")
+            .arg(0)
+            .arg(&self.namespace)
+            .arg(worker_type)
+            .arg(now)
+            .query_async(&mut conn)
+            .await?;
 
         let Some((job_id, task_id, task_def, prereqs, max_retries)) = raw else {
             return Ok(None);
@@ -772,13 +739,17 @@ impl RedisTaskDb {
             let output_str = serde_json::to_string(&output)?;
 
             let mut conn = self.conn().await?;
-            let updated: i32 = lua_with_helpers(UPDATE_TASK_DONE_BODY)
+            ensure_functions_loaded(&mut conn).await?;
+
+            let updated: i32 = redis::cmd("FCALL")
+                .arg("update_task_done")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(job_id.to_string())
                 .arg(task_id)
                 .arg(output_str)
                 .arg(now)
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
             Ok(updated == 1)
@@ -795,13 +766,17 @@ impl RedisTaskDb {
         record("redis:update_task_failed", async {
             let now = now_seconds();
             let mut conn = self.conn().await?;
-            let updated: i32 = lua_with_helpers(UPDATE_TASK_FAILED_BODY)
+            ensure_functions_loaded(&mut conn).await?;
+
+            let updated: i32 = redis::cmd("FCALL")
+                .arg("update_task_failed")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(job_id.to_string())
                 .arg(task_id)
                 .arg(error)
                 .arg(now)
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
             Ok(updated == 1)
@@ -818,13 +793,17 @@ impl RedisTaskDb {
         record("redis:update_task_progress", async {
             let now = now_seconds();
             let mut conn = self.conn().await?;
-            let updated: i32 = Script::new(UPDATE_TASK_PROGRESS_LUA)
+            ensure_functions_loaded(&mut conn).await?;
+
+            let updated: i32 = redis::cmd("FCALL")
+                .arg("update_task_progress")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(job_id.to_string())
                 .arg(task_id)
                 .arg(progress)
                 .arg(now)
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
             Ok(updated == 1)
@@ -836,12 +815,16 @@ impl RedisTaskDb {
         record("redis:update_task_retry", async {
             let now = now_seconds();
             let mut conn = self.conn().await?;
-            let updated: i32 = lua_with_helpers(UPDATE_TASK_RETRY_BODY)
+            ensure_functions_loaded(&mut conn).await?;
+
+            let updated: i32 = redis::cmd("FCALL")
+                .arg("update_task_retry")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(job_id.to_string())
                 .arg(task_id)
                 .arg(now)
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
             Ok(updated == 1)
@@ -1012,10 +995,14 @@ impl RedisTaskDb {
     pub async fn delete_job(&self, job_id: &Uuid) -> Result<(), TaskDbErr> {
         record("redis:delete_job", async {
             let mut conn = self.conn().await?;
-            let _: i32 = lua_with_helpers(DELETE_JOB_BODY)
+            ensure_functions_loaded(&mut conn).await?;
+
+            let _: i32 = redis::cmd("FCALL")
+                .arg("delete_job")
+                .arg(0)
                 .arg(&self.namespace)
                 .arg(job_id.to_string())
-                .invoke_async(&mut conn)
+                .query_async(&mut conn)
                 .await?;
             Ok(())
         })

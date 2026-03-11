@@ -51,8 +51,10 @@ fn needs_prover_server(task_stream: &str) -> bool {
 
 /// Workflow agent
 ///
-/// Monitors taskdb for new tasks on the selected stream and processes the work.
-/// CPU / aux workers use direct taskdb + redis access, while GPU workers use the API.
+/// Monitors for work and processes tasks. **CPU and aux workers** use direct taskdb + Redis
+/// (require `TASKDB_REDIS_URL` / `REDIS_URL`). **GPU workers** (prove, join, coproc, snark, sp1)
+/// are API-only: they never connect to the backend; they pull work from and report results to the
+/// API (`BENTO_API_URL`). Deploy GPU agents in a segment that can reach only the API, not Redis/taskdb.
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -69,6 +71,8 @@ pub struct Args {
     pub poll_time: u64,
 
     /// taskdb redis URL (defaults to `redis_url`)
+    ///
+    /// Not used for GPU worker streams (prove, join, coproc, snark, sp1); they pull only from the API.
     #[clap(env, long)]
     pub taskdb_redis_url: Option<String>,
 
@@ -76,7 +80,9 @@ pub struct Args {
     #[clap(env, long, default_value = "taskdb")]
     pub taskdb_redis_namespace: String,
 
-    /// redis connection URL
+    /// redis connection URL (hot storage and taskdb when not using GPU API)
+    ///
+    /// Not used for GPU worker streams; they use the API for work and hot storage.
     #[clap(env)]
     pub redis_url: Option<String>,
 
@@ -176,7 +182,10 @@ pub struct Args {
     disable_stuck_task_cleanup: bool,
 }
 
-/// Core agent context to hold all optional clients / pools and state
+/// Core agent context. Holds optional backend clients (taskdb, Redis) and the API client.
+///
+/// GPU worker streams (prove, join, coproc, snark, sp1) have `task_db` and `redis_pool` set to
+/// `None` and use only the API for work claim, task updates, and hot storage.
 pub struct Agent {
     /// Redis-backed taskdb client.
     task_db: Option<TaskDb>,
@@ -261,6 +270,13 @@ impl Agent {
         };
         let api_client = ApiClient::new(&args.api_url)
             .context("[BENTO-WF-102] Failed to initialize API client")?;
+        if api_backed_gpu_worker {
+            tracing::info!(
+                "GPU agent (stream={}): API-only mode — no backend (taskdb/Redis) connection; work and hot storage via {}",
+                args.task_stream,
+                args.api_url
+            );
+        }
         let s3_client = S3Client::from_local_dir(&args.storage_dir)
             .context("[BENTO-WF-103] Failed to initialize local object storage")?;
 
@@ -451,7 +467,7 @@ impl Agent {
                     )
                     .await
                     {
-                        tracing::error!("[BENTO-WF-104] Completed job cleanup failed: {:#}", e);
+                        tracing::error!("[BENTO-WF-104] Requeue failed: {:#}", e);
                         time::sleep(time::Duration::from_secs(requeue_interval)).await;
                     }
                 }

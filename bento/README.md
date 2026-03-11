@@ -40,6 +40,8 @@ The central orchestration service that manages task distribution and execution.
 - `keccak` - Handles Keccak hash computations
 - `union` - Combines multiple proof types
 
+**GPU agents (prove, join, coproc, snark, sp1)** pull work only from the API. They do not connect to the taskdb or Redis backend. You can deploy them in a network segment that has access only to the Bento API (`BENTO_API_URL`); the backend stays shielded from GPU agents.
+
 #### 2. **Task Database** (`crates/taskdb`)
 
 Redis-based task management system with dependency resolution, priority scheduling, and push wakeups.
@@ -146,17 +148,19 @@ Example RISC Zero guest programs and methods for testing and development.
 
 1. **Set environment variables**
    ```bash
+   ```
+
 export REDIS_URL="redis://localhost:6379"
 export STORAGE_DIR="./data/object_store"
 export BENTO_API_URL="http://localhost:8081"
 export RISC0_DEV_MODE=true
-   ```
 
+````
 2. **Build and test**
-   ```bash
-   cargo build
-   cargo test --workspace
-   ```
+```bash
+cargo build
+cargo test --workspace
+````
 
 ## 📖 Usage
 
@@ -264,11 +268,11 @@ When POVW is enabled:
 
 ### Environment Variables
 
-| Variable         | Description                  | Default                 |
-| ---------------- | ---------------------------- | ----------------------- |
-| `REDIS_URL`      | Redis connection string      | Required                |
-| `RISC0_DEV_MODE` | Enable development mode      | `false`                 |
-| `POVW_LOG_ID`    | POVW log identifier          | Required to enable POVW |
+| Variable         | Description             | Default                 |
+| ---------------- | ----------------------- | ----------------------- |
+| `REDIS_URL`      | Redis connection string | Required                |
+| `RISC0_DEV_MODE` | Enable development mode | `false`                 |
+| `POVW_LOG_ID`    | POVW log identifier     | Required to enable POVW |
 
 ### Agent Configuration
 
