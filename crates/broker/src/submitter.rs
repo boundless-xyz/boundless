@@ -407,6 +407,17 @@ where
             }
         }
 
+        // No valid fulfillments, skip on-chain submission attempt.
+        if fulfillments.is_empty() {
+            tracing::error!(
+                "All orders in batch {batch_id} failed during submission preparation. \
+                 Skipping on-chain submission."
+            );
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "No fulfillments to submit for batch {batch_id}"
+            )));
+        }
+
         let assessor_claim_index = aggregation_state
             .claim_digests
             .iter()

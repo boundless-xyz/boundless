@@ -120,6 +120,9 @@ pub struct AggregationOrder {
     pub proof_id: String,
     pub expiration: u64,
     pub fee: U256,
+    pub fulfillment_type: FulfillmentType,
+    pub request_id: U256,
+    pub lock_expiration: u64,
 }
 
 #[async_trait]
@@ -636,6 +639,9 @@ impl BrokerDb for SqliteDb {
                     .data
                     .lock_price
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "lock_price"))?,
+                fulfillment_type: order.data.fulfillment_type,
+                request_id: order.data.request.id,
+                lock_expiration: order.data.request.lock_expires_at(),
             })
         }
 
@@ -671,11 +677,14 @@ impl BrokerDb for SqliteDb {
                     .data
                     .proof_id
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
-                expiration: order
+                expiration: order.data.request.expires_at(),
+                fee: order
                     .data
-                    .expire_timestamp
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_timestamp"))?,
-                fee: order.data.lock_price.ok_or(DbError::InvalidOrder(order.id, "lock_price"))?,
+                    .lock_price
+                    .ok_or(DbError::InvalidOrder(order.id.clone(), "lock_price"))?,
+                fulfillment_type: order.data.fulfillment_type,
+                request_id: order.data.request.id,
+                lock_expiration: order.data.request.lock_expires_at(),
             })
         }
 
@@ -1451,12 +1460,18 @@ mod tests {
                 order_id: order1.id(),
                 expiration: 20,
                 fee: U256::from(5),
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                request_id: order1.request.id,
+                lock_expiration: order1.request.lock_expires_at(),
             },
             AggregationOrder {
                 proof_id: "b".to_string(),
                 order_id: order2.id(),
                 expiration: 25,
                 fee: U256::from(10),
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                request_id: order2.request.id,
+                lock_expiration: order2.request.lock_expires_at(),
             },
         ];
         let claim_digests = vec![[1u32; 8].into(), [2u32; 8].into()];
