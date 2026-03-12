@@ -130,6 +130,7 @@ export = () => {
   const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
   const offchainMaxPricePerMCycle = offchainConfig.get('MAX_PRICE_PER_MCYCLE');
   const offchainMaxPriceCap = offchainConfig.get('MAX_PRICE_CAP');
+  const offchainMaxOutstandingRequests = offchainConfig.get('MAX_OUTSTANDING_REQUESTS');
 
   if (offchainPrivateKey) {
     new OrderGenerator('offchain', {
@@ -168,6 +169,7 @@ export = () => {
       indexerUrl,
       useZeth: false,
       maxPriceCap: offchainMaxPriceCap,
+      maxOutstandingRequests: offchainMaxOutstandingRequests,
     });
   }
 
@@ -192,6 +194,7 @@ export = () => {
   const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
   const onchainMaxPricePerMCycle = onchainConfig.get('MAX_PRICE_PER_MCYCLE');
   const onchainMaxPriceCap = onchainConfig.get('MAX_PRICE_CAP');
+  const onchainMaxOutstandingRequests = onchainConfig.get('MAX_OUTSTANDING_REQUESTS');
 
   if (onchainPrivateKey) {
     new OrderGenerator('onchain', {
@@ -227,6 +230,7 @@ export = () => {
       indexerUrl,
       useZeth: false,
       maxPriceCap: onchainMaxPriceCap,
+      maxOutstandingRequests: onchainMaxOutstandingRequests,
     });
   }
 
@@ -256,6 +260,7 @@ export = () => {
     const randomRequestorExecRateKhz = randomRequestorConfig.get('EXEC_RATE_KHZ');
     const randomRequestorMaxPricePerMCycle = randomRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
     const randomRequestorMaxPriceCap = randomRequestorConfig.get('MAX_PRICE_CAP');
+    const randomRequestorMaxOutstandingRequests = randomRequestorConfig.get('MAX_OUTSTANDING_REQUESTS');
 
     new OrderGenerator('random-requestor', {
       chainId,
@@ -294,6 +299,7 @@ export = () => {
       indexerUrl,
       useZeth: false,
       maxPriceCap: randomRequestorMaxPriceCap,
+      maxOutstandingRequests: randomRequestorMaxOutstandingRequests,
     });
   }
 
@@ -318,6 +324,7 @@ export = () => {
   const evmRequestorExecRateKhz = evmRequestorConfig.get('EXEC_RATE_KHZ');
   const evmRequestorMaxPricePerMCycle = evmRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
   const evmRequestorMaxPriceCap = evmRequestorConfig.get('MAX_PRICE_CAP');
+  const evmRequestorMaxOutstandingRequests = evmRequestorConfig.get('MAX_OUTSTANDING_REQUESTS');
 
   if (evmRequestorPrivateKey) {
     new OrderGenerator('evm-requestor', {
@@ -353,6 +360,7 @@ export = () => {
       indexerUrl,
       useZeth: true,
       maxPriceCap: evmRequestorMaxPriceCap,
+      maxOutstandingRequests: evmRequestorMaxOutstandingRequests,
     });
   }
 

@@ -117,4 +117,61 @@ mod tests {
         assert_eq!(percentiles[2], U256::from(30)); // median
         assert_eq!(percentiles[4], U256::from(50)); // max
     }
+
+    #[test]
+    fn test_compute_percentiles_with_p5() {
+        // 20 values: 1, 2, 3, ..., 20
+        let mut values: Vec<U256> = (1..=20).map(U256::from).collect();
+        let percentiles = compute_percentiles(&mut values, &[5, 10, 25, 50, 75, 90, 95, 99]);
+
+        // p5 should be near the bottom of the distribution
+        assert!(percentiles[0] <= percentiles[1], "p5 <= p10");
+        assert!(percentiles[1] <= percentiles[2], "p10 <= p25");
+        assert!(percentiles[2] <= percentiles[3], "p25 <= p50");
+        assert!(percentiles[3] <= percentiles[4], "p50 <= p75");
+        assert!(percentiles[4] <= percentiles[5], "p75 <= p90");
+        assert!(percentiles[5] <= percentiles[6], "p90 <= p95");
+        assert!(percentiles[6] <= percentiles[7], "p95 <= p99");
+
+        // p5 of [1..=20] with linear interpolation: rank = 0.05 * 19 = 0.95
+        // lower = values[0] = 1, upper = values[1] = 2, frac = 0.95
+        // result = 1 + 0.95 * (2 - 1) = 1.95, truncated to 1 (U256 integer math)
+        assert!(percentiles[0] >= U256::from(1) && percentiles[0] <= U256::from(2));
+    }
+
+    #[test]
+    fn test_compute_latency_percentiles_p50_p90() {
+        // Simulate time-to-lock values in seconds (10 requests)
+        let time_to_lock_secs: Vec<u64> = vec![2, 5, 8, 12, 15, 20, 25, 30, 45, 60];
+        let mut values: Vec<U256> = time_to_lock_secs.iter().map(|&v| U256::from(v)).collect();
+        let percentiles = compute_percentiles(&mut values, &[50, 90]);
+
+        let p50 = percentiles[0].to::<u64>();
+        let p90 = percentiles[1].to::<u64>();
+
+        // p50 should be around the median (between 15 and 20)
+        assert!((15..=20).contains(&p50), "p50 should be ~15-20, got {}", p50);
+        // p90 should be near the top (between 45 and 60)
+        assert!((45..=60).contains(&p90), "p90 should be ~45-60, got {}", p90);
+        // p90 >= p50 always
+        assert!(p90 >= p50, "p90 ({}) should be >= p50 ({})", p90, p50);
+    }
+
+    #[test]
+    fn test_compute_latency_percentiles_single_value() {
+        let mut values = vec![U256::from(42u64)];
+        let percentiles = compute_percentiles(&mut values, &[50, 90]);
+
+        assert_eq!(percentiles[0], U256::from(42));
+        assert_eq!(percentiles[1], U256::from(42));
+    }
+
+    #[test]
+    fn test_compute_latency_percentiles_empty() {
+        let mut values: Vec<U256> = vec![];
+        let percentiles = compute_percentiles(&mut values, &[50, 90]);
+
+        assert_eq!(percentiles[0], U256::ZERO);
+        assert_eq!(percentiles[1], U256::ZERO);
+    }
 }
