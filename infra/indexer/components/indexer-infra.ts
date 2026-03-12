@@ -7,6 +7,7 @@ export interface IndexerInfraArgs {
   serviceName: string;
   vpcId: pulumi.Output<string>;
   privSubNetIds: pulumi.Output<string[]>;
+  pubSubNetIds: pulumi.Output<string[]>;
   rdsPassword: pulumi.Output<string>;
   isDev: boolean;
 }
@@ -26,12 +27,15 @@ export class IndexerShared extends pulumi.ComponentResource {
   public readonly taskRole: aws.iam.Role;
   public readonly taskRolePolicyAttachment: aws.iam.RolePolicyAttachment;
   public readonly cluster: aws.ecs.Cluster;
+  public readonly bastionInstanceId: pulumi.Output<string>;
+  public readonly readerEndpoint: pulumi.Output<string>;
+  public readonly writerEndpoint: pulumi.Output<string>;
   public readonly databaseVersion: string;
 
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
 
-    const { vpcId, privSubNetIds, rdsPassword, isDev } = args;
+    const { vpcId, privSubNetIds, pubSubNetIds, rdsPassword, isDev } = args;
     const serviceName = `${args.serviceName}-base`;
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
@@ -350,6 +354,41 @@ export class IndexerShared extends pulumi.ComponentResource {
     }, { parent: this, dependsOn: [this.taskRole, this.executionRole] });
 
     this.rdsSecurityGroupId = rdsSecurityGroup.id;
+    this.readerEndpoint = auroraCluster.readerEndpoint;
+    this.writerEndpoint = auroraCluster.endpoint;
+
+    // SSM bastion for dev database access via port-forwarding
+    const bastionRole = new aws.iam.Role(`${serviceName}-bastion-role`, {
+      assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+        Service: 'ec2.amazonaws.com',
+      }),
+      managedPolicyArns: ['arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'],
+    }, { parent: this });
+
+    const bastionProfile = new aws.iam.InstanceProfile(`${serviceName}-bastion-profile`, {
+      role: bastionRole.name,
+    }, { parent: this });
+
+    const bastionAmi = aws.ec2.getAmiOutput({
+      mostRecent: true,
+      owners: ['amazon'],
+      filters: [
+        { name: 'name', values: ['al2023-ami-*-arm64'] },
+        { name: 'state', values: ['available'] },
+      ],
+    });
+
+    const bastion = new aws.ec2.Instance(`${serviceName}-bastion`, {
+      ami: bastionAmi.id,
+      instanceType: 't4g.nano',
+      subnetId: pubSubNetIds.apply(ids => ids[0]),
+      vpcSecurityGroupIds: [this.indexerSecurityGroup.id],
+      iamInstanceProfile: bastionProfile.name,
+      associatePublicIpAddress: true,
+      tags: { Name: `${serviceName}-bastion` },
+    }, { parent: this });
+
+    this.bastionInstanceId = bastion.id;
 
     this.registerOutputs({
       repositoryUrl: this.ecrRepository.repository.repositoryUrl,
@@ -358,6 +397,9 @@ export class IndexerShared extends pulumi.ComponentResource {
       rdsSecurityGroupId: this.rdsSecurityGroupId,
       taskRoleArn: this.taskRole.arn,
       executionRoleArn: this.executionRole.arn,
+      bastionInstanceId: this.bastionInstanceId,
+      readerEndpoint: this.readerEndpoint,
+      writerEndpoint: this.writerEndpoint,
     });
   }
 }
