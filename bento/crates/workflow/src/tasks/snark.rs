@@ -17,10 +17,7 @@ use workflow_common::{
 pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<SnarkResp> {
     let start_time = Instant::now();
     tracing::info!("Converting stark to snark for job: {job_id}");
-    let receipt_key = format!(
-        "{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{}.bincode",
-        req.receipt
-    );
+    let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{}.bincode", req.receipt);
     tracing::debug!("Downloading receipt, {receipt_key}");
     let s3_read_start = Instant::now();
     let receipt: Receipt = match agent.api_client.read_asset(&receipt_key).await {
@@ -77,12 +74,9 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
                 }
             };
             blake3_receipt
-                .verify_integrity_with_context(&agent.verifier_ctx)
+                .verify_integrity()
                 .context("[BENTO-SNARK-008] Failed to verify blake3 snark receipt")?;
-            (
-                bincode::serialize(&blake3_receipt)?,
-                BLAKE3_GROTH16_BUCKET_DIR,
-            )
+            (bincode::serialize(&blake3_receipt)?, BLAKE3_GROTH16_BUCKET_DIR)
         }
     };
 
@@ -95,11 +89,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     tracing::info!("Uploading snark receipt to object store: {key}");
 
     let s3_write_start = Instant::now();
-    match agent
-        .s3_client
-        .write_buf_to_s3(key, snark_receipt_bytes)
-        .await
-    {
+    match agent.s3_client.write_buf_to_s3(key, snark_receipt_bytes).await {
         Ok(()) => {
             helpers::record_s3_operation(
                 "write",
@@ -121,7 +111,5 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(SnarkResp {
-        snark: job_id.to_string(),
-    })
+    Ok(SnarkResp { snark: job_id.to_string() })
 }

@@ -593,6 +593,12 @@ impl Agent {
                     .context("[BENTO-WF-115] Prove failed")?,
             )
             .context("[BENTO-WF-116] Failed to serialize prove response")?,
+            TaskType::ProvePair(req) => serde_json::to_value(
+                tasks::prove_pair::prover_pair(self, &task.job_id, &task.task_id, &req)
+                    .await
+                    .context("[BENTO-WF-115a] ProvePair failed")?,
+            )
+            .context("[BENTO-WF-116a] Failed to serialize ProvePair response")?,
             TaskType::Join(req) => {
                 // Route to POVW or regular join based on agent POVW setting
                 if self.is_povw_enabled() {

@@ -25,8 +25,8 @@ use taskdb::planner::{
 use tempfile::NamedTempFile;
 use workflow_common::{
     AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
-    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SNARK_WORK_TYPE,
-    SnarkReq, UnionReq,
+    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProvePairReq, ProveReq, ResolveReq,
+    SNARK_WORK_TYPE, SnarkReq, UnionReq,
     metrics::{
         ASSUMPTION_COUNT, EXECUTION_ERRORS, GUEST_FAULTS, S3_OPERATIONS, SEGMENT_COUNT,
         TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES, helpers,
@@ -574,6 +574,10 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // Generate tasks
     writer_tasks.spawn(async move {
         let mut planner = Planner::default();
+        // When we see a Segment, we may buffer it and emit a ProvePair when the next Segment
+        // arrives (pair + join in one task). If segment count is odd, the last segment is flushed
+        // as a single Prove after the segment loop.
+        let mut pending_segment: Option<(usize, usize)> = None; // (segment_index, task_number)
         while let Some(task_type) = task_rx.recv().await {
             if exec_only {
                 continue;
@@ -582,29 +586,61 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             match task_type {
                 SenderType::Segment(segment_index) => {
                     planner.enqueue_segment().expect("Failed to enqueue segment");
-                    while let Some(tree_task) = planner.next_task() {
-                        if let Err(e) = process_task(
-                            &args_copy,
-                            &task_db_copy,
-                            &prove_stream,
-                            &join_stream,
-                            &snark_stream,
-                            &union_stream,
-                            &aux_stream,
-                            &job_id_copy,
-                            tree_task,
-                            Some(segment_index),
-                            &assumptions,
-                            compress_type,
-                            None,
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                "[BENTO-EXEC-030] Failed to process task and insert into taskdb: {e:?}"
-                            );
-                            return Err(e);
+                    let (seg_task_number, seg_i) = {
+                        let first = planner.next_task();
+                        match first {
+                            Some(seg_task) if matches!(seg_task.command, TaskCmd::Segment) => {
+                                (seg_task.task_number, segment_index as usize)
+                            }
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "[BENTO-EXEC-030f] Expected Segment task after enqueue_segment, got {:?}",
+                                    other.map(|t| &t.command)
+                                ));
+                            }
                         }
+                    };
+                    if let Some((prev_idx, prev_task_num)) = pending_segment.take() {
+                        // Two consecutive segments: create one ProvePair (prove both, lift both, join)
+                        let join_task = planner.next_task().with_context(|| {
+                            "[BENTO-EXEC-030a] Join task expected after two segments"
+                        })?;
+                        if !matches!(join_task.command, TaskCmd::Join) {
+                            return Err(anyhow::anyhow!(
+                                "[BENTO-EXEC-030b] Expected Join task, got {:?}",
+                                join_task.command
+                            ));
+                        }
+                        if join_task.depends_on != [prev_task_num, seg_task_number] {
+                            return Err(anyhow::anyhow!(
+                                "[BENTO-EXEC-030c] Join depends_on {:?} != [{}, {}]",
+                                join_task.depends_on,
+                                prev_task_num,
+                                seg_task_number
+                            ));
+                        }
+                        TASKS_CREATED.with_label_values(&["prove_pair"]).inc();
+                        let task_def = serde_json::to_value(TaskType::ProvePair(ProvePairReq {
+                            left: prev_idx,
+                            right: seg_i,
+                        }))
+                        .context("[BENTO-EXEC-030d] Failed to serialize ProvePair task")?;
+                        let task_name = format!("{}", join_task.task_number);
+                        task_db_copy
+                            .create_task(
+                                &job_id_copy,
+                                &task_name,
+                                &prove_stream,
+                                &task_def,
+                                &serde_json::json!([]),
+                                args_copy.prove_retries,
+                                args_copy.prove_timeout,
+                            )
+                            .await
+                            .context("[BENTO-EXEC-030e] create_task failure for ProvePair")?;
+                    } else {
+                        // Buffer single segment; may be paired with next or flushed later
+                        pending_segment = Some((seg_i, seg_task_number));
                     }
                 }
                 SenderType::Keccak(mut keccak_req) => {
@@ -677,6 +713,26 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         }
 
         if !exec_only && !guest_fault {
+            // Flush single segment (odd segment count): create one Prove task for the buffered segment
+            if let Some((seg_i, task_num)) = pending_segment.take() {
+                TASKS_CREATED.with_label_values(&["segment"]).inc();
+                let task_def = serde_json::to_value(TaskType::Prove(ProveReq { index: seg_i }))
+                    .context("[BENTO-EXEC-030g] Failed to serialize Prove task")?;
+                let task_name = format!("{task_num}");
+                task_db_copy
+                    .create_task(
+                        &job_id_copy,
+                        &task_name,
+                        &prove_stream,
+                        &task_def,
+                        &serde_json::json!([]),
+                        args_copy.prove_retries,
+                        args_copy.prove_timeout,
+                    )
+                    .await
+                    .context("[BENTO-EXEC-030h] create_task failure for single-segment Prove")?;
+            }
+
             planner.finish().expect("Planner failed to finish()");
             while let Some(tree_task) = planner.next_task() {
                 if let Err(e) = process_task(
