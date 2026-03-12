@@ -267,6 +267,10 @@ pub struct PeriodRequestorSummary {
     pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
+    pub p50_time_to_lock_seconds: Option<f64>,
+    pub p90_time_to_lock_seconds: Option<f64>,
+    pub p50_time_to_fulfill_seconds: Option<f64>,
+    pub p90_time_to_fulfill_seconds: Option<f64>,
 }
 
 impl PeriodRequestorSummary {
@@ -358,6 +362,10 @@ pub struct ProverLeaderboardEntry {
     pub best_effective_prove_mhz: f64,
     pub locked_order_fulfillment_rate: f32,
     pub last_activity_time: u64,
+    /// Current ZKC deposited by this prover (from deposit/withdrawal events)
+    pub collateral_deposited_zkc: U256,
+    /// ZKC available for new locks (deposited minus currently locked)
+    pub collateral_available_zkc: U256,
 }
 
 #[derive(Debug, Clone)]

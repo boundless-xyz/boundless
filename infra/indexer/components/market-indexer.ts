@@ -520,7 +520,6 @@ export class MarketIndexer extends pulumi.ComponentResource {
           TASK_DEFINITION_ARN: efficiencyTaskDef.taskDefinition.arn,
           SUBNET_IDS: privSubNetIds.apply(ids => ids.join(',')),
           SECURITY_GROUP_ID: infra.indexerSecurityGroup.id,
-          AWS_REGION: 'us-west-2',
         },
       },
     }, { parent: this, dependsOn: [efficiencyLambdaRole] });

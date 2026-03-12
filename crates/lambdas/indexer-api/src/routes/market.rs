@@ -410,6 +410,14 @@ pub struct ProverLeaderboardEntry {
     pub best_effective_prove_mhz: f64,
     /// Locked order fulfillment rate as percentage (0-100)
     pub locked_order_fulfillment_rate: f32,
+    /// Current ZKC deposited by this prover (as string, computed from deposit/withdrawal events)
+    pub collateral_deposited_zkc: String,
+    /// Current ZKC deposited (formatted for display)
+    pub collateral_deposited_zkc_formatted: String,
+    /// ZKC available for new locks: deposited minus currently locked (as string)
+    pub collateral_available_zkc: String,
+    /// ZKC available for new locks (formatted for display)
+    pub collateral_available_zkc_formatted: String,
     /// Last activity timestamp (Unix)
     pub last_activity_time: i64,
     /// Last activity timestamp (ISO 8601)
@@ -624,6 +632,12 @@ pub struct MarketAggregatesResponse {
     pub data: Vec<MarketAggregateEntry>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
+    /// Total ZKC currently deposited across all provers (current on-chain state, not cumulative)
+    pub total_collateral_deposited: String,
+    /// Total ZKC currently deposited (formatted for display)
+    pub total_collateral_deposited_formatted: String,
+    /// Number of provers with deposited collateral >= eligibility threshold
+    pub eligible_prover_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -852,6 +866,18 @@ pub struct RequestorAggregateEntry {
 
     /// Total variable cost (formatted for display)
     pub total_variable_cost_formatted: String,
+
+    /// Median (p50) time-to-lock in seconds (locked_at - created_at)
+    pub p50_time_to_lock_seconds: Option<f64>,
+
+    /// 90th percentile time-to-lock in seconds (locked_at - created_at)
+    pub p90_time_to_lock_seconds: Option<f64>,
+
+    /// Median (p50) time-to-fulfill in seconds (fulfilled_at - locked_at)
+    pub p50_time_to_fulfill_seconds: Option<f64>,
+
+    /// 90th percentile time-to-fulfill in seconds (fulfilled_at - locked_at)
+    pub p90_time_to_fulfill_seconds: Option<f64>,
 
     /// Epoch number at the start of this period (None if timestamp is before epoch 0)
     pub epoch_number_start: Option<i64>,
@@ -1327,12 +1353,21 @@ async fn get_market_aggregates_impl(
         })
         .collect();
 
+    // Fetch current market-wide collateral stats
+    // 20 ZKC = 20 * 10^18 wei
+    let eligible_threshold = U256::from(20) * U256::from(10).pow(U256::from(18));
+    let collateral_stats = state.market_db.get_market_collateral_stats(eligible_threshold).await?;
+    let total_deposited_str = collateral_stats.total_collateral_deposited.to_string();
+
     Ok(MarketAggregatesResponse {
         chain_id: state.chain_id,
         aggregation: params.aggregation,
         data,
         next_cursor,
         has_more,
+        total_collateral_deposited: total_deposited_str.clone(),
+        total_collateral_deposited_formatted: format_zkc(&total_deposited_str),
+        eligible_prover_count: collateral_stats.eligible_prover_count,
     })
 }
 
@@ -1438,12 +1473,20 @@ async fn get_epoch_market_aggregates_impl(
         })
         .collect();
 
+    // Fetch current market-wide collateral stats
+    let eligible_threshold = U256::from(20) * U256::from(10).pow(U256::from(18));
+    let collateral_stats = state.market_db.get_market_collateral_stats(eligible_threshold).await?;
+    let total_deposited_str = collateral_stats.total_collateral_deposited.to_string();
+
     Ok(MarketAggregatesResponse {
         chain_id: state.chain_id,
         aggregation: AggregationGranularity::Epoch,
         data,
         next_cursor,
         has_more,
+        total_collateral_deposited: total_deposited_str.clone(),
+        total_collateral_deposited_formatted: format_zkc(&total_deposited_str),
+        eligible_prover_count: collateral_stats.eligible_prover_count,
     })
 }
 
@@ -1830,6 +1873,10 @@ async fn get_requestor_aggregates_impl(
                 total_fixed_cost_formatted: format_eth(&summary.total_fixed_cost.to_string()),
                 total_variable_cost: summary.total_variable_cost.to_string(),
                 total_variable_cost_formatted: format_eth(&summary.total_variable_cost.to_string()),
+                p50_time_to_lock_seconds: summary.p50_time_to_lock_seconds,
+                p90_time_to_lock_seconds: summary.p90_time_to_lock_seconds,
+                p50_time_to_fulfill_seconds: summary.p50_time_to_fulfill_seconds,
+                p90_time_to_fulfill_seconds: summary.p90_time_to_fulfill_seconds,
                 epoch_number_start,
             }
         })
@@ -3214,10 +3261,13 @@ async fn list_provers_impl(
     // Get addresses for batch queries
     let addresses: Vec<Address> = entries.iter().map(|e| e.prover_address).collect();
 
-    // Fetch median lock prices and last activity times in batch
+    // Fetch median lock prices, last activity times, and collateral balances in batch
     let median_prices =
         state.market_db.get_prover_median_lock_prices(&addresses, start_ts, end_ts).await?;
     let last_activities = state.market_db.get_prover_last_activity_times(&addresses).await?;
+    let collateral_balances = state.market_db.get_prover_collateral_balances(&addresses).await?;
+    let locked_collateral =
+        state.market_db.get_prover_currently_locked_collateral(&addresses).await?;
 
     // Build response entries
     let data: Vec<ProverLeaderboardEntry> = entries
@@ -3232,6 +3282,12 @@ async fn list_provers_impl(
             let last_activity_iso = DateTime::<Utc>::from_timestamp(last_activity as i64, 0)
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
                 .unwrap_or_default();
+
+            let deposited =
+                collateral_balances.get(&entry.prover_address).copied().unwrap_or(U256::ZERO);
+            let currently_locked =
+                locked_collateral.get(&entry.prover_address).copied().unwrap_or(U256::ZERO);
+            let available = deposited.saturating_sub(currently_locked);
 
             ProverLeaderboardEntry {
                 chain_id: state.chain_id,
@@ -3248,6 +3304,10 @@ async fn list_provers_impl(
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
                 best_effective_prove_mhz: entry.best_effective_prove_mhz,
                 locked_order_fulfillment_rate: entry.locked_order_fulfillment_rate,
+                collateral_deposited_zkc: deposited.to_string(),
+                collateral_deposited_zkc_formatted: format_zkc(&deposited.to_string()),
+                collateral_available_zkc: available.to_string(),
+                collateral_available_zkc_formatted: format_zkc(&available.to_string()),
                 last_activity_time: last_activity as i64,
                 last_activity_time_iso: last_activity_iso,
             }
