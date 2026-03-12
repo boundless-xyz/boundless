@@ -587,44 +587,46 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     let first = planner.next_task();
                     match first {
                         Some(join_task) if matches!(join_task.command, TaskCmd::Join) => {
-                            // Join is next (Segment for this index was already consumed in a pair). Create the Join task, then consume the Segment task for this message and buffer it.
-                            if let Err(e) = process_task(
-                                &args_copy,
-                                &task_db_copy,
-                                &prove_stream,
-                                &join_stream,
-                                &snark_stream,
-                                &union_stream,
-                                &aux_stream,
-                                &job_id_copy,
-                                join_task,
-                                None,
-                                &assumptions,
-                                compress_type,
-                                None,
-                            )
-                            .await
-                            {
-                                tracing::error!(
-                                    "[BENTO-EXEC-030] Failed to process Join task (catch-up): {e:?}"
-                                );
-                                return Err(e);
-                            }
-                            let seg_task = planner.next_task().with_context(|| {
-                                "[BENTO-EXEC-030a] Segment task expected after Join in catch-up"
-                            })?;
-                            let (seg_task_number, seg_i) = match &seg_task.command {
-                                TaskCmd::Segment => (seg_task.task_number, segment_index as usize),
-                                _ => {
+                            // Catch-up: one or more Joins are next (Segment for this index was already consumed in a pair). Process all consecutive Joins, then the Segment for this message and buffer it.
+                            let mut next = Some(join_task);
+                            while let Some(task) = next.take() {
+                                if matches!(task.command, TaskCmd::Join) {
+                                    if let Err(e) = process_task(
+                                        &args_copy,
+                                        &task_db_copy,
+                                        &prove_stream,
+                                        &join_stream,
+                                        &snark_stream,
+                                        &union_stream,
+                                        &aux_stream,
+                                        &job_id_copy,
+                                        task,
+                                        None,
+                                        &assumptions,
+                                        compress_type,
+                                        None,
+                                    )
+                                    .await
+                                    {
+                                        tracing::error!(
+                                            "[BENTO-EXEC-030] Failed to process Join task (catch-up): {e:?}"
+                                        );
+                                        return Err(e);
+                                    }
+                                    next = planner.next_task();
+                                } else if matches!(task.command, TaskCmd::Segment) {
+                                    pending_segment = Some((segment_index as usize, task.task_number));
+                                    break;
+                                } else {
                                     let e = anyhow::anyhow!(
-                                        "[BENTO-EXEC-030f] Expected Segment after Join catch-up, got {:?}",
-                                        seg_task.command
+                                        "[BENTO-EXEC-030f] Expected Segment or Join in catch-up, got {:?}",
+                                        task.command
                                     );
                                     tracing::error!("{e:?}");
                                     return Err(e);
                                 }
-                            };
-                            pending_segment = Some((seg_i, seg_task_number));
+                            }
+                            // If we did not find a Segment, we had exactly two segments (only Join(2)); nothing to buffer.
                         }
                         first => {
                             let (seg_task_number, seg_i) = match first {
