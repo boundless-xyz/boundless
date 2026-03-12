@@ -796,7 +796,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 segments += 1;
                 // Send segments to write queue, blocking if the queue is full.
                 if !exec_only {
-                    segment_tx.blocking_send(segment).unwrap();
+                    segment_tx.blocking_send(segment).map_err(|e| {
+                        anyhow::anyhow!("segment writer channel closed (pipeline failed): {e}")
+                    })?;
                 }
                 Ok(Box::new(NullSegmentRef {}))
             }) {
