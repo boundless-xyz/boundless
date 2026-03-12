@@ -584,22 +584,62 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             match task_type {
                 SenderType::Segment(segment_index) => {
                     planner.enqueue_segment().expect("Failed to enqueue segment");
-                    let (seg_task_number, seg_i) = {
-                        let first = planner.next_task();
-                        match first {
-                            Some(seg_task) if matches!(seg_task.command, TaskCmd::Segment) => {
-                                (seg_task.task_number, segment_index as usize)
-                            }
-                            other => {
-                                let e = anyhow::anyhow!(
-                                    "[BENTO-EXEC-030f] Expected Segment task after enqueue_segment, got {:?}",
-                                    other.map(|t| &t.command)
+                    let first = planner.next_task();
+                    match first {
+                        Some(join_task) if matches!(join_task.command, TaskCmd::Join) => {
+                            // Join is next (Segment for this index was already consumed in a pair). Create the Join task, then consume the Segment task for this message and buffer it.
+                            if let Err(e) = process_task(
+                                &args_copy,
+                                &task_db_copy,
+                                &prove_stream,
+                                &join_stream,
+                                &snark_stream,
+                                &union_stream,
+                                &aux_stream,
+                                &job_id_copy,
+                                join_task,
+                                None,
+                                &assumptions,
+                                compress_type,
+                                None,
+                            )
+                            .await
+                            {
+                                tracing::error!(
+                                    "[BENTO-EXEC-030] Failed to process Join task (catch-up): {e:?}"
                                 );
-                                tracing::error!("{e:?}");
                                 return Err(e);
                             }
+                            let seg_task = planner.next_task().with_context(|| {
+                                "[BENTO-EXEC-030a] Segment task expected after Join in catch-up"
+                            })?;
+                            let (seg_task_number, seg_i) = match &seg_task.command {
+                                TaskCmd::Segment => (seg_task.task_number, segment_index as usize),
+                                _ => {
+                                    let e = anyhow::anyhow!(
+                                        "[BENTO-EXEC-030f] Expected Segment after Join catch-up, got {:?}",
+                                        seg_task.command
+                                    );
+                                    tracing::error!("{e:?}");
+                                    return Err(e);
+                                }
+                            };
+                            pending_segment = Some((seg_i, seg_task_number));
                         }
-                    };
+                        first => {
+                            let (seg_task_number, seg_i) = match first {
+                                Some(seg_task) if matches!(seg_task.command, TaskCmd::Segment) => {
+                                    (seg_task.task_number, segment_index as usize)
+                                }
+                                other => {
+                                    let e = anyhow::anyhow!(
+                                        "[BENTO-EXEC-030f] Expected Segment task after enqueue_segment, got {:?}",
+                                        other.map(|t| &t.command)
+                                    );
+                                    tracing::error!("{e:?}");
+                                    return Err(e);
+                                }
+                            };
                     if let Some((prev_idx, prev_task_num)) = pending_segment.take() {
                         let join_task = planner.next_task().with_context(|| {
                             "[BENTO-EXEC-030a] Join task expected after two segments"
@@ -647,6 +687,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                         }
                     } else {
                         pending_segment = Some((seg_i, seg_task_number));
+                    }
+                        }
                     }
                 }
                 SenderType::Keccak(mut keccak_req) => {
