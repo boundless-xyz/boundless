@@ -291,7 +291,7 @@ impl ProverGenerateConfig {
         display.item_colored("  Result", format!("{} exec agents", max_exec_agents), "cyan");
         display.note("");
 
-        let max_concurrent_preflights = max_exec_agents.saturating_sub(2).max(8);
+        let max_concurrent_preflights = max_exec_agents.saturating_sub(2).max(1);
         display.note("  Formula: max_concurrent_preflights =");
         display.note("    (");
         display.note(&format!("      {} exec agents", max_exec_agents));
@@ -303,6 +303,12 @@ impl ProverGenerateConfig {
             format!("{} concurrent preflights", max_concurrent_preflights),
             "cyan",
         );
+        if max_concurrent_preflights < 8 {
+            display.warning(&format!(
+                "  Calculated max_concurrent_preflights ({max_concurrent_preflights}) is below the recommended value of 8. \
+                 Consider using a machine with more CPU threads for better order throughput."
+            ));
+        }
         display.note("");
 
         let max_concurrent_proofs = 1;
