@@ -591,10 +591,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                                 (seg_task.task_number, segment_index as usize)
                             }
                             other => {
-                                return Err(anyhow::anyhow!(
+                                let e = anyhow::anyhow!(
                                     "[BENTO-EXEC-030f] Expected Segment task after enqueue_segment, got {:?}",
                                     other.map(|t| &t.command)
-                                ));
+                                );
+                                tracing::error!("{e:?}");
+                                return Err(e);
                             }
                         }
                     };
@@ -603,18 +605,22 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             "[BENTO-EXEC-030a] Join task expected after two segments"
                         })?;
                         if !matches!(join_task.command, TaskCmd::Join) {
-                            return Err(anyhow::anyhow!(
+                            let e = anyhow::anyhow!(
                                 "[BENTO-EXEC-030b] Expected Join task, got {:?}",
                                 join_task.command
-                            ));
+                            );
+                            tracing::error!("{e:?}");
+                            return Err(e);
                         }
                         if join_task.depends_on != [prev_task_num, seg_task_number] {
-                            return Err(anyhow::anyhow!(
+                            let e = anyhow::anyhow!(
                                 "[BENTO-EXEC-030c] Join depends_on {:?} != [{}, {}]",
                                 join_task.depends_on,
                                 prev_task_num,
                                 seg_task_number
-                            ));
+                            );
+                            tracing::error!("{e:?}");
+                            return Err(e);
                         }
                         TASKS_CREATED.with_label_values(&["prove_pair"]).inc();
                         let task_def = serde_json::to_value(TaskType::ProvePair(ProvePairReq {
@@ -623,7 +629,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                         }))
                         .context("[BENTO-EXEC-030d] Failed to serialize ProvePair task")?;
                         let task_name = format!("{}", join_task.task_number);
-                        task_db_copy
+                        if let Err(e) = task_db_copy
                             .create_task(
                                 &job_id_copy,
                                 &task_name,
@@ -634,7 +640,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                                 args_copy.prove_timeout,
                             )
                             .await
-                            .context("[BENTO-EXEC-030e] create_task failure for ProvePair")?;
+                            .context("[BENTO-EXEC-030e] create_task failure for ProvePair")
+                        {
+                            tracing::error!("[BENTO-EXEC-030e] create_task failure for ProvePair: {e:?}");
+                            return Err(e);
+                        }
                     } else {
                         pending_segment = Some((seg_i, seg_task_number));
                     }
@@ -816,9 +826,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     } else {
                         tracing::error!("[BENTO-EXEC-037] Failed to run executor: {err:?}");
                     }
-                    task_tx_clone
-                        .blocking_send(SenderType::Fault)
-                        .context("[BENTO-EXEC-038] Failed to send fault to planner")?;
+                    if let Err(e) = task_tx_clone.blocking_send(SenderType::Fault) {
+                        tracing::warn!(
+                            "[BENTO-EXEC-038] Could not send fault to planner (receiver dropped): {e}"
+                        );
+                    }
                     Err(err)
                 }
             };
