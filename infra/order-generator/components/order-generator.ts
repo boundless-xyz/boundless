@@ -51,6 +51,7 @@ interface OrderGeneratorArgs {
   indexerUrl: pulumi.Output<string>;
   useZeth?: boolean;
   maxPriceCap?: string;
+  maxOutstandingRequests?: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -238,6 +239,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.maxPriceCap) {
       ogArgs.push(`--max-price-cap ${args.maxPriceCap}`);
+    }
+    if (args.maxOutstandingRequests) {
+      ogArgs.push(`--max-outstanding-requests ${args.maxOutstandingRequests}`);
     }
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
