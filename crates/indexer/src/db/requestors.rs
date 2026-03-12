@@ -2076,8 +2076,10 @@ async fn get_requestor_leaderboard_impl(
     // Build results using the batched adjusted counts
     let mut results = Vec::new();
     for parsed in parsed_rows {
-        let adjusted_fulfilled = adjusted_fulfilled_map.get(&parsed.requestor_address).copied().unwrap_or(0);
-        let adjusted_expired = adjusted_expired_map.get(&parsed.requestor_address).copied().unwrap_or(0);
+        let adjusted_fulfilled =
+            adjusted_fulfilled_map.get(&parsed.requestor_address).copied().unwrap_or(0);
+        let adjusted_expired =
+            adjusted_expired_map.get(&parsed.requestor_address).copied().unwrap_or(0);
 
         let total_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
         let locked_orders_fulfillment_rate_adjusted = if total_outcomes_adjusted > 0 {
