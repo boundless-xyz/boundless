@@ -46,14 +46,12 @@ pub async fn prover_pair(
         request.right
     );
 
-    let (segment_vec_left, segment_vec_right) = tokio::join!(
-        agent.hot_get_bytes(&left_key),
-        agent.hot_get_bytes(&right_key),
-    );
-    let segment_vec_left = segment_vec_left
-        .context(format!("segment data not found for key: {left_key}"))?;
-    let segment_vec_right = segment_vec_right
-        .context(format!("segment data not found for key: {right_key}"))?;
+    let (segment_vec_left, segment_vec_right) =
+        tokio::join!(agent.hot_get_bytes(&left_key), agent.hot_get_bytes(&right_key),);
+    let segment_vec_left =
+        segment_vec_left.context(format!("segment data not found for key: {left_key}"))?;
+    let segment_vec_right =
+        segment_vec_right.context(format!("segment data not found for key: {right_key}"))?;
 
     let (segment_left_res, segment_right_res) = tokio::join!(
         tokio::task::spawn_blocking(move || deserialize_obj(&segment_vec_left)),
@@ -66,10 +64,7 @@ pub async fn prover_pair(
         .context("right deserialize task")?
         .context("Failed to deserialize right segment")?;
 
-    let prover = agent
-        .prover
-        .as_ref()
-        .context("[BENTO-PROVEPAIR-001] Missing prover")?;
+    let prover = agent.prover.as_ref().context("[BENTO-PROVEPAIR-001] Missing prover")?;
 
     // Prove both segments
     let prove_start = Instant::now();
@@ -135,20 +130,23 @@ pub async fn prover_pair(
             .verify_integrity_with_context(&agent.verifier_ctx)
             .context("[BENTO-PROVEPAIR-011] Joined receipt verify failed")?;
 
-        let out_bytes = serialize_obj(&joined).context("Failed to serialize joined POVW receipt")?;
+        let out_bytes =
+            serialize_obj(&joined).context("Failed to serialize joined POVW receipt")?;
         agent
             .hot_set_bytes(&output_key, out_bytes)
             .await
             .context("Failed to write joined receipt")?;
     } else {
         let lift_start = Instant::now();
-        let (lift_left, lift_right): (SuccinctReceipt<ReceiptClaim>, SuccinctReceipt<ReceiptClaim>) =
-            both_with_context(
-                prover.lift(&receipt_left),
-                prover.lift(&receipt_right),
-                "[BENTO-PROVEPAIR-012] Left lift failed",
-                "[BENTO-PROVEPAIR-013] Right lift failed",
-            )?;
+        let (lift_left, lift_right): (
+            SuccinctReceipt<ReceiptClaim>,
+            SuccinctReceipt<ReceiptClaim>,
+        ) = both_with_context(
+            prover.lift(&receipt_left),
+            prover.lift(&receipt_right),
+            "[BENTO-PROVEPAIR-012] Left lift failed",
+            "[BENTO-PROVEPAIR-013] Right lift failed",
+        )?;
         helpers::record_task_operation(
             "prove_pair",
             "lift",
@@ -164,9 +162,8 @@ pub async fn prover_pair(
         )?;
 
         let join_start = Instant::now();
-        let joined = prover
-            .join(&lift_left, &lift_right)
-            .context("[BENTO-PROVEPAIR-016] join failed")?;
+        let joined =
+            prover.join(&lift_left, &lift_right).context("[BENTO-PROVEPAIR-016] join failed")?;
         helpers::record_task_operation(
             "prove_pair",
             "join",
@@ -189,11 +186,7 @@ pub async fn prover_pair(
     let cleanup_start = Instant::now();
     let d_left = agent.hot_delete(&left_key).await;
     let d_right = agent.hot_delete(&right_key).await;
-    let cleanup_status = if d_left.is_ok() && d_right.is_ok() {
-        "success"
-    } else {
-        "error"
-    };
+    let cleanup_status = if d_left.is_ok() && d_right.is_ok() { "success" } else { "error" };
     helpers::record_redis_operation(
         "unlink",
         cleanup_status,
@@ -209,7 +202,11 @@ pub async fn prover_pair(
         start_time.elapsed().as_secs_f64(),
     );
 
-    tracing::debug!("Prove-pair complete {job_id} {} + {} -> {task_id}", request.left, request.right);
+    tracing::debug!(
+        "Prove-pair complete {job_id} {} + {} -> {task_id}",
+        request.left,
+        request.right
+    );
 
     Ok(())
 }

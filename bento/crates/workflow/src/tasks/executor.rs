@@ -574,9 +574,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // Generate tasks
     writer_tasks.spawn(async move {
         let mut planner = Planner::default();
-        // When we see a Segment, we may buffer it and emit a ProvePair when the next Segment
-        // arrives (pair + join in one task). If segment count is odd, the last segment is flushed
-        // as a single Prove after the segment loop.
+        // Buffer one segment when we might pair it with the next; flush as single Prove when segment count is odd.
         let mut pending_segment: Option<(usize, usize)> = None; // (segment_index, task_number)
         while let Some(task_type) = task_rx.recv().await {
             if exec_only {
@@ -601,7 +599,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                         }
                     };
                     if let Some((prev_idx, prev_task_num)) = pending_segment.take() {
-                        // Two consecutive segments: create one ProvePair (prove both, lift both, join)
                         let join_task = planner.next_task().with_context(|| {
                             "[BENTO-EXEC-030a] Join task expected after two segments"
                         })?;
@@ -639,7 +636,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             .await
                             .context("[BENTO-EXEC-030e] create_task failure for ProvePair")?;
                     } else {
-                        // Buffer single segment; may be paired with next or flushed later
                         pending_segment = Some((seg_i, seg_task_number));
                     }
                 }
@@ -713,7 +709,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         }
 
         if !exec_only && !guest_fault {
-            // Flush single segment (odd segment count): create one Prove task for the buffered segment
             if let Some((seg_i, task_num)) = pending_segment.take() {
                 TASKS_CREATED.with_label_values(&["segment"]).inc();
                 let task_def = serde_json::to_value(TaskType::Prove(ProveReq { index: seg_i }))
