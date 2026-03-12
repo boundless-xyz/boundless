@@ -228,6 +228,8 @@ pub struct OrderRequest {
     /// Unix timestamp (seconds since epoch) of when the broker first received this
     /// request from the network.
     pub received_at_timestamp: u64,
+    /// Unix timestamp (seconds since epoch) of when the order was priced.
+    pub priced_at_timestamp: Option<u64>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
 }
@@ -258,6 +260,7 @@ impl OrderRequest {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            priced_at_timestamp: None,
             cached_id: OnceLock::new(),
         }
     }

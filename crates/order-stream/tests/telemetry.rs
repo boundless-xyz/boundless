@@ -20,8 +20,8 @@ use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 use boundless_market::order_stream_client::OrderStreamClient;
 use boundless_market::telemetry::{
-    BrokerHeartbeat, CompletionOutcome, EvalOutcome, RequestCompleted, RequestEvaluated,
-    RequestHeartbeat,
+    BrokerHeartbeat, CommitmentOutcome, CompletionOutcome, EvalOutcome, RequestCompleted,
+    RequestEvaluated, RequestHeartbeat,
 };
 use chrono::Utc;
 use sqlx::postgres::PgPoolOptions;
@@ -92,9 +92,7 @@ async fn telemetry_end_to_end() {
 
     // Send RequestHeartbeat with one evaluation and one completion
     let eval_request_id = format!("0x{run_id}e");
-    let eval_request_digest = format!("0x{run_id}ed");
     let comp_request_id = format!("0x{run_id}c");
-    let comp_request_digest = format!("0x{run_id}cd");
 
     let request_heartbeat = RequestHeartbeat {
         broker_address,
@@ -108,13 +106,23 @@ async fn telemetry_end_to_end() {
             skip_code: None,
             skip_reason: None,
             total_cycles: Some(2_000_000),
-            estimated_total_proving_time_secs: Some(60),
             fulfillment_type: "LockAndFulfill".to_string(),
             preflight_cache_hit: false,
             queue_duration_ms: Some(150),
             preflight_duration_ms: Some(800),
             received_at_timestamp: 0,
             evaluated_at: Utc::now(),
+            commitment_outcome: Some(CommitmentOutcome::Committed),
+            commitment_skip_code: None,
+            commitment_skip_reason: None,
+            estimated_proving_time_secs: Some(60),
+            estimated_proving_time_no_load_secs: Some(20),
+            monitor_wait_duration_ms: Some(300),
+            peak_prove_khz: Some(100),
+            max_capacity: Some(4),
+            pending_commitment_count: Some(1),
+            concurrent_proving_jobs: Some(1),
+            lock_duration_secs: Some(2),
         }],
         completed: vec![RequestCompleted {
             broker_address,
@@ -130,7 +138,7 @@ async fn telemetry_end_to_end() {
             aggregation_duration_secs: Some(12),
             submission_duration_secs: Some(4),
             total_duration_secs: 55,
-            estimated_total_proving_time_secs: Some(60),
+            estimated_proving_time_secs: Some(60),
             actual_total_proving_time_secs: Some(30),
             concurrent_proving_jobs_start: Some(2),
             concurrent_proving_jobs_end: Some(2),

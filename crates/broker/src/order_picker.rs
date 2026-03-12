@@ -236,7 +236,9 @@ where
                         format_ether(max_mcycle_price),
                     );
 
-                    self.telemetry.record(TelemetryEvent::Evaluated {
+                    order.priced_at_timestamp = Some(now_timestamp());
+
+                    self.telemetry.record(TelemetryEvent::OrderPricing {
                         order_id: order_id.clone(),
                         request_id,
                         request_digest: request_digest.clone(),
@@ -245,7 +247,7 @@ where
                         skip_code: None,
                         skip_reason: None,
                         total_cycles: Some(total_cycles),
-                        estimated_total_proving_time_secs: None,
+
                         fulfillment_type: fulfillment_type.clone(),
                         proof_type: proof_type.clone(),
                         preflight_cache_hit: false,
@@ -300,7 +302,9 @@ where
                         format_ether(eth_amount.value),
                     );
 
-                    self.telemetry.record(TelemetryEvent::Evaluated {
+                    order.priced_at_timestamp = Some(now_timestamp());
+
+                    self.telemetry.record(TelemetryEvent::OrderPricing {
                         order_id: order_id.clone(),
                         request_id,
                         request_digest: request_digest.clone(),
@@ -309,7 +313,7 @@ where
                         skip_code: None,
                         skip_reason: None,
                         total_cycles: Some(total_cycles),
-                        estimated_total_proving_time_secs: None,
+
                         fulfillment_type: fulfillment_type.clone(),
                         proof_type: proof_type.clone(),
                         preflight_cache_hit: false,
@@ -328,7 +332,7 @@ where
                 Ok(Skip { code, reason }) => {
                     tracing::info!("Skipping order {order_id}: {reason}");
 
-                    self.telemetry.record(TelemetryEvent::Evaluated {
+                    self.telemetry.record(TelemetryEvent::OrderPricing {
                         order_id: order_id.clone(),
                         request_id,
                         request_digest: request_digest.clone(),
@@ -337,7 +341,7 @@ where
                         skip_code: Some(code.to_string()),
                         skip_reason: Some(reason),
                         total_cycles: order.total_cycles,
-                        estimated_total_proving_time_secs: None,
+
                         fulfillment_type: fulfillment_type.clone(),
                         proof_type: proof_type.clone(),
                         preflight_cache_hit: false,
@@ -361,7 +365,7 @@ where
                         "Skipping order {order_id}: {reason} (this is expected for private inputs that require specific storage credentials)"
                     );
 
-                    self.telemetry.record(TelemetryEvent::Evaluated {
+                    self.telemetry.record(TelemetryEvent::OrderPricing {
                         order_id: order_id.clone(),
                         request_id,
                         request_digest: request_digest.clone(),
@@ -370,7 +374,7 @@ where
                         skip_code: Some(SKIP_FETCH_ERROR.to_string()),
                         skip_reason: Some(reason),
                         total_cycles: None,
-                        estimated_total_proving_time_secs: None,
+
                         fulfillment_type: fulfillment_type.clone(),
                         proof_type: proof_type.clone(),
                         preflight_cache_hit: false,
@@ -388,7 +392,7 @@ where
                 Err(err) => {
                     tracing::warn!("Failed to price order {order_id}: {err}");
 
-                    self.telemetry.record(TelemetryEvent::Evaluated {
+                    self.telemetry.record(TelemetryEvent::OrderPricing {
                         order_id: order_id.clone(),
                         request_id,
                         request_digest: request_digest.clone(),
@@ -397,7 +401,7 @@ where
                         skip_code: Some(SKIP_PRICING_ERROR.to_string()),
                         skip_reason: Some(err.to_string()),
                         total_cycles: None,
-                        estimated_total_proving_time_secs: None,
+
                         fulfillment_type: fulfillment_type.clone(),
                         proof_type: proof_type.clone(),
                         preflight_cache_hit: false,

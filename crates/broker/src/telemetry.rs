@@ -23,8 +23,8 @@ use anyhow::Result;
 use boundless_market::order_stream_client::OrderStreamClient;
 use boundless_market::selector::{is_blake3_groth16_selector, is_groth16_selector};
 use boundless_market::telemetry::{
-    BrokerHeartbeat, CompletionOutcome, EvalOutcome, RequestCompleted, RequestEvaluated,
-    RequestHeartbeat,
+    BrokerHeartbeat, CommitmentOutcome, CompletionOutcome, EvalOutcome, RequestCompleted,
+    RequestEvaluated, RequestHeartbeat,
 };
 use chrono::Utc;
 use tokio::sync::mpsc;
@@ -45,52 +45,128 @@ const BROKER_HEARTBEAT_INTERVAL_SECS: u64 = 3600;
 const EVICTION_INTERVAL_SECS: u64 = 300;
 const STALE_ENTRY_SECS: u64 = 7200;
 
-// Internal telemetry events emitted by broker services.
+// Internal telemetry events emitted by broker services to the TelemetryHandle.
+// These events are then processed/merged by the TelemetryService into RequestEvaluated
+// and RequestCompleted events. Those shared types live in the boundless-market crate.
 #[derive(Debug)]
 pub(crate) enum TelemetryEvent {
-    Evaluated {
+    // Emitted by OrderPicker immediately after pricing an order (preflight + price evaluation).
+    OrderPricing {
         /// Composite order ID: "0x{request_id}-{request_digest}-{fulfillment_type}".
         order_id: String,
+        /// On-chain request ID.
         request_id: U256,
+        /// Signing hash (digest) of the proof request, hex-encoded.
         request_digest: String,
+        /// Ethereum address of the requestor who submitted the proof request.
         requestor: Address,
+        /// Pricing outcome: Locked, FulfillAfterLockExpire, or Skipped.
         outcome: EvalOutcome,
+        /// Structured skip code (e.g. "[B-OP-001]"), set when outcome is Skipped.
         skip_code: Option<String>,
+        /// Human-readable skip reason, set when outcome is Skipped.
         skip_reason: Option<String>,
+        /// Total execution cycles from preflight. None if preflight was skipped.
         total_cycles: Option<u64>,
-        estimated_total_proving_time_secs: Option<u64>,
+        /// "LockAndFulfill", "FulfillAfterLockExpire", or "FulfillWithoutLocking".
         fulfillment_type: String,
+        /// "Groth16", "Blake3Groth16", or "Merkle". Derived from the request's selector.
         proof_type: String,
+        /// Whether the preflight result was served from cache (no actual execution).
         preflight_cache_hit: bool,
+        /// Time spent in the pending queue before a preflight slot was available (ms).
+        /// Calculated as: (now - received_at_timestamp - preflight_duration) * 1000.
         queue_duration_ms: Option<u64>,
+        /// Time spent running preflight (upload + execution), in milliseconds.
+        /// Calculated as: (now - received_at_timestamp - queue_duration) * 1000.
         preflight_duration_ms: Option<u64>,
+        /// Unix timestamp (seconds) when the broker first received this request.
         received_at_timestamp: u64,
     },
-    /// The order was committed to the proving pipeline (lock tx succeeded, DB
-    /// status set to Proving). Marks the start of proving_duration_secs.
-    OrderCommitted {
+    // Emitted by OrderMonitor when it makes its final commit/drop decision for an order.
+    // For LockAndFulfill orders: emitted after the lock tx succeeds or fails.
+    // For FulfillAfterLockExpire orders: emitted immediately when the order enters the pipeline.
+    OrderCommitment {
+        /// Composite order ID.
         order_id: String,
-        committed_at: Instant,
+        /// Whether the order was committed to the proving pipeline.
+        committed: bool,
+        /// Wall-clock instant when the commitment was recorded. Used to compute proving
+        /// duration later. Set only when committed=true.
+        committed_at: Option<Instant>,
+        /// Number of orders already committed in the DB at the moment the commit/drop
+        /// decision is made. Queried via db.get_committed_orders().len().
         concurrent_proving_jobs: u32,
+        /// Estimated proving time in seconds with current load factored in. Accounts for
+        /// all currently committed orders ahead in the queue.
+        estimated_proving_time_secs: Option<u64>,
+        /// Estimated proving time in seconds ignoring current load (as if no other orders
+        /// were queued).
+        estimated_proving_time_no_load_secs: Option<u64>,
+        /// Time from when the order was priced (entered monitor cache) to when the
+        /// commit/drop decision was made, in milliseconds. Calculated as:
+        /// (now_timestamp() - order.priced_at_timestamp) * 1000.
+        /// None if priced_at_timestamp was not set.
+        monitor_wait_duration_ms: Option<u64>,
+        /// Peak proving speed from broker config (kHz). Passed through from
+        /// config.market.peak_prove_khz.
+        peak_prove_khz: Option<u64>,
+        /// Max concurrent proofs from broker config. Passed through from
+        /// config.market.max_concurrent_proofs.
+        max_capacity: Option<u32>,
+        /// Number of orders in the monitor caches (lock_and_prove_cache + prove_cache)
+        /// waiting to be committed, excluding the current order. Calculated as:
+        /// (lock_and_prove_cache.entry_count() + prove_cache.entry_count()).saturating_sub(1).
+        pending_commitment_count: u32,
+        /// Structured skip code (e.g. "[B-OM-001]"), set when the order is dropped.
+        skip_commit_code: Option<String>,
+        /// Human-readable reason the order was dropped at commitment.
+        skip_commit_reason: Option<String>,
+        /// Wall-clock instant when the lock transaction was submitted. Set only for
+        /// LockAndFulfill orders that attempt a lock. Used with committed_at to
+        /// compute lock_duration_secs.
+        lock_submitted_at: Option<Instant>,
     },
+    // Emitted by the proving pipeline when STARK proving (and optional Groth16 compression)
+    // completes for an order.
     ProvingCompleted {
+        /// Composite order ID.
         order_id: String,
+        /// Total execution cycles reported by the prover. May differ from the preflight
+        /// estimate if the guest behaved differently.
         total_cycles: Option<u64>,
+        /// Wall-clock seconds for the STARK proof (session creation through proof completion).
         stark_proving_secs: Option<f64>,
+        /// Wall-clock seconds for Groth16/Blake3Groth16 compression of the individual proof.
+        /// None for merkle inclusion orders (they skip per-order compression).
         proof_compression_secs: Option<f64>,
     },
+    // Emitted by the batching pipeline when aggregation completes (set builder + assessor
+    // + aggregation Groth16 compression).
     AggregationCompleted {
+        /// Composite order ID.
         order_id: String,
+        /// Wall-clock seconds for the set-builder STARK proof that merges claim digests.
         set_builder_proving_secs: Option<f64>,
+        /// Wall-clock seconds for the assessor STARK proof that validates batch fulfillments.
         assessor_proving_secs: Option<f64>,
+        /// Wall-clock seconds for compressing the aggregation STARK proof into Groth16.
         assessor_compression_proof_secs: Option<f64>,
     },
+    // Emitted when the fulfill transaction is confirmed on-chain.
     Fulfilled {
+        /// Composite order ID.
         order_id: String,
     },
+    // Emitted when the order fails at any stage after commitment.
     Failed {
+        /// Composite order ID.
         order_id: String,
+        /// Structured error code (e.g. "[B-PRO-501]"). The prefix indicates the stage:
+        /// B-REAP = expired while proving, B-OM = lock failed, B-SUB = tx failed,
+        /// B-PRO = proving failed, B-AGG = aggregation failed.
         error_code: String,
+        /// Human-readable error description.
         error_reason: String,
     },
 }
@@ -149,8 +225,18 @@ struct InFlightRequest {
     request_digest: String,
     fulfillment_type: String,
     proof_type: String,
-    estimated_total_proving_time_secs: Option<u64>,
     total_cycles: Option<u64>,
+    // Pricing fields stored for deferred RequestEvaluated construction.
+    requestor: Option<Address>,
+    pricing_outcome: Option<EvalOutcome>,
+    pricing_skip_code: Option<String>,
+    pricing_skip_reason: Option<String>,
+    preflight_cache_hit: bool,
+    queue_duration_ms: Option<u64>,
+    preflight_duration_ms: Option<u64>,
+    // Commitment + completion tracking fields.
+    estimated_proving_time_secs: Option<u64>,
+    lock_duration_secs: Option<u64>,
     committed_at: Option<Instant>,
     concurrent_proving_jobs_start: Option<u32>,
     stark_proving_secs: Option<f64>,
@@ -170,8 +256,16 @@ impl InFlightRequest {
             request_digest: String::new(),
             fulfillment_type: String::new(),
             proof_type: "Unknown".to_string(),
-            estimated_total_proving_time_secs: None,
             total_cycles: None,
+            requestor: None,
+            pricing_outcome: None,
+            pricing_skip_code: None,
+            pricing_skip_reason: None,
+            preflight_cache_hit: false,
+            queue_duration_ms: None,
+            preflight_duration_ms: None,
+            estimated_proving_time_secs: None,
+            lock_duration_secs: None,
             committed_at: None,
             concurrent_proving_jobs_start: None,
             stark_proving_secs: None,
@@ -182,6 +276,58 @@ impl InFlightRequest {
             assessor_compression_proof_secs: None,
             aggregation_completed_at: None,
         }
+    }
+}
+
+struct CommitmentInfo {
+    outcome: Option<CommitmentOutcome>,
+    skip_commit_code: Option<String>,
+    skip_commit_reason: Option<String>,
+    estimated_proving_time_secs: Option<u64>,
+    estimated_proving_time_no_load_secs: Option<u64>,
+    monitor_wait_duration_ms: Option<u64>,
+    peak_prove_khz: Option<u64>,
+    max_capacity: Option<u32>,
+    pending_commitment_count: Option<u32>,
+    concurrent_proving_jobs: Option<u32>,
+    lock_duration_secs: Option<u64>,
+}
+
+fn build_request_evaluated(
+    broker_address: Address,
+    order_id: String,
+    entry: &InFlightRequest,
+    commitment: CommitmentInfo,
+) -> RequestEvaluated {
+    let request_id =
+        entry.request_id.map(|id| format!("0x{id:x}")).unwrap_or_else(|| "unknown".to_string());
+    RequestEvaluated {
+        broker_address,
+        order_id,
+        request_id,
+        request_digest: entry.request_digest.clone(),
+        requestor: entry.requestor.unwrap_or(Address::ZERO),
+        outcome: entry.pricing_outcome.unwrap_or(EvalOutcome::Skipped),
+        skip_code: entry.pricing_skip_code.clone(),
+        skip_reason: entry.pricing_skip_reason.clone(),
+        total_cycles: entry.total_cycles,
+        fulfillment_type: entry.fulfillment_type.clone(),
+        preflight_cache_hit: entry.preflight_cache_hit,
+        queue_duration_ms: entry.queue_duration_ms,
+        preflight_duration_ms: entry.preflight_duration_ms,
+        received_at_timestamp: entry.received_at_timestamp,
+        evaluated_at: Utc::now(),
+        commitment_outcome: commitment.outcome,
+        commitment_skip_code: commitment.skip_commit_code,
+        commitment_skip_reason: commitment.skip_commit_reason,
+        estimated_proving_time_secs: commitment.estimated_proving_time_secs,
+        estimated_proving_time_no_load_secs: commitment.estimated_proving_time_no_load_secs,
+        monitor_wait_duration_ms: commitment.monitor_wait_duration_ms,
+        peak_prove_khz: commitment.peak_prove_khz,
+        max_capacity: commitment.max_capacity,
+        pending_commitment_count: commitment.pending_commitment_count,
+        concurrent_proving_jobs: commitment.concurrent_proving_jobs,
+        lock_duration_secs: commitment.lock_duration_secs,
     }
 }
 
@@ -257,7 +403,7 @@ impl TelemetryService {
 
     async fn process_event(&mut self, event: TelemetryEvent) {
         match event {
-            TelemetryEvent::Evaluated {
+            TelemetryEvent::OrderPricing {
                 order_id,
                 request_id,
                 request_digest,
@@ -266,7 +412,6 @@ impl TelemetryService {
                 skip_code,
                 skip_reason,
                 total_cycles,
-                estimated_total_proving_time_secs,
                 fulfillment_type,
                 proof_type,
                 preflight_cache_hit,
@@ -274,47 +419,152 @@ impl TelemetryService {
                 preflight_duration_ms,
                 received_at_timestamp,
             } => {
-                let entry =
-                    self.in_flight.entry(order_id.clone()).or_insert_with(InFlightRequest::new);
-                entry.request_id = Some(request_id);
-                entry.request_digest = request_digest.clone();
-                entry.fulfillment_type = fulfillment_type.clone();
-                entry.proof_type = proof_type.clone();
-                entry.estimated_total_proving_time_secs = estimated_total_proving_time_secs;
-                entry.total_cycles = total_cycles;
-                entry.received_at_timestamp = received_at_timestamp;
+                if outcome == EvalOutcome::Skipped {
+                    // Skipped at pricing: build RequestEvaluated immediately.
+                    let mut entry = InFlightRequest::new();
+                    entry.request_id = Some(request_id);
+                    entry.request_digest = request_digest;
+                    entry.requestor = Some(requestor);
+                    entry.pricing_outcome = Some(outcome);
+                    entry.pricing_skip_code = skip_code;
+                    entry.pricing_skip_reason = skip_reason;
+                    entry.total_cycles = total_cycles;
+                    entry.fulfillment_type = fulfillment_type;
+                    entry.proof_type = proof_type;
+                    entry.preflight_cache_hit = preflight_cache_hit;
+                    entry.queue_duration_ms = queue_duration_ms;
+                    entry.preflight_duration_ms = preflight_duration_ms;
+                    entry.received_at_timestamp = received_at_timestamp;
 
-                let evaluated = RequestEvaluated {
-                    broker_address: self.broker_address,
-                    order_id,
-                    request_id: format!("0x{request_id:x}"),
-                    request_digest,
-                    requestor,
-                    outcome,
-                    skip_code,
-                    skip_reason,
-                    total_cycles,
-                    estimated_total_proving_time_secs,
-                    fulfillment_type,
-                    preflight_cache_hit,
-                    queue_duration_ms,
-                    preflight_duration_ms,
-                    received_at_timestamp,
-                    evaluated_at: Utc::now(),
+                    let evaluated = build_request_evaluated(
+                        self.broker_address,
+                        order_id.clone(),
+                        &entry,
+                        CommitmentInfo {
+                            outcome: None,
+                            skip_commit_code: None,
+                            skip_commit_reason: None,
+                            estimated_proving_time_secs: None,
+                            estimated_proving_time_no_load_secs: None,
+                            monitor_wait_duration_ms: None,
+                            peak_prove_khz: None,
+                            max_capacity: None,
+                            pending_commitment_count: None,
+                            concurrent_proving_jobs: None,
+                            lock_duration_secs: None,
+                        },
+                    );
+
+                    tracing::debug!(
+                        payload = %serde_json::to_string(&evaluated).unwrap_or_default(),
+                        "(Telemetry) Request Evaluated: {}",
+                        order_id,
+                    );
+
+                    self.eval_buffer.push(evaluated);
+                } else {
+                    // Not skipped: store in in_flight, wait for OrderCommitment.
+                    let entry = self.in_flight.entry(order_id).or_insert_with(InFlightRequest::new);
+                    entry.request_id = Some(request_id);
+                    entry.request_digest = request_digest;
+                    entry.requestor = Some(requestor);
+                    entry.pricing_outcome = Some(outcome);
+                    entry.pricing_skip_code = skip_code;
+                    entry.pricing_skip_reason = skip_reason;
+                    entry.total_cycles = total_cycles;
+                    entry.fulfillment_type = fulfillment_type;
+                    entry.proof_type = proof_type;
+                    entry.preflight_cache_hit = preflight_cache_hit;
+                    entry.queue_duration_ms = queue_duration_ms;
+                    entry.preflight_duration_ms = preflight_duration_ms;
+                    entry.received_at_timestamp = received_at_timestamp;
+                }
+            }
+            TelemetryEvent::OrderCommitment {
+                order_id,
+                committed,
+                committed_at,
+                concurrent_proving_jobs,
+                estimated_proving_time_secs,
+                estimated_proving_time_no_load_secs,
+                monitor_wait_duration_ms,
+                peak_prove_khz,
+                max_capacity,
+                pending_commitment_count,
+                skip_commit_code,
+                skip_commit_reason,
+                lock_submitted_at,
+            } => {
+                let lock_duration_secs = match (lock_submitted_at, committed_at) {
+                    (Some(l), Some(c)) => Some(c.duration_since(l).as_secs()),
+                    _ => None,
                 };
 
-                tracing::debug!(
-                    payload = %serde_json::to_string(&evaluated).unwrap_or_default(),
-                    "(Telemetry) Request Evaluated: {}",
-                    evaluated.order_id,
-                );
+                if committed {
+                    let entry =
+                        self.in_flight.entry(order_id.clone()).or_insert_with(InFlightRequest::new);
+                    entry.committed_at = committed_at;
+                    entry.concurrent_proving_jobs_start = Some(concurrent_proving_jobs);
+                    entry.estimated_proving_time_secs = estimated_proving_time_secs;
+                    entry.lock_duration_secs = lock_duration_secs;
 
-                self.eval_buffer.push(evaluated);
-            }
-            TelemetryEvent::OrderCommitted { order_id, committed_at, concurrent_proving_jobs } => {
-                let entry = self.in_flight.entry(order_id).or_insert_with(InFlightRequest::new);
-                entry.committed_at = Some(committed_at);
-                entry.concurrent_proving_jobs_start = Some(concurrent_proving_jobs);
+                    let evaluated = build_request_evaluated(
+                        self.broker_address,
+                        order_id.clone(),
+                        entry,
+                        CommitmentInfo {
+                            outcome: Some(CommitmentOutcome::Committed),
+                            skip_commit_code: None,
+                            skip_commit_reason: None,
+                            estimated_proving_time_secs,
+                            estimated_proving_time_no_load_secs,
+                            monitor_wait_duration_ms,
+                            peak_prove_khz,
+                            max_capacity,
+                            pending_commitment_count: Some(pending_commitment_count),
+                            concurrent_proving_jobs: Some(concurrent_proving_jobs),
+                            lock_duration_secs,
+                        },
+                    );
+
+                    tracing::debug!(
+                        payload = %serde_json::to_string(&evaluated).unwrap_or_default(),
+                        "(Telemetry) Request Evaluated: {}",
+                        order_id,
+                    );
+
+                    self.eval_buffer.push(evaluated);
+                } else {
+                    let entry =
+                        self.in_flight.remove(&order_id).unwrap_or_else(InFlightRequest::new);
+
+                    let evaluated = build_request_evaluated(
+                        self.broker_address,
+                        order_id.clone(),
+                        &entry,
+                        CommitmentInfo {
+                            outcome: Some(CommitmentOutcome::Dropped),
+                            skip_commit_code,
+                            skip_commit_reason,
+                            estimated_proving_time_secs,
+                            estimated_proving_time_no_load_secs,
+                            monitor_wait_duration_ms,
+                            peak_prove_khz,
+                            max_capacity,
+                            pending_commitment_count: Some(pending_commitment_count),
+                            concurrent_proving_jobs: Some(concurrent_proving_jobs),
+                            lock_duration_secs: None,
+                        },
+                    );
+
+                    tracing::debug!(
+                        payload = %serde_json::to_string(&evaluated).unwrap_or_default(),
+                        "(Telemetry) Request Evaluated: {}",
+                        order_id,
+                    );
+
+                    self.eval_buffer.push(evaluated);
+                }
             }
             TelemetryEvent::ProvingCompleted {
                 order_id,
@@ -376,8 +626,12 @@ impl TelemetryService {
                 _ => None,
             };
 
-        let submission_duration_secs =
-            entry.aggregation_completed_at.map(|a| now.duration_since(a).as_secs());
+        // Path B (Merkle/batch): submission starts after aggregation completes.
+        // Path A (Groth16/non-batch): no aggregation step, so submission starts after proving completes.
+        let submission_duration_secs = entry
+            .aggregation_completed_at
+            .or(entry.proving_completed_at)
+            .map(|t| now.duration_since(t).as_secs());
 
         let actual_total_proving_time_secs = entry.stark_proving_secs.map(|s| s as u64);
 
@@ -401,12 +655,12 @@ impl TelemetryService {
             outcome,
             error_code,
             error_reason,
-            lock_duration_secs: None,
+            lock_duration_secs: entry.lock_duration_secs,
             proving_duration_secs,
             aggregation_duration_secs,
             submission_duration_secs,
             total_duration_secs,
-            estimated_total_proving_time_secs: entry.estimated_total_proving_time_secs,
+            estimated_proving_time_secs: entry.estimated_proving_time_secs,
             actual_total_proving_time_secs,
             concurrent_proving_jobs_start: entry.concurrent_proving_jobs_start,
             concurrent_proving_jobs_end,
@@ -650,22 +904,40 @@ mod tests {
         format!("0x{n:x}-0xdeadbeef-LockAndFulfill")
     }
 
-    #[tokio::test]
-    async fn test_process_evaluated_event() {
-        let mut service = test_service().await;
+    fn make_order_pricing(order_id: &str, outcome: EvalOutcome) -> TelemetryEvent {
+        TelemetryEvent::OrderPricing {
+            order_id: order_id.to_string(),
+            request_id: U256::from(42),
+            request_digest: "0xdeadbeef".to_string(),
+            requestor: Address::ZERO,
+            outcome,
+            skip_code: None,
+            skip_reason: None,
+            total_cycles: Some(1_000_000),
+            fulfillment_type: "LockAndFulfill".to_string(),
+            proof_type: "Merkle".to_string(),
+            preflight_cache_hit: false,
+            queue_duration_ms: Some(500),
+            preflight_duration_ms: Some(1200),
+            received_at_timestamp: 1700000000,
+        }
+    }
 
+    #[tokio::test]
+    async fn test_order_pricing_skipped_creates_eval_immediately() {
+        let mut service = test_service().await;
         let oid = test_order_id(42);
+
         service
-            .process_event(TelemetryEvent::Evaluated {
+            .process_event(TelemetryEvent::OrderPricing {
                 order_id: oid.clone(),
                 request_id: U256::from(42),
                 request_digest: "0xdeadbeef".to_string(),
                 requestor: Address::ZERO,
-                outcome: EvalOutcome::Locked,
-                skip_code: None,
-                skip_reason: None,
-                total_cycles: Some(1_000_000),
-                estimated_total_proving_time_secs: Some(30),
+                outcome: EvalOutcome::Skipped,
+                skip_code: Some("[S-001]".to_string()),
+                skip_reason: Some("Expired".to_string()),
+                total_cycles: None,
                 fulfillment_type: "LockAndFulfill".to_string(),
                 proof_type: "Merkle".to_string(),
                 preflight_cache_hit: false,
@@ -676,8 +948,89 @@ mod tests {
             .await;
 
         assert_eq!(service.eval_buffer.len(), 1);
-        assert_eq!(service.eval_buffer[0].outcome, EvalOutcome::Locked);
+        assert_eq!(service.eval_buffer[0].outcome, EvalOutcome::Skipped);
+        assert!(service.eval_buffer[0].commitment_outcome.is_none());
+        assert!(!service.in_flight.contains_key(&oid));
+    }
+
+    #[tokio::test]
+    async fn test_order_pricing_locked_defers_eval() {
+        let mut service = test_service().await;
+        let oid = test_order_id(42);
+
+        service.process_event(make_order_pricing(&oid, EvalOutcome::Locked)).await;
+
+        // Eval is deferred until OrderCommitment.
+        assert_eq!(service.eval_buffer.len(), 0);
         assert!(service.in_flight.contains_key(&oid));
+    }
+
+    #[tokio::test]
+    async fn test_commitment_committed_creates_eval() {
+        let mut service = test_service().await;
+        let oid = test_order_id(42);
+
+        service.process_event(make_order_pricing(&oid, EvalOutcome::Locked)).await;
+        let lock_start = Instant::now();
+        service
+            .process_event(TelemetryEvent::OrderCommitment {
+                order_id: oid.clone(),
+                committed: true,
+                committed_at: Some(Instant::now()),
+                concurrent_proving_jobs: 3,
+                estimated_proving_time_secs: Some(30),
+                estimated_proving_time_no_load_secs: Some(10),
+                monitor_wait_duration_ms: Some(500),
+                peak_prove_khz: Some(100),
+                max_capacity: Some(4),
+                pending_commitment_count: 2,
+                skip_commit_code: None,
+                skip_commit_reason: None,
+                lock_submitted_at: Some(lock_start),
+            })
+            .await;
+
+        assert_eq!(service.eval_buffer.len(), 1);
+        assert_eq!(service.eval_buffer[0].outcome, EvalOutcome::Locked);
+        assert_eq!(service.eval_buffer[0].commitment_outcome, Some(CommitmentOutcome::Committed));
+        assert_eq!(service.eval_buffer[0].estimated_proving_time_secs, Some(30));
+        assert_eq!(service.eval_buffer[0].concurrent_proving_jobs, Some(3));
+        assert_eq!(service.eval_buffer[0].lock_duration_secs, Some(0));
+        // Still in_flight for completion tracking.
+        assert!(service.in_flight.contains_key(&oid));
+    }
+
+    #[tokio::test]
+    async fn test_commitment_dropped_creates_eval_without_completion() {
+        let mut service = test_service().await;
+        let oid = test_order_id(42);
+
+        service.process_event(make_order_pricing(&oid, EvalOutcome::Locked)).await;
+        service
+            .process_event(TelemetryEvent::OrderCommitment {
+                order_id: oid.clone(),
+                committed: false,
+                committed_at: None,
+                concurrent_proving_jobs: 0,
+                estimated_proving_time_secs: None,
+                estimated_proving_time_no_load_secs: None,
+                monitor_wait_duration_ms: None,
+                peak_prove_khz: None,
+                max_capacity: None,
+                pending_commitment_count: 0,
+                skip_commit_code: Some("[B-OM-001]".to_string()),
+                skip_commit_reason: Some("Lock failed".to_string()),
+                lock_submitted_at: Some(Instant::now()),
+            })
+            .await;
+
+        assert_eq!(service.eval_buffer.len(), 1);
+        assert_eq!(service.eval_buffer[0].commitment_outcome, Some(CommitmentOutcome::Dropped));
+        assert_eq!(service.eval_buffer[0].commitment_skip_code, Some("[B-OM-001]".to_string()));
+        assert_eq!(service.eval_buffer[0].commitment_skip_reason, Some("Lock failed".to_string()));
+        // Removed from in_flight, no completion expected.
+        assert!(!service.in_flight.contains_key(&oid));
+        assert!(service.comp_buffer.is_empty());
     }
 
     #[tokio::test]
@@ -686,7 +1039,7 @@ mod tests {
         let oid = test_order_id(100);
 
         service
-            .process_event(TelemetryEvent::Evaluated {
+            .process_event(TelemetryEvent::OrderPricing {
                 order_id: oid.clone(),
                 request_id: U256::from(100),
                 request_digest: "0xdeadbeef".to_string(),
@@ -695,7 +1048,6 @@ mod tests {
                 skip_code: None,
                 skip_reason: None,
                 total_cycles: Some(5_000_000),
-                estimated_total_proving_time_secs: Some(60),
                 fulfillment_type: "LockAndFulfill".to_string(),
                 proof_type: "Merkle".to_string(),
                 preflight_cache_hit: true,
@@ -705,13 +1057,31 @@ mod tests {
             })
             .await;
 
+        // No eval yet.
+        assert_eq!(service.eval_buffer.len(), 0);
+
+        let lock_start = Instant::now();
         service
-            .process_event(TelemetryEvent::OrderCommitted {
+            .process_event(TelemetryEvent::OrderCommitment {
                 order_id: oid.clone(),
-                committed_at: Instant::now(),
+                committed: true,
+                committed_at: Some(Instant::now()),
                 concurrent_proving_jobs: 3,
+                estimated_proving_time_secs: Some(60),
+                estimated_proving_time_no_load_secs: Some(20),
+                monitor_wait_duration_ms: Some(300),
+                peak_prove_khz: Some(100),
+                max_capacity: Some(4),
+                pending_commitment_count: 1,
+                skip_commit_code: None,
+                skip_commit_reason: None,
+                lock_submitted_at: Some(lock_start),
             })
             .await;
+
+        // Eval created after commitment.
+        assert_eq!(service.eval_buffer.len(), 1);
+        assert_eq!(service.eval_buffer[0].commitment_outcome, Some(CommitmentOutcome::Committed));
 
         service
             .process_event(TelemetryEvent::ProvingCompleted {
@@ -748,12 +1118,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_failed_event_produces_completed() {
+    async fn test_failed_after_commitment_produces_completed() {
         let mut service = test_service().await;
         let oid = test_order_id(200);
 
         service
-            .process_event(TelemetryEvent::Evaluated {
+            .process_event(TelemetryEvent::OrderPricing {
                 order_id: oid.clone(),
                 request_id: U256::from(200),
                 request_digest: "0xdeadbeef".to_string(),
@@ -762,13 +1132,30 @@ mod tests {
                 skip_code: None,
                 skip_reason: None,
                 total_cycles: Some(1_000_000),
-                estimated_total_proving_time_secs: None,
                 fulfillment_type: "LockAndFulfill".to_string(),
                 proof_type: "Groth16".to_string(),
                 preflight_cache_hit: false,
                 queue_duration_ms: None,
                 preflight_duration_ms: None,
                 received_at_timestamp: 1700000000,
+            })
+            .await;
+
+        service
+            .process_event(TelemetryEvent::OrderCommitment {
+                order_id: oid.clone(),
+                committed: true,
+                committed_at: Some(Instant::now()),
+                concurrent_proving_jobs: 1,
+                estimated_proving_time_secs: None,
+                estimated_proving_time_no_load_secs: None,
+                monitor_wait_duration_ms: None,
+                peak_prove_khz: None,
+                max_capacity: None,
+                pending_commitment_count: 0,
+                skip_commit_code: None,
+                skip_commit_reason: None,
+                lock_submitted_at: None,
             })
             .await;
 

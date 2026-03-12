@@ -1425,8 +1425,8 @@ mod tests {
         use super::*;
         use alloy::signers::local::PrivateKeySigner;
         use boundless_market::telemetry::{
-            BrokerHeartbeat, CompletionOutcome, EvalOutcome, RequestCompleted, RequestEvaluated,
-            RequestHeartbeat, HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH,
+            BrokerHeartbeat, CommitmentOutcome, CompletionOutcome, EvalOutcome, RequestCompleted,
+            RequestEvaluated, RequestHeartbeat, HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH,
         };
 
         async fn sign_payload(body: &[u8], signer: &impl alloy::signers::Signer) -> String {
@@ -1464,13 +1464,23 @@ mod tests {
                     skip_code: None,
                     skip_reason: None,
                     total_cycles: Some(1_000_000),
-                    estimated_total_proving_time_secs: Some(30),
                     fulfillment_type: "LockAndFulfill".to_string(),
                     preflight_cache_hit: false,
                     queue_duration_ms: Some(100),
                     preflight_duration_ms: Some(500),
                     received_at_timestamp: 0,
                     evaluated_at: Utc::now(),
+                    commitment_outcome: Some(CommitmentOutcome::Committed),
+                    commitment_skip_code: None,
+                    commitment_skip_reason: None,
+                    estimated_proving_time_secs: Some(30),
+                    estimated_proving_time_no_load_secs: Some(10),
+                    monitor_wait_duration_ms: Some(200),
+                    peak_prove_khz: Some(100),
+                    max_capacity: Some(4),
+                    pending_commitment_count: Some(1),
+                    concurrent_proving_jobs: Some(1),
+                    lock_duration_secs: Some(2),
                 }],
                 completed: vec![RequestCompleted {
                     broker_address,
@@ -1486,7 +1496,7 @@ mod tests {
                     aggregation_duration_secs: Some(10),
                     submission_duration_secs: Some(3),
                     total_duration_secs: 45,
-                    estimated_total_proving_time_secs: Some(30),
+                    estimated_proving_time_secs: Some(30),
                     actual_total_proving_time_secs: Some(25),
                     concurrent_proving_jobs_start: Some(1),
                     concurrent_proving_jobs_end: Some(1),
