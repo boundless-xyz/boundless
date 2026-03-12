@@ -30,7 +30,7 @@ use boundless_market::{
 };
 use moka::future::Cache;
 
-const BALANCE_CACHE_TTL_SECS: u64 = 6000;
+const BALANCE_CACHE_TTL_SECS: u64 = 1800;
 const BALANCE_CACHE_MAX_ENTRIES: u64 = 10_000;
 
 /// Cached collateral balance keyed by address.
@@ -272,7 +272,7 @@ pub(crate) async fn submit_heartbeat(
         .await
         .map_err(|e| e.into_response())?;
 
-    let partition_key = format!("{:?}", heartbeat.broker_address);
+    let partition_key = format!("{}", heartbeat.broker_address);
     state.telemetry.forward_heartbeat(&partition_key, &body).await.map_err(|e| {
         tracing::error!("Failed to forward heartbeat: {e}");
         (StatusCode::SERVICE_UNAVAILABLE, "Failed to forward heartbeat".to_string()).into_response()
@@ -307,7 +307,7 @@ pub(crate) async fn submit_request_heartbeat(
         .await
         .map_err(|e| e.into_response())?;
 
-    let partition_key = format!("{:?}", heartbeat.broker_address);
+    let partition_key = format!("{}", heartbeat.broker_address);
 
     let eval_count = heartbeat.evaluated.len();
     let comp_count = heartbeat.completed.len();
