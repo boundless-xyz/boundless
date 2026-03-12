@@ -865,7 +865,9 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function depositCollateralWithPermitTo(address to, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    function depositCollateralWithPermitTo(address to, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+    {
         try ERC20(COLLATERAL_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
         _depositCollateral(msg.sender, to, value);
     }

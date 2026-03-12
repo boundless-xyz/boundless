@@ -236,7 +236,7 @@ interface IBoundlessMarket {
     /// @notice Deposit collateral into the market to pay for lockin collateral.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
     function depositCollateral(uint256 value) external;
-    
+
     /// @notice Deposit collateral into the market for another account to pay for lockin collateral.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
     function depositCollateralTo(address to, uint256 value) external;
@@ -247,7 +247,8 @@ interface IBoundlessMarket {
 
     /// @notice Permit and deposit collateral into the market for another account to pay for lockin collateral.
     /// @dev This method requires a valid EIP-712 signature from the account owner.
-    function depositCollateralWithPermitTo(address to, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    function depositCollateralWithPermitTo(address to, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external;
 
     /// @notice Withdraw collateral from the market.
     function withdrawCollateral(uint256 value) external;
