@@ -17,14 +17,14 @@ use workflow_common::{ProvePairReq, metrics::helpers};
 fn both_with_context<L, R, E>(
     left: Result<L, E>,
     right: Result<R, E>,
-    left_ctx: impl Into<anyhow::Error>,
-    right_ctx: impl Into<anyhow::Error>,
+    left_ctx: impl AsRef<str>,
+    right_ctx: impl AsRef<str>,
 ) -> Result<(L, R)>
 where
     E: Into<anyhow::Error>,
 {
-    let left = left.context(left_ctx)?;
-    let right = right.context(right_ctx)?;
+    let left = left.map_err(Into::into).context(left_ctx.as_ref().to_string())?;
+    let right = right.map_err(Into::into).context(right_ctx.as_ref().to_string())?;
     Ok((left, right))
 }
 
