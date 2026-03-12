@@ -246,7 +246,7 @@ Run `./scripts/trigger-redrive.sh --help` for all options.
 
 # Accessing the Database
 
-The Aurora database runs in private subnets within the VPC with no public IP or internet-facing ingress. Only resources inside the VPC (ECS tasks, Lambdas, the bastion) can reach it. 
+The Aurora database runs in private subnets within the VPC with no public IP or internet-facing ingress. Only resources inside the VPC (ECS tasks, Lambdas, the bastion) can reach it.
 
 To connect from your local machine, use the AWS CLI to start a session with our dedicated bastion instance in the VPC. Then port-forward so you can interact at localhost.
 
@@ -295,9 +295,9 @@ psql "postgres://<user>:<password>@localhost:5432/indexerv19?sslmode=require"
 
 ## Database users
 
-| User | Access | Password source | Use case |
-| --- | --- | --- | --- |
-| `indexer` | Full read/write (master) | `RDS_PASSWORD` Pulumi config / env var | Migrations, schema changes, manual writes |
-| `readonly` | SELECT only | Set when creating the role | Day-to-day querying, dashboards |
+| User       | Access                   | Password source                        | Use case                                  |
+| ---------- | ------------------------ | -------------------------------------- | ----------------------------------------- |
+| `indexer`  | Full read/write (master) | `RDS_PASSWORD` Pulumi config / env var | Migrations, schema changes, manual writes |
+| `readonly` | SELECT only              | Set when creating the role             | Day-to-day querying, dashboards           |
 
 The `readonly` user must be created manually. Connect as `indexer` to the writer endpoint and run `crates/indexer/migrations-manual/create_readonly_user.sql` (replace the placeholder password first).
