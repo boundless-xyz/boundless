@@ -3057,14 +3057,13 @@ async fn list_requestors_impl(
     // Get addresses for batch queries
     let addresses: Vec<Address> = entries.iter().map(|e| e.requestor_address).collect();
 
-    // Fetch median lock prices, p50 fixed/variable costs, and last activity times in batch
-    let median_prices =
-        state.market_db.get_requestor_median_lock_prices(&addresses, start_ts, end_ts).await?;
-    let p50_fixed_costs =
-        state.market_db.get_requestor_p50_fixed_costs(&addresses, start_ts, end_ts).await?;
-    let p50_variable_costs =
-        state.market_db.get_requestor_p50_variable_costs(&addresses, start_ts, end_ts).await?;
-    let last_activities = state.market_db.get_requestor_last_activity_times(&addresses).await?;
+    // Fetch median lock prices, p50 fixed/variable costs, and last activity times concurrently
+    let (median_prices, p50_fixed_costs, p50_variable_costs, last_activities) = tokio::try_join!(
+        state.market_db.get_requestor_median_lock_prices(&addresses, start_ts, end_ts),
+        state.market_db.get_requestor_p50_fixed_costs(&addresses, start_ts, end_ts),
+        state.market_db.get_requestor_p50_variable_costs(&addresses, start_ts, end_ts),
+        state.market_db.get_requestor_last_activity_times(&addresses),
+    )?;
 
     // Build response entries
     let data: Vec<RequestorLeaderboardEntry> = entries
@@ -3261,13 +3260,13 @@ async fn list_provers_impl(
     // Get addresses for batch queries
     let addresses: Vec<Address> = entries.iter().map(|e| e.prover_address).collect();
 
-    // Fetch median lock prices, last activity times, and collateral balances in batch
-    let median_prices =
-        state.market_db.get_prover_median_lock_prices(&addresses, start_ts, end_ts).await?;
-    let last_activities = state.market_db.get_prover_last_activity_times(&addresses).await?;
-    let collateral_balances = state.market_db.get_prover_collateral_balances(&addresses).await?;
-    let locked_collateral =
-        state.market_db.get_prover_currently_locked_collateral(&addresses).await?;
+    // Fetch median lock prices, last activity times, and collateral balances concurrently
+    let (median_prices, last_activities, collateral_balances, locked_collateral) = tokio::try_join!(
+        state.market_db.get_prover_median_lock_prices(&addresses, start_ts, end_ts),
+        state.market_db.get_prover_last_activity_times(&addresses),
+        state.market_db.get_prover_collateral_balances(&addresses),
+        state.market_db.get_prover_currently_locked_collateral(&addresses),
+    )?;
 
     // Build response entries
     let data: Vec<ProverLeaderboardEntry> = entries

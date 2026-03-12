@@ -1950,7 +1950,22 @@ async fn get_requestor_leaderboard_impl(
             .await?
     };
 
-    let mut results = Vec::new();
+    // First pass: parse all rows and collect requestor addresses
+    struct ParsedRow {
+        requestor_address: Address,
+        orders_requested: i64,
+        orders_locked: i64,
+        fulfilled: i64,
+        expired: i64,
+        not_locked_and_expired: i64,
+        cycles_requested: U256,
+        acceptance_rate: f32,
+        locked_order_fulfillment_rate: f32,
+    }
+
+    let mut parsed_rows = Vec::new();
+    let mut addresses = Vec::new();
+
     for row in rows {
         let requestor_address_str: String = row.try_get("requestor_address")?;
         let requestor_address = Address::from_str(&requestor_address_str)
@@ -1977,39 +1992,92 @@ async fn get_requestor_leaderboard_impl(
             0.0
         };
 
-        let adjusted_fulfilled_query =
-            "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+        addresses.push(requestor_address);
+        parsed_rows.push(ParsedRow {
+            requestor_address,
+            orders_requested,
+            orders_locked,
+            fulfilled,
+            expired,
+            not_locked_and_expired,
+            cycles_requested,
+            acceptance_rate,
+            locked_order_fulfillment_rate,
+        });
+    }
+
+    // Batch fetch adjusted fulfilled and expired counts for all requestors at once
+    // instead of running 2 queries per requestor (N+1 problem)
+    let (adjusted_fulfilled_map, adjusted_expired_map) = if !addresses.is_empty() {
+        let addr_placeholders: Vec<String> =
+            (3..=addresses.len() + 2).map(|i| format!("${}", i)).collect();
+        let addr_placeholders_str = addr_placeholders.join(", ");
+
+        let batch_fulfilled_query = format!(
+            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.fulfilled_at >= $1
             AND rs.fulfilled_at < $2
             AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
-        let adjusted_fulfilled_row = sqlx::query(adjusted_fulfilled_query)
-            .bind(start_ts as i64)
-            .bind(end_ts as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_optional(pool)
-            .await?;
-        let adjusted_fulfilled: i64 =
-            adjusted_fulfilled_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+            AND rs.client_address IN ({})
+            GROUP BY rs.client_address",
+            addr_placeholders_str
+        );
 
-        let adjusted_expired_query = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+        let batch_expired_query = format!(
+            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.expires_at >= $1
             AND rs.expires_at < $2
             AND rs.request_status = 'expired'
             AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
-        let adjusted_expired_row = sqlx::query(adjusted_expired_query)
-            .bind(start_ts as i64)
-            .bind(end_ts as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_optional(pool)
-            .await?;
-        let adjusted_expired: i64 =
-            adjusted_expired_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+            AND rs.client_address IN ({})
+            GROUP BY rs.client_address",
+            addr_placeholders_str
+        );
+
+        let mut fulfilled_query =
+            sqlx::query(&batch_fulfilled_query).bind(start_ts as i64).bind(end_ts as i64);
+        let mut expired_query =
+            sqlx::query(&batch_expired_query).bind(start_ts as i64).bind(end_ts as i64);
+        for addr in &addresses {
+            fulfilled_query = fulfilled_query.bind(format!("{:x}", addr));
+            expired_query = expired_query.bind(format!("{:x}", addr));
+        }
+
+        let (fulfilled_rows, expired_rows) =
+            tokio::try_join!(fulfilled_query.fetch_all(pool), expired_query.fetch_all(pool),)?;
+
+        let mut fulfilled_map = std::collections::HashMap::new();
+        for row in fulfilled_rows {
+            let addr_str: String = row.try_get("client_address")?;
+            let count: i64 = row.try_get("count")?;
+            if let Ok(addr) = Address::from_str(&addr_str) {
+                fulfilled_map.insert(addr, count);
+            }
+        }
+
+        let mut expired_map = std::collections::HashMap::new();
+        for row in expired_rows {
+            let addr_str: String = row.try_get("client_address")?;
+            let count: i64 = row.try_get("count")?;
+            if let Ok(addr) = Address::from_str(&addr_str) {
+                expired_map.insert(addr, count);
+            }
+        }
+
+        (fulfilled_map, expired_map)
+    } else {
+        (std::collections::HashMap::new(), std::collections::HashMap::new())
+    };
+
+    // Build results using the batched adjusted counts
+    let mut results = Vec::new();
+    for parsed in parsed_rows {
+        let adjusted_fulfilled = adjusted_fulfilled_map.get(&parsed.requestor_address).copied().unwrap_or(0);
+        let adjusted_expired = adjusted_expired_map.get(&parsed.requestor_address).copied().unwrap_or(0);
 
         let total_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
         let locked_orders_fulfillment_rate_adjusted = if total_outcomes_adjusted > 0 {
@@ -2019,16 +2087,16 @@ async fn get_requestor_leaderboard_impl(
         };
 
         results.push(RequestorLeaderboardEntry {
-            requestor_address,
-            orders_requested: orders_requested as u64,
-            orders_locked: orders_locked as u64,
-            orders_fulfilled: fulfilled as u64,
-            orders_expired: expired as u64,
-            orders_not_locked_and_expired: not_locked_and_expired as u64,
-            cycles_requested,
+            requestor_address: parsed.requestor_address,
+            orders_requested: parsed.orders_requested as u64,
+            orders_locked: parsed.orders_locked as u64,
+            orders_fulfilled: parsed.fulfilled as u64,
+            orders_expired: parsed.expired as u64,
+            orders_not_locked_and_expired: parsed.not_locked_and_expired as u64,
+            cycles_requested: parsed.cycles_requested,
             median_lock_price_per_cycle: None,
-            acceptance_rate,
-            locked_order_fulfillment_rate,
+            acceptance_rate: parsed.acceptance_rate,
+            locked_order_fulfillment_rate: parsed.locked_order_fulfillment_rate,
             locked_orders_fulfillment_rate_adjusted,
             last_activity_time: 0,
         });
