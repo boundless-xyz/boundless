@@ -22,3 +22,5 @@ config:
     secure: v1:1JqBWLXKmXbk8Xls:JHMf0dgA5XcrIKHwTmk7chQ+h1DPMVyZs9EBrg8r5zqtOBTu2YMnTfnNHRqL2YdKjwWl7NDV+kwb7xgrDcQIqQMT2/TcPvZ1GqvS
   order-stream:PREMIUM_API_KEY:
     secure: v1:Ry1iF4pmMQkbFfIG:SG83gNlv3XenGU6NqEFk6RWrcL37o48WEnJU4xS/
+  order-stream:CI_CACHE_SECRET:
+    secure: v1:ekNgMqGevL2CzPjJ:o00rdHyF3ONQ24QYbj4hg0h9XxSs9aonHPzqJF73uz6878r8zcAfJ1lpzAH3VLQXs+yqMb3TWtQqAcJwy1cPdxg6yMdVuYFK3bBWaejtwMa7+jgKE6F+9rmkPNo+yO3etkmPqVfixcC+zuLmL3VzuTNRmrK7LoJJ7MnO0TgwVg==

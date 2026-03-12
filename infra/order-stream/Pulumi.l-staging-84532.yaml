@@ -20,3 +20,5 @@ config:
     secure: v1:ItT+FkGTSiyiHu6K:mI5jLzP9d/IzIOv0qdjZ6gRdRuFyQUBk7CR1uHt0P9BaeZHX2GtiKYl0uLe3MrqMZ7bYMO5vQjHOoCacnezXvI8Rr/dNCRxnnDlyNxAE3oHFmqBewRZTt0eM/8rm2wNJ5IMZu8eURGRguUAtjg==
   order-stream:PREMIUM_API_KEY:
     secure: v1:UqnuM0FhpigMqe4P:rFD+VEXvHlBq+KfFH8eNUsk/g1IDF+Ug9tXIvG7Q
+  order-stream:CI_CACHE_SECRET:
+    secure: v1:4rruox4IUTQLcsIE:MsuhBs8zDa0G5MxX/hsolih13zGzBAvGJwL6vlx2XSYcUboVJ/Avgpfr/bL0Lin+kqO+Eq+4Km6GSK6rY5MjAD5G2EeZlvCl2mEEem4Z2OcvojaACtkjBndJ08tENHWT+VP7tkdndwf8R2ehlm2G4Zf0wl/L05A1wuZ/Oeq3yA==
