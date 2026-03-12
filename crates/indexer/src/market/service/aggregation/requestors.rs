@@ -740,6 +740,7 @@ where
             locked_and_expired_collaterals,
             total_program_cycles,
             total_cycles,
+            latency_data,
         ) = tokio::join!(
             self.db.get_period_requestor_lock_pricing_data(
                 period_start,
@@ -762,6 +763,7 @@ where
                 requestor_address
             ),
             self.db.get_period_requestor_total_cycles(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_latency_data(period_start, period_end, requestor_address),
         );
 
         let total_fulfilled = total_fulfilled?;
@@ -783,6 +785,29 @@ where
         let locked_and_expired_collaterals = locked_and_expired_collaterals?;
         let total_program_cycles = total_program_cycles?;
         let total_cycles = total_cycles?;
+        let (time_to_lock_values, time_to_fulfill_values) = latency_data?;
+
+        // Compute p50/p90 latency percentiles
+        let (p50_time_to_lock_seconds, p90_time_to_lock_seconds) =
+            if !time_to_lock_values.is_empty() {
+                let mut values: Vec<alloy::primitives::U256> =
+                    time_to_lock_values.iter().map(|&v| alloy::primitives::U256::from(v)).collect();
+                let percentiles = compute_percentiles(&mut values, &[50, 90]);
+                (Some(percentiles[0].to::<u64>() as f64), Some(percentiles[1].to::<u64>() as f64))
+            } else {
+                (None, None)
+            };
+
+        let (p50_time_to_fulfill_seconds, p90_time_to_fulfill_seconds) = if !time_to_fulfill_values
+            .is_empty()
+        {
+            let mut values: Vec<alloy::primitives::U256> =
+                time_to_fulfill_values.iter().map(|&v| alloy::primitives::U256::from(v)).collect();
+            let percentiles = compute_percentiles(&mut values, &[50, 90]);
+            (Some(percentiles[0].to::<u64>() as f64), Some(percentiles[1].to::<u64>() as f64))
+        } else {
+            (None, None)
+        };
 
         let locked_orders_fulfillment_rate = {
             let total_locked_outcomes = total_locked_and_fulfilled + total_locked_and_expired;
@@ -936,6 +961,10 @@ where
             best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
             best_effective_prove_mhz_request_id,
+            p50_time_to_lock_seconds,
+            p90_time_to_lock_seconds,
+            p50_time_to_fulfill_seconds,
+            p90_time_to_fulfill_seconds,
         })
     }
 
