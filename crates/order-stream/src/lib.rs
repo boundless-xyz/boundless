@@ -1617,6 +1617,132 @@ mod tests {
         }
 
         #[sqlx::test]
+        async fn test_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "config": {"test": true},
+                "committed_orders_count": 0,
+                "pending_preflight_count": 0,
+                "version": "test",
+                "uptime_secs": 0,
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z",
+                "unknown_field": "should_not_cause_400",
+                "another_new_field": 42
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Payload with unknown fields should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [{
+                    "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                    "order_id": "0x01-0x00-LockAndFulfill",
+                    "request_id": "0x01",
+                    "request_digest": "0x00",
+                    "outcome": "Locked",
+                    "fulfillment_type": "LockAndFulfill",
+                    "brand_new_field": "hello",
+                    "future_metric": 999
+                }],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request heartbeat with unknown fields should return 202"
+            );
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_drops_oversized_records(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let padding = "x".repeat(3_000);
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x01-0x00-LockAndFulfill",
+                        "oversized_field": padding
+                    },
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x02-0x00-LockAndFulfill"
+                    }
+                ],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request with oversized records should still succeed (records silently dropped)"
+            );
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
         async fn test_request_heartbeat_empty_lists(pool: PgPool) {
             let (client, _app_state, ctx, _anvil, server_handle, addr) =
                 setup_server_and_client(pool).await;

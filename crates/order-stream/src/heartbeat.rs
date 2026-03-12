@@ -24,14 +24,17 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use boundless_market::{
-    contracts::IBoundlessMarket,
-    telemetry::{BrokerHeartbeat, RequestHeartbeat},
-};
+use boundless_market::contracts::IBoundlessMarket;
 use moka::future::Cache;
 
 const BALANCE_CACHE_TTL_SECS: u64 = 6000;
 const BALANCE_CACHE_MAX_ENTRIES: u64 = 10_000;
+
+// Per-record size limits (2x the largest reasonable payload).
+// Real-world eval/completion records are ~1 KiB each.
+const MAX_HEARTBEAT_BYTES: usize = 8 * 1024;
+const MAX_EVALUATION_RECORD_BYTES: usize = 2 * 1024;
+const MAX_COMPLETION_RECORD_BYTES: usize = 2 * 1024;
 
 /// Cached collateral balance keyed by address.
 pub(crate) type BalanceCache = Cache<Address, U256>;
@@ -256,36 +259,52 @@ async fn verify_heartbeat_auth(
     Ok(())
 }
 
+/// Extracts a string field from a JSON Value, returning an error response if missing.
+#[allow(clippy::result_large_err)]
+fn extract_address(value: &serde_json::Value, field: &str) -> Result<Address, Response> {
+    let s = value.get(field).and_then(|v| v.as_str()).ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, format!("Missing or invalid field: {field}")).into_response()
+    })?;
+    s.parse::<Address>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, format!("Invalid address in field: {field}")).into_response()
+    })
+}
+
 /// POST /api/v2/heartbeats
 ///
 /// Accepts a signed broker identity heartbeat and forwards it to the telemetry backend.
+/// Uses lenient JSON parsing: only broker_address is extracted for auth; the raw payload
+/// is forwarded as-is.
 pub(crate) async fn submit_heartbeat(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, Response> {
-    let heartbeat: BrokerHeartbeat = serde_json::from_slice(&body).map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("Invalid heartbeat payload: {e}")).into_response()
+    if body.len() > MAX_HEARTBEAT_BYTES {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Heartbeat payload too large: {} > {MAX_HEARTBEAT_BYTES}", body.len()),
+        )
+            .into_response());
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+        (StatusCode::BAD_REQUEST, format!("Invalid JSON payload: {e}")).into_response()
     })?;
 
-    verify_heartbeat_auth(&state, &headers, &body, heartbeat.broker_address)
+    let broker_address = extract_address(&value, "broker_address")?;
+
+    verify_heartbeat_auth(&state, &headers, &body, broker_address)
         .await
         .map_err(|e| e.into_response())?;
 
-    let partition_key = format!("{:?}", heartbeat.broker_address);
+    let partition_key = format!("{broker_address:?}");
     state.telemetry.forward_heartbeat(&partition_key, &body).await.map_err(|e| {
         tracing::error!("Failed to forward heartbeat: {e}");
         (StatusCode::SERVICE_UNAVAILABLE, "Failed to forward heartbeat".to_string()).into_response()
     })?;
 
-    tracing::info!(
-        broker = %heartbeat.broker_address,
-        version = %heartbeat.version,
-        uptime_secs = heartbeat.uptime_secs,
-        committed_orders = heartbeat.committed_orders_count,
-        pending_preflight = heartbeat.pending_preflight_count,
-        "Heartbeat accepted"
-    );
+    tracing::info!(broker = %broker_address, "Heartbeat accepted");
 
     Ok(StatusCode::ACCEPTED)
 }
@@ -294,29 +313,68 @@ pub(crate) async fn submit_heartbeat(
 ///
 /// Accepts a signed request evaluation/completion heartbeat and forwards records to the
 /// telemetry backend. Evaluations and completions are sent to separate Kinesis streams.
+/// Uses lenient JSON parsing: only broker_address is extracted for auth; each element in
+/// the evaluated/completed arrays is serialized individually and forwarded as-is.
 pub(crate) async fn submit_request_heartbeat(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, Response> {
-    let heartbeat: RequestHeartbeat = serde_json::from_slice(&body).map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("Invalid request heartbeat payload: {e}")).into_response()
+    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+        (StatusCode::BAD_REQUEST, format!("Invalid JSON payload: {e}")).into_response()
     })?;
 
-    verify_heartbeat_auth(&state, &headers, &body, heartbeat.broker_address)
+    let broker_address = extract_address(&value, "broker_address")?;
+
+    verify_heartbeat_auth(&state, &headers, &body, broker_address)
         .await
         .map_err(|e| e.into_response())?;
 
-    let partition_key = format!("{:?}", heartbeat.broker_address);
+    let partition_key = format!("{broker_address:?}");
 
-    let eval_count = heartbeat.evaluated.len();
-    let comp_count = heartbeat.completed.len();
+    let evaluated = value.get("evaluated").and_then(|v| v.as_array());
+    let completed = value.get("completed").and_then(|v| v.as_array());
 
-    let eval_records: Vec<Vec<u8>> =
-        heartbeat.evaluated.iter().filter_map(|eval| serde_json::to_vec(eval).ok()).collect();
+    let eval_count = evaluated.map_or(0, |a| a.len());
+    let comp_count = completed.map_or(0, |a| a.len());
 
-    let comp_records: Vec<Vec<u8>> =
-        heartbeat.completed.iter().filter_map(|comp| serde_json::to_vec(comp).ok()).collect();
+    let mut oversized_evals = 0usize;
+    let mut oversized_comps = 0usize;
+
+    let eval_records: Vec<Vec<u8>> = evaluated
+        .into_iter()
+        .flatten()
+        .filter_map(|elem| {
+            let bytes = serde_json::to_vec(elem).ok()?;
+            if bytes.len() > MAX_EVALUATION_RECORD_BYTES {
+                oversized_evals += 1;
+                return None;
+            }
+            Some(bytes)
+        })
+        .collect();
+
+    let comp_records: Vec<Vec<u8>> = completed
+        .into_iter()
+        .flatten()
+        .filter_map(|elem| {
+            let bytes = serde_json::to_vec(elem).ok()?;
+            if bytes.len() > MAX_COMPLETION_RECORD_BYTES {
+                oversized_comps += 1;
+                return None;
+            }
+            Some(bytes)
+        })
+        .collect();
+
+    if oversized_evals > 0 || oversized_comps > 0 {
+        tracing::warn!(
+            broker = %broker_address,
+            oversized_evals,
+            oversized_comps,
+            "Dropped oversized telemetry records"
+        );
+    }
 
     state.telemetry.forward_evaluation_records(&partition_key, eval_records).await.map_err(
         |e| {
@@ -334,11 +392,12 @@ pub(crate) async fn submit_request_heartbeat(
         },
     )?;
 
+    let events_dropped = value.get("events_dropped").and_then(|v| v.as_u64()).unwrap_or(0);
     tracing::info!(
-        broker = %heartbeat.broker_address,
+        broker = %broker_address,
         evaluations = eval_count,
         completions = comp_count,
-        events_dropped = heartbeat.events_dropped,
+        events_dropped,
         "Request heartbeat accepted"
     );
 
