@@ -114,6 +114,9 @@ struct MainArgs {
     /// with a step of 1_000_000.
     #[clap(long, env = "CYCLE_COUNT")]
     input: Option<u64>,
+    /// The minimum cycle count (in mcycles) for random input generation.
+    #[clap(long, env = "CYCLE_COUNT_MIN", conflicts_with_all = ["input", "program"])]
+    input_min_mcycles: Option<u64>,
     /// The maximum cycle count to drive the loop.
     #[clap(long, env = "CYCLE_COUNT_MAX", conflicts_with_all = ["input", "program"])]
     input_max_mcycles: Option<u64>,
@@ -283,9 +286,9 @@ async fn handle_loop_request(
     let input = match args.input {
         Some(input) => input,
         None => {
-            // Generate a random input.
+            let min = args.input_min_mcycles.unwrap_or(10);
             let max = args.input_max_mcycles.unwrap_or(1000);
-            let input: u64 = rand::rng().random_range(10..=max) << 20;
+            let input: u64 = rand::rng().random_range(min..=max) << 20;
             tracing::debug!("Generated random cycle count: {}", input);
             input
         }
@@ -546,6 +549,7 @@ mod tests {
             exec_rate_khz: 5000,
             program: Some(LOOP_PATH.parse().unwrap()),
             input: None,
+            input_min_mcycles: None,
             input_max_mcycles: None,
             warn_balance_below: None,
             error_balance_below: None,

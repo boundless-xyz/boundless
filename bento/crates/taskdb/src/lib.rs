@@ -1049,8 +1049,10 @@ mod tests {
         let job_id_1 =
             create_job(&pool, &stream_id_1, &JsonValue::default(), 0, 100, user_id).await.unwrap();
 
+        refresh_stream_counters(&pool).await.unwrap();
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_1);
+        refresh_stream_counters(&pool).await.unwrap();
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_0);
 
@@ -1081,6 +1083,7 @@ mod tests {
         .unwrap();
         // starts 'running' a task from each to get the system out of round robin stream selection
         // and into best effort.
+        refresh_stream_counters(&pool).await.unwrap();
         let _task = request_work(&pool, worker_type).await.unwrap().unwrap();
 
         let stream_id_1 = create_stream(&pool, worker_type, 0, 1.1, user_id).await.unwrap();
@@ -1098,11 +1101,14 @@ mod tests {
         )
         .await
         .unwrap();
+        refresh_stream_counters(&pool).await.unwrap();
         let _task = request_work(&pool, worker_type).await.unwrap().unwrap();
 
         // validate that the higher be_mult stream is emitted first.
+        refresh_stream_counters(&pool).await.unwrap();
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_1);
+        refresh_stream_counters(&pool).await.unwrap();
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_0);
 
@@ -1149,6 +1155,7 @@ mod tests {
         // - stream_2, task
         // - HIT PEAK of stream2 reservations
         // - stream_0, init
+        refresh_stream_counters(&pool).await.unwrap();
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_2);
         assert_eq!(task.task_id, INIT_TASK);
@@ -1158,6 +1165,7 @@ mod tests {
                 .unwrap()
         );
 
+        refresh_stream_counters(&pool).await.unwrap();
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_2);
         assert_eq!(task.task_id, task_name);
@@ -1167,6 +1175,7 @@ mod tests {
                 .unwrap()
         );
 
+        refresh_stream_counters(&pool).await.unwrap();
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_0);
         assert_eq!(task.task_id, INIT_TASK);
@@ -1176,6 +1185,7 @@ mod tests {
                 .unwrap()
         );
 
+        refresh_stream_counters(&pool).await.unwrap();
         assert!(request_work(&pool, worker_type).await.unwrap().is_none());
 
         Ok(())
@@ -1447,8 +1457,9 @@ async fn delete_job_test(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-/// Run AUX maintenance to recalculate stream priorities and counters
-pub async fn maint_streams(pool: &PgPool) -> Result<(), TaskDbErr> {
-    sqlx::query("SELECT maint_streams()").execute(pool).await?;
+/// Bulk refresh stream ready/running counters from actual task counts.
+/// Called periodically by aux workers (e.g. every 1–2s) instead of per-row triggers.
+pub async fn refresh_stream_counters(pool: &PgPool) -> Result<(), TaskDbErr> {
+    sqlx::query("SELECT refresh_stream_counters()").execute(pool).await?;
     Ok(())
 }

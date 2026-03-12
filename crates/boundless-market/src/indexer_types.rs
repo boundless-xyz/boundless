@@ -350,6 +350,10 @@ pub struct MarketAggregateEntry {
     pub total_locked_and_expired_collateral: String,
     /// Total collateral from locked requests that expired (formatted for display).
     pub total_locked_and_expired_collateral_formatted: String,
+    /// 5th percentile lock price per cycle (as string, in wei).
+    pub p5_lock_price_per_cycle: String,
+    /// 5th percentile lock price per cycle (formatted for display).
+    pub p5_lock_price_per_cycle_formatted: String,
     /// 10th percentile lock price per cycle (as string, in wei).
     pub p10_lock_price_per_cycle: String,
     /// 10th percentile lock price per cycle (formatted for display).
@@ -436,6 +440,15 @@ pub struct MarketAggregatesResponse {
     pub next_cursor: Option<String>,
     /// Whether there are more results available.
     pub has_more: bool,
+    /// Total ZKC currently deposited across all provers (current on-chain state, not cumulative).
+    #[serde(default)]
+    pub total_collateral_deposited: String,
+    /// Total ZKC currently deposited (formatted for display).
+    #[serde(default)]
+    pub total_collateral_deposited_formatted: String,
+    /// Number of provers with deposited collateral >= eligibility threshold.
+    #[serde(default)]
+    pub eligible_prover_count: u64,
 }
 
 /// A single entry in market cumulative data.
@@ -615,6 +628,18 @@ pub struct RequestorAggregateEntry {
     /// Total variable cost (formatted for display)
     #[serde(default)]
     pub total_variable_cost_formatted: String,
+    /// Median (p50) time-to-lock in seconds (locked_at - created_at)
+    #[serde(default)]
+    pub p50_time_to_lock_seconds: Option<f64>,
+    /// 90th percentile time-to-lock in seconds (locked_at - created_at)
+    #[serde(default)]
+    pub p90_time_to_lock_seconds: Option<f64>,
+    /// Median (p50) time-to-fulfill in seconds (fulfilled_at - locked_at)
+    #[serde(default)]
+    pub p50_time_to_fulfill_seconds: Option<f64>,
+    /// 90th percentile time-to-fulfill in seconds (fulfilled_at - locked_at)
+    #[serde(default)]
+    pub p90_time_to_fulfill_seconds: Option<f64>,
     /// Epoch number at the start of this period (None if timestamp is before epoch 0)
     #[serde(default)]
     pub epoch_number_start: Option<i64>,
@@ -925,6 +950,18 @@ pub struct ProverLeaderboardEntry {
     pub best_effective_prove_mhz: f64,
     /// Locked order fulfillment rate as percentage (0-100)
     pub locked_order_fulfillment_rate: f32,
+    /// Current ZKC deposited by this prover (as string, computed from deposit/withdrawal events)
+    #[serde(default)]
+    pub collateral_deposited_zkc: String,
+    /// Current ZKC deposited (formatted for display)
+    #[serde(default)]
+    pub collateral_deposited_zkc_formatted: String,
+    /// ZKC available for new locks: deposited minus currently locked (as string)
+    #[serde(default)]
+    pub collateral_available_zkc: String,
+    /// ZKC available for new locks (formatted for display)
+    #[serde(default)]
+    pub collateral_available_zkc_formatted: String,
     /// Last activity timestamp (Unix)
     pub last_activity_time: i64,
     /// Last activity timestamp (ISO 8601)

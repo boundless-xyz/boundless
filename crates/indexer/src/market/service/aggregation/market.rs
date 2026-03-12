@@ -444,12 +444,12 @@ where
             total_locked_and_expired_collateral += lock_collateral;
         }
 
-        // Compute percentiles: p10, p25, p50, p75, p90, p95, p99
+        // Compute percentiles: p5, p10, p25, p50, p75, p90, p95, p99
         let percentiles = if !prices_per_cycle.is_empty() {
             let mut sorted_prices = prices_per_cycle;
-            compute_percentiles(&mut sorted_prices, &[10, 25, 50, 75, 90, 95, 99])
+            compute_percentiles(&mut sorted_prices, &[5, 10, 25, 50, 75, 90, 95, 99])
         } else {
-            vec![U256::ZERO; 7]
+            vec![U256::ZERO; 8]
         };
 
         // TODO: Populate best prover metrics from fulfilled requests
@@ -472,13 +472,14 @@ where
             total_fees_locked: total_fees,
             total_collateral_locked: total_collateral,
             total_locked_and_expired_collateral,
-            p10_lock_price_per_cycle: percentiles[0],
-            p25_lock_price_per_cycle: percentiles[1],
-            p50_lock_price_per_cycle: percentiles[2],
-            p75_lock_price_per_cycle: percentiles[3],
-            p90_lock_price_per_cycle: percentiles[4],
-            p95_lock_price_per_cycle: percentiles[5],
-            p99_lock_price_per_cycle: percentiles[6],
+            p5_lock_price_per_cycle: percentiles[0],
+            p10_lock_price_per_cycle: percentiles[1],
+            p25_lock_price_per_cycle: percentiles[2],
+            p50_lock_price_per_cycle: percentiles[3],
+            p75_lock_price_per_cycle: percentiles[4],
+            p90_lock_price_per_cycle: percentiles[5],
+            p95_lock_price_per_cycle: percentiles[6],
+            p99_lock_price_per_cycle: percentiles[7],
             total_requests_submitted,
             total_requests_submitted_onchain,
             total_requests_submitted_offchain,
