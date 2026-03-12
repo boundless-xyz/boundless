@@ -929,6 +929,7 @@ mod tests {
             boundless_market_address: market_address,
             chain_id,
             total_cycles: None,
+            journal_bytes: None,
             proving_started_at: None,
             cached_id: Default::default(),
         };

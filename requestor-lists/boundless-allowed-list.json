@@ -129,6 +129,38 @@
       "description": "",
       "tags": [],
       "extensions": {}
+    },
+    {
+      "address": "0xd10971d554aA26B45837519f8108e3A9c2F84Be3",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x35Fccfe6f8B2F0EA257A581Ce0Ccb7752E66C54A",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0xc09B78e3A55Ff7B407BD5E0c5379E99adAB9BdD0",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x2ade4c1473b147bd00ba91526505ffca948e4340",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
     }
   ]
 }

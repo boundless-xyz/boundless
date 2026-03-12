@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::aliases::U96;
+use alloy::{network::Ethereum, primitives::aliases::U96, providers::Provider};
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::ProofRequest,
+    contracts::{PredicateType, ProofRequest},
+    prover_utils::{estimate_erc1271_gas, Erc1271GasCache},
     selector::{ProofType, SupportedSelectors},
 };
+use std::sync::Arc;
+
 use risc0_zkvm::{
     sha::{Impl as ShaImpl, Sha256},
     MaybePruned, ReceiptClaim,
 };
 
 use crate::{config::ConfigLock, Order, OrderRequest, OrderStatus};
-
-/// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
-pub const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
 /// Replace the journal bytes in a [`ReceiptClaim`] with their digest to keep claims compact while
 /// preserving the existing `ReceiptClaim::digest` output.
@@ -90,17 +90,20 @@ pub(crate) async fn cancel_proof_and_fail_order(
     }
 }
 
-/// Estimate of gas for locking a single order
-/// Currently just uses the config estimate but this may change in the future
-pub(crate) async fn estimate_gas_to_lock(config: &ConfigLock, order: &OrderRequest) -> Result<u64> {
-    let mut estimate =
-        config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
-
-    if order.request.is_smart_contract_signed() {
-        estimate += ERC1271_MAX_GAS_FOR_CHECK;
-    }
-
-    Ok(estimate)
+/// Estimate of gas for locking a single order.
+///
+/// For smart-contract-signed requests, calls `eth_estimateGas` on the ERC-1271
+/// `isValidSignature` method to get a tighter estimate than the worst-case constant.
+/// Falls back to the contract-defined maximum if the address has no code or the RPC call fails.
+pub(crate) async fn estimate_gas_to_lock<P: Provider<Ethereum> + 'static>(
+    config: &ConfigLock,
+    order: &OrderRequest,
+    provider: &Arc<P>,
+    cache: &Erc1271GasCache,
+) -> Result<u64> {
+    let lockin_gas = config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
+    let erc1271_gas = estimate_erc1271_gas(order, provider, cache).await;
+    Ok(lockin_gas + erc1271_gas)
 }
 
 /// Estimate of gas for to fulfill a single order
@@ -109,14 +112,26 @@ pub(crate) async fn estimate_gas_to_fulfill(
     config: &ConfigLock,
     supported_selectors: &SupportedSelectors,
     request: &ProofRequest,
+    journal_bytes: Option<usize>,
 ) -> Result<u64> {
-    // TODO: Add gas costs for orders with large journals.
-    let (base, groth16) = {
+    let (base, groth16, journal_gas_per_byte, max_journal_bytes) = {
         let config = config.lock_all().context("Failed to read config")?;
-        (config.market.fulfill_gas_estimate, config.market.groth16_verify_gas_estimate)
+        (
+            config.market.fulfill_gas_estimate,
+            config.market.groth16_verify_gas_estimate,
+            config.market.fulfill_journal_gas_per_byte,
+            config.market.max_journal_bytes,
+        )
     };
 
+    let journal_size = journal_bytes.unwrap_or(max_journal_bytes);
+
     let mut estimate = base;
+
+    // Add gas for journal calldata when the predicate requires journal submission.
+    if request.requirements.predicate.predicateType != PredicateType::ClaimDigestMatch {
+        estimate += journal_size as u64 * journal_gas_per_byte;
+    }
 
     // Add gas for orders that make use of the callbacks feature.
     estimate += u64::try_from(

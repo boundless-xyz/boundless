@@ -79,7 +79,8 @@ struct RewardsIndexerArgs {
     epochs_to_process: Option<u64>,
 
     /// Number of blocks to query in each chunk when fetching event logs.
-    #[clap(long, default_value = "50000")]
+    /// Many RPCs limit eth_getLogs to 10_000 blocks; the rewards crate caps at 10k internally.
+    #[clap(long, default_value = "10000")]
     block_chunk_size: u64,
 }
 

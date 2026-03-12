@@ -1,0 +1,48 @@
+# Proof request template for `boundless requestor submit-file`
+#
+# Usage:
+#   boundless requestor submit-file request.yaml --no-preflight
+#
+# Generate a ready-to-submit version from discovery script output:
+#   bash scripts/build-request-yaml.sh <IMAGE_URL> <IMAGE_ID> <INPUT_DATA_HEX> > request.yaml
+#
+# IMPORTANT: Use submit-file (not submit) to get --no-preflight support.
+# Without --no-preflight, the CLI spawns r0vm locally which can hang for 10+ minutes.
+
+id: 0  # Auto-assigned by the market
+
+# Program URL: get a current one by running: bash scripts/discover-programs.sh
+# Use the image_url from the selected request.
+imageUrl: "<PROGRAM_URL_FROM_DISCOVER_SCRIPT>"
+
+# Input: use the input_data from the same request chosen above.
+# The discover script outputs hex-encoded input data for each request.
+# Must include the 0x prefix.
+input:
+  inputType: Inline
+  data: "<INPUT_DATA_HEX_FROM_DISCOVER_SCRIPT>"
+
+# Requirements: PrefixMatch predicate with the image ID.
+# GOTCHA: predicate.data must be "0x" + imageId (not empty string).
+# GOTCHA: imageId must NOT have 0x prefix.
+requirements:
+  imageId: "<64_CHAR_HEX_IMAGE_ID>"
+  predicate:
+    predicateType: PrefixMatch
+    data: "0x<64_CHAR_HEX_IMAGE_ID>"
+  callback:
+    addr: "0x0000000000000000000000000000000000000000"
+    gasLimit: 0
+  selector: "00000000"
+
+# Offer: reverse Dutch auction pricing.
+# GOTCHA: rampUpStart must be a future Unix timestamp. Cannot be 0.
+# Generate one with: echo $(( $(date +%s) + 30 ))
+offer:
+  minPrice: 100000000000000      # 0.0001 ETH — starting price
+  maxPrice: 2000000000000000     # 0.002 ETH  — max price
+  rampUpStart: 0                 # REPLACE with future Unix timestamp!
+  rampUpPeriod: 300              # 5 min ramp from min to max price
+  timeout: 3600                  # 1 hour before request expires
+  lockTimeout: 2700              # 45 min for prover to deliver after locking
+  lockCollateral: 5000000000000000000  # 5 ZKC prover collateral

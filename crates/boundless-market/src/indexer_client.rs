@@ -14,11 +14,12 @@
 
 //! Client for interacting with the Boundless Indexer API to fetch market price aggregates.
 
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use std::time::Duration;
 use url::Url;
 
 use crate::{
@@ -26,11 +27,162 @@ use crate::{
     price_provider::PricePercentiles,
 };
 
+/// Configuration for IndexerClient request behavior
+#[derive(Clone, Debug)]
+pub struct RequestConfig {
+    /// Delay between paginated requests to avoid overwhelming the API
+    pub request_delay: Duration,
+    /// Request timeout
+    pub timeout: Duration,
+}
+
+impl Default for RequestConfig {
+    fn default() -> Self {
+        Self { request_delay: Duration::from_millis(100), timeout: Duration::from_secs(30) }
+    }
+}
+
+impl RequestConfig {
+    /// Create a new RequestConfigBuilder
+    pub fn builder() -> RequestConfigBuilder {
+        RequestConfigBuilder::default()
+    }
+}
+
+/// Builder for RequestConfig
+#[derive(Default)]
+pub struct RequestConfigBuilder {
+    request_delay: Option<Duration>,
+    timeout: Option<Duration>,
+}
+
+impl RequestConfigBuilder {
+    /// Set the delay between paginated requests
+    pub fn request_delay(mut self, delay: Duration) -> Self {
+        self.request_delay = Some(delay);
+        self
+    }
+
+    /// Set the request timeout
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Build the RequestConfig
+    pub fn build(self) -> RequestConfig {
+        RequestConfig {
+            request_delay: self.request_delay.unwrap_or(Duration::from_millis(100)),
+            timeout: self.timeout.unwrap_or(Duration::from_secs(30)),
+        }
+    }
+}
+
+/// Request status values from the indexer API
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RequestStatus {
+    /// Request has been submitted but not yet locked by a prover
+    Submitted,
+    /// Request has been locked by a prover
+    Locked,
+    /// Request has been fulfilled with a valid proof
+    Fulfilled,
+    /// Prover was slashed for failing to fulfill
+    Slashed,
+    /// Request expired without being fulfilled
+    Expired,
+}
+
+impl std::fmt::Display for RequestStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Submitted => write!(f, "submitted"),
+            Self::Locked => write!(f, "locked"),
+            Self::Fulfilled => write!(f, "fulfilled"),
+            Self::Slashed => write!(f, "slashed"),
+            Self::Expired => write!(f, "expired"),
+        }
+    }
+}
+
+/// Parameters for fetching requests by requestor
+#[derive(Debug, Default, Clone)]
+pub struct GetRequestsByRequestorParams {
+    /// Only return requests created after this timestamp (Unix seconds).
+    /// TODO: Update to use API parameter once supported server-side.
+    pub after: Option<i64>,
+    /// Only return requests with this status.
+    /// TODO: Update to use API parameter once supported server-side.
+    pub status: Option<RequestStatus>,
+}
+
+impl GetRequestsByRequestorParams {
+    /// Create a new builder for GetRequestsByRequestorParams
+    pub fn builder() -> GetRequestsByRequestorParamsBuilder {
+        GetRequestsByRequestorParamsBuilder::default()
+    }
+}
+
+/// Builder for GetRequestsByRequestorParams
+#[derive(Default)]
+pub struct GetRequestsByRequestorParamsBuilder {
+    after: Option<i64>,
+    status: Option<RequestStatus>,
+}
+
+impl GetRequestsByRequestorParamsBuilder {
+    /// Only return requests created after this timestamp (Unix seconds)
+    pub fn after(mut self, timestamp: i64) -> Self {
+        self.after = Some(timestamp);
+        self
+    }
+
+    /// Only return requests with this status
+    pub fn status(mut self, status: RequestStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    /// Build the GetRequestsByRequestorParams
+    pub fn build(self) -> GetRequestsByRequestorParams {
+        GetRequestsByRequestorParams { after: self.after, status: self.status }
+    }
+}
+
+// TODO: Replace RequestResponse with the full type from indexer-api once models are moved out
+/// Response for a single request from the indexer API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RequestResponse {
+    /// Request status: "submitted", "locked", "fulfilled", "slashed", or "expired"
+    pub request_status: String,
+    /// Unix timestamp when the request was created
+    pub created_at: i64,
+    /// Request ID (0x-prefixed hex)
+    pub request_id: String,
+    /// Request digest (0x-prefixed hex)
+    pub request_digest: String,
+}
+
+/// Response for listing requests by requestor
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RequestListResponse {
+    /// The chain ID
+    pub chain_id: u64,
+    /// List of request entries
+    pub data: Vec<RequestResponse>,
+    /// Cursor for pagination to retrieve the next page
+    pub next_cursor: Option<String>,
+    /// Whether there are more results available
+    pub has_more: bool,
+}
+
 #[derive(Clone, Debug)]
 /// Client for the Boundless Indexer API
 pub struct IndexerClient {
     client: Client,
     base_url: Url,
+    config: RequestConfig,
 }
 
 /// Granularity level for aggregating market data over time.
@@ -166,6 +318,18 @@ pub struct MarketAggregateEntry {
     pub total_program_cycles: String,
     /// Total cycles (program + overhead) in this period (as string).
     pub total_cycles: String,
+    /// Total fixed cost (gas cost) across all locked requests in this period (as string in wei).
+    #[serde(default)]
+    pub total_fixed_cost: String,
+    /// Total fixed cost (formatted for display).
+    #[serde(default)]
+    pub total_fixed_cost_formatted: String,
+    /// Total variable cost (proving cost) across all locked requests in this period (as string in wei).
+    #[serde(default)]
+    pub total_variable_cost: String,
+    /// Total variable cost (formatted for display).
+    #[serde(default)]
+    pub total_variable_cost_formatted: String,
 }
 
 /// Response containing market aggregate data.
@@ -212,15 +376,20 @@ impl IndexerClient {
         Self::new(base_url)
     }
 
-    /// Create a new IndexerClient with explicit URL
+    /// Create a new IndexerClient with explicit URL and default config
     pub fn new(base_url: Url) -> Result<Self> {
+        Self::new_with_config(base_url, RequestConfig::default())
+    }
+
+    /// Create a new IndexerClient with explicit URL and custom config
+    pub fn new_with_config(base_url: Url, config: RequestConfig) -> Result<Self> {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(config.timeout)
             .user_agent("boundless-cli/1.0")
             .build()
             .context("Failed to build HTTP client")?;
 
-        Ok(Self { client, base_url })
+        Ok(Self { client, base_url, config })
     }
 
     /// Get market aggregates
@@ -310,7 +479,7 @@ impl IndexerClient {
                 && !entry.p95_lock_price_per_cycle.is_empty()
                 && !entry.p99_lock_price_per_cycle.is_empty()
             {
-                return Ok(PricePercentiles {
+                let percentiles = PricePercentiles {
                     p10: U256::from_str(&entry.p10_lock_price_per_cycle)
                         .context("Failed to parse p10 lock price per cycle")?,
                     p25: U256::from_str(&entry.p25_lock_price_per_cycle)
@@ -325,11 +494,108 @@ impl IndexerClient {
                         .context("Failed to parse p95 lock price per cycle")?,
                     p99: U256::from_str(&entry.p99_lock_price_per_cycle)
                         .context("Failed to parse p99 lock price per cycle")?,
-                });
+                };
+                tracing::debug!(
+                    p10 = %percentiles.p10,
+                    p25 = %percentiles.p25,
+                    p50 = %percentiles.p50,
+                    p75 = %percentiles.p75,
+                    p90 = %percentiles.p90,
+                    p95 = %percentiles.p95,
+                    p99 = %percentiles.p99,
+                    "Fetched price percentiles (lock price per cycle in wei) from indexer"
+                );
+                return Ok(percentiles);
             }
         }
 
         anyhow::bail!("No price data found")
+    }
+
+    /// Get ALL requests by requestor address with pagination
+    /// Handles pagination automatically, respecting rate limits
+    /// Filters by `after` timestamp client-side (API doesn't support it)
+    pub async fn get_all_requests_by_requestor(
+        &self,
+        address: Address,
+        params: GetRequestsByRequestorParams,
+    ) -> Result<Vec<RequestResponse>> {
+        let mut all_requests = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let response = self.get_requests_by_requestor_page(address, cursor.as_deref()).await?;
+
+            // TODO: Update to use API-side filtering once supported
+            // Check if we've gone past the 'after' timestamp (client-side filter)
+            let mut reached_cutoff = false;
+            for request in response.data {
+                if let Some(after) = params.after {
+                    if request.created_at < after {
+                        // We've reached requests older than our filter
+                        reached_cutoff = true;
+                        break;
+                    }
+                }
+                all_requests.push(request);
+            }
+
+            // Stop if we hit the cutoff or no more pages
+            if reached_cutoff || !response.has_more {
+                break;
+            }
+
+            cursor = response.next_cursor;
+
+            // Rate limit between pagination requests
+            tokio::time::sleep(self.config.request_delay).await;
+        }
+
+        // TODO: Update to use API-side filtering once supported
+        // Apply client-side filters
+        if let Some(after) = params.after {
+            all_requests.retain(|r| r.created_at >= after);
+        }
+        if let Some(status) = params.status {
+            let status_str = status.to_string();
+            all_requests.retain(|r| r.request_status == status_str);
+        }
+
+        Ok(all_requests)
+    }
+
+    /// Get a single page of requests by requestor (internal helper)
+    async fn get_requests_by_requestor_page(
+        &self,
+        address: Address,
+        cursor: Option<&str>,
+    ) -> Result<RequestListResponse> {
+        let mut url = self
+            .base_url
+            .join(&format!("v1/market/requestors/{}/requests", address))
+            .context("Failed to build URL")?;
+
+        if let Some(c) = cursor {
+            let encoded: String = url::form_urlencoded::byte_serialize(c.as_bytes()).collect();
+            url.set_query(Some(&format!("cursor={}", encoded)));
+        }
+
+        let url_str = url.to_string();
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch requests from {}", url_str.clone()))?;
+
+        if !response.status().is_success() {
+            bail!("API error from {}: {}", url_str, response.status());
+        }
+
+        response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse requests response from {}", url_str))
     }
 }
 

@@ -7,7 +7,7 @@
   tasks:
     - name: Download bento CLI bundle
       ansible.builtin.get_url:
-        url: https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.0/bento-bundle-linux-amd64.tar.gz
+        url: https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.1/bento-bundle-linux-amd64.tar.gz
         dest: /tmp/bento-bundle-linux-amd64.tar.gz
         mode: "0644"
 

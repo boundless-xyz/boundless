@@ -65,3 +65,11 @@ vector_bento_process_interval_secs: 60
 
 # Log error metrics (counter: bento_log_errors, incremented per ERROR line in journald)
 vector_track_log_errors: true
+
+# Kailua process tracking (enable on hosts running kailua.service)
+vector_track_kailua_process: false
+vector_kailua_process_interval_secs: 60
+# kailua_log_age_secs gauge: seconds since the last kailua.service log line.
+# Set a CloudWatch alarm on this metric exceeding the threshold below to detect
+# a stalled prover (no proof activity for too long).
+vector_kailua_stale_threshold_secs: 7200  # 2 hours

@@ -109,7 +109,7 @@ pub async fn create_isolated_db_pool(base_name: &str) -> (String, PgPool) {
 
 /// Extract the database connection string from a sqlx::test PgPool.
 /// sqlx::test creates an isolated database per test with a unique name.
-async fn get_db_url_from_pool(pool: &PgPool) -> String {
+pub async fn get_db_url_from_pool(pool: &PgPool) -> String {
     let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
     let db_name: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(pool)
@@ -904,6 +904,8 @@ pub async fn get_all_time_summaries(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
+            total_fixed_cost,
+            total_variable_cost,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
             best_effective_prove_mhz_prover,
@@ -952,6 +954,8 @@ pub async fn get_all_time_summaries(
                 as f32,
             total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
             total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),
+            total_fixed_cost: parse_u256(&row.get::<String, _>("total_fixed_cost")),
+            total_variable_cost: parse_u256(&row.get::<String, _>("total_variable_cost")),
             best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row

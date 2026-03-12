@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "exec_agent"
+    dns_sd_configs:
+      - names: ["exec_agent"]
+        type: A
+        port: 9090
+
+  - job_name: "aux_agent"
+    dns_sd_configs:
+      - names: ["aux_agent"]
+        type: A
+        port: 9090
+
+  - job_name: "gpu_prove_agent"
+    dns_sd_configs:
+      - names: ["gpu_prove_agent"]
+        type: A
+        port: 9090

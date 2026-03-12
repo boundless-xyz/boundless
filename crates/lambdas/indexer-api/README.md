@@ -89,6 +89,7 @@ Use the `manage_local` CLI tool to run the indexer and API:
 
 - `run-market-indexer` - Run market-indexer to populate database with market data (Ctrl+C to stop)
 - `run-market-backfill` - Run market-indexer-backfill to recompute statuses/aggregates/chain_data
+- `run-market-efficiency-indexer` - Run market-efficiency-indexer to compute market efficiency metrics
 - `run-rewards-indexer` - Run rewards-indexer to populate database with staking/delegation/PoVW data
 - `run-api` - Run API server
 
@@ -218,6 +219,42 @@ export BOUNDLESS_MARKET_ADDRESS="0x..."
 - `--end-block`: Block to end backfill at (optional, default: latest indexed)
 - `--cache-dir`: Directory for cache file storage (optional)
 - `--tx-fetch-strategy`: `"block-receipts"` or `"tx-by-hash"` (optional, default: `"block-receipts"`)
+
+### Running Market Efficiency Indexer
+
+The `run-market-efficiency-indexer` command computes market efficiency metrics — whether provers are locking the most profitable available orders. It reads locked requests from the database (populated by the market indexer), ranks them by profitability, and writes per-order and aggregated efficiency data.
+
+It requires the market indexer to have already populated the database with request data.
+
+```bash
+# Run once with a 7-day lookback window
+./manage_local run-market-efficiency-indexer \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --lookback-days 7 \
+  --once
+
+# Run for a specific time range (one-shot, exits when done)
+./manage_local run-market-efficiency-indexer \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --start-time 1700000000 \
+  --end-time 1700100000
+
+# Run in a loop, recomputing every hour
+./manage_local run-market-efficiency-indexer \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --interval 3600 \
+  --lookback-days 3
+```
+
+**Options:**
+
+- `--database` (required): PostgreSQL URL
+- `--interval`: Seconds between runs when looping (default: 3600)
+- `--lookback-days`: Number of days to look back for requests (default: 3)
+- `--start-time`: Unix timestamp to start from (requires `--end-time`, runs once and exits)
+- `--end-time`: Unix timestamp to end at (requires `--start-time`, runs once and exits)
+- `--retries`: Number of retries before quitting on error (default: 3)
+- `--once`: Run once using the lookback window from now, then exit
 
 ### Running Rewards Indexer
 

@@ -773,11 +773,15 @@ impl ParameterizationMode {
     /// The ramp up start is calculated as the current timestamp plus the base ramp up delay
     /// or the required executor time, whichever is greater.
     fn recommended_ramp_up_start(&self, cycle_count: Option<u64>) -> u64 {
+        const MAX_RAMP_UP_DELAY: u64 = 3600; // 1 hour
         cycle_count
             .filter(|&count| count > 0)
             .map(|cycle_count| {
                 now_timestamp()
-                    + self.base_ramp_up_delay.max(self.executor_time(Some(cycle_count)) as u64)
+                    + self
+                        .base_ramp_up_delay
+                        .max(self.executor_time(Some(cycle_count)) as u64)
+                        .min(MAX_RAMP_UP_DELAY)
             })
             .unwrap_or(now_timestamp() + self.base_ramp_up_delay)
     }
@@ -1372,7 +1376,7 @@ mod tests {
         let offer_params = OfferParams::default();
         let now = crate::util::now_timestamp();
         let offer_zero_mcycles =
-            layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
+            layer.process((&requirements, &request_id, Some(0u64), None, &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.minPrice, U256::ZERO);
         // Defaults from builder
         assert_eq!(
@@ -1394,8 +1398,9 @@ mod tests {
         assert!(offer_zero_mcycles.maxPrice > U256::ZERO);
 
         // Now create an offer for 100 Mcycles.
-        let offer_more_mcycles =
-            layer.process((&requirements, &request_id, Some(100u64 << 20), &offer_params)).await?;
+        let offer_more_mcycles = layer
+            .process((&requirements, &request_id, Some(100u64 << 20), None, &offer_params))
+            .await?;
         assert!(offer_more_mcycles.maxPrice > offer_zero_mcycles.maxPrice);
 
         // Check that overrides are respected.
@@ -1411,7 +1416,7 @@ mod tests {
             .timeout(80)
             .into();
         let offer_zero_mcycles =
-            layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
+            layer.process((&requirements, &request_id, Some(0u64), None, &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.maxPrice, max_price);
         assert_eq!(offer_zero_mcycles.minPrice, min_price);
         assert_eq!(offer_zero_mcycles.rampUpPeriod, 20);
@@ -1444,8 +1449,9 @@ mod tests {
         let now = crate::util::now_timestamp();
         let cycle_count = 100_000_000; // 100M cycles
         let offer_params = OfferParams::default();
-        let offer =
-            layer.process((&requirements, &request_id, Some(cycle_count), &offer_params)).await?;
+        let offer = layer
+            .process((&requirements, &request_id, Some(cycle_count), None, &offer_params))
+            .await?;
 
         // Check that ramp up start is calculated based on parameterization mode
         let expected_executor_time = fulfillment_mode.executor_time(Some(cycle_count));

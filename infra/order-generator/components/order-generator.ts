@@ -27,6 +27,7 @@ interface OrderGeneratorArgs {
   maxPricePerMCycle?: string;
   secondsPerMCycle?: string;
   rampUpSecondsPerMCycle?: string;
+  inputMinMCycles?: string;
   inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
@@ -50,6 +51,7 @@ interface OrderGeneratorArgs {
   indexerUrl: pulumi.Output<string>;
   useZeth?: boolean;
   maxPriceCap?: string;
+  maxOutstandingRequests?: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -205,6 +207,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     if (args.errorBalanceBelow) {
       ogArgs.push(`--error-balance-below ${args.errorBalanceBelow}`);
     }
+    if (args.inputMinMCycles) {
+      ogArgs.push(`--input-min-mcycles ${args.inputMinMCycles}`);
+    }
     if (args.inputMaxMCycles) {
       ogArgs.push(`--input-max-mcycles ${args.inputMaxMCycles}`);
     }
@@ -234,6 +239,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.maxPriceCap) {
       ogArgs.push(`--max-price-cap ${args.maxPriceCap}`);
+    }
+    if (args.maxOutstandingRequests) {
+      ogArgs.push(`--max-outstanding-requests ${args.maxOutstandingRequests}`);
     }
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });

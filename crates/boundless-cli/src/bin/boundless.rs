@@ -20,7 +20,10 @@ The Boundless CLI is a command-line interface for interacting with Boundless.
 
 use anyhow::Result;
 use boundless_cli::{
-    commands::{prover::ProverCommands, requestor::RequestorCommands, rewards::RewardsCommands},
+    commands::{
+        prover::ProverCommands, requestor::RequestorCommands, rewards::RewardsCommands,
+        skill::SkillCommands,
+    },
     config::GlobalConfig,
 };
 use clap::{CommandFactory, Parser, Subcommand};
@@ -43,6 +46,10 @@ enum Command {
     /// Commands for managing rewards, staking, and PoVW
     #[command(subcommand)]
     Rewards(Box<RewardsCommands>),
+
+    /// Commands for managing AI tool skill files
+    #[command(subcommand)]
+    Skill(SkillCommands),
 
     #[command(hide = true)]
     Completions { shell: Shell },
@@ -489,7 +496,7 @@ async fn main() -> Result<()> {
             if err.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
                 // Check if a module was specified
                 let has_module = raw_args.len() >= 2
-                    && matches!(raw_args[1].as_str(), "requestor" | "prover" | "rewards");
+                    && matches!(raw_args[1].as_str(), "requestor" | "prover" | "rewards" | "skill");
 
                 if has_module {
                     // Module specified without subcommand - show clap's error with help suggestion
@@ -525,6 +532,7 @@ pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
         Command::Requestor(cmd) => cmd.run(config).await,
         Command::Prover(cmd) => cmd.run(config).await,
         Command::Rewards(cmd) => cmd.run(config).await,
+        Command::Skill(cmd) => cmd.run(config).await,
 
         Command::Completions { shell } => generate_shell_completions(shell),
     }

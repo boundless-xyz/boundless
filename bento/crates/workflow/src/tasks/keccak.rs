@@ -103,18 +103,6 @@ pub async fn keccak(
 
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
 
-    // Clean up keccak input
-    let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&keccak_input_path).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation(
-        "unlink",
-        cleanup_status,
-        cleanup_start.elapsed().as_secs_f64(),
-    );
-    cleanup_result
-        .map_err(|e| anyhow::anyhow!(e).context("Failed to delete keccak input path key"))?;
-
     // Record total task duration and success
     helpers::record_task_operation(
         "keccak",

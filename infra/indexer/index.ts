@@ -38,6 +38,7 @@ export = () => {
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
+  const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
   const indexerServiceName = getServiceNameV1(stackName, "indexer", chainId);
   const monitorServiceName = getServiceNameV1(stackName, "monitor", chainId);
   const indexerApiServiceName = getServiceNameV1(stackName, "indexer-api", chainId);
@@ -56,6 +57,7 @@ export = () => {
   const povwAccountingAddress = config.get('POVW_ACCOUNTING_ADDRESS');
   const indexerApiDomain = config.get('INDEXER_API_DOMAIN');
   const allowedIpAddresses = config.getSecret('ALLOWED_IP_ADDRESSES');
+  const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
 
   const shouldDeployMarket = !!boundlessAddress && !!startBlock;
   const shouldDeployRewards = !!vezkcAddress && !!zkcAddress && !!povwAccountingAddress;
@@ -68,6 +70,7 @@ export = () => {
     serviceName: indexerServiceName,
     vpcId,
     privSubNetIds,
+    pubSubNetIds,
     rdsPassword,
     isDev,
   });
@@ -189,10 +192,14 @@ export = () => {
       databaseVersion: infra.databaseVersion,
       proxySecret,
       allowedIpAddresses,
+      premiumApiKey,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
   const outputs: Record<string, any> = {};
+  outputs.bastionInstanceId = infra.bastionInstanceId;
+  outputs.readerEndpoint = infra.readerEndpoint;
+  outputs.writerEndpoint = infra.writerEndpoint;
 
   if (api) {
     outputs.apiEndpoint = api.cloudFrontDomain;

@@ -58,7 +58,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -134,7 +136,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -210,7 +214,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -246,7 +252,7 @@
           }
         }
       ],
-      "title": "Pending GPU tasks",
+      "title": "Pending Join, Prove, Resolve tasks",
       "type": "stat"
     },
     {
@@ -286,7 +292,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -362,7 +370,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -377,7 +387,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT SUM(running) as running, SUM(ready) as ready FROM streams WHERE worker_type = 'gpu'",
+          "rawSql": "SELECT SUM(running) as running, SUM(ready) as ready FROM streams WHERE worker_type = 'prove'",
           "refId": "A",
           "sql": {
             "columns": [
@@ -558,7 +568,9 @@
         "footer": {
           "countRows": false,
           "fields": "",
-          "reducer": ["sum"],
+          "reducer": [
+            "sum"
+          ],
           "show": false
         },
         "showHeader": true
@@ -570,7 +582,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "\nSELECT\n  job_id,\n  res2.start_time,\n  res1.total_cycles,\n  res2.elapsed_sec,\n  CAST(res1.total_cycles AS decimal)  / res2.elapsed_sec AS hz\nFROM\n(\n  SELECT\n    job_id,\n    output->'total_cycles' total_cycles\n  FROM tasks\n  WHERE task_id = 'init'\n) res1\nJOIN\n(\n  SELECT \n    job_id as id2,\n    MIN(started_at) as start_time,\n    EXTRACT(EPOCH FROM (MAX(updated_at) - MIN(started_at))) AS elapsed_sec\n  FROM tasks GROUP BY job_id\n) res2\nON res1.job_id = res2.id2\n",
+          "rawSql": "SELECT\n  t.job_id,\n  MIN(t.started_at) AS start_time,\n  i.total_cycles,\n  EXTRACT(EPOCH FROM (MAX(t.updated_at) - MIN(t.started_at))) AS elapsed_sec,\n  CASE WHEN EXTRACT(EPOCH FROM (MAX(t.updated_at) - MIN(t.started_at))) > 0\n       AND i.total_cycles IS NOT NULL\n       THEN CAST(i.total_cycles AS decimal) / EXTRACT(EPOCH FROM (MAX(t.updated_at) - MIN(t.started_at)))\n  END AS hz\nFROM tasks t\nLEFT JOIN (\n  SELECT job_id, output->'total_cycles' AS total_cycles\n  FROM tasks WHERE task_id = 'init'\n) i ON i.job_id = t.job_id\nGROUP BY t.job_id, i.total_cycles\nORDER BY start_time DESC\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -591,7 +603,7 @@
           }
         }
       ],
-      "title": "Panel Title",
+      "title": "Job Performance",
       "type": "table"
     }
   ],
