@@ -329,6 +329,8 @@ impl ProvingService {
                     if should_cancel_on_not_actionable {
                         return Err(ProvingErr::ShouldCancel("Order expired"));
                     } else {
+                        // TODO(austin) this should only mark expired if the order is not fully expired
+                        //      and not secondary fulfilled.
                         tracing::debug!("Waiting for proof completion for capacity tracking");
                         not_actionable_reason = Some("Order expired");
                         // Disarm timeout so it doesn't fire again
