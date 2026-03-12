@@ -351,8 +351,10 @@ pub struct MarketAggregateEntry {
     /// Total collateral from locked requests that expired (formatted for display).
     pub total_locked_and_expired_collateral_formatted: String,
     /// 5th percentile lock price per cycle (as string, in wei).
+    #[serde(default)]
     pub p5_lock_price_per_cycle: String,
     /// 5th percentile lock price per cycle (formatted for display).
+    #[serde(default)]
     pub p5_lock_price_per_cycle_formatted: String,
     /// 10th percentile lock price per cycle (as string, in wei).
     pub p10_lock_price_per_cycle: String,
