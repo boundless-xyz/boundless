@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+use alloy::transports::http::reqwest;
 use alloy::{
     network::AnyNetwork,
     primitives::utils::parse_ether,
@@ -80,6 +82,13 @@ async fn main() -> Result<()> {
         CustomRetryPolicy,
     );
 
+    let mut http_client_builder = reqwest::Client::builder();
+    if args.rpc_request_timeout > 0 {
+        http_client_builder =
+            http_client_builder.timeout(Duration::from_secs(args.rpc_request_timeout));
+    }
+    let http_client = http_client_builder.build().expect("Failed to build HTTP client");
+
     // Build RPC client with fallback support if multiple URLs are provided
     let client = if all_rpc_urls.len() > 1 {
         // Multiple URLs - sequential fallback: always try primary first, only fall back on failure.
@@ -88,7 +97,9 @@ async fn main() -> Result<()> {
         let transports: Vec<_> = all_rpc_urls
             .iter()
             .map(|url| {
-                ServiceBuilder::new().layer(retry_layer.clone()).service(Http::new(url.clone()))
+                ServiceBuilder::new()
+                    .layer(retry_layer.clone())
+                    .service(Http::with_client(http_client.clone(), url.clone()))
             })
             .collect();
 
@@ -108,10 +119,11 @@ async fn main() -> Result<()> {
         // Single URL - use regular provider
         let single_url = &all_rpc_urls[0];
         tracing::info!("Configuring broker with single RPC URL: {}", single_url);
-        RpcClient::builder()
+        let transport = ServiceBuilder::new()
             .layer(RpcMetricsLayer::new())
             .layer(retry_layer)
-            .http(single_url.clone())
+            .service(Http::with_client(http_client, single_url.clone()));
+        RpcClient::builder().transport(transport, false)
     };
 
     // Read config for balance alerts (scope the guard so we can move config_watcher later)

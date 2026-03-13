@@ -37,7 +37,9 @@ impl RetryPolicy for CustomRetryPolicy {
             TransportError::Transport(TransportErrorKind::Custom(err)) => {
                 // easier to match against the debug format string because this is what we see in the logs
                 let err_debug_str = format!("{err:?}");
-                err_debug_str.contains("os error 104") || err_debug_str.contains("reset by peer")
+                err_debug_str.contains("os error 104")
+                    || err_debug_str.contains("reset by peer")
+                    || err_debug_str.contains("operation timed out")
             }
             TransportError::Transport(TransportErrorKind::HttpError(err)) => {
                 matches!(err.status, 408 | 500 | 502 | 504)
@@ -69,6 +71,22 @@ mod tests {
         }
     }
 
+    struct MockTimeout;
+
+    impl fmt::Debug for MockTimeout {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("reqwest::Error { kind: Request, source: operation timed out }")
+        }
+    }
+
+    impl fmt::Display for MockTimeout {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("Mock Timeout")
+        }
+    }
+
+    impl std::error::Error for MockTimeout {}
+
     impl fmt::Display for MockOsError104 {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.write_str("Mock Error")
@@ -96,6 +114,13 @@ mod tests {
     fn retries_on_os_error_104() {
         let policy = CustomRetryPolicy;
         let error = RpcError::Transport(TransportErrorKind::Custom(Box::new(MockOsError104)));
+        assert!(policy.should_retry(&error));
+    }
+
+    #[test]
+    fn retries_on_timeout() {
+        let policy = CustomRetryPolicy;
+        let error = RpcError::Transport(TransportErrorKind::Custom(Box::new(MockTimeout)));
         assert!(policy.should_retry(&error));
     }
 

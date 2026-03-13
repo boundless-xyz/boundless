@@ -158,6 +158,13 @@ pub struct Args {
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
 
+    /// RPC HTTP request timeout in seconds.
+    ///
+    /// Individual HTTP requests to the RPC endpoint will be aborted after this duration,
+    /// allowing the retry layer to retry the request. Set to 0 to disable.
+    #[clap(long, default_value_t = 15)]
+    pub rpc_request_timeout: u64,
+
     /// Log JSON
     #[clap(long, env, default_value_t = false)]
     pub log_json: bool,
@@ -1338,6 +1345,7 @@ pub mod test_utils {
                 rpc_retry_max: 0,
                 rpc_retry_backoff: 200,
                 rpc_retry_cu: 1000,
+                rpc_request_timeout: 30,
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,

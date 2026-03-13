@@ -550,6 +550,7 @@ mod tests {
             rpc_retry_max: 3,
             rpc_retry_backoff: 200,
             rpc_retry_cu: 1000,
+            rpc_request_timeout: 30,
             log_json: false,
             listen_only: false,
             experimental_rpc: false,
