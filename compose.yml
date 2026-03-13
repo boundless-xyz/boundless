@@ -76,8 +76,19 @@ x-broker-environment: &broker-environment
 
 x-gpu-prove-agent: &gpu-prove-agent
   <<: *agent-common
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+    rest_api:
+      condition: service_healthy
   environment:
     <<: *base-environment
+    # Prove agent uses the API for work claim/task updates (no direct Redis/taskdb)
+    BENTO_API_URL: ${BENTO_API_URL:-http://rest_api:8081}
     REDIS_TTL: ${REDIS_TTL:-57600}
   # Detect GPUs and spawn one agent per GPU, then wait for all
   entrypoint:
