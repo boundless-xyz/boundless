@@ -41,6 +41,9 @@ pub mod docs_tests;
 #[path = "local_integration/market.rs"]
 pub mod market_tests;
 
+#[path = "local_integration/market_efficiency.rs"]
+pub mod market_efficiency_tests;
+
 // Contract addresses for mainnet
 const VEZKC_ADDRESS: &str = "0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4";
 const ZKC_ADDRESS: &str = "0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555";

@@ -44,6 +44,9 @@ pub use client::{Client, StandardClient};
 /// Client module for interacting with the Boundless Indexer API.
 #[cfg(not(target_os = "zkvm"))]
 pub mod indexer_client;
+/// Shared data types for the Boundless Indexer market API.
+#[cfg(not(target_os = "zkvm"))]
+pub mod indexer_types;
 /// Test helpers for testing the Boundless Market.
 #[cfg(all(feature = "test-utils", not(target_os = "zkvm")))]
 pub mod test_helpers;
