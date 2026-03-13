@@ -269,6 +269,75 @@ async fn simple_e2e() {
 
 #[tokio::test]
 #[traced_test]
+async fn simple_e2e_experimental_rpc() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    // Setup signers / providers
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Deposit prover / customer balances
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    // Start broker with experimental RPC path enabled
+    let config = new_config(1).await;
+    let mut args = broker_args(
+        config.path().to_path_buf(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
+    args.experimental_rpc = true;
+    let any_provider = make_any_provider(&args);
+    let broker = Broker::new(
+        args,
+        ctx.prover_provider,
+        any_provider,
+        ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+
+    // Provide URL for ECHO program
+    let storage = MockStorageUploader::new();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    // Submit an order
+    let request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    run_with_broker(broker, async move {
+        // Submit the request
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        // Wait for fulfillment
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
 async fn simple_e2e_with_callback() {
     // Setup anvil
     let anvil = Anvil::new().spawn();

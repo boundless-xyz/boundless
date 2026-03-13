@@ -378,9 +378,9 @@ where
                         {
                             Ok(Some(receipts)) => receipts,
                             Ok(None) => {
-                                // TODO: this should probably be an error and lead to retry
-                                tracing::warn!("No receipts returned for block {block_num}");
-                                continue;
+                                return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                    "No receipts returned for block {block_num}"
+                                )));
                             }
                             Err(e) => {
                                 return Err(L1MonitorErr::RpcErr(
@@ -394,14 +394,22 @@ where
                         tracing::debug!("Fetched {} receipts for block {block_num}", receipts.len());
 
                         // Extract priority fees and update gas estimate.
-                        let priority_fees: Vec<u128> = base_fee_per_gas
-                            .map(|bf| {
-                                receipts
-                                    .iter()
-                                    .map(|r| r.effective_gas_price.saturating_sub(bf))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+                        let priority_fees: Vec<u128> = match base_fee_per_gas {
+                            Some(bf) => receipts
+                                .iter()
+                                .map(|r| {
+                                    if r.effective_gas_price < bf {
+                                        tracing::debug!(
+                                            "effective_gas_price {} below base fee {}",
+                                            r.effective_gas_price,
+                                            bf
+                                        );
+                                    }
+                                    r.effective_gas_price.saturating_sub(bf)
+                                })
+                                .collect(),
+                            None => Vec::new(),
+                        };
 
                         let mode = self.gas_priority_mode.read().await.clone();
                         let gas_price = {
