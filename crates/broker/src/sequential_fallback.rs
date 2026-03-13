@@ -152,7 +152,7 @@ where
 
         for tracked in self.transports.iter() {
             if !tracked.should_try(request_num) {
-                tracing::trace!(transport_id = tracked.id, "Skipping transport (unhealthy)");
+                tracing::debug!(transport_id = tracked.id, "Skipping transport (unhealthy)");
                 continue;
             }
 
@@ -315,7 +315,7 @@ mod tests {
 
         let mut service = SequentialFallbackLayer.layer(vec![primary.clone(), secondary.clone()]);
 
-        // Trigger MAX_CONSECUTIVE_FAILURES failures (request_num 0..19)
+        // Trigger MAX_CONSECUTIVE_FAILURES (3) failures (request_num 0..2)
         for _ in 0..MAX_CONSECUTIVE_FAILURES {
             let _ = service.call(dummy_request()).await;
         }
@@ -323,7 +323,7 @@ mod tests {
         let primary_count_before = primary.count();
         let secondary_count_before = secondary.count();
 
-        // request_num 20: 20 % 100 != 0, so primary should be skipped
+        // request_num 3: 3 % 10 != 0, so primary should be skipped
         let result = service.call(dummy_request()).await;
         assert!(result.is_ok());
         assert_eq!(primary.count(), primary_count_before, "primary should be skipped");
@@ -341,7 +341,7 @@ mod tests {
 
         let mut service = SequentialFallbackLayer.layer(vec![primary.clone(), secondary.clone()]);
 
-        // Exhaust primary: request_num 0..19 → primary is skipped after request 19
+        // Exhaust primary: request_num 0..2 → primary is skipped after request 2
         for _ in 0..MAX_CONSECUTIVE_FAILURES {
             let _ = service.call(dummy_request()).await;
         }
@@ -349,7 +349,7 @@ mod tests {
         // Make primary succeed so we can detect when it gets retried
         primary.set_succeed(true);
 
-        // Requests 20..99 (80 requests): primary is still skipped (N % 100 != 0)
+        // Requests 3..9 (7 requests): primary is still skipped (N % 10 != 0)
         let skip_requests = RETRY_INTERVAL - MAX_CONSECUTIVE_FAILURES as u64;
         for _ in 0..skip_requests {
             let _ = service.call(dummy_request()).await;
@@ -357,7 +357,7 @@ mod tests {
 
         let primary_count_before = primary.count();
 
-        // request_num 100: 100 % 100 == 0 → primary is retried
+        // request_num 10: 10 % 10 == 0 → primary is retried
         let result = service.call(dummy_request()).await;
         assert!(result.is_ok());
         assert_eq!(
