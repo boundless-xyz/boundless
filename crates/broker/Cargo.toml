@@ -29,8 +29,10 @@ alloy = { workspace = true, features = [
     "rpc",
     "rpc-types",
     "json-rpc",
+    "consensus",
 ] }
 alloy-chains = "0.2.0"
+alloy-consensus-any = "1.1.0"
 anyhow = { workspace = true }
 async-channel = "2.3"
 async-stream = "0.3"

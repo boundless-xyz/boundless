@@ -42,13 +42,15 @@ use crate::{
     OrderRequest, OrderStateChange,
 };
 use alloy::{
+    consensus::proofs::calculate_receipt_root,
     eips::{BlockId, BlockNumberOrTag},
     network::{AnyNetwork, AnyTransactionReceipt, Ethereum},
-    primitives::Address,
+    primitives::{Address, B256},
     providers::{utils::EIP1559_FEE_ESTIMATION_PAST_BLOCKS, Provider},
     rpc::types::{Filter, Log},
     sol_types::SolEvent,
 };
+use alloy_consensus_any::AnyReceiptEnvelope;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use boundless_market::{
@@ -63,6 +65,9 @@ use tokio_util::sync::CancellationToken;
 pub enum L1MonitorErr {
     #[error("{code} RPC error: {0:#}", code = self.code())]
     RpcErr(anyhow::Error),
+
+    #[error("{code} Receipts root mismatch: {0:#}", code = self.code())]
+    ReceiptsMismatch(anyhow::Error),
 
     #[allow(dead_code)]
     #[error("{code} Log processing failed: {0:#}", code = self.code())]
@@ -82,6 +87,7 @@ impl CodedError for L1MonitorErr {
     fn code(&self) -> &str {
         match self {
             L1MonitorErr::RpcErr(_) => "[B-L1M-400]",
+            L1MonitorErr::ReceiptsMismatch(_) => "[B-L1M-401]",
             L1MonitorErr::LogProcessingFailed(_) => "[B-L1M-501]",
             L1MonitorErr::UnexpectedErr(_) => "[B-L1M-500]",
             L1MonitorErr::ReceiverDropped => "[B-L1M-502]",
@@ -381,30 +387,36 @@ where
 
                     // Walk every new block and process its receipts.
                     for block_num in (last_processed + 1)..=latest_number {
-                        // Fetch the block header to get base_fee_per_gas for gas estimation.
+                        // Fetch the block header to get base_fee_per_gas (for gas estimation) and
+                        // receipts_root (for receipt integrity verification).
                         // Reuse the already-fetched latest block in the common case (0 extra RPCs).
-                        let base_fee_per_gas = if block_num == latest_number {
-                            latest_block.header.base_fee_per_gas.map(|f| f as u128)
-                        } else {
-                            retry(3, 500, || async {
-                                match self
-                                    .provider
-                                    .get_block_by_number(BlockNumberOrTag::Number(block_num))
-                                    .await
-                                {
-                                    Ok(Some(b)) => {
-                                        Ok(b.header.base_fee_per_gas.map(|f| f as u128))
+                        let (base_fee_per_gas, receipts_root): (Option<u128>, B256) =
+                            if block_num == latest_number {
+                                (
+                                    latest_block.header.base_fee_per_gas.map(|f| f as u128),
+                                    latest_block.header.receipts_root,
+                                )
+                            } else {
+                                retry(3, 500, || async {
+                                    match self
+                                        .provider
+                                        .get_block_by_number(BlockNumberOrTag::Number(block_num))
+                                        .await
+                                    {
+                                        Ok(Some(b)) => Ok((
+                                            b.header.base_fee_per_gas.map(|f| f as u128),
+                                            b.header.receipts_root,
+                                        )),
+                                        Ok(None) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                            "No block returned for {block_num}"
+                                        ))),
+                                        Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                            "Failed to get block header for {block_num}: {e:#}"
+                                        ))),
                                     }
-                                    Ok(None) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                        "No block returned for {block_num}"
-                                    ))),
-                                    Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                        "Failed to get block header for {block_num}: {e:#}"
-                                    ))),
-                                }
-                            }, "get_block_by_number")
-                            .await?
-                        };
+                                }, "get_block_by_number")
+                                .await?
+                            };
 
                         let receipts = retry(3, 500, || async {
                             let block_id = BlockId::Number(block_num.into());
@@ -421,6 +433,26 @@ where
                         .await?;
 
                         tracing::debug!("Fetched {} receipts for block {block_num}", receipts.len());
+
+                        // Verify the receipts match the block header commitment.
+                        // This cryptographically ensures the integrity of the receipts
+                        // and makes sure we process all market logs.
+                        let envelopes: Vec<AnyReceiptEnvelope> = receipts
+                            .iter()
+                            .map(|r| {
+                                let env = &r.inner.inner;
+                                AnyReceiptEnvelope {
+                                    inner: env.inner.clone().into_primitives_receipt(),
+                                    r#type: env.r#type,
+                                }
+                            })
+                            .collect();
+                        let computed_root = calculate_receipt_root(&envelopes);
+                        if computed_root != receipts_root {
+                            return Err(L1MonitorErr::ReceiptsMismatch(anyhow::anyhow!(
+                                "block {block_num}: expected {receipts_root}, got {computed_root}"
+                            )));
+                        }
 
                         self.process_block_receipts(&receipts, block_num).await?;
 
