@@ -76,6 +76,10 @@ pub use input::{GuestEnv, GuestEnvBuilder};
 #[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;
 
+/// Telemetry types shared between the broker and order-stream.
+#[cfg(not(target_os = "zkvm"))]
+pub mod telemetry;
+
 #[cfg(not(target_os = "zkvm"))]
 /// A ProviderLayer module for managing nonces with semaphores.
 pub mod nonce_layer;
