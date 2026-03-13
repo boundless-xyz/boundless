@@ -83,5 +83,5 @@ rand = { workspace = true }
 risc0-groth16 = { workspace = true, features = ["prove"] }
 risc0-zkvm = { workspace = true, features = ["std"] }
 test-log = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["full", "test-util"] }
 tracing-test = { workspace = true }

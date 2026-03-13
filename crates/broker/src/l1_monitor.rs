@@ -114,6 +114,10 @@ pub(crate) struct L1Monitor<P, ANP> {
     head_block_number: Arc<AtomicU64>,
     head_block_timestamp: Arc<AtomicU64>,
     open_orders_found: Arc<AtomicBool>,
+    /// Tracks the last block whose gas price and receipts were fully processed.
+    /// Separate from `head_block_number` (chain head) so that on Supervisor restart,
+    /// the monitor resumes from the last successfully processed block, not the chain head.
+    last_processed_block: Arc<AtomicU64>,
 
     gas_priority_mode: Arc<RwLock<PriorityMode>>,
     /// Ring buffer of recent block fee data for local EIP-1559 gas estimation.
@@ -212,6 +216,7 @@ where
             head_block_number: Arc::new(AtomicU64::new(initial_number)),
             head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
             open_orders_found: Arc::new(AtomicBool::new(false)),
+            last_processed_block: Arc::new(AtomicU64::new(initial_number)),
             gas_priority_mode,
             block_history: Arc::new(RwLock::new(block_history)),
             gas_price: Arc::new(RwLock::new(initial_gas_price)),
@@ -221,6 +226,16 @@ where
     /// Returns the sampled block time (in seconds) from construction.
     pub(crate) fn block_time(&self) -> u64 {
         self.block_time
+    }
+
+    #[cfg(test)]
+    fn head_block(&self) -> u64 {
+        self.head_block_number.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    fn last_processed(&self) -> u64 {
+        self.last_processed_block.load(Ordering::Relaxed)
     }
 
     /// Walk `start_block..=end_block` using `get_logs`, automatically discovering the maximum
@@ -307,15 +322,24 @@ where
         Ok(())
     }
 
+    /// NOTE: This implementation assumes no chain reorgs (safe for OP Stack L2s with
+    /// sequencer finality). On L1 Ethereum a reorg could cause the chain head to regress,
+    /// and blocks on the new fork would be missed. L1 deployment would require block-hash
+    /// tracking and reorg detection.
     async fn monitor_l1(&self, cancel_token: CancellationToken) -> Result<(), L1MonitorErr> {
-        let mut last_processed = self.head_block_number.load(Ordering::Relaxed);
+        // Initialise the processing cursor from `last_processed_block` (not `head_block_number`).
+        // On Supervisor restart after a mid-batch RPC failure, this resumes from the last
+        // successfully processed block rather than from the (already-updated) chain head.
+        let mut last_processed = self.last_processed_block.load(Ordering::Relaxed);
         let mut interval = tokio::time::interval(self.poll_interval);
 
         tracing::info!("L1Monitor polling loop started at block {last_processed}");
 
         loop {
             tokio::select! {
+                biased;
                 _ = interval.tick() => {
+                    tracing::info!("L1Monitor poll interval tick");
                     let latest_block = match self
                         .provider
                         .get_block_by_number(BlockNumberOrTag::Latest)
@@ -335,6 +359,15 @@ where
 
                     let latest_number = latest_block.header.number;
                     let latest_timestamp = latest_block.header.timestamp;
+
+                    if latest_number <= self.head_block_number.load(Ordering::Relaxed) {
+                        tracing::debug!(
+                            "Polling: latest block {latest_number} not ahead of current head {}, skipping",
+                            self.head_block_number.load(Ordering::Relaxed)
+                        );
+                        continue;
+                    }
+
                     self.head_block_number.store(latest_number, Ordering::Relaxed);
                     self.head_block_timestamp.store(latest_timestamp, Ordering::Relaxed);
 
@@ -393,6 +426,8 @@ where
 
                         tracing::debug!("Fetched {} receipts for block {block_num}", receipts.len());
 
+                        self.process_block_receipts(&receipts, block_num).await?;
+
                         // Extract priority fees and update gas estimate.
                         let priority_fees: Vec<u128> = match base_fee_per_gas {
                             Some(bf) => receipts
@@ -425,17 +460,11 @@ where
                             *self.gas_price.write().await = gp;
                         }
 
-                        if let Err(e) = self
-                            .process_block_receipts(receipts, block_num)
-                            .await
-                        {
-                            tracing::error!(
-                                "Error processing receipts for block {block_num}: {e:?}"
-                            );
-                        }
+                        // Advance the processing cursor *after* successful completion of this
+                        // block so that a Supervisor restart resumes from here.
+                        self.last_processed_block.store(block_num, Ordering::Relaxed);
+                        last_processed = block_num;
                     }
-
-                    last_processed = latest_number;
                 }
                 _ = cancel_token.cancelled() => {
                     tracing::info!("L1Monitor received cancellation, shutting down");
@@ -450,7 +479,7 @@ where
     /// Iterate all logs in `receipts`, filter by market address, decode and dispatch.
     async fn process_block_receipts(
         &self,
-        receipts: Vec<AnyTransactionReceipt>,
+        receipts: &Vec<AnyTransactionReceipt>,
         block_number: u64,
     ) -> Result<()> {
         let receipts_len = receipts.len();
@@ -572,5 +601,141 @@ where
 
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::rpc::types::BlockTransactions;
+    use alloy::{
+        consensus::Header as ConsensusHeader,
+        network::AnyNetwork,
+        primitives::Address,
+        providers::{utils::EIP1559_FEE_ESTIMATION_PAST_BLOCKS, ProviderBuilder},
+        rpc::types::{Block, Header as RpcHeader},
+        transports::mock::Asserter,
+    };
+    use boundless_market::dynamic_gas_filler::PriorityMode;
+    use std::time::Duration;
+    use tokio::sync::{broadcast, mpsc, RwLock};
+    use tracing_test::traced_test;
+
+    use crate::db::SqliteDb;
+
+    /// Constructs a minimal `Block` with given number, timestamp, and EIP-1559 base fee.
+    fn make_block(number: u64, timestamp: u64, base_fee: Option<u64>) -> Block {
+        Block::new(
+            RpcHeader::new(ConsensusHeader {
+                number,
+                timestamp,
+                base_fee_per_gas: base_fee,
+                ..Default::default()
+            }),
+            BlockTransactions::default(),
+        )
+    }
+
+    /// Push all RPC responses needed by `L1Monitor::new()` for an initial chain head at
+    /// `initial_number`.  History blocks get timestamps `n * 2` so that block_time ≈ 2 s,
+    /// which the tests then skip with `tokio::time::advance`.
+    fn push_new_responses(eth: &Asserter, initial_number: u64) {
+        // 1. get_block_by_number(Latest)
+        eth.push_success(&Some(make_block(
+            initial_number,
+            initial_number * 2,
+            Some(1_000_000_000),
+        )));
+        // 2. History loop: blocks sample_start..initial_number
+        let sample_start = initial_number.saturating_sub(EIP1559_FEE_ESTIMATION_PAST_BLOCKS);
+        for n in sample_start..initial_number {
+            eth.push_success(&Some(make_block(n, n * 2, Some(1_000_000_000))));
+        }
+    }
+
+    /// Creates an `L1Monitor` backed by mock Asserter providers.
+    async fn make_monitor(
+        eth: Asserter,
+        any: Asserter,
+    ) -> L1Monitor<
+        impl Provider<Ethereum> + Clone + 'static,
+        impl Provider<AnyNetwork> + Clone + 'static,
+    > {
+        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(eth));
+        let any_provider =
+            Arc::new(ProviderBuilder::new().network::<AnyNetwork>().connect_mocked_client(any));
+
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let (new_order_tx, _rx) = mpsc::channel(16);
+        let (order_state_tx, _) = broadcast::channel(16);
+        let gas_priority_mode = Arc::new(RwLock::new(PriorityMode::default()));
+
+        L1Monitor::new(
+            db,
+            provider,
+            any_provider,
+            Address::ZERO,
+            Address::ZERO,
+            10, // lookback_blocks
+            1,  // chain_id
+            new_order_tx,
+            order_state_tx,
+            gas_priority_mode,
+        )
+        .await
+        .expect("L1Monitor::new should succeed with valid mock responses")
+    }
+
+    /// Verifies that when `get_block_receipts` fails mid-batch:
+    /// 1. The processing cursor (`last_processed_block`) stops at the last successful block.
+    /// 2. On the next run (simulating a Supervisor restart) the failed block is retried, and
+    ///    subsequent blocks are also processed.
+    ///
+    /// BUG (before fix): `last_processed_block` is never updated, so on Supervisor restart
+    /// `last_processed` is read from `head_block_number` (eagerly set to `latest = 13`),
+    /// permanently skipping block 13.
+    ///
+    /// FIX (after fix): `last_processed_block` stops at 12 after the round-1 failure, so
+    /// round 2 resumes from 12 and correctly processes blocks 13 (retry) and 14.
+    #[traced_test]
+    #[tokio::test]
+    async fn progress_not_lost_on_receipt_rpc_failure() {
+        let eth = Asserter::new();
+        let any = Asserter::new();
+
+        // Setup for L1Monitor::new() with chain head at block 10
+        push_new_responses(&eth, 10);
+
+        // Create the monitor BEFORE pausing time — the DB initialises internal pool
+        // timers that must not be frozen before they complete.
+        let monitor = make_monitor(eth.clone(), any.clone()).await;
+
+        tokio::time::pause(); // Freeze time so we can advance it manually
+        assert_eq!(monitor.head_block(), 10);
+        assert_eq!(monitor.last_processed(), 10);
+
+        // ── Round 1: latest = 13; blocks 11 and 12 succeed, block 13 fails ──────────────────
+        eth.push_success(&Some(make_block(13, 26, Some(1_000_000_000)))); // Latest
+        eth.push_success(&Some(make_block(11, 22, Some(1_000_000_000)))); // block 11 header (not latest)
+        any.push_success(&Some(Vec::<AnyTransactionReceipt>::new())); // block 11 receipts OK
+        eth.push_success(&Some(make_block(12, 24, Some(1_000_000_000)))); // block 12 header (not latest)
+        any.push_success(&Some(Vec::<AnyTransactionReceipt>::new())); // block 12 receipts OK
+                                                                      // Block 13 == latest: base_fee reused from latest_block, only receipts needed
+        any.push_failure_msg("simulated RPC failure for block 13 receipts"); // block 13 FAIL
+
+        let monitor_r1 = monitor.clone();
+        let round1 =
+            tokio::spawn(async move { monitor_r1.monitor_l1(CancellationToken::new()).await });
+
+        tokio::time::advance(Duration::from_secs(3)).await; // trigger the ~2 s poll_interval
+        let result = round1.await.expect("task should not panic");
+
+        assert!(result.is_err(), "monitor_l1 should return Err when get_block_receipts fails");
+        assert_eq!(monitor.head_block(), 13, "head_block_number should reflect chain head");
+        assert_eq!(
+            monitor.last_processed(),
+            12,
+            "processing cursor must stop at last successful block (12), not chain head (13)"
+        );
     }
 }
