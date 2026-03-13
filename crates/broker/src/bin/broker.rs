@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
 use alloy::transports::http::reqwest;
 use alloy::{
     network::AnyNetwork,
@@ -36,6 +35,7 @@ use broker::{
     sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
 };
 use clap::Parser;
+use std::time::Duration;
 use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;

@@ -26,11 +26,14 @@ pub struct CustomRetryPolicy;
 /// Extends the default `RateLimitRetryPolicy` with additional retryable cases:
 /// - OS error 104 / connection reset by peer
 ///   https://github.com/boundless-xyz/boundless/issues/240
-/// - HTTP 408 (Request Timeout), 500 (Internal Server Error), 502 (Bad Gateway),
+/// - HTTP 408 (Request Timeout), 410 (Gone — pruned block, may be available on another
+///   endpoint via SequentialFallbackLayer), 500 (Internal Server Error), 502 (Bad Gateway),
 ///   504 (Gateway Timeout) — standard transient HTTP errors not covered by alloy
 /// - JSON-RPC -32601 (Method Not Supported) — transient with aggregating providers
 ///   like dRPC that fan out to multiple backends; retrying may hit a capable backend
 /// - JSON-RPC -32603 (Internal Error) — standard code used for transient server failures
+/// - Deserialization errors — truncated RPC responses (e.g. "EOF while parsing"); retrying
+///   typically returns a complete response
 impl RetryPolicy for CustomRetryPolicy {
     fn should_retry(&self, error: &TransportError) -> bool {
         let should_retry = match error {
@@ -42,11 +45,12 @@ impl RetryPolicy for CustomRetryPolicy {
                     || err_debug_str.contains("operation timed out")
             }
             TransportError::Transport(TransportErrorKind::HttpError(err)) => {
-                matches!(err.status, 408 | 500 | 502 | 504)
+                matches!(err.status, 408 | 410 | 500 | 502 | 504)
             }
             TransportError::ErrorResp(err) => {
                 matches!(err.code, -32601 | -32603)
             }
+            TransportError::DeserError { .. } => true,
             _ => false,
         };
         should_retry || RateLimitRetryPolicy::default().should_retry(error)
@@ -162,5 +166,17 @@ mod tests {
     #[test]
     fn does_not_retry_jsonrpc_minus_32600() {
         assert!(!CustomRetryPolicy.should_retry(&jsonrpc_error(-32600)));
+    }
+
+    #[test]
+    fn retries_on_http_410() {
+        assert!(CustomRetryPolicy.should_retry(&http_error(410)));
+    }
+
+    #[test]
+    fn retries_on_deser_error() {
+        let err = serde_json::from_str::<serde_json::Value>("").unwrap_err();
+        let error = RpcError::DeserError { err, text: String::new() };
+        assert!(CustomRetryPolicy.should_retry(&error));
     }
 }
