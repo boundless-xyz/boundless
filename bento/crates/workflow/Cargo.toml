@@ -31,7 +31,7 @@ prometheus = { workspace = true }
 prometheus_exporter = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true, features = ["tokio-rustls-comp", "tokio-comp"] }
-reqwest = { version = "0.12" }
+reqwest = { version = "0.12", features = ["gzip"] }
 risc0-binfmt = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = false, features = [
     "prove",

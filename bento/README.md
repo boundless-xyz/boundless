@@ -146,17 +146,19 @@ Example RISC Zero guest programs and methods for testing and development.
 
 1. **Set environment variables**
    ```bash
+   ```
+
 export REDIS_URL="redis://localhost:6379"
 export STORAGE_DIR="./data/object_store"
 export BENTO_API_URL="http://localhost:8081"
 export RISC0_DEV_MODE=true
-   ```
 
+````
 2. **Build and test**
-   ```bash
-   cargo build
-   cargo test --workspace
-   ```
+```bash
+cargo build
+cargo test --workspace
+````
 
 ## 📖 Usage
 
@@ -264,11 +266,11 @@ When POVW is enabled:
 
 ### Environment Variables
 
-| Variable         | Description                  | Default                 |
-| ---------------- | ---------------------------- | ----------------------- |
-| `REDIS_URL`      | Redis connection string      | Required                |
-| `RISC0_DEV_MODE` | Enable development mode      | `false`                 |
-| `POVW_LOG_ID`    | POVW log identifier          | Required to enable POVW |
+| Variable         | Description             | Default                 |
+| ---------------- | ----------------------- | ----------------------- |
+| `REDIS_URL`      | Redis connection string | Required                |
+| `RISC0_DEV_MODE` | Enable development mode | `false`                 |
+| `POVW_LOG_ID`    | POVW log identifier     | Required to enable POVW |
 
 ### Agent Configuration
 

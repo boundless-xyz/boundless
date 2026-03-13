@@ -1346,6 +1346,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
         .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .with_state(state)
+        .layer(tower_http::compression::CompressionLayer::new())
 }
 
 pub async fn run(args: &Args) -> Result<()> {

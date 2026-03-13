@@ -71,7 +71,11 @@ impl ApiClient {
         }
         Url::parse(&base_url).with_context(|| format!("Failed to parse API URL: {base_url}"))?;
 
-        Ok(Self { base_url, client: Client::new() })
+        let client = Client::builder()
+            .gzip(true)
+            .build()
+            .context("Failed to build API HTTP client")?;
+        Ok(Self { base_url, client })
     }
 
     fn asset_url(&self, key: &str) -> Result<String> {
