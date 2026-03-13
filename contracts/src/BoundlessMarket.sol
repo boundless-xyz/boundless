@@ -42,6 +42,13 @@ import {FulfillmentContext, FulfillmentContextLibrary} from "./types/Fulfillment
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "./libraries/MerkleProofish.sol";
 
+error InvalidVerifier();
+error InvalidApplicationVerifier();
+error InvalidAssessorImage();
+error InvalidDeprecatedAssessorImage();
+error InvalidCollateralToken();
+error InvalidInitialOwner();
+
 contract BoundlessMarket is
     IBoundlessMarket,
     Initializable,
@@ -132,12 +139,22 @@ contract BoundlessMarket is
         address collateralTokenContract
     ) {
         // Validate non-zero critical params
-        require(address(verifier) != address(0), "Invalid verifier");
-        require(address(applicationVerifier) != address(0), "Invalid application verifier");
-        require(assessorId != bytes32(0), "Invalid assessor image");
-        require(collateralTokenContract != address(0), "Invalid collateral token");
+        if (address(verifier) == address(0)) {
+            revert InvalidVerifier();
+        }
+        if (address(applicationVerifier) == address(0)) {
+            revert InvalidApplicationVerifier();
+        }
+        if (assessorId == bytes32(0)) {
+            revert InvalidAssessorImage();
+        }
+        if (collateralTokenContract == address(0)) {
+            revert InvalidCollateralToken();
+        }
         if (deprecatedAssessorDuration > 0) {
-            require(deprecatedAssessorId != bytes32(0), "Invalid deprecated assessor image");
+            if (deprecatedAssessorId == bytes32(0)) {
+                revert InvalidDeprecatedAssessorImage();
+            }
         }
 
         VERIFIER = verifier;
@@ -151,7 +168,9 @@ contract BoundlessMarket is
     }
 
     function initialize(address initialOwner, string calldata _imageUrl) external initializer {
-        require(initialOwner != address(0), "Invalid initial owner");
+        if (initialOwner == address(0)) {
+            revert InvalidInitialOwner();
+        }
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
@@ -830,20 +849,33 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function depositCollateral(uint256 value) external {
         // Transfer tokens from user to market
-        _depositCollateral(msg.sender, value);
+        _depositCollateral(msg.sender, msg.sender, value);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function depositCollateralTo(address to, uint256 value) external {
+        _depositCollateral(msg.sender, to, value);
     }
 
     /// @inheritdoc IBoundlessMarket
     function depositCollateralWithPermit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         // Transfer tokens from user to market
         try ERC20(COLLATERAL_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
-        _depositCollateral(msg.sender, value);
+        _depositCollateral(msg.sender, msg.sender, value);
     }
 
-    function _depositCollateral(address from, uint256 value) internal {
+    /// @inheritdoc IBoundlessMarket
+    function depositCollateralWithPermitTo(address to, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+    {
+        try ERC20(COLLATERAL_TOKEN_CONTRACT).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
+        _depositCollateral(msg.sender, to, value);
+    }
+
+    function _depositCollateral(address from, address to, uint256 value) internal {
         ERC20(COLLATERAL_TOKEN_CONTRACT).safeTransferFrom(from, address(this), value);
-        accounts[from].collateralBalance += value.toUint96();
-        emit CollateralDeposit(from, value);
+        accounts[to].collateralBalance += value.toUint96();
+        emit CollateralDeposit(to, value);
     }
 
     /// @inheritdoc IBoundlessMarket
