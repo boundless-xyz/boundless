@@ -26,6 +26,7 @@ use std::{
     time::Duration,
 };
 
+use crate::futures_retry::retry;
 use crate::market_monitor::process_new_logs;
 use crate::{
     block_history::{BlockHistory, BlockHistoryEntry},
@@ -385,44 +386,39 @@ where
                         let base_fee_per_gas = if block_num == latest_number {
                             latest_block.header.base_fee_per_gas.map(|f| f as u128)
                         } else {
-                            match self
-                                .provider
-                                .get_block_by_number(BlockNumberOrTag::Number(block_num))
-                                .await
-                            {
-                                Ok(Some(b)) => b.header.base_fee_per_gas.map(|f| f as u128),
-                                Ok(None) => {
-                                    tracing::warn!("No block returned for {block_num}");
-                                    None
-                                }
-                                Err(e) => {
-                                    return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                            retry(3, 500, || async {
+                                match self
+                                    .provider
+                                    .get_block_by_number(BlockNumberOrTag::Number(block_num))
+                                    .await
+                                {
+                                    Ok(Some(b)) => {
+                                        Ok(b.header.base_fee_per_gas.map(|f| f as u128))
+                                    }
+                                    Ok(None) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                        "No block returned for {block_num}"
+                                    ))),
+                                    Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
                                         "Failed to get block header for {block_num}: {e:#}"
-                                    )));
+                                    ))),
                                 }
-                            }
+                            }, "get_block_by_number")
+                            .await?
                         };
 
-                        let block_id = BlockId::Number(block_num.into());
-                        let receipts = match self
-                            .any_provider
-                            .get_block_receipts(block_id)
-                            .await
-                        {
-                            Ok(Some(receipts)) => receipts,
-                            Ok(None) => {
-                                return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                        let receipts = retry(3, 500, || async {
+                            let block_id = BlockId::Number(block_num.into());
+                            match self.any_provider.get_block_receipts(block_id).await {
+                                Ok(Some(r)) => Ok(r),
+                                Ok(None) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
                                     "No receipts returned for block {block_num}"
-                                )));
+                                ))),
+                                Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                    "Failed to get block receipts for {block_num}: {e:#}"
+                                ))),
                             }
-                            Err(e) => {
-                                return Err(L1MonitorErr::RpcErr(
-                                    anyhow::anyhow!(
-                                        "Failed to get block receipts for {block_num}: {e:#}"
-                                    ),
-                                ));
-                            }
-                        };
+                        }, "get_block_receipts")
+                        .await?;
 
                         tracing::debug!("Fetched {} receipts for block {block_num}", receipts.len());
 
