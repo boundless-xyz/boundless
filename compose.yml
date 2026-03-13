@@ -14,6 +14,7 @@ x-base-environment:
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
+  BENTO_API_URL: ${BENTO_API_URL:-http://rest_api:8081}
 # Agent and rest_api use env vars only (no positional DATABASE_URL/S3_* args).
 # Default to source-built images; set AGENT_DOCKERFILE/REST_API_DOCKERFILE to *prebuilt* and BENTO_BINARY_URL to use a release bundle.
 x-agent-common: &agent-common
