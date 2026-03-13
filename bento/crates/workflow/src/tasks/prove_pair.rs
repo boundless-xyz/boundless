@@ -8,7 +8,10 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
+use risc0_zkvm::{
+    ProverOpts, ReceiptClaim, SegmentReceipt, SuccinctReceipt, VerifierContext, WorkClaim,
+    get_prover_server,
+};
 use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{ProvePairReq, metrics::helpers};
@@ -26,6 +29,44 @@ where
     let left = left.map_err(Into::into).context(left_ctx.as_ref().to_string())?;
     let right = right.map_err(Into::into).context(right_ctx.as_ref().to_string())?;
     Ok((left, right))
+}
+
+fn lift_receipt_in_worker(
+    receipt: SegmentReceipt,
+    prover_init_ctx: &'static str,
+    segment_verify_ctx: &'static str,
+    lift_ctx: &'static str,
+    lift_verify_ctx: &'static str,
+) -> Result<SuccinctReceipt<ReceiptClaim>> {
+    let verifier_ctx = VerifierContext::default();
+
+    receipt.verify_integrity_with_context(&verifier_ctx).context(segment_verify_ctx)?;
+
+    // The shared Agent prover is an Rc, so each blocking worker constructs its own local prover.
+    let prover = get_prover_server(&ProverOpts::default()).context(prover_init_ctx)?;
+    let lifted = prover.lift(&receipt).context(lift_ctx)?;
+    lifted.verify_integrity_with_context(&verifier_ctx).context(lift_verify_ctx)?;
+
+    Ok(lifted)
+}
+
+fn lift_povw_receipt_in_worker(
+    receipt: SegmentReceipt,
+    prover_init_ctx: &'static str,
+    segment_verify_ctx: &'static str,
+    lift_ctx: &'static str,
+    lift_verify_ctx: &'static str,
+) -> Result<SuccinctReceipt<WorkClaim<ReceiptClaim>>> {
+    let verifier_ctx = VerifierContext::default();
+
+    receipt.verify_integrity_with_context(&verifier_ctx).context(segment_verify_ctx)?;
+
+    // The shared Agent prover is an Rc, so each blocking worker constructs its own local prover.
+    let prover = get_prover_server(&ProverOpts::default()).context(prover_init_ctx)?;
+    let lifted = prover.lift_povw(&receipt).context(lift_ctx)?;
+    lifted.verify_integrity_with_context(&verifier_ctx).context(lift_verify_ctx)?;
+
+    Ok(lifted)
 }
 
 /// Run prove+lift+join for two adjoining segments in one task.
@@ -80,40 +121,42 @@ pub async fn prover_pair(
         "success",
         prove_start.elapsed().as_secs_f64(),
     );
-
-    both_with_context(
-        receipt_left.verify_integrity_with_context(&agent.verifier_ctx),
-        receipt_right.verify_integrity_with_context(&agent.verifier_ctx),
-        "[BENTO-PROVEPAIR-004] Left segment receipt verify failed",
-        "[BENTO-PROVEPAIR-005] Right segment receipt verify failed",
-    )?;
+    agent.start_work_prefetch();
 
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
 
     if agent.is_povw_enabled() {
         let lift_start = Instant::now();
-        let (lift_left, lift_right): (
-            SuccinctReceipt<WorkClaim<ReceiptClaim>>,
-            SuccinctReceipt<WorkClaim<ReceiptClaim>>,
-        ) = both_with_context(
-            prover.lift_povw(&receipt_left),
-            prover.lift_povw(&receipt_right),
-            "[BENTO-PROVEPAIR-006] Left lift_povw failed",
-            "[BENTO-PROVEPAIR-007] Right lift_povw failed",
-        )?;
+        let (lift_left_res, lift_right_res) = tokio::join!(
+            tokio::task::spawn_blocking(move || {
+                lift_povw_receipt_in_worker(
+                    receipt_left,
+                    "[BENTO-PROVEPAIR-018] Left post-process prover init failed",
+                    "[BENTO-PROVEPAIR-004] Left segment receipt verify failed",
+                    "[BENTO-PROVEPAIR-006] Left lift_povw failed",
+                    "[BENTO-PROVEPAIR-008] Left lift verify failed",
+                )
+            }),
+            tokio::task::spawn_blocking(move || {
+                lift_povw_receipt_in_worker(
+                    receipt_right,
+                    "[BENTO-PROVEPAIR-019] Right post-process prover init failed",
+                    "[BENTO-PROVEPAIR-005] Right segment receipt verify failed",
+                    "[BENTO-PROVEPAIR-007] Right lift_povw failed",
+                    "[BENTO-PROVEPAIR-009] Right lift verify failed",
+                )
+            }),
+        );
+        let lift_left =
+            lift_left_res.context("[BENTO-PROVEPAIR-020] Left post-process worker failed")??;
+        let lift_right =
+            lift_right_res.context("[BENTO-PROVEPAIR-021] Right post-process worker failed")??;
         helpers::record_task_operation(
             "prove_pair",
             "lift_povw",
             "success",
             lift_start.elapsed().as_secs_f64(),
         );
-
-        both_with_context(
-            lift_left.verify_integrity_with_context(&agent.verifier_ctx),
-            lift_right.verify_integrity_with_context(&agent.verifier_ctx),
-            "[BENTO-PROVEPAIR-008] Left lift verify failed",
-            "[BENTO-PROVEPAIR-009] Right lift verify failed",
-        )?;
 
         let join_start = Instant::now();
         let joined = prover
@@ -138,28 +181,36 @@ pub async fn prover_pair(
             .context("Failed to write joined receipt")?;
     } else {
         let lift_start = Instant::now();
-        let (lift_left, lift_right): (
-            SuccinctReceipt<ReceiptClaim>,
-            SuccinctReceipt<ReceiptClaim>,
-        ) = both_with_context(
-            prover.lift(&receipt_left),
-            prover.lift(&receipt_right),
-            "[BENTO-PROVEPAIR-012] Left lift failed",
-            "[BENTO-PROVEPAIR-013] Right lift failed",
-        )?;
+        let (lift_left_res, lift_right_res) = tokio::join!(
+            tokio::task::spawn_blocking(move || {
+                lift_receipt_in_worker(
+                    receipt_left,
+                    "[BENTO-PROVEPAIR-018] Left post-process prover init failed",
+                    "[BENTO-PROVEPAIR-004] Left segment receipt verify failed",
+                    "[BENTO-PROVEPAIR-012] Left lift failed",
+                    "[BENTO-PROVEPAIR-014] Left lift verify failed",
+                )
+            }),
+            tokio::task::spawn_blocking(move || {
+                lift_receipt_in_worker(
+                    receipt_right,
+                    "[BENTO-PROVEPAIR-019] Right post-process prover init failed",
+                    "[BENTO-PROVEPAIR-005] Right segment receipt verify failed",
+                    "[BENTO-PROVEPAIR-013] Right lift failed",
+                    "[BENTO-PROVEPAIR-015] Right lift verify failed",
+                )
+            }),
+        );
+        let lift_left =
+            lift_left_res.context("[BENTO-PROVEPAIR-020] Left post-process worker failed")??;
+        let lift_right =
+            lift_right_res.context("[BENTO-PROVEPAIR-021] Right post-process worker failed")??;
         helpers::record_task_operation(
             "prove_pair",
             "lift",
             "success",
             lift_start.elapsed().as_secs_f64(),
         );
-
-        both_with_context(
-            lift_left.verify_integrity_with_context(&agent.verifier_ctx),
-            lift_right.verify_integrity_with_context(&agent.verifier_ctx),
-            "[BENTO-PROVEPAIR-014] Left lift verify failed",
-            "[BENTO-PROVEPAIR-015] Right lift verify failed",
-        )?;
 
         let join_start = Instant::now();
         let joined =

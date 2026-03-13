@@ -8,11 +8,11 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, deserialize_obj, read_image_id},
 };
 use anyhow::{Context, Result, bail};
-use std::time::Instant;
-use workflow_common::{FinalizeReq, metrics::helpers};
 use risc0_zkvm::{InnerReceipt, Receipt, ReceiptClaim, SuccinctReceipt};
+use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::s3::{RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR};
+use workflow_common::{FinalizeReq, metrics::helpers};
 
 /// Run finalize tasks / cleanup
 ///

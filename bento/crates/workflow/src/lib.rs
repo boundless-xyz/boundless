@@ -15,12 +15,12 @@ use std::{
     rc::Rc,
     str::FromStr,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
 use taskdb::{ReadyTask, TaskDb};
-use tokio::time;
+use tokio::{sync::oneshot, time};
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
 mod assets;
 mod redis;
@@ -30,6 +30,8 @@ pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
     SNARK_TIMEOUT_DEFAULT, SP1_WORK_TYPE, s3::S3Client,
 };
+
+type WorkPrefetchRx = oneshot::Receiver<Result<Option<ReadyTask>>>;
 
 fn uses_gpu_worker_api(task_stream: &str) -> bool {
     matches!(
@@ -194,9 +196,19 @@ pub struct Agent {
     prover: Option<Rc<dyn ProverServer>>,
     /// risc0 verifier context
     verifier_ctx: VerifierContext,
+    /// Single-slot prefetch for the next prove-stream task.
+    work_prefetch: Mutex<Option<WorkPrefetchRx>>,
 }
 
 impl Agent {
+    fn work_prefetch_slot(&self) -> std::sync::MutexGuard<'_, Option<WorkPrefetchRx>> {
+        self.work_prefetch.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn can_prefetch_work(&self) -> bool {
+        self.args.task_stream == PROVE_WORK_TYPE && uses_gpu_worker_api(&self.args.task_stream)
+    }
+
     /// Check if POVW is enabled for this agent instance
     pub fn is_povw_enabled(&self) -> bool {
         std::env::var("POVW_LOG_ID").is_ok()
@@ -283,10 +295,70 @@ impl Agent {
             args,
             prover,
             verifier_ctx,
+            work_prefetch: Mutex::new(None),
         })
     }
 
-    async fn request_work(&self) -> Result<Option<ReadyTask>> {
+    fn start_work_prefetch(&self) {
+        if !self.can_prefetch_work() {
+            return;
+        }
+
+        let mut prefetch = self.work_prefetch_slot();
+        if prefetch.is_some() {
+            return;
+        }
+
+        let (tx, rx) = oneshot::channel();
+        let api_client = self.api_client.clone();
+        let task_stream = self.args.task_stream.clone();
+        let poll_time = self.args.poll_time;
+        tracing::debug!("Starting background work prefetch for {}", task_stream);
+        tokio::spawn(async move {
+            let result = api_client
+                .claim_gpu_work(&task_stream, poll_time)
+                .await
+                .context("[BENTO-WF-105p] Failed to prefetch GPU work from API");
+            let _ = tx.send(result);
+        });
+        *prefetch = Some(rx);
+    }
+
+    async fn take_prefetched_work(&self) -> Result<Option<ReadyTask>> {
+        let Some(prefetch) = self.work_prefetch_slot().take() else {
+            return Ok(None);
+        };
+
+        match prefetch.await {
+            Ok(Ok(task)) => {
+                if let Some(task) = &task {
+                    tracing::debug!(
+                        "Using prefetched task {}:{} on stream {}",
+                        task.job_id,
+                        task.task_id,
+                        self.args.task_stream
+                    );
+                }
+                Ok(task)
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(
+                    "Background work prefetch failed for stream {}: {err:#}",
+                    self.args.task_stream
+                );
+                Ok(None)
+            }
+            Err(_) => {
+                tracing::debug!(
+                    "Background work prefetch was dropped before completion for stream {}",
+                    self.args.task_stream
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    async fn request_work_direct(&self) -> Result<Option<ReadyTask>> {
         if uses_gpu_worker_api(&self.args.task_stream) {
             self.api_client
                 .claim_gpu_work(&self.args.task_stream, self.args.poll_time)
@@ -298,6 +370,16 @@ impl Agent {
                 .await
                 .context("[BENTO-WF-107] Failed to request_work")
         }
+    }
+
+    async fn request_work(&self) -> Result<Option<ReadyTask>> {
+        if self.can_prefetch_work()
+            && let Some(task) = self.take_prefetched_work().await?
+        {
+            return Ok(Some(task));
+        }
+
+        self.request_work_direct().await
     }
 
     async fn update_task_done(

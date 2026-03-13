@@ -1082,4 +1082,3 @@ fn extract_job_id_from_meta_key(namespace: &str, key: &str) -> Result<Option<Uui
     let trimmed = &key[prefix.len()..key.len() - suffix.len()];
     Ok(Some(parse_uuid(trimmed, "job id")?))
 }
-
