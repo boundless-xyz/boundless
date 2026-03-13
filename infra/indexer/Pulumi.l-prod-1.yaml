@@ -23,3 +23,5 @@ config:
     secure: v1:Dgy+uSuiBgyEcb13:XtMKpSotMXWM3UnaY0RehuUKvF2IliQRxDQH0RgN4w==
   indexer:PROXY_SECRET:
     secure: v1:XI23aPoI5JDxRVxX:d/kVH9tdsDvqStiAF1FcH85bwIEzhmRtgrdrADcvHrWAC7hXbIBfzQ==
+  indexer:CI_CACHE_SECRET:
+    secure: v1:wJrYj6Ylog0/N0MZ:OOpGdH1EyPokcPYvxyX3nA0BIoSf7iz7Qx5bK62eL6p9xeuKx8Z9561YS6wo2BXJjvxF2SFTmb+YBkCN8J4kM3GwWKPkJK8I9ylBn+xogXlcNqxMbrxt2Q6HYNKJ8dn4e92NCH9RlRfuB+81daKYOZvawubpLmjodF/LIdF+RQ==
