@@ -149,6 +149,7 @@ where
     async fn make_request(&self, req: RequestPacket) -> Result<ResponsePacket, TransportError> {
         let request_num = self.request_counter.fetch_add(1, Ordering::Relaxed);
         let mut last_error = None;
+        let mut attempted_any = false;
 
         for tracked in self.transports.iter() {
             if !tracked.should_try(request_num) {
@@ -156,6 +157,7 @@ where
                 continue;
             }
 
+            attempted_any = true;
             let mut transport = tracked.transport.clone();
             match transport.call(req.clone()).await {
                 Ok(response) => {
@@ -176,6 +178,28 @@ where
                         "Transport failed, trying next"
                     );
                     last_error = Some(err);
+                }
+            }
+        }
+
+        // If all transports were in the skip window, retry the primary as a last resort
+        // so we never silently drop requests without attempting at least one transport.
+        if !attempted_any {
+            if let Some(primary) = self.transports.first() {
+                tracing::debug!(
+                    transport_id = primary.id,
+                    "All transports skipped, retrying primary as last resort"
+                );
+                let mut transport = primary.transport.clone();
+                match transport.call(req).await {
+                    Ok(response) => {
+                        primary.record_success();
+                        return Ok(response);
+                    }
+                    Err(err) => {
+                        primary.record_failure();
+                        last_error = Some(err);
+                    }
                 }
             }
         }
@@ -364,6 +388,31 @@ mod tests {
             primary.count(),
             primary_count_before + 1,
             "primary should be retried at RETRY_INTERVAL"
+        );
+    }
+
+    #[tokio::test]
+    async fn primary_always_tried_when_all_skipped() {
+        let primary = MockTransport::new(false);
+        let secondary = MockTransport::new(false);
+
+        let mut service = SequentialFallbackLayer.layer(vec![primary.clone(), secondary.clone()]);
+
+        // Exhaust both transports so both are skipped
+        for _ in 0..MAX_CONSECUTIVE_FAILURES {
+            let _ = service.call(dummy_request()).await;
+        }
+
+        let primary_count_before = primary.count();
+
+        // request_num 3: 3 % 10 != 0 → all transports are skipped.
+        // Primary should still be attempted as a last resort (not silently dropped).
+        let result = service.call(dummy_request()).await;
+        assert!(result.is_err(), "all transports fail so result should be Err");
+        assert_eq!(
+            primary.count(),
+            primary_count_before + 1,
+            "primary should always be tried even when skipped"
         );
     }
 }
