@@ -202,14 +202,18 @@ async fn main() -> Result<()> {
 /// Collect and parse all RPC URLs from args and environment variables
 /// Returns a deduplicated list of valid RPC URLs
 fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Vec<Url>> {
-    let mut all_rpc_urls = std::collections::HashSet::new();
+    // Use Vec to preserve insertion order: PROVER_RPC_URL is always inserted first,
+    // ensuring it lands at index 0 for the sequential fallback transport.
+    let mut all_rpc_urls: Vec<Url> = Vec::new();
 
     // Parse PROVER_RPC_URL (ignore if empty)
     if let Some(url_str) = rpc_url {
         if !url_str.is_empty() {
             let url =
                 Url::parse(&url_str).context("Invalid PROVER_RPC_URL environment variable")?;
-            all_rpc_urls.insert(url);
+            if !all_rpc_urls.contains(&url) {
+                all_rpc_urls.push(url);
+            }
         }
     }
 
@@ -219,7 +223,9 @@ fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Ve
         if !url_str.is_empty() {
             let url =
                 Url::parse(url_str).context("Invalid PROVER_RPC_URLS environment variable")?;
-            all_rpc_urls.insert(url);
+            if !all_rpc_urls.contains(&url) {
+                all_rpc_urls.push(url);
+            }
         }
     }
 
@@ -229,7 +235,7 @@ fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Ve
             if !legacy_rpc_url.is_empty() {
                 let url =
                     Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
-                all_rpc_urls.insert(url);
+                all_rpc_urls.push(url);
                 tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
             }
         }
@@ -242,5 +248,39 @@ fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Ve
         );
     }
 
-    Ok(all_rpc_urls.into_iter().collect())
+    Ok(all_rpc_urls)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn primary_url_is_first() {
+        let result = collect_rpc_urls(
+            Some("http://primary.example.com".to_string()),
+            vec![
+                "http://secondary.example.com".to_string(),
+                "http://tertiary.example.com".to_string(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(result[0].as_str(), "http://primary.example.com/");
+    }
+
+    #[test]
+    fn deduplicates_urls() {
+        let result = collect_rpc_urls(
+            Some("http://node.example.com".to_string()),
+            vec!["http://node.example.com".to_string()],
+        )
+        .unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn errors_on_empty() {
+        let result = collect_rpc_urls(None, vec![]);
+        assert!(result.is_err());
+    }
 }
