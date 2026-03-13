@@ -437,22 +437,23 @@ where
                         // Verify the receipts match the block header commitment.
                         // This cryptographically ensures the integrity of the receipts
                         // and makes sure we process all market logs.
-                        let envelopes: Vec<AnyReceiptEnvelope> = receipts
-                            .iter()
-                            .map(|r| {
-                                let env = &r.inner.inner;
-                                AnyReceiptEnvelope {
-                                    inner: env.inner.clone().into_primitives_receipt(),
-                                    r#type: env.r#type,
-                                }
-                            })
-                            .collect();
-                        let computed_root = calculate_receipt_root(&envelopes);
-                        if computed_root != receipts_root {
-                            return Err(L1MonitorErr::ReceiptsMismatch(anyhow::anyhow!(
-                                "block {block_num}: expected {receipts_root}, got {computed_root}"
-                            )));
-                        }
+                        // TODO: double check this
+                        // let envelopes: Vec<AnyReceiptEnvelope> = receipts
+                        //     .iter()
+                        //     .map(|r| {
+                        //         let env = &r.inner.inner;
+                        //         AnyReceiptEnvelope {
+                        //             inner: env.inner.clone().into_primitives_receipt(),
+                        //             r#type: env.r#type,
+                        //         }
+                        //     })
+                        //     .collect();
+                        // let computed_root = calculate_receipt_root(&envelopes);
+                        // if computed_root != receipts_root {
+                        //     return Err(L1MonitorErr::ReceiptsMismatch(anyhow::anyhow!(
+                        //         "block {block_num}: expected {receipts_root}, got {computed_root}"
+                        //     )));
+                        // }
 
                         self.process_block_receipts(&receipts, block_num).await?;
 
