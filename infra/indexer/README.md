@@ -243,3 +243,61 @@ aws lambda list-functions --query 'Functions[?contains(FunctionName, `redrive`)]
 ```
 
 Run `./scripts/trigger-redrive.sh --help` for all options.
+
+# Accessing the Database
+
+The Aurora database runs in private subnets within the VPC with no public IP or internet-facing ingress. Only resources inside the VPC (ECS tasks, Lambdas, the bastion) can reach it.
+
+To connect from your local machine, use the AWS CLI to start a session with our dedicated bastion instance in the VPC. Then port-forward so you can interact at localhost.
+
+## Prerequisites
+
+- AWS CLI v2 with the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+- Valid AWS credentials with SSM permissions
+
+## Get connection info
+
+```bash
+pulumi stack output bastionInstanceId   # e.g. i-0abc123...
+pulumi stack output readerEndpoint      # Aurora reader endpoint (read-only queries)
+pulumi stack output writerEndpoint      # Aurora writer endpoint (migrations, writes)
+```
+
+## Start a port-forward tunnel
+
+For read-only access (reader endpoint):
+
+```bash
+aws ssm start-session \
+  --target <bastion-instance-id> \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["<aurora-reader-endpoint>"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+```
+
+For write access / running migrations (writer endpoint):
+
+```bash
+aws ssm start-session \
+  --target <bastion-instance-id> \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["<aurora-writer-endpoint>"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+```
+
+It should say "Waiting for connections..."
+
+## Connect with psql
+
+With the tunnel running in another terminal:
+
+```bash
+psql "postgres://<user>:<password>@localhost:5432/indexerv19?sslmode=require"
+```
+
+## Database users
+
+| User       | Access                   | Password source                        | Use case                                  |
+| ---------- | ------------------------ | -------------------------------------- | ----------------------------------------- |
+| `indexer`  | Full read/write (master) | `RDS_PASSWORD` Pulumi config / env var | Migrations, schema changes, manual writes |
+| `readonly` | SELECT only              | Set when creating the role             | Day-to-day querying, dashboards           |
+
+The `readonly` user must be created manually. Connect as `indexer` to the writer endpoint and run `crates/indexer/migrations-manual/create_readonly_user.sql` (replace the placeholder password first).
