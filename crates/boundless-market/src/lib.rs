@@ -44,6 +44,9 @@ pub use client::{Client, StandardClient};
 /// Client module for interacting with the Boundless Indexer API.
 #[cfg(not(target_os = "zkvm"))]
 pub mod indexer_client;
+/// Shared data types for the Boundless Indexer market API.
+#[cfg(not(target_os = "zkvm"))]
+pub mod indexer_types;
 /// Test helpers for testing the Boundless Market.
 #[cfg(all(feature = "test-utils", not(target_os = "zkvm")))]
 pub mod test_helpers;
@@ -72,6 +75,10 @@ pub use input::{GuestEnv, GuestEnvBuilder};
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;
+
+/// Telemetry types shared between the broker and order-stream.
+#[cfg(not(target_os = "zkvm"))]
+pub mod telemetry;
 
 #[cfg(not(target_os = "zkvm"))]
 /// A ProviderLayer module for managing nonces with semaphores.
