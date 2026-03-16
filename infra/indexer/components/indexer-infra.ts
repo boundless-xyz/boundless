@@ -1,5 +1,6 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
+import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import * as crypto from 'crypto';
 
@@ -10,6 +11,11 @@ export interface IndexerInfraArgs {
   pubSubNetIds: pulumi.Output<string[]>;
   rdsPassword: pulumi.Output<string>;
   isDev: boolean;
+  ciCacheSecret?: pulumi.Output<string>;
+  githubTokenSecret?: pulumi.Output<string>;
+  dockerDir: string;
+  dockerTag: string;
+  dockerRemoteBuilder?: string;
 }
 
 export class IndexerShared extends pulumi.ComponentResource {
@@ -31,11 +37,12 @@ export class IndexerShared extends pulumi.ComponentResource {
   public readonly readerEndpoint: pulumi.Output<string>;
   public readonly writerEndpoint: pulumi.Output<string>;
   public readonly databaseVersion: string;
+  public readonly image: docker_build.Image;
 
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
 
-    const { vpcId, privSubNetIds, pubSubNetIds, rdsPassword, isDev } = args;
+    const { vpcId, privSubNetIds, pubSubNetIds, rdsPassword, isDev, ciCacheSecret, githubTokenSecret, dockerDir, dockerTag, dockerRemoteBuilder } = args;
     const serviceName = `${args.serviceName}-base`;
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
@@ -390,6 +397,32 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     this.bastionInstanceId = bastion.id;
 
+    let buildSecrets: Record<string, pulumi.Input<string>> = {};
+    if (ciCacheSecret !== undefined) {
+      buildSecrets = { ci_cache_creds: ciCacheSecret };
+    }
+    if (githubTokenSecret !== undefined) {
+      buildSecrets = { ...buildSecrets, githubTokenSecret };
+    }
+
+    this.image = new docker_build.Image(`${serviceName}-indexer-img-${databaseVersion}`, {
+      tags: [pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:indexer-${dockerTag}-${databaseVersion}`],
+      context: { location: dockerDir },
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: { location: `${dockerDir}/dockerfiles/indexer.dockerfile` },
+      builder: dockerRemoteBuilder ? { name: dockerRemoteBuilder } : undefined,
+      buildArgs: { S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache' },
+      secrets: buildSecrets,
+      cacheFrom: [{ registry: { ref: pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:cache` } }],
+      cacheTo: [{ registry: { mode: docker_build.CacheMode.Max, imageManifest: true, ociMediaTypes: true, ref: pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:cache` } }],
+      registries: [{
+        address: this.ecrRepository.repository.repositoryUrl,
+        password: this.ecrAuthToken.apply((authToken) => authToken.password),
+        username: this.ecrAuthToken.apply((authToken) => authToken.userName),
+      }],
+    }, { parent: this });
+
     this.registerOutputs({
       repositoryUrl: this.ecrRepository.repository.repositoryUrl,
       dbUrlSecretArn: this.dbUrlSecret.arn,
@@ -400,6 +433,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       bastionInstanceId: this.bastionInstanceId,
       readerEndpoint: this.readerEndpoint,
       writerEndpoint: this.writerEndpoint,
+      imageRef: this.image.ref,
     });
   }
 }
