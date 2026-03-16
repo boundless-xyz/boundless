@@ -1,7 +1,7 @@
 # Dockerfile for pre-built bento-agent binary
 # Usage: docker build -f dockerfiles/agent.prebuilt.dockerfile --build-arg BINARY_URL=<url> -t bento-agent:prebuilt .
 
-ARG CUDA_RUNTIME_IMG=nvidia/cuda:12.9.1-runtime-ubuntu24.04
+ARG CUDA_RUNTIME_IMG=nvidia/cuda:13.0.2-runtime-ubuntu24.04
 FROM ${CUDA_RUNTIME_IMG}
 
 ARG BINARY_URL
@@ -37,7 +37,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
 RUN curl -L https://risczero.com/install | bash && \
     /root/.risc0/bin/rzup install risc0-groth16 && \
     # Clean up any temporary files to reduce image size
-    rm -rf /tmp/* /var/tmp/*    
+    rm -rf /tmp/* /var/tmp/*
 
 # Download and extract BLAKE3 Groth16 artifacts.
 ARG BLAKE3_GROTH16_ARTIFACTS_URL
