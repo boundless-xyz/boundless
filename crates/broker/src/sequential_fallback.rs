@@ -34,8 +34,8 @@ use alloy::{
 };
 use tower::{Layer, Service};
 
-/// Number of consecutive failures before a transport is skipped. This number is fairly low
-/// as each transport is already wrapped within a retry layer, and we want to skip unhealthy transports quickly.
+/// Number of consecutive failures before a transport is skipped. When a transport fails this many
+/// times in a row, it is temporarily skipped to avoid wasting time on an unhealthy endpoint.
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 
 /// How often to retry a skipped transport (every N-th request).
@@ -235,8 +235,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, AtomicU32};
-    use tower::Layer;
+    use alloy::transports::layers::{RetryBackoffLayer, RetryPolicy};
+    use std::sync::{
+        atomic::{AtomicBool, AtomicU32},
+        Mutex,
+    };
+    use tower::{Layer, ServiceBuilder};
 
     fn dummy_request() -> RequestPacket {
         use alloy::rpc::json_rpc::{Id, Request};
@@ -413,6 +417,108 @@ mod tests {
             primary.count(),
             primary_count_before + 1,
             "primary should always be tried even when skipped"
+        );
+    }
+
+    // ── Integration test: retry wraps sequential fallback ────────────
+
+    /// A transport that fails for the first `fail_count` calls then succeeds,
+    /// appending its name to a shared call log on every call.
+    #[derive(Clone)]
+    struct FailNTransport {
+        name: &'static str,
+        call_count: Arc<AtomicU32>,
+        fail_count: u32,
+        call_log: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl FailNTransport {
+        fn new(
+            name: &'static str,
+            fail_count: u32,
+            call_log: Arc<Mutex<Vec<&'static str>>>,
+        ) -> Self {
+            Self { name, call_count: Arc::new(AtomicU32::new(0)), fail_count, call_log }
+        }
+
+        fn count(&self) -> u32 {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Service<RequestPacket> for FailNTransport {
+        type Response = ResponsePacket;
+        type Error = TransportError;
+        type Future = TransportFut<'static>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: RequestPacket) -> Self::Future {
+            let n = self.call_count.fetch_add(1, Ordering::SeqCst);
+            let should_fail = n < self.fail_count;
+            let name = self.name;
+            let call_log = self.call_log.clone();
+            Box::pin(async move {
+                call_log.lock().unwrap().push(name);
+                if should_fail {
+                    Err(TransportErrorKind::custom_str("mock failure"))
+                } else {
+                    Ok(mock_response())
+                }
+            })
+        }
+    }
+
+    /// A retry policy that always retries with zero backoff, for test use only.
+    #[derive(Debug, Clone)]
+    struct AlwaysRetryPolicy;
+
+    impl RetryPolicy for AlwaysRetryPolicy {
+        fn should_retry(&self, _error: &TransportError) -> bool {
+            true
+        }
+
+        fn backoff_hint(&self, _error: &TransportError) -> Option<std::time::Duration> {
+            Some(std::time::Duration::ZERO)
+        }
+    }
+
+    /// Verify that the retry layer wraps the sequential fallback, not the other way around.
+    ///
+    /// With the correct ordering (retry → fallback → transports):
+    /// - Round 1: primary fails → secondary fails → all URLs exhausted → retry triggers
+    /// - Round 2: primary fails → secondary succeeds → returns Ok
+    ///
+    /// Call log: ["primary", "secondary", "primary", "secondary"]
+    ///
+    /// Under the old (incorrect) ordering where retry wrapped each transport individually, the
+    /// primary would be retried multiple times before the fallback tried the secondary, producing
+    /// a log like ["primary", "primary", ..., "secondary"].
+    #[tokio::test]
+    async fn retry_layer_retries_after_all_fallbacks_exhausted() {
+        let call_log: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        // Primary always fails; secondary fails once then succeeds.
+        let primary = FailNTransport::new("primary", u32::MAX, call_log.clone());
+        let secondary = FailNTransport::new("secondary", 1, call_log.clone());
+
+        let retry_layer = RetryBackoffLayer::new_with_policy(3, 0, u64::MAX, AlwaysRetryPolicy);
+
+        let mut service = ServiceBuilder::new()
+            .layer(retry_layer)
+            .layer(SequentialFallbackLayer)
+            .service(vec![primary.clone(), secondary.clone()]);
+
+        let result = service.call(dummy_request()).await;
+
+        assert!(result.is_ok(), "should succeed on the second retry round");
+        assert_eq!(primary.count(), 2, "primary tried once per retry round");
+        assert_eq!(secondary.count(), 2, "secondary tried once per retry round");
+        assert_eq!(
+            *call_log.lock().unwrap(),
+            vec!["primary", "secondary", "primary", "secondary"],
+            "fallback (primary→secondary) must complete before retry triggers a new round"
         );
     }
 }

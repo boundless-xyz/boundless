@@ -92,15 +92,11 @@ async fn main() -> Result<()> {
     // Build RPC client with fallback support if multiple URLs are provided
     let client = if all_rpc_urls.len() > 1 {
         // Multiple URLs - sequential fallback: always try primary first, only fall back on failure.
-        // RetryBackoffLayer is applied per-transport so retries happen on the same RPC before
-        // the sequential fallback tries the next one.
+        // On a single RPC failure the sequential fallback immediately tries the next URL.
+        // The outer RetryBackoffLayer only kicks in after all URLs have been exhausted.
         let transports: Vec<_> = all_rpc_urls
             .iter()
-            .map(|url| {
-                ServiceBuilder::new()
-                    .layer(retry_layer.clone())
-                    .service(Http::with_client(http_client.clone(), url.clone()))
-            })
+            .map(|url| Http::with_client(http_client.clone(), url.clone()))
             .collect();
 
         tracing::info!(
@@ -111,6 +107,7 @@ async fn main() -> Result<()> {
 
         let transport = ServiceBuilder::new()
             .layer(RpcMetricsLayer::new())
+            .layer(retry_layer)
             .layer(SequentialFallbackLayer)
             .service(transports);
 
