@@ -124,7 +124,7 @@ mod tests {
 
     fn create_job_request(program: &str, input: &str) -> CreateProverReq {
         CreateProverReq {
-            backend: ProverBackend::Sp1,
+            backend: ProverBackend::Zisk,
             program_path: program.to_string(),
             input_path: input.to_string(),
             verify: false,
@@ -136,14 +136,14 @@ mod tests {
         serde_json::from_slice(&data).expect("failed to parse completed marker")
     }
 
-    fn set_sp1_prover_bin(path: &std::path::Path) {
+    fn set_zisk_prover_bin(path: &std::path::Path) {
         // SAFETY: tests serialize environment mutation with `test_env_lock`.
-        unsafe { std::env::set_var("SP1_PROVER_BIN", path) };
+        unsafe { std::env::set_var("ZISK_PROVER_BIN", path) };
     }
 
-    fn clear_sp1_prover_bin() {
+    fn clear_zisk_prover_bin() {
         // SAFETY: tests serialize environment mutation with `test_env_lock`.
-        unsafe { std::env::remove_var("SP1_PROVER_BIN") };
+        unsafe { std::env::remove_var("ZISK_PROVER_BIN") };
     }
 
     #[tokio::test]
@@ -157,7 +157,7 @@ mod tests {
         fs::write(&program, b"program").expect("failed to write program");
         fs::write(&input, b"input").expect("failed to write input");
 
-        let prover_bin = tmp.path.join("fake-sp1-prover");
+        let prover_bin = tmp.path.join("fake-zisk-prover");
         write_executable(
             &prover_bin,
             r#"#!/usr/bin/env sh
@@ -173,7 +173,7 @@ done
 printf 'runner-success' > "$out"
 "#,
         );
-        set_sp1_prover_bin(&prover_bin);
+        set_zisk_prover_bin(&prover_bin);
 
         let job_id = Uuid::new_v4();
         storage::init_job(
@@ -185,7 +185,7 @@ printf 'runner-success' > "$out"
         .expect("failed to init job");
 
         run_job(tmp.path.clone(), job_id).await.expect("run_job should succeed");
-        clear_sp1_prover_bin();
+        clear_zisk_prover_bin();
 
         let status = storage::read_status(&tmp.path, job_id).expect("failed to read status");
         assert!(matches!(status.state, ProverJobState::Done));
@@ -212,7 +212,7 @@ printf 'runner-success' > "$out"
         fs::write(&program, b"program").expect("failed to write program");
         fs::write(&input, b"input").expect("failed to write input");
 
-        let prover_bin = tmp.path.join("fake-sp1-prover");
+        let prover_bin = tmp.path.join("fake-zisk-prover");
         write_executable(
             &prover_bin,
             r#"#!/usr/bin/env sh
@@ -221,7 +221,7 @@ echo "intentional failure" >&2
 exit 42
 "#,
         );
-        set_sp1_prover_bin(&prover_bin);
+        set_zisk_prover_bin(&prover_bin);
 
         let job_id = Uuid::new_v4();
         storage::init_job(
@@ -234,7 +234,7 @@ exit 42
 
         let err =
             run_job(tmp.path.clone(), job_id).await.expect_err("run_job should report failure");
-        clear_sp1_prover_bin();
+        clear_zisk_prover_bin();
 
         let err_text = format!("{err:#}");
         assert!(err_text.contains("intentional failure"));

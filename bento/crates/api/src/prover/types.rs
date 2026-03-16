@@ -10,7 +10,6 @@ use uuid::Uuid;
 #[serde(rename_all = "lowercase")]
 pub enum ProverBackend {
     Risc0,
-    Sp1,
     Zisk,
     Openvm,
 }
@@ -20,7 +19,6 @@ impl ProverBackend {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Risc0 => "risc0",
-            Self::Sp1 => "sp1",
             Self::Zisk => "zisk",
             Self::Openvm => "openvm",
         }

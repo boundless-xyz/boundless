@@ -191,7 +191,7 @@ mod tests {
 
     fn example_request() -> CreateProverReq {
         CreateProverReq {
-            backend: ProverBackend::Sp1,
+            backend: ProverBackend::Zisk,
             program_path: "/tmp/program.bin".to_string(),
             input_path: "/tmp/input.bin".to_string(),
             verify: false,
@@ -216,7 +216,7 @@ mod tests {
         assert_eq!(reloaded.user_id, "user_1");
         assert_eq!(reloaded.program_path, req.program_path);
         assert_eq!(reloaded.input_path, req.input_path);
-        assert!(matches!(reloaded.backend, ProverBackend::Sp1));
+        assert!(matches!(reloaded.backend, ProverBackend::Zisk));
 
         let jobs = list_job_ids(&tmp.path).expect("failed to list jobs");
         assert!(jobs.contains(&job_id));
@@ -243,12 +243,12 @@ mod tests {
             "some error"
         );
 
-        mark_completed(&tmp.path, job_id, ProverBackend::Sp1, true)
+        mark_completed(&tmp.path, job_id, ProverBackend::Zisk, true)
             .expect("failed to write completed marker");
         let completed: CompletedFile =
             read_json(&completed_path(&tmp.path, job_id)).expect("failed to read completed marker");
         assert_eq!(completed.job_id, job_id);
-        assert!(matches!(completed.backend, ProverBackend::Sp1));
+        assert!(matches!(completed.backend, ProverBackend::Zisk));
         assert!(completed.success);
     }
 }

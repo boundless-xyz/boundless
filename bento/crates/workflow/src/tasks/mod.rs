@@ -18,7 +18,6 @@ pub(crate) mod prove_pair;
 pub(crate) mod resolve;
 pub(crate) mod resolve_povw;
 pub(crate) mod snark;
-pub(crate) mod sp1;
 pub(crate) mod union;
 
 /// Recursion receipts key prefix

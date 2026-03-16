@@ -20,15 +20,13 @@ use clap::Parser;
 use deadpool_redis::{Config as RedisConfig, Pool as RedisPool, Runtime, redis::AsyncCommands};
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use taskdb::{JobState, Priority, ReadyTask, TaskDb, TaskDbErr};
 use thiserror::Error;
 use uuid::Uuid;
 use workflow_common::{
     COPROC_WORK_TYPE, CompressType, ExecutorReq, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
-    SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT, SNARK_WORK_TYPE, SP1_RETRIES_DEFAULT,
-    SP1_TIMEOUT_DEFAULT, SP1_WORK_TYPE, SnarkReq as WorkflowSnarkReq, Sp1Req as WorkflowSp1Req,
+    SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT, SNARK_WORK_TYPE, SnarkReq as WorkflowSnarkReq,
     TaskType,
     s3::{
         BLAKE3_GROTH16_BUCKET_DIR, ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR,
@@ -131,7 +129,7 @@ struct SnarkApiReq {
 fn is_gpu_worker_stream(task_stream: &str) -> bool {
     matches!(
         task_stream,
-        PROVE_WORK_TYPE | JOIN_WORK_TYPE | COPROC_WORK_TYPE | SNARK_WORK_TYPE | SP1_WORK_TYPE
+        PROVE_WORK_TYPE | JOIN_WORK_TYPE | COPROC_WORK_TYPE | SNARK_WORK_TYPE
     )
 }
 
@@ -256,6 +254,11 @@ impl IntoResponse for AppError {
 
         match self {
             Self::ImgAlreadyExists(_) => tracing::debug!("Image exists: {code}, {self:?}"),
+            // Missing objects can happen during normal polling / race windows.
+            Self::ReceiptMissing(_)
+            | Self::JournalMissing(_)
+            | Self::AssetMissing(_)
+            | Self::HotDataMissing(_) => tracing::warn!("api miss, code {code}: {self:?}"),
             _ => tracing::error!("api error, code {code}: {self:?}"),
         }
 
@@ -302,13 +305,6 @@ pub struct Args {
     #[clap(long, default_value_t = SNARK_RETRIES_DEFAULT)]
     snark_retries: i32,
 
-    /// SP1 timeout in seconds
-    #[clap(long, default_value_t = SP1_TIMEOUT_DEFAULT)]
-    sp1_timeout: i32,
-
-    /// SP1 retries
-    #[clap(long, default_value_t = SP1_RETRIES_DEFAULT)]
-    sp1_retries: i32,
 }
 
 pub struct AppState {
@@ -319,8 +315,6 @@ pub struct AppState {
     exec_retries: i32,
     snark_timeout: i32,
     snark_retries: i32,
-    sp1_timeout: i32,
-    sp1_retries: i32,
 }
 
 impl AppState {
@@ -343,8 +337,6 @@ impl AppState {
             exec_retries: args.exec_retries,
             snark_timeout: args.snark_timeout,
             snark_retries: args.snark_retries,
-            sp1_timeout: args.sp1_timeout,
-            sp1_retries: args.sp1_retries,
         }))
     }
 }
@@ -391,21 +383,11 @@ async fn image_upload_put(
     let body_bytes =
         to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
 
-    // Accept either a RISC Zero image ID or an SP1 SHA256 image ID.
-    // Both can appear as 64-hex strings, so format alone is ambiguous.
-    let risc0_image_id = compute_image_id(&body_bytes).ok().map(|id| id.to_string());
-    let mut hasher = Sha256::new();
-    hasher.update(&body_bytes);
-    let sp1_hash = hex::encode(hasher.finalize());
-
-    let matches_risc0 = risc0_image_id.as_deref() == Some(image_id.as_str());
-    let matches_sp1 = sp1_hash == image_id;
-
-    if !matches_risc0 && !matches_sp1 {
-        let computed = match risc0_image_id {
-            Some(risc0_id) => format!("risc0:{risc0_id} sha256:{sp1_hash}"),
-            None => format!("sha256:{sp1_hash}"),
-        };
+    let computed = compute_image_id(&body_bytes)
+        .ok()
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "<invalid-risc0-image>".to_string());
+    if computed != image_id {
         return Err(AppError::ImageIdMismatch(image_id, computed));
     }
 
@@ -688,7 +670,7 @@ async fn preflight_journal(
         .await
         .context("Failed to check if object exists")?
     {
-        return Err(AppError::ReceiptMissing(job_id.to_string()));
+        return Err(AppError::JournalMissing(job_id.to_string()));
     }
 
     let receipt = state
@@ -845,138 +827,6 @@ async fn groth16_status(
     Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
 }
 
-// SP1 routes
-
-const SP1_START_PATH: &str = "/sp1/create";
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Sp1ApiReq {
-    pub image: String,
-    pub input: String,
-    #[serde(default)]
-    pub priority: Priority,
-}
-
-async fn prove_sp1(
-    State(state): State<Arc<AppState>>,
-    ExtractApiKey(api_key): ExtractApiKey,
-    Json(start_req): Json<Sp1ApiReq>,
-) -> Result<Json<CreateSessRes>, AppError> {
-    let (_aux_stream, _exec_stream, _gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
-        helpers::get_or_create_streams(&state.task_db, &api_key)
-            .await
-            .context("Failed to get / create streams")?;
-
-    // Get or create SP1 stream
-    let reserved = helpers::extract_reserved(&api_key);
-    let sp1_stream = if let Some(stream) = state
-        .task_db
-        .get_stream(&api_key, SP1_WORK_TYPE)
-        .await
-        .context("Failed to get SP1 stream")?
-    {
-        stream
-    } else {
-        tracing::info!("Creating a new SP1 stream for key: {api_key}");
-        state
-            .task_db
-            .create_stream(SP1_WORK_TYPE, reserved, 1.0, &api_key)
-            .await
-            .context("Failed to create SP1 stream")?
-    };
-
-    let task_def = serde_json::to_value(TaskType::Sp1(WorkflowSp1Req {
-        image: start_req.image,
-        input: start_req.input,
-    }))
-    .context("Failed to serialize Sp1Req")?;
-
-    let job_id = state
-        .task_db
-        .create_job_with_priority(
-            &sp1_stream,
-            &task_def,
-            state.sp1_retries,
-            state.sp1_timeout,
-            &api_key,
-            start_req.priority,
-        )
-        .await
-        .context("Failed to create SP1 task")?;
-
-    Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
-}
-
-const SP1_STATUS_PATH: &str = "/sp1/status/:job_id";
-async fn sp1_status(
-    State(state): State<Arc<AppState>>,
-    ExtractApiKey(api_key): ExtractApiKey,
-    Path(job_id): Path<Uuid>,
-    Host(hostname): Host,
-) -> Result<Json<SnarkStatusRes>, AppError> {
-    let job_state_result = state.task_db.get_job_state(&job_id, &api_key).await;
-
-    // If job not found in taskdb, check object storage for completed proof.
-    if let Err(err) = &job_state_result
-        && err.is_not_found()
-    {
-        let proof_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
-        if state
-            .s3_client
-            .object_exists(&proof_key)
-            .await
-            .context("Failed to check if proof exists")?
-        {
-            // Proof exists - job was completed and cleaned up from taskdb
-            return Ok(Json(SnarkStatusRes {
-                status: JobState::Done.to_string(),
-                error_msg: None,
-                output: Some(format!("http://{hostname}/receipts/sp1/receipt/{job_id}")),
-            }));
-        }
-    }
-
-    let job_state = job_state_result.context("Failed to get job state")?;
-
-    let (error_msg, output) = match job_state {
-        JobState::Running => (None, None),
-        JobState::Done => (None, Some(format!("http://{hostname}/receipts/sp1/receipt/{job_id}"))),
-        JobState::Failed => (
-            Some(
-                state
-                    .task_db
-                    .get_job_failure(&job_id)
-                    .await
-                    .context("Failed to get job error message")?,
-            ),
-            None,
-        ),
-    };
-    Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
-}
-
-const GET_SP1_PATH: &str = "/receipts/sp1/receipt/:job_id";
-async fn sp1_download(
-    State(state): State<Arc<AppState>>,
-    Path(job_id): Path<Uuid>,
-) -> Result<Vec<u8>, AppError> {
-    let proof_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
-    if !state
-        .s3_client
-        .object_exists(&proof_key)
-        .await
-        .context("Failed to check if object exists")?
-    {
-        return Err(AppError::ReceiptMissing(job_id.to_string()));
-    }
-
-    let proof = state
-        .s3_client
-        .read_buf_from_s3(&proof_key)
-        .await
-        .context("Failed to read from object store")?;
-
-    Ok(proof)
-}
 
 const GET_GROTH16_PATH: &str = "/receipts/groth16/receipt/:job_id";
 async fn groth16_download(
@@ -1331,9 +1181,6 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(BLAKE3_GROTH16_STATUS_PATH, get(blake3_groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
         .route(GET_BLAKE3_GROTH16_PATH, get(blake3_groth16_download))
-        .route(SP1_START_PATH, post(prove_sp1))
-        .route(SP1_STATUS_PATH, get(sp1_status))
-        .route(GET_SP1_PATH, get(sp1_download))
         .route(GET_ASSET_PATH, get(asset_download))
         .route(GPU_WORK_CLAIM_PATH, post(claim_gpu_work))
         .route(GPU_TASK_DONE_PATH, post(gpu_task_done))

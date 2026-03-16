@@ -5,7 +5,6 @@
 
 mod openvm;
 mod risc0;
-mod sp1;
 mod zisk;
 
 use crate::prover::types::ProverBackend;
@@ -24,7 +23,6 @@ pub struct ExecutionJob {
 pub fn run_default_prover(job: &ExecutionJob) -> Result<Vec<u8>> {
     match job.backend {
         ProverBackend::Risc0 => risc0::prove(job),
-        ProverBackend::Sp1 => sp1::prove(job),
         ProverBackend::Zisk => zisk::prove(job),
         ProverBackend::Openvm => openvm::prove(job),
     }
@@ -121,30 +119,30 @@ mod tests {
         fs::set_permissions(path, perms).expect("failed to set script permissions");
     }
 
-    fn sp1_job() -> ExecutionJob {
+    fn zisk_job() -> ExecutionJob {
         ExecutionJob {
-            backend: ProverBackend::Sp1,
+            backend: ProverBackend::Zisk,
             program_path: PathBuf::from("/tmp/program.bin"),
             input_path: PathBuf::from("/tmp/input.bin"),
             verify: false,
         }
     }
 
-    fn set_sp1_prover_bin(path: &Path) {
+    fn set_zisk_prover_bin(path: &Path) {
         // SAFETY: tests serialize environment mutation with `test_env_lock`.
-        unsafe { std::env::set_var("SP1_PROVER_BIN", path) };
+        unsafe { std::env::set_var("ZISK_PROVER_BIN", path) };
     }
 
-    fn clear_sp1_prover_bin() {
+    fn clear_zisk_prover_bin() {
         // SAFETY: tests serialize environment mutation with `test_env_lock`.
-        unsafe { std::env::remove_var("SP1_PROVER_BIN") };
+        unsafe { std::env::remove_var("ZISK_PROVER_BIN") };
     }
 
     #[test]
     fn cli_backend_reads_output_file() {
         let _env_guard = test_env_lock().lock().expect("env mutex poisoned");
         let tmp = TempDir::new("bento_api_prover_backend_ok");
-        let bin_path = tmp.path.join("fake-sp1-prover");
+        let bin_path = tmp.path.join("fake-zisk-prover");
         write_executable(
             &bin_path,
             r#"#!/usr/bin/env sh
@@ -161,9 +159,9 @@ printf 'file-receipt' > "$out"
 "#,
         );
 
-        set_sp1_prover_bin(&bin_path);
-        let receipt = run_default_prover(&sp1_job()).expect("expected successful prove");
-        clear_sp1_prover_bin();
+        set_zisk_prover_bin(&bin_path);
+        let receipt = run_default_prover(&zisk_job()).expect("expected successful prove");
+        clear_zisk_prover_bin();
 
         assert_eq!(receipt, b"file-receipt");
     }
@@ -172,7 +170,7 @@ printf 'file-receipt' > "$out"
     fn cli_backend_returns_stdout_when_no_output_file_exists() {
         let _env_guard = test_env_lock().lock().expect("env mutex poisoned");
         let tmp = TempDir::new("bento_api_prover_backend_stdout");
-        let bin_path = tmp.path.join("fake-sp1-prover");
+        let bin_path = tmp.path.join("fake-zisk-prover");
         write_executable(
             &bin_path,
             r#"#!/usr/bin/env sh
@@ -181,9 +179,9 @@ printf 'stdout-receipt'
 "#,
         );
 
-        set_sp1_prover_bin(&bin_path);
-        let receipt = run_default_prover(&sp1_job()).expect("expected successful prove");
-        clear_sp1_prover_bin();
+        set_zisk_prover_bin(&bin_path);
+        let receipt = run_default_prover(&zisk_job()).expect("expected successful prove");
+        clear_zisk_prover_bin();
 
         assert_eq!(receipt, b"stdout-receipt");
     }
@@ -192,7 +190,7 @@ printf 'stdout-receipt'
     fn cli_backend_surfaces_command_failure() {
         let _env_guard = test_env_lock().lock().expect("env mutex poisoned");
         let tmp = TempDir::new("bento_api_prover_backend_fail");
-        let bin_path = tmp.path.join("fake-sp1-prover");
+        let bin_path = tmp.path.join("fake-zisk-prover");
         write_executable(
             &bin_path,
             r#"#!/usr/bin/env sh
@@ -202,12 +200,12 @@ exit 9
 "#,
         );
 
-        set_sp1_prover_bin(&bin_path);
-        let err = run_default_prover(&sp1_job()).expect_err("expected prove failure");
-        clear_sp1_prover_bin();
+        set_zisk_prover_bin(&bin_path);
+        let err = run_default_prover(&zisk_job()).expect_err("expected prove failure");
+        clear_zisk_prover_bin();
 
         let err_text = format!("{err:#}");
         assert!(err_text.contains("boom from prover"));
-        assert!(err_text.contains("sp1 prover command failed"));
+        assert!(err_text.contains("zisk prover command failed"));
     }
 }
