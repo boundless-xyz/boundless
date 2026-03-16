@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
         config.market.gas_priority_mode.clone()
     };
     let dynamic_gas_filler = DynamicGasFiller::new(
-        20, // 20% increase of gas limit
+        10, // 10% increase of gas limit
         priority_mode,
         wallet.default_signer().address(),
     );

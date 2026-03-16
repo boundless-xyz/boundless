@@ -58,9 +58,9 @@ pub mod defaults {
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        // Observed cost of a basic single fulfill transaction is ~390k gas. Added a small buffer.
+        // Observed cost of a basic single fulfill transaction is ~390k gas.
         // Journal calldata costs are added separately via fulfill_journal_gas_per_byte.
-        450_000
+        420_000
     }
 
     pub const fn fulfill_journal_gas_per_byte() -> u64 {

@@ -34,20 +34,19 @@ const DEFAULT_FEE_HISTORY_PERCENTILES: [f64; 1] = [DEFAULT_FEE_HISTORY_PERCENTIL
 const LOW_PRIORITY_PERCENTILE: f64 = 20.0;
 const MEDIUM_PRIORITY_PERCENTILE: f64 = 30.0;
 const HIGH_PRIORITY_PERCENTILE: f64 = 50.0;
-const DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE: u64 =
-    (utils::EIP1559_BASE_FEE_MULTIPLIER as u64) * 100;
+const DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE: u64 = 125;
 
 /// Priority mode for transaction gas pricing.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PriorityMode {
-    /// Uses the 20th percentile from eth_feeHistory with a dynamic multiplier of `+3%` per pending transaction.
+    /// Uses the 20th percentile from eth_feeHistory with a 125% base fee multiplier and `+3%` per pending transaction.
     Low,
-    /// Uses the 30th percentile from eth_feeHistory with a dynamic multiplier of `+5%` per pending transaction.
+    /// Uses the 30th percentile from eth_feeHistory with a 125% base fee multiplier and `+5%` per pending transaction.
     #[default]
     Medium,
-    /// Uses the 50th percentile from eth_feeHistory with a dynamic multiplier of `+7%` per pending transaction.
+    /// Uses the 50th percentile from eth_feeHistory with a 150% base fee multiplier and `+7%` per pending transaction.
     High,
     /// Uses a custom percentile from eth_feeHistory with a configurable dynamic multiplier per pending transaction.
     Custom {
@@ -103,7 +102,7 @@ impl PriorityMode {
                 dynamic_multiplier_percentage: 5,
             },
             PriorityMode::High => PriorityModeConfig {
-                base_fee_multiplier_percentage: 250,
+                base_fee_multiplier_percentage: 150,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: HIGH_PRIORITY_PERCENTILE,
                 dynamic_multiplier_percentage: 7,
