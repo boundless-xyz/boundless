@@ -246,6 +246,11 @@ where
         self.last_processed_block.load(Ordering::Relaxed)
     }
 
+    #[cfg(test)]
+    async fn gas_price_value(&self) -> u128 {
+        *self.gas_price.read().await
+    }
+
     /// Walk `start_block..=end_block` using `get_logs`, automatically discovering the maximum
     /// chunk size accepted by the RPC provider via binary search on first failure.
     async fn adaptive_get_logs(
@@ -816,5 +821,118 @@ mod tests {
             12,
             "processing cursor must stop at last successful block (12), not chain head (13)"
         );
+    }
+
+    // ── adaptive_get_logs tests ─────────────────────────────────────────────────
+
+    fn make_log() -> Log {
+        serde_json::from_value(serde_json::json!({
+            "address": "0x0000000000000000000000000000000000000000",
+            "topics": [],
+            "data": "0x",
+            "blockHash": null,
+            "blockNumber": null,
+            "transactionHash": null,
+            "transactionIndex": null,
+            "logIndex": null,
+            "removed": false
+        }))
+        .unwrap()
+    }
+
+    /// Happy path: entire range fetched in a single chunk.
+    #[tokio::test]
+    async fn adaptive_get_logs_full_range_succeeds() {
+        let eth = Asserter::new();
+        let any = Asserter::new();
+        push_new_responses(&eth, 20);
+        let monitor = make_monitor(eth.clone(), any).await;
+
+        eth.push_success(&vec![make_log(), make_log(), make_log()]);
+
+        let logs = monitor.adaptive_get_logs(Filter::new(), 10, 20).await.unwrap();
+        assert_eq!(logs.len(), 3);
+    }
+
+    /// When the full range is rejected, the chunk size is halved until a working size is found.
+    /// The discovered size is then re-used for all remaining chunks.
+    ///
+    /// Range 10..=21 (12 blocks, chunk_size starts at 11):
+    ///   - chunk_size=11: 10..21 → fail  (chunk_found=false, halve to 5)
+    ///   - chunk_size=5:  10..15 → fail  (chunk_found=false, halve to 2)
+    ///   - chunk_size=2:  10..12 → ok    (chunk_found=true, advance from=13)
+    ///   - chunk_size=2:  13..15 → ok    (advance from=16)
+    ///   - chunk_size=2:  16..18 → ok    (advance from=19)
+    ///   - chunk_size=2:  19..21 → ok    (advance from=22 → done)
+    #[tokio::test]
+    async fn adaptive_get_logs_halves_chunk_on_failure() {
+        let eth = Asserter::new();
+        let any = Asserter::new();
+        push_new_responses(&eth, 21);
+        let monitor = make_monitor(eth.clone(), any).await;
+
+        // 2 failures (halving), then 4 successful chunks
+        eth.push_failure_msg("block range too large");
+        eth.push_failure_msg("block range too large");
+        eth.push_success(&vec![make_log()]); // chunk 10..12
+        eth.push_success(&vec![make_log(), make_log()]); // chunk 13..15
+        eth.push_success(&vec![make_log()]); // chunk 16..18
+        eth.push_success(&vec![make_log()]); // chunk 19..21
+
+        let logs = monitor.adaptive_get_logs(Filter::new(), 10, 21).await.unwrap();
+        assert_eq!(logs.len(), 5, "should accumulate logs from all successful chunks");
+    }
+
+    /// A start_block > end_block range returns an empty vec without any RPC calls.
+    #[tokio::test]
+    async fn adaptive_get_logs_empty_range() {
+        let eth = Asserter::new();
+        let any = Asserter::new();
+        push_new_responses(&eth, 20);
+        let monitor = make_monitor(eth.clone(), any).await;
+
+        // No Asserter responses pushed — any RPC call would panic.
+        let logs = monitor.adaptive_get_logs(Filter::new(), 20, 10).await.unwrap();
+        assert!(logs.is_empty());
+    }
+
+    // ── L1Monitor startup tests ─────────────────────────────────────────────────
+
+    /// Push startup RPC responses with a custom set of block timestamps.
+    ///
+    /// `timestamps[i]` is the timestamp for block `sample_start + i`.
+    /// `latest_timestamp` is the timestamp for the initial "Latest" block.
+    fn push_new_responses_with_timestamps(
+        eth: &Asserter,
+        initial_number: u64,
+        history_timestamps: &[u64],
+        latest_timestamp: u64,
+    ) {
+        // 1. get_block_by_number(Latest) — fetched first in L1Monitor::new()
+        eth.push_success(&Some(make_block(initial_number, latest_timestamp, Some(1_000_000_000))));
+        // 2. History loop: sample_start..initial_number
+        let sample_start = initial_number.saturating_sub(EIP1559_FEE_ESTIMATION_PAST_BLOCKS);
+        for (i, &ts) in history_timestamps.iter().enumerate() {
+            eth.push_success(&Some(make_block(sample_start + i as u64, ts, Some(1_000_000_000))));
+        }
+    }
+
+    /// L1Monitor::new() computes the median block time from sampled timestamps and uses it
+    /// as the poll_interval. A large outlier should not skew the median.
+    #[tokio::test]
+    async fn startup_computes_block_time_from_median() {
+        let eth = Asserter::new();
+        let any = Asserter::new();
+
+        // 10 history blocks + 1 latest = 11 timestamps, giving 10 deltas.
+        // Timestamps produce deltas: [2, 2, 2, 2, 30, 2, 2, 2, 2, 2].
+        // After sorting: [2, 2, 2, 2, 2, 2, 2, 2, 2, 30], median (index 5) = 2.
+        let history_timestamps = [0u64, 2, 4, 6, 8, 38, 40, 42, 44, 46];
+        let latest_timestamp = 48;
+        push_new_responses_with_timestamps(&eth, 10, &history_timestamps, latest_timestamp);
+
+        let monitor = make_monitor(eth, any).await;
+
+        assert_eq!(monitor.block_time(), 2, "median should be 2 despite the 30s outlier");
     }
 }
