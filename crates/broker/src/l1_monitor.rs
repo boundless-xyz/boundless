@@ -66,6 +66,7 @@ pub enum L1MonitorErr {
     #[error("{code} RPC error: {0:#}", code = self.code())]
     RpcErr(anyhow::Error),
 
+    #[allow(dead_code)]
     #[error("{code} Receipts root mismatch: {0:#}", code = self.code())]
     ReceiptsMismatch(anyhow::Error),
 
@@ -390,7 +391,7 @@ where
                         // Fetch the block header to get base_fee_per_gas (for gas estimation) and
                         // receipts_root (for receipt integrity verification).
                         // Reuse the already-fetched latest block in the common case (0 extra RPCs).
-                        let (base_fee_per_gas, receipts_root): (Option<u128>, B256) =
+                        let (base_fee_per_gas, _receipts_root): (Option<u128>, B256) =
                             if block_num == latest_number {
                                 (
                                     latest_block.header.base_fee_per_gas.map(|f| f as u128),
@@ -434,26 +435,10 @@ where
 
                         tracing::debug!("Fetched {} receipts for block {block_num}", receipts.len());
 
-                        // Verify the receipts match the block header commitment.
+                        // TODO: Verify the receipts match the block header commitment.
                         // This cryptographically ensures the integrity of the receipts
                         // and makes sure we process all market logs.
-                        // TODO: double check this
-                        // let envelopes: Vec<AnyReceiptEnvelope> = receipts
-                        //     .iter()
-                        //     .map(|r| {
-                        //         let env = &r.inner.inner;
-                        //         AnyReceiptEnvelope {
-                        //             inner: env.inner.clone().into_primitives_receipt(),
-                        //             r#type: env.r#type,
-                        //         }
-                        //     })
-                        //     .collect();
-                        // let computed_root = calculate_receipt_root(&envelopes);
-                        // if computed_root != receipts_root {
-                        //     return Err(L1MonitorErr::ReceiptsMismatch(anyhow::anyhow!(
-                        //         "block {block_num}: expected {receipts_root}, got {computed_root}"
-                        //     )));
-                        // }
+                        // verify_receipts_root(&receipts, _receipts_root)?;
 
                         self.process_block_receipts(&receipts, block_num).await?;
 
@@ -633,6 +618,30 @@ where
     }
 }
 
+#[allow(dead_code)]
+fn verify_receipts_root(
+    receipts: &[AnyTransactionReceipt],
+    expected_root: B256,
+) -> Result<(), L1MonitorErr> {
+    let envelopes: Vec<AnyReceiptEnvelope> = receipts
+        .iter()
+        .map(|r| {
+            let env = &r.inner.inner;
+            AnyReceiptEnvelope {
+                inner: env.inner.clone().into_primitives_receipt(),
+                r#type: env.r#type,
+            }
+        })
+        .collect();
+    let computed_root = calculate_receipt_root(&envelopes);
+    if computed_root != expected_root {
+        return Err(L1MonitorErr::ReceiptsMismatch(anyhow::anyhow!(
+            "expected {expected_root}, got {computed_root}"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -713,6 +722,47 @@ mod tests {
         )
         .await
         .expect("L1Monitor::new should succeed with valid mock responses")
+    }
+
+    /// Verifies that `verify_receipts_root` correctly computes the receipts root for a real
+    /// Base block (43414930) using static fixture data captured from the RPC. Currently fails due to Base's non-standard receipts format
+    #[test]
+    fn verify_receipts_root_base_43414930() {
+        let receipts_json = include_str!("../testdata/base_43414930_receipts.json");
+        let block_json = include_str!("../testdata/base_43414930_block.json");
+
+        let receipts: Vec<AnyTransactionReceipt> =
+            serde_json::from_str(receipts_json).expect("failed to deserialize receipts");
+        let block: serde_json::Value =
+            serde_json::from_str(block_json).expect("failed to deserialize block");
+        let expected_root: B256 = block["receiptsRoot"]
+            .as_str()
+            .expect("receiptsRoot missing")
+            .parse()
+            .expect("failed to parse receiptsRoot");
+
+        // Base receipts should fail
+        assert!(verify_receipts_root(&receipts, expected_root).is_err())
+    }
+
+    /// Verifies that `verify_receipts_root` correctly computes the receipts root for a real
+    /// ETH mainnet block (24666352) using static fixture data.
+    #[test]
+    fn verify_receipts_root_eth_24666352() {
+        let receipts_json = include_str!("../testdata/eth_24666352_receipts.json");
+        let block_json = include_str!("../testdata/eth_24666352_block.json");
+
+        let receipts: Vec<AnyTransactionReceipt> =
+            serde_json::from_str(receipts_json).expect("failed to deserialize receipts");
+        let block: serde_json::Value =
+            serde_json::from_str(block_json).expect("failed to deserialize block");
+        let expected_root: B256 = block["receiptsRoot"]
+            .as_str()
+            .expect("receiptsRoot missing")
+            .parse()
+            .expect("failed to parse receiptsRoot");
+
+        verify_receipts_root(&receipts, expected_root).expect("failed to verify receipts");
     }
 
     /// Verifies that when `get_block_receipts` fails mid-batch:
