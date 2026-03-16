@@ -1,7 +1,7 @@
 FROM rust:1.89.0-bookworm AS init
 
 RUN apt-get -qq update && \
-    apt-get install -y -q clang
+    apt-get install -y -q clang mold
 
 SHELL ["/bin/bash", "-c"]
 ARG CACHE_DATE=2026-02-13  # update this date to force rebuild

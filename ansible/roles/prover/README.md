@@ -22,12 +22,15 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 
 ### Deployment Configuration
 
-| Variable         | Default      | Description              |
-| ---------------- | ------------ | ------------------------ |
-| `prover_dir`     | `/opt/bento` | Deployment directory     |
-| `prover_version` | `v1.2.1`     | Git tag/branch to deploy |
-| `prover_state`   | `started`    | Service state            |
-| `prover_user`    | `ubuntu`     | User for Docker commands |
+| Variable                   | Default      | Description                                                                      |
+| -------------------------- | ------------ | -------------------------------------------------------------------------------- |
+| `prover_dir`               | `/opt/bento` | Deployment directory                                                             |
+| `prover_version`           | `v1.2.1`     | Git tag/branch to deploy                                                         |
+| `prover_state`             | `started`    | Service state                                                                    |
+| `prover_user`              | `ubuntu`     | User for Docker commands                                                         |
+| `prover_build_on_start`    | `false`      | Run `docker compose build` in systemd `ExecStartPre` (disable for fast restarts) |
+| `prover_start_timeout_sec` | `7200`       | systemd start timeout (increase if cold builds can exceed 2h)                    |
+| `prover_stop_timeout_sec`  | `300`        | systemd stop timeout                                                             |
 
 ### Database Configuration
 

@@ -54,12 +54,13 @@ ansible-playbook -i inventory.yml prover.yml \
 
 ### Deployment Configuration
 
-| Variable         | Default      | Description                                                             |
-| ---------------- | ------------ | ----------------------------------------------------------------------- |
-| `prover_dir`     | `/opt/bento` | Directory where prover is deployed                                      |
-| `prover_version` | `v1.2.1`     | Git tag or branch to deploy (inventory often sets `main` in `all.vars`) |
-| `prover_state`   | `started`    | Service state (started, stopped)                                        |
-| `prover_user`    | `ubuntu`     | User for Docker commands                                                |
+| Variable                | Default      | Description                                                                    |
+| ----------------------- | ------------ | ------------------------------------------------------------------------------ |
+| `prover_dir`            | `/opt/bento` | Directory where prover is deployed                                             |
+| `prover_version`        | `v1.2.1`     | Git tag or branch to deploy (inventory often sets `main` in `all.vars`)        |
+| `prover_state`          | `started`    | Service state (started, stopped)                                               |
+| `prover_user`           | `ubuntu`     | User for Docker commands                                                       |
+| `prover_build_on_start` | `false`      | Run `docker compose build` before each systemd start (off for faster restarts) |
 
 ### Dockerfiles and Compose (prover vs explorer)
 
