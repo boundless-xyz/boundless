@@ -144,21 +144,46 @@ where
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
         UnifiedPriorityMode::Price => {
-            orders
-                .sort_by_key(|o| std::cmp::Reverse(total_reward_amount(o.as_ref(), now, &mut rng)));
+            // Pre-compute keys to avoid non-deterministic sort: total_reward_amount() uses
+            // RNG for secondary orders, so sort_by_key (which may call the closure multiple
+            // times per element) would violate the total order contract and panic.
+            let keys: Vec<_> = orders
+                .iter()
+                .map(|o| std::cmp::Reverse(total_reward_amount(o.as_ref(), now, &mut rng)))
+                .collect();
+            let mut indices: Vec<usize> = (0..orders.len()).collect();
+            indices.sort_by_key(|&i| keys[i]);
+            apply_permutation(orders, indices);
             log_secondary_ranking(orders, now);
         }
         UnifiedPriorityMode::CyclePrice => {
-            orders.sort_by_key(|o| {
-                let amount = total_reward_amount(o.as_ref(), now, &mut rng);
-                std::cmp::Reverse(
-                    o.as_ref()
-                        .total_cycles
-                        .and_then(|cycles| amount.checked_div(U256::from(cycles)))
-                        .unwrap_or_default(),
-                )
-            });
+            let keys: Vec<_> = orders
+                .iter()
+                .map(|o| {
+                    let amount = total_reward_amount(o.as_ref(), now, &mut rng);
+                    std::cmp::Reverse(
+                        o.as_ref()
+                            .total_cycles
+                            .and_then(|cycles| amount.checked_div(U256::from(cycles)))
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect();
+            let mut indices: Vec<usize> = (0..orders.len()).collect();
+            indices.sort_by_key(|&i| keys[i]);
+            apply_permutation(orders, indices);
             log_secondary_ranking(orders, now);
+        }
+    }
+}
+
+/// Reorder `slice` according to the given index permutation (in-place).
+fn apply_permutation<T>(slice: &mut [T], mut indices: Vec<usize>) {
+    for i in 0..slice.len() {
+        while indices[i] != i {
+            let target = indices[i];
+            slice.swap(i, target);
+            indices.swap(i, target);
         }
     }
 }
