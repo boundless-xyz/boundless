@@ -54,13 +54,13 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "title": "Error Rate (1m)",
+      "title": "Targets Up (agents)",
       "type": "stat",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(errors_total[1m]))",
-          "legendFormat": "errors/s",
+          "expr": "sum(up{job=~\"exec_agent|aux_agent|gpu_prove_agent\"})",
+          "legendFormat": "up targets",
           "refId": "A"
         }
       ]
@@ -91,13 +91,13 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "title": "Tasks Created (1m)",
+      "title": "Task Failure % (5m)",
       "type": "stat",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(tasks_created_total[1m]))",
-          "legendFormat": "tasks/s",
+          "expr": "100 * (sum(rate(task_operations_total{status=\"error\"}[5m])) / clamp_min(sum(rate(task_operations_total[5m])), 1e-9))",
+          "legendFormat": "failure %",
           "refId": "A"
         }
       ]
@@ -128,13 +128,13 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "title": "Segments/s (1m)",
+      "title": "Redis Errors/s (5m)",
       "type": "stat",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(segments_total[1m]))",
-          "legendFormat": "segments/s",
+          "expr": "sum(rate(redis_operations_total{status=\"error\"}[5m])) or vector(0)",
+          "legendFormat": "redis errors/s",
           "refId": "A"
         }
       ]
@@ -165,13 +165,13 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "title": "Total Cycles/s (1m)",
+      "title": "Redis p95 Latency (5m)",
       "type": "stat",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(total_cycles_total[1m]))",
-          "legendFormat": "cycles/s",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(redis_operation_duration_seconds_bucket[5m])))",
+          "legendFormat": "redis p95 (s)",
           "refId": "A"
         }
       ]
@@ -202,13 +202,13 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "title": "Guest Faults",
+      "title": "DB Pool Saturation %",
       "type": "stat",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(guest_faults_total) or vector(0)",
-          "legendFormat": "faults",
+          "expr": "100 * (sum(db_connection_pool_active) / clamp_min(sum(db_connection_pool_size), 1))",
+          "legendFormat": "active/size %",
           "refId": "A"
         }
       ]
@@ -239,12 +239,12 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "title": "Completed Jobs (1m)",
+      "title": "Completed Jobs/s (5m)",
       "type": "stat",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(completed_jobs_total[1m]))",
+          "expr": "sum(rate(completed_jobs_total[5m]))",
           "legendFormat": "jobs/s",
           "refId": "A"
         }
@@ -789,7 +789,7 @@
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
       "id": 106,
-      "title": "Redis",
+      "title": "Workflow Health",
       "type": "row"
     },
     {
@@ -828,12 +828,12 @@
         "legend": { "calcs": ["mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "maxHeight": 600, "mode": "multi", "sort": "desc" }
       },
-      "title": "Redis Operations Rate",
+      "title": "Task Operations Rate (success/error)",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (operation_type, status) (rate(redis_operations_total[5m]))",
+          "expr": "sum by (operation_type, status) (rate(task_operations_total[5m]))",
           "legendFormat": "{{operation_type}} ({{status}})",
           "refId": "A"
         }
@@ -875,20 +875,26 @@
         "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "maxHeight": 600, "mode": "multi", "sort": "desc" }
       },
-      "title": "Redis Operation Duration (p50 / p95)",
+      "title": "Task + Redis Duration (p50 / p95)",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (le, operation_type) (rate(redis_operation_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{operation_type}} p50",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(task_duration_seconds_bucket{status=\"success\"}[5m])))",
+          "legendFormat": "p50",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le, operation_type) (rate(redis_operation_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{operation_type}} p95",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(task_duration_seconds_bucket{status=\"success\"}[5m])))",
+          "legendFormat": "p95",
           "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(redis_operation_duration_seconds_bucket[5m])))",
+          "legendFormat": "redis p95",
+          "refId": "C"
         }
       ]
     },
@@ -1177,8 +1183,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Bento Metrics",
+  "title": "Bento Metrics - Cluster Health",
   "uid": "bento-prometheus-metrics",
-  "version": 1,
+  "version": 11,
   "weekStart": ""
 }
