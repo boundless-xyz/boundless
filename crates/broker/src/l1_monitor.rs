@@ -345,14 +345,17 @@ where
         // successfully processed block rather than from the (already-updated) chain head.
         let mut last_processed = self.last_processed_block.load(Ordering::Relaxed);
         let mut interval = tokio::time::interval(self.poll_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        tracing::info!("L1Monitor polling loop started at block {last_processed}");
+        tracing::info!(
+            "L1Monitor polling loop started at block {last_processed} with {}s poll interval",
+            self.poll_interval.as_secs_f64()
+        );
 
         loop {
             tokio::select! {
-                biased;
                 _ = interval.tick() => {
-                    tracing::info!("L1Monitor poll interval tick");
+                    tracing::debug!("L1Monitor poll interval tick, last processed block {last_processed}, known latest block {}", self.head_block_number.load(Ordering::Relaxed));
                     let latest_block = match self
                         .provider
                         .get_block_by_number(BlockNumberOrTag::Latest)
@@ -393,50 +396,96 @@ where
 
                     // Walk every new block and process its receipts.
                     for block_num in (last_processed + 1)..=latest_number {
-                        // Fetch the block header to get base_fee_per_gas (for gas estimation) and
-                        // receipts_root (for receipt integrity verification).
-                        // Reuse the already-fetched latest block in the common case (0 extra RPCs).
-                        let (base_fee_per_gas, _receipts_root): (Option<u128>, B256) =
-                            if block_num == latest_number {
-                                (
-                                    latest_block.header.base_fee_per_gas.map(|f| f as u128),
-                                    latest_block.header.receipts_root,
-                                )
-                            } else {
-                                retry(3, 500, || async {
-                                    match self
-                                        .provider
-                                        .get_block_by_number(BlockNumberOrTag::Number(block_num))
-                                        .await
-                                    {
-                                        Ok(Some(b)) => Ok((
-                                            b.header.base_fee_per_gas.map(|f| f as u128),
-                                            b.header.receipts_root,
-                                        )),
+                        if cancel_token.is_cancelled() {
+                            tracing::info!("Cancellation received during block processing, stopping at block {block_num}");
+                            break;
+                        }
+                        // Fetch the block header (for base_fee_per_gas and receipts_root) and
+                        // receipts concurrently. When block_num == latest_number, the header is
+                        // already available — only the receipts need fetching (0 extra header RPCs).
+                        let (base_fee_per_gas, _receipts_root, receipts): (
+                            Option<u128>,
+                            B256,
+                            Vec<AnyTransactionReceipt>,
+                        ) = if block_num == latest_number {
+                            let receipts = retry(
+                                3,
+                                500,
+                                || async {
+                                    let block_id = BlockId::Number(block_num.into());
+                                    match self.any_provider.get_block_receipts(block_id).await {
+                                        Ok(Some(r)) => Ok(r),
                                         Ok(None) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                            "No block returned for {block_num}"
+                                            "No receipts returned for block {block_num}"
                                         ))),
                                         Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                            "Failed to get block header for {block_num}: {e:#}"
+                                            "Failed to get block receipts for {block_num}: {e:#}"
                                         ))),
                                     }
-                                }, "get_block_by_number")
-                                .await?
-                            };
-
-                        let receipts = retry(3, 500, || async {
-                            let block_id = BlockId::Number(block_num.into());
-                            match self.any_provider.get_block_receipts(block_id).await {
-                                Ok(Some(r)) => Ok(r),
-                                Ok(None) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                    "No receipts returned for block {block_num}"
-                                ))),
-                                Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                    "Failed to get block receipts for {block_num}: {e:#}"
-                                ))),
-                            }
-                        }, "get_block_receipts")
-                        .await?;
+                                },
+                                "get_block_receipts",
+                            )
+                            .await?;
+                            (
+                                latest_block.header.base_fee_per_gas.map(|f| f as u128),
+                                latest_block.header.receipts_root,
+                                receipts,
+                            )
+                        } else {
+                            // Fire header and receipts RPCs concurrently for non-latest blocks.
+                            let (header_result, receipts_result) = tokio::join!(
+                                retry(
+                                    3,
+                                    500,
+                                    || async {
+                                        match self
+                                            .provider
+                                            .get_block_by_number(BlockNumberOrTag::Number(
+                                                block_num,
+                                            ))
+                                            .await
+                                        {
+                                            Ok(Some(b)) => Ok((
+                                                b.header.base_fee_per_gas.map(|f| f as u128),
+                                                b.header.receipts_root,
+                                            )),
+                                            Ok(None) => {
+                                                Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                                    "No block returned for {block_num}"
+                                                )))
+                                            }
+                                            Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                                "Failed to get block header for {block_num}: {e:#}"
+                                            ))),
+                                        }
+                                    },
+                                    "get_block_by_number"
+                                ),
+                                retry(
+                                    3,
+                                    500,
+                                    || async {
+                                        let block_id = BlockId::Number(block_num.into());
+                                        match self.any_provider.get_block_receipts(block_id).await
+                                        {
+                                            Ok(Some(r)) => Ok(r),
+                                            Ok(None) => {
+                                                Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                                    "No receipts returned for block {block_num}"
+                                                )))
+                                            }
+                                            Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                                "Failed to get block receipts for {block_num}: {e:#}"
+                                            ))),
+                                        }
+                                    },
+                                    "get_block_receipts"
+                                ),
+                            );
+                            let (base_fee, receipts_root) = header_result?;
+                            let receipts = receipts_result?;
+                            (base_fee, receipts_root, receipts)
+                        };
 
                         tracing::debug!("Fetched {} receipts for block {block_num}", receipts.len());
 
@@ -454,13 +503,14 @@ where
                                 .map(|r| {
                                     if r.effective_gas_price < bf {
                                         tracing::debug!(
-                                            "effective_gas_price {} below base fee {}",
+                                            "effective_gas_price {} below base fee {} (tx_type={})",
                                             r.effective_gas_price,
-                                            bf
+                                            bf,
+                                            r.inner.inner.r#type,
                                         );
                                     }
                                     r.effective_gas_price.saturating_sub(bf)
-                                })
+                                }).filter(|pf| *pf > 0)
                                 .collect(),
                             None => Vec::new(),
                         };
