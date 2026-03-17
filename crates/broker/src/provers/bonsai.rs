@@ -249,7 +249,7 @@ impl StatusPoller {
                             user_cycles: stats.cycles,
                             total_cycles: stats.total_cycles,
                         },
-                        elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
+                        elapsed_time: status.elapsed_time.unwrap_or_default(),
                     });
                 }
                 _ => {

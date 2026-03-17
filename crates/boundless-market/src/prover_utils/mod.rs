@@ -57,11 +57,24 @@ use std::{
     collections::HashSet,
     fmt,
     sync::{Arc, OnceLock},
+    time::Duration,
 };
 use thiserror::Error;
 use OrderPricingOutcome::Skip;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
+const PREFLIGHT_JOURNAL_MAX_ATTEMPTS: u32 = 8;
+const PREFLIGHT_JOURNAL_INITIAL_BACKOFF_MS: u64 = 250;
+const PREFLIGHT_JOURNAL_MAX_BACKOFF_MS: u64 = 2_000;
+
+fn is_preflight_journal_missing(err: &OrderPricingError) -> bool {
+    let msg = err.to_string();
+    msg.contains("ReceiptMissing")
+        || msg.contains("JournalMissing")
+        || msg.contains("receipt does not exist")
+        || msg.contains("preflight journal does not exist")
+        || msg.contains("Preflight journal not found")
+}
 
 /// Scale a reward value for secondary fulfillment probability.
 ///
@@ -600,15 +613,42 @@ pub trait OrderPricingContext {
 
     /// Fetch the journal from a preflight execution.
     async fn preflight_journal(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError> {
-        self.prover()
-            .get_preflight_journal(exec_session_id)
-            .await
-            .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
-            .ok_or_else(|| {
-                OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                    "Preflight journal not found"
-                )))
-            })
+        let mut backoff_ms = PREFLIGHT_JOURNAL_INITIAL_BACKOFF_MS;
+        let mut last_missing_err: Option<OrderPricingError> = None;
+
+        for attempt in 1..=PREFLIGHT_JOURNAL_MAX_ATTEMPTS {
+            match self.prover().get_preflight_journal(exec_session_id).await {
+                Ok(Some(journal)) => return Ok(journal),
+                Ok(None) => {
+                    last_missing_err = Some(OrderPricingError::UnexpectedErr(Arc::new(
+                        anyhow::anyhow!("Preflight journal not found"),
+                    )));
+                }
+                Err(err) => {
+                    let mapped = OrderPricingError::UnexpectedErr(Arc::new(err.into()));
+                    if !is_preflight_journal_missing(&mapped) {
+                        return Err(mapped);
+                    }
+                    last_missing_err = Some(mapped);
+                }
+            }
+
+            if attempt < PREFLIGHT_JOURNAL_MAX_ATTEMPTS {
+                tracing::debug!(
+                    "Preflight journal for session {exec_session_id} not available yet; retrying ({attempt}/{}) in {}ms",
+                    PREFLIGHT_JOURNAL_MAX_ATTEMPTS,
+                    backoff_ms
+                );
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                backoff_ms = (backoff_ms * 2).min(PREFLIGHT_JOURNAL_MAX_BACKOFF_MS);
+            }
+        }
+
+        Err(last_missing_err.unwrap_or_else(|| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Preflight journal not found after retries"
+            )))
+        }))
     }
     async fn price_order(
         &self,
