@@ -92,7 +92,7 @@ x-gpu-prove-agent: &gpu-prove-agent
     [
       "/bin/sh",
       "-c",
-      "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
+      "pids=''; trap 'for pid in $$pids; do kill -TERM $$pid 2>/dev/null || true; done; wait; exit 0' TERM INT; gpus=$$(nvidia-smi --query-gpu=index --format=csv,noheader,nounits | tr -d ' '); if [ -z \"$$gpus\" ]; then echo 'No GPUs detected'; exit 1; fi; for gpu in $$gpus; do (backoff=1; while true; do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL; rc=$$?; echo \"gpu $$gpu worker exited rc=$$rc, restarting in $${backoff}s\"; sleep $$backoff; if [ $$backoff -lt 30 ]; then backoff=$$((backoff*2)); fi; done) & pids=\"$$pids $$!\"; done; wait",
     ]
   # When USE_LOCAL_BLAKE3_GROTH16_SETUP=1 the image has no artifacts; set BLAKE3_GROTH16_SETUP_DIR
   # to the host path containing verify_for_guest_final.zkey and verify_for_guest_graph.bin.

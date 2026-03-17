@@ -15,7 +15,10 @@
 use crate::{OrderFulfilled, OrderFulfiller};
 use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
-use boundless_market::contracts::boundless_market::{FulfillmentTx, UnlockedRequest};
+use boundless_market::contracts::{
+    boundless_market::{FulfillmentTx, UnlockedRequest},
+    RequestStatus,
+};
 use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};
@@ -118,8 +121,15 @@ impl ProverFulfill {
                         U256::from(req.id)
                     );
                 }
+                let request_status =
+                    boundless_market.get_status(*request_id, Some(req.expires_at())).await?;
+                if request_status == RequestStatus::Fulfilled {
+                    tracing::info!("Skipping already fulfilled request 0x{request_id:x}");
+                    return Ok::<_, anyhow::Error>((req, sig, true, true));
+                }
+
                 let is_locked = boundless_market.is_locked(*request_id).await?;
-                Ok::<_, anyhow::Error>((req, sig, is_locked))
+                Ok::<_, anyhow::Error>((req, sig, is_locked, false))
             }
         });
 
@@ -127,13 +137,27 @@ impl ProverFulfill {
         let results = futures::future::join_all(fetch_order_jobs).await;
         let mut orders = Vec::new();
         let mut unlocked_requests = Vec::new();
+        let mut already_fulfilled = Vec::new();
 
         for result in results {
-            let (req, sig, is_locked) = result?;
+            let (req, sig, is_locked, is_already_fulfilled) = result?;
+            if is_already_fulfilled {
+                already_fulfilled.push(format!("{:#x}", U256::from(req.id)));
+                continue;
+            }
             if !is_locked {
                 unlocked_requests.push(UnlockedRequest::new(req.clone(), sig.clone()));
             }
             orders.push((req, sig));
+        }
+
+        if !already_fulfilled.is_empty() {
+            display.item_colored("Already fulfilled", already_fulfilled.join(", "), "yellow");
+        }
+
+        if orders.is_empty() {
+            display.success("All requested IDs are already fulfilled; skipping reproving.");
+            return Ok(());
         }
 
         display.status("Status", "Generating proofs", "yellow");

@@ -25,6 +25,7 @@ blake3_groth16 = { workspace = true, features = ["prove"] }
 bytemuck = { workspace = true }
 clap = { workspace = true, features = ["env", "derive"] }
 deadpool-redis = { workspace = true }
+futures = "0.3"
 hex = { workspace = true }
 nix = { version = "0.29", features = ["fs"] }
 prometheus = { workspace = true }

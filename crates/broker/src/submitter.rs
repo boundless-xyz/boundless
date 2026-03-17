@@ -111,6 +111,14 @@ impl<P> Submitter<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
+    fn is_retryable_submission_error(err: &MarketError) -> bool {
+        let msg = err.to_string().to_lowercase();
+        msg.contains("replacement transaction underpriced")
+            || msg.contains("transaction underpriced")
+            || msg.contains("nonce too low")
+            || msg.contains("already known")
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
@@ -578,6 +586,13 @@ where
         fulfillments: &[Fulfillment],
         order_ids: &[&str],
     ) -> Result<(), SubmitterErr> {
+        if Self::is_retryable_submission_error(&err) {
+            tracing::warn!(
+                "Transient submission error for batch {batch_id}; will retry without failing orders: {err:?}"
+            );
+            return Err(SubmitterErr::MarketError(err));
+        }
+
         tracing::warn!("Failed to submit proofs for batch {batch_id}: {err:?} ");
         for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
             if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
@@ -644,6 +659,15 @@ where
                     break;
                 }
                 Err(err) => {
+                    // Back off on nonce/mempool contention to avoid rapid resubmission thrash.
+                    if matches!(&err, SubmitterErr::MarketError(market_err) if Self::is_retryable_submission_error(market_err))
+                    {
+                        let backoff_ms = (500_u64.saturating_mul(1_u64 << attempt)).min(5_000);
+                        tracing::warn!(
+                            "Retryable tx submission conflict; backing off for {backoff_ms}ms before retry"
+                        );
+                        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                    }
                     tracing::warn!(
                         "Batch submission attempt {}/{} failed. Error: {err:?}",
                         attempt + 1,
