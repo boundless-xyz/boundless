@@ -72,3 +72,10 @@ prover_input_ttl_days: 1
 
 prover_docker_compose_profile: "--profile broker --profile miner"
 prover_docker_compose_invoke: ""
+# When true, systemd runs "docker compose build" before every start.
+# Keep false for fast restarts; set true only on dedicated build hosts.
+prover_build_on_start: false
+
+# systemd start timeout (seconds). Increase on hosts that may do cold image builds.
+prover_start_timeout_sec: 7200
+prover_stop_timeout_sec: 7200

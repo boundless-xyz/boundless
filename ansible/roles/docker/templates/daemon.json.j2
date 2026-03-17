@@ -1,19 +1,14 @@
 {
-    "iptables": false{{ "," if docker_zfs_support == "true" or docker_nvidia_enabled else "" }}
-    {% if docker_zfs_support == "true" %}
+    "iptables": false,
+    "data-root": "{{ docker_data_root }}"{% if docker_zfs_support == "true" or docker_nvidia_enabled %},{% endif %}
+{% if docker_zfs_support == "true" %}
     "storage-driver": "zfs",
-    "storage-opts": ["zfs.fsname=prover"]{{ "," if docker_nvidia_enabled else "" }}
-    {% endif %}
-    {% if docker_nvidia_enabled %}
-    {% if docker_zfs_support == "true" %}
-    "storage-driver": "zfs",
-    "storage-opts": ["zfs.fsname=prover"],
-    {% endif %}
+    "storage-opts": ["zfs.fsname=prover"]{% endif %}{% if docker_nvidia_enabled %},
+
     "runtimes": {
         "nvidia": {
             "args": [],
             "path": "nvidia-container-runtime"
         }
-    }
-    {% endif %}
+    }{% endif %}
 }

@@ -87,7 +87,7 @@ peak_prove_khz = 100
 # to request useful work with profitable pricing, and thus are prioritized over
 # requestors not on these lists.
 #
-# Priority requestors are prioritized when there is a surplus of demand, and skip 
+# Priority requestors are prioritized when there is a surplus of demand, and skip
 # various limits that are typically applied to all requestors:
 # 1. Their requests will be preflighted first.
 # 2. Their requests will be locked first (in situations where multiple orders

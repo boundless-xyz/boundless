@@ -7,24 +7,21 @@ name: bento
 #   nvidia-smi --list-gpus
 
 # Anchors:
-x-base-environment: &base-environment
-  DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-  # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
+x-base-environment: &base-environment # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
   REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
-  S3_URL: http://${MINIO_HOST:-minio}:9000
-  S3_BUCKET: ${MINIO_BUCKET:-workflow}
-  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
-  S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
+  STORAGE_DIR: /object_store
   NO_COLOR: 1
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
-  RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
+  BENTO_API_URL: ${BENTO_API_URL:-http://rest_api:8081}
+# Agent and rest_api use env vars only (no positional DATABASE_URL/S3_* args).
+# Default to source-built images; set AGENT_DOCKERFILE/REST_API_DOCKERFILE to *prebuilt* and BENTO_BINARY_URL to use a release bundle.
 x-agent-common: &agent-common
   runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
-    dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
+    dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}
     args:
       BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
@@ -76,15 +73,26 @@ x-broker-environment: &broker-environment
 
 x-gpu-prove-agent: &gpu-prove-agent
   <<: *agent-common
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+    rest_api:
+      condition: service_healthy
   environment:
     <<: *base-environment
+    # Prove agent uses the API for work claim/task updates (no direct Redis/taskdb)
+    BENTO_API_URL: ${BENTO_API_URL:-http://rest_api:8081}
     REDIS_TTL: ${REDIS_TTL:-57600}
   # Detect GPUs and spawn one agent per GPU, then wait for all
   entrypoint:
     [
       "/bin/sh",
       "-c",
-      "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
+      "pids=''; trap 'for pid in $$pids; do kill -TERM $$pid 2>/dev/null || true; done; wait; exit 0' TERM INT; gpus=$$(nvidia-smi --query-gpu=index --format=csv,noheader,nounits | tr -d ' '); if [ -z \"$$gpus\" ]; then echo 'No GPUs detected'; exit 1; fi; for gpu in $$gpus; do (backoff=1; while true; do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL; rc=$$?; echo \"gpu $$gpu worker exited rc=$$rc, restarting in $${backoff}s\"; sleep $$backoff; if [ $$backoff -lt 30 ]; then backoff=$$((backoff*2)); fi; done) & pids=\"$$pids $$!\"; done; wait",
     ]
   # When USE_LOCAL_BLAKE3_GROTH16_SETUP=1 the image has no artifacts; set BLAKE3_GROTH16_SETUP_DIR
   # to the host path containing verify_for_guest_final.zkey and verify_for_guest_graph.bin.
@@ -94,6 +102,7 @@ x-gpu-prove-agent: &gpu-prove-agent
       source: ${BLAKE3_GROTH16_SETUP_DIR}
       target: /.blake3_groth16_artifacts/
       read_only: true
+    - object-store-data:/object_store
 
 x-broker-common: &broker-common
   restart: always
@@ -261,11 +270,15 @@ services:
 
   exec_agent:
     <<: *exec-agent-common
+    volumes:
+      - object-store-data:/object_store
     deploy:
       replicas: ${BENTO_EXECUTOR_COUNT:-4}
 
   aux_agent:
     <<: *agent-common
+    volumes:
+      - object-store-data:/object_store
     mem_limit: 256M
     deploy:
       replicas: ${BENTO_AUX_WORKER_COUNT:-2}
@@ -302,7 +315,7 @@ services:
   rest_api:
     build:
       context: .
-      dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
+      dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}
       args:
         BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
     restart: always
@@ -312,14 +325,16 @@ services:
       minio:
         condition: service_healthy
 
-    mem_limit: 1G
-    cpus: 1
+    mem_limit: ${REST_API_MEM_LIMIT:-2G}
+    cpus: ${REST_API_CPUS:-2}
 
     environment:
       <<: *base-environment
 
     ports:
       - "8081:8081"
+    volumes:
+      - object-store-data:/object_store
 
     entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
     healthcheck:
@@ -406,6 +421,9 @@ volumes:
   redis-data:
   postgres-data:
   minio-data:
+  object-store-data:
+    # Keep object-store persistence stable across redeploys/project renames.
+    name: bento-object-store-data
   prometheus-data:
   grafana-data:
   broker-data:

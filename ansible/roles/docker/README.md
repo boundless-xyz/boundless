@@ -15,6 +15,8 @@ This role installs Docker Engine, Docker CLI, and Docker Compose plugin from the
 - `docker_architecture` (default: `"amd64"`): Architecture for Docker packages (amd64, arm64, etc.)
 - `docker_users` (default: `[]`): List of users to add to the docker group (e.g., `["ubuntu", "deploy"]`)
 - `docker_nvidia_enabled` (default: `true`): Enable NVIDIA Container Toolkit installation for GPU support
+- `docker_data_root` (default: `"/prover/docker"`): Docker data root directory (e.g. use `"/var/lib/docker"` when not using ZFS)
+- `docker_zfs_support` (default: `false`): Set to `"true"` to use ZFS storage driver with `storage-opts`
 
 ## Dependencies
 

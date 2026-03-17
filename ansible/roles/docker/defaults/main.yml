@@ -3,14 +3,17 @@
 
 # Ubuntu version mapping for Docker repository
 # Automatically detected, but can be overridden
-docker_ubuntu_version: null  # null = auto-detect
+docker_ubuntu_version: null # null = auto-detect
 
 # Docker architecture (default: amd64)
 docker_architecture: "amd64"
 
 # List of users to add to docker group (empty list = no users added)
-docker_users: []  # Example: ["ubuntu", "deploy"]
+docker_users: [] # Example: ["ubuntu", "deploy"]
 
 # Enable NVIDIA Container Toolkit installation (requires NVIDIA GPU)
 docker_nvidia_enabled: true
 docker_zfs_support: false
+
+# Docker data root (e.g. /var/lib/docker or /prover/docker when using ZFS)
+docker_data_root: "/var/lib/docker"

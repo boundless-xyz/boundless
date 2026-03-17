@@ -8,13 +8,15 @@ Type=simple
 User=root
 WorkingDirectory={{ prover_dir }}
 EnvironmentFile={{ prover_env_file }}
+{% if prover_build_on_start | default(false) | bool %}
 ExecStartPre=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} build
+{% endif %}
 ExecStart=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} up {{ prover_docker_compose_invoke }}
 ExecStop=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} down
 Restart=always
 RestartSec=10
-TimeoutStartSec=1800
-TimeoutStopSec=300
+TimeoutStartSec={{ prover_start_timeout_sec }}
+TimeoutStopSec={{ prover_stop_timeout_sec }}
 
 [Install]
 WantedBy=multi-user.target
