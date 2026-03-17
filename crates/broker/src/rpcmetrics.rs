@@ -85,7 +85,7 @@ where
             let result = fut.await;
             let elapsed_ms = start.elapsed().as_millis();
 
-            let (resp_bytes, rpc_error_code) = match &result {
+            let (resp_bytes, rpc_error_code, error) = match &result {
                 Ok(resp) => {
                     let bytes = match resp {
                         ResponsePacket::Single(r) => {
@@ -96,9 +96,9 @@ where
                         }
                     };
                     let error_code = resp.as_error().map(|e| e.code);
-                    (bytes, error_code)
+                    (bytes, error_code, None)
                 }
-                Err(_) => (0, None),
+                Err(e) => (0, None, Some(e.to_string())),
             };
 
             let method_str = methods.join(",");
@@ -109,6 +109,7 @@ where
                 duration_ms = elapsed_ms as u64,
                 ok = result.is_ok() && rpc_error_code.is_none(),
                 rpc_error_code = rpc_error_code.map(|c| c.to_string()),
+                error,
                 "rpc call"
             );
 
@@ -238,6 +239,7 @@ mod tests {
         let mut svc = RpcMetricsLayer::new().layer(mock);
         let _ = svc.call(dummy_request()).await;
         assert!(logs_contain("rpc call"));
+        assert!(logs_contain("mock failure"));
     }
 
     #[traced_test]

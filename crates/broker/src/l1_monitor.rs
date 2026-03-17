@@ -246,11 +246,6 @@ where
         self.last_processed_block.load(Ordering::Relaxed)
     }
 
-    #[cfg(test)]
-    async fn gas_price_value(&self) -> u128 {
-        *self.gas_price.read().await
-    }
-
     /// Walk `start_block..=end_block` using `get_logs`, automatically discovering the maximum
     /// chunk size accepted by the RPC provider via binary search on first failure.
     async fn adaptive_get_logs(

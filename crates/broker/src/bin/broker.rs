@@ -36,7 +36,7 @@ use broker::{
 };
 use clap::Parser;
 use std::time::Duration;
-use tower::ServiceBuilder;
+use tower::{Layer, ServiceBuilder};
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
@@ -96,7 +96,9 @@ async fn main() -> Result<()> {
         // The outer RetryBackoffLayer only kicks in after all URLs have been exhausted.
         let transports: Vec<_> = all_rpc_urls
             .iter()
-            .map(|url| Http::with_client(http_client.clone(), url.clone()))
+            .map(|url| {
+                RpcMetricsLayer::new().layer(Http::with_client(http_client.clone(), url.clone()))
+            })
             .collect();
 
         tracing::info!(
@@ -106,7 +108,6 @@ async fn main() -> Result<()> {
         );
 
         let transport = ServiceBuilder::new()
-            .layer(RpcMetricsLayer::new())
             .layer(retry_layer)
             .layer(SequentialFallbackLayer)
             .service(transports);
@@ -116,10 +117,9 @@ async fn main() -> Result<()> {
         // Single URL - use regular provider
         let single_url = &all_rpc_urls[0];
         tracing::info!("Configuring broker with single RPC URL: {}", single_url);
-        let transport = ServiceBuilder::new()
-            .layer(RpcMetricsLayer::new())
-            .layer(retry_layer)
-            .service(Http::with_client(http_client, single_url.clone()));
+        let transport = ServiceBuilder::new().layer(retry_layer).service(
+            RpcMetricsLayer::new().layer(Http::with_client(http_client, single_url.clone())),
+        );
         RpcClient::builder().transport(transport, false)
     };
 
