@@ -40,6 +40,7 @@ RUN curl -L https://risczero.com/install | bash && \
 FROM rust-builder AS builder
 
 ARG NVCC_APPEND_FLAGS="\
+  -t0 \
   --generate-code arch=compute_75,code=sm_75 \
   --generate-code arch=compute_86,code=sm_86 \
   --generate-code arch=compute_89,code=sm_89 \
