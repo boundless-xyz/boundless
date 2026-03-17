@@ -422,6 +422,8 @@ volumes:
   postgres-data:
   minio-data:
   object-store-data:
+    # Keep object-store persistence stable across redeploys/project renames.
+    name: bento-object-store-data
   prometheus-data:
   grafana-data:
   broker-data:
