@@ -36,6 +36,7 @@ export = () => {
   const externalCollateralThreshold = config.get('EXTERNAL_COLLATERAL_THRESHOLD');
   const externalPerTopUpAmount = config.get('EXTERNAL_PER_TOP_UP_AMOUNT');
   const externalLifetimeAllowance = config.get('EXTERNAL_LIFETIME_ALLOWANCE');
+  const chainalysisOracleAddress = config.get('CHAINALYSIS_ORACLE_ADDRESS');
 
   const scheduleMinutes = config.require('SCHEDULE_MINUTES');
 
@@ -269,6 +270,7 @@ export = () => {
     externalCollateralThreshold ? `--external-collateral-threshold ${externalCollateralThreshold}` : '',
     externalPerTopUpAmount ? `--external-per-top-up-amount ${externalPerTopUpAmount}` : '',
     externalLifetimeAllowance ? `--external-lifetime-allowance ${externalLifetimeAllowance}` : '',
+    chainalysisOracleAddress ? `--chainalysis-oracle-address ${chainalysisOracleAddress}` : '',
     `--allowance-state-file /mnt/topup-state/topup-state.json`,
   ]
 

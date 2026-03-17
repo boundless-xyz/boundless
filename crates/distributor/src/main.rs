@@ -118,8 +118,8 @@ struct MainArgs {
     /// Minimum 7D billion-cycles for a prover to qualify for external top-up
     #[clap(long, env, default_value = "1")]
     min_bcycles_threshold: u64,
-    /// Chainalysis sanctions oracle address
-    #[clap(long, env, default_value = "0x40C57923924B5c5c5455c48D93317139ADDaC8fb")]
+    /// Chainalysis sanctions oracle address (set to 0x0 to skip OFAC screening, e.g. on testnets)
+    #[clap(long, env, default_value = "0x0000000000000000000000000000000000000000")]
     chainalysis_oracle_address: Address,
     /// ZKC balance below which an external prover gets topped up (human-readable, e.g. "5")
     #[clap(long, env, default_value = "5")]
@@ -753,7 +753,14 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
     // 3. Load lifetime allowance state
     let mut state = load_state(&args.allowance_state_file)?;
 
-    // 4. Set up Chainalysis Oracle
+    // 4. Set up Chainalysis Oracle (skip when address is zero, e.g. testnets)
+    let skip_ofac = args.chainalysis_oracle_address == Address::ZERO;
+    if skip_ofac {
+        tracing::warn!(
+            "Chainalysis oracle address is zero — OFAC screening is DISABLED. \
+             This is expected on testnets but must not happen in production."
+        );
+    }
     let oracle = SanctionsList::new(args.chainalysis_oracle_address, &provider);
 
     // 5. Chain-aware deposit setup
@@ -818,21 +825,26 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
         }
 
         // OFAC screen (fail-closed: skip on error)
-        match oracle.isSanctioned(addr).call().await {
-            Ok(sanctioned) if sanctioned => {
-                tracing::warn!("[B-TOPUP-OFAC] Address {} is sanctioned, blocking top-up", addr);
-                entry.sanctioned = true;
-                continue;
+        if !skip_ofac {
+            match oracle.isSanctioned(addr).call().await {
+                Ok(sanctioned) if sanctioned => {
+                    tracing::warn!(
+                        "[B-TOPUP-OFAC] Address {} is sanctioned, blocking top-up",
+                        addr
+                    );
+                    entry.sanctioned = true;
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[B-TOPUP-OFAC-ERR] Oracle call failed for {}: {}. Skipping (fail-closed).",
+                        addr,
+                        e
+                    );
+                    continue;
+                }
+                _ => {}
             }
-            Err(e) => {
-                tracing::warn!(
-                    "[B-TOPUP-OFAC-ERR] Oracle call failed for {}: {}. Skipping (fail-closed).",
-                    addr,
-                    e
-                );
-                continue;
-            }
-            _ => {}
         }
 
         // Compute capped amount
@@ -1127,9 +1139,7 @@ mod tests {
             enable_external_topup: false,
             indexer_api_url: None,
             min_bcycles_threshold: 1,
-            chainalysis_oracle_address: "0x40C57923924B5c5c5455c48D93317139ADDaC8fb"
-                .parse()
-                .unwrap(),
+            chainalysis_oracle_address: Address::ZERO,
             external_collateral_threshold: "5".to_string(),
             external_per_top_up_amount: "10".to_string(),
             external_lifetime_allowance: "100".to_string(),
