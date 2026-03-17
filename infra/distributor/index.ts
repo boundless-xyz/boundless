@@ -31,8 +31,8 @@ export = () => {
 
   // External prover top-up config (all optional)
   const enableExternalTopup = config.getBoolean('ENABLE_EXTERNAL_TOPUP') ?? false;
-  const indexerApiUrl = config.get('INDEXER_API_URL');
-  const minCyclesThreshold = config.get('MIN_CYCLES_THRESHOLD');
+  const indexerApiUrl = enableExternalTopup ? config.requireSecret('INDEXER_API_URL') : config.get('INDEXER_API_URL');
+  const minBcyclesThreshold = config.get('MIN_BCYCLES_THRESHOLD');
   const externalCollateralThreshold = config.get('EXTERNAL_COLLATERAL_THRESHOLD');
   const externalPerTopUpAmount = config.get('EXTERNAL_PER_TOP_UP_AMOUNT');
   const externalLifetimeAllowance = config.get('EXTERNAL_LIFETIME_ALLOWANCE');
@@ -91,6 +91,17 @@ export = () => {
     secretId: orderGeneratorKeysSecret.id,
     secretString: orderGeneratorKeys,
   });
+
+  const indexerApiUrlSecret = indexerApiUrl
+    ? (() => {
+        const secret = new aws.secretsmanager.Secret(`${serviceName}-indexer-api-url`);
+        new aws.secretsmanager.SecretVersion(`${serviceName}-indexer-api-url`, {
+          secretId: secret.id,
+          secretString: indexerApiUrl,
+        });
+        return secret;
+      })()
+    : undefined;
 
   const secretHash = pulumi
     .all([ethRpcUrl, privateKey])
@@ -254,8 +265,7 @@ export = () => {
     distributorStakeAlertThreshold ? `--distributor-stake-alert-threshold ${distributorStakeAlertThreshold}` : '',
     offchainRequestorAddresses ? `--offchain-requestor-addresses ${offchainRequestorAddresses}` : '',
     enableExternalTopup ? `--enable-external-topup` : '',
-    indexerApiUrl ? `--indexer-api-url ${indexerApiUrl}` : '',
-    minCyclesThreshold ? `--min-cycles-threshold ${minCyclesThreshold}` : '',
+    minBcyclesThreshold ? `--min-bcycles-threshold ${minBcyclesThreshold}` : '',
     externalCollateralThreshold ? `--external-collateral-threshold ${externalCollateralThreshold}` : '',
     externalPerTopUpAmount ? `--external-per-top-up-amount ${externalPerTopUpAmount}` : '',
     externalLifetimeAllowance ? `--external-lifetime-allowance ${externalLifetimeAllowance}` : '',
@@ -294,6 +304,9 @@ export = () => {
       name: 'ORDER_GENERATOR_KEYS',
       valueFrom: orderGeneratorKeysSecret.arn,
     },
+    ...(indexerApiUrlSecret
+      ? [{ name: 'INDEXER_API_URL', valueFrom: indexerApiUrlSecret.arn }]
+      : []),
   ];
 
   // IAM Role for EventBridge to Start ECS Tasks and log failures

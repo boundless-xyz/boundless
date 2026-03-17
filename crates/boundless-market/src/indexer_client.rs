@@ -357,7 +357,7 @@ impl IndexerClient {
 
     /// Get the prover leaderboard for a given period.
     ///
-    /// `period` values: `"7D"`, `"30D"`, `"90D"`, `"ALL"`.
+    /// `period` values: `"1h"`, `"1d"`, `"3d"`, `"7d"`, `"all"`.
     /// GET /v1/market/provers?period={period}
     pub async fn get_provers(&self, period: &str) -> Result<ProverLeaderboardResponse> {
         let mut url = self.base_url.join("v1/market/provers").context("Failed to build URL")?;

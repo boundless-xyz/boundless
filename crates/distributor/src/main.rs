@@ -115,9 +115,9 @@ struct MainArgs {
     /// Indexer API base URL (required when --enable-external-topup is set).
     #[clap(long, env)]
     indexer_api_url: Option<Url>,
-    /// Minimum 7D cycles for a prover to qualify for external top-up
-    #[clap(long, env, default_value = "1000000")]
-    min_cycles_threshold: u64,
+    /// Minimum 7D billion-cycles for a prover to qualify for external top-up
+    #[clap(long, env, default_value = "1")]
+    min_bcycles_threshold: u64,
     /// Chainalysis sanctions oracle address
     #[clap(long, env, default_value = "0x40C57923924B5c5c5455c48D93317139ADDaC8fb")]
     chainalysis_oracle_address: Address,
@@ -713,21 +713,37 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
     let ext_lifetime_allowance: U256 =
         parse_units(&args.external_lifetime_allowance, collateral_token_decimals)?.into();
 
+    // Hard cap: lifetime allowance must never exceed 100 ZKC
+    let max_lifetime: U256 = parse_units("100", collateral_token_decimals)?.into();
+    anyhow::ensure!(
+        ext_lifetime_allowance <= max_lifetime,
+        "EXTERNAL_LIFETIME_ALLOWANCE ({}) exceeds the hard cap of 100 ZKC",
+        args.external_lifetime_allowance
+    );
+    anyhow::ensure!(
+        ext_per_top_up <= ext_lifetime_allowance,
+        "EXTERNAL_PER_TOP_UP_AMOUNT ({}) exceeds EXTERNAL_LIFETIME_ALLOWANCE ({})",
+        args.external_per_top_up_amount,
+        args.external_lifetime_allowance
+    );
+
     // 1. Fetch active provers from indexer API (7D period)
     let indexer = IndexerClient::new(indexer_api_url.clone())?;
-    let provers_resp = indexer.get_provers("7D").await?;
+    let provers_resp = indexer.get_provers("7d").await?;
     tracing::info!("Fetched {} provers from indexer API", provers_resp.data.len());
 
     // 2. Filter by min cycles
     let eligible: Vec<&ProverLeaderboardEntry> = provers_resp
         .data
         .iter()
-        .filter(|p| p.cycles.parse::<u64>().unwrap_or(0) >= args.min_cycles_threshold)
+        .filter(|p| {
+            p.cycles.parse::<u64>().unwrap_or(0) >= args.min_bcycles_threshold * 1_000_000_000
+        })
         .collect();
     tracing::info!(
-        "{} provers meet the min cycles threshold of {}",
+        "{} provers meet the min cycles threshold of {}B",
         eligible.len(),
-        args.min_cycles_threshold
+        args.min_bcycles_threshold
     );
 
     if eligible.is_empty() {
@@ -782,18 +798,18 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
             continue;
         }
 
-        // Use collateral balance from indexer
-        let balance: U256 = if prover.collateral_available_zkc.is_empty() {
+        // Use deposited collateral from indexer
+        let balance: U256 = if prover.collateral_deposited_zkc.is_empty() {
             U256::ZERO
         } else {
-            parse_units(&prover.collateral_available_zkc, collateral_token_decimals)
+            parse_units(&prover.collateral_deposited_zkc, collateral_token_decimals)
                 .map(|v| v.into())
                 .unwrap_or(U256::ZERO)
         };
 
         if balance >= ext_collateral_threshold {
             tracing::debug!(
-                "Prover {} has {} available collateral, above threshold {}. Skipping.",
+                "Prover {} has {} deposited collateral, above threshold {}. Skipping.",
                 addr,
                 format_units(balance, collateral_token_decimals)?,
                 format_units(ext_collateral_threshold, collateral_token_decimals)?
@@ -901,7 +917,7 @@ mod tests {
         let server = MockServer::start();
         let response = serde_json::json!({
             "chain_id": 31337,
-            "period": "7D",
+            "period": "7d",
             "period_start": 0,
             "period_end": 9999999999i64,
             "data": provers,
@@ -921,7 +937,7 @@ mod tests {
     fn prover_entry(
         address: Address,
         cycles: u64,
-        collateral_available_zkc: &str,
+        collateral_deposited_zkc: &str,
     ) -> serde_json::Value {
         serde_json::json!({
             "chain_id": 31337,
@@ -938,10 +954,10 @@ mod tests {
             "median_lock_price_per_cycle_formatted": null,
             "best_effective_prove_mhz": 100.0,
             "locked_order_fulfillment_rate": 90.0,
-            "collateral_deposited_zkc": "0",
-            "collateral_deposited_zkc_formatted": "0.0",
-            "collateral_available_zkc": collateral_available_zkc.to_string(),
-            "collateral_available_zkc_formatted": format!("{} ZKC", collateral_available_zkc),
+            "collateral_deposited_zkc": collateral_deposited_zkc.to_string(),
+            "collateral_deposited_zkc_formatted": format!("{} ZKC", collateral_deposited_zkc),
+            "collateral_available_zkc": "0",
+            "collateral_available_zkc_formatted": "0.0 ZKC",
             "last_activity_time": 1710000000,
             "last_activity_time_iso": "2025-03-10T00:00:00Z",
         })
@@ -1023,7 +1039,7 @@ mod tests {
                 deployment: Some(self.deployment.clone()),
                 enable_external_topup: true,
                 indexer_api_url: Some(indexer_url.parse().unwrap()),
-                min_cycles_threshold: 1_000_000,
+                min_bcycles_threshold: 1,
                 chainalysis_oracle_address: oracle_address,
                 external_collateral_threshold: "5".to_string(),
                 external_per_top_up_amount: "10".to_string(),
@@ -1110,7 +1126,7 @@ mod tests {
             // External prover args (disabled for this test)
             enable_external_topup: false,
             indexer_api_url: None,
-            min_cycles_threshold: 1_000_000,
+            min_bcycles_threshold: 1,
             chainalysis_oracle_address: "0x40C57923924B5c5c5455c48D93317139ADDaC8fb"
                 .parse()
                 .unwrap(),
@@ -1170,7 +1186,7 @@ mod tests {
         let external_prover = PrivateKeySigner::random();
 
         let server =
-            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000, "0")]);
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
         let args = fix.args(&server.base_url());
 
         run(&args).await.unwrap();
@@ -1197,7 +1213,7 @@ mod tests {
         let external_prover = PrivateKeySigner::random();
 
         let server =
-            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000, "0")]);
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
 
         // Pre-seed state: prover already received 100 ZKC (= lifetime cap)
         let lifetime_cap: U256 = parse_units("100", 18).unwrap().into();
@@ -1233,7 +1249,7 @@ mod tests {
         fix.sanction(sanctioned_prover.address()).await;
 
         let server =
-            mock_indexer_server(&[prover_entry(sanctioned_prover.address(), 2_000_000, "0")]);
+            mock_indexer_server(&[prover_entry(sanctioned_prover.address(), 2_000_000_000, "0")]);
         let args = fix.args(&server.base_url());
 
         run(&args).await.unwrap();
@@ -1258,7 +1274,7 @@ mod tests {
         let external_prover = PrivateKeySigner::random();
 
         let server =
-            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000, "0")]);
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
 
         // Point at a bogus oracle address — calls will fail
         let args = fix.args_with_oracle(&server.base_url(), PrivateKeySigner::random().address());
@@ -1291,6 +1307,51 @@ mod tests {
             "Low-cycles prover should not get collateral"
         );
         assert!(!logs_contain("[B-TOPUP-OK]"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_lifetime_allowance_exceeds_hard_cap() {
+        let fix = ExternalTopupFixture::new().await;
+        let external_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
+        let mut args = fix.args(&server.base_url());
+        args.external_lifetime_allowance = "101".to_string();
+
+        run(&args).await.unwrap();
+
+        assert!(logs_contain("exceeds the hard cap of 100 ZKC"));
+        assert!(!logs_contain("[B-TOPUP-OK]"));
+        assert_eq!(
+            fix.collateral_balance_of(external_prover.address()).await,
+            U256::ZERO,
+            "No top-up should occur when lifetime allowance exceeds hard cap"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_per_amount_exceeds_lifetime_allowance() {
+        let fix = ExternalTopupFixture::new().await;
+        let external_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
+        let mut args = fix.args(&server.base_url());
+        args.external_per_top_up_amount = "60".to_string();
+        args.external_lifetime_allowance = "50".to_string();
+
+        run(&args).await.unwrap();
+
+        assert!(logs_contain("exceeds EXTERNAL_LIFETIME_ALLOWANCE"));
+        assert!(!logs_contain("[B-TOPUP-OK]"));
+        assert_eq!(
+            fix.collateral_balance_of(external_prover.address()).await,
+            U256::ZERO,
+            "No top-up should occur when per-top-up exceeds lifetime allowance"
+        );
     }
 
     #[tokio::test]
