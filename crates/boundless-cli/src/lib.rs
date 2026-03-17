@@ -241,19 +241,6 @@ pub async fn ensure_prover_has_image(
     Ok(())
 }
 
-/// The default prover implementation.
-/// This [DefaultProver] uses the default zkVM prover.
-/// The selection of the zkVM prover is based on environment variables.
-///
-/// The `RISC0_PROVER` environment variable, if specified, will select the
-/// following [Prover] implementation:
-/// * `bonsai`: [BonsaiProver] to prove on Bonsai.
-/// * `local`: LocalProver to prove locally in-process. Note: this
-///   requires the `prove` feature flag.
-/// * `ipc`: [ExternalProver] to prove using an `r0vm` sub-process. Note: `r0vm`
-///   must be installed. To specify the path to `r0vm`, use `RISC0_SERVER_PATH`.
-///
-/// If `RISC0_PROVER` is not specified, the following rules are used to select a
 /// Orchestrates the fulfillment of proof requests by coordinating order proving,
 /// set building, and assessor verification.
 ///

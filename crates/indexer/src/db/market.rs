@@ -267,6 +267,10 @@ pub struct PeriodRequestorSummary {
     pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
+    pub p50_time_to_lock_seconds: Option<f64>,
+    pub p90_time_to_lock_seconds: Option<f64>,
+    pub p50_time_to_fulfill_seconds: Option<f64>,
+    pub p90_time_to_fulfill_seconds: Option<f64>,
 }
 
 impl PeriodRequestorSummary {

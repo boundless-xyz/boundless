@@ -1,4 +1,3 @@
-# Build stage
 FROM rust:1.89.0-bookworm AS init
 
 RUN apt-get -qq update && \
@@ -8,19 +7,12 @@ SHELL ["/bin/bash", "-c"]
 
 RUN cargo install cargo-chef
 
-# Install protoc
+# protoc needed for market-indexer-backfill dependencies
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
     && unzip protoc.zip -d /usr/local \
     && rm protoc.zip
 
-ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
-# The indexer doesn't need r0vm to run, but its tests do need it. 
-# Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
-# to leverage chef. See https://github.com/LukeMathWalker/cargo-chef/issues/114
-# For this reason we also need to build for amd64.
-#
-# Github token can be provided as a secret with the name githubTokenSecret. Useful
-# for shared build environments where Github rate limiting is an issue.
+ARG CACHE_DATE=2026-02-13
 RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
     if [ -f /run/secrets/githubTokenSecret ]; then \
     GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
@@ -45,15 +37,25 @@ COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
 COPY xtask/ ./xtask/
 
-RUN cargo chef prepare  --recipe-path recipe.json
+RUN cargo chef prepare --recipe-path recipe.json
 
 FROM init AS builder
 
 WORKDIR /src
 
+SHELL ["/bin/bash", "-c"]
+
 COPY --from=planner /src/recipe.json /src/recipe.json
 
-RUN cargo chef cook --release --recipe-path recipe.json
+COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
+RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
+
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
+
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    cargo chef cook --release --recipe-path recipe.json --package boundless-indexer && \
+    sccache --show-stats
 
 COPY Cargo.toml .
 COPY Cargo.lock .
@@ -66,12 +68,17 @@ COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
 COPY xtask/ ./xtask/
 
-SHELL ["/bin/bash", "-c"]
-
-RUN cargo build --release --bin market-indexer-backfill
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    cargo build --release --bin market-indexer && \
+    cargo build --release --bin rewards-indexer && \
+    cargo build --release --bin market-efficiency-indexer && \
+    cargo build --release --bin market-indexer-backfill && \
+    sccache --show-stats
 
 FROM init AS runtime
 
+COPY --from=builder /src/target/release/market-indexer /app/market-indexer
+COPY --from=builder /src/target/release/rewards-indexer /app/rewards-indexer
+COPY --from=builder /src/target/release/market-efficiency-indexer /app/market-efficiency-indexer
 COPY --from=builder /src/target/release/market-indexer-backfill /app/market-indexer-backfill
-
-ENTRYPOINT ["/app/market-indexer-backfill"]

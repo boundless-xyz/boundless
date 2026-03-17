@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 ARG RUST_IMG=rust:1.88-bookworm
-ARG S3_CACHE_PREFIX="public/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${RUST_IMG} AS rust-builder
 
