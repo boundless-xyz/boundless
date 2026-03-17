@@ -1924,9 +1924,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         signer: &impl Signer,
     ) -> Result<(U256, u8, B256, B256), MarketError> {
         if !collateral_token_supports_permit(self.get_chain_id().await?) {
-            return Err(MarketError::Error(anyhow!(
-                "Collateral token does not support permit on this chain"
-            )));
+            return Err(MarketError::Error(anyhow!("Collateral token does not support permit. Use approve_deposit_collateral and deposit_collateral instead.")));
         }
         let token_address = self
             .instance
