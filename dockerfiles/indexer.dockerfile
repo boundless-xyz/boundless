@@ -70,11 +70,10 @@ COPY xtask/ ./xtask/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo build --release \
-      --bin market-indexer \
-      --bin rewards-indexer \
-      --bin market-efficiency-indexer \
-      --bin market-indexer-backfill && \
+    cargo build --release --bin market-indexer && \
+    cargo build --release --bin rewards-indexer && \
+    cargo build --release --bin market-efficiency-indexer && \
+    cargo build --release --bin market-indexer-backfill && \
     sccache --show-stats
 
 FROM init AS runtime
