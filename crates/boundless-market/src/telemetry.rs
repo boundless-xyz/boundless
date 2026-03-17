@@ -105,8 +105,6 @@ pub struct RequestEvaluated {
     pub total_cycles: Option<u64>,
     /// "LockAndFulfill", "FulfillAfterLockExpire", or "FulfillWithoutLocking".
     pub fulfillment_type: String,
-    /// Whether the preflight result was served from cache (no actual execution).
-    pub preflight_cache_hit: bool,
     /// Time spent in the pending queue before a preflight slot was available (ms).
     /// Calculated in OrderPicker as: (now - received_at_timestamp - preflight_duration) * 1000.
     pub queue_duration_ms: Option<u64>,

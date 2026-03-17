@@ -35,7 +35,6 @@ use crate::{
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
-    telemetry::TelemetryHandle,
     utils::prune_receipt_claim_journal,
     AggregationState, Batch, BatchStatus,
 };
@@ -77,7 +76,6 @@ pub struct AggregatorService {
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
-    telemetry: TelemetryHandle,
 }
 
 impl AggregatorService {
@@ -91,7 +89,6 @@ impl AggregatorService {
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
-        telemetry: TelemetryHandle,
     ) -> Result<Self> {
         Ok(Self {
             db,
@@ -102,7 +99,6 @@ impl AggregatorService {
             market_addr,
             prover_addr,
             chain_id,
-            telemetry,
         })
     }
 
@@ -766,12 +762,12 @@ impl AggregatorService {
             );
 
             for order_id_str in &batch.orders {
-                self.telemetry.record(crate::telemetry::TelemetryEvent::AggregationCompleted {
-                    order_id: order_id_str.clone(),
+                crate::telemetry::telemetry().record_aggregation_completed(
+                    order_id_str,
                     set_builder_proving_secs,
                     assessor_proving_secs,
-                    assessor_compression_proof_secs: Some(batch_groth16_secs),
-                });
+                    Some(batch_groth16_secs),
+                );
             }
 
             self.db.complete_batch(batch_id, &compress_proof_id).await.with_context(|| {
@@ -820,7 +816,6 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::telemetry::TelemetryHandle;
     use crate::{
         chain_monitor::ChainMonitorService,
         db::SqliteDb,
@@ -899,7 +894,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            TelemetryHandle::noop(),
         )
         .await
         .unwrap();
@@ -1062,7 +1056,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            TelemetryHandle::noop(),
         )
         .await
         .unwrap();
@@ -1235,7 +1228,6 @@ mod tests {
             prover_addr,
             config,
             prover,
-            TelemetryHandle::noop(),
         )
         .await
         .unwrap();
@@ -1352,7 +1344,6 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
-            TelemetryHandle::noop(),
         )
         .await
         .unwrap();
@@ -1477,7 +1468,6 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
-            TelemetryHandle::noop(),
         )
         .await
         .unwrap();
@@ -1596,7 +1586,6 @@ mod tests {
             Address::ZERO,
             config,
             prover,
-            TelemetryHandle::noop(),
         )
         .await
         .unwrap();

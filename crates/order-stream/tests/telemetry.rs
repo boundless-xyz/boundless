@@ -107,7 +107,6 @@ async fn telemetry_end_to_end() {
             skip_reason: None,
             total_cycles: Some(2_000_000),
             fulfillment_type: "LockAndFulfill".to_string(),
-            preflight_cache_hit: false,
             queue_duration_ms: Some(150),
             preflight_duration_ms: Some(800),
             received_at_timestamp: 0,

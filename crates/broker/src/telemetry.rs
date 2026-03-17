@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, FixedBytes, U256};
@@ -30,8 +30,22 @@ use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use boundless_market::prover_utils::OrderRequest;
+
 use crate::config::ConfigLock;
 use crate::db::DbObj;
+use crate::errors::BrokerFailure;
+use crate::order_monitor::{OrderCommitmentMeta, OrderMonitorConfig};
+
+static GLOBAL: OnceLock<TelemetryHandle> = OnceLock::new();
+
+pub(crate) fn init(handle: TelemetryHandle) {
+    GLOBAL.set(handle).ok();
+}
+
+pub(crate) fn telemetry() -> &'static TelemetryHandle {
+    GLOBAL.get_or_init(TelemetryHandle::noop)
+}
 
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
@@ -72,8 +86,6 @@ pub(crate) enum TelemetryEvent {
         fulfillment_type: String,
         /// "Groth16", "Blake3Groth16", or "Merkle". Derived from the request's selector.
         proof_type: String,
-        /// Whether the preflight result was served from cache (no actual execution).
-        preflight_cache_hit: bool,
         /// Time spent in the pending queue before a preflight slot was available (ms).
         /// Calculated as: (now - received_at_timestamp - preflight_duration) * 1000.
         queue_duration_ms: Option<u64>,
@@ -216,6 +228,107 @@ impl TelemetryHandle {
     pub(crate) fn pending_preflight(&self) -> u32 {
         self.pending_preflight_count.load(Ordering::Relaxed)
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_order_pricing(
+        &self,
+        order: &OrderRequest,
+        outcome: EvalOutcome,
+        skip_code: Option<&str>,
+        skip_reason: Option<String>,
+        total_cycles: Option<u64>,
+        queue_start_secs: u64,
+        preflight_duration_secs: u64,
+    ) {
+        self.record(TelemetryEvent::OrderPricing {
+            order_id: order.id(),
+            request_id: order.request.id,
+            request_digest: order.request_digest(),
+            requestor: order.request.client_address(),
+            outcome,
+            skip_code: skip_code.map(|s| s.to_string()),
+            skip_reason,
+            total_cycles,
+            fulfillment_type: order.fulfillment_type.to_string(),
+            proof_type: proof_type_label(order.request.requirements.selector).to_string(),
+            queue_duration_ms: Some(queue_start_secs * 1000),
+            preflight_duration_ms: Some(preflight_duration_secs * 1000),
+            received_at_timestamp: order.received_at_timestamp,
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_order_commitment(
+        &self,
+        order_id: &str,
+        committed: bool,
+        meta: Option<&OrderCommitmentMeta>,
+        monitor_wait_duration_ms: Option<u64>,
+        config: &OrderMonitorConfig,
+        pending_commitment_count: u32,
+        skip_code: Option<&str>,
+        skip_reason: Option<&str>,
+        lock_submitted_at: Option<Instant>,
+    ) {
+        self.record(TelemetryEvent::OrderCommitment {
+            order_id: order_id.to_string(),
+            committed,
+            committed_at: if committed { Some(Instant::now()) } else { None },
+            concurrent_proving_jobs: meta.map(|m| m.concurrent_proving_jobs).unwrap_or(0),
+            estimated_proving_time_secs: meta.and_then(|m| m.estimated_proving_time_secs),
+            estimated_proving_time_no_load_secs: meta
+                .and_then(|m| m.estimated_proving_time_no_load_secs),
+            monitor_wait_duration_ms,
+            peak_prove_khz: config.peak_prove_khz,
+            max_capacity: config.max_concurrent_proofs,
+            pending_commitment_count,
+            skip_commit_code: skip_code.map(|s| s.to_string()),
+            skip_commit_reason: skip_reason.map(|s| s.to_string()),
+            lock_submitted_at,
+        });
+    }
+
+    pub(crate) fn record_proving_completed(
+        &self,
+        order_id: &str,
+        total_cycles: Option<u64>,
+        stark_proving_secs: Option<f64>,
+        proof_compression_secs: Option<f64>,
+    ) {
+        self.record(TelemetryEvent::ProvingCompleted {
+            order_id: order_id.to_string(),
+            total_cycles,
+            stark_proving_secs,
+            proof_compression_secs,
+        });
+    }
+
+    pub(crate) fn record_aggregation_completed(
+        &self,
+        order_id: &str,
+        set_builder_proving_secs: Option<f64>,
+        assessor_proving_secs: Option<f64>,
+        assessor_compression_proof_secs: Option<f64>,
+    ) {
+        self.record(TelemetryEvent::AggregationCompleted {
+            order_id: order_id.to_string(),
+            set_builder_proving_secs,
+            assessor_proving_secs,
+            assessor_compression_proof_secs,
+        });
+    }
+
+    pub(crate) fn record_fulfilled(&self, order_id: &str) {
+        self.record(TelemetryEvent::Fulfilled { order_id: order_id.to_string() });
+    }
+
+    pub(crate) fn record_failed(&self, order_id: &str, failure: &BrokerFailure) {
+        self.record(TelemetryEvent::Failed {
+            order_id: order_id.to_string(),
+            error_code: failure.code.clone(),
+            error_reason: failure.reason.clone(),
+        });
+    }
 }
 
 // In-memory tracking for a request as it moves through the pipeline.
@@ -231,7 +344,6 @@ struct InFlightRequest {
     pricing_outcome: Option<EvalOutcome>,
     pricing_skip_code: Option<String>,
     pricing_skip_reason: Option<String>,
-    preflight_cache_hit: bool,
     queue_duration_ms: Option<u64>,
     preflight_duration_ms: Option<u64>,
     // Commitment + completion tracking fields.
@@ -261,7 +373,6 @@ impl InFlightRequest {
             pricing_outcome: None,
             pricing_skip_code: None,
             pricing_skip_reason: None,
-            preflight_cache_hit: false,
             queue_duration_ms: None,
             preflight_duration_ms: None,
             estimated_proving_time_secs: None,
@@ -312,7 +423,6 @@ fn build_request_evaluated(
         skip_reason: entry.pricing_skip_reason.clone(),
         total_cycles: entry.total_cycles,
         fulfillment_type: entry.fulfillment_type.clone(),
-        preflight_cache_hit: entry.preflight_cache_hit,
         queue_duration_ms: entry.queue_duration_ms,
         preflight_duration_ms: entry.preflight_duration_ms,
         received_at_timestamp: entry.received_at_timestamp,
@@ -414,7 +524,6 @@ impl TelemetryService {
                 total_cycles,
                 fulfillment_type,
                 proof_type,
-                preflight_cache_hit,
                 queue_duration_ms,
                 preflight_duration_ms,
                 received_at_timestamp,
@@ -431,7 +540,6 @@ impl TelemetryService {
                     entry.total_cycles = total_cycles;
                     entry.fulfillment_type = fulfillment_type;
                     entry.proof_type = proof_type;
-                    entry.preflight_cache_hit = preflight_cache_hit;
                     entry.queue_duration_ms = queue_duration_ms;
                     entry.preflight_duration_ms = preflight_duration_ms;
                     entry.received_at_timestamp = received_at_timestamp;
@@ -474,7 +582,6 @@ impl TelemetryService {
                     entry.total_cycles = total_cycles;
                     entry.fulfillment_type = fulfillment_type;
                     entry.proof_type = proof_type;
-                    entry.preflight_cache_hit = preflight_cache_hit;
                     entry.queue_duration_ms = queue_duration_ms;
                     entry.preflight_duration_ms = preflight_duration_ms;
                     entry.received_at_timestamp = received_at_timestamp;
@@ -916,7 +1023,6 @@ mod tests {
             total_cycles: Some(1_000_000),
             fulfillment_type: "LockAndFulfill".to_string(),
             proof_type: "Merkle".to_string(),
-            preflight_cache_hit: false,
             queue_duration_ms: Some(500),
             preflight_duration_ms: Some(1200),
             received_at_timestamp: 1700000000,
@@ -940,7 +1046,6 @@ mod tests {
                 total_cycles: None,
                 fulfillment_type: "LockAndFulfill".to_string(),
                 proof_type: "Merkle".to_string(),
-                preflight_cache_hit: false,
                 queue_duration_ms: Some(500),
                 preflight_duration_ms: Some(1200),
                 received_at_timestamp: 1700000000,
@@ -1050,7 +1155,6 @@ mod tests {
                 total_cycles: Some(5_000_000),
                 fulfillment_type: "LockAndFulfill".to_string(),
                 proof_type: "Merkle".to_string(),
-                preflight_cache_hit: true,
                 queue_duration_ms: Some(100),
                 preflight_duration_ms: Some(0),
                 received_at_timestamp: 1700000000,
@@ -1134,7 +1238,6 @@ mod tests {
                 total_cycles: Some(1_000_000),
                 fulfillment_type: "LockAndFulfill".to_string(),
                 proof_type: "Groth16".to_string(),
-                preflight_cache_hit: false,
                 queue_duration_ms: None,
                 preflight_duration_ms: None,
                 received_at_timestamp: 1700000000,

@@ -837,6 +837,8 @@ where
             }
         };
 
+        telemetry::init(telemetry_handle);
+
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
 
@@ -987,7 +989,6 @@ where
             price_oracle.clone(),
             erc1271_gas_cache.clone(),
             self.args.listen_only,
-            telemetry_handle.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1018,7 +1019,6 @@ where
             self.gas_priority_mode.clone(),
             erc1271_gas_cache,
             self.args.listen_only,
-            telemetry_handle.clone(),
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1040,7 +1040,6 @@ where
                 self.priority_requestors.clone(),
                 market.clone(),
                 self.downloader.clone(),
-                telemetry_handle.clone(),
             ));
 
             let cloned_config = config.clone();
@@ -1066,7 +1065,6 @@ where
                     prover_addr,
                     config.clone(),
                     aggregation_prover.clone(),
-                    telemetry_handle.clone(),
                 )
                 .await
                 .context("Failed to initialize aggregator service")?,
@@ -1084,12 +1082,8 @@ where
             });
 
             // Start the ReaperTask to check for expired committed orders
-            let reaper = Arc::new(reaper::ReaperTask::new(
-                self.db.clone(),
-                config.clone(),
-                prover.clone(),
-                telemetry_handle.clone(),
-            ));
+            let reaper =
+                Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
             let cancel_token = critical_cancel_token.clone();
@@ -1109,7 +1103,6 @@ where
                 self.deployment().set_verifier_address,
                 self.deployment().boundless_market_address,
                 set_builder_img_id,
-                telemetry_handle.clone(),
             )?);
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();

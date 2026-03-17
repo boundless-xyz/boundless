@@ -46,7 +46,6 @@ pub use impl_coded_debug;
 
 use crate::config::ConfigLock;
 use crate::db::DbObj;
-use crate::telemetry::{TelemetryEvent, TelemetryHandle};
 use crate::{Order, OrderStatus};
 
 // Structured broker failure combining an error code with a human-readable reason.
@@ -68,28 +67,18 @@ impl std::fmt::Display for BrokerFailure {
 }
 
 // Sets DB failure status AND emits a telemetry Failed event.
-pub(crate) async fn handle_order_failure(
-    db: &DbObj,
-    telemetry: &TelemetryHandle,
-    order_id: &str,
-    failure: &BrokerFailure,
-) {
+pub(crate) async fn handle_order_failure(db: &DbObj, order_id: &str, failure: &BrokerFailure) {
     let db_error_str = failure.to_string();
     if let Err(e) = db.set_order_failure(order_id, &db_error_str).await {
         tracing::error!("Failed to set order {order_id} failure: {e:?}");
     }
-    telemetry.record(TelemetryEvent::Failed {
-        order_id: order_id.to_string(),
-        error_code: failure.code.clone(),
-        error_reason: failure.reason.clone(),
-    });
+    crate::telemetry::telemetry().record_failed(order_id, failure);
 }
 
 // Cancels a proof (if configured) and marks the order as failed with telemetry.
 pub(crate) async fn cancel_proof_and_fail(
     prover: &crate::provers::ProverObj,
     db: &DbObj,
-    telemetry: &TelemetryHandle,
     config: &ConfigLock,
     order: &Order,
     failure: &BrokerFailure,
@@ -120,5 +109,5 @@ pub(crate) async fn cancel_proof_and_fail(
         }
     }
 
-    handle_order_failure(db, telemetry, &order_id, failure).await;
+    handle_order_failure(db, &order_id, failure).await;
 }

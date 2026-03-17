@@ -1465,7 +1465,6 @@ mod tests {
                     skip_reason: None,
                     total_cycles: Some(1_000_000),
                     fulfillment_type: "LockAndFulfill".to_string(),
-                    preflight_cache_hit: false,
                     queue_duration_ms: Some(100),
                     preflight_duration_ms: Some(500),
                     received_at_timestamp: 0,

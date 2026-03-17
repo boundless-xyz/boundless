@@ -19,7 +19,6 @@ use crate::{
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    telemetry::{TelemetryEvent, TelemetryHandle},
     utils, Erc1271GasCache, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
@@ -64,10 +63,10 @@ fn estimate_proving_time_no_load(
     Some(total.div_ceil(1_000).div_ceil(peak_prove_khz))
 }
 
-struct OrderCommitmentMeta {
-    estimated_proving_time_secs: Option<u64>,
-    estimated_proving_time_no_load_secs: Option<u64>,
-    concurrent_proving_jobs: u32,
+pub(crate) struct OrderCommitmentMeta {
+    pub(crate) estimated_proving_time_secs: Option<u64>,
+    pub(crate) estimated_proving_time_no_load_secs: Option<u64>,
+    pub(crate) concurrent_proving_jobs: u32,
 }
 
 struct CapacityResult {
@@ -158,14 +157,14 @@ impl<K: std::hash::Hash + Eq, V: std::borrow::Borrow<OrderRequest>> Expiry<K, V>
 }
 
 #[derive(Default)]
-struct OrderMonitorConfig {
-    min_deadline: u64,
-    peak_prove_khz: Option<u64>,
-    max_concurrent_proofs: Option<u32>,
-    additional_proof_cycles: u64,
-    batch_buffer_time_secs: u64,
-    order_commitment_priority: OrderCommitmentPriority,
-    priority_addresses: Option<Vec<Address>>,
+pub(crate) struct OrderMonitorConfig {
+    pub(crate) min_deadline: u64,
+    pub(crate) peak_prove_khz: Option<u64>,
+    pub(crate) max_concurrent_proofs: Option<u32>,
+    pub(crate) additional_proof_cycles: u64,
+    pub(crate) batch_buffer_time_secs: u64,
+    pub(crate) order_commitment_priority: OrderCommitmentPriority,
+    pub(crate) priority_addresses: Option<Vec<Address>>,
 }
 
 #[derive(Clone)]
@@ -191,7 +190,6 @@ pub struct OrderMonitor<P> {
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
     listen_only: bool,
-    telemetry: TelemetryHandle,
 }
 
 impl<P> OrderMonitor<P>
@@ -213,7 +211,6 @@ where
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
-        telemetry: TelemetryHandle,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -268,7 +265,6 @@ where
             rpc_retry_config,
             gas_priority_mode,
             listen_only,
-            telemetry,
         };
         Ok(monitor)
     }
@@ -481,6 +477,17 @@ where
         config: &OrderMonitorConfig,
         estimated_proving_time_secs: Option<u64>,
     ) {
+        let concurrent_proving_jobs = match self.db.get_committed_orders().await {
+            Ok(committed_orders) => committed_orders.len().try_into().unwrap_or(u32::MAX),
+            Err(err) => {
+                tracing::error!(
+                    "Failed to load committed orders for skipped order telemetry {} - {err:?}",
+                    order.id()
+                );
+                0
+            }
+        };
+
         if let Err(e) = self.db.insert_skipped_request(order).await {
             tracing::error!(
                 "Failed to skip order ({}): {} - {e:?}",
@@ -494,22 +501,23 @@ where
             order.priced_at_timestamp.map(|t| now_timestamp().saturating_sub(t) * 1000);
         let pending =
             (self.lock_and_prove_cache.entry_count() + self.prove_cache.entry_count()) as u32;
-
-        self.telemetry.record(TelemetryEvent::OrderCommitment {
-            order_id: order.id(),
-            committed: false,
-            committed_at: None,
-            concurrent_proving_jobs: 0,
+        let meta = OrderCommitmentMeta {
             estimated_proving_time_secs,
             estimated_proving_time_no_load_secs: no_load,
-            monitor_wait_duration_ms: monitor_wait,
-            peak_prove_khz: config.peak_prove_khz,
-            max_capacity: config.max_concurrent_proofs,
-            pending_commitment_count: pending,
-            skip_commit_code: Some(skip_commit_code.to_string()),
-            skip_commit_reason: Some(skip_commit_reason.to_string()),
-            lock_submitted_at: None,
-        });
+            concurrent_proving_jobs,
+        };
+
+        crate::telemetry::telemetry().record_order_commitment(
+            &order.id(),
+            false,
+            Some(&meta),
+            monitor_wait,
+            config,
+            pending,
+            Some(skip_commit_code),
+            Some(skip_commit_reason),
+            None,
+        );
 
         match order.fulfillment_type {
             FulfillmentType::LockAndFulfill => {
@@ -696,24 +704,17 @@ where
                     match self.lock_order(order).await {
                         Ok(lock_price) => {
                             tracing::info!("Locked request: 0x{:x}", order.request.id);
-                            let concurrent_count = meta
-                                .map(|m| m.concurrent_proving_jobs)
-                                .unwrap_or(0);
-                            self.telemetry.record(TelemetryEvent::OrderCommitment {
-                                order_id: order_id.clone(),
-                                committed: true,
-                                committed_at: Some(std::time::Instant::now()),
-                                concurrent_proving_jobs: concurrent_count,
-                                estimated_proving_time_secs: meta.and_then(|m| m.estimated_proving_time_secs),
-                                estimated_proving_time_no_load_secs: meta.and_then(|m| m.estimated_proving_time_no_load_secs),
-                                monitor_wait_duration_ms: monitor_wait,
-                                peak_prove_khz: monitor_config.peak_prove_khz,
-                                max_capacity: monitor_config.max_concurrent_proofs,
+                            crate::telemetry::telemetry().record_order_commitment(
+                                &order_id,
+                                true,
+                                meta,
+                                monitor_wait,
+                                monitor_config,
                                 pending_commitment_count,
-                                skip_commit_code: None,
-                                skip_commit_reason: None,
-                                lock_submitted_at: Some(lock_submitted_at),
-                            });
+                                None,
+                                None,
+                                Some(lock_submitted_at),
+                            );
                             if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
                                 tracing::error!(
                                     "FATAL STAKE AT RISK: {} failed to move from locking -> proving status {}",
@@ -732,21 +733,18 @@ where
                                 } else {
                                     tracing::warn!("Failed to lock order: {order_id} - {err:?}");
                                 }
-                                self.telemetry.record(TelemetryEvent::OrderCommitment {
-                                    order_id: order_id.clone(),
-                                    committed: false,
-                                    committed_at: None,
-                                    concurrent_proving_jobs: meta.map(|m| m.concurrent_proving_jobs).unwrap_or(0),
-                                    estimated_proving_time_secs: meta.and_then(|m| m.estimated_proving_time_secs),
-                                    estimated_proving_time_no_load_secs: meta.and_then(|m| m.estimated_proving_time_no_load_secs),
-                                    monitor_wait_duration_ms: monitor_wait,
-                                    peak_prove_khz: monitor_config.peak_prove_khz,
-                                    max_capacity: monitor_config.max_concurrent_proofs,
+                                let skip_reason = err.to_string();
+                                crate::telemetry::telemetry().record_order_commitment(
+                                    &order_id,
+                                    false,
+                                    meta,
+                                    monitor_wait,
+                                    monitor_config,
                                     pending_commitment_count,
-                                    skip_commit_code: Some(err.code().to_string()),
-                                    skip_commit_reason: Some("Lock failed".to_string()),
-                                    lock_submitted_at: Some(lock_submitted_at),
-                                });
+                                    Some(err.code()),
+                                    Some(&skip_reason),
+                                    Some(lock_submitted_at),
+                                );
                                 if let Err(e) = self.db.insert_skipped_request(order).await {
                                     tracing::error!("Failed to set DB failure state for order: {order_id} - {e:?}");
                                 }
@@ -765,24 +763,17 @@ where
                         self.prove_cache.invalidate(&order_id).await;
                         return;
                     }
-                    let concurrent_count = meta
-                        .map(|m| m.concurrent_proving_jobs)
-                        .unwrap_or(0);
-                    self.telemetry.record(TelemetryEvent::OrderCommitment {
-                        order_id: order_id.clone(),
-                        committed: true,
-                        committed_at: Some(std::time::Instant::now()),
-                        concurrent_proving_jobs: concurrent_count,
-                        estimated_proving_time_secs: meta.and_then(|m| m.estimated_proving_time_secs),
-                        estimated_proving_time_no_load_secs: meta.and_then(|m| m.estimated_proving_time_no_load_secs),
-                        monitor_wait_duration_ms: monitor_wait,
-                        peak_prove_khz: monitor_config.peak_prove_khz,
-                        max_capacity: monitor_config.max_concurrent_proofs,
+                    crate::telemetry::telemetry().record_order_commitment(
+                        &order_id,
+                        true,
+                        meta,
+                        monitor_wait,
+                        monitor_config,
                         pending_commitment_count,
-                        skip_commit_code: None,
-                        skip_commit_reason: None,
-                        lock_submitted_at: None,
-                    });
+                        None,
+                        None,
+                        None,
+                    );
                     if let Err(err) = self.db.insert_accepted_request(order, U256::ZERO).await {
                         tracing::error!(
                             "Failed to set order status to pending proving: {} - {err:?}",
@@ -1274,7 +1265,6 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::telemetry::TelemetryHandle;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
@@ -1448,7 +1438,6 @@ pub(crate) mod tests {
             gas_priority_mode,
             Arc::new(Cache::builder().build()),
             false,
-            TelemetryHandle::noop(),
         )
         .unwrap();
 

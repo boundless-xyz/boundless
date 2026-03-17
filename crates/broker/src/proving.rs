@@ -25,7 +25,6 @@ use crate::{
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
-    telemetry::{TelemetryEvent, TelemetryHandle},
     CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
@@ -72,7 +71,6 @@ pub struct ProvingService {
     priority_requestors: PriorityRequestors,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
     downloader: ConfigurableDownloader,
-    telemetry: TelemetryHandle,
 }
 
 impl ProvingService {
@@ -86,7 +84,6 @@ impl ProvingService {
         priority_requestors: PriorityRequestors,
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
         downloader: ConfigurableDownloader,
-        telemetry: TelemetryHandle,
     ) -> Self {
         Self {
             db,
@@ -97,7 +94,6 @@ impl ProvingService {
             priority_requestors,
             fulfillment_market,
             downloader,
-            telemetry,
         }
     }
 
@@ -423,7 +419,6 @@ impl ProvingService {
                 );
                 handle_order_failure(
                     &self.db,
-                    &self.telemetry,
                     &order_id,
                     &BrokerFailure::new(proving_err.code(), "Proving session create failed"),
                 )
@@ -458,12 +453,12 @@ impl ProvingService {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
-                self.telemetry.record(TelemetryEvent::ProvingCompleted {
-                    order_id: order_id.clone(),
-                    total_cycles: order.total_cycles,
+                crate::telemetry::telemetry().record_proving_completed(
+                    &order_id,
+                    order.total_cycles,
                     stark_proving_secs,
                     proof_compression_secs,
-                });
+                );
 
                 // Note: this sanity check isn't strictly necessary, but is to avoid submitting the
                 // order when the fulfillment event was missed.
@@ -482,7 +477,6 @@ impl ProvingService {
                         tracing::warn!("Fulfillment event was missed, skipping aggregation for fulfilled order {order_id}");
                         handle_order_failure(
                             &self.db,
-                            &self.telemetry,
                             &order_id,
                             &BrokerFailure::new("[B-PRO-503]", "Fulfilled before aggregation"),
                         )
@@ -500,7 +494,6 @@ impl ProvingService {
                 cancel_proof_and_fail(
                     &self.prover,
                     &self.db,
-                    &self.telemetry,
                     &self.config,
                     &order,
                     &BrokerFailure::new("[B-PRO-502]", reason),
@@ -513,7 +506,6 @@ impl ProvingService {
                 );
                 handle_order_failure(
                     &self.db,
-                    &self.telemetry,
                     &order_id,
                     &BrokerFailure::new("[B-PRO-503]", reason),
                 )
@@ -529,7 +521,6 @@ impl ProvingService {
 
                 handle_order_failure(
                     &self.db,
-                    &self.telemetry,
                     &order_id,
                     &BrokerFailure::new(err.code(), "Proving failed"),
                 )
@@ -618,7 +609,6 @@ async fn set_order_failure(db: &DbObj, order_id: &str, failure_reason: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telemetry::TelemetryHandle;
     use crate::{
         db::SqliteDb,
         now_timestamp,
@@ -747,7 +737,6 @@ mod tests {
             priority_requestors,
             market.clone(),
             downloader.clone(),
-            TelemetryHandle::noop(),
         );
 
         let order = create_test_order(
@@ -778,7 +767,6 @@ mod tests {
             priority_requestors,
             market.clone(),
             downloader.clone(),
-            TelemetryHandle::noop(),
         );
 
         let lock_and_fulfill_order = create_test_order(
@@ -838,7 +826,6 @@ mod tests {
             priority_requestors,
             market,
             downloader,
-            TelemetryHandle::noop(),
         );
 
         let order_id = U256::ZERO;
@@ -934,7 +921,6 @@ mod tests {
             priority_requestors,
             market,
             downloader,
-            TelemetryHandle::noop(),
         );
 
         let request_id = U256::from(123);

@@ -26,7 +26,6 @@ use crate::{
     provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
     task::{RetryRes, RetryTask, SupervisorErr},
-    telemetry::{proof_type_label, TelemetryEvent, TelemetryHandle},
     utils, ConfigurableDownloader, Erc1271GasCache, FulfillmentType, OrderPricingContext,
     OrderPricingError, OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
 };
@@ -38,6 +37,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::prover_utils::apply_secondary_fulfillment_discount;
+use boundless_market::telemetry::EvalOutcome;
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
     prover_utils::estimate_erc1271_gas, selector::SupportedSelectors, storage::StorageDownloader,
@@ -110,7 +110,6 @@ pub struct OrderPicker<P> {
     downloader: ConfigurableDownloader,
     price_oracle: Arc<PriceOracleManager>,
     listen_only: bool,
-    telemetry: TelemetryHandle,
 }
 
 impl<P> OrderPicker<P>
@@ -135,7 +134,6 @@ where
         price_oracle: Arc<PriceOracleManager>,
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
-        telemetry: TelemetryHandle,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -175,7 +173,6 @@ where
             downloader,
             price_oracle,
             listen_only,
-            telemetry,
         }
     }
 
@@ -185,13 +182,7 @@ where
         cancel_token: CancellationToken,
     ) -> bool {
         let order_id = order.id();
-        let request_id = order.request.id;
-        let request_digest = order.request_digest();
-        let requestor = order.request.client_address();
         let queue_start_secs = now_timestamp().saturating_sub(order.received_at_timestamp);
-        let selector = order.request.requirements.selector;
-        let proof_type = proof_type_label(selector).to_string();
-        let fulfillment_type = order.fulfillment_type.to_string();
 
         let f = || async {
             let pricing_result = tokio::select! {
@@ -238,23 +229,15 @@ where
 
                     order.priced_at_timestamp = Some(now_timestamp());
 
-                    self.telemetry.record(TelemetryEvent::OrderPricing {
-                        order_id: order_id.clone(),
-                        request_id,
-                        request_digest: request_digest.clone(),
-                        requestor,
-                        outcome: boundless_market::telemetry::EvalOutcome::Locked,
-                        skip_code: None,
-                        skip_reason: None,
-                        total_cycles: Some(total_cycles),
-
-                        fulfillment_type: fulfillment_type.clone(),
-                        proof_type: proof_type.clone(),
-                        preflight_cache_hit: false,
-                        queue_duration_ms: Some(queue_start_secs * 1000),
-                        preflight_duration_ms: Some(preflight_duration_secs * 1000),
-                        received_at_timestamp: order.received_at_timestamp,
-                    });
+                    crate::telemetry::telemetry().record_order_pricing(
+                        &order,
+                        EvalOutcome::Locked,
+                        None,
+                        None,
+                        Some(total_cycles),
+                        queue_start_secs,
+                        preflight_duration_secs,
+                    );
 
                     self.priced_orders_tx
                         .send(order)
@@ -304,23 +287,15 @@ where
 
                     order.priced_at_timestamp = Some(now_timestamp());
 
-                    self.telemetry.record(TelemetryEvent::OrderPricing {
-                        order_id: order_id.clone(),
-                        request_id,
-                        request_digest: request_digest.clone(),
-                        requestor,
-                        outcome: boundless_market::telemetry::EvalOutcome::FulfillAfterLockExpire,
-                        skip_code: None,
-                        skip_reason: None,
-                        total_cycles: Some(total_cycles),
-
-                        fulfillment_type: fulfillment_type.clone(),
-                        proof_type: proof_type.clone(),
-                        preflight_cache_hit: false,
-                        queue_duration_ms: Some(queue_start_secs * 1000),
-                        preflight_duration_ms: Some(preflight_duration_secs * 1000),
-                        received_at_timestamp: order.received_at_timestamp,
-                    });
+                    crate::telemetry::telemetry().record_order_pricing(
+                        &order,
+                        EvalOutcome::FulfillAfterLockExpire,
+                        None,
+                        None,
+                        Some(total_cycles),
+                        queue_start_secs,
+                        preflight_duration_secs,
+                    );
 
                     self.priced_orders_tx
                         .send(order)
@@ -332,23 +307,15 @@ where
                 Ok(Skip { code, reason }) => {
                     tracing::info!("Skipping order {order_id}: {reason}");
 
-                    self.telemetry.record(TelemetryEvent::OrderPricing {
-                        order_id: order_id.clone(),
-                        request_id,
-                        request_digest: request_digest.clone(),
-                        requestor,
-                        outcome: boundless_market::telemetry::EvalOutcome::Skipped,
-                        skip_code: Some(code.to_string()),
-                        skip_reason: Some(reason),
-                        total_cycles: order.total_cycles,
-
-                        fulfillment_type: fulfillment_type.clone(),
-                        proof_type: proof_type.clone(),
-                        preflight_cache_hit: false,
-                        queue_duration_ms: Some(queue_start_secs * 1000),
-                        preflight_duration_ms: Some(preflight_duration_secs * 1000),
-                        received_at_timestamp: order.received_at_timestamp,
-                    });
+                    crate::telemetry::telemetry().record_order_pricing(
+                        &order,
+                        EvalOutcome::Skipped,
+                        Some(code),
+                        Some(reason),
+                        order.total_cycles,
+                        queue_start_secs,
+                        preflight_duration_secs,
+                    );
 
                     self.db
                         .insert_skipped_request(&order)
@@ -365,23 +332,15 @@ where
                         "Skipping order {order_id}: {reason} (this is expected for private inputs that require specific storage credentials)"
                     );
 
-                    self.telemetry.record(TelemetryEvent::OrderPricing {
-                        order_id: order_id.clone(),
-                        request_id,
-                        request_digest: request_digest.clone(),
-                        requestor,
-                        outcome: boundless_market::telemetry::EvalOutcome::Skipped,
-                        skip_code: Some(SKIP_FETCH_ERROR.to_string()),
-                        skip_reason: Some(reason),
-                        total_cycles: None,
-
-                        fulfillment_type: fulfillment_type.clone(),
-                        proof_type: proof_type.clone(),
-                        preflight_cache_hit: false,
-                        queue_duration_ms: Some(queue_start_secs * 1000),
-                        preflight_duration_ms: Some(preflight_duration_secs * 1000),
-                        received_at_timestamp: order.received_at_timestamp,
-                    });
+                    crate::telemetry::telemetry().record_order_pricing(
+                        &order,
+                        EvalOutcome::Skipped,
+                        Some(SKIP_FETCH_ERROR),
+                        Some(reason),
+                        None,
+                        queue_start_secs,
+                        preflight_duration_secs,
+                    );
 
                     self.db
                         .insert_skipped_request(&order)
@@ -392,23 +351,15 @@ where
                 Err(err) => {
                     tracing::warn!("Failed to price order {order_id}: {err}");
 
-                    self.telemetry.record(TelemetryEvent::OrderPricing {
-                        order_id: order_id.clone(),
-                        request_id,
-                        request_digest: request_digest.clone(),
-                        requestor,
-                        outcome: boundless_market::telemetry::EvalOutcome::Skipped,
-                        skip_code: Some(SKIP_PRICING_ERROR.to_string()),
-                        skip_reason: Some(err.to_string()),
-                        total_cycles: None,
-
-                        fulfillment_type: fulfillment_type.clone(),
-                        proof_type: proof_type.clone(),
-                        preflight_cache_hit: false,
-                        queue_duration_ms: Some(queue_start_secs * 1000),
-                        preflight_duration_ms: Some(preflight_duration_secs * 1000),
-                        received_at_timestamp: order.received_at_timestamp,
-                    });
+                    crate::telemetry::telemetry().record_order_pricing(
+                        &order,
+                        EvalOutcome::Skipped,
+                        Some(SKIP_PRICING_ERROR),
+                        Some(err.to_string()),
+                        None,
+                        queue_start_secs,
+                        preflight_duration_secs,
+                    );
 
                     self.db
                         .insert_skipped_request(&order)
@@ -891,7 +842,7 @@ where
                 }
 
                 // Update telemetry with current queue size
-                picker.telemetry.set_pending_preflight(pending_orders.len() as u32);
+                crate::telemetry::telemetry().set_pending_preflight(pending_orders.len() as u32);
 
                 // Process pending orders if we have capacity
                 if !pending_orders.is_empty() && tasks.len() < current_capacity {
@@ -980,7 +931,6 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::config::defaults;
-    use crate::telemetry::TelemetryHandle;
     use crate::{
         chain_monitor::ChainMonitorService,
         db::SqliteDb,
@@ -1270,7 +1220,6 @@ pub(crate) mod tests {
                 create_test_price_oracle(),
                 Arc::new(Cache::builder().build()),
                 false,
-                TelemetryHandle::noop(),
             );
 
             PickerTestCtx {
