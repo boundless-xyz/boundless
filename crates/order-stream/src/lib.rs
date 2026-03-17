@@ -538,7 +538,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .with_state(state)
         .layer((
             TraceLayer::new_for_http(),
-            TimeoutLayer::new(tokio::time::Duration::from_secs(10)),
+            TimeoutLayer::new(tokio::time::Duration::from_secs(30)),
         ))
 }
 
