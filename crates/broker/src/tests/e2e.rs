@@ -943,19 +943,33 @@ async fn e2e_telemetry_events() {
             .await
             .unwrap();
 
-        // Wait for the telemetry service to process all events through the full pipeline
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        for _ in 0..5 {
+            if logs_contain("(Telemetry) Request Completed:") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
 
-        // The TelemetryService aggregates raw events into a RequestCompleted object
-        // and logs the final payload in debug mode.
+        for _ in 0..5 {
+            if logs_contain("(Telemetry) Request Heartbeat") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        for _ in 0..5 {
+            if logs_contain("(Telemetry) Broker Heartbeat") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
         assert!(logs_contain("(Telemetry) Request Completed:"));
         assert!(logs_contain("\"outcome\":\"Fulfilled\""));
         assert!(logs_contain("\"fulfillment_type\":\"LockAndFulfill\""));
         assert!(logs_contain("\"proof_type\":\"Merkle\""));
         assert!(logs_contain("\"error_code\":null"));
 
-        // Wait for the heartbeat interval (2s) to fire
-        tokio::time::sleep(Duration::from_secs(3)).await;
         assert!(logs_contain("(Telemetry) Request Heartbeat"));
         assert!(logs_contain("(Telemetry) Broker Heartbeat"));
     })
