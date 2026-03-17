@@ -7,8 +7,7 @@ name: bento
 #   nvidia-smi --list-gpus
 
 # Anchors:
-x-base-environment:
-  &base-environment # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
+x-base-environment: &base-environment # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
   REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
   STORAGE_DIR: /object_store
   NO_COLOR: 1
