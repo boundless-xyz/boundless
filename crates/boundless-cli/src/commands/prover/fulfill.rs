@@ -15,7 +15,10 @@
 use crate::{OrderFulfilled, OrderFulfiller};
 use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
-use boundless_market::contracts::boundless_market::{FulfillmentTx, UnlockedRequest};
+use boundless_market::contracts::{
+    boundless_market::{FulfillmentTx, UnlockedRequest},
+    RequestStatus,
+};
 use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};
@@ -36,6 +39,10 @@ pub struct ProverFulfill {
     /// The tx hash of the requests submissions (comma-separated list of hex values).
     #[arg(long, value_delimiter = ',')]
     pub tx_hashes: Option<Vec<B256>>,
+
+    /// Existing proof/session IDs to reuse (comma-separated, aligned with `--request-ids`).
+    #[arg(long, value_delimiter = ',')]
+    pub existing_proof_ids: Option<Vec<String>>,
 
     /// Withdraw the funds after fulfilling the requests
     #[arg(long, default_value = "false")]
@@ -76,6 +83,11 @@ impl ProverFulfill {
             && self.request_ids.len() != self.tx_hashes.as_ref().unwrap().len()
         {
             bail!("request_ids and tx_hashes must have the same length");
+        }
+        if self.existing_proof_ids.is_some()
+            && self.request_ids.len() != self.existing_proof_ids.as_ref().unwrap().len()
+        {
+            bail!("request_ids and existing_proof_ids must have the same length");
         }
 
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
@@ -118,8 +130,15 @@ impl ProverFulfill {
                         U256::from(req.id)
                     );
                 }
+                let request_status =
+                    boundless_market.get_status(*request_id, Some(req.expires_at())).await?;
+                if request_status == RequestStatus::Fulfilled {
+                    tracing::info!("Skipping already fulfilled request 0x{request_id:x}");
+                    return Ok::<_, anyhow::Error>((i, req, sig, true, true));
+                }
+
                 let is_locked = boundless_market.is_locked(*request_id).await?;
-                Ok::<_, anyhow::Error>((req, sig, is_locked))
+                Ok::<_, anyhow::Error>((i, req, sig, is_locked, false))
             }
         });
 
@@ -127,17 +146,40 @@ impl ProverFulfill {
         let results = futures::future::join_all(fetch_order_jobs).await;
         let mut orders = Vec::new();
         let mut unlocked_requests = Vec::new();
+        let mut already_fulfilled = Vec::new();
+        let mut existing_for_orders = Vec::new();
 
         for result in results {
-            let (req, sig, is_locked) = result?;
+            let (i, req, sig, is_locked, is_already_fulfilled) = result?;
+            if is_already_fulfilled {
+                already_fulfilled.push(format!("{:#x}", U256::from(req.id)));
+                continue;
+            }
+            if let Some(existing_ids) = &self.existing_proof_ids {
+                let configured =
+                    existing_ids.get(i).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+                existing_for_orders.push(configured);
+            } else {
+                existing_for_orders.push(None);
+            }
             if !is_locked {
                 unlocked_requests.push(UnlockedRequest::new(req.clone(), sig.clone()));
             }
             orders.push((req, sig));
         }
 
+        if !already_fulfilled.is_empty() {
+            display.item_colored("Already fulfilled", already_fulfilled.join(", "), "yellow");
+        }
+
+        if orders.is_empty() {
+            display.success("All requested IDs are already fulfilled; skipping reproving.");
+            return Ok(());
+        }
+
         display.status("Status", "Generating proofs", "yellow");
-        let (fills, root_receipt, assessor_receipt) = fulfiller.fulfill(&orders).await?;
+        let (fills, root_receipt, assessor_receipt) =
+            fulfiller.fulfill_with_existing_proofs(&orders, Some(&existing_for_orders)).await?;
         let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
         let boundless_market = client.boundless_market.clone();
 

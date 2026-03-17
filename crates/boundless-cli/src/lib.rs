@@ -31,7 +31,7 @@ pub mod display;
 pub mod price_oracle_helper;
 
 use alloy::{
-    primitives::{Address, Bytes},
+    primitives::{keccak256, Address, Bytes, B256, U256},
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Context, Result};
@@ -50,7 +50,8 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     Receipt, ReceiptClaim,
 };
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use boundless_market::{
     contracts::{
@@ -70,6 +71,49 @@ pub const ASSESSOR_DEFAULT_IMAGE_URL: &str =
 /// Default URL for set builder image - matches broker config defaults
 pub const SET_BUILDER_DEFAULT_IMAGE_URL: &str =
     "https://signal-artifacts.beboundless.xyz/v2/set-builder/guest.bin";
+
+const PROOF_CACHE_VERSION: u32 = 1;
+const PROOF_CACHE_FILENAME: &str = "proof-cache.json";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct LocalProofCache {
+    version: u32,
+    entries: HashMap<String, String>,
+}
+
+fn local_proof_cache_path() -> Result<PathBuf> {
+    let home_dir = dirs::home_dir().context("Failed to get home directory for proof cache")?;
+    Ok(home_dir.join(".boundless").join(PROOF_CACHE_FILENAME))
+}
+
+fn load_local_proof_cache() -> Result<LocalProofCache> {
+    let path = local_proof_cache_path()?;
+    if !path.exists() {
+        return Ok(LocalProofCache { version: PROOF_CACHE_VERSION, entries: HashMap::new() });
+    }
+
+    let data = fs::read(&path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let mut cache: LocalProofCache = serde_json::from_slice(&data)
+        .with_context(|| format!("Failed to parse {}", path.display()))?;
+    if cache.version != PROOF_CACHE_VERSION {
+        cache = LocalProofCache { version: PROOF_CACHE_VERSION, entries: HashMap::new() };
+    }
+    Ok(cache)
+}
+
+fn save_local_proof_cache(cache: &LocalProofCache) -> Result<()> {
+    let path = local_proof_cache_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+    }
+    let encoded = serde_json::to_vec_pretty(cache).context("Failed to serialize proof cache")?;
+    fs::write(&path, encoded).with_context(|| format!("Failed to write {}", path.display()))
+}
+
+fn proof_cache_key(request_id: U256, image_id: Digest, input_digest: B256) -> String {
+    format!("{}:{}:{}", request_id, image_id, input_digest)
+}
 
 alloy::sol!(
     #[sol(all_derives)]
@@ -398,11 +442,43 @@ impl OrderFulfiller {
         &self,
         orders: &[(ProofRequest, Bytes)],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
+        self.fulfill_with_existing_proofs(orders, None).await
+    }
+
+    /// Fulfills a list of orders, optionally reusing caller-provided proof IDs.
+    pub async fn fulfill_with_existing_proofs(
+        &self,
+        orders: &[(ProofRequest, Bytes)],
+        existing_proof_ids: Option<&[Option<String>]>,
+    ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
         tracing::debug!("Fulfilling {} orders", orders.len());
+        if let Some(existing) = existing_proof_ids {
+            if existing.len() != orders.len() {
+                bail!(
+                    "existing_proof_ids length {} does not match orders length {}",
+                    existing.len(),
+                    orders.len()
+                );
+            }
+        }
+        let mut proof_cache = match load_local_proof_cache() {
+            Ok(cache) => cache,
+            Err(err) => {
+                tracing::warn!("Failed to load local proof cache, continuing without cache: {err}");
+                LocalProofCache { version: PROOF_CACHE_VERSION, entries: HashMap::new() }
+            }
+        };
+        let cache_entries = Arc::new(proof_cache.entries.clone());
+        let existing_proof_ids = Arc::new(
+            existing_proof_ids.map(|ids| ids.to_vec()).unwrap_or_else(|| vec![None; orders.len()]),
+        );
+
         let orders_jobs = orders.iter().cloned().enumerate().map(move |(idx, (req, sig))| {
             let prover = self.prover.clone();
             let downloader = self.downloader.clone();
             let supported_selectors = self.supported_selectors.clone();
+            let cache_entries = cache_entries.clone();
+            let existing_proof_ids = existing_proof_ids.clone();
             async move {
                 // Fetch and upload order image
                 let order_program = downloader.download(&req.imageUrl).await?;
@@ -442,14 +518,70 @@ impl OrderFulfiller {
                     bail!("Unsupported selector {}", req.requirements.selector);
                 };
 
-                tracing::debug!("Proving order 0x{:x}", req.id);
-                let proof_id =
-                    self.prove_stark(&order_image_id_str, order_input.clone(), vec![]).await?;
-                let order_receipt = self
-                    .prover
-                    .get_receipt(&proof_id)
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Order receipt not found"))?;
+                let cache_key =
+                    proof_cache_key(U256::from(req.id), order_image_id, keccak256(&order_input));
+                let configured_proof_id = existing_proof_ids.get(idx).and_then(|v| v.clone());
+                let (proof_id, order_receipt, cache_update) = if let Some(configured_proof_id) =
+                    configured_proof_id
+                {
+                    match prover.get_receipt(&configured_proof_id).await? {
+                        Some(receipt) => {
+                            tracing::debug!(
+                                "Reusing provided proof for order 0x{:x}: {}",
+                                req.id,
+                                configured_proof_id
+                            );
+                            (
+                                configured_proof_id.clone(),
+                                receipt,
+                                Some((cache_key, configured_proof_id)),
+                            )
+                        }
+                        None => {
+                            bail!(
+                                "Provided proof ID {} not found for order 0x{:x}",
+                                configured_proof_id,
+                                req.id
+                            );
+                        }
+                    }
+                } else if let Some(cached_proof_id) = cache_entries.get(&cache_key) {
+                    match prover.get_receipt(cached_proof_id).await? {
+                        Some(receipt) => {
+                            tracing::debug!(
+                                "Reusing cached proof for order 0x{:x}: {}",
+                                req.id,
+                                cached_proof_id
+                            );
+                            (cached_proof_id.clone(), receipt, None)
+                        }
+                        None => {
+                            tracing::warn!(
+                                "Cached proof ID {} missing for order 0x{:x}, reproving",
+                                cached_proof_id,
+                                req.id
+                            );
+                            tracing::debug!("Proving order 0x{:x}", req.id);
+                            let new_proof_id = self
+                                .prove_stark(&order_image_id_str, order_input.clone(), vec![])
+                                .await?;
+                            let receipt = prover
+                                .get_receipt(&new_proof_id)
+                                .await?
+                                .ok_or_else(|| anyhow::anyhow!("Order receipt not found"))?;
+                            (new_proof_id.clone(), receipt, Some((cache_key, new_proof_id)))
+                        }
+                    }
+                } else {
+                    tracing::debug!("Proving order 0x{:x}", req.id);
+                    let new_proof_id =
+                        self.prove_stark(&order_image_id_str, order_input.clone(), vec![]).await?;
+                    let receipt = prover
+                        .get_receipt(&new_proof_id)
+                        .await?
+                        .ok_or_else(|| anyhow::anyhow!("Order receipt not found"))?;
+                    (new_proof_id.clone(), receipt, Some((cache_key, new_proof_id)))
+                };
 
                 let order_journal = order_receipt.journal.bytes.clone();
                 let order_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
@@ -468,7 +600,14 @@ impl OrderFulfiller {
                 let fill =
                     Fulfillment { request: req.clone(), signature: sig.into(), fulfillment_data };
 
-                Ok::<_, anyhow::Error>((idx, proof_id, order_claim, order_claim_digest, fill))
+                Ok::<_, anyhow::Error>((
+                    idx,
+                    proof_id,
+                    order_claim,
+                    order_claim_digest,
+                    fill,
+                    cache_update,
+                ))
             }
         });
 
@@ -478,6 +617,7 @@ impl OrderFulfiller {
         let mut claim_digests = Vec::new();
         let mut fills = Vec::new();
         let mut successful_indices = Vec::new();
+        let mut cache_dirty = false;
 
         for result in results {
             match result {
@@ -485,13 +625,23 @@ impl OrderFulfiller {
                     tracing::warn!("Failed to prove request: {}", e);
                     continue;
                 }
-                Ok((idx, receipt, claim, claim_digest, fill)) => {
+                Ok((idx, receipt, claim, claim_digest, fill, cache_update)) => {
                     successful_indices.push(idx);
                     proof_ids.push(receipt);
                     claims.push(claim);
                     claim_digests.push(claim_digest);
                     fills.push(fill);
+                    if let Some((cache_key, proof_id)) = cache_update {
+                        proof_cache.entries.insert(cache_key, proof_id);
+                        cache_dirty = true;
+                    }
                 }
+            }
+        }
+
+        if cache_dirty {
+            if let Err(err) = save_local_proof_cache(&proof_cache) {
+                tracing::warn!("Failed to persist local proof cache: {err}");
             }
         }
 
