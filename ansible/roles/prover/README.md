@@ -17,6 +17,19 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 - Docker Compose plugin (installed via the `docker` role)
 - NVIDIA Container Toolkit (installed via the `docker` role with `docker_nvidia_enabled: true`)
 - NVIDIA GPU drivers (installed via the `nvidia` role)
+- `mold` linker (required for Rust builds in this repository)
+
+### Required host packages for source builds
+
+When building from source on the host (or in host-like environments), install:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential binutils lld mold
+```
+
+Without linker tooling, Rust builds may fail with errors such as:
+`collect2: fatal error: cannot find 'ld'`.
 
 ## Role Variables
 

@@ -455,7 +455,25 @@ impl OrderFulfiller {
         &self,
         orders: &[(ProofRequest, Bytes)],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
+        self.fulfill_with_existing_proofs(orders, None).await
+    }
+
+    /// Fulfills a list of orders, optionally reusing caller-provided proof IDs.
+    pub async fn fulfill_with_existing_proofs(
+        &self,
+        orders: &[(ProofRequest, Bytes)],
+        existing_proof_ids: Option<&[Option<String>]>,
+    ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
         tracing::debug!("Fulfilling {} orders", orders.len());
+        if let Some(existing) = existing_proof_ids {
+            if existing.len() != orders.len() {
+                bail!(
+                    "existing_proof_ids length {} does not match orders length {}",
+                    existing.len(),
+                    orders.len()
+                );
+            }
+        }
         let mut proof_cache = match load_local_proof_cache() {
             Ok(cache) => cache,
             Err(err) => {
@@ -464,12 +482,16 @@ impl OrderFulfiller {
             }
         };
         let cache_entries = Arc::new(proof_cache.entries.clone());
+        let existing_proof_ids = Arc::new(
+            existing_proof_ids.map(|ids| ids.to_vec()).unwrap_or_else(|| vec![None; orders.len()]),
+        );
 
         let orders_jobs = orders.iter().cloned().enumerate().map(move |(idx, (req, sig))| {
             let prover = self.prover.clone();
             let downloader = self.downloader.clone();
             let supported_selectors = self.supported_selectors.clone();
             let cache_entries = cache_entries.clone();
+            let existing_proof_ids = existing_proof_ids.clone();
             async move {
                 // Fetch and upload order image
                 let order_program = downloader.download(&req.imageUrl).await?;
@@ -511,9 +533,32 @@ impl OrderFulfiller {
 
                 let cache_key =
                     proof_cache_key(U256::from(req.id), order_image_id, keccak256(&order_input));
-                let (proof_id, order_receipt, cache_update) = if let Some(cached_proof_id) =
-                    cache_entries.get(&cache_key)
+                let configured_proof_id = existing_proof_ids.get(idx).and_then(|v| v.clone());
+                let (proof_id, order_receipt, cache_update) = if let Some(configured_proof_id) =
+                    configured_proof_id
                 {
+                    match prover.get_receipt(&configured_proof_id).await? {
+                        Some(receipt) => {
+                            tracing::debug!(
+                                "Reusing provided proof for order 0x{:x}: {}",
+                                req.id,
+                                configured_proof_id
+                            );
+                            (
+                                configured_proof_id.clone(),
+                                receipt,
+                                Some((cache_key, configured_proof_id)),
+                            )
+                        }
+                        None => {
+                            bail!(
+                                "Provided proof ID {} not found for order 0x{:x}",
+                                configured_proof_id,
+                                req.id
+                            );
+                        }
+                    }
+                } else if let Some(cached_proof_id) = cache_entries.get(&cache_key) {
                     match prover.get_receipt(cached_proof_id).await? {
                         Some(receipt) => {
                             tracing::debug!(
