@@ -163,6 +163,8 @@ pub enum CompletionOutcome {
     ExpiredWhileProving,
     /// Order expired before the fulfill transaction was submitted.
     ExpiredBeforeSubmission,
+    /// Order was fulfilled before submission, e.g. another prover submitted secondary fulfillment first.
+    FulfilledBeforeSubmission,
     /// The fulfill transaction failed on-chain.
     TxFailed,
     /// Proving failed.

@@ -168,7 +168,7 @@ pub mod defaults {
     }
 
     pub const fn broker_heartbeat_interval_secs() -> u64 {
-        3600
+        300
     }
 
     pub const fn status_poll_retry_count() -> u64 {

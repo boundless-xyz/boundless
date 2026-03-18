@@ -19,6 +19,8 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use boundless_market::telemetry::CompletionOutcome;
+
 use crate::{
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
@@ -77,7 +79,11 @@ impl ReaperTask {
                     &self.db,
                     &self.config,
                     &order,
-                    &BrokerFailure::new("[B-REAP-003]", "Order expired in reaper"),
+                    &BrokerFailure::new(
+                        "[B-REAP-003]",
+                        "Order expired in reaper",
+                        CompletionOutcome::ExpiredWhileProving,
+                    ),
                 )
                 .await;
             }

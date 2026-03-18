@@ -44,6 +44,8 @@ macro_rules! impl_coded_debug {
 
 pub use impl_coded_debug;
 
+use boundless_market::telemetry::CompletionOutcome;
+
 use crate::config::ConfigLock;
 use crate::db::DbObj;
 use crate::{Order, OrderStatus};
@@ -52,11 +54,16 @@ use crate::{Order, OrderStatus};
 pub(crate) struct BrokerFailure {
     pub code: String,
     pub reason: String,
+    pub outcome: CompletionOutcome,
 }
 
 impl BrokerFailure {
-    pub fn new(code: impl Into<String>, reason: impl Into<String>) -> Self {
-        Self { code: code.into(), reason: reason.into() }
+    pub fn new(
+        code: impl Into<String>,
+        reason: impl Into<String>,
+        outcome: CompletionOutcome,
+    ) -> Self {
+        Self { code: code.into(), reason: reason.into(), outcome }
     }
 }
 

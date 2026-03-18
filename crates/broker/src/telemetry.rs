@@ -35,12 +35,18 @@ use boundless_market::prover_utils::OrderRequest;
 use crate::config::ConfigLock;
 use crate::db::DbObj;
 use crate::errors::BrokerFailure;
+use crate::futures_retry::retry;
 use crate::order_monitor::{OrderCommitmentMeta, OrderMonitorConfig};
+
+const HEARTBEAT_RETRY_COUNT: u64 = 2;
+const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 
 static GLOBAL: OnceLock<TelemetryHandle> = OnceLock::new();
 
 pub(crate) fn init(handle: TelemetryHandle) {
-    GLOBAL.set(handle).ok();
+    if GLOBAL.set(handle).is_err() {
+        tracing::warn!("Telemetry handle already initialized, ignoring duplicate init");
+    }
 }
 
 pub(crate) fn telemetry() -> &'static TelemetryHandle {
@@ -174,12 +180,12 @@ pub(crate) enum TelemetryEvent {
     Failed {
         /// Composite order ID.
         order_id: String,
-        /// Structured error code (e.g. "[B-PRO-501]"). The prefix indicates the stage:
-        /// B-REAP = expired while proving, B-OM = lock failed, B-SUB = tx failed,
-        /// B-PRO = proving failed, B-AGG = aggregation failed.
+        /// Structured error code (e.g. "[B-PRO-501]").
         error_code: String,
         /// Human-readable error description.
         error_reason: String,
+        /// Terminal outcome for this failure.
+        outcome: CompletionOutcome,
     },
 }
 
@@ -327,6 +333,7 @@ impl TelemetryHandle {
             order_id: order_id.to_string(),
             error_code: failure.code.clone(),
             error_reason: failure.reason.clone(),
+            outcome: failure.outcome,
         });
     }
 }
@@ -702,8 +709,7 @@ impl TelemetryService {
             TelemetryEvent::Fulfilled { order_id } => {
                 self.finalize_request(order_id, CompletionOutcome::Fulfilled, None, None).await;
             }
-            TelemetryEvent::Failed { order_id, error_code, error_reason } => {
-                let outcome = outcome_from_error_code(&error_code);
+            TelemetryEvent::Failed { order_id, error_code, error_reason, outcome } => {
                 self.finalize_request(order_id, outcome, Some(error_code), Some(error_reason))
                     .await;
             }
@@ -817,13 +823,14 @@ impl TelemetryService {
         };
 
         let submitted = if let Some(ref client) = self.client {
-            match client.submit_heartbeat(&heartbeat, &self.signer).await {
-                Ok(_) => true,
-                Err(e) => {
-                    tracing::warn!("Failed to send broker heartbeat: {e}");
-                    false
-                }
-            }
+            retry(
+                HEARTBEAT_RETRY_COUNT,
+                HEARTBEAT_RETRY_SLEEP_MS,
+                || client.submit_heartbeat(&heartbeat, &self.signer),
+                "send_broker_heartbeat",
+            )
+            .await
+            .is_ok()
         } else {
             false
         };
@@ -849,17 +856,14 @@ impl TelemetryService {
         };
 
         let submitted = if let Some(ref client) = self.client {
-            match client.submit_request_heartbeat(&heartbeat, &self.signer).await {
-                Ok(_) => true,
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to send request heartbeat ({} evals, {} completions): {e}",
-                        heartbeat.evaluated.len(),
-                        heartbeat.completed.len()
-                    );
-                    false
-                }
-            }
+            retry(
+                HEARTBEAT_RETRY_COUNT,
+                HEARTBEAT_RETRY_SLEEP_MS,
+                || client.submit_request_heartbeat(&heartbeat, &self.signer),
+                "send_request_heartbeat",
+            )
+            .await
+            .is_ok()
         } else {
             false
         };
@@ -940,17 +944,6 @@ pub(crate) fn proof_type_label(selector: FixedBytes<4>) -> &'static str {
     }
 }
 
-fn outcome_from_error_code(error_code: &str) -> CompletionOutcome {
-    match error_code {
-        s if s.starts_with("[B-REAP-") => CompletionOutcome::ExpiredWhileProving,
-        s if s.starts_with("[B-OM-") => CompletionOutcome::LockFailed,
-        s if s.starts_with("[B-SUB-") => CompletionOutcome::TxFailed,
-        s if s.starts_with("[B-PRO-") => CompletionOutcome::ProvingFailed,
-        s if s.starts_with("[B-AGG-") => CompletionOutcome::AggregationFailed,
-        _ => CompletionOutcome::Unknown,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -995,16 +988,6 @@ mod tests {
         assert!(
             matches!(event, TelemetryEvent::Fulfilled { order_id } if order_id == "test-order-99")
         );
-    }
-
-    #[test]
-    fn test_outcome_from_error_code() {
-        assert_eq!(outcome_from_error_code("[B-REAP-003]"), CompletionOutcome::ExpiredWhileProving);
-        assert_eq!(outcome_from_error_code("[B-OM-007]"), CompletionOutcome::LockFailed);
-        assert_eq!(outcome_from_error_code("[B-SUB-001]"), CompletionOutcome::TxFailed);
-        assert_eq!(outcome_from_error_code("[B-PRO-501]"), CompletionOutcome::ProvingFailed);
-        assert_eq!(outcome_from_error_code("[B-AGG-001]"), CompletionOutcome::AggregationFailed);
-        assert_eq!(outcome_from_error_code("something random"), CompletionOutcome::Unknown);
     }
 
     fn test_order_id(n: u64) -> String {
@@ -1267,6 +1250,7 @@ mod tests {
                 order_id: oid,
                 error_code: "[B-PRO-501]".to_string(),
                 error_reason: "Proving failed".to_string(),
+                outcome: CompletionOutcome::ProvingFailed,
             })
             .await;
 
