@@ -179,6 +179,21 @@ pub struct Args {
     /// Use the experimental ChainMonitorV2 implementation using eth_getBlockReceipts instead of eth_getLogs.
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
+
+    /// Per-chain config override files, merged onto the base config (--config-file).
+    /// Format: {chain_id}:{path}, e.g. --chain-config 8453:broker.base.toml
+    /// Can be specified multiple times.
+    #[clap(long)]
+    pub chain_config: Vec<String>,
+}
+
+/// Parsed per-chain configuration resolved from environment variables and CLI args.
+#[derive(Debug, Clone)]
+pub struct ChainArgs {
+    pub chain_id: u64,
+    pub rpc_urls: Vec<Url>,
+    pub private_key: PrivateKeySigner,
+    pub config_override_path: Option<PathBuf>,
 }
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
@@ -1357,6 +1372,7 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
+                chain_config: vec![],
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }

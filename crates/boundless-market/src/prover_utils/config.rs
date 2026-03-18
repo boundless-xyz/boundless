@@ -729,6 +729,16 @@ pub struct Config {
     pub price_oracle: PriceOracleConfig,
 }
 
+// Fields that are global-only and cannot be overridden per-chain.
+// If set in a per-chain override file, they are stripped with a warning.
+const GLOBAL_ONLY_FIELDS: &[(&str, &str)] = &[
+    ("market", "max_concurrent_preflights"),
+    ("market", "order_pricing_priority"),
+    ("market", "peak_prove_khz"),
+    ("market", "max_concurrent_proofs"),
+    ("market", "order_commitment_priority"),
+];
+
 impl Config {
     /// Load the config from disk
     #[cfg(feature = "prover_utils")]
@@ -737,6 +747,74 @@ impl Config {
             .await
             .context(format!("Failed to read config file from {path:?}"))?;
         toml::from_str(&data).context(format!("Failed to parse toml file from {path:?}"))
+    }
+
+    /// Load a base config and merge a per-chain override on top.
+    /// Global-only fields in the override are stripped with a warning log.
+    #[cfg(feature = "prover_utils")]
+    pub async fn load_with_override(base_path: &Path, override_path: &Path) -> Result<Self> {
+        let base_str = fs::read_to_string(base_path)
+            .await
+            .context(format!("Failed to read base config from {base_path:?}"))?;
+        let override_str = fs::read_to_string(override_path)
+            .await
+            .context(format!("Failed to read override config from {override_path:?}"))?;
+        Self::merge(&base_str, &override_str)
+            .context(format!("Failed to merge config {override_path:?} onto {base_path:?}"))
+    }
+
+    /// Merge an override TOML string onto a base TOML string.
+    /// Global-only fields in the override are stripped with a warning.
+    #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
+    pub fn merge(base_toml: &str, override_toml: &str) -> Result<Self> {
+        let mut base: toml::Value =
+            toml::from_str(base_toml).context("Failed to parse base config TOML")?;
+        let mut override_val: toml::Value =
+            toml::from_str(override_toml).context("Failed to parse override config TOML")?;
+
+        Self::strip_global_fields(&mut override_val);
+        Self::deep_merge(&mut base, override_val);
+
+        base.try_into().context("Failed to deserialize merged config")
+    }
+
+    /// Remove global-only fields from an override TOML value, logging a warning for each.
+    #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
+    fn strip_global_fields(override_val: &mut toml::Value) {
+        let Some(root) = override_val.as_table_mut() else {
+            return;
+        };
+        for &(section, field) in GLOBAL_ONLY_FIELDS {
+            let Some(table) = root.get_mut(section).and_then(|v| v.as_table_mut()) else {
+                continue;
+            };
+            if table.remove(field).is_some() {
+                tracing::warn!(
+                    "Ignoring global-only field '{section}.{field}' in per-chain override file"
+                );
+            }
+        }
+    }
+
+    /// Recursively merge `override_val` into `base`. Tables are merged key-by-key;
+    /// all other values are replaced.
+    #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
+    fn deep_merge(base: &mut toml::Value, override_val: toml::Value) {
+        match (base, override_val) {
+            (toml::Value::Table(base_table), toml::Value::Table(override_table)) => {
+                for (key, override_value) in override_table {
+                    match base_table.get_mut(&key) {
+                        Some(base_value) => Self::deep_merge(base_value, override_value),
+                        None => {
+                            base_table.insert(key, override_value);
+                        }
+                    }
+                }
+            }
+            (base, override_val) => {
+                *base = override_val;
+            }
+        }
     }
 
     /// Write the config to disk
@@ -980,5 +1058,96 @@ max_stake = "10 USD"
                 .to_string(),
             "0.005 ETH"
         );
+    }
+
+    #[test]
+    fn test_config_merge_override_fields() {
+        let base = r#"
+[market]
+mcycle_price = "0.1 ETH"
+max_stake = "10 USD"
+min_deadline = 300
+lookback_blocks = 100
+
+[batcher]
+min_batch_size = 2
+batch_max_time = 300
+"#;
+        let override_toml = r#"
+[market]
+mcycle_price = "0.05 ETH"
+
+[batcher]
+min_batch_size = 4
+"#;
+        let config = Config::merge(base, override_toml).unwrap();
+        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.05 ETH", None).unwrap());
+        assert_eq!(config.market.min_deadline, 300);
+        assert_eq!(config.market.lookback_blocks, 100);
+        assert_eq!(config.batcher.min_batch_size, 4);
+        assert_eq!(config.batcher.batch_max_time, 300);
+    }
+
+    #[test]
+    fn test_config_merge_strips_global_fields() {
+        let base = r#"
+[market]
+mcycle_price = "0.1 ETH"
+max_stake = "10 USD"
+max_concurrent_proofs = 5
+peak_prove_khz = 100
+order_pricing_priority = "random"
+order_commitment_priority = "cycle_price"
+max_concurrent_preflights = 8
+"#;
+        let override_toml = r#"
+[market]
+mcycle_price = "0.05 ETH"
+max_concurrent_proofs = 99
+peak_prove_khz = 999
+order_pricing_priority = "shortest_expiry"
+order_commitment_priority = "random"
+max_concurrent_preflights = 99
+"#;
+        let config = Config::merge(base, override_toml).unwrap();
+        // Per-chain field should be overridden
+        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.05 ETH", None).unwrap());
+        // Global fields should keep base values
+        assert_eq!(config.market.max_concurrent_proofs, 5);
+        assert_eq!(config.market.peak_prove_khz, Some(100));
+        assert_eq!(config.market.order_pricing_priority, OrderPricingPriority::Random);
+        assert_eq!(config.market.order_commitment_priority, OrderCommitmentPriority::CyclePrice);
+        assert_eq!(config.market.max_concurrent_preflights, 8);
+    }
+
+    #[test]
+    fn test_config_merge_base_only() {
+        let base = r#"
+[market]
+mcycle_price = "0.1 ETH"
+max_stake = "10 USD"
+
+[batcher]
+min_batch_size = 2
+"#;
+        let config = Config::merge(base, "").unwrap();
+        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
+        assert_eq!(config.batcher.min_batch_size, 2);
+    }
+
+    #[test]
+    fn test_config_merge_new_section_in_override() {
+        let base = r#"
+[market]
+mcycle_price = "0.1 ETH"
+max_stake = "10 USD"
+"#;
+        let override_toml = r#"
+[batcher]
+min_batch_size = 4
+"#;
+        let config = Config::merge(base, override_toml).unwrap();
+        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
+        assert_eq!(config.batcher.min_batch_size, 4);
     }
 }

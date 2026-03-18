@@ -30,7 +30,6 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use boundless_market::price_oracle::config::PriceValue;
-use boundless_market::price_oracle::Amount;
 use boundless_market::{
     contracts::{
         hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
@@ -119,29 +118,65 @@ fn generate_request(
     )
 }
 
-async fn new_config(min_batch_size: u32) -> NamedTempFile {
+struct TestConfig {
+    base: NamedTempFile,
+    override_file: Option<NamedTempFile>,
+}
+
+impl TestConfig {
+    fn base_path(&self) -> PathBuf {
+        self.base.path().to_path_buf()
+    }
+
+    async fn watcher(&self) -> ConfigWatcher {
+        ConfigWatcher::new_with_override(
+            self.base.path(),
+            self.override_file.as_ref().map(|f| f.path()),
+        )
+        .await
+        .unwrap()
+    }
+}
+
+async fn new_config(min_batch_size: u32) -> TestConfig {
     new_config_with_min_deadline(min_batch_size, 100).await
 }
 
-async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
-    let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
-    let mut config = Config::default();
-    config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
-    config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+// We put some config into an override file so that we can test the per-chain overrides feature e2e.lets
+async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> TestConfig {
+    let base_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+    let override_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+
+    // Base config: prover settings and price oracle (shared across chains)
+    let mut base_config = Config::default();
+    base_config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
+    base_config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
     if !is_dev_mode() {
-        config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
+        base_config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
     }
-    config.prover.status_poll_ms = 1000;
-    config.prover.req_retry_count = 3;
-    config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
-    config.market.expected_probability_win_secondary_fulfillment = 50;
-    config.market.min_deadline = min_deadline;
-    config.batcher.min_batch_size = min_batch_size;
-    // Use static prices for tests to avoid needing real price sources
-    config.price_oracle.eth_usd = PriceValue::Static(2500.0);
-    config.price_oracle.zkc_usd = PriceValue::Static(1.0);
-    config.write(config_file.path()).await.unwrap();
-    config_file
+    base_config.prover.status_poll_ms = 1000;
+    base_config.prover.req_retry_count = 3;
+    base_config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+    base_config.price_oracle.zkc_usd = PriceValue::Static(1.0);
+    base_config.write(base_file.path()).await.unwrap();
+
+    // Override config: only the per-chain market and batcher fields we want to override.
+    // Written as raw TOML to avoid serializing a full Config::default() which would
+    // clobber base values (e.g. price_oracle static prices) with unwanted defaults.
+    let override_toml = format!(
+        r#"
+[market]
+mcycle_price = "0.00001 ETH"
+expected_probability_win_secondary_fulfillment = 50
+min_deadline = {min_deadline}
+
+[batcher]
+min_batch_size = {min_batch_size}
+"#
+    );
+    tokio::fs::write(override_file.path(), override_toml).await.unwrap();
+
+    TestConfig { base: base_file, override_file: Some(override_file) }
 }
 
 fn broker_args(
@@ -179,6 +214,7 @@ fn broker_args(
         log_json: false,
         listen_only: false,
         experimental_rpc: false,
+        chain_config: vec![],
     }
 }
 
@@ -219,7 +255,7 @@ async fn simple_e2e() {
     // Start broker
     let config = new_config(1).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -229,7 +265,7 @@ async fn simple_e2e() {
         args,
         ctx.prover_provider,
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -287,7 +323,7 @@ async fn simple_e2e_experimental_rpc() {
     // Start broker with experimental RPC path enabled
     let config = new_config(1).await;
     let mut args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -298,7 +334,7 @@ async fn simple_e2e_experimental_rpc() {
         args,
         ctx.prover_provider,
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -369,7 +405,7 @@ async fn simple_e2e_with_callback() {
     // Start broker
     let config = new_config(1).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -379,7 +415,7 @@ async fn simple_e2e_with_callback() {
         args,
         ctx.prover_provider.clone(),
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -458,7 +494,7 @@ async fn e2e_fulfill_after_lock_expiry() {
 
     let config = new_config_with_min_deadline(1, 0).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -468,7 +504,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         args,
         ctx.prover_provider,
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -536,7 +572,7 @@ async fn e2e_with_selector() {
     // Start broker
     let config = new_config(1).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -546,7 +582,7 @@ async fn e2e_with_selector() {
         args,
         ctx.prover_provider,
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -608,7 +644,7 @@ async fn e2e_with_blake3_groth16_selector() {
     // Start broker
     let config = new_config(1).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -618,7 +654,7 @@ async fn e2e_with_blake3_groth16_selector() {
         args,
         ctx.prover_provider,
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -683,7 +719,7 @@ async fn e2e_with_multiple_requests() {
     // Start broker
     let config = new_config(2).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -693,7 +729,7 @@ async fn e2e_with_multiple_requests() {
         args,
         ctx.prover_provider,
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -781,7 +817,7 @@ async fn e2e_with_claim_digest_match() {
     // Start broker
     let config = new_config(1).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -791,7 +827,7 @@ async fn e2e_with_claim_digest_match() {
         args,
         ctx.prover_provider,
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
@@ -859,7 +895,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
 
     let config = new_config(1).await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
@@ -869,7 +905,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
         args,
         ctx.prover_provider.clone(),
         any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
+        config.watcher().await,
         Default::default(),
     )
     .await
