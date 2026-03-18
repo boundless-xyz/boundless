@@ -44,7 +44,8 @@ use url::Url;
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let all_rpc_urls = collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone())?;
+    let all_rpc_urls =
+        collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone(), args.experimental_rpc)?;
 
     if args.log_json {
         tracing_subscriber::fmt()
@@ -210,7 +211,11 @@ async fn main() -> Result<()> {
 
 /// Collect and parse all RPC URLs from args and environment variables
 /// Returns a deduplicated list of valid RPC URLs
-fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Vec<Url>> {
+fn collect_rpc_urls(
+    rpc_url: Option<String>,
+    rpc_urls: Vec<String>,
+    experimental_rpc: bool,
+) -> Result<Vec<Url>> {
     // Use Vec to preserve insertion order: PROVER_RPC_URL is always inserted first,
     // ensuring it lands at index 0 for the sequential fallback transport.
     let mut all_rpc_urls: Vec<Url> = Vec::new();
@@ -250,6 +255,13 @@ fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Ve
         }
     }
 
+    if all_rpc_urls.is_empty() && experimental_rpc {
+        all_rpc_urls.push(
+            Url::parse("https://base.gateway.tenderly.co")
+                .expect("hardcoded Tenderly URL is valid"),
+        );
+    }
+
     // Error early if no RPC URLs provided
     if all_rpc_urls.is_empty() {
         anyhow::bail!(
@@ -272,6 +284,7 @@ mod tests {
                 "http://secondary.example.com".to_string(),
                 "http://tertiary.example.com".to_string(),
             ],
+            false,
         )
         .unwrap();
         assert_eq!(result[0].as_str(), "http://primary.example.com/");
@@ -282,6 +295,7 @@ mod tests {
         let result = collect_rpc_urls(
             Some("http://node.example.com".to_string()),
             vec!["http://node.example.com".to_string()],
+            false,
         )
         .unwrap();
         assert_eq!(result.len(), 1);
@@ -289,7 +303,7 @@ mod tests {
 
     #[test]
     fn errors_on_empty() {
-        let result = collect_rpc_urls(None, vec![]);
+        let result = collect_rpc_urls(None, vec![], false);
         assert!(result.is_err());
     }
 }
