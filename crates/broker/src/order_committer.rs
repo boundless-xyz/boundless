@@ -53,7 +53,7 @@ use tokio_util::sync::CancellationToken;
 const MAX_PROVING_BATCH_SIZE: u32 = 10;
 
 #[derive(Error)]
-pub enum OrderMonitorErr {
+pub enum OrderCommitterErr {
     #[error("{code} Failed to lock order: {0}", code = self.code())]
     LockTxFailed(String),
 
@@ -77,18 +77,18 @@ pub enum OrderMonitorErr {
     PreLockCheckRetry(String),
 }
 
-impl_coded_debug!(OrderMonitorErr);
+impl_coded_debug!(OrderCommitterErr);
 
-impl CodedError for OrderMonitorErr {
+impl CodedError for OrderCommitterErr {
     fn code(&self) -> &str {
         match self {
-            OrderMonitorErr::LockTxNotConfirmed(_) => "[B-OM-006]",
-            OrderMonitorErr::LockTxFailed(_) => "[B-OM-007]",
-            OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
-            OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
-            OrderMonitorErr::RpcErr(_) => "[B-OM-011]",
-            OrderMonitorErr::PreLockCheckRetry(_) => "[B-OM-012]",
-            OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
+            OrderCommitterErr::LockTxNotConfirmed(_) => "[B-OM-006]",
+            OrderCommitterErr::LockTxFailed(_) => "[B-OM-007]",
+            OrderCommitterErr::AlreadyLocked => "[B-OM-009]",
+            OrderCommitterErr::InsufficientBalance => "[B-OM-010]",
+            OrderCommitterErr::RpcErr(_) => "[B-OM-011]",
+            OrderCommitterErr::PreLockCheckRetry(_) => "[B-OM-012]",
+            OrderCommitterErr::UnexpectedError(_) => "[B-OM-500]",
         }
     }
 }
@@ -135,7 +135,7 @@ impl<K: std::hash::Hash + Eq, V: std::borrow::Borrow<OrderRequest>> Expiry<K, V>
 }
 
 #[derive(Default)]
-struct OrderMonitorConfig {
+struct OrderCommitterConfig {
     min_deadline: u64,
     peak_prove_khz: Option<u64>,
     max_concurrent_proofs: Option<u32>,
@@ -152,7 +152,7 @@ pub struct RpcRetryConfig {
 }
 
 #[derive(Clone)]
-pub struct OrderMonitor<P> {
+pub struct OrderCommitter<P> {
     db: DbObj,
     chain_monitor: ChainMonitorObj,
     block_time: u64,
@@ -170,7 +170,7 @@ pub struct OrderMonitor<P> {
     listen_only: bool,
 }
 
-impl<P> OrderMonitor<P>
+impl<P> OrderCommitter<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static,
 {
@@ -247,7 +247,7 @@ where
         Ok(monitor)
     }
 
-    async fn lock_order(&self, order: &OrderRequest) -> Result<U256, OrderMonitorErr> {
+    async fn lock_order(&self, order: &OrderRequest) -> Result<U256, OrderCommitterErr> {
         let request_id = order.request.id;
 
         let order_status = self
@@ -255,12 +255,12 @@ where
             .get_status(request_id, Some(order.request.expires_at()))
             .await
             .context("Failed to get request status")
-            .map_err(OrderMonitorErr::RpcErr)?;
+            .map_err(OrderCommitterErr::RpcErr)?;
         if order_status != RequestStatus::Unknown {
             tracing::info!("Order {} not open: {order_status:?}, skipping", order.id());
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
-            return Err(OrderMonitorErr::AlreadyLocked);
+            return Err(OrderCommitterErr::AlreadyLocked);
         }
 
         let is_locked = self
@@ -270,7 +270,7 @@ where
             .context("Failed to check if request is locked")?;
         if is_locked {
             tracing::warn!("Order {} already locked: {order_status:?}, skipping", order.id());
-            return Err(OrderMonitorErr::AlreadyLocked);
+            return Err(OrderCommitterErr::AlreadyLocked);
         }
 
         let collateral_balance = self
@@ -280,7 +280,7 @@ where
             .context("Failed to get collateral balance")?;
         if collateral_balance < order.request.offer.lockCollateral {
             tracing::warn!("No longer have enough collateral deposited to market to lock order {}, skipping [need: {} ZKC, have: {} ZKC]", order.id(), format_ether(order.request.offer.lockCollateral), format_ether(collateral_balance));
-            return Err(OrderMonitorErr::InsufficientBalance);
+            return Err(OrderCommitterErr::InsufficientBalance);
         }
 
         tracing::info!(
@@ -292,17 +292,16 @@ where
         // Pre-lock gas profitability check: compare gas cost against the order's current
         // reward on the pricing ramp. Retries next block on failure (e.g. gas spike).
         if let Some(gas_estimate) = order.gas_estimate {
-            let gas_price = self
-                .chain_monitor
-                .current_gas_price()
-                .await
-                .map_err(|e| OrderMonitorErr::PreLockCheckRetry(format!("gas price: {e:#}")))?;
+            let gas_price =
+                self.chain_monitor.current_gas_price().await.map_err(|e| {
+                    OrderCommitterErr::PreLockCheckRetry(format!("gas price: {e:#}"))
+                })?;
             let gas_cost = U256::from(gas_price) * U256::from(gas_estimate);
             let reward = order
                 .request
                 .offer
                 .price_at(now_timestamp())
-                .map_err(|e| OrderMonitorErr::PreLockCheckRetry(e.to_string()))?;
+                .map_err(|e| OrderCommitterErr::PreLockCheckRetry(e.to_string()))?;
             if gas_cost > reward {
                 let msg = format!(
                     "gas cost {} exceeds reward {}",
@@ -310,23 +309,23 @@ where
                     format_ether(reward)
                 );
                 tracing::warn!("Pre-lock check failed for order {}: {msg}", order.id());
-                return Err(OrderMonitorErr::PreLockCheckRetry(msg));
+                return Err(OrderCommitterErr::PreLockCheckRetry(msg));
             }
         }
 
         let lock_block =
             self.market.lock_request(&order.request, order.client_sig.clone()).await.map_err(
-                |e| -> OrderMonitorErr {
+                |e| -> OrderCommitterErr {
                     match e {
                         MarketError::TxnError(txn_err) => match txn_err {
                             TxnErr::BoundlessMarketErr(
                                 IBoundlessMarketErrors::RequestIsLocked(_),
-                            ) => OrderMonitorErr::AlreadyLocked,
-                            _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
+                            ) => OrderCommitterErr::AlreadyLocked,
+                            _ => OrderCommitterErr::LockTxFailed(txn_err.to_string()),
                         },
-                        MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                        MarketError::RequestAlreadyLocked(_e) => OrderCommitterErr::AlreadyLocked,
                         MarketError::TxnConfirmationError(e) => {
-                            OrderMonitorErr::LockTxNotConfirmed(e.to_string())
+                            OrderCommitterErr::LockTxNotConfirmed(e.to_string())
                         }
                         MarketError::LockRevert(e) => {
                             // Note: lock revert could be for any number of reasons;
@@ -335,7 +334,7 @@ where
                             // 3/ the request may have been fulfilled,
                             // 4/ the requestor may have withdrawn their funds
                             // Currently we don't have a way to determine the cause of the revert.
-                            OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
+                            OrderCommitterErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
                         }
                         MarketError::Error(e) => {
                             // Insufficient balance error is thrown both when the requestor has insufficient balance,
@@ -346,23 +345,23 @@ where
                                 self.prover_addr.to_string().to_lowercase().replace("0x", "");
                             if e.to_string().contains("InsufficientBalance") {
                                 if e.to_string().to_lowercase().contains(&prover_addr_str) {
-                                    OrderMonitorErr::InsufficientBalance
+                                    OrderCommitterErr::InsufficientBalance
                                 } else {
-                                    OrderMonitorErr::LockTxFailed(format!(
+                                    OrderCommitterErr::LockTxFailed(format!(
                                         "Requestor has insufficient balance at lock time: {e}"
                                     ))
                                 }
                             } else if e.to_string().contains("RequestIsLocked") {
-                                OrderMonitorErr::AlreadyLocked
+                                OrderCommitterErr::AlreadyLocked
                             } else {
-                                OrderMonitorErr::UnexpectedError(e)
+                                OrderCommitterErr::UnexpectedError(e)
                             }
                         }
                         _ => {
                             if e.to_string().contains("RequestIsLocked") {
-                                OrderMonitorErr::AlreadyLocked
+                                OrderCommitterErr::AlreadyLocked
                             } else {
-                                OrderMonitorErr::UnexpectedError(e.into())
+                                OrderCommitterErr::UnexpectedError(e.into())
                             }
                         }
                     }
@@ -387,7 +386,7 @@ where
             "get_block_by_number",
         )
         .await
-        .map_err(OrderMonitorErr::UnexpectedError)?;
+        .map_err(OrderCommitterErr::UnexpectedError)?;
 
         let lock_price = order
             .request
@@ -402,7 +401,7 @@ where
         &self,
         max_concurrent_proofs: Option<u32>,
         prev_orders_by_status: &mut String,
-    ) -> Result<Capacity, OrderMonitorErr> {
+    ) -> Result<Capacity, OrderCommitterErr> {
         if max_concurrent_proofs.is_none() {
             return Ok(Capacity::Unlimited);
         };
@@ -412,7 +411,7 @@ where
             .db
             .get_committed_orders()
             .await
-            .map_err(|e| OrderMonitorErr::UnexpectedError(e.into()))?;
+            .map_err(|e| OrderCommitterErr::UnexpectedError(e.into()))?;
         let committed_orders_count: u32 = committed_orders.len().try_into().unwrap();
 
         Self::log_capacity(prev_orders_by_status, committed_orders, max).await;
@@ -610,11 +609,11 @@ where
                             }
                         }
                         Err(ref err) => {
-                            if let OrderMonitorErr::PreLockCheckRetry(reason) = err {
+                            if let OrderCommitterErr::PreLockCheckRetry(reason) = err {
                                 tracing::warn!("Pre-lock check failed for {order_id}: {reason}, will retry next block");
                                 should_invalidate = false;
                             } else {
-                                if matches!(err, OrderMonitorErr::UnexpectedError(_)) {
+                                if matches!(err, OrderCommitterErr::UnexpectedError(_)) {
                                     tracing::error!("Failed to lock order: {order_id} - {err:?}");
                                 } else {
                                     tracing::warn!("Failed to lock order: {order_id} - {err:?}");
@@ -668,7 +667,7 @@ where
         &self,
         order: &OrderRequest,
         gas_price: u128,
-    ) -> Result<U256, OrderMonitorErr> {
+    ) -> Result<U256, OrderCommitterErr> {
         // Calculate gas units needed for this order (lock + fulfill)
         let order_gas_units = if order.fulfillment_type == FulfillmentType::LockAndFulfill {
             U256::from(
@@ -709,7 +708,7 @@ where
     async fn apply_capacity_limits(
         &self,
         orders: Vec<Arc<OrderRequest>>,
-        config: &OrderMonitorConfig,
+        config: &OrderCommitterConfig,
         prev_orders_by_status: &mut String,
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let num_orders = orders.len();
@@ -738,7 +737,7 @@ where
             self.provider
                 .get_balance(self.provider.default_signer_address())
                 .await
-                .map_err(|err| OrderMonitorErr::RpcErr(err.into()))?
+                .map_err(|err| OrderCommitterErr::RpcErr(err.into()))?
         };
 
         // Calculate gas units required for committed orders
@@ -927,7 +926,7 @@ where
     pub async fn start_monitor(
         self,
         cancel_token: CancellationToken,
-    ) -> Result<(), OrderMonitorErr> {
+    ) -> Result<(), OrderCommitterErr> {
         let mut last_block = 0;
         let mut first_block = 0;
         let mut interval = tokio::time::interval_at(
@@ -974,7 +973,7 @@ where
                         let (monitor_config, config_gas_mode) = {
                             let config = self.config.lock_all().context("Failed to read config")?;
                             let gas_mode = config.market.gas_priority_mode.clone();
-                            let cfg = OrderMonitorConfig {
+                            let cfg = OrderCommitterConfig {
                                 min_deadline: config.market.min_deadline,
                                 peak_prove_khz: config.market.peak_prove_khz,
                                 max_concurrent_proofs: Some(config.market.max_concurrent_proofs),
@@ -1055,7 +1054,7 @@ where
     async fn handle_new_order_result(
         &self,
         order: Box<OrderRequest>,
-    ) -> Result<(), OrderMonitorErr> {
+    ) -> Result<(), OrderCommitterErr> {
         match order.fulfillment_type {
             FulfillmentType::LockAndFulfill => {
                 // Note: this could be done without waiting for the batch to minimize latency, but
@@ -1072,11 +1071,11 @@ where
     }
 }
 
-impl<P> RetryTask for OrderMonitor<P>
+impl<P> RetryTask for OrderCommitter<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static + Clone,
 {
-    type Error = OrderMonitorErr;
+    type Error = OrderCommitterErr;
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let monitor_clone = self.clone();
         Box::pin(async move {
@@ -1131,7 +1130,7 @@ pub(crate) mod tests {
     >;
 
     pub struct TestCtx {
-        pub monitor: OrderMonitor<TestProvider>,
+        pub monitor: OrderCommitter<TestProvider>,
         pub anvil: AnvilInstance,
         pub db: DbObj,
         pub market_address: Address,
@@ -1189,7 +1188,7 @@ pub(crate) mod tests {
         }
     }
 
-    pub async fn setup_om_test_context() -> TestCtx {
+    pub async fn setup_oc_test_context() -> TestCtx {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
@@ -1251,7 +1250,7 @@ pub(crate) mod tests {
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
 
-        let monitor = OrderMonitor::new(
+        let monitor = OrderCommitter::new(
             db.clone(),
             provider.clone(),
             chain_monitor.clone(),
@@ -1281,7 +1280,7 @@ pub(crate) mod tests {
         }
     }
 
-    async fn run_with_monitor<P, F, T>(monitor: OrderMonitor<P>, f: F) -> T
+    async fn run_with_monitor<P, F, T>(monitor: OrderCommitter<P>, f: F) -> T
     where
         P: Provider + WalletProvider + Clone + 'static,
         F: Future<Output = T>,
@@ -1302,7 +1301,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn monitor_block() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
 
         // Create a test order using the TestCtx helper method
         let order =
@@ -1354,7 +1353,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_filter_expired_orders() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create an expired order
@@ -1378,7 +1377,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_filter_insufficient_deadline() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create an order with insufficient deadline
@@ -1407,7 +1406,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_filter_locked_by_others() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create an order that's locked by another prover
@@ -1438,7 +1437,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_process_fulfill_after_lock_expire_orders() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         let order = ctx
@@ -1455,7 +1454,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_apply_capacity_limits_unlimited() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create multiple orders
@@ -1480,7 +1479,7 @@ pub(crate) mod tests {
             .monitor
             .apply_capacity_limits(
                 orders.clone(),
-                &OrderMonitorConfig::default(),
+                &OrderCommitterConfig::default(),
                 &mut String::new(),
             )
             .await
@@ -1507,7 +1506,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_apply_capacity_limits_proving() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Add a committed order to simulate existing workload
@@ -1538,7 +1537,7 @@ pub(crate) mod tests {
             .monitor
             .apply_capacity_limits(
                 orders,
-                &OrderMonitorConfig {
+                &OrderCommitterConfig {
                     max_concurrent_proofs: Some(3),
                     order_commitment_priority: OrderCommitmentPriority::ShortestExpiry,
                     ..Default::default()
@@ -1568,7 +1567,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_apply_capacity_limits_committed_work_too_large() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Add a large committed order to simulate existing workload
@@ -1600,7 +1599,7 @@ pub(crate) mod tests {
             .monitor
             .apply_capacity_limits(
                 orders,
-                &OrderMonitorConfig { peak_prove_khz: Some(100), ..Default::default() },
+                &OrderCommitterConfig { peak_prove_khz: Some(100), ..Default::default() },
                 &mut String::new(),
             )
             .await
@@ -1614,7 +1613,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_apply_capacity_limits_skip_proof_time_past_expiration() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create orders with different expiration times
@@ -1644,7 +1643,7 @@ pub(crate) mod tests {
             .monitor
             .apply_capacity_limits(
                 candidate_orders,
-                &OrderMonitorConfig { peak_prove_khz: Some(1), ..Default::default() },
+                &OrderCommitterConfig { peak_prove_khz: Some(1), ..Default::default() },
                 &mut String::new(),
             )
             .await
@@ -1664,7 +1663,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_gas_estimation_functions() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
 
         // Create orders with different fulfillment types to test gas estimation for each type
         let lock_and_fulfill_order =
@@ -1690,7 +1689,7 @@ pub(crate) mod tests {
         let orders = vec![Arc::from(lock_and_fulfill_order), Arc::from(fulfill_only_order)];
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders, &OrderMonitorConfig::default(), &mut String::new())
+            .apply_capacity_limits(orders, &OrderCommitterConfig::default(), &mut String::new())
             .await
             .unwrap();
         let result = ctx.monitor.lock_and_prove_orders(&filtered_orders).await;
@@ -1710,7 +1709,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_multiple_orders_khz_capacity() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         ctx.config.load_write().unwrap().market.max_concurrent_proofs = u32::MAX;
 
         // Create multiple orders with increasing cycle counts to test gas allocation
@@ -1733,7 +1732,7 @@ pub(crate) mod tests {
             .monitor
             .apply_capacity_limits(
                 orders,
-                &OrderMonitorConfig { peak_prove_khz: Some(100), ..Default::default() },
+                &OrderCommitterConfig { peak_prove_khz: Some(100), ..Default::default() },
                 &mut String::new(),
             )
             .await
@@ -1750,7 +1749,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_insufficient_balance_committed_orders() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
 
         let balance = ctx.monitor.provider.get_balance(ctx.signer.address()).await.unwrap();
         let gas_price = ctx.monitor.provider.get_gas_price().await.unwrap();
@@ -1768,7 +1767,7 @@ pub(crate) mod tests {
             .monitor
             .apply_capacity_limits(
                 orders.clone(),
-                &OrderMonitorConfig::default(),
+                &OrderCommitterConfig::default(),
                 &mut String::new(),
             )
             .await
@@ -1784,7 +1783,7 @@ pub(crate) mod tests {
             .monitor
             .apply_capacity_limits(
                 orders.clone(),
-                &OrderMonitorConfig::default(),
+                &OrderCommitterConfig::default(),
                 &mut String::new(),
             )
             .await
@@ -1806,7 +1805,7 @@ pub(crate) mod tests {
         // Process the order - with insufficient balance for committed orders
         let filtered_orders = ctx
             .monitor
-            .apply_capacity_limits(orders, &OrderMonitorConfig::default(), &mut String::new())
+            .apply_capacity_limits(orders, &OrderCommitterConfig::default(), &mut String::new())
             .await
             .unwrap();
 
@@ -1816,7 +1815,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_target_timestamp_prevents_early_locking() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
         let future_timestamp = current_timestamp + 100; // 100 seconds in the future
 
@@ -1900,7 +1899,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_insufficient_collateral_balance() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create an order with a lockCollateral requirement higher than what's deposited
@@ -1959,7 +1958,7 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn pre_lock_check_gas_too_high_keeps_order_in_cache() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
 
         // Use now_timestamp() for rampUpStart so expires_at() is in the future.
         let mut order =

@@ -64,8 +64,8 @@ pub(crate) mod errors;
 pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
-pub(crate) mod order_monitor;
-pub(crate) mod order_picker;
+pub(crate) mod order_committer;
+pub(crate) mod order_pricer;
 mod price_oracle;
 pub(crate) mod prioritization;
 pub mod provers;
@@ -212,7 +212,7 @@ pub use boundless_market::prover_utils::{
     ProveLimitReason,
 };
 
-/// Message sent from MarketMonitor to OrderPicker about order state changes
+/// Message sent from MarketMonitor to OrderPricer about order state changes
 #[derive(Debug, Clone)]
 pub enum OrderStateChange {
     /// Order has been locked by a prover
@@ -972,8 +972,8 @@ where
             Ok(())
         });
 
-        // Shared ERC-1271 gas cache between OrderPicker and OrderMonitor so that estimates
-        // computed during preflight are reused when the monitor locks the same order.
+        // Shared ERC-1271 gas cache between OrderPricer and OrderCommitter so that estimates
+        // computed during preflight are reused when the committer locks the same order.
         let erc1271_gas_cache: Erc1271GasCache = Arc::new(
             moka::future::Cache::builder()
                 .eviction_policy(moka::policy::EvictionPolicy::lru())
@@ -982,8 +982,8 @@ where
                 .build(),
         );
 
-        // Spin up the order picker to pre-flight and find orders to lock
-        let order_picker = Arc::new(order_picker::OrderPicker::new(
+        // Spin up the order pricer to pre-flight and find orders to lock
+        let order_pricer = Arc::new(order_pricer::OrderPricer::new(
             self.db.clone(),
             config.clone(),
             prover.clone(),
@@ -1004,16 +1004,16 @@ where
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         non_critical_tasks.spawn(async move {
-            Supervisor::new(order_picker, cloned_config, cancel_token)
+            Supervisor::new(order_pricer, cloned_config, cancel_token)
                 .spawn()
                 .await
-                .context("Failed to start order picker")?;
+                .context("Failed to start order pricer")?;
             Ok(())
         });
 
-        // Always start the OrderMonitor so its full decision logic (caching, prioritization,
+        // Always start the OrderCommitter so its full decision logic (caching, prioritization,
         // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
-        let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
+        let order_committer = Arc::new(order_committer::OrderCommitter::new(
             self.db.clone(),
             self.provider.clone(),
             chain_monitor.clone(),
@@ -1023,7 +1023,7 @@ where
             self.deployment().boundless_market_address,
             pricing_rx,
             collateral_token_decimals,
-            order_monitor::RpcRetryConfig {
+            order_committer::RpcRetryConfig {
                 retry_count: self.args.rpc_retry_max.into(),
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
@@ -1034,10 +1034,10 @@ where
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         non_critical_tasks.spawn(async move {
-            Supervisor::new(order_monitor, cloned_config, cancel_token)
+            Supervisor::new(order_committer, cloned_config, cancel_token)
                 .spawn()
                 .await
-                .context("Failed to start order monitor")?;
+                .context("Failed to start order committer")?;
             Ok(())
         });
 

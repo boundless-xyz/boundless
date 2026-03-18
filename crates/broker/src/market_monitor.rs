@@ -533,23 +533,23 @@ pub(crate) async fn process_order_submitted<P: Provider<Ethereum>>(
     if let Err(error) = new_order_tx.try_send(new_order.clone()) {
         match error {
             TrySendError::Full(_) => {
-                tracing::warn!("Failed to send new on-chain order {} to OrderPicker: channel is full, blocking until space is available.", order_id);
+                tracing::warn!("Failed to send new on-chain order {} to OrderPricer: channel is full, blocking until space is available.", order_id);
                 if let Err(e) = new_order_tx.send(new_order).await {
                     tracing::error!(
-                        "Failed to send new on-chain order {} to OrderPicker: {e:?}",
+                        "Failed to send new on-chain order {} to OrderPricer: {e:?}",
                         order_id
                     );
                 }
             }
             _ => {
                 tracing::error!(
-                    "Failed to send new on-chain order {} to OrderPicker: {error:?}",
+                    "Failed to send new on-chain order {} to OrderPricer: {error:?}",
                     order_id
                 );
             }
         }
     } else {
-        tracing::debug!("Sent new on-chain order {} to OrderPicker via channel.", order_id);
+        tracing::debug!("Sent new on-chain order {} to OrderPricer via channel.", order_id);
     }
     Ok(())
 }
