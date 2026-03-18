@@ -247,7 +247,14 @@ export = () => {
         {
           Effect: 'Allow',
           Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-          Resource: [distributorPrivateKeySecret.arn, rpcUrlSecret.arn, slasherKeySecret.arn, proverKeysSecret.arn, orderGeneratorKeysSecret.arn],
+          Resource: [
+              distributorPrivateKeySecret.arn,
+              rpcUrlSecret.arn,
+              slasherKeySecret.arn,
+              proverKeysSecret.arn,
+              orderGeneratorKeysSecret.arn,
+              ...(indexerApiUrlSecret ? [indexerApiUrlSecret.arn] : []),
+            ],
         },
       ],
     },
