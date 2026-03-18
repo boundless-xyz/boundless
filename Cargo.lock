@@ -82,6 +82,7 @@ dependencies = [
  "alloy-core",
  "alloy-eips",
  "alloy-genesis",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-node-bindings",
  "alloy-provider",
@@ -3052,6 +3053,7 @@ version = "1.3.2"
 dependencies = [
  "alloy",
  "alloy-chains",
+ "alloy-consensus-any",
  "anyhow",
  "async-channel 2.5.0",
  "async-stream",
