@@ -59,7 +59,7 @@ pub(crate) struct ChainHead {
 
 /// Trait abstracting the chain monitor query interface.
 /// Allows swapping the standard `ChainMonitorService` with alternative implementations
-/// (e.g. `L1Monitor` behind `--experimental-rpc`).
+/// (e.g. `ChainMonitorV2` behind `--experimental-rpc`).
 #[async_trait]
 pub(crate) trait ChainMonitorApi: Send + Sync {
     async fn current_chain_head(&self) -> Result<ChainHead>;

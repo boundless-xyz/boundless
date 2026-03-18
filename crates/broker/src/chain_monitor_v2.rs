@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Experimental L1Monitor implementation.
+//! Experimental ChainMonitorV2 implementation.
 //!
 //! Replaces both `ChainMonitorService` and `MarketMonitor` with a single struct when
 //! `--experimental-rpc` is set. A single polling loop fetches block receipts per block,
@@ -61,8 +61,11 @@ use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
+const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
+
 #[derive(Error)]
-pub enum L1MonitorErr {
+pub enum ChainMonitorV2Err {
     #[error("{code} RPC error: {0:#}", code = self.code())]
     RpcErr(anyhow::Error),
 
@@ -82,16 +85,16 @@ pub enum L1MonitorErr {
     ReceiverDropped,
 }
 
-impl_coded_debug!(L1MonitorErr);
+impl_coded_debug!(ChainMonitorV2Err);
 
-impl CodedError for L1MonitorErr {
+impl CodedError for ChainMonitorV2Err {
     fn code(&self) -> &str {
         match self {
-            L1MonitorErr::RpcErr(_) => "[B-L1M-400]",
-            L1MonitorErr::ReceiptsMismatch(_) => "[B-L1M-401]",
-            L1MonitorErr::LogProcessingFailed(_) => "[B-L1M-501]",
-            L1MonitorErr::UnexpectedErr(_) => "[B-L1M-500]",
-            L1MonitorErr::ReceiverDropped => "[B-L1M-502]",
+            ChainMonitorV2Err::RpcErr(_) => "[B-CMV2-400]",
+            ChainMonitorV2Err::ReceiptsMismatch(_) => "[B-CMV2-401]",
+            ChainMonitorV2Err::LogProcessingFailed(_) => "[B-CMV2-501]",
+            ChainMonitorV2Err::UnexpectedErr(_) => "[B-CMV2-500]",
+            ChainMonitorV2Err::ReceiverDropped => "[B-CMV2-502]",
         }
     }
 }
@@ -103,7 +106,7 @@ impl CodedError for L1MonitorErr {
 /// The chain-head atomics are updated on every tick and read synchronously by
 /// [`ChainMonitorApi`] callers (e.g. `OrderPicker`, `OrderMonitor`).
 #[derive(Clone)]
-pub(crate) struct L1Monitor<P, ANP> {
+pub(crate) struct ChainMonitorV2<P, ANP> {
     db: DbObj,
     provider: Arc<P>,
     any_provider: Arc<ANP>,
@@ -134,7 +137,7 @@ pub(crate) struct L1Monitor<P, ANP> {
     gas_price: Arc<RwLock<u128>>,
 }
 
-impl<P, ANP> L1Monitor<P, ANP>
+impl<P, ANP> ChainMonitorV2<P, ANP>
 where
     P: Provider<Ethereum> + Send + Sync + 'static,
     ANP: Provider<AnyNetwork> + Send + Sync + 'static,
@@ -148,10 +151,8 @@ where
         prover_addr: Address,
         lookback_blocks: u64,
         chain_id: u64,
-        new_order_tx: mpsc::Sender<Box<OrderRequest>>,
-        order_state_tx: broadcast::Sender<OrderStateChange>,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
-    ) -> Result<Self> {
+    ) -> Result<(Self, mpsc::Receiver<Box<OrderRequest>>)> {
         let initial_block = provider
             .get_block_by_number(BlockNumberOrTag::Latest)
             .await
@@ -205,35 +206,51 @@ where
         };
 
         tracing::info!(
-            "L1Monitor initialized at block {initial_number}, block_time={block_time}s, \
+            "ChainMonitorV2 initialized at block {initial_number}, block_time={block_time}s, \
              poll_interval={poll_interval:?}, initial_gas_price={initial_gas_price}"
         );
 
-        Ok(Self {
-            db,
-            provider,
-            any_provider,
-            market_addr,
-            prover_addr,
-            lookback_blocks,
-            chain_id,
-            poll_interval,
-            block_time,
-            new_order_tx,
-            order_state_tx,
-            head_block_number: Arc::new(AtomicU64::new(initial_number)),
-            head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
-            open_orders_found: Arc::new(AtomicBool::new(false)),
-            last_processed_block: Arc::new(AtomicU64::new(initial_number)),
-            gas_priority_mode,
-            block_history: Arc::new(RwLock::new(block_history)),
-            gas_price: Arc::new(RwLock::new(initial_gas_price)),
-        })
+        let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+        let (order_state_tx, _) = broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
+
+        Ok((
+            Self {
+                db,
+                provider,
+                any_provider,
+                market_addr,
+                prover_addr,
+                lookback_blocks,
+                chain_id,
+                poll_interval,
+                block_time,
+                new_order_tx,
+                order_state_tx,
+                head_block_number: Arc::new(AtomicU64::new(initial_number)),
+                head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
+                open_orders_found: Arc::new(AtomicBool::new(false)),
+                last_processed_block: Arc::new(AtomicU64::new(initial_number)),
+                gas_priority_mode,
+                block_history: Arc::new(RwLock::new(block_history)),
+                gas_price: Arc::new(RwLock::new(initial_gas_price)),
+            },
+            new_order_rx,
+        ))
     }
 
     /// Returns the sampled block time (in seconds) from construction.
     pub(crate) fn block_time(&self) -> u64 {
         self.block_time
+    }
+
+    /// Returns a clone of the new-order sender for use by other monitors (e.g. `OffchainMarketMonitor`).
+    pub(crate) fn new_order_tx(&self) -> mpsc::Sender<Box<OrderRequest>> {
+        self.new_order_tx.clone()
+    }
+
+    /// Returns a clone of the order-state broadcast sender for use by downstream components.
+    pub(crate) fn order_state_tx(&self) -> broadcast::Sender<OrderStateChange> {
+        self.order_state_tx.clone()
     }
 
     #[cfg(test)]
@@ -253,7 +270,7 @@ where
         filter: Filter,
         start_block: u64,
         end_block: u64,
-    ) -> Result<Vec<Log>, L1MonitorErr> {
+    ) -> Result<Vec<Log>, ChainMonitorV2Err> {
         if start_block > end_block {
             return Ok(vec![]);
         }
@@ -277,12 +294,12 @@ where
                 Err(e) => {
                     if chunk_found {
                         // Chunk size is already validated; unexpected failure.
-                        return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                        return Err(ChainMonitorV2Err::RpcErr(anyhow::anyhow!(
                             "get_logs failed for blocks {from}..{to}: {e:#}"
                         )));
                     }
                     if chunk_size <= 1 {
-                        return Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                        return Err(ChainMonitorV2Err::RpcErr(anyhow::anyhow!(
                             "get_logs failed with chunk_size=1 for block {from}: {e:#}"
                         )));
                     }
@@ -297,7 +314,7 @@ where
         Ok(all_logs)
     }
 
-    async fn find_open_orders(&self) -> Result<(), L1MonitorErr> {
+    async fn find_open_orders(&self) -> Result<(), ChainMonitorV2Err> {
         let current_block = self.head_block_number.load(Ordering::Relaxed);
         let start_block = current_block.saturating_sub(self.lookback_blocks);
 
@@ -325,7 +342,7 @@ where
             logs,
         )
         .await
-        .map_err(|e| L1MonitorErr::RpcErr(anyhow::anyhow!(e)))?;
+        .map_err(|e| ChainMonitorV2Err::RpcErr(anyhow::anyhow!(e)))?;
 
         Ok(())
     }
@@ -334,7 +351,10 @@ where
     /// sequencer finality). On L1 Ethereum a reorg could cause the chain head to regress,
     /// and blocks on the new fork would be missed. L1 deployment would require block-hash
     /// tracking and reorg detection.
-    async fn monitor_l1(&self, cancel_token: CancellationToken) -> Result<(), L1MonitorErr> {
+    async fn monitor_chain(
+        &self,
+        cancel_token: CancellationToken,
+    ) -> Result<(), ChainMonitorV2Err> {
         // Initialise the processing cursor from `last_processed_block` (not `head_block_number`).
         // On Supervisor restart after a mid-batch RPC failure, this resumes from the last
         // successfully processed block rather than from the (already-updated) chain head.
@@ -343,14 +363,14 @@ where
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         tracing::info!(
-            "L1Monitor polling loop started at block {last_processed} with {}s poll interval",
+            "ChainMonitorV2 polling loop started at block {last_processed} with {}s poll interval",
             self.poll_interval.as_secs_f64()
         );
 
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    tracing::debug!("L1Monitor poll interval tick, last processed block {last_processed}, known latest block {}", self.head_block_number.load(Ordering::Relaxed));
+                    tracing::debug!("ChainMonitorV2 poll interval tick, last processed block {last_processed}, known latest block {}", self.head_block_number.load(Ordering::Relaxed));
                     let latest_block = match self
                         .provider
                         .get_block_by_number(BlockNumberOrTag::Latest)
@@ -362,7 +382,7 @@ where
                             continue;
                         }
                         Err(e) => {
-                            return Err(L1MonitorErr::RpcErr(
+                            return Err(ChainMonitorV2Err::RpcErr(
                                 anyhow::anyhow!("Failed to get latest block: {e:#}"),
                             ));
                         }
@@ -410,10 +430,10 @@ where
                                     let block_id = BlockId::Number(block_num.into());
                                     match self.any_provider.get_block_receipts(block_id).await {
                                         Ok(Some(r)) => Ok(r),
-                                        Ok(None) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                        Ok(None) => Err(ChainMonitorV2Err::RpcErr(anyhow::anyhow!(
                                             "No receipts returned for block {block_num}"
                                         ))),
-                                        Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                        Err(e) => Err(ChainMonitorV2Err::RpcErr(anyhow::anyhow!(
                                             "Failed to get block receipts for {block_num}: {e:#}"
                                         ))),
                                     }
@@ -445,13 +465,15 @@ where
                                                 b.header.receipts_root,
                                             )),
                                             Ok(None) => {
-                                                Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                                Err(ChainMonitorV2Err::RpcErr(anyhow::anyhow!(
                                                     "No block returned for {block_num}"
                                                 )))
                                             }
-                                            Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                                "Failed to get block header for {block_num}: {e:#}"
-                                            ))),
+                                            Err(e) => Err(ChainMonitorV2Err::RpcErr(
+                                                anyhow::anyhow!(
+                                                    "Failed to get block header for {block_num}: {e:#}"
+                                                ),
+                                            )),
                                         }
                                     },
                                     "get_block_by_number"
@@ -465,13 +487,15 @@ where
                                         {
                                             Ok(Some(r)) => Ok(r),
                                             Ok(None) => {
-                                                Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
+                                                Err(ChainMonitorV2Err::RpcErr(anyhow::anyhow!(
                                                     "No receipts returned for block {block_num}"
                                                 )))
                                             }
-                                            Err(e) => Err(L1MonitorErr::RpcErr(anyhow::anyhow!(
-                                                "Failed to get block receipts for {block_num}: {e:#}"
-                                            ))),
+                                            Err(e) => Err(ChainMonitorV2Err::RpcErr(
+                                                anyhow::anyhow!(
+                                                    "Failed to get block receipts for {block_num}: {e:#}"
+                                                ),
+                                            )),
                                         }
                                     },
                                     "get_block_receipts"
@@ -505,7 +529,8 @@ where
                                         );
                                     }
                                     r.effective_gas_price.saturating_sub(bf)
-                                }).filter(|pf| *pf > 0)
+                                })
+                                .filter(|pf| *pf > 0)
                                 .collect(),
                             None => Vec::new(),
                         };
@@ -531,7 +556,7 @@ where
                     }
                 }
                 _ = cancel_token.cancelled() => {
-                    tracing::info!("L1Monitor received cancellation, shutting down");
+                    tracing::info!("ChainMonitorV2 received cancellation, shutting down");
                     break;
                 }
             }
@@ -626,7 +651,7 @@ where
 }
 
 #[async_trait]
-impl<P, ANP> ChainMonitorApi for L1Monitor<P, ANP>
+impl<P, ANP> ChainMonitorApi for ChainMonitorV2<P, ANP>
 where
     P: Provider<Ethereum> + Send + Sync + 'static,
     ANP: Provider<AnyNetwork> + Send + Sync + 'static,
@@ -643,25 +668,25 @@ where
     }
 }
 
-impl<P, ANP> RetryTask for L1Monitor<P, ANP>
+impl<P, ANP> RetryTask for ChainMonitorV2<P, ANP>
 where
     P: Provider<Ethereum> + Send + Sync + Clone + 'static,
     ANP: Provider<AnyNetwork> + Send + Sync + Clone + 'static,
 {
-    type Error = L1MonitorErr;
+    type Error = ChainMonitorV2Err;
 
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let self_clone = self.clone();
 
         Box::pin(async move {
-            tracing::info!("Starting L1Monitor");
+            tracing::info!("Starting ChainMonitorV2");
 
             if !self_clone.open_orders_found.load(Ordering::Relaxed) {
                 self_clone.find_open_orders().await.map_err(SupervisorErr::Recover)?;
                 self_clone.open_orders_found.store(true, Ordering::Relaxed);
             }
 
-            self_clone.monitor_l1(cancel_token).await.map_err(SupervisorErr::Recover)?;
+            self_clone.monitor_chain(cancel_token).await.map_err(SupervisorErr::Recover)?;
 
             Ok(())
         })
@@ -672,7 +697,7 @@ where
 fn verify_receipts_root(
     receipts: &[AnyTransactionReceipt],
     expected_root: B256,
-) -> Result<(), L1MonitorErr> {
+) -> Result<(), ChainMonitorV2Err> {
     let envelopes: Vec<AnyReceiptEnvelope> = receipts
         .iter()
         .map(|r| {
@@ -685,7 +710,7 @@ fn verify_receipts_root(
         .collect();
     let computed_root = calculate_receipt_root(&envelopes);
     if computed_root != expected_root {
-        return Err(L1MonitorErr::ReceiptsMismatch(anyhow::anyhow!(
+        return Err(ChainMonitorV2Err::ReceiptsMismatch(anyhow::anyhow!(
             "expected {expected_root}, got {computed_root}"
         )));
     }
@@ -706,7 +731,7 @@ mod tests {
     };
     use boundless_market::dynamic_gas_filler::PriorityMode;
     use std::time::Duration;
-    use tokio::sync::{broadcast, mpsc, RwLock};
+    use tokio::sync::RwLock;
     use tracing_test::traced_test;
 
     use crate::db::SqliteDb;
@@ -724,7 +749,7 @@ mod tests {
         )
     }
 
-    /// Push all RPC responses needed by `L1Monitor::new()` for an initial chain head at
+    /// Push all RPC responses needed by `ChainMonitorV2::new()` for an initial chain head at
     /// `initial_number`.  History blocks get timestamps `n * 2` so that block_time ≈ 2 s,
     /// which the tests then skip with `tokio::time::advance`.
     fn push_new_responses(eth: &Asserter, initial_number: u64) {
@@ -741,11 +766,11 @@ mod tests {
         }
     }
 
-    /// Creates an `L1Monitor` backed by mock Asserter providers.
+    /// Creates a `ChainMonitorV2` backed by mock Asserter providers.
     async fn make_monitor(
         eth: Asserter,
         any: Asserter,
-    ) -> L1Monitor<
+    ) -> ChainMonitorV2<
         impl Provider<Ethereum> + Clone + 'static,
         impl Provider<AnyNetwork> + Clone + 'static,
     > {
@@ -754,11 +779,9 @@ mod tests {
             Arc::new(ProviderBuilder::new().network::<AnyNetwork>().connect_mocked_client(any));
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let (new_order_tx, _rx) = mpsc::channel(16);
-        let (order_state_tx, _) = broadcast::channel(16);
         let gas_priority_mode = Arc::new(RwLock::new(PriorityMode::default()));
 
-        L1Monitor::new(
+        let (monitor, _new_order_rx) = ChainMonitorV2::new(
             db,
             provider,
             any_provider,
@@ -766,12 +789,11 @@ mod tests {
             Address::ZERO,
             10, // lookback_blocks
             1,  // chain_id
-            new_order_tx,
-            order_state_tx,
             gas_priority_mode,
         )
         .await
-        .expect("L1Monitor::new should succeed with valid mock responses")
+        .expect("ChainMonitorV2::new should succeed with valid mock responses");
+        monitor
     }
 
     /// Verifies that `verify_receipts_root` correctly computes the receipts root for a real
@@ -832,7 +854,7 @@ mod tests {
         let eth = Asserter::new();
         let any = Asserter::new();
 
-        // Setup for L1Monitor::new() with chain head at block 10
+        // Setup for ChainMonitorV2::new() with chain head at block 10
         push_new_responses(&eth, 10);
 
         // Create the monitor BEFORE pausing time — the DB initialises internal pool
@@ -854,12 +876,12 @@ mod tests {
 
         let monitor_r1 = monitor.clone();
         let round1 =
-            tokio::spawn(async move { monitor_r1.monitor_l1(CancellationToken::new()).await });
+            tokio::spawn(async move { monitor_r1.monitor_chain(CancellationToken::new()).await });
 
         tokio::time::advance(Duration::from_secs(3)).await; // trigger the ~2 s poll_interval
         let result = round1.await.expect("task should not panic");
 
-        assert!(result.is_err(), "monitor_l1 should return Err when get_block_receipts fails");
+        assert!(result.is_err(), "monitor_chain should return Err when get_block_receipts fails");
         assert_eq!(monitor.head_block(), 13, "head_block_number should reflect chain head");
         assert_eq!(
             monitor.last_processed(),
@@ -941,7 +963,7 @@ mod tests {
         assert!(logs.is_empty());
     }
 
-    // ── L1Monitor startup tests ─────────────────────────────────────────────────
+    // ── ChainMonitorV2 startup tests ─────────────────────────────────────────────────
 
     /// Push startup RPC responses with a custom set of block timestamps.
     ///
@@ -953,7 +975,7 @@ mod tests {
         history_timestamps: &[u64],
         latest_timestamp: u64,
     ) {
-        // 1. get_block_by_number(Latest) — fetched first in L1Monitor::new()
+        // 1. get_block_by_number(Latest) — fetched first in ChainMonitorV2::new()
         eth.push_success(&Some(make_block(initial_number, latest_timestamp, Some(1_000_000_000))));
         // 2. History loop: sample_start..initial_number
         let sample_start = initial_number.saturating_sub(EIP1559_FEE_ESTIMATION_PAST_BLOCKS);
@@ -962,7 +984,7 @@ mod tests {
         }
     }
 
-    /// L1Monitor::new() computes the median block time from sampled timestamps and uses it
+    /// ChainMonitorV2::new() computes the median block time from sampled timestamps and uses it
     /// as the poll_interval. A large outlier should not skew the median.
     #[tokio::test]
     async fn startup_computes_block_time_from_median() {

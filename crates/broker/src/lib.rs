@@ -57,11 +57,11 @@ const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
 pub(crate) mod chain_monitor;
+pub(crate) mod chain_monitor_v2;
 pub mod config;
 pub(crate) mod db;
 pub(crate) mod errors;
 pub mod futures_retry;
-pub(crate) mod l1_monitor;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
@@ -176,7 +176,7 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub listen_only: bool,
 
-    /// Use the experimental L1Monitor implementation using eth_getBlockReceipts instead of eth_getLogs.
+    /// Use the experimental ChainMonitorV2 implementation using eth_getBlockReceipts instead of eth_getLogs.
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
 }
@@ -779,51 +779,53 @@ where
             })
             .transpose()?;
 
-        // TODO: create inside the L1 monitor and return
-        // Create a channel for new orders to be sent to the OrderPicker / from monitors
-        let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-
-        // Create a broadcast channel for order state change messages
-        let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
-
         // Set up chain + market monitoring. Either use the standard ChainMonitorService +
-        // MarketMonitor pair, or the experimental L1Monitor (--experimental-rpc) which
+        // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
         // replaces both with a single implementation.
-        let (chain_monitor, block_times): (chain_monitor::ChainMonitorObj, u64) = if self
+        let (chain_monitor, block_times, new_order_rx, new_order_tx, order_state_tx) = if self
             .args
             .experimental_rpc
         {
-            let l1_monitor = Arc::new(
-                l1_monitor::L1Monitor::new(
-                    self.db.clone(),
-                    self.provider.clone(),
-                    Arc::new(self.any_provider.clone()),
-                    self.deployment().boundless_market_address,
-                    self.args.private_key.as_ref().expect("Private key must be set").address(),
-                    lookback_blocks,
-                    chain_id,
-                    new_order_tx.clone(),
-                    order_state_tx.clone(),
-                    self.gas_priority_mode.clone(),
-                )
-                .await
-                .context("Failed to initialize L1Monitor")?,
-            );
+            let (monitor, new_order_rx) = chain_monitor_v2::ChainMonitorV2::new(
+                self.db.clone(),
+                self.provider.clone(),
+                Arc::new(self.any_provider.clone()),
+                self.deployment().boundless_market_address,
+                self.args.private_key.as_ref().expect("Private key must be set").address(),
+                lookback_blocks,
+                chain_id,
+                self.gas_priority_mode.clone(),
+            )
+            .await
+            .context("Failed to initialize ChainMonitorV2")?;
+            let monitor = Arc::new(monitor);
+            let new_order_tx = monitor.new_order_tx();
+            let order_state_tx = monitor.order_state_tx();
 
-            let cloned = l1_monitor.clone();
+            let cloned = monitor.clone();
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
             critical_tasks.spawn(async move {
                 Supervisor::new(cloned, cloned_config, cancel_token)
                     .spawn()
                     .await
-                    .context("Failed to start L1Monitor")?;
+                    .context("Failed to start ChainMonitorV2")?;
                 Ok(())
             });
 
-            let block_times = l1_monitor.block_time();
-            (l1_monitor as chain_monitor::ChainMonitorObj, block_times)
+            let block_times = monitor.block_time();
+            (
+                monitor as chain_monitor::ChainMonitorObj,
+                block_times,
+                new_order_rx,
+                new_order_tx,
+                order_state_tx,
+            )
         } else {
+            // Create channels for new orders and order state changes.
+            let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+            let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
+
             let chain_monitor_service = Arc::new(
                 chain_monitor::ChainMonitorService::new(
                     self.provider.clone(),
@@ -872,7 +874,13 @@ where
                 Ok(())
             });
 
-            (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
+            (
+                chain_monitor_service as chain_monitor::ChainMonitorObj,
+                block_times,
+                new_order_rx,
+                new_order_tx,
+                order_state_tx,
+            )
         };
 
         tracing::debug!("Estimated block time: {block_times}");
