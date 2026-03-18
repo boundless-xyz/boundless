@@ -296,7 +296,7 @@ pub struct MarketConfig {
     ///
     /// This price is also used for secondary fulfillment (lock-expired orders), where it is converted
     /// to ZKC via the price oracle and compared against the collateral reward.
-    #[serde(alias = "mcycle_price", deserialize_with = "deserialize_mcycle_price")]
+    #[serde(deserialize_with = "deserialize_mcycle_price")]
     pub min_mcycle_price: Amount,
     /// Expected probability of winning the secondary fulfillment race, expressed as a percentage.
     /// Scales the collateral reward when evaluating profitability and prioritizing orders.
@@ -322,7 +322,6 @@ pub struct MarketConfig {
     /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
     ///
     /// If enabled, the order will be preflighted without constraints.
-    #[serde(alias = "priority_requestor_addresses")]
     pub priority_requestor_addresses: Option<Vec<Address>>,
     /// Optional URLs to fetch requestor priority lists from.
     ///
@@ -368,7 +367,7 @@ pub struct MarketConfig {
     ///
     /// If USD, converted to ZKC at runtime via price oracle.
     /// Requests that require a higher collateral amount than this will not be considered.
-    #[serde(alias = "max_stake", deserialize_with = "deserialize_max_collateral")]
+    #[serde(deserialize_with = "deserialize_max_collateral")]
     pub max_collateral: Amount,
     /// Optional allow list for customer address.
     ///
@@ -447,17 +446,15 @@ pub struct MarketConfig {
     /// Optional collateral balance warning threshold (in collateral tokens)
     ///
     /// If the collateral balance drops below this the broker will issue warning logs
-    #[serde(alias = "stake_balance_warn_threshold")]
     pub collateral_balance_warn_threshold: Option<String>,
     /// Optional collateral balance error threshold (in collateral tokens)
     ///
     /// If the collateral balance drops below this the broker will issue error logs
-    #[serde(alias = "stake_balance_error_threshold")]
     pub collateral_balance_error_threshold: Option<String>,
     /// Max concurrent proofs
     ///
     /// Maximum number of concurrent proofs that can be processed at once
-    #[serde(alias = "max_concurrent_locks", default = "defaults::max_concurrent_proofs")]
+    #[serde(default = "defaults::max_concurrent_proofs")]
     pub max_concurrent_proofs: u32,
     /// Optional cache directory for storing downloaded images and inputs
     ///
@@ -499,7 +496,7 @@ pub struct MarketConfig {
     /// - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
     /// - "lock_price": Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire randomly
     /// - "lock_cycle_price": Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire randomly
-    #[serde(default, alias = "expired_order_fulfillment_priority")]
+    #[serde(default)]
     pub order_commitment_priority: OrderCommitmentPriority,
     /// Whether to cancel Bento proving sessions when the order is no longer actionable
     /// If false (default), Bento proving continues even if the order cannot be fulfilled in the
@@ -660,7 +657,7 @@ pub struct BatcherConfig {
     #[serde(default = "defaults::batch_max_time")]
     pub batch_max_time: u64,
     /// Batch size (in proofs) before publishing
-    #[serde(alias = "batch_size", default = "defaults::min_batch_size")]
+    #[serde(default = "defaults::min_batch_size")]
     pub min_batch_size: u32,
     /// Max combined journal size (in bytes) that once exceeded will trigger a publish
     #[serde(default = "defaults::batch_max_journal_bytes")]
@@ -1021,9 +1018,9 @@ mod tests {
     #[test]
     fn test_market_config_toml_with_pricing_overrides() {
         let toml = r#"
-mcycle_price = "0.00002 USD"
+min_mcycle_price = "0.00002 USD"
 mcycle_price_collateral_token = "0.001 ZKC"
-max_stake = "10 USD"
+max_collateral = "10 USD"
 
 [pricing_overrides.by_requestor]
 "0x0000000000000000000000000000000000000001" = "0.001 USD"
@@ -1064,8 +1061,8 @@ max_stake = "10 USD"
     fn test_config_merge_override_fields() {
         let base = r#"
 [market]
-mcycle_price = "0.1 ETH"
-max_stake = "10 USD"
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
 min_deadline = 300
 lookback_blocks = 100
 
@@ -1075,7 +1072,7 @@ batch_max_time = 300
 "#;
         let override_toml = r#"
 [market]
-mcycle_price = "0.05 ETH"
+min_mcycle_price = "0.05 ETH"
 
 [batcher]
 min_batch_size = 4
@@ -1092,8 +1089,8 @@ min_batch_size = 4
     fn test_config_merge_strips_global_fields() {
         let base = r#"
 [market]
-mcycle_price = "0.1 ETH"
-max_stake = "10 USD"
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
 max_concurrent_proofs = 5
 peak_prove_khz = 100
 order_pricing_priority = "random"
@@ -1102,7 +1099,7 @@ max_concurrent_preflights = 8
 "#;
         let override_toml = r#"
 [market]
-mcycle_price = "0.05 ETH"
+min_mcycle_price = "0.05 ETH"
 max_concurrent_proofs = 99
 peak_prove_khz = 999
 order_pricing_priority = "shortest_expiry"
@@ -1124,8 +1121,8 @@ max_concurrent_preflights = 99
     fn test_config_merge_base_only() {
         let base = r#"
 [market]
-mcycle_price = "0.1 ETH"
-max_stake = "10 USD"
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
 
 [batcher]
 min_batch_size = 2
@@ -1139,8 +1136,8 @@ min_batch_size = 2
     fn test_config_merge_new_section_in_override() {
         let base = r#"
 [market]
-mcycle_price = "0.1 ETH"
-max_stake = "10 USD"
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
 "#;
         let override_toml = r#"
 [batcher]

@@ -262,12 +262,12 @@ mod tests {
 
     const CONFIG_TEMPL: &str = r#"
 [market]
-mcycle_price = "0.1 ETH"
+min_mcycle_price = "0.1 ETH"
 expected_probability_win_secondary_fulfillment = 50
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
-max_stake = "0.1 ZKC"
+max_collateral = "0.1 ZKC"
 max_file_size = 50_000_000
 min_mcycle_limit = 5
 
@@ -288,13 +288,13 @@ block_deadline_buffer_secs = 120"#;
 
     const CONFIG_TEMPL_2: &str = r#"
 [market]
-mcycle_price = "0.1 ETH"
+min_mcycle_price = "0.1 ETH"
 expected_probability_win_secondary_fulfillment = 50
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
 lookback_blocks = 100
-max_stake = "0.1 ZKC"
+max_collateral = "0.1 ZKC"
 max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
@@ -314,7 +314,7 @@ proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
-batch_size = 3
+min_batch_size = 3
 block_deadline_buffer_secs = 120
 txn_timeout = 45
 batch_poll_time_ms = 1200
@@ -323,8 +323,8 @@ withdraw = true"#;
 
     const CONFIG_CUSTOM_PRIORITY_MODE: &str = r#"
 [market]
-mcycle_price = "0.2 ETH"
-max_stake = "0.1 ZKC"
+min_mcycle_price = "0.2 ETH"
+max_collateral = "0.1 ZKC"
 gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 9 } }
 "#;
 
@@ -475,8 +475,8 @@ error = ?"#;
             &base_path,
             r#"
 [market]
-mcycle_price = "0.1 ETH"
-max_stake = "10 USD"
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
 min_deadline = 300
 max_concurrent_proofs = 5
 
@@ -491,7 +491,7 @@ min_batch_size = 2
             &override_path,
             r#"
 [market]
-mcycle_price = "0.05 ETH"
+min_mcycle_price = "0.05 ETH"
 
 [batcher]
 min_batch_size = 4
@@ -519,8 +519,8 @@ min_batch_size = 4
             &base_path,
             r#"
 [market]
-mcycle_price = "0.1 ETH"
-max_stake = "10 USD"
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
 max_concurrent_proofs = 5
 peak_prove_khz = 100
 "#,
@@ -532,7 +532,7 @@ peak_prove_khz = 100
             &override_path,
             r#"
 [market]
-mcycle_price = "0.05 ETH"
+min_mcycle_price = "0.05 ETH"
 max_concurrent_proofs = 99
 peak_prove_khz = 999
 "#,

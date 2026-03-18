@@ -166,7 +166,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     let override_toml = format!(
         r#"
 [market]
-mcycle_price = "0.00001 ETH"
+min_mcycle_price = "0.00001 ETH"
 expected_probability_win_secondary_fulfillment = 50
 min_deadline = {min_deadline}
 
