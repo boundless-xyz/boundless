@@ -144,12 +144,13 @@ where
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
         UnifiedPriorityMode::Price => {
-            orders
-                .sort_by_key(|o| std::cmp::Reverse(total_reward_amount(o.as_ref(), now, &mut rng)));
+            orders.sort_by_cached_key(|o| {
+                std::cmp::Reverse(total_reward_amount(o.as_ref(), now, &mut rng))
+            });
             log_secondary_ranking(orders, now);
         }
         UnifiedPriorityMode::CyclePrice => {
-            orders.sort_by_key(|o| {
+            orders.sort_by_cached_key(|o| {
                 let amount = total_reward_amount(o.as_ref(), now, &mut rng);
                 std::cmp::Reverse(
                     o.as_ref()
