@@ -94,7 +94,7 @@ pub mod defaults {
     }
 
     pub const fn max_concurrent_preflights() -> u32 {
-        2
+        8
     }
 
     pub const fn max_file_size() -> usize {

@@ -29,6 +29,15 @@ export = () => {
   const distributorEthAlertThreshold = config.get('DISTRIBUTOR_ETH_ALERT_THRESHOLD');
   const distributorStakeAlertThreshold = config.get('DISTRIBUTOR_STAKE_ALERT_THRESHOLD');
 
+  // External prover top-up config (all optional)
+  const enableExternalTopup = config.getBoolean('ENABLE_EXTERNAL_TOPUP') ?? false;
+  const indexerApiUrl = enableExternalTopup ? config.requireSecret('INDEXER_API_URL') : config.get('INDEXER_API_URL');
+  const minBcyclesThreshold = config.get('MIN_BCYCLES_THRESHOLD');
+  const externalCollateralThreshold = config.get('EXTERNAL_COLLATERAL_THRESHOLD');
+  const externalPerTopUpAmount = config.get('EXTERNAL_PER_TOP_UP_AMOUNT');
+  const externalLifetimeAllowance = config.get('EXTERNAL_LIFETIME_ALLOWANCE');
+  const chainalysisOracleAddress = config.get('CHAINALYSIS_ORACLE_ADDRESS');
+
   const scheduleMinutes = config.require('SCHEDULE_MINUTES');
 
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
@@ -83,6 +92,17 @@ export = () => {
     secretId: orderGeneratorKeysSecret.id,
     secretString: orderGeneratorKeys,
   });
+
+  const indexerApiUrlSecret = indexerApiUrl
+    ? (() => {
+        const secret = new aws.secretsmanager.Secret(`${serviceName}-indexer-api-url`);
+        new aws.secretsmanager.SecretVersion(`${serviceName}-indexer-api-url`, {
+          secretId: secret.id,
+          secretString: indexerApiUrl,
+        });
+        return secret;
+      })()
+    : undefined;
 
   const secretHash = pulumi
     .all([ethRpcUrl, privateKey])
@@ -184,6 +204,42 @@ export = () => {
     ],
   });
 
+  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
+    type: 'ingress',
+    fromPort: 2049,
+    toPort: 2049,
+    protocol: 'tcp',
+    securityGroupId: securityGroup.id,
+    sourceSecurityGroupId: securityGroup.id,
+  });
+
+  // EFS filesystem for persisting external prover top-up state across Fargate runs.
+  // Always provisioned so that enabling/disabling external top-ups is a pure runtime
+  // flag change (--enable-external-topup) without redeploying infra.
+  const efsFileSystem = new aws.efs.FileSystem(`${serviceName}-efs`, {
+    encrypted: true,
+    tags: { Name: `${serviceName}-topup-state` },
+  });
+
+  const efsMountTarget = privateSubnetIds.apply((subnets: string[]) =>
+    subnets.map((subnetId, i) =>
+      new aws.efs.MountTarget(`${serviceName}-efs-mt-${i}`, {
+        fileSystemId: efsFileSystem.id,
+        subnetId,
+        securityGroups: [securityGroup.id],
+      })
+    )
+  );
+
+  const efsAccessPoint = new aws.efs.AccessPoint(`${serviceName}-efs-ap`, {
+    fileSystemId: efsFileSystem.id,
+    posixUser: { uid: 1000, gid: 1000 },
+    rootDirectory: {
+      path: '/topup-state',
+      creationInfo: { ownerUid: 1000, ownerGid: 1000, permissions: '755' },
+    },
+  });
+
   // Create an execution role that has permissions to access the necessary secrets
   const execRole = new aws.iam.Role(`${serviceName}-exec`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
@@ -200,7 +256,14 @@ export = () => {
         {
           Effect: 'Allow',
           Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-          Resource: [distributorPrivateKeySecret.arn, rpcUrlSecret.arn, slasherKeySecret.arn, proverKeysSecret.arn, orderGeneratorKeysSecret.arn],
+          Resource: [
+              distributorPrivateKeySecret.arn,
+              rpcUrlSecret.arn,
+              slasherKeySecret.arn,
+              proverKeysSecret.arn,
+              orderGeneratorKeysSecret.arn,
+              ...(indexerApiUrlSecret ? [indexerApiUrlSecret.arn] : []),
+            ],
         },
       ],
     },
@@ -218,6 +281,13 @@ export = () => {
     distributorEthAlertThreshold ? `--distributor-eth-alert-threshold ${distributorEthAlertThreshold}` : '',
     distributorStakeAlertThreshold ? `--distributor-stake-alert-threshold ${distributorStakeAlertThreshold}` : '',
     offchainRequestorAddresses ? `--offchain-requestor-addresses ${offchainRequestorAddresses}` : '',
+    enableExternalTopup ? `--enable-external-topup` : '',
+    minBcyclesThreshold ? `--min-bcycles-threshold ${minBcyclesThreshold}` : '',
+    externalCollateralThreshold ? `--external-collateral-threshold ${externalCollateralThreshold}` : '',
+    externalPerTopUpAmount ? `--external-per-top-up-amount ${externalPerTopUpAmount}` : '',
+    externalLifetimeAllowance ? `--external-lifetime-allowance ${externalLifetimeAllowance}` : '',
+    chainalysisOracleAddress ? `--chainalysis-oracle-address ${chainalysisOracleAddress}` : '',
+    `--allowance-state-file /mnt/topup-state/topup-state.json`,
   ]
 
   if (boundlessMarketAddr && setVerifierAddr && collateralTokenAddr) {
@@ -252,6 +322,9 @@ export = () => {
       name: 'ORDER_GENERATOR_KEYS',
       valueFrom: orderGeneratorKeysSecret.arn,
     },
+    ...(indexerApiUrlSecret
+      ? [{ name: 'INDEXER_API_URL', valueFrom: indexerApiUrlSecret.arn }]
+      : []),
   ];
 
   // IAM Role for EventBridge to Start ECS Tasks and log failures
@@ -275,6 +348,25 @@ export = () => {
   const rule = new aws.cloudwatch.EventRule(`${serviceName}-schedule-rule`, {
     scheduleExpression: `rate(${scheduleMinutes} minutes)`,
   });
+
+  // EFS mount points and volumes — always attached so toggling external top-ups
+  // is a runtime-only change via --enable-external-topup.
+  const containerMountPoints = [{
+    sourceVolume: 'topup-state',
+    containerPath: '/mnt/topup-state',
+    readOnly: false,
+  }];
+
+  const taskVolumes = [{
+    name: 'topup-state',
+    efsVolumeConfiguration: {
+      fileSystemId: efsFileSystem.id,
+      transitEncryption: 'ENABLED' as const,
+      authorizationConfig: {
+        accessPointId: efsAccessPoint.id,
+      },
+    },
+  }];
 
   // Create an ECS Task Definition for Fargate
   const fargateTask = new awsx.ecs.FargateTaskDefinition(
@@ -301,7 +393,9 @@ export = () => {
           },
         ],
         secrets: distributorSecrets,
+        mountPoints: containerMountPoints,
       },
+      volumes: taskVolumes,
       logGroup: {
         args: { name: serviceName, retentionInDays: 0 },
       },
@@ -385,6 +479,43 @@ export = () => {
       defaultValue: '0',
     },
     pattern: '"[B-DIST-STK-LOW]"',
+  }, { dependsOn: [fargateTask] });
+
+  // External prover top-up metric filters
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-topup-ofac-filter`, {
+    name: `${serviceName}-log-topup-ofac-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-topup-ofac`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: '"[B-TOPUP-OFAC]"',
+  }, { dependsOn: [fargateTask] });
+
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-topup-ofac-err-filter`, {
+    name: `${serviceName}-log-topup-ofac-err-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-topup-ofac-err`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: '"[B-TOPUP-OFAC-ERR]"',
+  }, { dependsOn: [fargateTask] });
+
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-topup-ok-filter`, {
+    name: `${serviceName}-log-topup-ok-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-topup-ok`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: '"[B-TOPUP-OK]"',
   }, { dependsOn: [fargateTask] });
 
   const alarmActions = alertsTopicArns;
@@ -509,4 +640,5 @@ export = () => {
     actionsEnabled: true,
     alarmActions,
   });
+
 };
