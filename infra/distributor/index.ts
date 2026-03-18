@@ -189,19 +189,10 @@ export = () => {
     ],
   });
 
-  // Security group: allow outbound + NFS from self (for EFS mount targets)
+  // Security group allow outbound, deny inbound
   const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
     name: serviceName,
     vpcId,
-    ingress: [
-      {
-        fromPort: 2049,
-        toPort: 2049,
-        protocol: 'tcp',
-        self: true,
-        description: 'Allow NFS from self (EFS mount targets)',
-      },
-    ],
     egress: [
       {
         fromPort: 0,
@@ -211,6 +202,15 @@ export = () => {
         ipv6CidrBlocks: ['::/0'],
       },
     ],
+  });
+
+  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
+    type: 'ingress',
+    fromPort: 2049,
+    toPort: 2049,
+    protocol: 'tcp',
+    securityGroupId: securityGroup.id,
+    sourceSecurityGroupId: securityGroup.id,
   });
 
   // EFS filesystem for persisting external prover top-up state across Fargate runs.
@@ -238,35 +238,6 @@ export = () => {
       path: '/topup-state',
       creationInfo: { ownerUid: 1000, ownerGid: 1000, permissions: '755' },
     },
-  });
-
-  // Task role with EFS permissions (required because iam: 'ENABLED' on the EFS volume)
-  const taskRole = new aws.iam.Role(`${serviceName}-task`, {
-    assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
-      Service: 'ecs-tasks.amazonaws.com',
-    }),
-  });
-
-  const taskRolePolicy = new aws.iam.RolePolicy(`${serviceName}-task-efs`, {
-    role: taskRole.id,
-    policy: pulumi.all([efsFileSystem.arn, efsAccessPoint.arn]).apply(
-      ([fsArn, apArn]) => JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [{
-          Effect: 'Allow',
-          Action: [
-            'elasticfilesystem:ClientMount',
-            'elasticfilesystem:ClientWrite',
-          ],
-          Resource: fsArn,
-          Condition: {
-            StringEquals: {
-              'elasticfilesystem:AccessPointArn': apArn,
-            },
-          },
-        }],
-      })
-    ),
   });
 
   // Create an execution role that has permissions to access the necessary secrets
@@ -393,7 +364,6 @@ export = () => {
       transitEncryption: 'ENABLED' as const,
       authorizationConfig: {
         accessPointId: efsAccessPoint.id,
-        iam: 'ENABLED' as const,
       },
     },
   }];
@@ -429,14 +399,11 @@ export = () => {
       logGroup: {
         args: { name: serviceName, retentionInDays: 0 },
       },
-      taskRole: {
-        roleArn: taskRole.arn,
-      },
       executionRole: {
         roleArn: execRole.arn,
       },
     },
-    { dependsOn: [execRole, execRolePolicy, taskRole, taskRolePolicy] }
+    { dependsOn: [execRole, execRolePolicy] }
   );
 
   // EventBridge Target to Start Task
