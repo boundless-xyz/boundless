@@ -31,7 +31,9 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run broker + boundless-market tests
 test-broker:
-    RISC0_DEV_MODE=1 RISC0_SKIP_BUILD=1 cargo test -p broker --lib --bin broker
+    forge build
+    RISC0_DEV_MODE=1 cargo test -p broker --lib --bin broker
+    RISC0_DEV_MODE=1 RISC0_SKIP_BUILD=1 cargo test -p boundless-market --lib -- prover_utils::config::tests
 
 # Run Cargo tests for root workspace
 test-cargo-root:
