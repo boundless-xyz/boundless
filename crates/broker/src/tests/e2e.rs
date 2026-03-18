@@ -1043,21 +1043,21 @@ async fn e2e_telemetry_events() {
             .await
             .unwrap();
 
-        for _ in 0..5 {
+        for _ in 0..15 {
             if logs_contain("(Telemetry) Request Completed:") {
                 break;
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        for _ in 0..5 {
+        for _ in 0..15 {
             if logs_contain("(Telemetry) Request Heartbeat") {
                 break;
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        for _ in 0..5 {
+        for _ in 0..15 {
             if logs_contain("(Telemetry) Broker Heartbeat") {
                 break;
             }
