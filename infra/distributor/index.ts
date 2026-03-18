@@ -204,6 +204,15 @@ export = () => {
     ],
   });
 
+  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
+    type: 'ingress',
+    fromPort: 2049,
+    toPort: 2049,
+    protocol: 'tcp',
+    securityGroupId: securityGroup.id,
+    sourceSecurityGroupId: securityGroup.id,
+  });
+
   // EFS filesystem for persisting external prover top-up state across Fargate runs.
   // Always provisioned so that enabling/disabling external top-ups is a pure runtime
   // flag change (--enable-external-topup) without redeploying infra.
@@ -355,7 +364,6 @@ export = () => {
       transitEncryption: 'ENABLED' as const,
       authorizationConfig: {
         accessPointId: efsAccessPoint.id,
-        iam: 'ENABLED' as const,
       },
     },
   }];
