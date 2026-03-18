@@ -1,8 +1,8 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
-import { IndexerShared } from './indexer-infra';
 import { Severity } from '../../util';
+import type { IndexerShared } from './indexer-infra';
 
 export interface MarketIndexerArgs {
   infra: IndexerShared;
@@ -348,7 +348,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       name: efficiencyLogGroupName,
       retentionInDays: 0,
       skipDestroy: true,
-    }, { parent: this });
+    }, { parent: this, import: efficiencyLogGroupName });
 
     const efficiencyLogGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${efficiencyLogGroupName}:*`;
     new aws.iam.RolePolicy(`${serviceName}-efficiency-logs-policy`, {
