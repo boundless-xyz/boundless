@@ -60,7 +60,7 @@ pub struct RequestHeartbeat {
     pub timestamp: DateTime<Utc>,
 }
 
-/// Outcome of order evaluation in the OrderPicker.
+/// Outcome of order evaluation in the OrderPricer.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalOutcome {
     /// Order was locked for proving.
@@ -71,7 +71,7 @@ pub enum EvalOutcome {
     Skipped,
 }
 
-/// Emitted when the OrderPicker evaluates a request.
+/// Emitted when the OrderPricer evaluates a request.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RequestEvaluated {
     /// Ethereum address of the broker that evaluated this request.

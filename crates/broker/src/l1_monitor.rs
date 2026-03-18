@@ -101,7 +101,7 @@ impl CodedError for L1MonitorErr {
 /// A single polling loop drives everything: one `eth_getBlockByNumber(Latest)` per tick,
 /// then one `eth_getBlockReceipts` per unprocessed block to decode market events.
 /// The chain-head atomics are updated on every tick and read synchronously by
-/// [`ChainMonitorApi`] callers (e.g. `OrderPicker`, `OrderMonitor`).
+/// [`ChainMonitorApi`] callers (e.g. `OrderPricer`, `OrderCommitter`).
 #[derive(Clone)]
 pub(crate) struct L1Monitor<P, ANP> {
     db: DbObj,
