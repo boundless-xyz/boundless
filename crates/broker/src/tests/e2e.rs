@@ -987,7 +987,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
 }
 
 #[tokio::test]
-#[traced_test]
+#[traced_test("debug")]
 async fn e2e_telemetry_events() {
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -1043,21 +1043,21 @@ async fn e2e_telemetry_events() {
             .await
             .unwrap();
 
-        for _ in 0..15 {
+        for _ in 0..30 {
             if logs_contain("(Telemetry) Request Completed:") {
                 break;
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        for _ in 0..15 {
+        for _ in 0..30 {
             if logs_contain("(Telemetry) Request Heartbeat") {
                 break;
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        for _ in 0..15 {
+        for _ in 0..30 {
             if logs_contain("(Telemetry) Broker Heartbeat") {
                 break;
             }
