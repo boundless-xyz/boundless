@@ -16,4 +16,4 @@ You can narrow test commands to just the crates/modules you changed (e.g. `cargo
 
 ## Before reading further
 
-Read `verify/gotchas.md` in this skill directory. It lists environment and build pitfalls that cause false failures. If a test fails unexpectedly, check the gotchas before debugging.
+Read `testing/gotchas.md` in this skill directory. It lists environment and build pitfalls that cause false failures. If a test fails unexpectedly, check the gotchas before debugging.
