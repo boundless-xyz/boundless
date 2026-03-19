@@ -8,7 +8,7 @@ import { accountIdToRoleName } from "./roles";
 
 const LOG_QUERY_MINS_BEFORE = 2;
 const LOG_QUERY_MINS_AFTER = 1;
-const RUNBOOK_BASE_URL = "https://github.com/boundless-xyz/runbooks";
+const RUNBOOK_BASE_URL = "https://github.com/boundless-xyz/runbooks/blob/main/alerts";
 
 export const getChainName = (chainId: string): string => {
   if (chainId === "11155111") {
@@ -181,7 +181,7 @@ export const processAlarmEvent = async (ssoBaseUrl: string, client: CloudWatchCl
   });
 
   const runbookSlug = getRunbookSlug(metricAlarmName, alarmDescription);
-  const fullRunbookUrl = runbookSlug ? `${RUNBOOK_BASE_URL}/blob/main/${runbookSlug}.md` : RUNBOOK_BASE_URL;
+  const fullRunbookUrl = runbookSlug ? `${RUNBOOK_BASE_URL}/${runbookSlug}.md` : RUNBOOK_BASE_URL;
 
   const response = `
 <${url}|🔎🔎🔎*View Logs*🔎🔎🔎>

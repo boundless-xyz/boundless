@@ -8,7 +8,7 @@ jest.mock('../src/roles', () => ({
 }));
 
 const ssoBaseUrl = 'https://test.awsapps.com/start/#/console';
-const runbookUrl = 'https://github.com/boundless-xyz/runbooks';
+const runbookUrl = 'https://github.com/boundless-xyz/runbooks/blob/main/alerts';
 
 // SAMPLE URL https://console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:logs-insights$3FqueryDetail$3D~(end~'2025-05-30T05*3a00*3a00.000Z~start~'2025-05-30T04*3a00*3a00.000Z~timeType~'ABSOLUTE~tz~'LOCAL~editorString~'fields*20*40timestamp*2c*20*40message*2c*20*40logStream*2c*20*40log*0a*7c*20sort*20*40timestamp*20desc*0a*7c*20limit*2010000~queryId~'66cfc23a-37bd-44b6-b0fd-dd12d4a40cdc~source~(~'arn*3aaws*3alogs*3aus-west-2*3a632745187633*3alog-group*3aprod-11155111-bonsai-prover-11155111)~lang~'CWLI)
 /** SAMPLE ALARM EVENT
@@ -137,7 +137,7 @@ describe('per-alert runbook URLs', () => {
       alarmState: 'ALARM'
     };
     const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
-    expect(result).toContain(`${runbookUrl}/blob/main/b-sub-001.md`);
+    expect(result).toContain(`${runbookUrl}/b-sub-001.md`);
   });
 
   it('should include anchor for system alarm (bento-down)', async () => {
@@ -151,7 +151,7 @@ describe('per-alert runbook URLs', () => {
       alarmState: 'ALARM'
     };
     const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
-    expect(result).toContain(`${runbookUrl}/blob/main/bento-down.md`);
+    expect(result).toContain(`${runbookUrl}/bento-down.md`);
   });
 
   it('should use base runbook URL for unknown alarm', async () => {
@@ -165,9 +165,9 @@ describe('per-alert runbook URLs', () => {
       alarmState: 'ALARM'
     };
     const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
-    // Should contain the base URL without a file-specific path
+    // Should contain the base URL (alerts directory) without a specific file
     expect(result).toContain(runbookUrl);
-    // But should NOT have a /blob/main/ path (unknown alarm → base URL only)
-    expect(result).not.toContain(`${runbookUrl}/blob/main/`);
+    // But should NOT have a specific .md file path (unknown alarm → base URL only)
+    expect(result).not.toContain('.md|');
   });
 });

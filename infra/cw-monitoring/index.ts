@@ -97,7 +97,7 @@ function descHash(s: string): string {
         .toString(16).substring(0, 4);
 }
 
-const RUNBOOK_BASE_URL = "https://github.com/boundless-xyz/runbooks/blob/main";
+const RUNBOOK_BASE_URL = "https://github.com/boundless-xyz/runbooks/blob/main/alerts";
 
 /** Append a runbook link to an alarm description if a runbook exists for the given slug. */
 function withRunbook(description: string, slug: string): string {
