@@ -51,6 +51,8 @@ async fn main() -> Result<()> {
     let mut chain_pipelines = Vec::new();
     let mut _config_watchers: Vec<ConfigWatcher> = Vec::new();
 
+    // Deprecated single-chain path: uses legacy --rpc-url / --private-key args.
+    // Kept for backward compatibility; prefer --chain-rpc-urls / --chain-private-keys.
     if discovered_chains.is_empty() {
         let private_key = args
             .private_key
@@ -170,6 +172,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Collect and deduplicate RPC URLs from the deprecated single-chain args.
+/// Returns a list with the primary URL first, followed by any additional failover URLs.
 fn collect_rpc_urls(
     rpc_url: Option<String>,
     rpc_urls: Vec<String>,
@@ -225,6 +229,8 @@ fn collect_rpc_urls(
     Ok(all_rpc_urls)
 }
 
+/// Parse a list of `{chain_id}:{value}` strings into a map keyed by chain ID.
+/// Used by the various `--chain-*` CLI args that follow this format.
 fn parse_chain_id_values<T: std::str::FromStr>(
     entries: &[String],
     arg_name: &str,
@@ -248,6 +254,9 @@ where
     Ok(map)
 }
 
+/// Build per-chain Deployment objects from the `--chain-market-address`, `--chain-set-verifier-address`,
+/// and related CLI args. Both market and set_verifier addresses are required per chain;
+/// other fields (verifier_router, collateral_token, order_stream) are optional.
 fn build_chain_deployments(args: &Args) -> Result<HashMap<u64, boundless_market::Deployment>> {
     use alloy::primitives::Address;
     use std::borrow::Cow;
@@ -308,6 +317,14 @@ fn build_chain_deployments(args: &Args) -> Result<HashMap<u64, boundless_market:
     Ok(deployments)
 }
 
+/// Discover enabled chains from CLI args and environment variables.
+///
+/// Chains are discovered from two sources (CLI args take priority):
+/// 1. `--chain-rpc-urls` CLI args (format: `{chain_id}:{url1},{url2},...`)
+/// 2. `PROVER_RPC_URL_{chain_id}` environment variables
+///
+/// Returns an empty vec if no per-chain configuration is found (falls back to
+/// deprecated single-chain mode in main).
 fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
     use std::collections::BTreeMap;
 
