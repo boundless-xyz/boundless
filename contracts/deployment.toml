@@ -120,6 +120,31 @@ povw-mint-calculator-id = "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b
 zkc = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 vezkc = "0xc23340732038ca6C5765763180E81B395d2e9cCA"
 
+[deployment.taiko-mainnet]
+name = "Taiko Mainnet"
+id = 167000
+etherscan-url = "https://taikoscan.io/"
+version = "v1.0.0"
+
+# Boundless Market admins
+admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+
+# Contracts
+verifier = "0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45"
+application-verifier = "0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45"
+set-verifier = "0x6135DC08D14EF8a44496B009e2181426628B8ebd"
+boundless-market = "0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b"
+boundless-market-impl = "0x6c2d2c33e9a7cd0e1b39dc218f472e4bf534523b"
+boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+collateral-token = "0xC284A781072442cC1882a8Db4573990B7B49DaC4"
+
+# Guests info
+deployment-commit = "bda3b118" # v0.15.0 main
+assessor-image-id = "0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100"
+assessor-guest-url = "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq"
+deprecated-assessor-duration = 0
+boundless-market-deployment-commit = "2cbe52ddf"
+
 [deployment.base-sepolia]
 name = "Base Sepolia [prod]"
 id = 84532

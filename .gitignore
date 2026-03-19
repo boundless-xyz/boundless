@@ -7,6 +7,7 @@ cache/
 *.db
 
 out/
+out-shanghai/
 build-info-reference/
 **/node_modules/
 
@@ -48,6 +49,7 @@ target/
 **/CLAUDE.md
 **/AGENTS.md
 .codex
+scripts/internal
 
 infra/**/build
 
