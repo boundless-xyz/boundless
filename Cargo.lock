@@ -2787,6 +2787,7 @@ dependencies = [
  "chrono",
  "clap",
  "httpmock",
+ "reqwest 0.13.1",
  "serde",
  "serde_json",
  "tempfile",
