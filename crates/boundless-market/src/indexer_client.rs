@@ -29,6 +29,7 @@ use crate::{
 
 pub use crate::indexer_types::{
     AggregationGranularity, MarketAggregateEntry, MarketAggregatesParams, MarketAggregatesResponse,
+    ProverLeaderboardEntry, ProverLeaderboardResponse,
 };
 
 /// Configuration for IndexerClient request behavior
@@ -352,6 +353,32 @@ impl IndexerClient {
         }
 
         anyhow::bail!("No price data found")
+    }
+
+    /// Get the prover leaderboard for a given period.
+    ///
+    /// `period` values: `"1h"`, `"1d"`, `"3d"`, `"7d"`, `"all"`.
+    /// GET /v1/market/provers?period={period}
+    pub async fn get_provers(&self, period: &str) -> Result<ProverLeaderboardResponse> {
+        let mut url = self.base_url.join("v1/market/provers").context("Failed to build URL")?;
+        url.set_query(Some(&format!("period={}", period)));
+
+        let url_str = url.to_string();
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch provers from {}", url_str.clone()))?;
+
+        if !response.status().is_success() {
+            bail!("API error from {}: {}", url_str, response.status());
+        }
+
+        response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse provers response from {}", url_str))
     }
 
     /// Get ALL requests by requestor address with pagination

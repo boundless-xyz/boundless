@@ -115,7 +115,7 @@ max_collateral = "10 USD"
 #
 # Refer to the broker configuration documentation for more information:
 # https://docs.boundless.network/provers/broker#settings-in-brokertoml
-max_concurrent_preflights = 2
+max_concurrent_preflights = 8
 
 # Maximum number of concurrent proofs that can be processed at once.
 #

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    chain_monitor::{ChainHead, ChainMonitorService},
+    chain_monitor::{ChainHead, ChainMonitorObj},
     config::{ConfigLock, OrderCommitmentPriority},
     db::DbObj,
     errors::CodedError,
@@ -154,7 +154,7 @@ pub struct RpcRetryConfig {
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
-    chain_monitor: Arc<ChainMonitorService<P>>,
+    chain_monitor: ChainMonitorObj,
     block_time: u64,
     config: ConfigLock,
     market: BoundlessMarketService<Arc<P>>,
@@ -179,7 +179,7 @@ where
     pub fn new(
         db: DbObj,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
+        chain_monitor: ChainMonitorObj,
         config: ConfigLock,
         block_time: u64,
         prover_addr: Address,
@@ -1107,6 +1107,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::chain_monitor::ChainMonitorService;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
@@ -1258,10 +1259,11 @@ pub(crate) mod tests {
 
         let gas_estimation_priority_mode =
             Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor = Arc::new(
+        let chain_monitor_service = Arc::new(
             ChainMonitorService::new(provider.clone(), gas_estimation_priority_mode).await.unwrap(),
         );
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+        tokio::spawn(chain_monitor_service.spawn(Default::default()));
+        let chain_monitor: ChainMonitorObj = chain_monitor_service;
 
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
