@@ -231,6 +231,7 @@ async fn simple_e2e() {
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
