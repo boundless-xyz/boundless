@@ -330,28 +330,6 @@ export const alarmConfig: ChainStageAlarms = {
             }
           ],
           expiredRequests: []
-        },
-        {
-          name: "signal_requestor",
-          address: "0x47c76e56ad9316a5c1ab17cba87a1cc134552183",
-          submissionRate: [
-            {
-              description: "no submitted orders in 2 hours from signal_requestor",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 7200
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            }
-          ],
-          successRate: [], // Signal rarely gets fulfilled on testnet.
-          expiredRequests: []
         }
       ],
       provers: [
