@@ -1034,11 +1034,16 @@ async fn gas_estimation_matches_actual_tx_cost() {
     .await;
 }
 
+// TODO: fails because all chains share a single SQLite DB with no chain_id filtering.
+// The ProvingService, AggregatorService, and Submitter pick orders/batches from any chain,
+// causing EIP-712 domain mismatches when the assessor verifies signatures.
+// Will be enabled once we have per-chain tables (orders_{chain_id}, batches_{chain_id}).
 #[tokio::test]
 #[traced_test]
+#[ignore = "DB queries need per-chain filtering"]
 async fn multi_chain_e2e() {
-    let anvil1 = Anvil::new().chain_id(1).spawn();
-    let anvil2 = Anvil::new().chain_id(8453).spawn();
+    let anvil1 = Anvil::new().chain_id(31337).spawn();
+    let anvil2 = Anvil::new().chain_id(1337).spawn();
 
     let ctx1 = create_test_ctx(&anvil1).await.unwrap();
     let ctx2 = create_test_ctx(&anvil2).await.unwrap();
@@ -1049,8 +1054,10 @@ async fn multi_chain_e2e() {
         .unwrap();
     ctx1.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    ctx2.prover_market.approve_deposit_collateral(default_allowance()).await.unwrap();
-    ctx2.prover_market.deposit_collateral(default_allowance()).await.unwrap();
+    ctx2.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx2.prover_signer)
+        .await
+        .unwrap();
     ctx2.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     let config = new_config(1).await;

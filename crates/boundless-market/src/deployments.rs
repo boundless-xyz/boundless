@@ -183,5 +183,5 @@ pub const BASE_SEPOLIA: Deployment = Deployment {
 /// Check if the collateral token supports permit.
 /// Some chain's bridged tokens do not support permit, for example Base.
 pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
-    chain_id == 1 || chain_id == 11155111 || chain_id == 31337
+    chain_id == 1 || chain_id == 11155111 || chain_id == 31337 || chain_id == 1337
 }
