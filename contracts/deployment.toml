@@ -209,8 +209,8 @@ application-verifier = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0x7abb16522f4599481361d318b765af988bfcca8e"
-boundless-market-impl = "0x8381fd425f6e11eff79873da039fa3e26e83a8e7"
-boundless-market-old-impl = "0x250003f24a1a5476a6a738b3ac3e41eee7bba3e0"
+boundless-market-impl = "0x4896bb4e1fb52ed283d505de79532e2b01e2a066"
+boundless-market-old-impl = "0x8381fd425f6e11eff79873da039fa3e26e83a8e7"
 boundless-market-deployment-commit = "bda3b118"
 collateral-token = "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
 
