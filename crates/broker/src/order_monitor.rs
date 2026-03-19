@@ -167,6 +167,7 @@ pub struct OrderMonitor<P> {
     erc1271_gas_cache: Erc1271GasCache,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    gas_estimation_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
     listen_only: bool,
 }
 
@@ -187,6 +188,7 @@ where
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        gas_estimation_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
     ) -> Result<Self> {
@@ -242,6 +244,7 @@ where
             erc1271_gas_cache,
             rpc_retry_config,
             gas_priority_mode,
+            gas_estimation_priority_mode,
             listen_only,
         };
         Ok(monitor)
@@ -939,8 +942,9 @@ where
         let mut new_orders = self.priced_order_rx.lock().await;
         let mut prev_orders_by_status = String::new();
 
-        // Cache the gas priority mode to avoid unnecessary write locks
+        // Cache both gas priority modes to avoid unnecessary write locks
         let mut cached_gas_priority_mode: Option<PriorityMode> = None;
+        let mut cached_gas_estimation_priority_mode: Option<PriorityMode> = None;
 
         loop {
             tokio::select! {
@@ -971,9 +975,11 @@ where
                         );
 
                         // Extract config values before any async operations
-                        let (monitor_config, config_gas_mode) = {
+                        let (monitor_config, config_gas_mode, config_estimation_mode) = {
                             let config = self.config.lock_all().context("Failed to read config")?;
                             let gas_mode = config.market.gas_priority_mode.clone();
+                            let estimation_mode =
+                                config.market.gas_estimation_priority_mode.clone();
                             let cfg = OrderMonitorConfig {
                                 min_deadline: config.market.min_deadline,
                                 peak_prove_khz: config.market.peak_prove_khz,
@@ -983,27 +989,38 @@ where
                                 order_commitment_priority: config.market.order_commitment_priority,
                                 priority_addresses: config.market.priority_requestor_addresses.clone(),
                             };
-                            (cfg, gas_mode)
+                            (cfg, gas_mode, estimation_mode)
                         };
 
-                        // Check if gas_priority_mode has changed and update if needed
+                        // Check if gas_priority_mode (tx sending) has changed and update if needed
                         // First check our cached value to avoid taking a write lock unnecessarily
-                        let needs_update =
-                            cached_gas_priority_mode.as_ref() != Some(&config_gas_mode);
-
-                        if needs_update {
-                            // Only take the write lock if the value has actually changed
+                        if cached_gas_priority_mode.as_ref() != Some(&config_gas_mode) {
                             let mut current_mode = self.gas_priority_mode.write().await;
                             let old_mode = current_mode.clone();
                             *current_mode = config_gas_mode.clone();
                             drop(current_mode);
-
                             cached_gas_priority_mode = Some(config_gas_mode.clone());
-
                             tracing::info!(
                                 "Gas priority mode changed from {:?} to {:?}",
                                 old_mode,
                                 config_gas_mode
+                            );
+                        }
+
+                        // Check if gas_estimation_priority_mode (profitability estimation) has changed
+                        if cached_gas_estimation_priority_mode.as_ref()
+                            != Some(&config_estimation_mode)
+                        {
+                            let mut current_mode =
+                                self.gas_estimation_priority_mode.write().await;
+                            let old_mode = current_mode.clone();
+                            *current_mode = config_estimation_mode.clone();
+                            drop(current_mode);
+                            cached_gas_estimation_priority_mode = Some(config_estimation_mode);
+                            tracing::info!(
+                                "Gas estimation priority mode changed from {:?} to {:?}",
+                                old_mode,
+                                cached_gas_estimation_priority_mode
                             );
                         }
 
@@ -1239,15 +1256,19 @@ pub(crate) mod tests {
 
         let block_time = 2;
 
-        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
+        let gas_estimation_priority_mode =
+            Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor = Arc::new(
+            ChainMonitorService::new(provider.clone(), gas_estimation_priority_mode).await.unwrap(),
+        );
         tokio::spawn(chain_monitor.spawn(Default::default()));
 
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+        let gas_estimation_priority_mode =
+            Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
 
         let monitor = OrderMonitor::new(
             db.clone(),
@@ -1261,6 +1282,7 @@ pub(crate) mod tests {
             collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
             gas_priority_mode,
+            gas_estimation_priority_mode,
             Arc::new(Cache::builder().build()),
             false,
         )

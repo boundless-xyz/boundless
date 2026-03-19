@@ -122,6 +122,29 @@ max_concurrent_preflights = 2
 # Used to limit proof tasks spawned to prevent overwhelming the system.
 max_concurrent_proofs = 1
 
+# Transaction gas priority mode (low, medium, high, or custom)
+#
+# Controls the EIP-1559 fee multipliers applied when SENDING transactions
+# (lock, fulfill, etc.). Being generous here is cheap — with EIP-1559 you only
+# pay the actual base_fee + priority_fee, not max_fee_per_gas, so a high
+# multiplier just ensures transactions land during fee spikes.
+#
+# Default: "medium". Custom example:
+# gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }
+# gas_priority_mode = "medium"
+
+# Gas estimation priority mode (low, medium, high, or custom)
+#
+# Controls the gas price estimate used for PROFITABILITY CALCULATIONS (should
+# the broker lock this order?). Kept separate from gas_priority_mode so that
+# tx sending can be generous while estimation reflects what you actually expect
+# to pay. Overestimating here causes the broker to skip profitable orders.
+#
+# Default: custom with 1× base fee (no multiplier) + 20th percentile priority fee.
+# This reflects actual expected cost without safety buffers.
+# Accepts the same format as gas_priority_mode.
+# gas_estimation_priority_mode = { custom = { base_fee_multiplier_percentage = 100, priority_fee_multiplier_percentage = 100, priority_fee_percentile = 20.0, dynamic_multiplier_percentage = 0 } }
+
 # =============================================================================
 # Price Oracle Configuration
 # =============================================================================

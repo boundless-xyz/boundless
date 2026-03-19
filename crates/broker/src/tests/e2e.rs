@@ -216,6 +216,7 @@ async fn simple_e2e() {
         ctx.prover_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -294,6 +295,7 @@ async fn simple_e2e_with_callback() {
         args,
         ctx.prover_provider.clone(),
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
@@ -382,6 +384,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         ctx.prover_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -458,6 +461,7 @@ async fn e2e_with_selector() {
         ctx.prover_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -527,6 +531,7 @@ async fn e2e_with_blake3_groth16_selector() {
         args,
         ctx.prover_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
@@ -600,6 +605,7 @@ async fn e2e_with_multiple_requests() {
         args,
         ctx.prover_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
@@ -697,6 +703,7 @@ async fn e2e_with_claim_digest_match() {
         ctx.prover_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -772,6 +779,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
         args,
         ctx.prover_provider.clone(),
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
