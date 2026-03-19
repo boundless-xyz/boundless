@@ -36,8 +36,8 @@ use broker::{
 };
 use clap::Parser;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tower::{Layer, ServiceBuilder};
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
