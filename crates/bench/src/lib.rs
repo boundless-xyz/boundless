@@ -483,19 +483,15 @@ fn now_timestamp() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::create_dir_all;
+    use std::{fs::create_dir_all, sync::Arc};
 
-    use alloy::{
-        network::AnyNetwork,
-        node_bindings::Anvil,
-        primitives::Address,
-        providers::{fillers::ChainIdFiller, DynProvider, ProviderBuilder},
-    };
+    use alloy::{node_bindings::Anvil, primitives::Address, providers::Provider};
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use broker::{
+        build_chain_provider,
         config::{Config, ConfigWatcher},
-        Args, Broker,
+        resolve_deployment, Args, Broker, ChainPipeline,
     };
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
@@ -554,7 +550,14 @@ mod tests {
             log_json: false,
             listen_only: false,
             experimental_rpc: false,
-            chain_config: vec![],
+            chain_rpc_urls: vec![],
+            chain_private_keys: vec![],
+            chain_config_file: vec![],
+            chain_market_address: vec![],
+            chain_set_verifier_address: vec![],
+            chain_verifier_router_address: vec![],
+            chain_collateral_token_address: vec![],
+            chain_order_stream_url: vec![],
         }
     }
 
@@ -570,7 +573,6 @@ mod tests {
             boundless_market::price_oracle::Amount::parse("0.00001 ETH", None).unwrap();
         config.market.min_deadline = min_deadline;
         config.batcher.min_batch_size = min_batch_size;
-        // Use static prices for tests to avoid needing real price sources
         config.price_oracle.eth_usd =
             boundless_market::price_oracle::config::PriceValue::Static(2500.0);
         config.price_oracle.zkc_usd =
@@ -594,30 +596,35 @@ mod tests {
 
         // Start a broker
         let config = new_config_with_min_deadline(2, 10).await;
+        let config_watcher = ConfigWatcher::new(config.path()).await.unwrap();
+        let config_lock = config_watcher.config.clone();
+        let rpc_url = anvil.endpoint_url();
         let args = broker_args(
             config.path().to_path_buf(),
             ctx.deployment.boundless_market_address,
             ctx.deployment.set_verifier_address,
-            anvil.endpoint_url(),
-            ctx.prover_signer,
+            rpc_url.clone(),
+            ctx.prover_signer.clone(),
         );
 
-        let any_provider = DynProvider::new(
-            ProviderBuilder::new()
-                .network::<AnyNetwork>()
-                .filler(ChainIdFiller::default())
-                .connect_http(anvil.endpoint_url()),
-        );
-        let broker = Broker::new(
-            args,
-            ctx.prover_provider,
+        let (provider, any_provider, gas_priority_mode) =
+            build_chain_provider(&[rpc_url], &ctx.prover_signer, &args, &config_lock).unwrap();
+        let provider = Arc::new(provider);
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let deployment = resolve_deployment(args.deployment.as_ref(), chain_id).unwrap();
+
+        let chain = ChainPipeline {
+            provider,
             any_provider,
-            ConfigWatcher::new(config.path()).await.unwrap(),
-            Default::default(),
-        )
-        .await
-        .unwrap();
-        let broker_task = tokio::spawn(async move { broker.start_service().await });
+            config: config_lock,
+            gas_priority_mode,
+            private_key: ctx.prover_signer.clone(),
+            chain_id,
+            deployment,
+        };
+
+        let broker = Broker::new(args, config_watcher).await.unwrap();
+        let broker_task = tokio::spawn(async move { broker.start_service(vec![chain]).await });
 
         let bench = Bench {
             cycle_count_per_request: 1000,

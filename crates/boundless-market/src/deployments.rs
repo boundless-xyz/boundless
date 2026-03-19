@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
 use alloy::primitives::{address, Address};
 use clap::Args;
@@ -92,6 +92,26 @@ pub struct Deployment {
     #[clap(long, env, long_help = "URL for the indexer")]
     #[builder(setter(into, strip_option), default)]
     pub indexer_url: Option<Cow<'static, str>>,
+}
+
+impl fmt::Display for Deployment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "market={}", self.boundless_market_address)?;
+        write!(f, " set_verifier={}", self.set_verifier_address)?;
+        if let Some(addr) = self.verifier_router_address {
+            write!(f, " verifier_router={addr}")?;
+        }
+        if let Some(addr) = self.collateral_token_address {
+            write!(f, " collateral_token={addr}")?;
+        }
+        if let Some(chain_id) = self.market_chain_id {
+            write!(f, " chain_id={chain_id}")?;
+        }
+        if let Some(ref url) = self.order_stream_url {
+            write!(f, " order_stream={url}")?;
+        }
+        Ok(())
+    }
 }
 
 impl Deployment {
