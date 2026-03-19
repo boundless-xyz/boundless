@@ -9,7 +9,7 @@ ENV TZ="America/Los_Angeles"
 
 RUN apt-get -qq update && apt-get install -y -q \
     openssl libssl-dev pkg-config curl clang git \
-    build-essential openssh-client unzip
+    build-essential openssh-client unzip mold
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
@@ -37,7 +37,7 @@ RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
-ARG RUSTFLAGS="-C target-cpu=native"
+ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
