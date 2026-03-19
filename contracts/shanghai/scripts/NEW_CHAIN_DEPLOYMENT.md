@@ -15,18 +15,18 @@ End-to-end guide for deploying the full Boundless stack (verifiers + market) to 
 
 ## Overview
 
-| Step | What | Script / Tool |
-|------|------|---------------|
-| 1 | Add chain config | `deployment_verifier.toml`, `deployment_secrets.toml`, `deployment.toml` |
-| 2 | Deploy RISC Zero timelocked router | `manage-verifier DeployRisc0TimelockRouter` |
-| 3 | Deploy RISC Zero verifiers (Groth16, SetVerifier) | `manage-verifier DeployEstop*Verifier` |
-| 4 | Route RISC Zero verifiers | `manage-verifier ScheduleAddVerifierToRisc0Router` / `FinishAddVerifierToRisc0Router` |
-| 5 | Deploy Boundless layered router | `manage-verifier DeployTimelockRouter` (with `parent-router` = RISC Zero router) |
-| 6 | Deploy Blake3Groth16 verifier and route it | `manage-verifier DeployEstopBlake3Groth16Verifier` + `ScheduleAddVerifier` / `FinishAddVerifier` |
-| 7 | Bridge ZKC collateral token | Chain's native bridge (e.g. `scripts/bridge-zkc-to-taiko.sh`) |
-| 8 | Deploy BoundlessMarket | `manage DeployBoundlessMarket` |
-| 9 | Verify contracts on block explorer | `verify-*.sh` scripts |
-| 10 | Update Rust deployment constants | `crates/boundless-market/src/deployments.rs`, `crates/boundless-cli/src/config.rs` |
+| Step | What                                              | Script / Tool                                                                                    |
+| ---- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 1    | Add chain config                                  | `deployment_verifier.toml`, `deployment_secrets.toml`, `deployment.toml`                         |
+| 2    | Deploy RISC Zero timelocked router                | `manage-verifier DeployRisc0TimelockRouter`                                                      |
+| 3    | Deploy RISC Zero verifiers (Groth16, SetVerifier) | `manage-verifier DeployEstop*Verifier`                                                           |
+| 4    | Route RISC Zero verifiers                         | `manage-verifier ScheduleAddVerifierToRisc0Router` / `FinishAddVerifierToRisc0Router`            |
+| 5    | Deploy Boundless layered router                   | `manage-verifier DeployTimelockRouter` (with `parent-router` = RISC Zero router)                 |
+| 6    | Deploy Blake3Groth16 verifier and route it        | `manage-verifier DeployEstopBlake3Groth16Verifier` + `ScheduleAddVerifier` / `FinishAddVerifier` |
+| 7    | Bridge ZKC collateral token                       | Chain's native bridge (e.g. `scripts/bridge-zkc-to-taiko.sh`)                                    |
+| 8    | Deploy BoundlessMarket                            | `manage DeployBoundlessMarket`                                                                   |
+| 9    | Verify contracts on block explorer                | `verify-*.sh` scripts                                                                            |
+| 10   | Update Rust deployment constants                  | `crates/boundless-market/src/deployments.rs`, `crates/boundless-cli/src/config.rs`               |
 
 ---
 
@@ -337,6 +337,7 @@ pub const MY_CHAIN: Deployment = Deployment {
 ```
 
 Add to `from_chain()`:
+
 ```rust
 NamedChain::MyChain => Some(MY_CHAIN),
 ```
