@@ -73,15 +73,15 @@ See https://github.com/boundless-xyz/boundless-security
 
 The following `broker.toml` config field names have been removed. Update your config to use the new names:
 
-| Old name | New name |
-|----------|----------|
-| `mcycle_price` | `min_mcycle_price` |
-| `max_stake` | `max_collateral` |
-| `stake_balance_warn_threshold` | `collateral_balance_warn_threshold` |
-| `stake_balance_error_threshold` | `collateral_balance_error_threshold` |
-| `max_concurrent_locks` | `max_concurrent_proofs` |
-| `batch_size` | `min_batch_size` |
-| `expired_order_fulfillment_priority` | `order_commitment_priority` |
+| Old name                             | New name                             |
+| ------------------------------------ | ------------------------------------ |
+| `mcycle_price`                       | `min_mcycle_price`                   |
+| `max_stake`                          | `max_collateral`                     |
+| `stake_balance_warn_threshold`       | `collateral_balance_warn_threshold`  |
+| `stake_balance_error_threshold`      | `collateral_balance_error_threshold` |
+| `max_concurrent_locks`               | `max_concurrent_proofs`              |
+| `batch_size`                         | `min_batch_size`                     |
+| `expired_order_fulfillment_priority` | `order_commitment_priority`          |
 
 ## License
 
