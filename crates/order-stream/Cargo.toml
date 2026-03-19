@@ -14,12 +14,17 @@ release = false
 alloy = { workspace = true, features = ["full", "reqwest-rustls-tls"] }
 anyhow = { workspace = true }
 async-stream = { workspace = true }
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-kinesis = { workspace = true }
 axum = { workspace = true, features = ["ws"] }
 base64 = "0.22"
 boundless-market = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true, features = ["env", "derive"] }
 futures-util = { workspace = true }
 hex = { workspace = true }
+moka = { version = "0.12", features = ["future"] }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls"] }
 serde = { workspace = true }
@@ -38,4 +43,5 @@ utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 boundless-test-utils = { workspace = true }
 risc0-zkvm = { workspace = true }
 serial_test = "3.2"
+url = { workspace = true }
 urlencoding = "2.1"
