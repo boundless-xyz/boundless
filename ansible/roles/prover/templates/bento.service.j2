@@ -13,8 +13,8 @@ ExecStart=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_doc
 ExecStop=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} down
 Restart=always
 RestartSec=10
-TimeoutStartSec=1800
-TimeoutStopSec=300
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
 
 [Install]
 WantedBy=multi-user.target
