@@ -44,13 +44,18 @@ const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 static GLOBAL: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
 
 pub(crate) fn init(handle: TelemetryHandle) {
-    let is_noop = handle.tx.max_capacity() <= 1;
-    tracing::debug!(is_noop, "Telemetry handle initialized");
-    *GLOBAL.lock().unwrap() = Some(handle);
+    let mut global = GLOBAL.lock().unwrap();
+    if global.is_some() {
+        tracing::warn!("Telemetry handle already initialized; refusing to replace existing handle");
+        return;
+    }
+
+    tracing::debug!("Telemetry handle initialized");
+    *global = Some(handle);
 }
 
 pub(crate) fn telemetry() -> TelemetryHandle {
-    GLOBAL.lock().unwrap().clone().unwrap_or_else(TelemetryHandle::noop)
+    GLOBAL.lock().unwrap().clone().expect("Telemetry handle must be initialized before use")
 }
 
 fn now_unix() -> u64 {
@@ -61,7 +66,7 @@ fn now_unix() -> u64 {
 }
 
 const REQUEST_HEARTBEAT_INTERVAL_SECS: u64 = 60;
-const BROKER_HEARTBEAT_INTERVAL_SECS: u64 = 3600;
+const BROKER_HEARTBEAT_INTERVAL_SECS: u64 = 60;
 const EVICTION_INTERVAL_SECS: u64 = 300;
 const STALE_ENTRY_SECS: u64 = 7200;
 
@@ -199,16 +204,6 @@ pub(crate) struct TelemetryHandle {
 
 impl TelemetryHandle {
     pub(crate) fn new(tx: mpsc::Sender<TelemetryEvent>) -> Self {
-        Self {
-            tx,
-            drop_count: Arc::new(AtomicU64::new(0)),
-            pending_preflight_count: Arc::new(AtomicU32::new(0)),
-        }
-    }
-
-    /// Create a no-op handle where all events are silently dropped.
-    pub(crate) fn noop() -> Self {
-        let (tx, _rx) = mpsc::channel(1);
         Self {
             tx,
             drop_count: Arc::new(AtomicU64::new(0)),
@@ -962,15 +957,18 @@ mod tests {
     }
 
     #[test]
-    fn test_noop_handle_drops_silently() {
-        let handle = TelemetryHandle::noop();
+    fn test_handle_records_drop_when_receiver_closed() {
+        let (tx, rx) = mpsc::channel(16);
+        drop(rx);
+        let handle = TelemetryHandle::new(tx);
         handle.record(TelemetryEvent::Fulfilled { order_id: "test-order-1".to_string() });
         assert_eq!(handle.drop_count(), 1);
     }
 
     #[test]
     fn test_handle_atomic_ops() {
-        let handle = TelemetryHandle::noop();
+        let (tx, _rx) = mpsc::channel(16);
+        let handle = TelemetryHandle::new(tx);
 
         handle.set_pending_preflight(42);
         assert_eq!(handle.pending_preflight(), 42);

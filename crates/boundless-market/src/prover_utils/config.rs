@@ -237,9 +237,7 @@ pub enum TelemetryMode {
     #[default]
     Enabled,
     /// Log telemetry events locally at debug level without sending to any remote service.
-    Debug,
-    /// Telemetry is completely disabled; events are silently dropped.
-    Disabled,
+    LogsOnly,
 }
 
 /// Order pricing priority mode for determining which orders to price first
@@ -542,7 +540,7 @@ pub struct MarketConfig {
     /// If not set (None), no maximum is enforced.
     #[serde(default = "defaults::max_order_expiry_secs")]
     pub max_order_expiry_secs: Option<u64>,
-    /// Telemetry mode: "enabled" (HTTP pipeline), "debug" (log only), "disabled" (noop).
+    /// Telemetry mode: "enabled" (HTTP pipeline) or "logsonly" (log only).
     #[serde(default)]
     pub telemetry_mode: TelemetryMode,
     /// Interval in seconds between request heartbeat flushes.

@@ -786,7 +786,6 @@ where
             config.lock_all().map(|c| c.market.telemetry_mode.clone()).unwrap_or_default();
 
         let telemetry_handle = match telemetry_mode {
-            TelemetryMode::Disabled => telemetry::TelemetryHandle::noop(),
             TelemetryMode::Enabled => {
                 if let Some(ref client) = client {
                     let (tx, rx) =
@@ -809,10 +808,31 @@ where
                     });
                     handle
                 } else {
-                    telemetry::TelemetryHandle::noop()
+                    tracing::warn!(
+                        "TelemetryMode::Enabled requires order-stream; falling back to LogsOnly"
+                    );
+
+                    let (tx, rx) =
+                        mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                    let handle = telemetry::TelemetryHandle::new(tx);
+                    let service = telemetry::TelemetryService::new_debug(
+                        rx,
+                        handle.clone(),
+                        signer.clone(),
+                        config.clone(),
+                        self.db.clone(),
+                    );
+                    let cancel_token = non_critical_cancel_token.clone();
+                    non_critical_tasks.spawn(async move {
+                        telemetry::run_telemetry_service(service, cancel_token)
+                            .await
+                            .context("Telemetry service failed")?;
+                        Ok(())
+                    });
+                    handle
                 }
             }
-            TelemetryMode::Debug => {
+            TelemetryMode::LogsOnly => {
                 let (tx, rx) =
                     mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
                 let handle = telemetry::TelemetryHandle::new(tx);

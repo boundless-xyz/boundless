@@ -49,7 +49,6 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ReceiptClaim,
 };
-use serial_test::serial;
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
@@ -121,7 +120,7 @@ fn generate_request(
 }
 
 async fn new_config(min_batch_size: u32) -> NamedTempFile {
-    new_config_with_options(min_batch_size, 100, TelemetryMode::Disabled).await
+    new_config_with_options(min_batch_size, 100, TelemetryMode::LogsOnly).await
 }
 
 async fn new_config_with_telemetry(
@@ -475,7 +474,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         .unwrap();
     locker_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    let config = new_config_with_options(1, 0, TelemetryMode::Disabled).await;
+    let config = new_config_with_options(1, 0, TelemetryMode::LogsOnly).await;
     let args = broker_args(
         config.path().to_path_buf(),
         ctx.deployment.clone(),
@@ -989,7 +988,6 @@ async fn gas_estimation_matches_actual_tx_cost() {
 
 #[tokio::test]
 #[traced_test("debug")]
-#[serial]
 async fn e2e_telemetry_events() {
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -1000,7 +998,7 @@ async fn e2e_telemetry_events() {
         .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    let config = new_config_with_telemetry(1, TelemetryMode::Debug, 2).await;
+    let config = new_config_with_telemetry(1, TelemetryMode::LogsOnly, 2).await;
     let args = broker_args(
         config.path().to_path_buf(),
         ctx.deployment.clone(),
