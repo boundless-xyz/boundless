@@ -44,6 +44,8 @@ const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 static GLOBAL: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
 
 pub(crate) fn init(handle: TelemetryHandle) {
+    let is_noop = handle.tx.max_capacity() <= 1;
+    tracing::debug!(is_noop, "Telemetry handle initialized");
     *GLOBAL.lock().unwrap() = Some(handle);
 }
 

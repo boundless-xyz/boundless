@@ -49,6 +49,7 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ReceiptClaim,
 };
+use serial_test::serial;
 use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
@@ -988,6 +989,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
 
 #[tokio::test]
 #[traced_test("debug")]
+#[serial]
 async fn e2e_telemetry_events() {
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await.unwrap();
