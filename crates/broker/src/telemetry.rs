@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, FixedBytes, U256};
@@ -41,16 +41,14 @@ use crate::order_monitor::{OrderCommitmentMeta, OrderMonitorConfig};
 const HEARTBEAT_RETRY_COUNT: u64 = 2;
 const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 
-static GLOBAL: OnceLock<TelemetryHandle> = OnceLock::new();
+static GLOBAL: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
 
 pub(crate) fn init(handle: TelemetryHandle) {
-    if GLOBAL.set(handle).is_err() {
-        tracing::warn!("Telemetry handle already initialized, ignoring duplicate init");
-    }
+    *GLOBAL.lock().unwrap() = Some(handle);
 }
 
-pub(crate) fn telemetry() -> &'static TelemetryHandle {
-    GLOBAL.get_or_init(TelemetryHandle::noop)
+pub(crate) fn telemetry() -> TelemetryHandle {
+    GLOBAL.lock().unwrap().clone().unwrap_or_else(TelemetryHandle::noop)
 }
 
 fn now_unix() -> u64 {
