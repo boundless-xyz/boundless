@@ -33,6 +33,10 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 test-cargo-root:
     RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
 
+# Run broker telemetry e2e tests separately as they can not be run in parallel with other tests due to global telemetry singleton.
+test-broker-telemetry:
+    RISC0_DEV_MODE=1 cargo test -p broker tests::e2e_telemetry --features test-r0vm -- --ignored --nocapture --test-threads=1
+
 # Run Cargo tests for counter example
 test-cargo-example:
     cd examples/counter && \

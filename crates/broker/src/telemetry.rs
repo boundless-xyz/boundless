@@ -45,22 +45,32 @@ static GLOBAL: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
 static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
 static NOOP_HANDLE_WARNED: Once = Once::new();
 
-pub(crate) fn init(handle: TelemetryHandle) {
+/// Initializes the process-global telemetry singleton on first use and returns its handle.
+///
+/// The closure is only run for the first caller, so it is expected to create both the
+/// `TelemetryHandle` and any underlying telemetry service/runtime that consumes it.
+/// Later callers reuse the existing singleton handle without rebuilding the service.
+pub(crate) fn init_with<F>(build_handle: F) -> TelemetryHandle
+where
+    F: FnOnce() -> TelemetryHandle,
+{
     let mut global = GLOBAL.lock().unwrap();
-    if global.is_some() {
+    if let Some(handle) = global.clone() {
         tracing::warn!("Telemetry handle already initialized; refusing to replace existing handle");
-        return;
+        return handle;
     }
 
+    let handle = build_handle();
     tracing::debug!("Telemetry handle initialized");
-    *global = Some(handle);
+    *global = Some(handle.clone());
+    handle
 }
 
 pub(crate) fn telemetry() -> TelemetryHandle {
-    GLOBAL.lock().unwrap().clone().unwrap_or_else(uninitialized_fallback_handle)
+    GLOBAL.lock().unwrap().clone().unwrap_or_else(noop_handle)
 }
 
-fn uninitialized_fallback_handle() -> TelemetryHandle {
+fn noop_handle() -> TelemetryHandle {
     NOOP_HANDLE_WARNED.call_once(|| {
         tracing::warn!(
             "Telemetry handle used before initialization; falling back to internal drop handle"
@@ -801,11 +811,8 @@ impl TelemetryService {
             completed_at: Utc::now(),
         };
 
-        tracing::debug!(
-            payload = %serde_json::to_string(&completed).unwrap_or_default(),
-            "(Telemetry) Request Completed: {}",
-            order_id,
-        );
+        let payload = serde_json::to_string(&completed).unwrap_or_default();
+        tracing::debug!(payload = %payload, "(Telemetry) Request Completed: {}", order_id);
 
         self.comp_buffer.push(completed);
     }
@@ -848,11 +855,8 @@ impl TelemetryService {
             false
         };
 
-        tracing::debug!(
-            submitted,
-            payload = %serde_json::to_string(&heartbeat).unwrap_or_default(),
-            "(Telemetry) Broker Heartbeat",
-        );
+        let payload = serde_json::to_string(&heartbeat).unwrap_or_default();
+        tracing::debug!(submitted, payload = %payload, "(Telemetry) Broker Heartbeat");
     }
 
     async fn send_request_heartbeat(&mut self) {
@@ -881,11 +885,8 @@ impl TelemetryService {
             false
         };
 
-        tracing::debug!(
-            submitted,
-            payload = %serde_json::to_string(&heartbeat).unwrap_or_default(),
-            "(Telemetry) Request Heartbeat",
-        );
+        let payload = serde_json::to_string(&heartbeat).unwrap_or_default();
+        tracing::debug!(submitted, payload = %payload, "(Telemetry) Request Heartbeat");
     }
 
     fn evict_stale_entries(&mut self) {

@@ -54,7 +54,7 @@ use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
 
-fn is_dev_mode() -> bool {
+pub(super) fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
         .ok()
         .map(|x| x.to_lowercase())
@@ -62,7 +62,7 @@ fn is_dev_mode() -> bool {
         .is_some()
 }
 
-fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
+pub(super) fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
     let url: url::Url = args.rpc_url.as_deref().unwrap().parse().unwrap();
     DynProvider::new(
         ProviderBuilder::new()
@@ -73,7 +73,7 @@ fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn generate_request(
+pub(super) fn generate_request(
     id: u32,
     addr: &Address,
     proof_type: ProofType,
@@ -119,24 +119,11 @@ fn generate_request(
     )
 }
 
-async fn new_config(min_batch_size: u32) -> NamedTempFile {
+pub(super) async fn new_config(min_batch_size: u32) -> NamedTempFile {
     new_config_with_options(min_batch_size, 100, TelemetryMode::LogsOnly).await
 }
 
-async fn new_config_with_telemetry(
-    min_batch_size: u32,
-    mode: TelemetryMode,
-    heartbeat_interval_secs: u64,
-) -> NamedTempFile {
-    let config_file = new_config_with_options(min_batch_size, 100, mode).await;
-    let mut config = Config::load(config_file.path()).await.unwrap();
-    config.market.request_heartbeat_interval_secs = heartbeat_interval_secs;
-    config.market.broker_heartbeat_interval_secs = heartbeat_interval_secs;
-    config.write(config_file.path()).await.unwrap();
-    config_file
-}
-
-async fn new_config_with_options(
+pub(super) async fn new_config_with_options(
     min_batch_size: u32,
     min_deadline: u64,
     telemetry_mode: TelemetryMode,
@@ -162,7 +149,7 @@ async fn new_config_with_options(
     config_file
 }
 
-fn broker_args(
+pub(super) fn broker_args(
     config_file: PathBuf,
     deployment: Deployment,
     rpc_url: Url,
@@ -200,7 +187,7 @@ fn broker_args(
     }
 }
 
-async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
+pub(super) async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
 where
     P: Provider + WalletProvider + Clone + 'static,
     F: Future<Output = T>,
@@ -982,96 +969,6 @@ async fn gas_estimation_matches_actual_tx_cost() {
             "estimated gas price ({estimated_gas_price}) should be >= \
              fulfill effective_gas_price ({fulfill_effective_gas_price})"
         );
-    })
-    .await;
-}
-
-#[tokio::test]
-#[traced_test("debug")]
-async fn e2e_telemetry_events() {
-    let anvil = Anvil::new().spawn();
-    let ctx = create_test_ctx(&anvil).await.unwrap();
-
-    ctx.prover_market
-        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
-        .await
-        .unwrap();
-    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
-
-    let config = new_config_with_telemetry(1, TelemetryMode::LogsOnly, 2).await;
-    let args = broker_args(
-        config.path().to_path_buf(),
-        ctx.deployment.clone(),
-        anvil.endpoint_url(),
-        ctx.prover_signer,
-    );
-
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
-
-    let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
-
-    let request = generate_request(
-        ctx.customer_market.index_from_nonce().await.unwrap(),
-        &ctx.customer_signer.address(),
-        ProofType::Any,
-        image_url,
-        None,
-        None,
-        None,
-        None,
-    );
-
-    run_with_broker(broker, async move {
-        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
-
-        ctx.customer_market
-            .wait_for_request_fulfillment(
-                U256::from(request.id),
-                Duration::from_secs(1),
-                request.expires_at(),
-            )
-            .await
-            .unwrap();
-
-        for _ in 0..30 {
-            if logs_contain("(Telemetry) Request Completed:") {
-                break;
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-
-        for _ in 0..30 {
-            if logs_contain("(Telemetry) Request Heartbeat") {
-                break;
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-
-        for _ in 0..30 {
-            if logs_contain("(Telemetry) Broker Heartbeat") {
-                break;
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-
-        assert!(logs_contain("(Telemetry) Request Completed:"));
-        assert!(logs_contain("\"outcome\":\"Fulfilled\""));
-        assert!(logs_contain("\"fulfillment_type\":\"LockAndFulfill\""));
-        assert!(logs_contain("\"proof_type\":\"Merkle\""));
-        assert!(logs_contain("\"error_code\":null"));
-
-        assert!(logs_contain("(Telemetry) Request Heartbeat"));
-        assert!(logs_contain("(Telemetry) Broker Heartbeat"));
     })
     .await;
 }

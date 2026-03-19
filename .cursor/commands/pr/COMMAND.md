@@ -3,6 +3,7 @@ Create/update a pull request for the current changes.
 1. Look at the staged, unstaged, and untracked changes with `git diff`
 2. If no changes to examples/ directory, run `just check-main`. Else run `just check`.
    1. If fails, propose fixes and wait for approval
+   2. If the only failure is `check-links` failing with flaky external errors like GitHub `429`s, note it and continue.
 3. Run a lightweight relevant test target for the changed code.
    1. Prefer the narrowest test target that covers the changed area, such as the affected crate, module, or explicitly failing tests.
    2. If no smaller relevant target is obvious, run `just test-cargo-root`.
