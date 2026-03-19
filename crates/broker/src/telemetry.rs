@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, FixedBytes, U256};
@@ -42,6 +42,8 @@ const HEARTBEAT_RETRY_COUNT: u64 = 2;
 const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 
 static GLOBAL: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
+static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
+static NOOP_HANDLE_WARNED: Once = Once::new();
 
 pub(crate) fn init(handle: TelemetryHandle) {
     let mut global = GLOBAL.lock().unwrap();
@@ -55,7 +57,23 @@ pub(crate) fn init(handle: TelemetryHandle) {
 }
 
 pub(crate) fn telemetry() -> TelemetryHandle {
-    GLOBAL.lock().unwrap().clone().expect("Telemetry handle must be initialized before use")
+    GLOBAL.lock().unwrap().clone().unwrap_or_else(uninitialized_fallback_handle)
+}
+
+fn uninitialized_fallback_handle() -> TelemetryHandle {
+    NOOP_HANDLE_WARNED.call_once(|| {
+        tracing::warn!(
+            "Telemetry handle used before initialization; falling back to internal drop handle"
+        );
+    });
+
+    NOOP_HANDLE
+        .get_or_init(|| {
+            let (tx, rx) = mpsc::channel(1);
+            drop(rx);
+            TelemetryHandle::new(tx)
+        })
+        .clone()
 }
 
 fn now_unix() -> u64 {
