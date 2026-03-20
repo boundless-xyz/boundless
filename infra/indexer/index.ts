@@ -38,6 +38,7 @@ export = () => {
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
+  const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
   const indexerServiceName = getServiceNameV1(stackName, "indexer", chainId);
   const monitorServiceName = getServiceNameV1(stackName, "monitor", chainId);
   const indexerApiServiceName = getServiceNameV1(stackName, "indexer-api", chainId);
@@ -56,6 +57,7 @@ export = () => {
   const povwAccountingAddress = config.get('POVW_ACCOUNTING_ADDRESS');
   const indexerApiDomain = config.get('INDEXER_API_DOMAIN');
   const allowedIpAddresses = config.getSecret('ALLOWED_IP_ADDRESSES');
+  const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
 
   const shouldDeployMarket = !!boundlessAddress && !!startBlock;
   const shouldDeployRewards = !!vezkcAddress && !!zkcAddress && !!povwAccountingAddress;
@@ -68,8 +70,14 @@ export = () => {
     serviceName: indexerServiceName,
     vpcId,
     privSubNetIds,
+    pubSubNetIds,
     rdsPassword,
     isDev,
+    ciCacheSecret,
+    githubTokenSecret,
+    dockerDir,
+    dockerTag,
+    dockerRemoteBuilder,
   });
 
   let marketIndexer: MarketIndexer | undefined;
@@ -100,16 +108,11 @@ export = () => {
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       boundlessAddress,
       ethRpcUrl,
       startBlock,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
-      dockerRemoteBuilder,
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
@@ -120,7 +123,7 @@ export = () => {
       backfillChainDataBlocks,
       chainDataBatchDelayMs,
       backfillBatchSize,
-    }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.image, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -128,26 +131,21 @@ export = () => {
     rewardsIndexer = new RewardsIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       ethRpcUrl,
       vezkcAddress,
       zkcAddress,
       povwAccountingAddress,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
-      dockerRemoteBuilder,
-    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.image, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
-  const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
+  const sharedDependencies: pulumi.Resource[] = [infra.image, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
   if (marketIndexer) {
-    sharedDependencies.push(marketIndexer.image, marketIndexer.service);
+    sharedDependencies.push(marketIndexer.service);
   }
   if (rewardsIndexer) {
-    sharedDependencies.push(rewardsIndexer.image, rewardsIndexer.service);
+    sharedDependencies.push(rewardsIndexer.service);
   }
 
   if (shouldDeployMarket && marketIndexer) {
@@ -189,10 +187,14 @@ export = () => {
       databaseVersion: infra.databaseVersion,
       proxySecret,
       allowedIpAddresses,
+      premiumApiKey,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
   const outputs: Record<string, any> = {};
+  outputs.bastionInstanceId = infra.bastionInstanceId;
+  outputs.readerEndpoint = infra.readerEndpoint;
+  outputs.writerEndpoint = infra.writerEndpoint;
 
   if (api) {
     outputs.apiEndpoint = api.cloudFrontDomain;

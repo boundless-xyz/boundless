@@ -124,6 +124,22 @@ fn parse_period_requestor_summary_row(row: &PgRow) -> Result<PeriodRequestorSumm
         best_effective_prove_mhz_prover,
         best_effective_prove_mhz_request_id: best_effective_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
+        p50_time_to_lock_seconds: row
+            .try_get::<Option<f64>, _>("p50_time_to_lock_seconds")
+            .ok()
+            .flatten(),
+        p90_time_to_lock_seconds: row
+            .try_get::<Option<f64>, _>("p90_time_to_lock_seconds")
+            .ok()
+            .flatten(),
+        p50_time_to_fulfill_seconds: row
+            .try_get::<Option<f64>, _>("p50_time_to_fulfill_seconds")
+            .ok()
+            .flatten(),
+        p90_time_to_fulfill_seconds: row
+            .try_get::<Option<f64>, _>("p90_time_to_fulfill_seconds")
+            .ok()
+            .flatten(),
     })
 }
 
@@ -952,6 +968,72 @@ pub trait RequestorDb: IndexerDb {
         Ok(result)
     }
 
+    /// Returns (time_to_lock, time_to_fulfill) values in seconds.
+    ///
+    /// time_to_lock includes all requests that reached the locked terminal state
+    /// (locked_at - created_at), keyed by locked_at within the period.
+    ///
+    /// time_to_fulfill includes only requests that reached the fulfilled terminal state
+    /// (fulfilled_at - locked_at), keyed by fulfilled_at within the period.
+    async fn get_period_requestor_latency_data(
+        &self,
+        period_start: u64,
+        period_end: u64,
+        requestor_address: Address,
+    ) -> Result<(Vec<u64>, Vec<u64>), DbError> {
+        // Time-to-lock: all requests that were locked in this period
+        let ttl_query = "SELECT rs.created_at, rs.locked_at
+            FROM request_status rs
+            WHERE rs.locked_at IS NOT NULL
+            AND rs.locked_at >= $1
+            AND rs.locked_at < $2
+            AND rs.client_address = $3";
+
+        let ttl_rows = sqlx::query(ttl_query)
+            .bind(period_start as i64)
+            .bind(period_end as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_all(self.pool())
+            .await?;
+
+        let mut time_to_lock_values = Vec::new();
+        for row in ttl_rows {
+            let created_at: i64 = row.try_get("created_at")?;
+            let locked_at: i64 = row.try_get("locked_at")?;
+            if locked_at > created_at {
+                time_to_lock_values.push((locked_at - created_at) as u64);
+            }
+        }
+
+        // Time-to-fulfill: requests that were fulfilled in this period (same prover lock & fulfill)
+        let ttf_query = "SELECT rs.locked_at, rs.fulfilled_at
+            FROM request_status rs
+            WHERE rs.fulfilled_at IS NOT NULL
+            AND rs.locked_at IS NOT NULL
+            AND rs.fulfilled_at >= $1
+            AND rs.fulfilled_at < $2
+            AND rs.lock_prover_address = rs.fulfill_prover_address
+            AND rs.client_address = $3";
+
+        let ttf_rows = sqlx::query(ttf_query)
+            .bind(period_start as i64)
+            .bind(period_end as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_all(self.pool())
+            .await?;
+
+        let mut time_to_fulfill_values = Vec::new();
+        for row in ttf_rows {
+            let locked_at: i64 = row.try_get("locked_at")?;
+            let fulfilled_at: i64 = row.try_get("fulfilled_at")?;
+            if fulfilled_at > locked_at {
+                time_to_fulfill_values.push((fulfilled_at - locked_at) as u64);
+            }
+        }
+
+        Ok((time_to_lock_values, time_to_fulfill_values))
+    }
+
     async fn get_period_requestor_all_lock_collateral(
         &self,
         period_start: u64,
@@ -1396,8 +1478,12 @@ async fn upsert_requestor_summary_generic(
             best_effective_prove_mhz_request_id,
             best_peak_prove_mhz_v2,
             best_effective_prove_mhz_v2,
+            p50_time_to_lock_seconds,
+            p90_time_to_lock_seconds,
+            p50_time_to_fulfill_seconds,
+            p90_time_to_fulfill_seconds,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, CAST($35 AS DOUBLE PRECISION), CAST($36 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, CAST($35 AS DOUBLE PRECISION), CAST($36 AS DOUBLE PRECISION), $37, $38, $39, $40, CURRENT_TIMESTAMP)
         ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
             epoch_number_period_start = EXCLUDED.epoch_number_period_start,
             total_fulfilled = EXCLUDED.total_fulfilled,
@@ -1433,6 +1519,10 @@ async fn upsert_requestor_summary_generic(
             best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
             best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
             best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
+            p50_time_to_lock_seconds = EXCLUDED.p50_time_to_lock_seconds,
+            p90_time_to_lock_seconds = EXCLUDED.p90_time_to_lock_seconds,
+            p50_time_to_fulfill_seconds = EXCLUDED.p50_time_to_fulfill_seconds,
+            p90_time_to_fulfill_seconds = EXCLUDED.p90_time_to_fulfill_seconds,
             updated_at = CURRENT_TIMESTAMP",
         table_name
     );
@@ -1474,6 +1564,10 @@ async fn upsert_requestor_summary_generic(
         .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
         .bind(summary.best_peak_prove_mhz.to_string())
         .bind(summary.best_effective_prove_mhz.to_string())
+        .bind(summary.p50_time_to_lock_seconds)
+        .bind(summary.p90_time_to_lock_seconds)
+        .bind(summary.p50_time_to_fulfill_seconds)
+        .bind(summary.p90_time_to_fulfill_seconds)
         .execute(pool)
         .await?;
 
@@ -1500,7 +1594,9 @@ async fn get_requestor_summaries_by_range_generic(
             total_fixed_cost, total_variable_cost,
             best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
             best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
-            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
+            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2,
+            p50_time_to_lock_seconds, p90_time_to_lock_seconds,
+            p50_time_to_fulfill_seconds, p90_time_to_fulfill_seconds
         FROM {} WHERE requestor_address = $1 AND period_timestamp >= $2 AND period_timestamp < $3 ORDER BY period_timestamp ASC",
         table_name
     );
@@ -1588,7 +1684,9 @@ async fn get_requestor_summaries_generic(
             total_fixed_cost, total_variable_cost,
             best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
             best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
-            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
+            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2,
+            p50_time_to_lock_seconds, p90_time_to_lock_seconds,
+            p50_time_to_fulfill_seconds, p90_time_to_fulfill_seconds
         FROM {}
         {}
         {}
@@ -1818,7 +1916,22 @@ async fn get_requestor_leaderboard_impl(
             .await?
     };
 
-    let mut results = Vec::new();
+    // First pass: parse all rows and collect requestor addresses
+    struct ParsedRow {
+        requestor_address: Address,
+        orders_requested: i64,
+        orders_locked: i64,
+        fulfilled: i64,
+        expired: i64,
+        not_locked_and_expired: i64,
+        cycles_requested: U256,
+        acceptance_rate: f32,
+        locked_order_fulfillment_rate: f32,
+    }
+
+    let mut parsed_rows = Vec::new();
+    let mut addresses = Vec::new();
+
     for row in rows {
         let requestor_address_str: String = row.try_get("requestor_address")?;
         let requestor_address = Address::from_str(&requestor_address_str)
@@ -1845,39 +1958,94 @@ async fn get_requestor_leaderboard_impl(
             0.0
         };
 
-        let adjusted_fulfilled_query =
-            "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+        addresses.push(requestor_address);
+        parsed_rows.push(ParsedRow {
+            requestor_address,
+            orders_requested,
+            orders_locked,
+            fulfilled,
+            expired,
+            not_locked_and_expired,
+            cycles_requested,
+            acceptance_rate,
+            locked_order_fulfillment_rate,
+        });
+    }
+
+    // Batch fetch adjusted fulfilled and expired counts for all requestors at once
+    // instead of running 2 queries per requestor (N+1 problem)
+    let (adjusted_fulfilled_map, adjusted_expired_map) = if !addresses.is_empty() {
+        let addr_placeholders: Vec<String> =
+            (3..=addresses.len() + 2).map(|i| format!("${}", i)).collect();
+        let addr_placeholders_str = addr_placeholders.join(", ");
+
+        let batch_fulfilled_query = format!(
+            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.fulfilled_at >= $1
             AND rs.fulfilled_at < $2
             AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
-        let adjusted_fulfilled_row = sqlx::query(adjusted_fulfilled_query)
-            .bind(start_ts as i64)
-            .bind(end_ts as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_optional(pool)
-            .await?;
-        let adjusted_fulfilled: i64 =
-            adjusted_fulfilled_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+            AND rs.client_address IN ({})
+            GROUP BY rs.client_address",
+            addr_placeholders_str
+        );
 
-        let adjusted_expired_query = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+        let batch_expired_query = format!(
+            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.expires_at >= $1
             AND rs.expires_at < $2
             AND rs.request_status = 'expired'
             AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
-        let adjusted_expired_row = sqlx::query(adjusted_expired_query)
-            .bind(start_ts as i64)
-            .bind(end_ts as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_optional(pool)
-            .await?;
-        let adjusted_expired: i64 =
-            adjusted_expired_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+            AND rs.client_address IN ({})
+            GROUP BY rs.client_address",
+            addr_placeholders_str
+        );
+
+        let mut fulfilled_query =
+            sqlx::query(&batch_fulfilled_query).bind(start_ts as i64).bind(end_ts as i64);
+        let mut expired_query =
+            sqlx::query(&batch_expired_query).bind(start_ts as i64).bind(end_ts as i64);
+        for addr in &addresses {
+            fulfilled_query = fulfilled_query.bind(format!("{:x}", addr));
+            expired_query = expired_query.bind(format!("{:x}", addr));
+        }
+
+        let (fulfilled_rows, expired_rows) =
+            tokio::try_join!(fulfilled_query.fetch_all(pool), expired_query.fetch_all(pool),)?;
+
+        let mut fulfilled_map = std::collections::HashMap::new();
+        for row in fulfilled_rows {
+            let addr_str: String = row.try_get("client_address")?;
+            let count: i64 = row.try_get("count")?;
+            if let Ok(addr) = Address::from_str(&addr_str) {
+                fulfilled_map.insert(addr, count);
+            }
+        }
+
+        let mut expired_map = std::collections::HashMap::new();
+        for row in expired_rows {
+            let addr_str: String = row.try_get("client_address")?;
+            let count: i64 = row.try_get("count")?;
+            if let Ok(addr) = Address::from_str(&addr_str) {
+                expired_map.insert(addr, count);
+            }
+        }
+
+        (fulfilled_map, expired_map)
+    } else {
+        (std::collections::HashMap::new(), std::collections::HashMap::new())
+    };
+
+    // Build results using the batched adjusted counts
+    let mut results = Vec::new();
+    for parsed in parsed_rows {
+        let adjusted_fulfilled =
+            adjusted_fulfilled_map.get(&parsed.requestor_address).copied().unwrap_or(0);
+        let adjusted_expired =
+            adjusted_expired_map.get(&parsed.requestor_address).copied().unwrap_or(0);
 
         let total_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
         let locked_orders_fulfillment_rate_adjusted = if total_outcomes_adjusted > 0 {
@@ -1887,16 +2055,16 @@ async fn get_requestor_leaderboard_impl(
         };
 
         results.push(RequestorLeaderboardEntry {
-            requestor_address,
-            orders_requested: orders_requested as u64,
-            orders_locked: orders_locked as u64,
-            orders_fulfilled: fulfilled as u64,
-            orders_expired: expired as u64,
-            orders_not_locked_and_expired: not_locked_and_expired as u64,
-            cycles_requested,
+            requestor_address: parsed.requestor_address,
+            orders_requested: parsed.orders_requested as u64,
+            orders_locked: parsed.orders_locked as u64,
+            orders_fulfilled: parsed.fulfilled as u64,
+            orders_expired: parsed.expired as u64,
+            orders_not_locked_and_expired: parsed.not_locked_and_expired as u64,
+            cycles_requested: parsed.cycles_requested,
             median_lock_price_per_cycle: None,
-            acceptance_rate,
-            locked_order_fulfillment_rate,
+            acceptance_rate: parsed.acceptance_rate,
+            locked_order_fulfillment_rate: parsed.locked_order_fulfillment_rate,
             locked_orders_fulfillment_rate_adjusted,
             last_activity_time: 0,
         });
@@ -2358,6 +2526,10 @@ mod tests {
             best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: Some("0x5678".to_string()),
             best_effective_prove_mhz_request_id: Some(U256::from(456)),
+            p50_time_to_lock_seconds: Some(12.0),
+            p90_time_to_lock_seconds: Some(45.0),
+            p50_time_to_fulfill_seconds: Some(120.0),
+            p90_time_to_fulfill_seconds: Some(300.0),
         };
 
         db.upsert_hourly_requestor_summary(summary.clone()).await.unwrap();
@@ -2373,6 +2545,10 @@ mod tests {
         assert_eq!(results[0].total_program_cycles, U256::from(50_000_000_000u64));
         assert_eq!(results[0].total_fixed_cost, U256::from(5000));
         assert_eq!(results[0].total_variable_cost, U256::from(3000));
+        assert_eq!(results[0].p50_time_to_lock_seconds, Some(12.0));
+        assert_eq!(results[0].p90_time_to_lock_seconds, Some(45.0));
+        assert_eq!(results[0].p50_time_to_fulfill_seconds, Some(120.0));
+        assert_eq!(results[0].p90_time_to_fulfill_seconds, Some(300.0));
 
         let mut updated = summary.clone();
         updated.total_fulfilled = 10;
@@ -2516,6 +2692,10 @@ mod tests {
                 best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: None,
+                p90_time_to_lock_seconds: None,
+                p50_time_to_fulfill_seconds: None,
+                p90_time_to_fulfill_seconds: None,
             };
             db.upsert_daily_requestor_summary(summary).await.unwrap();
         }
@@ -2576,6 +2756,10 @@ mod tests {
             best_effective_prove_mhz: 1100.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
+            p50_time_to_lock_seconds: None,
+            p90_time_to_lock_seconds: None,
+            p50_time_to_fulfill_seconds: None,
+            p90_time_to_fulfill_seconds: None,
         };
 
         db.upsert_weekly_requestor_summary(summary.clone()).await.unwrap();
@@ -2634,6 +2818,10 @@ mod tests {
             best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
+            p50_time_to_lock_seconds: None,
+            p90_time_to_lock_seconds: None,
+            p50_time_to_fulfill_seconds: None,
+            p90_time_to_fulfill_seconds: None,
         };
 
         db.upsert_monthly_requestor_summary(summary.clone()).await.unwrap();
@@ -4601,6 +4789,10 @@ mod tests {
                 best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: None,
+                p90_time_to_lock_seconds: None,
+                p50_time_to_fulfill_seconds: None,
+                p90_time_to_fulfill_seconds: None,
             };
             db.upsert_hourly_requestor_summary(summary).await.unwrap();
         }
@@ -4752,6 +4944,10 @@ mod tests {
                 best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: None,
+                p90_time_to_lock_seconds: None,
+                p50_time_to_fulfill_seconds: None,
+                p90_time_to_fulfill_seconds: None,
             };
             db.upsert_daily_requestor_summary(summary).await.unwrap();
         }
@@ -4853,6 +5049,10 @@ mod tests {
                 best_effective_prove_mhz: 1100.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
+                p50_time_to_lock_seconds: None,
+                p90_time_to_lock_seconds: None,
+                p50_time_to_fulfill_seconds: None,
+                p90_time_to_fulfill_seconds: None,
             };
             db.upsert_weekly_requestor_summary(summary).await.unwrap();
         }
@@ -5082,6 +5282,10 @@ mod tests {
             best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
+            p50_time_to_lock_seconds: None,
+            p90_time_to_lock_seconds: None,
+            p50_time_to_fulfill_seconds: None,
+            p90_time_to_fulfill_seconds: None,
         };
 
         let mut summary2 = summary1.clone();
@@ -5193,6 +5397,10 @@ mod tests {
             best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
+            p50_time_to_lock_seconds: None,
+            p90_time_to_lock_seconds: None,
+            p50_time_to_fulfill_seconds: None,
+            p90_time_to_fulfill_seconds: None,
         };
 
         let mut summary2 = summary1.clone();

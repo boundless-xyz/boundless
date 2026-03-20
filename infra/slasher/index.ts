@@ -27,6 +27,7 @@ export = () => {
   const imageBuilderStackName = config.get('IMAGE_BUILDER_STACK');
 
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
+  const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const interval = config.get('INTERVAL') || "60";
   const retries = config.get('RETRIES') || "3";
   const skipAddresses = config.get('SKIP_ADDRESSES');
@@ -98,8 +99,14 @@ export = () => {
 
     // Optionally add in the gh token secret and sccache s3 creds to the build ctx
     let buildSecrets = {};
+    if (ciCacheSecret !== undefined) {
+      buildSecrets = {
+        ci_cache_creds: ciCacheSecret,
+      };
+    }
     if (githubTokenSecret !== undefined) {
       buildSecrets = {
+        ...buildSecrets,
         githubTokenSecret
       }
     }

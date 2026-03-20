@@ -28,6 +28,7 @@ use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
     client::{Client, FundingMode},
     deployments::Deployment,
+    indexer_client::{GetRequestsByRequestorParams, IndexerClient, RequestStatus},
     input::GuestEnv,
     request_builder::StandardRequestBuilder,
     storage::{HttpDownloader, StandardDownloader, StorageDownloader},
@@ -114,6 +115,9 @@ struct MainArgs {
     /// with a step of 1_000_000.
     #[clap(long, env = "CYCLE_COUNT")]
     input: Option<u64>,
+    /// The minimum cycle count (in mcycles) for random input generation.
+    #[clap(long, env = "CYCLE_COUNT_MIN", conflicts_with_all = ["input", "program"])]
+    input_min_mcycles: Option<u64>,
     /// The maximum cycle count to drive the loop.
     #[clap(long, env = "CYCLE_COUNT_MAX", conflicts_with_all = ["input", "program"])]
     input_max_mcycles: Option<u64>,
@@ -144,6 +148,14 @@ struct MainArgs {
     /// If set and the offer's maxPrice exceeds this value, caps it with a warning.
     #[clap(long, value_parser = parse_ether)]
     max_price_cap: Option<U256>,
+
+    /// Maximum number of outstanding (submitted, not locked) requests before throttling.
+    #[clap(long, env, requires = "indexer_url")]
+    max_outstanding_requests: Option<u32>,
+
+    /// Indexer API URL for checking outstanding requests.
+    #[clap(long, env)]
+    indexer_url: Option<Url>,
 }
 
 #[tokio::main]
@@ -233,6 +245,19 @@ async fn run(args: &MainArgs) -> Result<()> {
         }
     };
 
+    // Create indexer client if throttling is enabled
+    let indexer_client = match (&args.max_outstanding_requests, &args.indexer_url) {
+        (Some(_), Some(url)) => {
+            tracing::info!(
+                "Throttling enabled: max_outstanding_requests={:?}, indexer_url={}",
+                args.max_outstanding_requests,
+                url
+            );
+            Some(IndexerClient::new(url.clone())?)
+        }
+        _ => None,
+    };
+
     let mut i = 0u64;
     loop {
         if let Some(count) = args.count {
@@ -240,6 +265,38 @@ async fn run(args: &MainArgs) -> Result<()> {
                 break;
             }
         }
+
+        // Check outstanding requests and throttle if needed
+        if let (Some(max), Some(indexer)) = (&args.max_outstanding_requests, &indexer_client) {
+            let one_day_ago = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64 - 86400)
+                .unwrap_or(0);
+            let params = GetRequestsByRequestorParams::builder()
+                .status(RequestStatus::Submitted)
+                .after(one_day_ago)
+                .build();
+            match indexer.get_all_requests_by_requestor(client.caller(), params).await {
+                Ok(submitted_requests) => {
+                    let submitted_count = submitted_requests.len() as u32;
+
+                    if submitted_count >= *max {
+                        tracing::info!(
+                            "Currently: {} outstanding requests >= max {}, not sending new requests",
+                            submitted_count,
+                            max
+                        );
+                        tokio::time::sleep(Duration::from_secs(args.interval)).await;
+                        continue;
+                    }
+                    tracing::debug!("Outstanding requests: {} / {}", submitted_count, max);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check outstanding requests: {:?}", e);
+                }
+            }
+        }
+
         if let Err(e) = match args.use_zeth {
             true => {
                 if let Some(input) = input.as_ref() {
@@ -283,9 +340,9 @@ async fn handle_loop_request(
     let input = match args.input {
         Some(input) => input,
         None => {
-            // Generate a random input.
+            let min = args.input_min_mcycles.unwrap_or(10);
             let max = args.input_max_mcycles.unwrap_or(1000);
-            let input: u64 = rand::rng().random_range(10..=max) << 20;
+            let input: u64 = rand::rng().random_range(min..=max) << 20;
             tracing::debug!("Generated random cycle count: {}", input);
             input
         }
@@ -546,6 +603,7 @@ mod tests {
             exec_rate_khz: 5000,
             program: Some(LOOP_PATH.parse().unwrap()),
             input: None,
+            input_min_mcycles: None,
             input_max_mcycles: None,
             warn_balance_below: None,
             error_balance_below: None,
@@ -554,6 +612,8 @@ mod tests {
             submit_offchain: false,
             use_zeth: false,
             max_price_cap: None,
+            max_outstanding_requests: None,
+            indexer_url: None,
         };
 
         run(&args).await.unwrap();

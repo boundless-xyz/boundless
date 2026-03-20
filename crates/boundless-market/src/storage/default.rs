@@ -170,13 +170,21 @@ impl StorageDownloader for StandardDownloader {
             #[cfg(feature = "s3")]
             "s3" => match &self.s3 {
                 Some(s3) => self.download_with_cache(s3, url, limit).await,
-                None => Err(StorageError::UnsupportedScheme("s3 (credentials unavailable)".into())),
+                None => Err(StorageError::CredentialsUnavailable { scheme: "s3".into() }),
             },
+            #[cfg(not(feature = "s3"))]
+            "s3" => {
+                Err(StorageError::FeatureNotEnabled { scheme: "s3".into(), feature: "s3".into() })
+            }
             #[cfg(feature = "gcs")]
             "gs" => match &self.gcs {
                 Some(gcs) => self.download_with_cache(gcs, url, limit).await,
-                None => Err(StorageError::UnsupportedScheme("gs (credentials unavailable)".into())),
+                None => Err(StorageError::CredentialsUnavailable { scheme: "gs".into() }),
             },
+            #[cfg(not(feature = "gcs"))]
+            "gs" => {
+                Err(StorageError::FeatureNotEnabled { scheme: "gs".into(), feature: "gcs".into() })
+            }
             scheme => Err(StorageError::UnsupportedScheme(scheme.to_string())),
         }
     }

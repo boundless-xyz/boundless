@@ -1,5 +1,6 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
+import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import * as crypto from 'crypto';
 
@@ -7,8 +8,14 @@ export interface IndexerInfraArgs {
   serviceName: string;
   vpcId: pulumi.Output<string>;
   privSubNetIds: pulumi.Output<string[]>;
+  pubSubNetIds: pulumi.Output<string[]>;
   rdsPassword: pulumi.Output<string>;
   isDev: boolean;
+  ciCacheSecret?: pulumi.Output<string>;
+  githubTokenSecret?: pulumi.Output<string>;
+  dockerDir: string;
+  dockerTag: string;
+  dockerRemoteBuilder?: string;
 }
 
 export class IndexerShared extends pulumi.ComponentResource {
@@ -26,13 +33,21 @@ export class IndexerShared extends pulumi.ComponentResource {
   public readonly taskRole: aws.iam.Role;
   public readonly taskRolePolicyAttachment: aws.iam.RolePolicyAttachment;
   public readonly cluster: aws.ecs.Cluster;
+  public readonly bastionInstanceId: pulumi.Output<string>;
+  public readonly readerEndpoint: pulumi.Output<string>;
+  public readonly writerEndpoint: pulumi.Output<string>;
   public readonly databaseVersion: string;
+  public readonly image: docker_build.Image;
 
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
 
-    const { vpcId, privSubNetIds, rdsPassword, isDev } = args;
+    const { vpcId, privSubNetIds, pubSubNetIds, rdsPassword, isDev, ciCacheSecret, githubTokenSecret, dockerDir, dockerTag, dockerRemoteBuilder } = args;
     const serviceName = `${args.serviceName}-base`;
+
+    // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
+    const databaseVersion = 'v19';
+    this.databaseVersion = databaseVersion;
 
     this.ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
       lifecyclePolicy: {
@@ -118,9 +133,6 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     const rdsUser = 'indexer';
 
-    // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
-    const databaseVersion = 'v19';
-    this.databaseVersion = databaseVersion;
     const rdsDbName = `indexer${databaseVersion}`;
     const enhancedMonitoringRole = new aws.iam.Role(`${serviceName}-rds-mon`, {
       assumeRolePolicy: JSON.stringify({
@@ -349,6 +361,67 @@ export class IndexerShared extends pulumi.ComponentResource {
     }, { parent: this, dependsOn: [this.taskRole, this.executionRole] });
 
     this.rdsSecurityGroupId = rdsSecurityGroup.id;
+    this.readerEndpoint = auroraCluster.readerEndpoint;
+    this.writerEndpoint = auroraCluster.endpoint;
+
+    // SSM bastion for dev database access via port-forwarding
+    const bastionRole = new aws.iam.Role(`${serviceName}-bastion-role`, {
+      assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+        Service: 'ec2.amazonaws.com',
+      }),
+      managedPolicyArns: ['arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'],
+    }, { parent: this });
+
+    const bastionProfile = new aws.iam.InstanceProfile(`${serviceName}-bastion-profile`, {
+      role: bastionRole.name,
+    }, { parent: this });
+
+    const bastionAmi = aws.ec2.getAmiOutput({
+      mostRecent: true,
+      owners: ['amazon'],
+      filters: [
+        { name: 'name', values: ['al2023-ami-*-arm64'] },
+        { name: 'state', values: ['available'] },
+      ],
+    });
+
+    const bastion = new aws.ec2.Instance(`${serviceName}-bastion`, {
+      ami: bastionAmi.id,
+      instanceType: 't4g.nano',
+      subnetId: pubSubNetIds.apply(ids => ids[0]),
+      vpcSecurityGroupIds: [this.indexerSecurityGroup.id],
+      iamInstanceProfile: bastionProfile.name,
+      associatePublicIpAddress: true,
+      tags: { Name: `${serviceName}-bastion` },
+    }, { parent: this });
+
+    this.bastionInstanceId = bastion.id;
+
+    let buildSecrets: Record<string, pulumi.Input<string>> = {};
+    if (ciCacheSecret !== undefined) {
+      buildSecrets = { ci_cache_creds: ciCacheSecret };
+    }
+    if (githubTokenSecret !== undefined) {
+      buildSecrets = { ...buildSecrets, githubTokenSecret };
+    }
+
+    this.image = new docker_build.Image(`${serviceName}-indexer-img-${databaseVersion}`, {
+      tags: [pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:indexer-${dockerTag}-${databaseVersion}`],
+      context: { location: dockerDir },
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: { location: `${dockerDir}/dockerfiles/indexer.dockerfile` },
+      builder: dockerRemoteBuilder ? { name: dockerRemoteBuilder } : undefined,
+      buildArgs: { S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache' },
+      secrets: buildSecrets,
+      cacheFrom: [{ registry: { ref: pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:cache` } }],
+      cacheTo: [{ registry: { mode: docker_build.CacheMode.Max, imageManifest: true, ociMediaTypes: true, ref: pulumi.interpolate`${this.ecrRepository.repository.repositoryUrl}:cache` } }],
+      registries: [{
+        address: this.ecrRepository.repository.repositoryUrl,
+        password: this.ecrAuthToken.apply((authToken) => authToken.password),
+        username: this.ecrAuthToken.apply((authToken) => authToken.userName),
+      }],
+    }, { parent: this });
 
     this.registerOutputs({
       repositoryUrl: this.ecrRepository.repository.repositoryUrl,
@@ -357,6 +430,10 @@ export class IndexerShared extends pulumi.ComponentResource {
       rdsSecurityGroupId: this.rdsSecurityGroupId,
       taskRoleArn: this.taskRole.arn,
       executionRoleArn: this.executionRole.arn,
+      bastionInstanceId: this.bastionInstanceId,
+      readerEndpoint: this.readerEndpoint,
+      writerEndpoint: this.writerEndpoint,
+      imageRef: this.image.ref,
     });
   }
 }

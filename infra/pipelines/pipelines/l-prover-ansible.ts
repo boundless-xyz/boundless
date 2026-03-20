@@ -3,6 +3,8 @@ import * as aws from "@pulumi/aws";
 import { BasePipelineArgs } from "./base";
 import {
   BOUNDLESS_OPS_ACCOUNT_ID,
+  BOUNDLESS_STAGING_ACCOUNT_ID,
+  BOUNDLESS_PROD_ACCOUNT_ID,
   BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
   BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
 } from "../accountConstants";
@@ -10,7 +12,7 @@ import { ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS } from "../../util";
 
 const APP_NAME = "prover-ansible";
 const CW_APP_NAME = "cw-monitoring";
-const BUILD_TIMEOUT = 30;
+const BUILD_TIMEOUT = 180;
 const COMPUTE_TYPE = "BUILD_GENERAL1_MEDIUM";
 
 export interface LProverAnsiblePipelineArgs extends BasePipelineArgs { }
@@ -26,8 +28,9 @@ export interface LProverAnsiblePipelineArgs extends BasePipelineArgs { }
  * Pipeline stages:
  * 1. Source - fetch code from GitHub
  * 2. DeployStaging - Ansible deploy to staging + cw-monitoring Pulumi staging stack (parallel)
- * 3. DeployNightly - Ansible deploy to nightly + cw-monitoring Pulumi production stack (parallel)
- * 4. DeployProduction - manual approval then Ansible deploy to production release
+ * 3. DeployNightly - Ansible deploy to nightly
+ * 4. DeployProduction - manual approval, then Ansible deploy to production release
+ *    and cw-monitoring Pulumi production stack
  */
 export class LProverAnsiblePipeline extends pulumi.ComponentResource {
   public readonly pipelineName: pulumi.Output<string>;
@@ -139,10 +142,16 @@ phases:
       - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
       - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
       - |
-        CALLER=$(aws sts get-caller-identity --query Arn --output text)
-        echo "Running as $CALLER"
-        if echo "$CALLER" | grep -q "${BOUNDLESS_OPS_ACCOUNT_ID}"; then
+        CALLER=$(aws sts get-caller-identity --output json)
+        CALLER_ARN=$(echo "$CALLER" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Arn"])')
+        CALLER_ACCOUNT=$(echo "$CALLER" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Account"])')
+        echo "Running as $CALLER_ARN"
+        if echo "$CALLER_ARN" | grep -q "${BOUNDLESS_OPS_ACCOUNT_ID}"; then
           echo "ERROR: Still using ops account. Assume-role did not take effect."
+          exit 1
+        fi
+        if [ "$CALLER_ACCOUNT" != "$EXPECTED_ACCOUNT_ID" ]; then
+          echo "ERROR: Expected account $EXPECTED_ACCOUNT_ID but assumed into $CALLER_ACCOUNT."
           exit 1
         fi
       - cd infra/${CW_APP_NAME}
@@ -173,6 +182,11 @@ artifacts:
               name: "DEPLOYMENT_ROLE_ARN",
               type: "PLAINTEXT",
               value: BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+            },
+            {
+              name: "EXPECTED_ACCOUNT_ID",
+              type: "PLAINTEXT",
+              value: BOUNDLESS_STAGING_ACCOUNT_ID,
             },
             {
               name: "STACK_NAME",
@@ -207,6 +221,11 @@ artifacts:
               name: "DEPLOYMENT_ROLE_ARN",
               type: "PLAINTEXT",
               value: BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
+            },
+            {
+              name: "EXPECTED_ACCOUNT_ID",
+              type: "PLAINTEXT",
+              value: BOUNDLESS_PROD_ACCOUNT_ID,
             },
             {
               name: "STACK_NAME",
@@ -369,7 +388,7 @@ artifacts:
                 version: "1",
                 runOrder: 1,
                 inputArtifacts: ["source_output"],
-                outputArtifacts: ["cw_production_output"],
+                outputArtifacts: ["cw_nightly_production_output"],
                 configuration: {
                   ProjectName: cwProductionBuild.name,
                 },
@@ -406,6 +425,19 @@ artifacts:
                       type: "PLAINTEXT",
                     },
                   ]),
+                },
+              },
+              {
+                name: "CWMonitoringProduction",
+                category: "Build",
+                owner: "AWS",
+                provider: "CodeBuild",
+                version: "1",
+                runOrder: 3,
+                inputArtifacts: ["source_output"],
+                outputArtifacts: ["cw_production_output"],
+                configuration: {
+                  ProjectName: cwProductionBuild.name,
                 },
               },
             ],

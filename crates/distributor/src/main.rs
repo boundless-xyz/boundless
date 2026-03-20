@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use alloy::{
@@ -25,12 +27,20 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol,
 };
-use anyhow::Result;
-use boundless_market::{client::Client, Deployment};
+use anyhow::{Context, Result};
+use boundless_market::{
+    client::Client,
+    deployments::collateral_token_supports_permit,
+    indexer_client::{IndexerClient, ProverLeaderboardEntry},
+    BoundlessMarketService, Deployment,
+};
+use chrono::Utc;
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 const TX_TIMEOUT: Duration = Duration::from_secs(180);
+const CHAINALYSIS_API_URL: &str = "https://public.chainalysis.com";
 
 sol! {
     #[sol(rpc)]
@@ -40,6 +50,18 @@ sol! {
         function transfer(address to, uint256 amount) external returns (bool);
         function balanceOf(address owner) external view returns (uint256);
     }
+}
+
+/// Chainalysis Sanctions API response.
+#[derive(Deserialize, Debug)]
+struct SanctionsResponse {
+    identifications: Vec<SanctionsIdentification>,
+}
+
+#[derive(Deserialize, Debug)]
+struct SanctionsIdentification {
+    #[allow(dead_code)]
+    category: Option<String>,
 }
 
 /// Arguments of the order generator.
@@ -91,6 +113,80 @@ struct MainArgs {
     /// Deployment to use
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
+
+    // --- External prover top-up args ---
+    /// Enable external prover collateral top-ups. Requires --indexer-api-url.
+    #[clap(long, env)]
+    enable_external_topup: bool,
+    /// Indexer API base URL (required when --enable-external-topup is set).
+    #[clap(long, env)]
+    indexer_api_url: Option<Url>,
+    /// Minimum 7D billion-cycles for a prover to qualify for external top-up
+    #[clap(long, env, default_value = "1")]
+    min_bcycles_threshold: u64,
+    /// Chainalysis Sanctions API key (leave empty to skip OFAC screening, e.g. on testnets)
+    #[clap(long, env = "CHAINALYSIS_API_KEY", default_value = "")]
+    chainalysis_api_key: String,
+    /// Chainalysis Sanctions API base URL override (test only; defaults to the public endpoint)
+    #[clap(skip = CHAINALYSIS_API_URL.to_string())]
+    chainalysis_api_url: String,
+    /// ZKC balance below which an external prover gets topped up (human-readable, e.g. "5")
+    #[clap(long, env, default_value = "5")]
+    external_collateral_threshold: String,
+    /// ZKC per top-up for external provers (human-readable, e.g. "10")
+    #[clap(long, env, default_value = "10")]
+    external_per_top_up_amount: String,
+    /// Total lifetime ZKC allowance per external prover (human-readable, e.g. "100")
+    #[clap(long, env, default_value = "100")]
+    external_lifetime_allowance: String,
+    /// Path to JSON state file tracking per-prover lifetime allowances
+    #[clap(long, env, default_value = "./topup-state.json")]
+    allowance_state_file: PathBuf,
+}
+
+/// Per-prover lifetime allowance tracking.
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+struct ProverAllowance {
+    /// Total ZKC sent to this prover (raw U256 string).
+    total_sent: String,
+    /// Last top-up timestamp (ISO 8601).
+    last_top_up: Option<String>,
+    /// Whether the address was flagged as sanctioned.
+    sanctioned: bool,
+}
+
+/// State file tracking all external prover allowances.
+#[derive(Serialize, Deserialize, Default, Debug)]
+struct AllowanceState {
+    provers: HashMap<String, ProverAllowance>,
+}
+
+fn load_state(path: &std::path::Path) -> Result<AllowanceState> {
+    if path.exists() {
+        let data = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read state file {}", path.display()))?;
+        serde_json::from_str(&data)
+            .with_context(|| format!("Failed to parse state file {}", path.display()))
+    } else {
+        Ok(AllowanceState::default())
+    }
+}
+
+fn save_state(path: &std::path::Path, state: &AllowanceState) -> Result<()> {
+    let data = serde_json::to_string_pretty(state).context("Failed to serialize state")?;
+    std::fs::write(path, data)
+        .with_context(|| format!("Failed to write state file {}", path.display()))
+}
+
+fn parse_total_sent(s: &str) -> U256 {
+    if s.is_empty() {
+        U256::ZERO
+    } else {
+        U256::from_str_radix(s, 10).unwrap_or_else(|e| {
+            tracing::warn!("Corrupt total_sent value '{}': {}. Treating as zero.", s, e);
+            U256::ZERO
+        })
+    }
 }
 
 #[tokio::main]
@@ -582,6 +678,254 @@ async fn run(args: &MainArgs) -> Result<()> {
         }
     }
 
+    // --- External prover collateral top-ups ---
+    if args.enable_external_topup {
+        match args.indexer_api_url {
+            Some(ref indexer_api_url) => {
+                if let Err(e) = top_up_external_provers(
+                    args,
+                    &distributor_client.boundless_market,
+                    collateral_token_decimals,
+                    indexer_api_url,
+                )
+                .await
+                {
+                    tracing::error!("External prover top-up flow failed: {:?}", e);
+                }
+            }
+            None => {
+                tracing::error!("--enable-external-topup is set but --indexer-api-url is missing");
+            }
+        }
+    } else {
+        tracing::info!("External prover top-ups disabled");
+    }
+
+    Ok(())
+}
+
+async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone + 'static>(
+    args: &MainArgs,
+    market: &BoundlessMarketService<P>,
+    collateral_token_decimals: u8,
+    indexer_api_url: &Url,
+) -> Result<()> {
+    tracing::info!("Starting external prover collateral top-up flow");
+
+    // Parse external prover thresholds
+    let ext_collateral_threshold: U256 =
+        parse_units(&args.external_collateral_threshold, collateral_token_decimals)?.into();
+    let ext_per_top_up: U256 =
+        parse_units(&args.external_per_top_up_amount, collateral_token_decimals)?.into();
+    let ext_lifetime_allowance: U256 =
+        parse_units(&args.external_lifetime_allowance, collateral_token_decimals)?.into();
+
+    // Hard cap: lifetime allowance must never exceed 100 ZKC
+    let max_lifetime: U256 = parse_units("100", collateral_token_decimals)?.into();
+    anyhow::ensure!(
+        ext_lifetime_allowance <= max_lifetime,
+        "EXTERNAL_LIFETIME_ALLOWANCE ({}) exceeds the hard cap of 100 ZKC",
+        args.external_lifetime_allowance
+    );
+    anyhow::ensure!(
+        ext_per_top_up <= ext_lifetime_allowance,
+        "EXTERNAL_PER_TOP_UP_AMOUNT ({}) exceeds EXTERNAL_LIFETIME_ALLOWANCE ({})",
+        args.external_per_top_up_amount,
+        args.external_lifetime_allowance
+    );
+
+    // 1. Fetch active provers from indexer API (7D period)
+    let indexer = IndexerClient::new(indexer_api_url.clone())?;
+    let provers_resp = indexer.get_provers("7d").await?;
+    tracing::info!("Fetched {} provers from indexer API", provers_resp.data.len());
+
+    // 2. Filter by min cycles
+    let eligible: Vec<&ProverLeaderboardEntry> = provers_resp
+        .data
+        .iter()
+        .filter(|p| {
+            p.cycles.parse::<u64>().unwrap_or(0) >= args.min_bcycles_threshold * 1_000_000_000
+        })
+        .collect();
+    tracing::info!(
+        "{} provers meet the min cycles threshold of {}B",
+        eligible.len(),
+        args.min_bcycles_threshold
+    );
+
+    if eligible.is_empty() {
+        return Ok(());
+    }
+
+    // 3. Load lifetime allowance state
+    let mut state = load_state(&args.allowance_state_file)?;
+
+    // 4. Set up Chainalysis Sanctions API (skip when API key is empty, e.g. testnets)
+    let skip_ofac = args.chainalysis_api_key.is_empty();
+    if skip_ofac {
+        tracing::warn!(
+            "Chainalysis API key is empty — OFAC screening is DISABLED. \
+             This is expected on testnets but must not happen in production."
+        );
+    }
+    let http_client = reqwest::Client::new();
+
+    // 5. Chain-aware deposit setup
+    let chain_id = market.get_chain_id().await?;
+    let use_permit = collateral_token_supports_permit(chain_id);
+
+    if !use_permit {
+        // Non-permit chains (e.g. Base): approve once, deposit N times
+        tracing::info!(
+            "Chain {} does not support permit, using approve+depositCollateralTo",
+            chain_id
+        );
+        market.approve_deposit_collateral(U256::MAX).await?;
+    }
+
+    let signer = &args.private_key;
+
+    for prover in &eligible {
+        let addr: Address = prover
+            .prover_address
+            .parse()
+            .with_context(|| format!("Invalid prover address: {}", prover.prover_address))?;
+
+        let addr_key = format!("{:?}", addr);
+        let entry = state.provers.entry(addr_key.clone()).or_default();
+
+        let total_sent = parse_total_sent(&entry.total_sent);
+
+        // Skip if exhausted
+        if total_sent >= ext_lifetime_allowance {
+            tracing::info!(
+                "[B-TOPUP-EXHAUSTED] Prover {} has reached lifetime allowance of {}",
+                addr,
+                format_units(ext_lifetime_allowance, collateral_token_decimals)?
+            );
+            continue;
+        }
+
+        // Skip if previously sanctioned
+        if entry.sanctioned {
+            tracing::info!("[B-TOPUP-OFAC] Prover {} previously flagged as sanctioned", addr);
+            continue;
+        }
+
+        // Use deposited collateral from indexer
+        let balance: U256 = if prover.collateral_deposited_zkc.is_empty() {
+            U256::ZERO
+        } else {
+            parse_units(&prover.collateral_deposited_zkc, collateral_token_decimals)
+                .map(|v| v.into())
+                .unwrap_or(U256::ZERO)
+        };
+
+        if balance >= ext_collateral_threshold {
+            tracing::debug!(
+                "Prover {} has {} deposited collateral, above threshold {}. Skipping.",
+                addr,
+                format_units(balance, collateral_token_decimals)?,
+                format_units(ext_collateral_threshold, collateral_token_decimals)?
+            );
+            continue;
+        }
+
+        // OFAC screen via Chainalysis REST API (fail-closed: skip on error)
+        if !skip_ofac {
+            let url = format!(
+                "{}/api/v1/address/{:?}",
+                args.chainalysis_api_url.trim_end_matches('/'),
+                addr
+            );
+            match http_client.get(&url).header("X-API-Key", &args.chainalysis_api_key).send().await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<SanctionsResponse>().await {
+                        Ok(body) if !body.identifications.is_empty() => {
+                            tracing::warn!(
+                                "[B-TOPUP-OFAC] Address {} is sanctioned, blocking top-up",
+                                addr
+                            );
+                            entry.sanctioned = true;
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "[B-TOPUP-OFAC-ERR] Failed to parse sanctions response for {}: {}. Skipping (fail-closed).",
+                                addr, e
+                            );
+                            continue;
+                        }
+                        _ => {} // not sanctioned
+                    }
+                }
+                Ok(resp) => {
+                    tracing::warn!(
+                        "[B-TOPUP-OFAC-ERR] Chainalysis API returned status {} for {}. Skipping (fail-closed).",
+                        resp.status(), addr
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[B-TOPUP-OFAC-ERR] Chainalysis API call failed for {}: {}. Skipping (fail-closed).",
+                        addr, e
+                    );
+                    continue;
+                }
+            }
+        }
+
+        // Compute capped amount
+        let remaining = ext_lifetime_allowance.saturating_sub(total_sent);
+        let amount = ext_per_top_up.min(remaining);
+
+        if amount == U256::ZERO {
+            continue;
+        }
+
+        tracing::info!(
+            "Depositing {} collateral to external prover {} (lifetime sent: {}, remaining: {})",
+            format_units(amount, collateral_token_decimals)?,
+            addr,
+            format_units(total_sent, collateral_token_decimals)?,
+            format_units(remaining, collateral_token_decimals)?
+        );
+
+        // Deposit directly to prover's market balance
+        let deposit_result = if use_permit {
+            market.deposit_collateral_with_permit_to(addr, amount, signer).await
+        } else {
+            market.deposit_collateral_to(addr, amount).await
+        };
+
+        match deposit_result {
+            Ok(()) => {
+                let new_total = total_sent.saturating_add(amount);
+                entry.total_sent = format!("{}", new_total);
+                entry.last_top_up = Some(Utc::now().to_rfc3339());
+                tracing::info!(
+                    "[B-TOPUP-OK] Successfully topped up prover {} with {} collateral",
+                    addr,
+                    format_units(amount, collateral_token_decimals)?
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to deposit collateral to external prover {}: {:?}. Skipping.",
+                    addr,
+                    e
+                );
+                continue;
+            }
+        }
+    }
+
+    // 6. Save state
+    save_state(&args.allowance_state_file, &state)?;
+    tracing::info!("External prover top-up state saved to {}", args.allowance_state_file.display());
+
     Ok(())
 }
 
@@ -592,9 +936,194 @@ mod tests {
         providers::{ext::AnvilApi, Provider},
     };
     use boundless_test_utils::market::create_test_ctx;
+    use httpmock::prelude::*;
     use tracing_test::traced_test;
 
     use super::*;
+
+    /// Build a mock indexer server that returns the given prover entries.
+    fn mock_indexer_server(provers: &[serde_json::Value]) -> MockServer {
+        let server = MockServer::start();
+        let response = serde_json::json!({
+            "chain_id": 31337,
+            "period": "7d",
+            "period_start": 0,
+            "period_end": 9999999999i64,
+            "data": provers,
+            "next_cursor": null,
+            "has_more": false,
+        });
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/market/provers");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&response).unwrap());
+        });
+        server
+    }
+
+    /// Build a prover leaderboard entry JSON for a given address.
+    fn prover_entry(
+        address: Address,
+        cycles: u64,
+        collateral_deposited_zkc: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "chain_id": 31337,
+            "prover_address": format!("{:?}", address),
+            "orders_locked": 10,
+            "orders_fulfilled": 9,
+            "cycles": cycles.to_string(),
+            "cycles_formatted": format!("{} cycles", cycles),
+            "fees_earned": "1000000000000000000",
+            "fees_earned_formatted": "1.0 ETH",
+            "collateral_earned": "0",
+            "collateral_earned_formatted": "0.0",
+            "median_lock_price_per_cycle": null,
+            "median_lock_price_per_cycle_formatted": null,
+            "best_effective_prove_mhz": 100.0,
+            "locked_order_fulfillment_rate": 90.0,
+            "collateral_deposited_zkc": collateral_deposited_zkc.to_string(),
+            "collateral_deposited_zkc_formatted": format!("{} ZKC", collateral_deposited_zkc),
+            "collateral_available_zkc": "0",
+            "collateral_available_zkc_formatted": "0.0 ZKC",
+            "last_activity_time": 1710000000,
+            "last_activity_time_iso": "2025-03-10T00:00:00Z",
+        })
+    }
+
+    /// Common test fixture for external prover top-up tests.
+    ///
+    /// Encapsulates anvil, contract deployment, distributor funding, mock Chainalysis
+    /// API server, state dir, and a Client for post-run assertions.
+    struct ExternalTopupFixture {
+        anvil: alloy::node_bindings::AnvilInstance,
+        deployment: Deployment,
+        distributor_signer: PrivateKeySigner,
+        slasher_signer: PrivateKeySigner,
+        chainalysis_mock: MockServer,
+        state_dir: tempfile::TempDir,
+    }
+
+    impl ExternalTopupFixture {
+        /// Create a fully-initialized fixture: anvil, contracts, funded distributor,
+        /// mock Chainalysis API server, and a temp dir for the state file.
+        async fn new() -> Self {
+            let anvil = Anvil::new().spawn();
+            let ctx = create_test_ctx(&anvil).await.unwrap();
+
+            let distributor_signer = PrivateKeySigner::random();
+            let slasher_signer = PrivateKeySigner::random();
+
+            let provider = ProviderBuilder::new().connect(&anvil.endpoint()).await.unwrap();
+            provider
+                .anvil_set_balance(distributor_signer.address(), parse_ether("10").unwrap())
+                .await
+                .unwrap();
+
+            ctx.hit_points_service
+                .mint(distributor_signer.address(), parse_units("200", 18).unwrap().into())
+                .await
+                .unwrap();
+
+            let chainalysis_mock = MockServer::start();
+
+            Self {
+                anvil,
+                deployment: ctx.deployment,
+                distributor_signer,
+                slasher_signer,
+                chainalysis_mock,
+                state_dir: tempfile::tempdir().unwrap(),
+            }
+        }
+
+        fn state_file(&self) -> PathBuf {
+            self.state_dir.path().join("topup-state.json")
+        }
+
+        fn args(&self, indexer_url: &str) -> MainArgs {
+            MainArgs {
+                rpc_url: self.anvil.endpoint_url(),
+                private_key: self.distributor_signer.clone(),
+                prover_keys: vec![],
+                prover_eth_donate_threshold: "1.0".to_string(),
+                prover_stake_donate_threshold: "20.0".to_string(),
+                eth_threshold: "0.1".to_string(),
+                stake_threshold: "0.1".to_string(),
+                eth_top_up_amount: "0.5".to_string(),
+                stake_top_up_amount: "5".to_string(),
+                distributor_eth_alert_threshold: "0.5".to_string(),
+                distributor_stake_alert_threshold: "50.0".to_string(),
+                order_generator_keys: vec![],
+                offchain_requestor_addresses: vec![],
+                slasher_key: self.slasher_signer.clone(),
+                deployment: Some(self.deployment.clone()),
+                enable_external_topup: true,
+                indexer_api_url: Some(indexer_url.parse().unwrap()),
+                min_bcycles_threshold: 1,
+                chainalysis_api_key: "test-key".to_string(),
+                chainalysis_api_url: self.chainalysis_mock.base_url(),
+                external_collateral_threshold: "5".to_string(),
+                external_per_top_up_amount: "10".to_string(),
+                external_lifetime_allowance: "100".to_string(),
+                allowance_state_file: self.state_file(),
+            }
+        }
+
+        async fn collateral_balance_of(&self, addr: Address) -> U256 {
+            let client = Client::builder()
+                .with_rpc_url(self.anvil.endpoint_url())
+                .with_private_key(self.distributor_signer.clone())
+                .with_deployment(self.deployment.clone())
+                .build()
+                .await
+                .unwrap();
+            client.boundless_market.balance_of_collateral(addr).await.unwrap()
+        }
+
+        fn load_state(&self) -> AllowanceState {
+            serde_json::from_str(&std::fs::read_to_string(self.state_file()).unwrap()).unwrap()
+        }
+
+        /// Register a catch-all mock returning "not sanctioned" for any address.
+        fn allow_all(&self) {
+            self.chainalysis_mock.mock(|when, then| {
+                when.method(GET).path_contains("/api/v1/address/");
+                then.status(200)
+                    .header("Content-Type", "application/json")
+                    .body(r#"{"identifications":[]}"#);
+            });
+        }
+
+        /// Register a mock response marking the given address as sanctioned.
+        fn sanction(&self, addr: Address) {
+            let addr_str = format!("{:?}", addr);
+            self.chainalysis_mock.mock(|when, then| {
+                when.method(GET).path(format!("/api/v1/address/{}", addr_str));
+                then.status(200).header("Content-Type", "application/json").body(
+                    serde_json::to_string(&serde_json::json!({
+                        "identifications": [{
+                            "category": "Sanctions",
+                            "name": "OFAC SDN",
+                            "description": "Sanctioned address",
+                            "url": "https://example.com"
+                        }]
+                    }))
+                    .unwrap(),
+                );
+            });
+        }
+
+        /// Register a mock returning 500 for the given address.
+        fn fail_ofac(&self, addr: Address) {
+            let addr_str = format!("{:?}", addr);
+            self.chainalysis_mock.mock(|when, then| {
+                when.method(GET).path(format!("/api/v1/address/{}", addr_str));
+                then.status(500).body("Internal Server Error");
+            });
+        }
+    }
 
     #[tokio::test]
     #[traced_test]
@@ -640,6 +1169,16 @@ mod tests {
             offchain_requestor_addresses: vec![offchain_requestor_signer.address()],
             slasher_key: slasher_signer.clone(),
             deployment: Some(ctx.deployment.clone()),
+            // External prover args (disabled for this test)
+            enable_external_topup: false,
+            indexer_api_url: None,
+            min_bcycles_threshold: 1,
+            chainalysis_api_key: String::new(),
+            chainalysis_api_url: String::new(),
+            external_collateral_threshold: "5".to_string(),
+            external_per_top_up_amount: "10".to_string(),
+            external_lifetime_allowance: "100".to_string(),
+            allowance_state_file: PathBuf::from("./test-topup-state.json"),
         };
 
         run(&args).await.unwrap();
@@ -683,5 +1222,196 @@ mod tests {
         assert_eq!(prover_stake_balance, U256::ZERO);
         assert_eq!(prover_stake_balance_2, U256::ZERO);
         assert!(logs_contain("[B-DIST-STK]"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_below_threshold() {
+        let fix = ExternalTopupFixture::new().await;
+        fix.allow_all();
+        let external_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
+        let args = fix.args(&server.base_url());
+
+        run(&args).await.unwrap();
+
+        let expected: U256 = parse_units("10", 18).unwrap().into();
+        assert_eq!(
+            fix.collateral_balance_of(external_prover.address()).await,
+            expected,
+            "External prover should have been topped up"
+        );
+        assert!(logs_contain("[B-TOPUP-OK]"));
+
+        let state = fix.load_state();
+        let entry = state.provers.get(&format!("{:?}", external_prover.address())).unwrap();
+        assert_eq!(parse_total_sent(&entry.total_sent), expected);
+        assert!(!entry.sanctioned);
+        assert!(entry.last_top_up.is_some());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_lifetime_cap() {
+        let fix = ExternalTopupFixture::new().await;
+        let external_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
+
+        // Pre-seed state: prover already received 100 ZKC (= lifetime cap)
+        let lifetime_cap: U256 = parse_units("100", 18).unwrap().into();
+        let initial_state = AllowanceState {
+            provers: HashMap::from([(
+                format!("{:?}", external_prover.address()),
+                ProverAllowance {
+                    total_sent: format!("{}", lifetime_cap),
+                    last_top_up: Some("2026-01-01T00:00:00Z".to_string()),
+                    sanctioned: false,
+                },
+            )]),
+        };
+        std::fs::write(fix.state_file(), serde_json::to_string(&initial_state).unwrap()).unwrap();
+
+        let args = fix.args(&server.base_url());
+        run(&args).await.unwrap();
+
+        assert_eq!(
+            fix.collateral_balance_of(external_prover.address()).await,
+            U256::ZERO,
+            "Capped prover should not get more collateral"
+        );
+        assert!(logs_contain("[B-TOPUP-EXHAUSTED]"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_sanctioned_address() {
+        let fix = ExternalTopupFixture::new().await;
+        let sanctioned_prover = PrivateKeySigner::random();
+
+        fix.sanction(sanctioned_prover.address());
+
+        let server =
+            mock_indexer_server(&[prover_entry(sanctioned_prover.address(), 2_000_000_000, "0")]);
+        let args = fix.args(&server.base_url());
+
+        run(&args).await.unwrap();
+
+        assert_eq!(
+            fix.collateral_balance_of(sanctioned_prover.address()).await,
+            U256::ZERO,
+            "Sanctioned prover should not get collateral"
+        );
+        assert!(logs_contain("[B-TOPUP-OFAC]"));
+
+        let state = fix.load_state();
+        assert!(
+            state.provers.get(&format!("{:?}", sanctioned_prover.address())).unwrap().sanctioned
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_api_failure_fail_closed() {
+        let fix = ExternalTopupFixture::new().await;
+        let external_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
+
+        // Register a mock returning 500 for this address
+        fix.fail_ofac(external_prover.address());
+
+        let args = fix.args(&server.base_url());
+        run(&args).await.unwrap();
+
+        assert_eq!(
+            fix.collateral_balance_of(external_prover.address()).await,
+            U256::ZERO,
+            "API failure should fail-closed, no top-up"
+        );
+        assert!(logs_contain("[B-TOPUP-OFAC-ERR]"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_below_min_cycles() {
+        let fix = ExternalTopupFixture::new().await;
+        let low_cycles_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(low_cycles_prover.address(), 500_000, "0")]);
+        let args = fix.args(&server.base_url());
+
+        run(&args).await.unwrap();
+
+        assert_eq!(
+            fix.collateral_balance_of(low_cycles_prover.address()).await,
+            U256::ZERO,
+            "Low-cycles prover should not get collateral"
+        );
+        assert!(!logs_contain("[B-TOPUP-OK]"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_lifetime_allowance_exceeds_hard_cap() {
+        let fix = ExternalTopupFixture::new().await;
+        let external_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
+        let mut args = fix.args(&server.base_url());
+        args.external_lifetime_allowance = "101".to_string();
+
+        run(&args).await.unwrap();
+
+        assert!(logs_contain("exceeds the hard cap of 100 ZKC"));
+        assert!(!logs_contain("[B-TOPUP-OK]"));
+        assert_eq!(
+            fix.collateral_balance_of(external_prover.address()).await,
+            U256::ZERO,
+            "No top-up should occur when lifetime allowance exceeds hard cap"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_per_amount_exceeds_lifetime_allowance() {
+        let fix = ExternalTopupFixture::new().await;
+        let external_prover = PrivateKeySigner::random();
+
+        let server =
+            mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
+        let mut args = fix.args(&server.base_url());
+        args.external_per_top_up_amount = "60".to_string();
+        args.external_lifetime_allowance = "50".to_string();
+
+        run(&args).await.unwrap();
+
+        assert!(logs_contain("exceeds EXTERNAL_LIFETIME_ALLOWANCE"));
+        assert!(!logs_contain("[B-TOPUP-OK]"));
+        assert_eq!(
+            fix.collateral_balance_of(external_prover.address()).await,
+            U256::ZERO,
+            "No top-up should occur when per-top-up exceeds lifetime allowance"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_external_topup_disabled() {
+        let fix = ExternalTopupFixture::new().await;
+
+        let mut args = fix.args("http://localhost:1");
+        args.enable_external_topup = false;
+
+        run(&args).await.unwrap();
+
+        assert!(logs_contain("External prover top-ups disabled"));
+        assert!(!logs_contain("[B-TOPUP-OK]"));
     }
 }
