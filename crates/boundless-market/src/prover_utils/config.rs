@@ -58,9 +58,9 @@ pub mod defaults {
     }
 
     pub const fn fulfill_gas_estimate() -> u64 {
-        // Observed cost of a basic single fulfill transaction is ~390k gas. Added a small buffer.
+        // Observed cost of a basic single fulfill transaction is ~390k gas.
         // Journal calldata costs are added separately via fulfill_journal_gas_per_byte.
-        450_000
+        420_000
     }
 
     pub const fn fulfill_journal_gas_per_byte() -> u64 {
@@ -79,6 +79,19 @@ pub mod defaults {
 
     pub fn priority_mode() -> PriorityMode {
         PriorityMode::Medium
+    }
+
+    pub fn estimation_priority_mode() -> PriorityMode {
+        // 1× raw base fee (no multiplier) + 20th percentile priority fee.
+        // Reflects what the broker actually expects to pay, without the safety buffers
+        // used for tx sending. Overestimating here causes the broker to inflate prices, lock later
+        // and potentially skip profitable orders.
+        PriorityMode::Custom {
+            base_fee_multiplier_percentage: 100,
+            priority_fee_multiplier_percentage: 100,
+            priority_fee_percentile: 20.0,
+            dynamic_multiplier_percentage: 0,
+        }
     }
 
     pub const fn max_submission_attempts() -> u32 {
@@ -385,16 +398,26 @@ pub struct MarketConfig {
     pub deny_requestor_addresses: Option<HashSet<Address>>,
     /// Transaction priority mode (low, medium, high, or custom)
     ///
-    /// Controls the multipliers applied to the provider's baseline EIP-1559
-    /// estimate. The baseline uses the median 20th-percentile tip from the last
-    /// 10 blocks as `max_priority_fee_per_gas` and doubles the current base fee
-    /// for `max_fee_per_gas`; `PriorityMode` then scales up that value based on the priority mode.
+    /// Controls the EIP-1559 fee multipliers applied when **sending** transactions (lock, fulfill, etc.).
+    /// Being generous here is cheap — with EIP-1559 you only pay the actual `base_fee + priority_fee`,
+    /// not `max_fee_per_gas`, so a high multiplier just ensures transactions land during fee spikes.
     /// Defaults to "medium". Use the `custom` variant to explicitly set the base-fee multiplier
     /// percentage (100 = 1x), priority-fee multiplier percentage, the fee-history percentile, and the
     /// dynamic multiplier, e.g.:
     /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
+
+    /// Gas estimation priority mode (low, medium, high, or custom)
+    ///
+    /// Controls the EIP-1559 fee estimate used for **profitability calculations** (should the broker
+    /// lock this order?). This should reflect what you actually expect to pay, without large safety
+    /// buffers — overestimating here causes the broker to skip profitable orders. Decoupled from
+    /// `gas_priority_mode` so that sending can be generous while estimation stays accurate.
+    /// Defaults to a custom mode with 1× base fee (no multiplier) + 20th percentile priority fee.
+    /// Accepts the same format as `gas_priority_mode`.
+    #[serde(default = "defaults::estimation_priority_mode")]
+    pub gas_estimation_priority_mode: PriorityMode,
 
     /// DEPRECATED: lockRequest priority gas
     ///
@@ -547,6 +570,7 @@ impl Default for MarketConfig {
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
+            gas_estimation_priority_mode: defaults::estimation_priority_mode(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
             max_fetch_retries: defaults::max_fetch_retries(),
