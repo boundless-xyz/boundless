@@ -178,18 +178,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-      - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
+
+      - name: Rust setup
+        uses: ./.github/actions/rust-setup
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
+          foundry-version: ${{ env.FOUNDRY_VERSION }}
 
       - name: check xtask
         run: cargo check
