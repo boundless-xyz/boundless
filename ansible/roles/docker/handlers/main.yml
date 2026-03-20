@@ -1,19 +1,24 @@
 ---
 # Handlers for docker role
+# These three handlers all listen to "Restart docker" and run in order:
+# 1. stop socket (prevents re-activation during restart)
+# 2. restart daemon (picks up new daemon.json)
+# 3. re-enable socket
 
-- name: Restart docker
-  block:
-    - name: Stop docker.socket to prevent socket-activation during restart
-      ansible.builtin.systemd:
-        name: docker.socket
-        state: stopped
+- name: Stop docker socket
+  ansible.builtin.systemd:
+    name: docker.socket
+    state: stopped
+  listen: "Restart docker"
 
-    - name: Restart docker.service with new configuration
-      ansible.builtin.systemd:
-        name: docker
-        state: restarted
+- name: Restart docker service
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+  listen: "Restart docker"
 
-    - name: Re-enable docker.socket
-      ansible.builtin.systemd:
-        name: docker.socket
-        state: started
+- name: Start docker socket
+  ansible.builtin.systemd:
+    name: docker.socket
+    state: started
+  listen: "Restart docker"
