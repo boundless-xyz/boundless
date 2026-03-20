@@ -295,13 +295,7 @@ jobs:
           key: lychee-${{ runner.os }}-v1
 
   fmt:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
+    runs-on: ubuntu-latest
     steps:
       - name: checkout code
         uses: actions/checkout@v4
