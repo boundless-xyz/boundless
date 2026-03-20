@@ -15,7 +15,7 @@ const config: LaunchPipelineConfig = {
         '. "$HOME/.cargo/env"',
         'curl -fsSL https://cargo-lambda.info/install.sh | sh -s -- -y',
         '. "$HOME/.cargo/env"',
-        'npm install -g @ziglang/cli'
+        'cargo lambda system --install-zig'
     ],
     branchName: "main",
 };
