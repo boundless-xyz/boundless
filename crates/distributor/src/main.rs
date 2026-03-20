@@ -900,9 +900,6 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
             market.deposit_collateral_to(addr, amount).await
         };
 
-        // #TODO: REmove, only added for testing code change on CI
-        println!("TESTING CODE CHANGE ON CI");
-
         match deposit_result {
             Ok(()) => {
                 let new_total = total_sent.saturating_add(amount);
