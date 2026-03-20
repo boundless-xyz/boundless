@@ -28,8 +28,11 @@ alloy = { workspace = true, features = [
     "signer-local",
     "rpc",
     "rpc-types",
+    "json-rpc",
+    "consensus",
 ] }
 alloy-chains = "0.2.0"
+alloy-consensus-any = "1.1.0"
 anyhow = { workspace = true }
 async-channel = "2.3"
 async-stream = "0.3"
@@ -82,5 +85,5 @@ rand = { workspace = true }
 risc0-groth16 = { workspace = true, features = ["prove"] }
 risc0-zkvm = { workspace = true, features = ["std"] }
 test-log = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["full", "test-util"] }
 tracing-test = { workspace = true }
