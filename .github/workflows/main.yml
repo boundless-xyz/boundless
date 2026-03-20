@@ -210,7 +210,7 @@ jobs:
       # TODO: Replace with a GitHub Actions action once one is added to the org allowlist.
       - name: install lychee
         run: |
-          curl -LsSf https://github.com/lycheeverse/lychee/releases/download/lychee-v0.15.1/lychee-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          curl -LsSf https://github.com/lycheeverse/lychee/releases/download/v0.15.1/lychee-v0.15.1-x86_64-unknown-linux-gnu.tar.gz | tar -xz
           sudo mv lychee /usr/local/bin/
 
       - name: run lychee
