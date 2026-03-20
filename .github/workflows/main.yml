@@ -611,6 +611,8 @@ jobs:
               - 'requestor-lists/**'
               - '.github/workflows/main.yml'
             # Changes to xtask
+            xtask:
               - 'xtask/**'
               - 'crates/boundless-market/**'
               - 'blake3_groth16/**'
+              - '.github/workflows/main.yml'
