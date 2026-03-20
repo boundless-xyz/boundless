@@ -3,8 +3,12 @@ import { encodeCloudWatchLogsInsightsUrl } from '../src/urls';
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import 'jest';
 
+jest.mock('../src/roles', () => ({
+  accountIdToRoleName: (accountId: string) => `TestRole-${accountId}`,
+}));
+
 const ssoBaseUrl = 'https://test.awsapps.com/start/#/console';
-const runbookUrl = 'https://TEST_RUNBOOK_URL.awsapps.com/start/#/console';
+const runbookUrl = 'https://github.com/boundless-xyz/runbooks/blob/main/alerts';
 
 // SAMPLE URL https://console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:logs-insights$3FqueryDetail$3D~(end~'2025-05-30T05*3a00*3a00.000Z~start~'2025-05-30T04*3a00*3a00.000Z~timeType~'ABSOLUTE~tz~'LOCAL~editorString~'fields*20*40timestamp*2c*20*40message*2c*20*40logStream*2c*20*40log*0a*7c*20sort*20*40timestamp*20desc*0a*7c*20limit*2010000~queryId~'66cfc23a-37bd-44b6-b0fd-dd12d4a40cdc~source~(~'arn*3aaws*3alogs*3aus-west-2*3a632745187633*3alog-group*3aprod-11155111-bonsai-prover-11155111)~lang~'CWLI)
 /** SAMPLE ALARM EVENT
@@ -57,7 +61,7 @@ describe('processAlarmEvent', () => {
       "alarmState": "ALARM"
     };
 
-    const result = await processAlarmEvent(ssoBaseUrl, runbookUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
+    const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
     console.log(result);
     expect(result).toContain('prod');
     expect(result).toContain('11155111 (Ethereum Sepolia)');
@@ -76,7 +80,7 @@ describe('processAlarmEvent', () => {
       alarmState: 'ALARM'
     };
 
-    const result = await processAlarmEvent(ssoBaseUrl, runbookUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
+    const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
     expect(result).toContain('prod');
     expect(result).toContain('8453 (Base Mainnet)');
     expect(result).toContain('monitor');
@@ -94,7 +98,7 @@ describe('processAlarmEvent', () => {
       alarmState: 'ALARM'
     };
 
-    const result = await processAlarmEvent(ssoBaseUrl, runbookUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
+    const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
     expect(result).toContain('staging');
     expect(result).toContain('11155111 (Ethereum Sepolia)');
     expect(result).toContain('monitor');
@@ -112,11 +116,58 @@ describe('processAlarmEvent', () => {
       alarmState: 'ALARM'
     };
 
-    const result = await processAlarmEvent(ssoBaseUrl, runbookUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
+    const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
     expect(result).toContain('staging');
     expect(result).toContain('11155111 (Ethereum Sepolia)');
-    expect(result).toContain('log-group*3astaging-11155111-og-onchain-11155111');
+    expect(result).toContain('log-group*3al-staging-11155111-og-onchain-11155111');
     expect(result).toContain('Test alarm description');
   });
 
-}); 
+});
+
+describe('per-alert runbook URLs', () => {
+  it('should include anchor for broker error code in description', async () => {
+    const event = {
+      alarmArn: 'arn:aws:cloudwatch:us-west-2:123456789012:alarm:test-alarm',
+      namespace: 'test',
+      alarmDescription: '>=4 batch-all-expired events [B-SUB-001] in 1 hour',
+      timestamp: '2024-03-20T12:00:00Z',
+      metricAlarmName: 'prod-8453-bento-prover-8453-submitter-requests-expired-SEV2',
+      metric: 'test',
+      alarmState: 'ALARM'
+    };
+    const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
+    expect(result).toContain(`${runbookUrl}/b-sub-001.md`);
+  });
+
+  it('should include anchor for system alarm (bento-down)', async () => {
+    const event = {
+      alarmArn: 'arn:aws:cloudwatch:us-west-2:123456789012:alarm:test-alarm',
+      namespace: 'test',
+      alarmDescription: 'bento service down for 10 min',
+      timestamp: '2024-03-20T12:00:00Z',
+      metricAlarmName: 'prod-8453-bento-prover-8453-bento-down-10m-SEV2',
+      metric: 'test',
+      alarmState: 'ALARM'
+    };
+    const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
+    expect(result).toContain(`${runbookUrl}/bento-down.md`);
+  });
+
+  it('should use base runbook URL for unknown alarm', async () => {
+    const event = {
+      alarmArn: 'arn:aws:cloudwatch:us-west-2:123456789012:alarm:test-alarm',
+      namespace: 'test',
+      alarmDescription: 'some unknown alarm',
+      timestamp: '2024-03-20T12:00:00Z',
+      metricAlarmName: 'prod-8453-bento-prover-8453-custom-thing-SEV2',
+      metric: 'test',
+      alarmState: 'ALARM'
+    };
+    const result = await processAlarmEvent(ssoBaseUrl, new CloudWatchClient({ region: 'us-west-2' }), event);
+    // Should contain the base URL (alerts directory) without a specific file
+    expect(result).toContain(runbookUrl);
+    // But should NOT have a specific .md file path (unknown alarm → base URL only)
+    expect(result).not.toContain('.md|');
+  });
+});
