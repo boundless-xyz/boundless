@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 ARG RUST_IMG=rust:1.88-bookworm
-ARG S3_CACHE_PREFIX="public/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${RUST_IMG} AS rust-builder
 
@@ -43,6 +43,8 @@ ENV RUSTFLAGS=${RUSTFLAGS}
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_cli_sc \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    (ulimit -n 65536 2>/dev/null || true) && \
+    export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
     cargo build --manifest-path bento/Cargo.toml --release -p bento-client --bin bento_cli && \
     cp bento/target/release/bento_cli /src/bento_cli && \
     sccache --show-stats

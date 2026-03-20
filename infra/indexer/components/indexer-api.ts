@@ -11,6 +11,7 @@ const ALLOWED_IP_RATE_LIMIT_PER_5_MINUTES = 1000;
 // Header names must be lowercase for WAFv2 `singleHeader` matching.
 const PROXY_SECRET_HEADER_NAME = 'x-boundless-proxy-secret';
 const FORWARDED_IP_HEADER_NAME = 'x-forwarded-for';
+const API_KEY_HEADER_NAME = 'x-api-key';
 
 export interface IndexerApiArgs {
   /** VPC where RDS lives */
@@ -39,6 +40,8 @@ export interface IndexerApiArgs {
   databaseVersion?: string;
   /** Optional comma-separated list of IP addresses to allow higher rate limit (1000 per 5 minutes) */
   allowedIpAddresses?: pulumi.Input<string>;
+  /** Optional API key that grants 5x the default rate limit (1000 per 5 minutes) via x-api-key header */
+  premiumApiKey?: pulumi.Input<string>;
 }
 
 export class IndexerApi extends pulumi.ComponentResource {
@@ -383,7 +386,24 @@ export class IndexerApi extends pulumi.ComponentResource {
       )
     );
 
-    // Build WAF rules array - always include allowed IP rule at priority 0
+    const proxySecretMatch = {
+      byteMatchStatement: {
+        searchString: args.proxySecret,
+        fieldToMatch: { singleHeader: { name: PROXY_SECRET_HEADER_NAME } },
+        positionalConstraint: 'EXACTLY',
+        textTransformations: [{ priority: 0, type: 'NONE' }],
+      },
+    };
+
+    const apiKeyMatch = args.premiumApiKey ? {
+      byteMatchStatement: {
+        searchString: args.premiumApiKey,
+        fieldToMatch: { singleHeader: { name: API_KEY_HEADER_NAME } },
+        positionalConstraint: 'EXACTLY',
+        textTransformations: [{ priority: 0, type: 'NONE' }],
+      },
+    } : undefined;
+
     const allRules = allowedIpSet.apply(ipSet => [
       {
         name: 'AllowedIpRateLimit',
@@ -406,10 +426,26 @@ export class IndexerApi extends pulumi.ComponentResource {
           metricName: 'AllowedIpRateLimit',
         },
       },
-      // If proxy secret matches, rate limit by forwarded client IP (from X-Forwarded-For)
+      ...(apiKeyMatch ? [{
+        name: 'ApiKeyRateLimit',
+        priority: 1,
+        statement: {
+          rateBasedStatement: {
+            limit: ALLOWED_IP_RATE_LIMIT_PER_5_MINUTES,
+            aggregateKeyType: 'IP' as const,
+            scopeDownStatement: apiKeyMatch,
+          },
+        },
+        action: { block: {} },
+        visibilityConfig: {
+          sampledRequestsEnabled: true,
+          cloudwatchMetricsEnabled: true,
+          metricName: 'ApiKeyRateLimit',
+        },
+      }] : []),
       {
         name: 'ProxyForwardedIpRateLimit',
-        priority: 1,
+        priority: 2,
         statement: {
           rateBasedStatement: {
             limit: RATE_LIMIT_PER_5_MINUTES,
@@ -418,16 +454,9 @@ export class IndexerApi extends pulumi.ComponentResource {
               headerName: FORWARDED_IP_HEADER_NAME,
               fallbackBehavior: 'NO_MATCH',
             },
-            scopeDownStatement: {
-              byteMatchStatement: {
-                searchString: args.proxySecret,
-                fieldToMatch: {
-                  singleHeader: { name: PROXY_SECRET_HEADER_NAME },
-                },
-                positionalConstraint: 'EXACTLY',
-                textTransformations: [{ priority: 0, type: 'NONE' }],
-              },
-            },
+            scopeDownStatement: apiKeyMatch
+              ? { andStatement: { statements: [proxySecretMatch, { notStatement: { statements: [apiKeyMatch] } }] } }
+              : proxySecretMatch,
           },
         },
         action: { block: {} },
@@ -437,30 +466,16 @@ export class IndexerApi extends pulumi.ComponentResource {
           metricName: 'ProxyForwardedIpRateLimit',
         },
       },
-      // If proxy secret does NOT match, rate limit by true source IP
       {
         name: 'SourceIpRateLimit',
-        priority: 2,
+        priority: 3,
         statement: {
           rateBasedStatement: {
             limit: RATE_LIMIT_PER_5_MINUTES,
             aggregateKeyType: 'IP',
-            scopeDownStatement: {
-              notStatement: {
-                statements: [
-                  {
-                    byteMatchStatement: {
-                      searchString: args.proxySecret,
-                      fieldToMatch: {
-                        singleHeader: { name: PROXY_SECRET_HEADER_NAME },
-                      },
-                      positionalConstraint: 'EXACTLY',
-                      textTransformations: [{ priority: 0, type: 'NONE' }],
-                    },
-                  },
-                ],
-              },
-            },
+            scopeDownStatement: apiKeyMatch
+              ? { notStatement: { statements: [{ orStatement: { statements: [proxySecretMatch, apiKeyMatch] } }] } }
+              : { notStatement: { statements: [proxySecretMatch] } },
           },
         },
         action: { block: {} },
@@ -473,7 +488,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       // AWS Managed Core Rule Set
       {
         name: 'AWS-AWSManagedRulesCommonRuleSet',
-        priority: 3,
+        priority: 4,
         overrideAction: {
           none: {},
         },
@@ -492,7 +507,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       // AWS Managed Known Bad Inputs Rule Set
       {
         name: 'AWS-AWSManagedRulesKnownBadInputsRuleSet',
-        priority: 4,
+        priority: 5,
         overrideAction: {
           none: {},
         },
@@ -511,7 +526,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       // SQL Injection Protection
       {
         name: 'AWS-AWSManagedRulesSQLiRuleSet',
-        priority: 5,
+        priority: 6,
         overrideAction: {
           none: {},
         },

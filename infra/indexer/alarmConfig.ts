@@ -175,15 +175,15 @@ export const alarmConfig: ChainStageAlarms = {
             }
           ],
           expiredRequests: [{
-            description: "greater than or equal to 3 expired orders for two consecutive hours from og_onchain",
+            description: "greater than or equal to 50 expired orders over 6 hours from og_onchain",
             severity: Severity.SEV2,
             metricConfig: {
-              period: 3600,
+              period: 21600,
             },
             alarmConfig: {
-              threshold: 3,
-              evaluationPeriods: 2,
-              datapointsToAlarm: 2,
+              threshold: 50,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
               comparisonOperator: "GreaterThanOrEqualToThreshold",
             }
           }]
@@ -228,8 +228,7 @@ export const alarmConfig: ChainStageAlarms = {
             treatMissingData: "breaching"
           }
         }],
-        // Expired and slashed requests are not necessarily problems with the market. We keep these at low threshold
-        // just during the initial launch for monitoring purposes.
+        // On staging we don't expect many expired orders, so we set a low threshold.
         expiredRequests: [{
           description: "greater than 15 expired orders in 60 minutes",
           severity: Severity.SEV2,
@@ -330,28 +329,6 @@ export const alarmConfig: ChainStageAlarms = {
               }
             }
           ],
-          expiredRequests: []
-        },
-        {
-          name: "signal_requestor",
-          address: "0x47c76e56ad9316a5c1ab17cba87a1cc134552183",
-          submissionRate: [
-            {
-              description: "no submitted orders in 2 hours from signal_requestor",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 7200
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            }
-          ],
-          successRate: [], // Signal rarely gets fulfilled on testnet.
           expiredRequests: []
         }
       ],
@@ -555,10 +532,10 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0x734df7809c4ef94da037449c287166d114503198",
           submissionRate: [
             {
-              description: "no submitted orders in 1 hour from signal_requestor",
+              description: "no submitted orders in 6 hours from signal_requestor",
               severity: Severity.SEV1,
               metricConfig: {
-                period: 3600
+                period: 21600
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -569,10 +546,10 @@ export const alarmConfig: ChainStageAlarms = {
               }
             },
             {
-              description: "no submitted orders in 30 minutes from signal_requestor",
+              description: "no submitted orders in 3 hours from signal_requestor",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 1800
+                period: 10800
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -949,16 +926,15 @@ export const alarmConfig: ChainStageAlarms = {
             treatMissingData: "breaching"
           }
         }],
-        // Expired and slashed requests are not necessarily problems with the market. We keep these at low threshold
-        // just during the initial launch for monitoring purposes.
+        // Expired and slashed requests are not necessarily problems with the market. 
         expiredRequests: [{
-          description: "greater than 50 expired orders in 60 minutes",
+          description: "greater than 200 expired orders in 6 hours",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 3600,
+            period: 21600,
           },
           alarmConfig: {
-            threshold: 50,
+            threshold: 200,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",

@@ -58,8 +58,7 @@ impl PriceOracleManager {
 
     /// Convert an Amount to a target asset using current prices.
     ///
-    /// Supported conversions: USD↔ETH, USD↔ZKC
-    /// Returns error for unsupported pairs (e.g., ETH<->ZKC)
+    /// Supported conversions: USD↔ETH, USD↔ZKC, ETH↔ZKC (via USD)
     pub async fn convert(&self, amount: &Amount, target: Asset) -> Result<Amount, ConversionError> {
         if amount.asset == target {
             return Ok(amount.clone());
@@ -71,6 +70,11 @@ impl PriceOracleManager {
             }
             (Asset::USD, Asset::ZKC) | (Asset::ZKC, Asset::USD) => {
                 self.get_rate(TradingPair::ZkcUsd).await?.rate
+            }
+            // Two-hop conversion via USD: ETH -> USD -> ZKC or ZKC -> USD -> ETH
+            (Asset::ETH, Asset::ZKC) | (Asset::ZKC, Asset::ETH) => {
+                let usd_amount = Box::pin(self.convert(amount, Asset::USD)).await?;
+                return Box::pin(self.convert(&usd_amount, target)).await;
             }
             _ => {
                 return Err(ConversionError::UnsupportedConversion {
@@ -428,7 +432,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_convert_eth_to_zkc_returns_error() -> anyhow::Result<()> {
+    async fn test_convert_eth_to_zkc() -> anyhow::Result<()> {
         use crate::price_oracle::sources::StaticPriceSource;
 
         let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
@@ -441,18 +445,21 @@ mod tests {
         ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
-        // Convert ETH to ZKC (should fail - unsupported)
+        // Convert ETH to ZKC (should succeed via two-hop through USD)
+        // 1 ETH = $2000, $2000 = 2000 ZKC
         let eth_amount = Amount::parse("1 ETH", None)?;
-        let result = manager.convert(&eth_amount, Asset::ZKC).await;
+        let result = manager.convert(&eth_amount, Asset::ZKC).await?;
 
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            ConversionError::UnsupportedConversion { from, to } => {
-                assert_eq!(from, Asset::ETH);
-                assert_eq!(to, Asset::ZKC);
-            }
-            _ => panic!("Expected UnsupportedConversion error"),
-        }
+        assert_eq!(result.asset, Asset::ZKC);
+        assert_eq!(result.value, Amount::parse("2000 ZKC", None)?.value);
+
+        // Convert ZKC to ETH (should succeed via two-hop through USD)
+        // 2000 ZKC = $2000, $2000 = 1 ETH
+        let zkc_amount = Amount::parse("2000 ZKC", None)?;
+        let result = manager.convert(&zkc_amount, Asset::ETH).await?;
+
+        assert_eq!(result.asset, Asset::ETH);
+        assert_eq!(result.value, Amount::parse("1 ETH", None)?.value);
 
         Ok(())
     }

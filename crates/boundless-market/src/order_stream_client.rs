@@ -637,6 +637,86 @@ impl OrderStreamClient {
         };
         Ok(socket)
     }
+
+    /// Submit a broker identity heartbeat to the order stream.
+    ///
+    /// The payload is signed with EIP-191 `personal_sign` and the signature is sent
+    /// in the `X-Signature` header. The server verifies the signature matches the
+    /// `broker_address` in the payload and checks the broker's collateral balance.
+    pub async fn submit_heartbeat(
+        &self,
+        heartbeat: &crate::telemetry::BrokerHeartbeat,
+        signer: &impl Signer,
+    ) -> Result<()> {
+        let body = serde_json::to_vec(heartbeat).context("failed to serialize heartbeat")?;
+        let sig = sign_payload(&body, signer).await?;
+
+        let url = self.base_url.join(crate::telemetry::HEARTBEAT_PATH)?;
+        let response = self
+            .add_api_key_header(
+                self.client
+                    .post(url)
+                    .header("Content-Type", "application/json")
+                    .header("X-Signature", &sig)
+                    .body(body),
+            )
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let msg = response.text().await.unwrap_or_default();
+            anyhow::bail!("Heartbeat submission failed ({status}): {msg}");
+        }
+
+        Ok(())
+    }
+
+    /// Submit a request evaluation/completion heartbeat to the order stream.
+    ///
+    /// The payload is signed with EIP-191 `personal_sign` and the signature is sent
+    /// in the `X-Signature` header. The server verifies the signature matches the
+    /// `broker_address` in the payload and checks the broker's collateral balance.
+    pub async fn submit_request_heartbeat(
+        &self,
+        heartbeat: &crate::telemetry::RequestHeartbeat,
+        signer: &impl Signer,
+    ) -> Result<()> {
+        let body =
+            serde_json::to_vec(heartbeat).context("failed to serialize request heartbeat")?;
+        let sig = sign_payload(&body, signer).await?;
+
+        let url = self.base_url.join(crate::telemetry::HEARTBEAT_REQUESTS_PATH)?;
+        let response = self
+            .add_api_key_header(
+                self.client
+                    .post(url)
+                    .header("Content-Type", "application/json")
+                    .header("X-Signature", &sig)
+                    .body(body),
+            )
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let msg = response.text().await.unwrap_or_default();
+            anyhow::bail!("Request heartbeat submission failed ({status}): {msg}");
+        }
+
+        Ok(())
+    }
+}
+
+/// EIP-191 sign the keccak256 hash of the payload bytes.
+/// Returns the hex-encoded 65-byte signature with 0x prefix.
+async fn sign_payload(body: &[u8], signer: &impl Signer) -> Result<String> {
+    let hash = alloy::primitives::eip191_hash_message(body);
+    let sig = signer.sign_hash(&hash).await.context("failed to sign heartbeat payload")?;
+    let mut sig_bytes = [0u8; 65];
+    sig_bytes[..64].copy_from_slice(&sig.as_bytes()[..64]);
+    sig_bytes[64] = sig.v() as u8;
+    Ok(format!("0x{}", hex::encode(sig_bytes)))
 }
 
 /// Stream of Order messages from a WebSocket

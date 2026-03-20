@@ -158,6 +158,7 @@ pub struct PeriodMarketSummary {
     pub total_fees_locked: U256,
     pub total_collateral_locked: U256,
     pub total_locked_and_expired_collateral: U256,
+    pub p5_lock_price_per_cycle: U256,
     pub p10_lock_price_per_cycle: U256,
     pub p25_lock_price_per_cycle: U256,
     pub p50_lock_price_per_cycle: U256,
@@ -177,6 +178,8 @@ pub struct PeriodMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -216,6 +219,8 @@ pub struct AllTimeMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -262,6 +267,10 @@ pub struct PeriodRequestorSummary {
     pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
+    pub p50_time_to_lock_seconds: Option<f64>,
+    pub p90_time_to_lock_seconds: Option<f64>,
+    pub p50_time_to_fulfill_seconds: Option<f64>,
+    pub p90_time_to_fulfill_seconds: Option<f64>,
 }
 
 impl PeriodRequestorSummary {
@@ -353,6 +362,10 @@ pub struct ProverLeaderboardEntry {
     pub best_effective_prove_mhz: f64,
     pub locked_order_fulfillment_rate: f32,
     pub last_activity_time: u64,
+    /// Current ZKC deposited by this prover (from deposit/withdrawal events)
+    pub collateral_deposited_zkc: U256,
+    /// ZKC available for new locks (deposited minus currently locked)
+    pub collateral_available_zkc: U256,
 }
 
 #[derive(Debug, Clone)]
@@ -1934,6 +1947,8 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
+                total_fixed_cost,
+                total_variable_cost,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover,
@@ -1941,7 +1956,7 @@ impl IndexerDb for MarketDb {
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CAST($25 AS DOUBLE PRECISION), CAST($26 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, CAST($27 AS DOUBLE PRECISION), CAST($28 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 epoch_number_period_start = EXCLUDED.epoch_number_period_start,
                 total_fulfilled = EXCLUDED.total_fulfilled,
@@ -1962,6 +1977,8 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
+                total_fixed_cost = EXCLUDED.total_fixed_cost,
+                total_variable_cost = EXCLUDED.total_variable_cost,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
@@ -1990,6 +2007,8 @@ impl IndexerDb for MarketDb {
         .bind(summary.locked_orders_fulfillment_rate)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
+        .bind(u256_to_padded_string(summary.total_fixed_cost))
+        .bind(u256_to_padded_string(summary.total_variable_cost))
         .bind(summary.best_peak_prove_mhz_prover)
         .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
         .bind(summary.best_effective_prove_mhz_prover)
@@ -2031,6 +2050,8 @@ impl IndexerDb for MarketDb {
                 best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                total_fixed_cost,
+                total_variable_cost,
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2
             FROM all_time_market_summary
@@ -2082,6 +2103,10 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
+            total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))?,
+            total_variable_cost: padded_string_to_u256(
+                &row.get::<String, _>("total_variable_cost"),
+            )?,
             best_peak_prove_mhz: row
                 .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
                 .ok()
@@ -2135,6 +2160,8 @@ impl IndexerDb for MarketDb {
                 best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                total_fixed_cost,
+                total_variable_cost,
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2
             FROM all_time_market_summary
@@ -2186,6 +2213,10 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
+            total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))?,
+            total_variable_cost: padded_string_to_u256(
+                &row.get::<String, _>("total_variable_cost"),
+            )?,
             best_peak_prove_mhz: row
                 .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
                 .ok()
@@ -3605,7 +3636,8 @@ impl IndexerDb for MarketDb {
                 rs.lock_collateral,
                 rs.locked_at as lock_timestamp,
                 rs.lock_price,
-                rs.lock_price_per_cycle
+                rs.lock_price_per_cycle,
+                rs.fixed_cost
              FROM request_status rs
              WHERE rs.fulfilled_at >= $1
                AND rs.fulfilled_at < $2
@@ -3641,7 +3673,7 @@ impl IndexerDb for MarketDb {
                 lock_timestamp: lock_timestamp as u64,
                 lock_price,
                 lock_price_per_cycle,
-                fixed_cost: None,
+                fixed_cost: row.try_get("fixed_cost").ok().flatten(),
             });
         }
 
@@ -3983,6 +4015,7 @@ impl MarketDb {
                 total_fees_locked,
                 total_collateral_locked,
                 total_locked_and_expired_collateral,
+                p5_lock_price_per_cycle,
                 p10_lock_price_per_cycle,
                 p25_lock_price_per_cycle,
                 p50_lock_price_per_cycle,
@@ -4002,6 +4035,8 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
+                total_fixed_cost,
+                total_variable_cost,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover,
@@ -4009,7 +4044,7 @@ impl MarketDb {
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, CAST($32 AS DOUBLE PRECISION), CAST($33 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, CAST($35 AS DOUBLE PRECISION), CAST($36 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 epoch_number_period_start = EXCLUDED.epoch_number_period_start,
                 total_fulfilled = EXCLUDED.total_fulfilled,
@@ -4018,6 +4053,7 @@ impl MarketDb {
                 total_fees_locked = EXCLUDED.total_fees_locked,
                 total_collateral_locked = EXCLUDED.total_collateral_locked,
                 total_locked_and_expired_collateral = EXCLUDED.total_locked_and_expired_collateral,
+                p5_lock_price_per_cycle = EXCLUDED.p5_lock_price_per_cycle,
                 p10_lock_price_per_cycle = EXCLUDED.p10_lock_price_per_cycle,
                 p25_lock_price_per_cycle = EXCLUDED.p25_lock_price_per_cycle,
                 p50_lock_price_per_cycle = EXCLUDED.p50_lock_price_per_cycle,
@@ -4037,6 +4073,8 @@ impl MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
+                total_fixed_cost = EXCLUDED.total_fixed_cost,
+                total_variable_cost = EXCLUDED.total_variable_cost,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
@@ -4056,6 +4094,7 @@ impl MarketDb {
             .bind(u256_to_padded_string(summary.total_fees_locked))
             .bind(u256_to_padded_string(summary.total_collateral_locked))
             .bind(u256_to_padded_string(summary.total_locked_and_expired_collateral))
+            .bind(u256_to_padded_string(summary.p5_lock_price_per_cycle))
             .bind(u256_to_padded_string(summary.p10_lock_price_per_cycle))
             .bind(u256_to_padded_string(summary.p25_lock_price_per_cycle))
             .bind(u256_to_padded_string(summary.p50_lock_price_per_cycle))
@@ -4075,6 +4114,8 @@ impl MarketDb {
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
+            .bind(u256_to_padded_string(summary.total_fixed_cost))
+            .bind(u256_to_padded_string(summary.total_variable_cost))
             .bind(summary.best_peak_prove_mhz_prover)
             .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
             .bind(summary.best_effective_prove_mhz_prover)
@@ -4151,6 +4192,7 @@ impl MarketDb {
                 total_fees_locked,
                 total_collateral_locked,
                 total_locked_and_expired_collateral,
+                p5_lock_price_per_cycle,
                 p10_lock_price_per_cycle,
                 p25_lock_price_per_cycle,
                 p50_lock_price_per_cycle,
@@ -4170,6 +4212,8 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
+                total_fixed_cost,
+                total_variable_cost,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover,
@@ -4230,6 +4274,10 @@ impl MarketDb {
                     &row.get::<String, _>("total_locked_and_expired_collateral"),
                 )
                 .unwrap_or(U256::ZERO),
+                p5_lock_price_per_cycle: padded_string_to_u256(
+                    &row.get::<String, _>("p5_lock_price_per_cycle"),
+                )
+                .unwrap_or(U256::ZERO),
                 p10_lock_price_per_cycle: padded_string_to_u256(
                     &row.get::<String, _>("p10_lock_price_per_cycle"),
                 )
@@ -4280,6 +4328,12 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
+                total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))
+                    .unwrap_or(U256::ZERO),
+                total_variable_cost: padded_string_to_u256(
+                    &row.get::<String, _>("total_variable_cost"),
+                )
+                .unwrap_or(U256::ZERO),
                 best_peak_prove_mhz: row
                     .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
                     .ok()
@@ -4392,6 +4446,8 @@ impl MarketDb {
                 best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                total_fixed_cost,
+                total_variable_cost,
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2
             FROM all_time_market_summary
@@ -4470,6 +4526,12 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
+                total_fixed_cost: padded_string_to_u256(&row.get::<String, _>("total_fixed_cost"))
+                    .unwrap_or(U256::ZERO),
+                total_variable_cost: padded_string_to_u256(
+                    &row.get::<String, _>("total_variable_cost"),
+                )
+                .unwrap_or(U256::ZERO),
                 best_peak_prove_mhz: row
                     .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
                     .ok()
@@ -5069,6 +5131,7 @@ mod tests {
                 total_fees_locked: U256::from(i * 1000),
                 total_collateral_locked: U256::from(i * 2000),
                 total_locked_and_expired_collateral: U256::ZERO,
+                p5_lock_price_per_cycle: U256::from(i * 50),
                 p10_lock_price_per_cycle: U256::from(i * 100),
                 p25_lock_price_per_cycle: U256::from(i * 250),
                 p50_lock_price_per_cycle: U256::from(i * 500),
@@ -5088,6 +5151,8 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
+                total_fixed_cost: U256::ZERO,
+                total_variable_cost: U256::ZERO,
                 best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -5254,6 +5319,7 @@ mod tests {
                 total_fees_locked: U256::from(i * 1000),
                 total_collateral_locked: U256::from(i * 2000),
                 total_locked_and_expired_collateral: U256::ZERO,
+                p5_lock_price_per_cycle: U256::from(i * 50),
                 p10_lock_price_per_cycle: U256::from(i * 100),
                 p25_lock_price_per_cycle: U256::from(i * 250),
                 p50_lock_price_per_cycle: U256::from(i * 500),
@@ -5273,6 +5339,8 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
+                total_fixed_cost: U256::ZERO,
+                total_variable_cost: U256::ZERO,
                 best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -5312,6 +5380,7 @@ mod tests {
                 total_fees_locked: U256::from(i * 10000),
                 total_collateral_locked: U256::from(i * 20000),
                 total_locked_and_expired_collateral: U256::ZERO,
+                p5_lock_price_per_cycle: U256::from(i * 500),
                 p10_lock_price_per_cycle: U256::from(i * 1000),
                 p25_lock_price_per_cycle: U256::from(i * 2500),
                 p50_lock_price_per_cycle: U256::from(i * 5000),
@@ -5331,6 +5400,8 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
+                total_fixed_cost: U256::ZERO,
+                total_variable_cost: U256::ZERO,
                 best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -5374,6 +5445,7 @@ mod tests {
                 total_fees_locked: U256::from(i * 100000),
                 total_collateral_locked: U256::from(i * 200000),
                 total_locked_and_expired_collateral: U256::ZERO,
+                p5_lock_price_per_cycle: U256::from(i * 5000),
                 p10_lock_price_per_cycle: U256::from(i * 10000),
                 p25_lock_price_per_cycle: U256::from(i * 25000),
                 p50_lock_price_per_cycle: U256::from(i * 50000),
@@ -5393,6 +5465,8 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
+                total_fixed_cost: U256::ZERO,
+                total_variable_cost: U256::ZERO,
                 best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -5446,6 +5520,8 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
+                total_fixed_cost: U256::ZERO,
+                total_variable_cost: U256::ZERO,
                 best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -5500,6 +5576,8 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
+                total_fixed_cost: U256::ZERO,
+                total_variable_cost: U256::ZERO,
                 best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -5550,6 +5628,7 @@ mod tests {
                 total_fees_locked: U256::from(i * 1000),
                 total_collateral_locked: U256::from(i * 2000),
                 total_locked_and_expired_collateral: U256::ZERO,
+                p5_lock_price_per_cycle: U256::from(i * 50),
                 p10_lock_price_per_cycle: U256::from(i * 100),
                 p25_lock_price_per_cycle: U256::from(i * 250),
                 p50_lock_price_per_cycle: U256::from(i * 500),
@@ -5569,6 +5648,8 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
+                total_fixed_cost: U256::ZERO,
+                total_variable_cost: U256::ZERO,
                 best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -5656,6 +5737,99 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 0);
         assert_eq!(results[0].unique_provers_locking_requests, 0);
         assert_eq!(results[0].total_fees_locked, U256::ZERO);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_p5_percentile(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db;
+        setup_hourly_summaries(&db).await;
+
+        // Retrieve all summaries sorted ascending (i=0..10)
+        let results =
+            db.get_hourly_market_summaries(None, 10, SortDirection::Asc, None, None).await.unwrap();
+
+        assert_eq!(results.len(), 10);
+
+        // For i=0, all percentiles should be zero
+        assert_eq!(results[0].p5_lock_price_per_cycle, U256::ZERO);
+        assert_eq!(results[0].p10_lock_price_per_cycle, U256::ZERO);
+
+        // For i=5, p5 = 5*50 = 250, p10 = 5*100 = 500
+        assert_eq!(results[5].p5_lock_price_per_cycle, U256::from(250));
+        assert_eq!(results[5].p10_lock_price_per_cycle, U256::from(500));
+
+        // Verify p5 <= p10 <= p25 <= p50 for all non-zero entries
+        for result in &results[1..] {
+            assert!(
+                result.p5_lock_price_per_cycle <= result.p10_lock_price_per_cycle,
+                "p5 should be <= p10"
+            );
+            assert!(
+                result.p10_lock_price_per_cycle <= result.p25_lock_price_per_cycle,
+                "p10 should be <= p25"
+            );
+            assert!(
+                result.p25_lock_price_per_cycle <= result.p50_lock_price_per_cycle,
+                "p25 should be <= p50"
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_daily_summaries_p5_percentile(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = test_db.get_db();
+
+        let base_timestamp = 1700000000u64;
+        // Insert a summary with distinct p5 value
+        let summary = DailyMarketSummary {
+            period_timestamp: base_timestamp,
+            epoch_number_period_start: 0,
+            total_fulfilled: 100,
+            unique_provers_locking_requests: 10,
+            unique_requesters_submitting_requests: 20,
+            total_fees_locked: U256::from(50000),
+            total_collateral_locked: U256::from(100000),
+            total_locked_and_expired_collateral: U256::ZERO,
+            p5_lock_price_per_cycle: U256::from(500),
+            p10_lock_price_per_cycle: U256::from(1000),
+            p25_lock_price_per_cycle: U256::from(2500),
+            p50_lock_price_per_cycle: U256::from(5000),
+            p75_lock_price_per_cycle: U256::from(7500),
+            p90_lock_price_per_cycle: U256::from(9000),
+            p95_lock_price_per_cycle: U256::from(9500),
+            p99_lock_price_per_cycle: U256::from(9900),
+            total_requests_submitted: 100,
+            total_requests_submitted_onchain: 60,
+            total_requests_submitted_offchain: 40,
+            total_requests_locked: 50,
+            total_requests_slashed: 5,
+            total_expired: 10,
+            total_locked_and_expired: 5,
+            total_locked_and_fulfilled: 100,
+            total_secondary_fulfillments: 10,
+            locked_orders_fulfillment_rate: 100.0,
+            total_cycles: U256::ZERO,
+            total_program_cycles: U256::ZERO,
+            total_fixed_cost: U256::ZERO,
+            total_variable_cost: U256::ZERO,
+            best_peak_prove_mhz: 0.0,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 0.0,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+        };
+        db.upsert_daily_market_summary(summary).await.unwrap();
+
+        let results =
+            db.get_daily_market_summaries(None, 1, SortDirection::Desc, None, None).await.unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].p5_lock_price_per_cycle, U256::from(500));
+        assert_eq!(results[0].p10_lock_price_per_cycle, U256::from(1000));
+        assert!(results[0].p5_lock_price_per_cycle < results[0].p10_lock_price_per_cycle);
     }
 
     fn create_test_status(digest: B256, status_type: RequestStatusType) -> RequestStatus {

@@ -2,7 +2,7 @@
 # CPU-only agent build (no CUDA/GPU support)
 ARG RUST_IMG=rust:1.88-bookworm
 ARG RUNTIME_IMG=debian:bookworm-slim
-ARG S3_CACHE_PREFIX="public/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${RUST_IMG} AS rust-builder
 
@@ -43,6 +43,8 @@ ENV RUSTFLAGS=${RUSTFLAGS}
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_cpu_sc \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    (ulimit -n 65536 2>/dev/null || true) && \
+    export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
     cargo build --manifest-path bento/Cargo.toml --release -p workflow --bin agent && \
     cp bento/target/release/agent /src/agent && \
     sccache --show-stats

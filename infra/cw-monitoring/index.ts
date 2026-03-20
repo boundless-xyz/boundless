@@ -7,7 +7,7 @@
 // Alarm thresholds are tuned per-node in nodeConfig.ts following the same
 // data-driven pattern as infra/indexer/alarmConfig.ts:
 // - period is always explicit (no hidden defaults)
-// - multi-severity escalation (SEV2 warning → SEV1 page)
+// - all alarms are SEV2 (warning/Slack)
 // - descriptions map back to the actual evaluation math
 //
 // Usage:
@@ -97,16 +97,33 @@ function descHash(s: string): string {
         .toString(16).substring(0, 4);
 }
 
+const RUNBOOK_BASE_URL = "https://github.com/boundless-xyz/runbooks/blob/main/alerts";
+
+/** Append a runbook link to an alarm description if a runbook exists for the given slug. */
+function withRunbook(description: string, slug: string): string {
+    return `${description} | Runbook: ${RUNBOOK_BASE_URL}/${slug}.md`;
+}
+
+/** Extract a runbook slug from a log pattern's error code (e.g. "[B-SUB-001]" → "b-sub-001"). */
+function getSlugFromPattern(pattern: string): string | undefined {
+    const match = pattern.match(/\[([A-Z]+-[A-Z]+-\w+)\]/);
+    return match ? match[1].toLowerCase() : undefined;
+}
+
 function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     const { metricsNamespace, alarmNamespace, logGroupPrefix, retentionDays, alarmActions, stackName } = opts;
     const logGroupName = `${logGroupPrefix}/${node.hostname}`;
     const prefix = `cw-${stackName}-${node.name}`;
 
     // ── Log Group ────────────────────────────────────────────────────────
+    // Vector creates the log group on first write. We adopt it into Pulumi
+    // state so we can enforce retention and manage it as infra. The import
+    // option tells Pulumi to import the existing resource rather than fail
+    // with ResourceAlreadyExistsException.
     const logGroup = new aws.cloudwatch.LogGroup(`${prefix}-logs`, {
         name: logGroupName,
         retentionInDays: retentionDays,
-    });
+    }, { import: logGroupName });
 
     // ── Alarms (data-driven from nodeConfig) ─────────────────────────────
 
@@ -122,7 +139,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             statistic: "Minimum",
             period: ac.metricConfig.period,
             ...a,
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "bento-down"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -140,7 +157,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             statistic: "Minimum",
             period: ac.metricConfig.period,
             ...a,
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "no-containers"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -184,7 +201,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ],
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "memory-high"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -228,7 +245,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ],
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
+            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "disk-high"),
             actionsEnabled: true,
             alarmActions,
         });
@@ -241,9 +258,11 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
 
     for (const lp of node.alarms.logPatterns) {
         const severity = lp.alarm?.severity;
-        const filterSuffix = severity ? `${lp.metricName}-${severity}` : lp.metricName;
+        const h = lp.alarm ? descHash(lp.alarm.description) : "";
+        const metricSuffix = severity ? `${lp.metricName}-${severity}` : lp.metricName;
+        const filterSuffix = h ? `${metricSuffix}-${h}` : metricSuffix;
         const filterName = `${prefix}-${filterSuffix}`;
-        const metricFullName = `${node.name}-${filterSuffix}`;
+        const metricFullName = `${node.name}-${metricSuffix}`;
 
         // Metric filter
         new aws.cloudwatch.LogMetricFilter(`${filterName}-filter`, {
@@ -280,7 +299,11 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                 evaluationPeriods: lp.alarm.alarmConfig.evaluationPeriods,
                 datapointsToAlarm: lp.alarm.alarmConfig.datapointsToAlarm,
                 treatMissingData: lp.alarm.alarmConfig.treatMissingData ?? "notBreaching",
-                alarmDescription: `${lp.alarm.severity}: ${lp.alarm.description} on ${node.name}`,
+                alarmDescription: (() => {
+                    const desc = `${lp.alarm.severity}: ${lp.alarm.description} on ${node.name}`;
+                    const slug = getSlugFromPattern(lp.pattern);
+                    return slug ? withRunbook(desc, slug) : desc;
+                })(),
                 actionsEnabled: true,
                 alarmActions,
             });

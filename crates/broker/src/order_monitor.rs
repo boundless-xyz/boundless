@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::{
-    chain_monitor::{ChainHead, ChainMonitorService},
+    chain_monitor::{ChainHead, ChainMonitorObj},
     config::{ConfigLock, OrderCommitmentPriority},
     db::DbObj,
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, Order, OrderRequest,
+    utils, Erc1271GasCache, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
     network::Ethereum,
@@ -71,6 +71,10 @@ pub enum OrderMonitorErr {
 
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
+
+    /// Pre-lock gas check failed (e.g. gas spike). Caller may retry next block.
+    #[error("{code} Pre-lock gas check failed (retry later): {0}", code = self.code())]
+    PreLockCheckRetry(String),
 }
 
 impl_coded_debug!(OrderMonitorErr);
@@ -83,6 +87,7 @@ impl CodedError for OrderMonitorErr {
             OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
             OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
             OrderMonitorErr::RpcErr(_) => "[B-OM-011]",
+            OrderMonitorErr::PreLockCheckRetry(_) => "[B-OM-012]",
             OrderMonitorErr::UnexpectedError(_) => "[B-OM-500]",
         }
     }
@@ -149,7 +154,7 @@ pub struct RpcRetryConfig {
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
-    chain_monitor: Arc<ChainMonitorService<P>>,
+    chain_monitor: ChainMonitorObj,
     block_time: u64,
     config: ConfigLock,
     market: BoundlessMarketService<Arc<P>>,
@@ -159,19 +164,21 @@ pub struct OrderMonitor<P> {
     lock_and_prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     supported_selectors: SupportedSelectors,
+    erc1271_gas_cache: Erc1271GasCache,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    listen_only: bool,
 }
 
 impl<P> OrderMonitor<P>
 where
-    P: Provider<Ethereum> + WalletProvider,
+    P: Provider<Ethereum> + WalletProvider + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
+        chain_monitor: ChainMonitorObj,
         config: ConfigLock,
         block_time: u64,
         prover_addr: Address,
@@ -180,6 +187,8 @@ where
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        erc1271_gas_cache: Erc1271GasCache,
+        listen_only: bool,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -230,8 +239,10 @@ where
                     .build(),
             ),
             supported_selectors: SupportedSelectors::default(),
+            erc1271_gas_cache,
             rpc_retry_config,
             gas_priority_mode,
+            listen_only,
         };
         Ok(monitor)
     }
@@ -246,7 +257,7 @@ where
             .context("Failed to get request status")
             .map_err(OrderMonitorErr::RpcErr)?;
         if order_status != RequestStatus::Unknown {
-            tracing::info!("Request {:x} not open: {order_status:?}, skipping", request_id);
+            tracing::info!("Order {} not open: {order_status:?}, skipping", order.id());
             // TODO: fetch some chain data to find out who / and for how much the order
             // was locked in at
             return Err(OrderMonitorErr::AlreadyLocked);
@@ -258,7 +269,7 @@ where
             .await
             .context("Failed to check if request is locked")?;
         if is_locked {
-            tracing::warn!("Request 0x{:x} already locked: {order_status:?}, skipping", request_id);
+            tracing::warn!("Order {} already locked: {order_status:?}, skipping", order.id());
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
@@ -268,15 +279,41 @@ where
             .await
             .context("Failed to get collateral balance")?;
         if collateral_balance < order.request.offer.lockCollateral {
-            tracing::warn!("No longer have enough collateral deposited to market to lock order 0x{:x}, skipping [need: {} ZKC, have: {} ZKC]", request_id, format_ether(order.request.offer.lockCollateral), format_ether(collateral_balance));
+            tracing::warn!("No longer have enough collateral deposited to market to lock order {}, skipping [need: {} ZKC, have: {} ZKC]", order.id(), format_ether(order.request.offer.lockCollateral), format_ether(collateral_balance));
             return Err(OrderMonitorErr::InsufficientBalance);
         }
 
         tracing::info!(
-            "Locking request: 0x{:x} for stake: {}",
-            request_id,
+            "Locking order: {} for stake: {}",
+            order.id(),
             order.request.offer.lockCollateral
         );
+
+        // Pre-lock gas profitability check: compare gas cost against the order's current
+        // reward on the pricing ramp. Retries next block on failure (e.g. gas spike).
+        if let Some(gas_estimate) = order.gas_estimate {
+            let gas_price = self
+                .chain_monitor
+                .current_gas_price()
+                .await
+                .map_err(|e| OrderMonitorErr::PreLockCheckRetry(format!("gas price: {e:#}")))?;
+            let gas_cost = U256::from(gas_price) * U256::from(gas_estimate);
+            let reward = order
+                .request
+                .offer
+                .price_at(now_timestamp())
+                .map_err(|e| OrderMonitorErr::PreLockCheckRetry(e.to_string()))?;
+            if gas_cost > reward {
+                let msg = format!(
+                    "gas cost {} exceeds reward {}",
+                    format_ether(gas_cost),
+                    format_ether(reward)
+                );
+                tracing::warn!("Pre-lock check failed for order {}: {msg}", order.id());
+                return Err(OrderMonitorErr::PreLockCheckRetry(msg));
+            }
+        }
+
         let lock_block =
             self.market.lock_request(&order.request, order.client_sig.clone()).await.map_err(
                 |e| -> OrderMonitorErr {
@@ -440,10 +477,10 @@ where
         ) -> bool {
             let expiration = order.expiry();
             if expiration < current_block_timestamp {
-                tracing::info!("Request {:x} has now expired. Skipping.", order.request.id);
+                tracing::info!("Order {} has now expired. Skipping.", order.id());
                 false
             } else if expiration.saturating_sub(now_timestamp()) < min_deadline {
-                tracing::info!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, expiration, min_deadline);
+                tracing::info!("Order {} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.id(), expiration, min_deadline);
                 false
             } else {
                 true
@@ -456,8 +493,8 @@ where
                 Some(target_timestamp) => {
                     if current_block_timestamp < target_timestamp {
                         tracing::trace!(
-                            "Request {:x} target timestamp {} not yet reached (current: {}). Waiting.",
-                            order.request.id,
+                            "Order {} target timestamp {} not yet reached (current: {}). Waiting.",
+                            order.id(),
                             target_timestamp,
                             current_block_timestamp
                         );
@@ -469,7 +506,7 @@ where
                 None => {
                     // Should not happen, just warning for safety as this condition is not strictly
                     // enforced at compile time.
-                    tracing::warn!("Request {:x} has no target timestamp set", order.request.id);
+                    tracing::warn!("Order {} has no target timestamp set", order.id());
                     false
                 }
             }
@@ -483,8 +520,8 @@ where
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
                 tracing::info!(
-                    "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
-                    order.request.id
+                    "Order {} was locked by another prover and was fulfilled. Skipping.",
+                    order.id()
                 );
                 self.skip_order(&order, "was fulfilled by other").await;
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
@@ -492,12 +529,12 @@ where
             } else if is_target_time_reached(&order, current_block_timestamp) {
                 if self.market.is_fulfilled(order.request.id).await? {
                     tracing::debug!(
-                    "Lock expiry timeout occurred, but 0x{:x} was already fulfilled by another prover. Skipping.",
-                    order.request.id
+                    "Lock expiry timeout occurred, but order {} was already fulfilled by another prover. Skipping.",
+                    order.id()
                 );
                     self.skip_order(&order, "was fulfilled by other").await;
                 } else {
-                    tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
+                    tracing::info!("Order {} was locked by another prover but expired unfulfilled, setting status to pending proving", order.id());
                     candidate_orders.push(order);
                 }
             }
@@ -506,7 +543,7 @@ where
         for (_, order) in self.lock_and_prove_cache.iter() {
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
-                tracing::info!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
+                tracing::info!("Order {} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.id());
                 self.skip_order(&order, "lock expired before we locked").await;
             } else if let Some((locker, _)) =
                 self.db.get_request_locked(U256::from(order.request.id)).await?
@@ -518,11 +555,11 @@ where
                 let locker_address_normalized = locker_address.trim_start_matches("0x");
 
                 if locker_address_normalized != our_address_normalized {
-                    tracing::info!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
+                    tracing::info!("Order {} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.id(), our_address, locker_address);
                     self.skip_order(&order, "locked by another prover").await;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
-                    tracing::info!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
+                    tracing::info!("Order {} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.id());
                     candidate_orders.push(order);
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
@@ -554,10 +591,16 @@ where
             async move {
                 let order_id = order.id();
                 if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-                    let request_id = order.request.id;
+                    if self.listen_only {
+                        tracing::info!("[LISTEN-ONLY] Would lock and prove order: {}", order_id);
+                        self.lock_and_prove_cache.invalidate(&order_id).await;
+                        return;
+                    }
+
+                    let mut should_invalidate = true;
                     match self.lock_order(order).await {
                         Ok(lock_price) => {
-                            tracing::info!("Locked request: 0x{:x}", request_id);
+                            tracing::info!("Locked order: {}", order_id);
                             if let Err(err) = self.db.insert_accepted_request(order, lock_price).await {
                                 tracing::error!(
                                     "FATAL STAKE AT RISK: {} failed to move from locking -> proving status {}",
@@ -567,33 +610,33 @@ where
                             }
                         }
                         Err(ref err) => {
-                            match err {
-                                OrderMonitorErr::UnexpectedError(inner) => {
-                                    tracing::error!(
-                                        "Failed to lock order: {order_id} - {} - {inner:?}",
-                                        err.code()
-                                    );
+                            if let OrderMonitorErr::PreLockCheckRetry(reason) = err {
+                                tracing::warn!("Pre-lock check failed for {order_id}: {reason}, will retry next block");
+                                should_invalidate = false;
+                            } else {
+                                if matches!(err, OrderMonitorErr::UnexpectedError(_)) {
+                                    tracing::error!("Failed to lock order: {order_id} - {err:?}");
+                                } else {
+                                    tracing::warn!("Failed to lock order: {order_id} - {err:?}");
                                 }
-                                OrderMonitorErr::AlreadyLocked => {
-                                    // For order already locked, we don't need to print the error backtrace.
-                                    tracing::warn!("Soft failed to lock request: {order_id} - {}", err.code());
+                                if let Err(e) = self.db.insert_skipped_request(order).await {
+                                    tracing::error!("Failed to set DB failure state for order: {order_id} - {e:?}");
                                 }
-                                _ => {
-                                    tracing::warn!(
-                                        "Soft failed to lock request: {order_id} - {} - {err:?}",
-                                        err.code()
-                                    );
-                                }
-                            }
-                            if let Err(err) = self.db.insert_skipped_request(order).await {
-                                tracing::error!(
-                                    "Failed to set DB failure state for order: {order_id} - {err:?}"
-                                );
                             }
                         }
                     }
-                    self.lock_and_prove_cache.invalidate(&order_id).await;
+                    if should_invalidate {
+                        self.lock_and_prove_cache.invalidate(&order_id).await;
+                    }
                 } else {
+                    if self.listen_only {
+                        tracing::info!(
+                            "[LISTEN-ONLY] Would prove order (after lock expire): {}",
+                            order_id
+                        );
+                        self.prove_cache.invalidate(&order_id).await;
+                        return;
+                    }
                     if let Err(err) = self.db.insert_accepted_request(order, U256::ZERO).await {
                         tracing::error!(
                             "Failed to set order status to pending proving: {} - {err:?}",
@@ -610,6 +653,16 @@ where
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) async fn test_insert_into_lock_cache(&self, order: Arc<OrderRequest>) {
+        self.lock_and_prove_cache.insert(order.id().clone(), order).await;
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn test_lock_cache_contains(&self, order_id: &str) -> bool {
+        self.lock_and_prove_cache.get(order_id).await.is_some()
+    }
+
     /// Calculate the gas units needed for an order and the corresponding cost in wei
     async fn calculate_order_gas_cost_wei(
         &self,
@@ -618,17 +671,24 @@ where
     ) -> Result<U256, OrderMonitorErr> {
         // Calculate gas units needed for this order (lock + fulfill)
         let order_gas_units = if order.fulfillment_type == FulfillmentType::LockAndFulfill {
-            U256::from(utils::estimate_gas_to_lock(&self.config, order).await?).saturating_add(
-                U256::from(
-                    utils::estimate_gas_to_fulfill(
-                        &self.config,
-                        &self.supported_selectors,
-                        &order.request,
-                        order.journal_bytes,
-                    )
-                    .await?,
-                ),
+            U256::from(
+                utils::estimate_gas_to_lock(
+                    &self.config,
+                    order,
+                    &self.provider,
+                    &self.erc1271_gas_cache,
+                )
+                .await?,
             )
+            .saturating_add(U256::from(
+                utils::estimate_gas_to_fulfill(
+                    &self.config,
+                    &self.supported_selectors,
+                    &order.request,
+                    order.journal_bytes,
+                )
+                .await?,
+            ))
         } else {
             U256::from(
                 utils::estimate_gas_to_fulfill(
@@ -671,11 +731,15 @@ where
         // Get current gas price and available balance
         let gas_price =
             self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
-        let available_balance_wei = self
-            .provider
-            .get_balance(self.provider.default_signer_address())
-            .await
-            .map_err(|err| OrderMonitorErr::RpcErr(err.into()))?;
+        // In listen-only mode, skip balance checks since no transactions will be sent.
+        let available_balance_wei = if self.listen_only {
+            U256::MAX
+        } else {
+            self.provider
+                .get_balance(self.provider.default_signer_address())
+                .await
+                .map_err(|err| OrderMonitorErr::RpcErr(err.into()))?
+        };
 
         // Calculate gas units required for committed orders
         let committed_orders = self.db.get_committed_orders().await?;
@@ -774,7 +838,7 @@ where
                 }
 
                 let Some(order_cycles) = order.total_cycles else {
-                    tracing::warn!("Order 0x{:x} has no total cycles, preflight was skipped? Not considering for peak khz limit", order.request.id);
+                    tracing::warn!("Order {} has no total cycles, preflight was skipped? Not considering for peak khz limit", order.id());
                     final_orders.push(order);
                     remaining_balance_wei -= order_cost_wei;
                     continue;
@@ -792,8 +856,8 @@ where
                     // Otherwise, we keep the order for the next iteration as capacity may free up in the future.
 
                     if now + proof_time_seconds > expiration {
-                        tracing::info!("Order 0x{:x} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
-                            order.request.id,
+                        tracing::info!("Order {} cannot be completed before its expiration at {}, proof estimated to take {} seconds and complete at {}. Skipping", 
+                            order.id(),
                             expiration,
                             proof_time_seconds,
                             completion_time
@@ -802,7 +866,7 @@ where
                         // permanently. Otherwise, will retry including the order.
                         self.skip_order(&order, "cannot be completed before expiration").await;
                     } else {
-                        tracing::debug!("Given current commited orders and capacity, order 0x{:x} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.request.id);
+                        tracing::debug!("Given current commited orders and capacity, order {} cannot be completed before its expiration. Not skipping as capacity may free up before it expires.", order.id());
                     }
                     continue;
                 }
@@ -1026,6 +1090,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::chain_monitor::ChainMonitorService;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
@@ -1070,7 +1135,6 @@ pub(crate) mod tests {
         pub anvil: AnvilInstance,
         pub db: DbObj,
         pub market_address: Address,
-        #[allow(dead_code)]
         pub config: ConfigLock,
         pub priced_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pub signer: PrivateKeySigner,
@@ -1177,9 +1241,10 @@ pub(crate) mod tests {
         let block_time = 2;
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-        let chain_monitor =
+        let chain_monitor_service =
             Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+        tokio::spawn(chain_monitor_service.spawn(Default::default()));
+        let chain_monitor: ChainMonitorObj = chain_monitor_service;
 
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
@@ -1198,6 +1263,8 @@ pub(crate) mod tests {
             collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
             gas_priority_mode,
+            Arc::new(Cache::builder().build()),
+            false,
         )
         .unwrap();
 
@@ -1883,5 +1950,40 @@ pub(crate) mod tests {
             logs_contain("No longer have enough collateral deposited to market to lock order"),
             "Expected log message about insufficient collateral balance"
         );
+    }
+
+    /// Test that when gas cost exceeds the order's reward on the pricing ramp, the inline
+    /// pre-lock gas check keeps the order in cache for retry on the next block.
+    /// The test order's tiny maxPrice (2 wei) is far below Anvil's gas cost, so the check
+    /// naturally fails.
+    #[tokio::test]
+    #[traced_test]
+    async fn pre_lock_check_gas_too_high_keeps_order_in_cache() {
+        let mut ctx = setup_om_test_context().await;
+
+        // Use now_timestamp() for rampUpStart so expires_at() is in the future.
+        let mut order =
+            ctx.create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200).await;
+        // Set gas_estimate so the inline pre-lock check fires.
+        // lockin_gas_estimate (200k) + fulfill_gas_estimate (300k) = 500k gas.
+        // At Anvil's default gas price (~1 gwei), cost = 500k * 1e9 = 5e14 wei,
+        // which far exceeds the order's reward of 2 wei.
+        order.gas_estimate = Some(500_000);
+        // Submit request on-chain so lock_order's get_status sees it as open (Unknown).
+        let _ = ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+        let order_arc = Arc::new(*order);
+        let order_id = order_arc.id().clone();
+        ctx.monitor.test_insert_into_lock_cache(order_arc.clone()).await;
+
+        let valid = ctx.monitor.get_valid_orders(1, 0).await.unwrap();
+        assert_eq!(valid.len(), 1, "expect single order from cache");
+        assert_eq!(valid[0].id(), order_id, "valid order must be the one we inserted");
+        ctx.monitor.lock_and_prove_orders(&valid).await.unwrap();
+
+        assert!(
+            ctx.monitor.test_lock_cache_contains(&order_id).await,
+            "When gas cost exceeds reward, order stays in cache and will retry next block"
+        );
+        assert!(logs_contain("gas cost"), "Expected log about gas cost exceeding reward");
     }
 }

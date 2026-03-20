@@ -130,8 +130,6 @@ sudo tail -f /var/log/ufw.log
 
 ## Tags
 
-The role tasks currently do not define dedicated Ansible tags.
-
 ## Dependencies
 
 None
