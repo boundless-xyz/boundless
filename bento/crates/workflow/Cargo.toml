@@ -40,6 +40,7 @@ risc0-zkvm = { workspace = true, default-features = false, features = [
 serde = { workspace = true }
 serde_json = { workspace = true }
 signal-hook = "0.3"
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "tls-rustls"] }
 taskdb = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
