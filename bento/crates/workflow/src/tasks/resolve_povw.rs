@@ -4,12 +4,11 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    Agent,
-    redis,
+    Agent, redis,
     tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{GenericReceipt, ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
 use std::collections::HashMap;
@@ -188,9 +187,10 @@ pub async fn resolve_povw(
                     }
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
-                    let assumption_bytes = assumption_bytes_by_claim.remove(&assumption_claim).with_context(|| {
-                        format!("prefetched assumption missing for key: {assumption_key}")
-                    })?;
+                    let assumption_bytes =
+                        assumption_bytes_by_claim.remove(&assumption_claim).with_context(|| {
+                            format!("prefetched assumption missing for key: {assumption_key}")
+                        })?;
 
                     // Debug: Check the size and content of the assumption receipt
                     tracing::debug!(
