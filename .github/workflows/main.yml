@@ -180,6 +180,11 @@ jobs:
         with:
           name: nextest-archive
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
       # TODO: Replace with taiki-e/install-action@nextest once added to the org action allowlist.
       - name: install nextest
         run: |
