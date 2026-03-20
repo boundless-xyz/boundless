@@ -30,7 +30,7 @@ jobs:
       - rust-lint
       - rust-test
       - link-check
-      - format
+      - fmt
       - foundry
       - docker
       - infra
@@ -52,20 +52,13 @@ jobs:
           - os: Linux
             feature: default
             device: cpu
-    needs: files-changed
+    needs: [files-changed, fmt]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          # Full history is required by license-check.py
-          fetch-depth: 0
           submodules: recursive
-
-      - name: install python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -78,32 +71,9 @@ jobs:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: Install cargo-sort
-        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
-        with:
-          crate: cargo-sort
-          version: "1.0"
-
-      - name: cargo Sort
-        run: cargo sort --workspace --check
-
-      - name: cargo format
-        run: cargo fmt --all -- --check
-
-      - name: license check
-        run: python license-check.py
-
-      - name: forge build
-        run: forge build
-
-      - name: cargo check
-        run: cargo check --locked --all-targets
-
+      # forge build is intentionally omitted here. build.rs falls back to the
+      # committed bytecode.rs when out/ doesn't exist, which is sufficient for
+      # clippy and doc. Contract compilation is verified by rust-test and foundry.
       - name: cargo doc
         env:
           RUSTFLAGS: "-Dwarnings"
@@ -132,7 +102,7 @@ jobs:
           - os: Linux
             feature: default
             device: cpu
-    needs: files-changed
+    needs: [files-changed, fmt]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     services:
       postgres:
@@ -317,19 +287,33 @@ jobs:
           path: ~/.cache/lychee
           key: lychee-${{ runner.os }}-v1
 
-  format:
+  fmt:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
-      # Run only on Linux with CPU.
       matrix:
         include:
           - os: Linux
             feature: default
             device: cpu
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required by license-check.py
+          fetch-depth: 0
+
+      - name: install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+
+      - name: Install cargo-sort
+        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
+        with:
+          crate: cargo-sort
+          version: "1.0"
 
       - name: install cargo-binstall
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
@@ -340,7 +324,17 @@ jobs:
 
       - run: cargo binstall -y --force dprint@0.47.2
 
-      - run: dprint check
+      - name: cargo sort
+        run: cargo sort --workspace --check
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: license check
+        run: python license-check.py
+
+      - name: dprint check
+        run: dprint check
 
   foundry:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
