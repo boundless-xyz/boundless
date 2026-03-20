@@ -116,5 +116,7 @@ jobs:
             S3_CACHE_PREFIX=public/boundless/rust-cache-docker-Linux-X64/sccache
           cache-from: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
           cache-to: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
+          secrets: |
+            githubTokenSecret=${{ secrets.GITHUB_TOKEN }}
           secret-files: |
             ci_cache_creds=./dockerfiles/ci-cache-creds.txt
