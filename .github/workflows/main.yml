@@ -70,17 +70,17 @@ jobs:
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
           foundry-version: ${{ env.FOUNDRY_VERSION }}
 
-      - name: cargo doc
-        env:
-          RUSTFLAGS: "-Dwarnings"
-          RISC0_SKIP_BUILD: 1
-        run: cargo doc --locked
-
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
         run: cargo clippy --locked --all-targets
+
+      - name: cargo doc
+        env:
+          RUSTFLAGS: "-Dwarnings"
+          RISC0_SKIP_BUILD: 1
+        run: cargo doc --locked --no-deps
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
@@ -370,6 +370,12 @@ jobs:
         # submodules not needed: cargo doc only requires Rust sources and contracts/src/
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
+      - name: cache sccache local disk
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: sccache-docs-rs-nightly-2025-05-09-${{ hashFiles('Cargo.lock') }}
+          restore-keys: sccache-docs-rs-nightly-2025-05-09-
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
           # Building with docs.rs config requires the nightly toolchain.
