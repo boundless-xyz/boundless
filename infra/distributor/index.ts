@@ -36,7 +36,7 @@ export = () => {
   const externalCollateralThreshold = config.get('EXTERNAL_COLLATERAL_THRESHOLD');
   const externalPerTopUpAmount = config.get('EXTERNAL_PER_TOP_UP_AMOUNT');
   const externalLifetimeAllowance = config.get('EXTERNAL_LIFETIME_ALLOWANCE');
-  const chainalysisOracleAddress = config.get('CHAINALYSIS_ORACLE_ADDRESS');
+  const chainalysisApiKey = enableExternalTopup ? config.requireSecret('CHAINALYSIS_API_KEY') : config.getSecret('CHAINALYSIS_API_KEY');
 
   const scheduleMinutes = config.require('SCHEDULE_MINUTES');
 
@@ -99,6 +99,17 @@ export = () => {
         new aws.secretsmanager.SecretVersion(`${serviceName}-indexer-api-url`, {
           secretId: secret.id,
           secretString: indexerApiUrl,
+        });
+        return secret;
+      })()
+    : undefined;
+
+  const chainalysisApiKeySecret = chainalysisApiKey
+    ? (() => {
+        const secret = new aws.secretsmanager.Secret(`${serviceName}-chainalysis-api-key`);
+        new aws.secretsmanager.SecretVersion(`${serviceName}-chainalysis-api-key`, {
+          secretId: secret.id,
+          secretString: chainalysisApiKey,
         });
         return secret;
       })()
@@ -263,6 +274,7 @@ export = () => {
               proverKeysSecret.arn,
               orderGeneratorKeysSecret.arn,
               ...(indexerApiUrlSecret ? [indexerApiUrlSecret.arn] : []),
+              ...(chainalysisApiKeySecret ? [chainalysisApiKeySecret.arn] : []),
             ],
         },
       ],
@@ -286,7 +298,6 @@ export = () => {
     externalCollateralThreshold ? `--external-collateral-threshold ${externalCollateralThreshold}` : '',
     externalPerTopUpAmount ? `--external-per-top-up-amount ${externalPerTopUpAmount}` : '',
     externalLifetimeAllowance ? `--external-lifetime-allowance ${externalLifetimeAllowance}` : '',
-    chainalysisOracleAddress ? `--chainalysis-oracle-address ${chainalysisOracleAddress}` : '',
     `--allowance-state-file /mnt/topup-state/topup-state.json`,
   ]
 
@@ -324,6 +335,9 @@ export = () => {
     },
     ...(indexerApiUrlSecret
       ? [{ name: 'INDEXER_API_URL', valueFrom: indexerApiUrlSecret.arn }]
+      : []),
+    ...(chainalysisApiKeySecret
+      ? [{ name: 'CHAINALYSIS_API_KEY', valueFrom: chainalysisApiKeySecret.arn }]
       : []),
   ];
 
