@@ -22,7 +22,6 @@ env:
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "3.0.3"
   FOUNDRY_VERSION: v1.5.0
-  FOUNDRY_PROFILE: ci
   CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
@@ -86,8 +85,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-${{ runner.os }}-${{ env.FOUNDRY_PROFILE }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-${{ runner.os }}-${{ env.FOUNDRY_PROFILE }}-
+          key: forge-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-${{ runner.os }}-
 
       - name: forge build
         run: forge build
@@ -172,8 +171,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-${{ runner.os }}-${{ env.FOUNDRY_PROFILE }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-${{ runner.os }}-${{ env.FOUNDRY_PROFILE }}-
+          key: forge-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-${{ runner.os }}-
 
       - name: forge build
         run: forge build
@@ -389,8 +388,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-${{ runner.os }}-${{ env.FOUNDRY_PROFILE }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-${{ runner.os }}-${{ env.FOUNDRY_PROFILE }}-
+          key: forge-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-${{ runner.os }}-
 
       - name: forge test
         run: forge test -vvv
