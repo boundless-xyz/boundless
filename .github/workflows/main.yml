@@ -194,39 +194,6 @@ jobs:
       - name: check broker
         run: cargo check --locked -p broker --bin broker
 
-  xtask:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.xtask == 'true'
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-      - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: check xtask
-        run: cargo check
-        working-directory: xtask
-
   link-check:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
@@ -644,8 +611,6 @@ jobs:
       deployments: ${{ steps.changes.outputs.deployments }}
       scaler: ${{ steps.changes.outputs.scaler }}
       requestor_lists: ${{ steps.changes.outputs.requestor_lists }}
-      xtask: ${{ steps.changes.outputs.xtask }}
-
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -710,10 +675,4 @@ jobs:
             # Changes to requestor lists
             requestor_lists:
               - 'requestor-lists/**'
-              - '.github/workflows/main.yml'
-            # Changes to xtask
-            xtask:
-              - 'xtask/**'
-              - 'crates/boundless-market/**'
-              - 'blake3_groth16/**'
               - '.github/workflows/main.yml'
