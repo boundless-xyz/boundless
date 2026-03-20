@@ -176,6 +176,14 @@ pub mod defaults {
         None
     }
 
+    pub const fn request_heartbeat_interval_secs() -> u64 {
+        60
+    }
+
+    pub const fn broker_heartbeat_interval_secs() -> u64 {
+        300
+    }
+
     pub const fn status_poll_retry_count() -> u64 {
         3
     }
@@ -232,6 +240,17 @@ pub mod defaults {
     pub const fn expected_probability_win_secondary_fulfillment() -> u32 {
         50
     }
+}
+
+/// Controls whether and how telemetry events are emitted by the broker.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TelemetryMode {
+    /// Send telemetry via the HTTP pipeline to the order stream service.
+    #[default]
+    Enabled,
+    /// Log telemetry events locally at debug level without sending to any remote service.
+    LogsOnly,
 }
 
 /// Order pricing priority mode for determining which orders to price first
@@ -544,6 +563,15 @@ pub struct MarketConfig {
     /// If not set (None), no maximum is enforced.
     #[serde(default = "defaults::max_order_expiry_secs")]
     pub max_order_expiry_secs: Option<u64>,
+    /// Telemetry mode: "enabled" (HTTP pipeline) or "logsonly" (log only).
+    #[serde(default)]
+    pub telemetry_mode: TelemetryMode,
+    /// Interval in seconds between request heartbeat flushes.
+    #[serde(default = "defaults::request_heartbeat_interval_secs")]
+    pub request_heartbeat_interval_secs: u64,
+    /// Interval in seconds between broker heartbeat sends.
+    #[serde(default = "defaults::broker_heartbeat_interval_secs")]
+    pub broker_heartbeat_interval_secs: u64,
 }
 
 impl Default for MarketConfig {
@@ -594,6 +622,9 @@ impl Default for MarketConfig {
             cancel_proving_expired_orders: false,
             pricing_overrides: PricingOverrides::default(),
             max_order_expiry_secs: defaults::max_order_expiry_secs(),
+            telemetry_mode: TelemetryMode::default(),
+            request_heartbeat_interval_secs: defaults::request_heartbeat_interval_secs(),
+            broker_heartbeat_interval_secs: defaults::broker_heartbeat_interval_secs(),
         }
     }
 }

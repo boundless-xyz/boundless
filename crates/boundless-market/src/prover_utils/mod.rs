@@ -18,13 +18,13 @@ pub(crate) mod local_executor;
 pub mod prover;
 pub(crate) mod requestor_pricing;
 
-#[cfg(not(feature = "prover_utils"))]
-pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
-    OrderPricingPriority, PricingOverrides, ProverConfig,
+    OrderPricingPriority, PricingOverrides, ProverConfig, TelemetryMode,
 };
+#[cfg(not(feature = "prover_utils"))]
+pub use config::{MarketConfig, TelemetryMode};
 
 use crate::{
     contracts::{
@@ -62,6 +62,25 @@ use thiserror::Error;
 use OrderPricingOutcome::Skip;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
+
+// Skip codes for order pricing decisions.
+// Codes [S-001] through [S-015] are assigned by the pricing logic in price_order().
+// Codes [S-OP-*] are assigned by broker-specific checks (order_picker).
+pub const SKIP_EXPIRED: &str = "[S-001]";
+pub const SKIP_DEADLINE_TOO_SHORT: &str = "[S-002]";
+pub const SKIP_EXPIRY_TOO_LONG: &str = "[S-003]";
+pub const SKIP_UNSUPPORTED_SELECTOR: &str = "[S-004]";
+pub const SKIP_COLLATERAL_TOO_HIGH: &str = "[S-005]";
+pub const SKIP_CYCLE_LIMIT_FROM_REWARD: &str = "[S-006]";
+pub const SKIP_PREFLIGHT_CACHE_LIMIT: &str = "[S-007]";
+pub const SKIP_CYCLES_ABOVE_LIMIT: &str = "[S-008]";
+pub const SKIP_CYCLES_BELOW_MIN: &str = "[S-009]";
+pub const SKIP_JOURNAL_TOO_LARGE: &str = "[S-010]";
+pub const SKIP_BLAKE3_JOURNAL_SIZE: &str = "[S-011]";
+pub const SKIP_GAS_EXCEEDS_MAX_PRICE: &str = "[S-012]";
+pub const SKIP_PREDICATE_CHECK_FAILED: &str = "[S-013]";
+pub const SKIP_COLLATERAL_REWARD_TOO_LOW: &str = "[S-014]";
+pub const SKIP_PRICE_TOO_LOW: &str = "[S-015]";
 
 /// Scale a reward value for secondary fulfillment probability.
 ///
@@ -178,6 +197,16 @@ pub enum FulfillmentType {
     FulfillWithoutLocking,
 }
 
+impl std::fmt::Display for FulfillmentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FulfillmentType::LockAndFulfill => write!(f, "LockAndFulfill"),
+            FulfillmentType::FulfillAfterLockExpire => write!(f, "FulfillAfterLockExpire"),
+            FulfillmentType::FulfillWithoutLocking => write!(f, "FulfillWithoutLocking"),
+        }
+    }
+}
+
 /// Order request from the network.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OrderRequest {
@@ -196,6 +225,11 @@ pub struct OrderRequest {
     /// check can simply re-multiply by the current gas price instead of re-computing.
     pub gas_estimate: Option<u64>,
     pub expected_reward_eth: Option<U256>,
+    /// Unix timestamp (seconds since epoch) of when the broker first received this
+    /// request from the network.
+    pub received_at_timestamp: u64,
+    /// Unix timestamp (seconds since epoch) of when the order was priced.
+    pub priced_at_timestamp: Option<u64>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
 }
@@ -222,6 +256,11 @@ impl OrderRequest {
             expire_timestamp: None,
             gas_estimate: None,
             expected_reward_eth: None,
+            received_at_timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            priced_at_timestamp: None,
             cached_id: OnceLock::new(),
         }
     }
@@ -229,13 +268,23 @@ impl OrderRequest {
     pub fn id(&self) -> String {
         self.cached_id
             .get_or_init(|| {
-                let signing_hash = self
-                    .request
-                    .signing_hash(self.boundless_market_address, self.chain_id)
-                    .unwrap_or(FixedBytes::ZERO);
-                format!("0x{:x}-{}-{:?}", self.request.id, signing_hash, self.fulfillment_type)
+                format!(
+                    "0x{:x}-{}-{:?}",
+                    self.request.id,
+                    self.request_digest(),
+                    self.fulfillment_type
+                )
             })
             .clone()
+    }
+
+    /// Returns the signing hash (digest) of the proof request as a hex string.
+    pub fn request_digest(&self) -> String {
+        let signing_hash = self
+            .request
+            .signing_hash(self.boundless_market_address, self.chain_id)
+            .unwrap_or(FixedBytes::ZERO);
+        format!("{signing_hash}")
     }
 
     pub fn expiry(&self) -> u64 {
@@ -283,7 +332,7 @@ pub enum OrderPricingOutcome {
         journal_len: usize,
     },
     /// Do not accept engage order.
-    Skip { reason: String },
+    Skip { code: &'static str, reason: String },
 }
 
 /// Value type for preflight cache.
@@ -628,7 +677,7 @@ pub trait OrderPricingContext {
             if lock_expired { U256::ZERO } else { U256::from(order.request.offer.lockCollateral) };
 
         if expiration <= now {
-            return Ok(Skip { reason: "order has expired".to_string() });
+            return Ok(Skip { code: SKIP_EXPIRED, reason: "order has expired".to_string() });
         };
 
         let config = self.market_config()?;
@@ -639,6 +688,7 @@ pub trait OrderPricingContext {
         let seconds_left = expiration.saturating_sub(now);
         if seconds_left <= min_deadline {
             return Ok(Skip {
+                code: SKIP_DEADLINE_TOO_SHORT,
                 reason: format!(
                     "order expires in {seconds_left} seconds with min_deadline {min_deadline}"
                 ),
@@ -649,6 +699,7 @@ pub trait OrderPricingContext {
         if let Some(max_expiry) = config.max_order_expiry_secs {
             if seconds_left > max_expiry {
                 return Ok(Skip {
+                    code: SKIP_EXPIRY_TOO_LONG,
                     reason: format!(
                         "order expiry duration {seconds_left}s exceeds max_order_expiry_secs {max_expiry}s"
                     ),
@@ -663,6 +714,7 @@ pub trait OrderPricingContext {
 
         if !self.supported_selectors().is_supported(order.request.requirements.selector) {
             return Ok(Skip {
+                code: SKIP_UNSUPPORTED_SELECTOR,
                 reason: format!(
                     "unsupported selector requirement. Requested: {:x}. Supported: {:?}",
                     order.request.requirements.selector,
@@ -688,6 +740,7 @@ pub trait OrderPricingContext {
 
         if !lock_expired && lockin_collateral > max_collateral {
             return Ok(Skip {
+                code: SKIP_COLLATERAL_TOO_HIGH,
                 reason: format!(
                     "order collateral requirement exceeds max_collateral config {} > {} ({})",
                     self.format_collateral(lockin_collateral),
@@ -749,6 +802,7 @@ pub trait OrderPricingContext {
             // provable execution.
             // TODO when/if total cycle limit is allowed in future, update this to be total cycle min
             return Ok(Skip {
+                code: SKIP_CYCLE_LIMIT_FROM_REWARD,
                 reason: format!("cycle limit hit from max reward: {} cycles", prove_limit),
             });
         }
@@ -812,6 +866,7 @@ pub trait OrderPricingContext {
             }
             PreflightCacheValue::Skip { cached_limit } => {
                 return Ok(Skip {
+                    code: SKIP_PREFLIGHT_CACHE_LIMIT,
                     reason: format!(
                         "order preflight execution limit hit with {cached_limit} cycles - limited by {prove_limit_reason}"
                     ),
@@ -874,6 +929,7 @@ pub trait OrderPricingContext {
             };
 
             return Ok(Skip {
+                code: SKIP_CYCLES_ABOVE_LIMIT,
                 reason: format!(
                     "order with {cycle_count} cycles above limit of {prove_limit} cycles - {config_info}"
                ),
@@ -891,6 +947,7 @@ pub trait OrderPricingContext {
                         min_cycles
                     );
                 return Ok(Skip {
+                        code: SKIP_CYCLES_BELOW_MIN,
                         reason: format!(
                             "order with {} cycles below min limit of {} cycles - min_mcycle_limit set to {} Mcycles in config",
                             cycle_count,
@@ -908,6 +965,7 @@ pub trait OrderPricingContext {
             && journal.len() > config.max_journal_bytes
         {
             return Ok(OrderPricingOutcome::Skip {
+                code: SKIP_JOURNAL_TOO_LARGE,
                 reason: format!(
                     "order journal larger than set limit ({} > {})",
                     journal.len(),
@@ -922,6 +980,7 @@ pub trait OrderPricingContext {
                 "Order {order_id} journal is not 32 bytes for blake3 groth16 selector, skipping",
             );
             return Ok(Skip {
+                code: SKIP_BLAKE3_JOURNAL_SIZE,
                 reason: "blake3 groth16 selector requires 32 byte journal".to_string(),
             });
         }
@@ -935,6 +994,7 @@ pub trait OrderPricingContext {
         // Re-check gas cost now that journal calldata gas is included.
         if order_gas_cost > U256::from(order.request.offer.maxPrice) && !lock_expired {
             return Ok(Skip {
+                code: SKIP_GAS_EXCEEDS_MAX_PRICE,
                 reason: format!(
                     "after accounting for journal costs, estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
                     format_ether(order_gas_cost),
@@ -956,7 +1016,10 @@ pub trait OrderPricingContext {
             )
         };
         if predicate.eval(&eval_data).is_none() {
-            return Ok(Skip { reason: "order predicate check failed".to_string() });
+            return Ok(Skip {
+                code: SKIP_PREDICATE_CHECK_FAILED,
+                reason: "order predicate check failed".to_string(),
+            });
         }
 
         // For lock_expired orders, evaluate based on collateral
@@ -993,6 +1056,7 @@ pub trait OrderPricingContext {
             // Skip the order if it will never be worth it
             if mcycle_price_in_collateral_tokens < config_min_mcycle_price_collateral_tokens {
                 return Ok(Skip {
+                    code: SKIP_COLLATERAL_REWARD_TOO_LOW,
                     reason: format!(
                         "slashed collateral reward too low. {} (collateral reward) < config min_mcycle_price (as ZKC) {}",
                         self.format_collateral(mcycle_price_in_collateral_tokens),
@@ -1047,6 +1111,7 @@ pub trait OrderPricingContext {
             // Skip the order if it will never be worth it
             if mcycle_price_max < config_min_mcycle_price {
                 return Ok(OrderPricingOutcome::Skip {
+                    code: SKIP_PRICE_TOO_LOW,
                     reason: format!(
                         "order max price {} is less than mcycle_price config {} ({} ETH)",
                         format_ether(U256::from(order.request.offer.maxPrice)),

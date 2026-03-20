@@ -37,7 +37,7 @@ use boundless_market::{
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 pub use config::Config;
-use config::ConfigWatcher;
+use config::{ConfigWatcher, TelemetryMode};
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -53,6 +53,7 @@ use url::Url;
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
+const TELEMETRY_CHANNEL_CAPACITY: usize = 40960;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
@@ -78,6 +79,7 @@ pub mod sequential_fallback;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
+pub(crate) mod telemetry;
 pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
@@ -781,6 +783,83 @@ where
                 ))
             })
             .transpose()?;
+
+        let signer = self.args.private_key.clone().expect("Private key must be set");
+        let telemetry_mode =
+            config.lock_all().map(|c| c.market.telemetry_mode.clone()).unwrap_or_default();
+
+        let _telemetry_handle = match telemetry_mode {
+            TelemetryMode::Enabled => {
+                if let Some(ref client) = client {
+                    telemetry::init_with(|| {
+                        let (tx, rx) =
+                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                        let handle = telemetry::TelemetryHandle::new(tx);
+                        let service = telemetry::TelemetryService::new(
+                            rx,
+                            handle.clone(),
+                            client.clone(),
+                            signer.clone(),
+                            config.clone(),
+                            self.db.clone(),
+                        );
+                        let cancel_token = non_critical_cancel_token.clone();
+                        non_critical_tasks.spawn(async move {
+                            telemetry::run_telemetry_service(service, cancel_token)
+                                .await
+                                .context("Telemetry service failed")?;
+                            Ok(())
+                        });
+                        handle
+                    })
+                } else {
+                    tracing::warn!(
+                        "TelemetryMode::Enabled requires order-stream; falling back to LogsOnly"
+                    );
+
+                    telemetry::init_with(|| {
+                        let (tx, rx) =
+                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                        let handle = telemetry::TelemetryHandle::new(tx);
+                        let service = telemetry::TelemetryService::new_debug(
+                            rx,
+                            handle.clone(),
+                            signer.clone(),
+                            config.clone(),
+                            self.db.clone(),
+                        );
+                        let cancel_token = non_critical_cancel_token.clone();
+                        non_critical_tasks.spawn(async move {
+                            telemetry::run_telemetry_service(service, cancel_token)
+                                .await
+                                .context("Telemetry service failed")?;
+                            Ok(())
+                        });
+                        handle
+                    })
+                }
+            }
+            TelemetryMode::LogsOnly => telemetry::init_with(|| {
+                let (tx, rx) =
+                    mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                let handle = telemetry::TelemetryHandle::new(tx);
+                let service = telemetry::TelemetryService::new_debug(
+                    rx,
+                    handle.clone(),
+                    signer.clone(),
+                    config.clone(),
+                    self.db.clone(),
+                );
+                let cancel_token = non_critical_cancel_token.clone();
+                non_critical_tasks.spawn(async move {
+                    telemetry::run_telemetry_service(service, cancel_token)
+                        .await
+                        .context("Telemetry service failed")?;
+                    Ok(())
+                });
+                handle
+            }),
+        };
 
         // Set up chain + market monitoring. Either use the standard ChainMonitorService +
         // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
