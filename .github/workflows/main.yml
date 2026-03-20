@@ -196,15 +196,8 @@ jobs:
         working-directory: xtask
 
   link-check:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.docs == 'true'
     steps:
@@ -219,16 +212,11 @@ jobs:
           restore-keys: |
             lychee-${{ runner.os }}-
 
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-
-      - name: install cargo-binstall
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
-        with:
-          crate: cargo-binstall
-          version: "=1.15.1"
-          locked: true
-
-      - run: cargo binstall -y --force lychee@0.15.1
+      # TODO: Replace with a GitHub Actions action once one is added to the org allowlist.
+      - name: install lychee
+        run: |
+          curl -LsSf https://github.com/lycheeverse/lychee/releases/download/lychee-v0.15.1/lychee-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          sudo mv lychee /usr/local/bin/
 
       - name: run lychee
         # lychee does not respect the .gitignore natively
