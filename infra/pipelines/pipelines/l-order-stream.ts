@@ -12,6 +12,7 @@ const config: LaunchPipelineConfig = {
     'pulumi stack select $STACK_NAME',
     './post-deploy.sh $STACK_NAME',
   ],
+  branchName: "willpote/telem-deploy"
 };
 
 export class LOrderStreamPipeline extends LaunchDefaultPipeline {

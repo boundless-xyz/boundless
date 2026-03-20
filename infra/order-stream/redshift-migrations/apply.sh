@@ -67,7 +67,7 @@ run_psql() {
 }
 
 echo "Testing connection..."
-echo "  psql params: host=$ENDPOINT port=$PORT user=$RS_USER database=$DATABASE timeout=$PGCONNECT_TIMEOUT"
+echo "  psql params: host=$ENDPOINT port=$PORT user=$RS_USER database=$DATABASE timeout=$PGCONNECT_TIMEOUT password=${PGPASSWORD:0:1}***"
 if ! output=$(run_psql -c "SELECT 1;" 2>&1); then
     echo "ERROR: Cannot connect to Redshift" >&2
     echo "  host:     $ENDPOINT" >&2
