@@ -547,8 +547,14 @@ jobs:
       - name: Setup docker builder
         run: docker buildx create --driver docker-container --use
 
-      - name: docker compose build
-        run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
+      - name: Build broker from source
+        run: |
+          docker buildx build \
+            -f dockerfiles/broker.dockerfile \
+            --secret id=ci_cache_creds,src=./dockerfiles/ci-cache-creds.txt \
+            --cache-from type=s3,name=broker-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache \
+            --cache-to type=s3,name=broker-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max \
+            .
 
   infra:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
