@@ -315,7 +315,14 @@ jobs:
           python-version: "3.10"
 
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: stable
+          components: rustfmt
 
+      # TODO: Replace with baptiste0928/cargo-install action once a version with
+      # a working cache is added to the org action allowlist. The pinned version
+      # (904927dbe) fails with a 400 on every cache restore, falling back to
+      # compilation and adding ~45s to the job.
       - name: install cargo-binstall
         run: |
           curl -L --proto '=https' --tlsv1.2 -sSf \
