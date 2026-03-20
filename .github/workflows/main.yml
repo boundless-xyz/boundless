@@ -36,10 +36,11 @@ jobs:
       - foundry
       - docker
       - infra
-      - rust-pkg-check
       - docs-rs
       - scaler-tests
       - validate-requestor-lists
+      - xtask
+      - check-publish
     runs-on: ubuntu-latest
     steps:
       - name: Check all job status
@@ -160,42 +161,6 @@ jobs:
 
       - name: sccache stats
         run: sccache --show-stats
-
-  rust-pkg-check:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    timeout-minutes: 10
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-      - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: check order-stream
-        run: cargo check --locked -p order-stream --bin order_stream
-
-      - name: check broker
-        run: cargo check --locked -p broker --bin broker
 
   xtask:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
