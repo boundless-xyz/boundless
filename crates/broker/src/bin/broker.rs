@@ -179,8 +179,10 @@ fn collect_rpc_urls(
     rpc_urls: Vec<String>,
     experimental_rpc: bool,
 ) -> Result<Vec<Url>> {
+    // Use Vec to preserve insertion order: PROVER_RPC_URL is always inserted first,
     let mut all_rpc_urls: Vec<Url> = Vec::new();
 
+    // Parse PROVER_RPC_URL (ignore if empty)
     if let Some(url_str) = rpc_url {
         if !url_str.is_empty() {
             let url =
@@ -191,6 +193,7 @@ fn collect_rpc_urls(
         }
     }
 
+    // Parse PROVER_RPC_URLS (ignore empty strings, split by comma)
     for url_str in rpc_urls {
         let url_str = url_str.trim();
         if !url_str.is_empty() {
@@ -202,6 +205,7 @@ fn collect_rpc_urls(
         }
     }
 
+    // Backward compatibility: check RPC_URL if no URLs collected yet
     if all_rpc_urls.is_empty() {
         if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
             if !legacy_rpc_url.is_empty() {
@@ -220,6 +224,7 @@ fn collect_rpc_urls(
         );
     }
 
+    // Error early if no RPC URLs provided
     if all_rpc_urls.is_empty() {
         anyhow::bail!(
             "No RPC URLs provided. Please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables"
