@@ -45,6 +45,11 @@ WORKDIR /src
 
 SHELL ["/bin/bash", "-c"]
 
+ENV RISC0_SKIP_BUILD=1
+ENV RISC0_SKIP_BUILD_KERNELS=1
+ENV CARGO_PROFILE_RELEASE_LTO=thin
+ENV CARGO_PROFILE_RELEASE_DEBUG=0
+
 COPY --from=planner /src/recipe.json /src/recipe.json
 
 COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
@@ -53,6 +58,7 @@ RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=indexer_sc \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo chef cook --release --recipe-path recipe.json --package boundless-indexer && \
     sccache --show-stats
@@ -69,14 +75,20 @@ COPY blake3_groth16/ ./blake3_groth16/
 COPY xtask/ ./xtask/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=indexer_sc \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo build --release --bin market-indexer && \
-    cargo build --release --bin rewards-indexer && \
-    cargo build --release --bin market-efficiency-indexer && \
-    cargo build --release --bin market-indexer-backfill && \
+    cargo build --release \
+        --bin market-indexer \
+        --bin rewards-indexer \
+        --bin market-efficiency-indexer \
+        --bin market-indexer-backfill && \
     sccache --show-stats
 
-FROM init AS runtime
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get -qq update && \
+    apt-get install -y -q --no-install-recommends ca-certificates libssl3 && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/target/release/market-indexer /app/market-indexer
 COPY --from=builder /src/target/release/rewards-indexer /app/rewards-indexer
