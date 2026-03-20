@@ -85,8 +85,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-${{ runner.os }}-
+          key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-${{ runner.os }}-
 
       - name: forge build
         run: forge build
@@ -171,8 +171,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-${{ runner.os }}-
+          key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-${{ runner.os }}-
 
       - name: forge build
         run: forge build
@@ -369,14 +369,7 @@ jobs:
         run: dprint check
 
   foundry:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
+    runs-on: ubuntu-latest
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
@@ -400,8 +393,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-${{ runner.os }}-
+          key: forge-test-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'contracts/test/**', 'foundry.toml') }}
+          restore-keys: forge-test-${{ runner.os }}-
 
       - name: forge test
         run: forge test -vvv
