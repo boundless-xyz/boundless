@@ -407,18 +407,18 @@ jobs:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+        # submodules not needed: cargo doc only requires Rust sources and contracts/src/
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
           # Building with docs.rs config requires the nightly toolchain.
           toolchain: nightly-2025-05-09
       - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+      - name: sccache stats
+        run: sccache --show-stats
 
   # Check that cargo publish can package the boundless-market crate
   check-publish:
