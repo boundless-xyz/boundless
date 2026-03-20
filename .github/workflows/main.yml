@@ -403,8 +403,6 @@ jobs:
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
-      # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
-      - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
       - uses: actions/checkout@v4
         # submodules not needed: cargo doc only requires Rust sources and contracts/src/
       - name: setup sccache + s3
