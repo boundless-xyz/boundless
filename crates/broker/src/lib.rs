@@ -96,46 +96,12 @@ pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
-pub struct Args {
+/// Clap-derived CLI args shared across single-chain and multi-chain modes.
+/// Per-chain flags (--rpc-url-{chain_id}, etc.) are parsed dynamically in bin/broker.rs.
+pub struct CoreArgs {
     /// sqlite database connection url
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
-
-    /// Per-chain RPC URL. Format: {chain_id}={url}
-    /// Specify multiple times per chain for failover.
-    /// e.g. --chain-rpc-url 1=http://eth.example.com --chain-rpc-url 8453=http://primary.base.com --chain-rpc-url 8453=http://backup.base.com
-    #[clap(long)]
-    pub chain_rpc_url: Vec<String>,
-
-    /// Per-chain private key. Format: {chain_id}={key}
-    /// Falls back to --private-key / PROVER_PRIVATE_KEY if not specified for a chain.
-    #[clap(long, hide_env_values = true)]
-    pub chain_private_key: Vec<String>,
-
-    /// Per-chain config override file, merged onto the base config (--config-file).
-    /// Format: {chain_id}={path}, e.g. --chain-config-file 8453=broker.base.toml
-    #[clap(long)]
-    pub chain_config_file: Vec<String>,
-
-    /// Per-chain BoundlessMarket contract address. Format: {chain_id}={address}
-    #[clap(long)]
-    pub chain_market_address: Vec<String>,
-
-    /// Per-chain SetVerifier contract address. Format: {chain_id}={address}
-    #[clap(long)]
-    pub chain_set_verifier_address: Vec<String>,
-
-    /// Per-chain VerifierRouter contract address. Format: {chain_id}={address}
-    #[clap(long)]
-    pub chain_verifier_router_address: Vec<String>,
-
-    /// Per-chain collateral token address. Format: {chain_id}={address}
-    #[clap(long)]
-    pub chain_collateral_token_address: Vec<String>,
-
-    /// Per-chain order stream URL. Format: {chain_id}={url}
-    #[clap(long)]
-    pub chain_order_stream_url: Vec<String>,
 
     /// local prover API (Bento)
     ///
@@ -206,19 +172,19 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
 
-    /// [Deprecated: use --chain-market-address etc.] Single-chain deployment configuration.
+    /// [Deprecated: use --market-address-{chain_id} etc.] Single-chain deployment configuration.
     #[clap(flatten, next_help_heading = "Boundless Deployment (Deprecated)")]
     pub deployment: Option<Deployment>,
 
-    /// [Deprecated: use --chain-rpc-urls] Single-chain RPC URL.
+    /// [Deprecated: use --rpc-url-{chain_id}] Single-chain RPC URL.
     #[clap(long, env = "PROVER_RPC_URL")]
     pub rpc_url: Option<String>,
 
-    /// [Deprecated: use --chain-rpc-urls] Additional single-chain RPC URLs for failover.
+    /// [Deprecated: use --rpc-url-{chain_id}] Additional single-chain RPC URLs for failover.
     #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
     pub rpc_urls: Vec<String>,
 
-    /// [Deprecated: use --chain-private-keys] Single-chain wallet key.
+    /// [Deprecated: use --private-key-{chain_id}] Single-chain wallet key.
     #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
     pub private_key: Option<PrivateKeySigner>,
 }
@@ -239,7 +205,7 @@ pub struct ChainArgs {
 pub fn build_chain_provider(
     rpc_urls: &[Url],
     private_key: &PrivateKeySigner,
-    args: &Args,
+    args: &CoreArgs,
     config: &ConfigLock,
 ) -> Result<(
     impl Provider<Ethereum> + WalletProvider + Clone + 'static,
@@ -624,14 +590,14 @@ struct Batch {
 }
 
 pub struct Broker {
-    args: Args,
+    args: CoreArgs,
     db: DbObj,
     config_watcher: ConfigWatcher,
     downloader: ConfigurableDownloader,
 }
 
 impl Broker {
-    pub async fn new(args: Args, config_watcher: ConfigWatcher) -> Result<Self> {
+    pub async fn new(args: CoreArgs, config_watcher: ConfigWatcher) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
         let downloader = ConfigurableDownloader::new(config_watcher.config.clone())
@@ -865,6 +831,8 @@ impl Broker {
         Ok((prover, aggregation_prover))
     }
 
+    // chains is passed here rather than in the constructor because Broker would need to be
+    // generic over P, forcing all chains to use the same concrete provider type.
     pub async fn start_service<P>(&self, chains: Vec<ChainPipeline<P>>) -> Result<()>
     where
         P: Provider<Ethereum> + WalletProvider + Clone + 'static,
@@ -1516,11 +1484,11 @@ pub mod test_utils {
 
     use crate::{
         config::{Config, ConfigWatcher},
-        resolve_deployment, Args, Broker, ChainPipeline,
+        resolve_deployment, Broker, ChainPipeline, CoreArgs,
     };
 
     pub struct BrokerBuilder {
-        args: Args,
+        args: CoreArgs,
         config_file: NamedTempFile,
         rpc_url: Url,
     }
@@ -1538,7 +1506,7 @@ pub mod test_utils {
             config.price_oracle.zkc_usd = PriceValue::Static(1.0);
             config.write(config_file.path()).await.unwrap();
 
-            let args = Args {
+            let args = CoreArgs {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
@@ -1556,14 +1524,6 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
-                chain_rpc_url: vec![],
-                chain_private_key: vec![],
-                chain_config_file: vec![],
-                chain_market_address: vec![],
-                chain_set_verifier_address: vec![],
-                chain_verifier_router_address: vec![],
-                chain_collateral_token_address: vec![],
-                chain_order_stream_url: vec![],
             };
             Self { args, config_file, rpc_url }
         }

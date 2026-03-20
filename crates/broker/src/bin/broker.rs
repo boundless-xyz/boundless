@@ -12,22 +12,231 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet, HashMap},
+    path::PathBuf,
+    sync::Arc,
+};
 
-use alloy::providers::{Provider, WalletProvider};
+use alloy::{
+    primitives::Address,
+    providers::{Provider, WalletProvider},
+    signers::local::PrivateKeySigner,
+};
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
 use broker::{
-    build_chain_provider, config::ConfigWatcher, resolve_deployment, Args, Broker, ChainArgs,
-    ChainPipeline,
+    build_chain_provider, config::ConfigWatcher, resolve_deployment, Broker, ChainArgs,
+    ChainPipeline, CoreArgs,
 };
-use clap::Parser;
+use clap::{Arg, ArgAction, CommandFactory, FromArgMatches};
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
+struct ChainArgDef {
+    name: &'static str,
+    help: &'static str,
+    append: bool,
+}
+
+const CHAIN_ARG_DEFS: &[ChainArgDef] = &[
+    ChainArgDef { name: "rpc-url", help: "RPC endpoint (repeat for failover)", append: true },
+    ChainArgDef { name: "private-key", help: "Wallet key", append: false },
+    ChainArgDef { name: "config-file", help: "Config override file", append: false },
+    ChainArgDef { name: "market-address", help: "BoundlessMarket contract address", append: false },
+    ChainArgDef {
+        name: "set-verifier-address",
+        help: "SetVerifier contract address",
+        append: false,
+    },
+    ChainArgDef {
+        name: "verifier-router-address",
+        help: "VerifierRouter contract address",
+        append: false,
+    },
+    ChainArgDef {
+        name: "collateral-token-address",
+        help: "Collateral token address",
+        append: false,
+    },
+    ChainArgDef { name: "order-stream-url", help: "Order stream URL", append: false },
+];
+
+const CHAIN_ARGS_HELP: &str = "\
+MULTI-CHAIN CONFIGURATION:
+    Per-chain flags use the format --{option}-{chain_id}. Chain IDs are
+    auto-discovered from the flags you provide.
+
+    Example (two chains with failover):
+      broker \\
+        --rpc-url-1 https://eth.example.com \\
+        --rpc-url-8453 https://base-primary.example.com \\
+        --rpc-url-8453 https://base-backup.example.com \\
+        --private-key-1 0xETH_KEY \\
+        --private-key-8453 0xBASE_KEY
+
+    Available per-chain flags:
+      --rpc-url-{id}                    RPC endpoint (repeat for failover)
+      --private-key-{id}                Wallet key
+      --config-file-{id}                Config override file
+      --market-address-{id}             BoundlessMarket contract address
+      --set-verifier-address-{id}       SetVerifier contract address
+      --verifier-router-address-{id}    VerifierRouter contract address
+      --collateral-token-address-{id}   Collateral token address
+      --order-stream-url-{id}           Order stream URL
+
+    Env vars (PROVER_RPC_URL_{id}, PROVER_PRIVATE_KEY_{id}) also work.
+    CLI flags take priority over env vars.";
+
+#[derive(Debug, Default)]
+struct PerChainArgs {
+    rpc_urls: HashMap<u64, Vec<Url>>,
+    private_keys: HashMap<u64, PrivateKeySigner>,
+    config_files: HashMap<u64, PathBuf>,
+    market_addresses: HashMap<u64, Address>,
+    set_verifier_addresses: HashMap<u64, Address>,
+    verifier_router_addresses: HashMap<u64, Address>,
+    collateral_token_addresses: HashMap<u64, Address>,
+    order_stream_urls: HashMap<u64, String>,
+}
+
+/// Scan raw CLI args and env vars to discover which chain IDs are referenced.
+fn discover_chain_ids_from_argv() -> BTreeSet<u64> {
+    let mut chain_ids = BTreeSet::new();
+
+    for arg in std::env::args() {
+        for def in CHAIN_ARG_DEFS {
+            let prefix = format!("--{}-", def.name);
+            let Some(rest) = arg.strip_prefix(&prefix) else {
+                continue;
+            };
+            if let Ok(chain_id) = rest.parse::<u64>() {
+                chain_ids.insert(chain_id);
+            }
+        }
+    }
+
+    for (key, _) in std::env::vars() {
+        let Some(suffix) = key.strip_prefix("PROVER_RPC_URL_") else {
+            continue;
+        };
+        if key.starts_with("PROVER_RPC_URLS_") {
+            continue;
+        }
+        if let Ok(chain_id) = suffix.parse::<u64>() {
+            chain_ids.insert(chain_id);
+        }
+    }
+
+    chain_ids
+}
+
+/// Add dynamic clap args for a single chain ID.
+fn register_chain_args(mut cmd: clap::Command, chain_id: u64) -> clap::Command {
+    for def in CHAIN_ARG_DEFS {
+        // Leak the arg name string since clap requires &'static str for Arg::new/long.
+        // Runs once at startup so the leak is negligible.
+        let arg_name: &'static str = format!("{}-{chain_id}", def.name).leak();
+        let action = if def.append { ArgAction::Append } else { ArgAction::Set };
+        cmd = cmd.arg(
+            Arg::new(arg_name)
+                .long(arg_name)
+                .action(action)
+                .help(format!("{} for chain {chain_id}", def.help)),
+        );
+    }
+    cmd
+}
+
+/// Extract per-chain values from clap matches into a PerChainArgs struct.
+fn extract_per_chain_args(
+    matches: &clap::ArgMatches,
+    chain_ids: &BTreeSet<u64>,
+) -> Result<PerChainArgs> {
+    let mut per_chain = PerChainArgs::default();
+
+    for &chain_id in chain_ids {
+        if let Some(urls) = matches.get_many::<String>(&format!("rpc-url-{chain_id}")) {
+            let parsed: Vec<Url> = urls
+                .map(|s| {
+                    Url::parse(s)
+                        .with_context(|| format!("Invalid URL in --rpc-url-{chain_id}: {s}"))
+                })
+                .collect::<Result<_>>()?;
+            per_chain.rpc_urls.insert(chain_id, parsed);
+        }
+
+        if let Some(key_str) = matches.get_one::<String>(&format!("private-key-{chain_id}")) {
+            let key: PrivateKeySigner = key_str
+                .parse()
+                .with_context(|| format!("Invalid private key in --private-key-{chain_id}"))?;
+            per_chain.private_keys.insert(chain_id, key);
+        }
+
+        if let Some(path_str) = matches.get_one::<String>(&format!("config-file-{chain_id}")) {
+            per_chain.config_files.insert(chain_id, PathBuf::from(path_str));
+        }
+
+        if let Some(addr_str) = matches.get_one::<String>(&format!("market-address-{chain_id}")) {
+            let addr: Address = addr_str
+                .parse()
+                .with_context(|| format!("Invalid address in --market-address-{chain_id}"))?;
+            per_chain.market_addresses.insert(chain_id, addr);
+        }
+
+        if let Some(addr_str) =
+            matches.get_one::<String>(&format!("set-verifier-address-{chain_id}"))
+        {
+            let addr: Address = addr_str
+                .parse()
+                .with_context(|| format!("Invalid address in --set-verifier-address-{chain_id}"))?;
+            per_chain.set_verifier_addresses.insert(chain_id, addr);
+        }
+
+        if let Some(addr_str) =
+            matches.get_one::<String>(&format!("verifier-router-address-{chain_id}"))
+        {
+            let addr: Address = addr_str.parse().with_context(|| {
+                format!("Invalid address in --verifier-router-address-{chain_id}")
+            })?;
+            per_chain.verifier_router_addresses.insert(chain_id, addr);
+        }
+
+        if let Some(addr_str) =
+            matches.get_one::<String>(&format!("collateral-token-address-{chain_id}"))
+        {
+            let addr: Address = addr_str.parse().with_context(|| {
+                format!("Invalid address in --collateral-token-address-{chain_id}")
+            })?;
+            per_chain.collateral_token_addresses.insert(chain_id, addr);
+        }
+
+        if let Some(url_str) = matches.get_one::<String>(&format!("order-stream-url-{chain_id}")) {
+            per_chain.order_stream_urls.insert(chain_id, url_str.clone());
+        }
+    }
+
+    Ok(per_chain)
+}
+
+/// Two-pass CLI parsing: discover chain IDs from raw args, then build dynamic clap args.
+fn parse_args() -> Result<(CoreArgs, PerChainArgs)> {
+    let discovered_ids = discover_chain_ids_from_argv();
+    let mut cmd = CoreArgs::command();
+    cmd = cmd.after_long_help(CHAIN_ARGS_HELP);
+    for &id in &discovered_ids {
+        cmd = register_chain_args(cmd, id);
+    }
+    let matches = cmd.get_matches();
+    let args = CoreArgs::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    let per_chain = extract_per_chain_args(&matches, &discovered_ids)?;
+    Ok((args, per_chain))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let (args, mut per_chain) = parse_args()?;
 
     if args.log_json {
         tracing_subscriber::fmt()
@@ -46,13 +255,11 @@ async fn main() -> Result<()> {
     let base_config_watcher =
         ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
 
-    let discovered_chains = discover_chains(&args)?;
+    let discovered_chains = discover_chains(&args, &mut per_chain)?;
 
     let mut chain_pipelines = Vec::new();
     let mut _config_watchers: Vec<ConfigWatcher> = Vec::new();
 
-    // Deprecated single-chain path: uses legacy --rpc-url / --private-key args.
-    // Kept for backward compatibility; prefer --chain-rpc-urls / --chain-private-keys.
     if discovered_chains.is_empty() {
         let private_key = args
             .private_key
@@ -172,7 +379,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Collect and deduplicate RPC URLs from the deprecated single-chain args.
+/// Collect and deduplicate RPC URLs from the single-chain args.
 /// Returns a list with the primary URL first, followed by any additional failover URLs.
 fn collect_rpc_urls(
     rpc_url: Option<String>,
@@ -234,66 +441,32 @@ fn collect_rpc_urls(
     Ok(all_rpc_urls)
 }
 
-/// Parse a list of `{chain_id}={value}` strings into a map keyed by chain ID.
-/// Used by the various `--chain-*` CLI args that follow this format.
-fn parse_chain_id_values<T: std::str::FromStr>(
-    entries: &[String],
-    arg_name: &str,
-) -> Result<HashMap<u64, T>>
-where
-    T::Err: std::fmt::Display,
-{
-    let mut map = HashMap::new();
-    for entry in entries {
-        let (chain_id_str, value_str) = entry.split_once('=').with_context(|| {
-            format!("Invalid {arg_name} format '{entry}', expected {{chain_id}}={{value}}")
-        })?;
-        let chain_id: u64 = chain_id_str
-            .parse()
-            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in {arg_name}"))?;
-        let value: T = value_str.parse().map_err(|e| {
-            anyhow::anyhow!("Invalid value for chain {chain_id} in {arg_name}: {e}")
-        })?;
-        map.insert(chain_id, value);
-    }
-    Ok(map)
-}
-
-/// Build per-chain Deployment objects from the `--chain-market-address`, `--chain-set-verifier-address`,
-/// and related CLI args. Both market and set_verifier addresses are required per chain;
+/// Build per-chain Deployment objects from the PerChainArgs address fields.
+/// Both market and set_verifier addresses are required per chain;
 /// other fields (verifier_router, collateral_token, order_stream) are optional.
-fn build_chain_deployments(args: &Args) -> Result<HashMap<u64, boundless_market::Deployment>> {
-    use alloy::primitives::Address;
-    use std::borrow::Cow;
-
-    let market_addrs: HashMap<u64, Address> =
-        parse_chain_id_values(&args.chain_market_address, "--chain-market-address")?;
-    let set_verifier_addrs: HashMap<u64, Address> =
-        parse_chain_id_values(&args.chain_set_verifier_address, "--chain-set-verifier-address")?;
-    let verifier_router_addrs: HashMap<u64, Address> = parse_chain_id_values(
-        &args.chain_verifier_router_address,
-        "--chain-verifier-router-address",
-    )?;
-    let collateral_token_addrs: HashMap<u64, Address> = parse_chain_id_values(
-        &args.chain_collateral_token_address,
-        "--chain-collateral-token-address",
-    )?;
-    let order_stream_urls: HashMap<u64, String> =
-        parse_chain_id_values(&args.chain_order_stream_url, "--chain-order-stream-url")?;
-
+fn build_chain_deployments(
+    per_chain: &PerChainArgs,
+) -> Result<HashMap<u64, boundless_market::Deployment>> {
     let mut deployments = HashMap::new();
-    // Collect all chain IDs mentioned in any deployment arg
-    let mut chain_ids: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
-    chain_ids.extend(market_addrs.keys());
-    chain_ids.extend(set_verifier_addrs.keys());
+    let mut chain_ids: BTreeSet<u64> = BTreeSet::new();
+    chain_ids.extend(per_chain.market_addresses.keys());
+    chain_ids.extend(per_chain.set_verifier_addresses.keys());
 
     for chain_id in chain_ids {
-        let market_address = market_addrs.get(&chain_id).with_context(|| {
-            format!("--chain-market-address required for chain {chain_id} (--chain-set-verifier-address was provided)")
+        let market_address = per_chain.market_addresses.get(&chain_id).with_context(|| {
+            format!(
+                "--market-address-{chain_id} required (--set-verifier-address-{chain_id} was provided)"
+            )
         })?;
-        let set_verifier_address = set_verifier_addrs.get(&chain_id).with_context(|| {
-            format!("--chain-set-verifier-address required for chain {chain_id} (--chain-market-address was provided)")
-        })?;
+        let set_verifier_address =
+            per_chain
+                .set_verifier_addresses
+                .get(&chain_id)
+                .with_context(|| {
+                    format!(
+                    "--set-verifier-address-{chain_id} required (--market-address-{chain_id} was provided)"
+                )
+                })?;
 
         let mut builder = boundless_market::Deployment::builder();
         builder
@@ -301,13 +474,13 @@ fn build_chain_deployments(args: &Args) -> Result<HashMap<u64, boundless_market:
             .boundless_market_address(*market_address)
             .set_verifier_address(*set_verifier_address);
 
-        if let Some(addr) = verifier_router_addrs.get(&chain_id) {
+        if let Some(addr) = per_chain.verifier_router_addresses.get(&chain_id) {
             builder.verifier_router_address(*addr);
         }
-        if let Some(addr) = collateral_token_addrs.get(&chain_id) {
+        if let Some(addr) = per_chain.collateral_token_addresses.get(&chain_id) {
             builder.collateral_token_address(*addr);
         }
-        if let Some(url) = order_stream_urls.get(&chain_id) {
+        if let Some(url) = per_chain.order_stream_urls.get(&chain_id) {
             builder.order_stream_url(Cow::Owned(url.clone()));
         }
 
@@ -322,61 +495,19 @@ fn build_chain_deployments(args: &Args) -> Result<HashMap<u64, boundless_market:
     Ok(deployments)
 }
 
-/// Discover enabled chains from CLI args and environment variables.
+/// Discover enabled chains from per-chain CLI args and environment variables.
 ///
 /// Chains are discovered from two sources (CLI args take priority):
-/// 1. `--chain-rpc-urls` CLI args (format: `{chain_id}:{url1},{url2},...`)
+/// 1. `--rpc-url-{chain_id}` CLI args
 /// 2. `PROVER_RPC_URL_{chain_id}` environment variables
 ///
 /// Returns an empty vec if no per-chain configuration is found (falls back to
-/// deprecated single-chain mode in main).
-fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
-    use std::collections::BTreeMap;
-
-    // Parse --chain-config-file overrides
-    let mut config_overrides: HashMap<u64, PathBuf> = HashMap::new();
-    for entry in &args.chain_config_file {
-        let (chain_id_str, path_str) = entry.split_once('=').with_context(|| {
-            format!("Invalid --chain-config-file format '{entry}', expected {{chain_id}}={{path}}")
-        })?;
-        let chain_id: u64 = chain_id_str
-            .parse()
-            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in --chain-config-file"))?;
-        config_overrides.insert(chain_id, PathBuf::from(path_str));
-    }
-
-    // Parse --chain-private-key
-    let mut explicit_keys: HashMap<u64, alloy::signers::local::PrivateKeySigner> = HashMap::new();
-    for entry in &args.chain_private_key {
-        let (chain_id_str, key_str) = entry.split_once('=').with_context(|| {
-            format!("Invalid --chain-private-key format '{entry}', expected {{chain_id}}={{key}}")
-        })?;
-        let chain_id: u64 = chain_id_str
-            .parse()
-            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in --chain-private-key"))?;
-        let key: alloy::signers::local::PrivateKeySigner = key_str.parse().with_context(|| {
-            format!("Invalid private key for chain {chain_id} in --chain-private-key")
-        })?;
-        explicit_keys.insert(chain_id, key);
-    }
-
-    // Collect chains: --chain-rpc-url first, then env vars for chains not already specified.
-    // Multiple --chain-rpc-url entries for the same chain accumulate as failover URLs.
+/// single-chain mode in main).
+fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<ChainArgs>> {
+    // Start with CLI-specified RPC URLs
     let mut chain_urls: BTreeMap<u64, Vec<Url>> = BTreeMap::new();
-
-    for entry in &args.chain_rpc_url {
-        let (chain_id_str, url_str) = entry.split_once('=').with_context(|| {
-            format!("Invalid --chain-rpc-url format '{entry}', expected {{chain_id}}={{url}}")
-        })?;
-        let chain_id: u64 = chain_id_str
-            .parse()
-            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in --chain-rpc-url"))?;
-        let url = Url::parse(url_str)
-            .with_context(|| format!("Invalid URL in --chain-rpc-url for chain {chain_id}"))?;
-        let urls = chain_urls.entry(chain_id).or_default();
-        if !urls.contains(&url) {
-            urls.push(url);
-        }
+    for (chain_id, urls) in per_chain.rpc_urls.drain() {
+        chain_urls.insert(chain_id, urls);
     }
 
     // Env vars for chains not already specified via CLI
@@ -421,7 +552,7 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
         return Ok(Vec::new());
     }
 
-    let mut chain_deployments = build_chain_deployments(args)?;
+    let mut chain_deployments = build_chain_deployments(per_chain)?;
 
     let global_private_key = args
         .private_key
@@ -430,8 +561,9 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
 
     let mut chains = Vec::with_capacity(chain_urls.len());
     for (chain_id, rpc_urls) in chain_urls {
-        // Resolution order: --chain-private-keys > PROVER_PRIVATE_KEY_{id} > global key
-        let private_key = explicit_keys
+        // Resolution order: --private-key-{id} > PROVER_PRIVATE_KEY_{id} > global key
+        let private_key = per_chain
+            .private_keys
             .remove(&chain_id)
             .or_else(|| {
                 std::env::var(format!("PROVER_PRIVATE_KEY_{chain_id}"))
@@ -442,11 +574,12 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
             .with_context(|| {
                 format!(
                     "No private key for chain {chain_id}. \
-                     Set --chain-private-key {chain_id}={{key}} or PROVER_PRIVATE_KEY_{chain_id} or PROVER_PRIVATE_KEY"
+                     Set --private-key-{chain_id} <key> or PROVER_PRIVATE_KEY_{chain_id} or PROVER_PRIVATE_KEY"
                 )
             })?;
 
-        let config_override_path = config_overrides
+        let config_override_path = per_chain
+            .config_files
             .remove(&chain_id)
             .or_else(|| ConfigWatcher::override_path_for_chain(&args.config_file, chain_id));
 
@@ -461,9 +594,9 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
         });
     }
 
-    for (chain_id, path) in &config_overrides {
+    for (chain_id, path) in &per_chain.config_files {
         tracing::warn!(
-            "--chain-config-file specified for chain {chain_id} ({}) but no --chain-rpc-url found for chain, ignoring",
+            "--config-file-{chain_id} specified ({}) but no --rpc-url-{chain_id} found, ignoring",
             path.display()
         );
     }
@@ -474,10 +607,9 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broker::Args;
+    use broker::CoreArgs;
     use std::path::PathBuf;
 
-    // Anvil default test accounts -- only used as valid distinct private key values in assertions
     const TEST_PRIVATE_KEY_0: &str =
         "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     const TEST_PRIVATE_KEY_1: &str =
@@ -514,11 +646,10 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // Env-mutating tests must run serially to avoid interference.
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    fn default_args() -> Args {
-        Args {
+    fn default_args() -> CoreArgs {
+        CoreArgs {
             db_url: "sqlite::memory:".into(),
             rpc_url: None,
             rpc_urls: vec![],
@@ -536,14 +667,6 @@ mod tests {
             log_json: false,
             listen_only: false,
             experimental_rpc: false,
-            chain_rpc_url: vec![],
-            chain_private_key: vec![],
-            chain_config_file: vec![],
-            chain_market_address: vec![],
-            chain_set_verifier_address: vec![],
-            chain_verifier_router_address: vec![],
-            chain_collateral_token_address: vec![],
-            chain_order_stream_url: vec![],
         }
     }
 
@@ -571,7 +694,8 @@ mod tests {
         clear_chain_env_vars();
 
         let args = default_args();
-        let chains = discover_chains(&args).unwrap();
+        let mut per_chain = PerChainArgs::default();
+        let chains = discover_chains(&args, &mut per_chain).unwrap();
         assert!(chains.is_empty());
     }
 
@@ -587,7 +711,8 @@ mod tests {
         let mut args = default_args();
         args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
 
-        let chains = discover_chains(&args).unwrap();
+        let mut per_chain = PerChainArgs::default();
+        let chains = discover_chains(&args, &mut per_chain).unwrap();
         assert_eq!(chains.len(), 2);
         assert_eq!(chains[0].chain_id, 1);
         assert_eq!(chains[0].rpc_urls[0].as_str(), "http://eth.example.com/");
@@ -612,7 +737,8 @@ mod tests {
         let mut args = default_args();
         args.private_key = Some(global_key.parse().unwrap());
 
-        let chains = discover_chains(&args).unwrap();
+        let mut per_chain = PerChainArgs::default();
+        let chains = discover_chains(&args, &mut per_chain).unwrap();
         assert_eq!(chains[0].chain_id, 1);
         assert_eq!(chains[0].private_key, chain_key.parse().unwrap());
         assert_eq!(chains[1].chain_id, 8453);
@@ -636,7 +762,8 @@ mod tests {
         let mut args = default_args();
         args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
 
-        let chains = discover_chains(&args).unwrap();
+        let mut per_chain = PerChainArgs::default();
+        let chains = discover_chains(&args, &mut per_chain).unwrap();
         assert_eq!(chains.len(), 1);
         assert_eq!(chains[0].rpc_urls.len(), 3);
         assert_eq!(chains[0].rpc_urls[0].as_str(), "http://primary.example.com/");
@@ -655,9 +782,11 @@ mod tests {
 
         let mut args = default_args();
         args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
-        args.chain_config_file = vec!["8453=/custom/path/broker.base.toml".into()];
 
-        let chains = discover_chains(&args).unwrap();
+        let mut per_chain = PerChainArgs::default();
+        per_chain.config_files.insert(8453, PathBuf::from("/custom/path/broker.base.toml"));
+
+        let chains = discover_chains(&args, &mut per_chain).unwrap();
         assert_eq!(chains.len(), 1);
         assert_eq!(
             chains[0].config_override_path,
