@@ -9,7 +9,6 @@ const config: LaunchPipelineConfig = {
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
   postBuildCommands: [
-    'cd infra/$APP_NAME',
     'pulumi stack select $STACK_NAME',
     './post-deploy.sh $STACK_NAME',
   ],
