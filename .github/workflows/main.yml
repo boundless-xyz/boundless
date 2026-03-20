@@ -339,6 +339,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
+      - name: cache sccache local disk
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: sccache-check-publish-${{ hashFiles('Cargo.lock') }}
+          restore-keys: sccache-check-publish-
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
@@ -352,6 +358,8 @@ jobs:
           restore-keys: cargo-check-publish-
       # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
       - run: cargo publish -p boundless-market --dry-run
+      - name: sccache stats
+        run: sccache --show-stats
 
   # Run as a separate job because it needs the nightly toolchain and does not install Forge or cargo-risczero.
   docs-rs:
