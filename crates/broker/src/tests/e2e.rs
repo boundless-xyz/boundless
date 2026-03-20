@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, path::PathBuf};
+use std::{future::Future, path::PathBuf, sync::Arc};
 
 use crate::{
     config::{Config, ConfigWatcher, TelemetryMode},
@@ -50,6 +50,7 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 use tempfile::NamedTempFile;
+use tokio::sync::RwLock;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
@@ -235,7 +236,7 @@ async fn simple_e2e() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -304,7 +305,7 @@ async fn simple_e2e_experimental_rpc() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -385,7 +386,7 @@ async fn simple_e2e_with_callback() {
         ctx.prover_provider.clone(),
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -474,7 +475,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -552,7 +553,7 @@ async fn e2e_with_selector() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -624,7 +625,7 @@ async fn e2e_with_blake3_groth16_selector() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -699,7 +700,7 @@ async fn e2e_with_multiple_requests() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -797,7 +798,7 @@ async fn e2e_with_claim_digest_match() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -875,7 +876,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
         ctx.prover_provider.clone(),
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();

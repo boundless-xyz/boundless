@@ -206,6 +206,11 @@ check-clippy: check-clippy-main
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
 
+# Check that the main workspace compiles (same RISC0 skip flags as check-clippy-main)
+check-cargo-main:
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
+    cargo check --workspace --all-targets
+
 # Check Cargo clippy for the main workspace
 check-clippy-main:
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \

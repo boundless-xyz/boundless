@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use alloy::node_bindings::Anvil;
 use alloy::primitives::{utils, U256};
 use boundless_market::contracts::hit_points::default_allowance;
+use boundless_market::dynamic_gas_filler::PriorityMode;
 use boundless_market::selector::ProofType;
 use boundless_market::storage::{MockStorageUploader, StorageUploader};
 use boundless_test_utils::guests::ECHO_ELF;
 use boundless_test_utils::market::create_test_ctx;
 use tempfile::NamedTempFile;
+use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tracing_test::traced_test;
 
@@ -70,7 +74,7 @@ async fn e2e_telemetry_events() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
