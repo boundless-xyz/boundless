@@ -231,6 +231,7 @@ async fn simple_e2e() {
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -299,6 +300,7 @@ async fn simple_e2e_experimental_rpc() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
@@ -380,6 +382,7 @@ async fn simple_e2e_with_callback() {
         ctx.prover_provider.clone(),
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
@@ -470,6 +473,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -548,6 +552,7 @@ async fn e2e_with_selector() {
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -619,6 +624,7 @@ async fn e2e_with_blake3_groth16_selector() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
@@ -694,6 +700,7 @@ async fn e2e_with_multiple_requests() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
@@ -793,6 +800,7 @@ async fn e2e_with_claim_digest_match() {
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Default::default(),
+        Default::default(),
     )
     .await
     .unwrap();
@@ -870,6 +878,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
         ctx.prover_provider.clone(),
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
         Default::default(),
     )
     .await
