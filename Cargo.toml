@@ -129,6 +129,19 @@ debug = "line-tables-only"
 # compilation, so optimizing them once pays off across the whole build.
 opt-level = 3
 
+[profile.dev.package]
+# Crypto deps are extremely slow without optimization. The difference between
+# opt-level 1 (workspace default) and 3 can be 5-10x for hashing/signing.
+sha2.opt-level = 3
+keccak.opt-level = 3
+keccak-asm.opt-level = 3
+k256.opt-level = 3
+p256.opt-level = 3
+secp256k1.opt-level = 3
+rand_chacha.opt-level = 3
+revm-interpreter.opt-level = 3
+revm-precompile.opt-level = 3
+
 [profile.release]
 debug = 1
 lto = true

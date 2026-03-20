@@ -140,7 +140,7 @@ jobs:
 
       # TODO: Replace with taiki-e/install-action@nextest once added to the org action allowlist.
       - name: install nextest
-        run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin
+        run: curl -LsSf https://get.nexte.st/0.9.131/linux | tar zxf - -C ~/.cargo/bin
 
       - name: cargo nextest run
         run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc
@@ -497,7 +497,6 @@ jobs:
       main: ${{ steps.changes.outputs.main }}
       docs: ${{ steps.changes.outputs.docs }}
       infra: ${{ steps.changes.outputs.infra }}
-      deployments: ${{ steps.changes.outputs.deployments }}
       scaler: ${{ steps.changes.outputs.scaler }}
       requestor_lists: ${{ steps.changes.outputs.requestor_lists }}
       xtask: ${{ steps.changes.outputs.xtask }}
@@ -538,11 +537,6 @@ jobs:
             # Changes to infrastructure code
             infra:
               - 'infra/**'
-              - '.github/workflows/main.yml'
-            # Changes to deployment configuration files
-            deployments:
-              - 'contracts/deployment.toml'
-              - 'crates/boundless-market/src/deployments.rs'
               - '.github/workflows/main.yml'
             # Changes to scaler lambda function
             scaler:
