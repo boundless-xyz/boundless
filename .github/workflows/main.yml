@@ -528,21 +528,28 @@ jobs:
       - name: docker-compose lint
         run: docker compose --profile broker --env-file ./.env.broker-template config
 
-      - name: Fetch CI AWS Creds
-        id: aws-creds
+      - name: Fetch sccache AWS creds
+        id: sccache-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: "us-west-2"
+          role-duration-seconds: 14400
+          role-to-assume: "arn:aws:iam::033359631619:role/gha_oidc_boundless_cache_public_access"
+          output-credentials: true
+
+      - name: Create sccache creds file for Docker build
+        run: |
+          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
+          echo "aws_access_key_id=${{ steps.sccache-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt
+          echo "aws_secret_access_key=${{ steps.sccache-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt
+          echo "aws_session_token=${{ steps.sccache-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
+
+      - name: Fetch BuildKit cache AWS creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: "us-west-2"
           role-duration-seconds: 14400
           role-to-assume: "arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access"
-          output-credentials: true
-
-      - name: create ci creds file
-        run: |
-          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
-          echo "aws_access_key_id=${{ steps.aws-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt && \
-          echo "aws_secret_access_key=${{ steps.aws-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt && \
-          echo "aws_session_token=${{ steps.aws-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
 
       - name: Setup docker builder
         run: docker buildx create --driver docker-container --use
@@ -551,6 +558,9 @@ jobs:
         run: |
           docker buildx build \
             -f dockerfiles/broker.dockerfile \
+            --secret id=ci_cache_creds,src=./dockerfiles/ci-cache-creds.txt \
+            --build-arg S3_CACHE_BUCKET=boundless-ci-prod-cache \
+            --build-arg S3_CACHE_PREFIX=public/boundless/rust-cache-docker-Linux-X64/sccache \
             --cache-from type=s3,name=broker-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache \
             --cache-to type=s3,name=broker-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max \
             .
