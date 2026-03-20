@@ -41,6 +41,12 @@ ignore = ["contracts/src/blake3-groth16/Groth16Verifier.sol"]
 [lint]
 exclude_lints = ["asm-keccak256", "incorrect-shift"]
 
+# Profile used in CI for faster forge builds. via_ir=false is ~3x faster and
+# produces functionally equivalent contracts for testing purposes.
+# TIP: You can select this profile by setting env var FOUNDRY_PROFILE=ci
+[profile.ci]
+via_ir = false
+
 # Profile used to run deployment tests, which check the correctness of contracts as deployed.
 # TIP: You can select this profile by setting env var FOUNDRY_PROFILE=deployment-test
 [profile.deployment-test]
