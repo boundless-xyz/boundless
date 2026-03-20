@@ -73,9 +73,14 @@ jobs:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
-      # forge build is intentionally omitted here. build.rs falls back to the
-      # committed bytecode.rs when out/ doesn't exist, which is sufficient for
-      # clippy and doc. Contract compilation is verified by rust-test and foundry.
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: forge build
+        run: forge build
+
       - name: cargo doc
         env:
           RUSTFLAGS: "-Dwarnings"
@@ -309,22 +314,15 @@ jobs:
         with:
           python-version: "3.10"
 
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-
-      - name: Install cargo-sort
-        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
-        with:
-          crate: cargo-sort
-          version: "1.0"
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
 
       - name: install cargo-binstall
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
-        with:
-          crate: cargo-binstall
-          version: "=1.15.1"
-          locked: true
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://github.com/cargo-bins/cargo-binstall/releases/download/v1.15.1/cargo-binstall-x86_64-unknown-linux-musl.tgz \
+            | tar -xz -C ~/.cargo/bin/
 
-      - run: cargo binstall -y --force dprint@0.47.2
+      - run: cargo binstall -y --force dprint@0.47.2 cargo-sort@2
 
       - name: cargo sort
         run: cargo sort --workspace --check
