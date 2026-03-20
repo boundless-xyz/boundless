@@ -1,0 +1,46 @@
+name: Rust setup
+description: Common setup for Rust CI jobs (sccache, rustup, protoc, risczero, foundry, forge build)
+
+inputs:
+  risczero-version:
+    description: Version of cargo-risczero to install
+    required: true
+  toolchain-version:
+    description: Version of the RISC Zero toolchain to install
+    required: true
+  foundry-version:
+    description: Version of Foundry to install
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: setup sccache + s3
+      uses: ./.github/actions/sccache
+
+    - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+    - uses: risc0/risc0/.github/actions/protoc@v3.0.3
+
+    - name: install cargo risczero
+      uses: ./.github/actions/bininstall-risc0
+      with:
+        risczero-version: ${{ inputs.risczero-version }}
+        toolchain-version: ${{ inputs.toolchain-version }}
+
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: ${{ inputs.foundry-version }}
+
+    - name: Cache forge build
+      uses: actions/cache@v4
+      with:
+        path: |
+          out
+          cache
+        key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+        restore-keys: forge-build-${{ runner.os }}-
+
+    - name: forge build
+      shell: bash
+      run: forge build
