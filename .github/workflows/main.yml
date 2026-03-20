@@ -50,14 +50,8 @@ jobs:
         run: exit 1
 
   rust-lint:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    runs-on: [self-hosted, prod, Linux, cpu]
     timeout-minutes: 20
-    strategy:
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
     needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     steps:
@@ -66,23 +60,43 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Rust setup
-        uses: ./.github/actions/rust-setup
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-          foundry-version: ${{ env.FOUNDRY_VERSION }}
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+          components: clippy
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Cache forge build
+        uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-${{ runner.os }}-
+
+      - name: forge build
+        run: forge build
 
       - name: cargo clippy
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
+          RISC0_SKIP_BUILD_KERNELS: 1
         run: cargo clippy --locked --all-targets
 
       - name: cargo doc
         env:
           RUSTFLAGS: "-Dwarnings"
           RISC0_SKIP_BUILD: 1
+          RISC0_SKIP_BUILD_KERNELS: 1
         run: cargo doc --locked --no-deps
 
         # build script for boundless-market copies Solidity build artifacts.
