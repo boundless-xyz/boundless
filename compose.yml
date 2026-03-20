@@ -21,6 +21,7 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
+  image: ${AGENT_IMAGE:-boundless-agent:local}
   runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
