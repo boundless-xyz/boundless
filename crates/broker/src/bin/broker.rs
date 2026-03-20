@@ -229,7 +229,7 @@ fn collect_rpc_urls(
     Ok(all_rpc_urls)
 }
 
-/// Parse a list of `{chain_id}:{value}` strings into a map keyed by chain ID.
+/// Parse a list of `{chain_id}={value}` strings into a map keyed by chain ID.
 /// Used by the various `--chain-*` CLI args that follow this format.
 fn parse_chain_id_values<T: std::str::FromStr>(
     entries: &[String],
@@ -240,8 +240,8 @@ where
 {
     let mut map = HashMap::new();
     for entry in entries {
-        let (chain_id_str, value_str) = entry.split_once(':').with_context(|| {
-            format!("Invalid {arg_name} format '{entry}', expected {{chain_id}}:{{value}}")
+        let (chain_id_str, value_str) = entry.split_once('=').with_context(|| {
+            format!("Invalid {arg_name} format '{entry}', expected {{chain_id}}={{value}}")
         })?;
         let chain_id: u64 = chain_id_str
             .parse()
@@ -331,8 +331,8 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
     // Parse --chain-config-file overrides
     let mut config_overrides: HashMap<u64, PathBuf> = HashMap::new();
     for entry in &args.chain_config_file {
-        let (chain_id_str, path_str) = entry.split_once(':').with_context(|| {
-            format!("Invalid --chain-config-file format '{entry}', expected {{chain_id}}:{{path}}")
+        let (chain_id_str, path_str) = entry.split_once('=').with_context(|| {
+            format!("Invalid --chain-config-file format '{entry}', expected {{chain_id}}={{path}}")
         })?;
         let chain_id: u64 = chain_id_str
             .parse()
@@ -340,44 +340,37 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
         config_overrides.insert(chain_id, PathBuf::from(path_str));
     }
 
-    // Parse --chain-private-keys
+    // Parse --chain-private-key
     let mut explicit_keys: HashMap<u64, alloy::signers::local::PrivateKeySigner> = HashMap::new();
-    for entry in &args.chain_private_keys {
-        let (chain_id_str, key_str) = entry.split_once(':').with_context(|| {
-            format!("Invalid --chain-private-keys format '{entry}', expected {{chain_id}}:{{key}}")
+    for entry in &args.chain_private_key {
+        let (chain_id_str, key_str) = entry.split_once('=').with_context(|| {
+            format!("Invalid --chain-private-key format '{entry}', expected {{chain_id}}={{key}}")
         })?;
-        let chain_id: u64 = chain_id_str.parse().with_context(|| {
-            format!("Invalid chain_id '{chain_id_str}' in --chain-private-keys")
-        })?;
+        let chain_id: u64 = chain_id_str
+            .parse()
+            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in --chain-private-key"))?;
         let key: alloy::signers::local::PrivateKeySigner = key_str.parse().with_context(|| {
-            format!("Invalid private key for chain {chain_id} in --chain-private-keys")
+            format!("Invalid private key for chain {chain_id} in --chain-private-key")
         })?;
         explicit_keys.insert(chain_id, key);
     }
 
-    // Collect chains: --chain-rpc-urls first, then env vars for chains not already specified
+    // Collect chains: --chain-rpc-url first, then env vars for chains not already specified.
+    // Multiple --chain-rpc-url entries for the same chain accumulate as failover URLs.
     let mut chain_urls: BTreeMap<u64, Vec<Url>> = BTreeMap::new();
 
-    for entry in &args.chain_rpc_urls {
-        let (chain_id_str, urls_str) = entry.split_once(':').with_context(|| {
-            format!(
-                "Invalid --chain-rpc-urls format '{entry}', expected {{chain_id}}:{{url1}},{{url2}},..."
-            )
+    for entry in &args.chain_rpc_url {
+        let (chain_id_str, url_str) = entry.split_once('=').with_context(|| {
+            format!("Invalid --chain-rpc-url format '{entry}', expected {{chain_id}}={{url}}")
         })?;
         let chain_id: u64 = chain_id_str
             .parse()
-            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in --chain-rpc-urls"))?;
-        for url_str in urls_str.split(',') {
-            let url_str = url_str.trim();
-            if url_str.is_empty() {
-                continue;
-            }
-            let url = Url::parse(url_str)
-                .with_context(|| format!("Invalid URL in --chain-rpc-urls for chain {chain_id}"))?;
-            let urls = chain_urls.entry(chain_id).or_default();
-            if !urls.contains(&url) {
-                urls.push(url);
-            }
+            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in --chain-rpc-url"))?;
+        let url = Url::parse(url_str)
+            .with_context(|| format!("Invalid URL in --chain-rpc-url for chain {chain_id}"))?;
+        let urls = chain_urls.entry(chain_id).or_default();
+        if !urls.contains(&url) {
+            urls.push(url);
         }
     }
 
@@ -444,7 +437,7 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
             .with_context(|| {
                 format!(
                     "No private key for chain {chain_id}. \
-                     Set --chain-private-keys {chain_id}:{{key}} or PROVER_PRIVATE_KEY_{chain_id} or PROVER_PRIVATE_KEY"
+                     Set --chain-private-key {chain_id}={{key}} or PROVER_PRIVATE_KEY_{chain_id} or PROVER_PRIVATE_KEY"
                 )
             })?;
 
@@ -465,7 +458,7 @@ fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
 
     for (chain_id, path) in &config_overrides {
         tracing::warn!(
-            "--chain-config-file specified for chain {chain_id} ({}) but no RPC URLs found for chain, ignoring",
+            "--chain-config-file specified for chain {chain_id} ({}) but no --chain-rpc-url found for chain, ignoring",
             path.display()
         );
     }
@@ -538,8 +531,8 @@ mod tests {
             log_json: false,
             listen_only: false,
             experimental_rpc: false,
-            chain_rpc_urls: vec![],
-            chain_private_keys: vec![],
+            chain_rpc_url: vec![],
+            chain_private_key: vec![],
             chain_config_file: vec![],
             chain_market_address: vec![],
             chain_set_verifier_address: vec![],
@@ -657,7 +650,7 @@ mod tests {
 
         let mut args = default_args();
         args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
-        args.chain_config_file = vec!["8453:/custom/path/broker.base.toml".into()];
+        args.chain_config_file = vec!["8453=/custom/path/broker.base.toml".into()];
 
         let chains = discover_chains(&args).unwrap();
         assert_eq!(chains.len(), 1);

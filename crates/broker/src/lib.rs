@@ -101,41 +101,39 @@ pub struct Args {
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
 
-    /// Per-chain RPC URLs. Format: {chain_id}:{url1},{url2},...
-    /// Can be specified multiple times for different chains.
-    /// e.g. --chain-rpc-urls 1:http://eth.example.com --chain-rpc-urls 8453:http://primary.base.com,http://backup.base.com
+    /// Per-chain RPC URL. Format: {chain_id}={url}
+    /// Specify multiple times per chain for failover.
+    /// e.g. --chain-rpc-url 1=http://eth.example.com --chain-rpc-url 8453=http://primary.base.com --chain-rpc-url 8453=http://backup.base.com
     #[clap(long)]
-    pub chain_rpc_urls: Vec<String>,
+    pub chain_rpc_url: Vec<String>,
 
-    /// Per-chain private keys. Format: {chain_id}:{key}
+    /// Per-chain private key. Format: {chain_id}={key}
     /// Falls back to --private-key / PROVER_PRIVATE_KEY if not specified for a chain.
-    /// Can be specified multiple times for different chains.
     #[clap(long, hide_env_values = true)]
-    pub chain_private_keys: Vec<String>,
+    pub chain_private_key: Vec<String>,
 
-    /// Per-chain config override files, merged onto the base config (--config-file).
-    /// Format: {chain_id}:{path}, e.g. --chain-config-file 8453:broker.base.toml
-    /// Can be specified multiple times.
+    /// Per-chain config override file, merged onto the base config (--config-file).
+    /// Format: {chain_id}={path}, e.g. --chain-config-file 8453=broker.base.toml
     #[clap(long)]
     pub chain_config_file: Vec<String>,
 
-    /// Per-chain BoundlessMarket contract address. Format: {chain_id}:{address}
+    /// Per-chain BoundlessMarket contract address. Format: {chain_id}={address}
     #[clap(long)]
     pub chain_market_address: Vec<String>,
 
-    /// Per-chain SetVerifier contract address. Format: {chain_id}:{address}
+    /// Per-chain SetVerifier contract address. Format: {chain_id}={address}
     #[clap(long)]
     pub chain_set_verifier_address: Vec<String>,
 
-    /// Per-chain VerifierRouter contract address. Format: {chain_id}:{address}
+    /// Per-chain VerifierRouter contract address. Format: {chain_id}={address}
     #[clap(long)]
     pub chain_verifier_router_address: Vec<String>,
 
-    /// Per-chain collateral token address. Format: {chain_id}:{address}
+    /// Per-chain collateral token address. Format: {chain_id}={address}
     #[clap(long)]
     pub chain_collateral_token_address: Vec<String>,
 
-    /// Per-chain order stream URL. Format: {chain_id}:{url}
+    /// Per-chain order stream URL. Format: {chain_id}={url}
     #[clap(long)]
     pub chain_order_stream_url: Vec<String>,
 
@@ -1558,8 +1556,8 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
-                chain_rpc_urls: vec![],
-                chain_private_keys: vec![],
+                chain_rpc_url: vec![],
+                chain_private_key: vec![],
                 chain_config_file: vec![],
                 chain_market_address: vec![],
                 chain_set_verifier_address: vec![],
