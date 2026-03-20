@@ -489,9 +489,9 @@ mod tests {
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use broker::{
-        build_chain_provider,
+        broker_sqlite_url_for_chain, build_chain_provider,
         config::{Config, ConfigWatcher},
-        resolve_deployment, Args, Broker, ChainPipeline,
+        resolve_deployment, Args, Broker, ChainPipeline, DbObj, SqliteDb,
     };
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
@@ -613,6 +613,9 @@ mod tests {
         let chain_id = provider.get_chain_id().await.unwrap();
         let deployment = resolve_deployment(args.deployment.as_ref(), chain_id).unwrap();
 
+        let db_url = broker_sqlite_url_for_chain(&args.db_url, chain_id).unwrap();
+        let db: DbObj = Arc::new(SqliteDb::new(&db_url).await.unwrap());
+
         let chain = ChainPipeline {
             provider,
             any_provider,
@@ -621,6 +624,7 @@ mod tests {
             private_key: ctx.prover_signer.clone(),
             chain_id,
             deployment,
+            db,
         };
 
         let broker = Broker::new(args, config_watcher).await.unwrap();

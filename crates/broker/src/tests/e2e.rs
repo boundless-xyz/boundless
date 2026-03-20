@@ -15,8 +15,9 @@
 use std::{future::Future, path::PathBuf, sync::Arc};
 
 use crate::{
+    broker_sqlite_url_for_chain,
     config::{Config, ConfigWatcher},
-    now_timestamp, Args, Broker, ChainPipeline,
+    now_timestamp, Args, Broker, ChainPipeline, DbObj, SqliteDb,
 };
 use alloy::{
     network::{AnyNetwork, Ethereum},
@@ -132,7 +133,7 @@ async fn new_config(min_batch_size: u32) -> TestConfig {
     new_config_with_min_deadline(min_batch_size, 100).await
 }
 
-// We put some config into an override file so that we can test the per-chain overrides feature e2e.lets
+// We put some config into an override file so that we can test the per-chain overrides feature e2e.
 async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> TestConfig {
     let base_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let override_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
@@ -230,11 +231,14 @@ async fn build_test_chain<P>(
     deployment: &Deployment,
     rpc_url: Url,
     config: &crate::ConfigLock,
+    db_url: &str,
 ) -> ChainPipeline<P>
 where
     P: Provider<Ethereum> + WalletProvider + Clone + 'static,
 {
     let chain_id = prover_provider.get_chain_id().await.unwrap();
+    let resolved = broker_sqlite_url_for_chain(db_url, chain_id).unwrap();
+    let db: DbObj = Arc::new(SqliteDb::new(&resolved).await.unwrap());
     ChainPipeline {
         provider: Arc::new(prover_provider.clone()),
         any_provider: make_any_provider(rpc_url),
@@ -243,6 +247,7 @@ where
         private_key: prover_signer.clone(),
         chain_id,
         deployment: deployment.clone(),
+        db,
     }
 }
 
@@ -283,20 +288,21 @@ async fn simple_e2e() {
     // Start broker
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
@@ -351,20 +357,21 @@ async fn simple_e2e_experimental_rpc() {
     // Start broker with experimental RPC path enabled
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let mut args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     args.experimental_rpc = true;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
@@ -433,20 +440,21 @@ async fn simple_e2e_with_callback() {
     // Start broker
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
@@ -522,20 +530,21 @@ async fn e2e_fulfill_after_lock_expiry() {
 
     let config = new_config_with_min_deadline(1, 0).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
@@ -600,20 +609,21 @@ async fn e2e_with_selector() {
     // Start broker
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
@@ -672,20 +682,21 @@ async fn e2e_with_blake3_groth16_selector() {
     // Start broker
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -747,20 +758,21 @@ async fn e2e_with_multiple_requests() {
     // Start broker
     let config = new_config(2).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
@@ -845,20 +857,21 @@ async fn e2e_with_claim_digest_match() {
     // Start broker
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
@@ -923,20 +936,21 @@ async fn gas_estimation_matches_actual_tx_cost() {
 
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-    )
-    .await;
     let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
     );
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        &args.db_url,
+    )
+    .await;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
@@ -1034,13 +1048,8 @@ async fn gas_estimation_matches_actual_tx_cost() {
     .await;
 }
 
-// TODO: fails because all chains share a single SQLite DB with no chain_id filtering.
-// The ProvingService, AggregatorService, and Submitter pick orders/batches from any chain,
-// causing EIP-712 domain mismatches when the assessor verifies signatures.
-// Will be enabled once we have per-chain tables (orders_{chain_id}, batches_{chain_id}).
 #[tokio::test]
 #[traced_test]
-#[ignore = "DB queries need per-chain filtering"]
 async fn multi_chain_e2e() {
     let anvil1 = Anvil::new().chain_id(31337).spawn();
     let anvil2 = Anvil::new().chain_id(1337).spawn();
@@ -1063,12 +1072,19 @@ async fn multi_chain_e2e() {
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
 
+    let args = broker_args(
+        config.base_path(),
+        ctx1.deployment.clone(),
+        anvil1.endpoint_url(),
+        ctx1.prover_signer.clone(),
+    );
     let chain1 = build_test_chain(
         &ctx1.prover_provider,
         &ctx1.prover_signer,
         &ctx1.deployment,
         anvil1.endpoint_url(),
         &config_watcher.config,
+        &args.db_url,
     )
     .await;
     let chain2 = build_test_chain(
@@ -1077,15 +1093,10 @@ async fn multi_chain_e2e() {
         &ctx2.deployment,
         anvil2.endpoint_url(),
         &config_watcher.config,
+        &args.db_url,
     )
     .await;
 
-    let args = broker_args(
-        config.base_path(),
-        ctx1.deployment.clone(),
-        anvil1.endpoint_url(),
-        ctx1.prover_signer.clone(),
-    );
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();

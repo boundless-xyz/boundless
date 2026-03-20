@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{default::Default, str::FromStr, sync::Arc};
+use std::{
+    default::Default,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
+};
 
 use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, U256};
 use async_trait::async_trait;
@@ -29,6 +34,7 @@ use crate::{
     FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
+use url::Url;
 
 #[cfg(test)]
 mod fuzz_db;
@@ -123,6 +129,7 @@ pub struct AggregationOrder {
 }
 
 #[async_trait]
+#[allow(private_interfaces)]
 pub trait BrokerDb {
     async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
     async fn insert_accepted_request(
@@ -201,6 +208,69 @@ pub trait BrokerDb {
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
+
+/// Builds a per-chain SQLite connection URL from the broker's configured base URL.
+///
+/// File URLs insert `.{chain_id}` before the extension (`broker.sqlite` → `broker.8453.sqlite`).
+/// In-memory bases (`sqlite::memory:`) map to a distinct named in-memory database per chain.
+pub fn broker_sqlite_url_for_chain(base_conn_str: &str, chain_id: u64) -> Result<String, String> {
+    let base = base_conn_str.trim();
+    if sqlite_url_is_memory_base(base) {
+        return Ok(format!("sqlite:file:boundless_broker_{chain_id}?mode=memory&cache=shared"));
+    }
+
+    let base_url = Url::parse(base).map_err(|e| format!("invalid broker database URL: {e}"))?;
+    if base_url.scheme() != "sqlite" {
+        return Err(format!(
+            "broker database URL must use the sqlite scheme, got {}",
+            base_url.scheme()
+        ));
+    }
+
+    let path = sqlite_file_path_from_url(&base_url)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "broker database URL path has no file name".to_string())?;
+
+    let path_buf = PathBuf::from(file_name);
+    let stem =
+        path_buf.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("broker");
+    let ext = path_buf.extension().and_then(|e| e.to_str());
+    let new_file_name = match ext {
+        Some(e) => format!("{stem}.{chain_id}.{e}"),
+        None => format!("{stem}.{chain_id}"),
+    };
+    let new_path = parent.join(new_file_name);
+    let path_str = new_path
+        .to_str()
+        .ok_or_else(|| "derived broker database path is not valid UTF-8".to_string())?;
+
+    Ok(format!("sqlite://{path_str}"))
+}
+
+fn sqlite_url_is_memory_base(s: &str) -> bool {
+    let head = s.split('?').next().unwrap_or("");
+    head.eq_ignore_ascii_case("sqlite::memory:")
+}
+
+fn sqlite_file_path_from_url(url: &Url) -> Result<PathBuf, String> {
+    if sqlite_url_is_memory_base(url.as_str()) {
+        return Err("in-memory broker URL should be handled before URL path extraction".into());
+    }
+
+    let path = url.path();
+    if !path.is_empty() && path != "/" {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Some(host) = url.host_str() {
+        return Ok(PathBuf::from(host));
+    }
+
+    Err("sqlite broker URL has no file path (use sqlite:///path, sqlite://relative.db, or sqlite::memory:)".into())
+}
 
 pub struct SqliteDb {
     pool: SqlitePool,
@@ -308,6 +378,7 @@ struct DbLockedRequest {
     block_number: u64,
 }
 
+#[allow(private_interfaces)]
 #[async_trait]
 impl BrokerDb for SqliteDb {
     #[cfg(test)]
@@ -1680,5 +1751,80 @@ mod tests {
             db.insert_accepted_request(&different_request, U256::from(300)).await.unwrap();
         assert_eq!(new_order.status, OrderStatus::PendingProving);
         assert_eq!(new_order.lock_price, Some(U256::from(300)));
+    }
+}
+
+#[cfg(test)]
+mod chain_db_url_tests {
+    use super::*;
+    use crate::{FulfillmentType, OrderRequest, ProofRequest};
+    use alloy::primitives::{Address, Bytes, U256};
+    use boundless_market::contracts::{
+        Offer, Predicate, RequestId, RequestInput, RequestInputType, Requirements,
+    };
+    use risc0_zkvm::sha::Digest;
+    use tempfile::tempdir;
+
+    fn sample_order() -> crate::Order {
+        let mut order_request = OrderRequest::new(
+            ProofRequest::new(
+                RequestId::new(Address::ZERO, 1),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                "http://risczero.com",
+                RequestInput { inputType: RequestInputType::Inline, data: "".into() },
+                Offer {
+                    minPrice: U256::from(1),
+                    maxPrice: U256::from(2),
+                    rampUpStart: 0,
+                    timeout: 100,
+                    lockTimeout: 100,
+                    rampUpPeriod: 1,
+                    lockCollateral: U256::from(0),
+                },
+            ),
+            Bytes::new(),
+            FulfillmentType::LockAndFulfill,
+            Address::ZERO,
+            1,
+        );
+        order_request.image_id = Some(Digest::ZERO.to_string());
+        crate::proving_order_from_request(&order_request, Default::default())
+    }
+
+    #[test]
+    fn memory_base_yields_distinct_urls_per_chain() {
+        let a = broker_sqlite_url_for_chain("sqlite::memory:", 1).unwrap();
+        let b = broker_sqlite_url_for_chain("sqlite::memory:", 8453).unwrap();
+        assert_ne!(a, b);
+        assert!(a.contains("boundless_broker_1"));
+        assert!(b.contains("boundless_broker_8453"));
+    }
+
+    #[test]
+    fn file_base_inserts_chain_id_before_extension() {
+        let dir = tempdir().unwrap();
+        let base = format!("sqlite://{}", dir.path().join("broker.sqlite").display());
+        let u1 = broker_sqlite_url_for_chain(&base, 1).unwrap();
+        let u2 = broker_sqlite_url_for_chain(&base, 2).unwrap();
+        assert!(u1.contains("broker.1.sqlite"));
+        assert!(u2.contains("broker.2.sqlite"));
+        assert_ne!(u1, u2);
+    }
+
+    #[tokio::test]
+    async fn two_chain_files_have_isolated_migrations_and_data() {
+        let dir = tempdir().unwrap();
+        let base = format!("sqlite://{}", dir.path().join("broker.sqlite").display());
+        let url1 = broker_sqlite_url_for_chain(&base, 1).unwrap();
+        let url2 = broker_sqlite_url_for_chain(&base, 2).unwrap();
+
+        let db1: DbObj = Arc::new(SqliteDb::new(&url1).await.unwrap());
+        let db2: DbObj = Arc::new(SqliteDb::new(&url2).await.unwrap());
+
+        let order = sample_order();
+        db1.add_order(&order).await.unwrap();
+
+        assert!(db1.get_order(&order.id()).await.unwrap().is_some());
+        assert!(db2.get_order(&order.id()).await.unwrap().is_none());
     }
 }

@@ -49,7 +49,6 @@ use clap::Parser;
 pub use config::Config;
 pub use config::ConfigLock;
 use config::ConfigWatcher;
-use db::{DbObj, SqliteDb};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
@@ -73,7 +72,8 @@ pub(crate) mod block_history;
 pub(crate) mod chain_monitor;
 pub(crate) mod chain_monitor_v2;
 pub mod config;
-pub(crate) mod db;
+mod db;
+pub use db::{broker_sqlite_url_for_chain, DbObj, SqliteDb};
 pub(crate) mod errors;
 pub mod futures_retry;
 pub(crate) mod market_monitor;
@@ -97,7 +97,8 @@ pub mod utils;
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// sqlite database connection url
+    /// Base SQLite URL for the broker. Each chain pipeline opens its own file or named in-memory DB
+    /// derived from this value and the chain ID.
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
 
@@ -348,6 +349,7 @@ pub struct ChainPipeline<P> {
     pub private_key: PrivateKeySigner,
     pub chain_id: u64,
     pub deployment: Deployment,
+    pub db: DbObj,
 }
 
 /// Resolve deployment configuration for a given chain ID.
@@ -625,20 +627,17 @@ struct Batch {
 
 pub struct Broker {
     args: Args,
-    db: DbObj,
     config_watcher: ConfigWatcher,
     downloader: ConfigurableDownloader,
 }
 
 impl Broker {
     pub async fn new(args: Args, config_watcher: ConfigWatcher) -> Result<Self> {
-        let db: DbObj =
-            Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
         let downloader = ConfigurableDownloader::new(config_watcher.config.clone())
             .await
             .context("Failed to initialize downloader")?;
 
-        Ok(Self { args, db, config_watcher, downloader })
+        Ok(Self { args, config_watcher, downloader })
     }
 
     async fn fetch_and_upload_set_builder_image<P>(
@@ -885,6 +884,8 @@ impl Broker {
         let non_critical_cancel_token = CancellationToken::new();
         let critical_cancel_token = CancellationToken::new();
 
+        let chain_dbs: Vec<DbObj> = chains.iter().map(|c| c.db.clone()).collect();
+
         for chain in &chains {
             self.start_chain_pipeline(
                 chain,
@@ -946,7 +947,7 @@ impl Broker {
         });
 
         // Phase 2: Wait for committed orders to complete, then cancel critical tasks
-        self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
+        self.shutdown_and_cancel_critical_tasks(&chain_dbs, critical_cancel_token).await?;
 
         Ok(())
     }
@@ -971,6 +972,7 @@ impl Broker {
         let private_key = &chain.private_key;
         let chain_id = chain.chain_id;
         let deployment = &chain.deployment;
+        let db = chain.db.clone();
 
         let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
             let config = config.lock_all().context("Failed to lock config")?;
@@ -1000,7 +1002,7 @@ impl Broker {
             .experimental_rpc
         {
             let (monitor, new_order_rx) = chain_monitor_v2::ChainMonitorV2::new(
-                self.db.clone(),
+                db.clone(),
                 provider.clone(),
                 Arc::new(chain.any_provider.clone()),
                 deployment.boundless_market_address,
@@ -1067,7 +1069,7 @@ impl Broker {
                 events_poll_ms,
                 deployment.boundless_market_address,
                 provider.clone(),
-                self.db.clone(),
+                db.clone(),
                 chain_monitor_service.clone(),
                 private_key.address(),
                 new_order_tx.clone(),
@@ -1165,7 +1167,7 @@ impl Broker {
 
         // Spin up the order pricer to pre-flight and find orders to lock
         let order_pricer = Arc::new(order_pricer::OrderPricer::new(
-            self.db.clone(),
+            db.clone(),
             config.clone(),
             prover.clone(),
             deployment.boundless_market_address,
@@ -1195,7 +1197,7 @@ impl Broker {
         // Always start the OrderCommitter so its full decision logic (caching, prioritization,
         // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
         let order_committer = Arc::new(order_committer::OrderCommitter::new(
-            self.db.clone(),
+            db.clone(),
             provider.clone(),
             chain_monitor.clone(),
             config.clone(),
@@ -1224,7 +1226,7 @@ impl Broker {
 
         if !self.args.listen_only {
             let proving_service = Arc::new(proving::ProvingService::new(
-                self.db.clone(),
+                db.clone(),
                 prover.clone(),
                 aggregation_prover.clone(),
                 config.clone(),
@@ -1253,7 +1255,7 @@ impl Broker {
 
             let aggregator = Arc::new(
                 aggregator::AggregatorService::new(
-                    self.db.clone(),
+                    db.clone(),
                     chain_id,
                     set_builder_img_id,
                     assessor_img_id,
@@ -1279,7 +1281,7 @@ impl Broker {
 
             // Start the ReaperTask to check for expired committed orders
             let reaper =
-                Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
+                Arc::new(reaper::ReaperTask::new(db.clone(), config.clone(), prover.clone()));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
             let cancel_token = critical_cancel_token.clone();
@@ -1292,7 +1294,7 @@ impl Broker {
             });
 
             let submitter = Arc::new(submitter::Submitter::new(
-                self.db.clone(),
+                db.clone(),
                 config.clone(),
                 aggregation_prover.clone(),
                 provider.clone(),
@@ -1332,6 +1334,7 @@ impl Broker {
 
     async fn shutdown_and_cancel_critical_tasks(
         &self,
+        chain_dbs: &[DbObj],
         critical_cancel_token: CancellationToken,
     ) -> Result<(), anyhow::Error> {
         // 2 hour max to shutdown time, to avoid indefinite shutdown time.
@@ -1342,7 +1345,10 @@ impl Broker {
         let grace_period = std::time::Duration::from_secs(SHUTDOWN_GRACE_PERIOD_SECS as u64);
         let mut last_log = "".to_string();
         while start_time.elapsed() < grace_period {
-            let in_progress_orders = self.db.get_committed_orders().await?;
+            let mut in_progress_orders = Vec::new();
+            for db in chain_dbs {
+                in_progress_orders.extend(db.get_committed_orders().await?);
+            }
             if in_progress_orders.is_empty() {
                 break;
             }
@@ -1370,7 +1376,10 @@ impl Broker {
         critical_cancel_token.cancel();
 
         if start_time.elapsed() >= grace_period {
-            let in_progress_orders = self.db.get_committed_orders().await?;
+            let mut in_progress_orders = Vec::new();
+            for db in chain_dbs {
+                in_progress_orders.extend(db.get_committed_orders().await?);
+            }
             tracing::info!(
                 "Shutdown timed out after {} seconds. Exiting with {} in-progress orders: {}",
                 SHUTDOWN_GRACE_PERIOD_SECS,
@@ -1515,8 +1524,9 @@ pub mod test_utils {
     use url::Url;
 
     use crate::{
+        broker_sqlite_url_for_chain,
         config::{Config, ConfigWatcher},
-        resolve_deployment, Args, Broker, ChainPipeline,
+        resolve_deployment, Args, Broker, ChainPipeline, DbObj, SqliteDb,
     };
 
     pub struct BrokerBuilder {
@@ -1596,6 +1606,14 @@ pub mod test_utils {
             let chain_id = provider.get_chain_id().await?;
             let deployment = resolve_deployment(self.args.deployment.as_ref(), chain_id)?;
 
+            let db_url = broker_sqlite_url_for_chain(&self.args.db_url, chain_id)
+                .map_err(|e| anyhow::anyhow!("invalid broker database URL: {e}"))?;
+            let db: DbObj = Arc::new(
+                SqliteDb::new(&db_url)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to open per-chain sqlite DB: {e}"))?,
+            );
+
             let chain = ChainPipeline {
                 provider,
                 any_provider,
@@ -1604,6 +1622,7 @@ pub mod test_utils {
                 private_key: ctx.prover_signer.clone(),
                 chain_id,
                 deployment,
+                db,
             };
 
             let broker = Broker::new(self.args, config_watcher).await?;
