@@ -787,8 +787,10 @@ mod tests {
             .unwrap();
         let addr = listener.local_addr().unwrap();
 
-        // Setup with the prover address in bypass list and 1 second ping time
-        let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
+        // ws.rs drops the connection when a ping is not answered before the next interval tick.
+        // tokio::time::interval completes its first tick immediately, so a 1s period allows only ~1s
+        // for the client to answer the first ping; use a margin so the test is not scheduler-sensitive.
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 5, Some(&listener)).await;
 
         // Create client
         let client = OrderStreamClient::new(
@@ -865,7 +867,7 @@ mod tests {
 
         // Wait for the order to be received
         let order_result =
-            tokio::time::timeout(tokio::time::Duration::from_secs(4), order_rx.recv()).await;
+            tokio::time::timeout(tokio::time::Duration::from_secs(15), order_rx.recv()).await;
 
         match order_result {
             Ok(Some(received_order)) => {
