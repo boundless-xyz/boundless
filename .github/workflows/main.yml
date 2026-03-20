@@ -39,7 +39,8 @@ jobs:
       - scaler-tests
       - validate-requestor-lists
       - xtask
-      - check-publish-docs-rs
+      - check-publish
+      - docs-rs
     runs-on: ubuntu-latest
     steps:
       - name: Check all job status
@@ -313,11 +314,35 @@ jobs:
         run: forge test -vvv
         working-directory: contracts
 
-  # Validate that boundless-market can be published and its docs build correctly on docs.rs.
+  # Check that cargo publish can package the boundless-market crate.
   # Does not install Forge or cargo-risczero — only needs Rust sources and contracts/src/.
-  check-publish-docs-rs:
+  check-publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    needs: files-changed
+    if: needs.files-changed.outputs.main == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      - name: cache cargo registry and git deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-check-publish-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-check-publish-
+      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
+      - run: cargo publish -p boundless-market --dry-run
+
+  # Run as a separate job because it needs the nightly toolchain and does not install Forge or cargo-risczero.
+  docs-rs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
@@ -332,9 +357,6 @@ jobs:
           restore-keys: sccache-docs-rs-nightly-2025-05-09-
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
-        with:
           # Building with docs.rs config requires the nightly toolchain.
           toolchain: nightly-2025-05-09
       - name: cache cargo registry and git deps
@@ -345,8 +367,6 @@ jobs:
             ~/.cargo/git
           key: cargo-docs-rs-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-docs-rs-
-      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
-      - run: cargo publish -p boundless-market --dry-run
       - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
