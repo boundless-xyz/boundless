@@ -15,7 +15,7 @@ if [ -f /root/.aws/credentials ]; then
     CREDS_FILE_SIZE=$(stat -c%s /root/.aws/credentials)
     if [ $CREDS_FILE_SIZE -gt 0 ]; then
         echo "AWS credentials found at /root/.aws/credentials (${CREDS_FILE_SIZE} bytes)"
-        export SCCACHE_BUCKET="boundless-sccache"
+        export SCCACHE_BUCKET="${SCCACHE_BUCKET:-boundless-sccache}"
         export SCCACHE_REGION="us-west-2"
         export SCCACHE_S3_KEY_PREFIX=$S3_CACHE_PREFIX
 

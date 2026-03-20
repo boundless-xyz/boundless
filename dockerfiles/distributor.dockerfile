@@ -58,6 +58,8 @@ COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_BUCKET="boundless-sccache"
+ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=distributor_sc \
