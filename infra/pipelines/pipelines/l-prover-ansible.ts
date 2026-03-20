@@ -380,6 +380,19 @@ artifacts:
                   ]),
                 },
               },
+              {
+                name: "CWMonitoringProduction",
+                category: "Build",
+                owner: "AWS",
+                provider: "CodeBuild",
+                version: "1",
+                runOrder: 1,
+                inputArtifacts: ["source_output"],
+                outputArtifacts: ["cw_nightly_production_output"],
+                configuration: {
+                  ProjectName: cwProductionBuild.name,
+                },
+              },
             ],
           },
           {
