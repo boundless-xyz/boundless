@@ -30,7 +30,9 @@ jobs:
     timeout-minutes: 5
     needs:
       - rust-lint
+      - rust-build
       - rust-test
+      - rust-doctest
       - link-check
       - fmt
       - foundry
@@ -107,17 +109,49 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  rust-test:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    timeout-minutes: 25
-    strategy:
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
+  rust-build:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 20
     needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Rust setup
+        uses: ./.github/actions/rust-setup
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+          foundry-version: ${{ env.FOUNDRY_VERSION }}
+
+      # TODO: Replace with taiki-e/install-action@nextest once added to the org action allowlist.
+      - name: install nextest
+        run: curl -LsSf https://get.nexte.st/0.9.131/linux | tar zxf - -C ~/.cargo/bin
+
+      - name: cargo nextest archive
+        run: cargo nextest archive --locked --workspace --all-targets --features test-r0vm,test-rpc --archive-file nextest-archive.tar.zst
+
+      - name: upload nextest archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextest-archive
+          path: nextest-archive.tar.zst
+          retention-days: 1
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  rust-test:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 20
+    needs: [rust-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
     services:
       postgres:
         image: postgres:latest
@@ -132,11 +166,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
       - name: Configure PostgreSQL max_connections
         run: |
           POSTGRES_CONTAINER=$(docker ps --filter "ancestor=postgres:latest" --format "{{.ID}}")
@@ -146,32 +175,46 @@ jobs:
             sleep 1
           done
 
-      - name: Rust setup
-        uses: ./.github/actions/rust-setup
+      - name: download nextest archive
+        uses: actions/download-artifact@v4
         with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-          foundry-version: ${{ env.FOUNDRY_VERSION }}
+          name: nextest-archive
 
       # TODO: Replace with taiki-e/install-action@nextest once added to the org action allowlist.
       - name: install nextest
         run: curl -LsSf https://get.nexte.st/0.9.131/linux | tar zxf - -C ~/.cargo/bin
 
       - name: cargo nextest run
-        run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc
+        run: cargo nextest run --archive-file nextest-archive.tar.zst --partition count:${{ matrix.partition }}/3
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
           ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
           BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
 
+  rust-doctest:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 10
+    needs: [rust-build]
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
       - name: cargo test (doctests)
         run: cargo test --locked --doc --features test-r0vm,test-rpc
         env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
-          ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
-          BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
+          RISC0_SKIP_BUILD: 1
+          RISC0_SKIP_BUILD_KERNELS: 1
 
       - name: sccache stats
         run: sccache --show-stats
