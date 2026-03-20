@@ -27,6 +27,7 @@ env:
 jobs:
   main-status-check:
     if: always()
+    timeout-minutes: 5
     needs:
       - rust-lint
       - rust-test
@@ -49,6 +50,7 @@ jobs:
 
   rust-lint:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 20
     strategy:
       matrix:
         include:
@@ -92,6 +94,7 @@ jobs:
 
   rust-test:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 25
     strategy:
       matrix:
         include:
@@ -160,6 +163,7 @@ jobs:
 
   rust-pkg-check:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 10
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -195,6 +199,7 @@ jobs:
 
   xtask:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 10
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -228,6 +233,7 @@ jobs:
 
   link-check:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 10
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -285,6 +291,7 @@ jobs:
 
   fmt:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -328,6 +335,7 @@ jobs:
 
   foundry:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
@@ -363,6 +371,7 @@ jobs:
   docs-rs:
     # TODO: Revert this change when CC on self-hosted runners in fixed.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
@@ -397,6 +406,7 @@ jobs:
   # Check that cargo publish can package the boundless-market crate
   check-publish:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 10
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -421,6 +431,7 @@ jobs:
 
   docker:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 30
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -470,6 +481,7 @@ jobs:
 
   infra:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    timeout-minutes: 5
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -509,6 +521,7 @@ jobs:
 
   scaler-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: files-changed
     if: needs.files-changed.outputs.scaler == 'true'
     steps:
@@ -532,6 +545,7 @@ jobs:
 
   validate-requestor-lists:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: files-changed
     if: needs.files-changed.outputs.requestor_lists == 'true'
     steps:
@@ -553,6 +567,7 @@ jobs:
 
   files-changed:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       docker: ${{ steps.changes.outputs.docker }}
       main: ${{ steps.changes.outputs.main }}
