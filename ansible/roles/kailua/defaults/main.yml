@@ -13,6 +13,9 @@ kailua_download_url: "https://github.com/boundless-xyz/kailua/releases/download/
 # Build deps (apt packages) for compiling Kailua (Rust + C deps).
 kailua_build_deps:
   - build-essential
+  - binutils
+  - lld
+  - mold
   - pkg-config
   - libclang-dev
   - clang
