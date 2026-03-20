@@ -73,6 +73,11 @@ export = () => {
     pubSubNetIds,
     rdsPassword,
     isDev,
+    ciCacheSecret,
+    githubTokenSecret,
+    dockerDir,
+    dockerTag,
+    dockerRemoteBuilder,
   });
 
   let marketIndexer: MarketIndexer | undefined;
@@ -103,16 +108,11 @@ export = () => {
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       boundlessAddress,
       ethRpcUrl,
       startBlock,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
-      dockerRemoteBuilder,
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
@@ -123,7 +123,7 @@ export = () => {
       backfillChainDataBlocks,
       chainDataBatchDelayMs,
       backfillBatchSize,
-    }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.image, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -131,26 +131,21 @@ export = () => {
     rewardsIndexer = new RewardsIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       ethRpcUrl,
       vezkcAddress,
       zkcAddress,
       povwAccountingAddress,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
-      dockerRemoteBuilder,
-    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.image, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
-  const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
+  const sharedDependencies: pulumi.Resource[] = [infra.image, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
   if (marketIndexer) {
-    sharedDependencies.push(marketIndexer.image, marketIndexer.service);
+    sharedDependencies.push(marketIndexer.service);
   }
   if (rewardsIndexer) {
-    sharedDependencies.push(rewardsIndexer.image, rewardsIndexer.service);
+    sharedDependencies.push(rewardsIndexer.service);
   }
 
   if (shouldDeployMarket && marketIndexer) {

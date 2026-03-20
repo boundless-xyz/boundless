@@ -345,7 +345,7 @@ services:
     #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
     environment:
       <<: *broker-environment
-    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
+    entrypoint: ["/bin/sh", "-c", "exec /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 ${BROKER_EXTRA_ARGS:-}"]
 
   # # Example second broker with different configuration
   # broker2:

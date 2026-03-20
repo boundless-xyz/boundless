@@ -68,13 +68,16 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 
 ### Broker Configuration
 
-| Variable                 | Default      | Description                 |
-| ------------------------ | ------------ | --------------------------- |
-| `prover_private_key`     | `""`         | Prover wallet private key   |
-| `prover_rpc_url`         | `""`         | RPC URL for blockchain      |
-| `prover_rpc_urls`        | `""`         | Comma-separated RPC URLs    |
-| `prover_povw_log_id`     | `""`         | POVW log contract address   |
-| `prover_broker_toml_url` | (GitHub URL) | URL to broker.toml template |
+| Variable                         | Default      | Description                                                                                |
+| -------------------------------- | ------------ | ------------------------------------------------------------------------------------------ |
+| `prover_private_key`             | `""`         | Prover wallet private key                                                                  |
+| `prover_rpc_url`                 | `""`         | RPC URL for blockchain                                                                     |
+| `prover_rpc_urls`                | `""`         | Comma-separated RPC URLs                                                                   |
+| `prover_povw_log_id`             | `""`         | POVW log contract address                                                                  |
+| `prover_broker_config`           | `""`         | Basename in `configs/broker/` (e.g. `staging_84532`, `8453`). Local file copied on deploy. |
+| `prover_broker_experimental_rpc` | `false`      | When true, pass `--experimental-rpc` to the broker.                                        |
+| `prover_broker_extra_args`       | `""`         | Extra CLI args for the broker (can combine with experimental_rpc).                         |
+| `prover_broker_toml_url`         | (GitHub URL) | URL to broker.toml template (used when prover_broker_config not set)                       |
 
 ## Usage
 

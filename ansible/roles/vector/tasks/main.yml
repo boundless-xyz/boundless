@@ -146,6 +146,26 @@
       notify: Restart Vector service
       no_log: true
 
+- name: Check if docker group exists
+  ansible.builtin.getent:
+    database: group
+    key: docker
+  when: vector_track_bento_process | bool
+  tags:
+    - vector
+    - vector-config
+
+- name: Add Vector user to docker group
+  ansible.builtin.user:
+    name: "{{ vector_system_user }}"
+    groups: docker
+    append: true
+  when: vector_track_bento_process | bool
+  notify: Restart Vector service
+  tags:
+    - vector
+    - vector-config
+
 - name: Ensure Vector service is configured
   ansible.builtin.systemd:
     name: vector.service

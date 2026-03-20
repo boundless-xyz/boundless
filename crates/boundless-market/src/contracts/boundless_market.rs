@@ -1823,40 +1823,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         value: U256,
         signer: &impl Signer,
     ) -> Result<(), MarketError> {
-        if !collateral_token_supports_permit(self.get_chain_id().await?) {
-            return Err(MarketError::Error(anyhow!("Collateral token does not support permit. Use approve_deposit_collateral and deposit_collateral instead.")));
-        }
-        let token_address = self
-            .instance
-            .COLLATERAL_TOKEN_CONTRACT()
-            .call()
-            .await
-            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
-            .0;
-        let contract = IERC20Permit::new(token_address.into(), self.instance.provider());
-        let call = contract.nonces(self.caller());
-        let nonce = call.call().await.map_err(IHitPointsErrors::decode_error)?;
-        let block = self
-            .instance
-            .provider()
-            .get_block_by_number(BlockNumberOrTag::Latest)
-            .await
-            .context("failed to get block")?
-            .context("failed to get block")?;
-        let deadline = U256::from(block.header.timestamp() + 1000);
-        let permit = Permit {
-            owner: self.caller(),
-            spender: *self.instance().address(),
-            value,
-            nonce,
-            deadline,
-        };
-        tracing::debug!("Permit: {:?}", permit);
-        let domain_separator = contract.DOMAIN_SEPARATOR().call().await?;
-        let sig = permit.sign(signer, domain_separator).await?.as_bytes();
-        let r = B256::from_slice(&sig[..32]);
-        let s = B256::from_slice(&sig[32..64]);
-        let v: u8 = sig[64];
+        let (deadline, v, r, s) = self.sign_collateral_permit(value, signer).await?;
         tracing::trace!("Calling depositStakeWithPermit({})", value);
         let call = self.instance.depositCollateralWithPermit(value, deadline, v, r, s);
         let pending_tx = call.send().await?;
@@ -1878,6 +1845,119 @@ impl<P: Provider> BoundlessMarketService<P> {
             tx_hash
         );
         Ok(())
+    }
+
+    /// Deposit collateral credited to another address's market balance.
+    ///
+    /// Before calling this method, the caller must first approve the Boundless market contract
+    /// as an allowed spender by calling `approve_deposit_collateral`.
+    pub async fn deposit_collateral_to(&self, to: Address, value: U256) -> Result<(), MarketError> {
+        tracing::trace!("Calling depositCollateralTo({:?}, {})", to, value);
+        let call = self.instance.depositCollateralTo(to, value);
+        let pending_tx = call.send().await?;
+        tracing::debug!(
+            "Broadcasting {} collateral deposit to {:?} via market {:?}. Tx hash: {}",
+            value,
+            to,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm depositCollateralTo tx")?;
+        tracing::debug!(
+            "Submitted {} collateral deposit to {:?} via market {:?}. Tx hash: {}",
+            value,
+            to,
+            self.instance.address(),
+            tx_hash
+        );
+        Ok(())
+    }
+
+    /// Permit and deposit collateral credited to another address's market balance.
+    ///
+    /// WARNING: The collateral tokens on some networks do not support permit.
+    /// Check `collateral_token_supports_permit` first, or use `approve_deposit_collateral`
+    /// and `deposit_collateral_to` instead.
+    pub async fn deposit_collateral_with_permit_to(
+        &self,
+        to: Address,
+        value: U256,
+        signer: &impl Signer,
+    ) -> Result<(), MarketError> {
+        let (deadline, v, r, s) = self.sign_collateral_permit(value, signer).await?;
+        tracing::trace!("Calling depositCollateralWithPermitTo({:?}, {})", to, value);
+        let call = self.instance.depositCollateralWithPermitTo(to, value, deadline, v, r, s);
+        let pending_tx = call.send().await?;
+        tracing::debug!(
+            "Broadcasting {} collateral deposit to {:?} via market {:?}. Tx hash: {}",
+            value,
+            to,
+            self.instance.address(),
+            pending_tx.tx_hash()
+        );
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm depositCollateralWithPermitTo tx")?;
+        tracing::debug!(
+            "Submitted {} collateral deposit to {:?} via market {:?}. Tx hash: {}",
+            value,
+            to,
+            self.instance.address(),
+            tx_hash
+        );
+        Ok(())
+    }
+
+    /// Sign an EIP-2612 permit for the collateral token.
+    ///
+    /// Returns `(deadline, v, r, s)` ready to pass to any `*WithPermit*` contract call.
+    /// Errors if the chain does not support permit.
+    async fn sign_collateral_permit(
+        &self,
+        value: U256,
+        signer: &impl Signer,
+    ) -> Result<(U256, u8, B256, B256), MarketError> {
+        if !collateral_token_supports_permit(self.get_chain_id().await?) {
+            return Err(MarketError::Error(anyhow!("Collateral token does not support permit. Use approve_deposit_collateral and deposit_collateral instead.")));
+        }
+        let token_address = self
+            .instance
+            .COLLATERAL_TOKEN_CONTRACT()
+            .call()
+            .await
+            .context("COLLATERAL_TOKEN_CONTRACT call failed")?
+            .0;
+        let contract = IERC20Permit::new(token_address.into(), self.instance.provider());
+        let nonce =
+            contract.nonces(self.caller()).call().await.map_err(IHitPointsErrors::decode_error)?;
+        let block = self
+            .instance
+            .provider()
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await
+            .context("failed to get block")?
+            .context("failed to get block")?;
+        let deadline = U256::from(block.header.timestamp() + 1000);
+        let permit = Permit {
+            owner: self.caller(),
+            spender: *self.instance().address(),
+            value,
+            nonce,
+            deadline,
+        };
+        tracing::debug!("Permit: {:?}", permit);
+        let domain_separator = contract.DOMAIN_SEPARATOR().call().await?;
+        let sig = permit.sign(signer, domain_separator).await?.as_bytes();
+        let r = B256::from_slice(&sig[..32]);
+        let s = B256::from_slice(&sig[32..64]);
+        let v: u8 = sig[64];
+        Ok((deadline, v, r, s))
     }
 
     /// Withdraw collateral from the market.
