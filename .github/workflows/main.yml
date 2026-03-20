@@ -36,11 +36,10 @@ jobs:
       - foundry
       - docker
       - infra
-      - docs-rs
       - scaler-tests
       - validate-requestor-lists
       - xtask
-      - check-publish
+      - check-publish-docs-rs
     runs-on: ubuntu-latest
     steps:
       - name: Check all job status
@@ -331,17 +330,15 @@ jobs:
         run: forge test -vvv
         working-directory: contracts
 
-  # Run as a separate job because we need to install a different set of tools.
-  # In particular, it uses nightly Rust and _does not_ install Forge or cargo risczero.
-  docs-rs:
-    # TODO: Revert this change when CC on self-hosted runners in fixed.
+  # Validate that boundless-market can be published and its docs build correctly on docs.rs.
+  # Does not install Forge or cargo-risczero — only needs Rust sources and contracts/src/.
+  check-publish-docs-rs:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
     steps:
       - uses: actions/checkout@v4
-        # submodules not needed: cargo doc only requires Rust sources and contracts/src/
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
       - name: cache sccache local disk
@@ -350,6 +347,9 @@ jobs:
           path: ~/.cache/sccache
           key: sccache-docs-rs-nightly-2025-05-09-${{ hashFiles('Cargo.lock') }}
           restore-keys: sccache-docs-rs-nightly-2025-05-09-
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
           # Building with docs.rs config requires the nightly toolchain.
@@ -362,37 +362,13 @@ jobs:
             ~/.cargo/git
           key: cargo-docs-rs-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-docs-rs-
+      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
+      - run: cargo publish -p boundless-market --dry-run
       - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
       - name: sccache stats
         run: sccache --show-stats
-
-  # Check that cargo publish can package the boundless-market crate
-  check-publish:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    timeout-minutes: 10
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
-    steps:
-      # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
-      - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-
-      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
-      - run: cargo publish -p boundless-market --dry-run
 
   docker:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
