@@ -7,8 +7,8 @@ config:
   cw-monitoring:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch"
   # cw-monitoring:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-pagerduty-alerts"
   cw-monitoring:nodes:
-    - name: explorer-8453-prod-release
-      hostname: base-mainnet-explorer-release
+    - name: execution-8453-prod-release
+      hostname: prod-explorer-exec
       role: explorer
       chainId: "8453"
       alarmProfile: prod
