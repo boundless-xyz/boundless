@@ -177,8 +177,20 @@ jobs:
       - name: forge build
         run: forge build
 
-      - name: cargo test
-        run: cargo test --locked --workspace --all-targets --features test-r0vm,test-rpc
+      # TODO: Replace with taiki-e/install-action@nextest once added to the org action allowlist.
+      - name: install nextest
+        run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin
+
+      - name: cargo nextest run
+        run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
+          RISC0_DEV_MODE: true
+          ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
+          BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
+
+      - name: cargo test (doctests)
+        run: cargo test --locked --doc --features test-r0vm,test-rpc
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
