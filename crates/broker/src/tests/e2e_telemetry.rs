@@ -75,6 +75,7 @@ async fn e2e_telemetry_events() {
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
         Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();

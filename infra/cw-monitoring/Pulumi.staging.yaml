@@ -4,11 +4,11 @@ config:
   aws:region: us-west-2
   cw-monitoring:logRetentionDays: "30"
   # Uncomment and set these to enable alarm notifications:
-  cw-monitoring:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-slack-alerts"
+  cw-monitoring:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch"
   # cw-monitoring:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-pagerduty-alerts"
   cw-monitoring:nodes:
-    - name: explorer-84532-staging-release
-      hostname: explorer-84532-staging-release
+    - name: execution-84532-staging
+      hostname: stage-explorer-exec
       role: explorer
       chainId: "84532"
       alarmProfile: staging

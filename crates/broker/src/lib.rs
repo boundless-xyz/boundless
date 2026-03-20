@@ -441,6 +441,7 @@ pub struct Broker<P> {
     priority_requestors: requestor_monitor::PriorityRequestors,
     allow_requestors: requestor_monitor::AllowRequestors,
     gas_priority_mode: Arc<RwLock<PriorityMode>>,
+    gas_estimation_priority_mode: Arc<RwLock<PriorityMode>>,
     downloader: ConfigurableDownloader,
 }
 
@@ -454,6 +455,7 @@ where
         any_provider: DynProvider<AnyNetwork>,
         config_watcher: ConfigWatcher,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
+        gas_estimation_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
@@ -491,6 +493,7 @@ where
             priority_requestors,
             allow_requestors,
             gas_priority_mode,
+            gas_estimation_priority_mode,
             downloader,
         })
     }
@@ -873,7 +876,7 @@ where
                 self.args.private_key.as_ref().expect("Private key must be set").address(),
                 lookback_blocks,
                 chain_id,
-                self.gas_priority_mode.clone(),
+                self.gas_estimation_priority_mode.clone(),
             )
             .await
             .context("Failed to initialize ChainMonitorV2")?;
@@ -908,7 +911,7 @@ where
             let chain_monitor_service = Arc::new(
                 chain_monitor::ChainMonitorService::new(
                     self.provider.clone(),
-                    self.gas_priority_mode.clone(),
+                    self.gas_estimation_priority_mode.clone(),
                 )
                 .await
                 .context("Failed to initialize chain monitor")?,
@@ -1107,6 +1110,7 @@ where
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
             self.gas_priority_mode.clone(),
+            self.gas_estimation_priority_mode.clone(),
             erc1271_gas_cache,
             self.args.listen_only,
         )?);
@@ -1447,6 +1451,8 @@ pub mod test_utils {
 
         pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+            let gas_estimation_priority_mode =
+                Arc::new(tokio::sync::RwLock::new(PriorityMode::Low));
             let rpc_url = self
                 .args
                 .rpc_url
@@ -1466,6 +1472,7 @@ pub mod test_utils {
                     any_provider,
                     ConfigWatcher::new(self.config_file.path()).await?,
                     gas_priority_mode,
+                    gas_estimation_priority_mode,
                 )
                 .await?,
                 self.config_file,

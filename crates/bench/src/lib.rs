@@ -613,6 +613,7 @@ mod tests {
             any_provider,
             ConfigWatcher::new(config.path()).await.unwrap(),
             Default::default(),
+            Default::default(),
         )
         .await
         .unwrap();
