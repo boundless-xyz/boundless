@@ -57,7 +57,7 @@ jobs:
           - os: Linux
             feature: default
             device: cpu
-    needs: [files-changed, fmt]
+    needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     steps:
       - name: checkout code
@@ -101,7 +101,7 @@ jobs:
           - os: Linux
             feature: default
             device: cpu
-    needs: [files-changed, fmt]
+    needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     services:
       postgres:
