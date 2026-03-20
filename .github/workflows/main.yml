@@ -551,7 +551,6 @@ jobs:
         run: |
           docker buildx build \
             -f dockerfiles/broker.dockerfile \
-            --secret id=ci_cache_creds,src=./dockerfiles/ci-cache-creds.txt \
             --cache-from type=s3,name=broker-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache \
             --cache-to type=s3,name=broker-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max \
             .
