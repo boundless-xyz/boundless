@@ -2,7 +2,7 @@
 # CPU-only agent build (no CUDA/GPU support)
 ARG RUST_IMG=rust:1.88-bookworm
 ARG RUNTIME_IMG=debian:bookworm-slim
-ARG S3_CACHE_PREFIX="public/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${RUST_IMG} AS rust-builder
 
@@ -11,7 +11,7 @@ ENV TZ="America/Los_Angeles"
 
 RUN apt-get -qq update && apt-get install -y -q \
     openssl libssl-dev pkg-config curl clang git \
-    build-essential openssh-client unzip
+    build-essential openssh-client unzip mold
 
 # Install protoc
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
@@ -36,7 +36,7 @@ COPY . .
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
-ARG RUSTFLAGS="-C target-cpu=native"
+ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 # Build WITHOUT cuda feature

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use alloy_chains::NamedChain;
+use async_trait::async_trait;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -55,6 +56,18 @@ pub(crate) struct ChainHead {
     pub block_number: u64,
     pub block_timestamp: u64,
 }
+
+/// Trait abstracting the chain monitor query interface.
+/// Allows swapping the standard `ChainMonitorService` with alternative implementations
+/// (e.g. `ChainMonitorV2` behind `--experimental-rpc`).
+#[async_trait]
+pub(crate) trait ChainMonitorApi: Send + Sync {
+    async fn current_chain_head(&self) -> Result<ChainHead>;
+    async fn current_gas_price(&self) -> Result<u128>;
+}
+
+/// Type alias for a heap-allocated, type-erased chain monitor.
+pub(crate) type ChainMonitorObj = Arc<dyn ChainMonitorApi>;
 
 #[derive(Clone)]
 pub struct ChainMonitorService<P> {
@@ -114,6 +127,17 @@ impl<P: Provider> ChainMonitorService<P> {
         } else {
             Ok(*self.gas_price.borrow())
         }
+    }
+}
+
+#[async_trait]
+impl<P: Provider + Send + Sync> ChainMonitorApi for ChainMonitorService<P> {
+    async fn current_chain_head(&self) -> Result<ChainHead> {
+        self.current_chain_head().await
+    }
+
+    async fn current_gas_price(&self) -> Result<u128> {
+        self.current_gas_price().await
     }
 }
 

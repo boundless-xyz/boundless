@@ -7,7 +7,11 @@ interface LOrderStreamPipelineArgs extends BasePipelineArgs { }
 const config: LaunchPipelineConfig = {
   appName: "order-stream",
   buildTimeout: 60,
-  computeType: "BUILD_GENERAL1_MEDIUM"
+  computeType: "BUILD_GENERAL1_MEDIUM",
+  postBuildCommands: [
+    'pulumi stack select $STACK_NAME',
+    './post-deploy.sh $STACK_NAME',
+  ],
 };
 
 export class LOrderStreamPipeline extends LaunchDefaultPipeline {

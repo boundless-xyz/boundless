@@ -2,6 +2,18 @@
 # Handlers for docker role
 
 - name: Restart docker
-  ansible.builtin.systemd:
-    name: docker
-    state: restarted
+  block:
+    - name: Stop docker.socket to prevent socket-activation during restart
+      ansible.builtin.systemd:
+        name: docker.socket
+        state: stopped
+
+    - name: Restart docker.service with new configuration
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+
+    - name: Re-enable docker.socket
+      ansible.builtin.systemd:
+        name: docker.socket
+        state: started

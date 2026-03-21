@@ -52,6 +52,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 mod api;
+mod heartbeat;
 mod order_db;
 mod ws;
 
@@ -59,6 +60,10 @@ use api::{
     __path_find_orders_by_request_id, __path_get_nonce, __path_health, __path_list_orders,
     __path_list_orders_v2, __path_submit_order, find_orders_by_request_id, get_nonce, health,
     list_orders, list_orders_v2, submit_order,
+};
+use heartbeat::{
+    submit_heartbeat, submit_request_heartbeat, BalanceCache, KinesisForwarder, NoopForwarder,
+    TelemetryForwarder,
 };
 use order_db::OrderDb;
 use ws::{__path_websocket_handler, start_broadcast_task, websocket_handler, ConnectionsMap};
@@ -174,6 +179,19 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
+
+    /// Kinesis stream name for broker identity heartbeats. If unset, Kinesis forwarding is disabled.
+    /// When set, all three Kinesis stream names must be provided.
+    #[clap(long, env, requires_all = ["kinesis_evaluations_stream", "kinesis_completions_stream"])]
+    pub kinesis_heartbeat_stream: Option<String>,
+
+    /// Kinesis stream name for request evaluation events.
+    #[clap(long, env, requires_all = ["kinesis_heartbeat_stream", "kinesis_completions_stream"])]
+    pub kinesis_evaluations_stream: Option<String>,
+
+    /// Kinesis stream name for request completion events.
+    #[clap(long, env, requires_all = ["kinesis_heartbeat_stream", "kinesis_evaluations_stream"])]
+    pub kinesis_completions_stream: Option<String>,
 }
 
 /// Configuration struct
@@ -202,6 +220,12 @@ pub struct Config {
     pub rpc_retry_backoff: u64,
     /// RPC HTTP retry compute-unit per second
     pub rpc_retry_cu: u64,
+    /// Kinesis stream name for broker identity heartbeats
+    pub kinesis_heartbeat_stream: String,
+    /// Kinesis stream name for request evaluation events
+    pub kinesis_evaluations_stream: String,
+    /// Kinesis stream name for request completion events
+    pub kinesis_completions_stream: String,
 }
 
 impl Config {
@@ -224,6 +248,9 @@ pub struct ConfigBuilder {
     rpc_retry_max: Option<u32>,
     rpc_retry_backoff: Option<u64>,
     rpc_retry_cu: Option<u64>,
+    kinesis_heartbeat_stream: Option<String>,
+    kinesis_evaluations_stream: Option<String>,
+    kinesis_completions_stream: Option<String>,
 }
 
 impl ConfigBuilder {
@@ -282,6 +309,21 @@ impl ConfigBuilder {
         Self { rpc_retry_cu: Some(cu), ..self }
     }
 
+    /// Set the Kinesis heartbeat stream name
+    pub fn kinesis_heartbeat_stream(self, name: String) -> Self {
+        Self { kinesis_heartbeat_stream: Some(name), ..self }
+    }
+
+    /// Set the Kinesis evaluations stream name
+    pub fn kinesis_evaluations_stream(self, name: String) -> Self {
+        Self { kinesis_evaluations_stream: Some(name), ..self }
+    }
+
+    /// Set the Kinesis completions stream name
+    pub fn kinesis_completions_stream(self, name: String) -> Self {
+        Self { kinesis_completions_stream: Some(name), ..self }
+    }
+
     /// Build the Config with default values for any unset fields
     pub fn build(self) -> Result<Config, ConfigError> {
         Ok(Config {
@@ -298,6 +340,9 @@ impl ConfigBuilder {
             rpc_retry_max: self.rpc_retry_max.unwrap_or(10),
             rpc_retry_backoff: self.rpc_retry_backoff.unwrap_or(1000),
             rpc_retry_cu: self.rpc_retry_cu.unwrap_or(100),
+            kinesis_heartbeat_stream: self.kinesis_heartbeat_stream.unwrap_or_default(),
+            kinesis_evaluations_stream: self.kinesis_evaluations_stream.unwrap_or_default(),
+            kinesis_completions_stream: self.kinesis_completions_stream.unwrap_or_default(),
         })
     }
 }
@@ -315,6 +360,9 @@ impl From<&Args> for Config {
             rpc_retry_max: args.rpc_retry_max,
             rpc_retry_backoff: args.rpc_retry_backoff,
             rpc_retry_cu: args.rpc_retry_cu,
+            kinesis_heartbeat_stream: args.kinesis_heartbeat_stream.clone().unwrap_or_default(),
+            kinesis_evaluations_stream: args.kinesis_evaluations_stream.clone().unwrap_or_default(),
+            kinesis_completions_stream: args.kinesis_completions_stream.clone().unwrap_or_default(),
         }
     }
 }
@@ -345,6 +393,10 @@ pub struct AppState {
     chain_id: u64,
     /// Cancelation tokens set when a graceful shutdown is triggered
     shutdown: CancellationToken,
+    /// TTL cache for collateral balance checks (used by heartbeat auth)
+    balance_cache: BalanceCache,
+    /// Telemetry forwarding backend
+    telemetry: Arc<dyn TelemetryForwarder>,
 }
 
 impl AppState {
@@ -370,6 +422,20 @@ impl AppState {
         let chain_id =
             rpc_provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
 
+        let telemetry: Arc<dyn TelemetryForwarder> = if !config.kinesis_heartbeat_stream.is_empty()
+        {
+            let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            let kinesis = aws_sdk_kinesis::Client::new(&aws_config);
+            Arc::new(KinesisForwarder::new(
+                kinesis,
+                config.kinesis_heartbeat_stream.clone(),
+                config.kinesis_evaluations_stream.clone(),
+                config.kinesis_completions_stream.clone(),
+            ))
+        } else {
+            Arc::new(NoopForwarder)
+        };
+
         Ok(Arc::new(Self {
             db,
             connections: Arc::new(RwLock::new(HashMap::new())),
@@ -378,6 +444,8 @@ impl AppState {
             config: config.clone(),
             chain_id,
             shutdown: CancellationToken::new(),
+            balance_cache: heartbeat::new_balance_cache(),
+            telemetry,
         }))
     }
 
@@ -446,9 +514,15 @@ Service for offchain order submission and fetching
 )]
 struct ApiDoc;
 
+/// Maximum size for heartbeat payloads (1 MiB)
+const MAX_HEARTBEAT_SIZE: usize = 1024 * 1024;
+
 /// Create the application router
 pub fn app(state: Arc<AppState>) -> Router {
+    use boundless_market::telemetry::{HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH};
+
     let body_size_limit = RequestBodyLimitLayer::new(MAX_ORDER_SIZE);
+    let heartbeat_size_limit = RequestBodyLimitLayer::new(MAX_HEARTBEAT_SIZE);
 
     Router::new()
         .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
@@ -458,11 +532,13 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(&format!("{AUTH_GET_NONCE}{{addr}}"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
         .route(HEALTH_CHECK, get(health))
+        .route(HEARTBEAT_PATH, post(submit_heartbeat).layer(heartbeat_size_limit))
+        .route(HEARTBEAT_REQUESTS_PATH, post(submit_request_heartbeat).layer(heartbeat_size_limit))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)
         .layer((
             TraceLayer::new_for_http(),
-            TimeoutLayer::new(tokio::time::Duration::from_secs(10)),
+            TimeoutLayer::new(tokio::time::Duration::from_secs(30)),
         ))
 }
 
@@ -606,6 +682,9 @@ mod tests {
             rpc_retry_max: 10,
             rpc_retry_backoff: 1000,
             rpc_retry_cu: 100,
+            kinesis_heartbeat_stream: String::new(),
+            kinesis_evaluations_stream: String::new(),
+            kinesis_completions_stream: String::new(),
         };
 
         let app_state = AppState::new(&config, Some(pool)).await.unwrap();
@@ -708,8 +787,10 @@ mod tests {
             .unwrap();
         let addr = listener.local_addr().unwrap();
 
-        // Setup with the prover address in bypass list and 1 second ping time
-        let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
+        // ws.rs drops the connection when a ping is not answered before the next interval tick.
+        // tokio::time::interval completes its first tick immediately, so a 1s period allows only ~1s
+        // for the client to answer the first ping; use a margin so the test is not scheduler-sensitive.
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 5, Some(&listener)).await;
 
         // Create client
         let client = OrderStreamClient::new(
@@ -786,7 +867,7 @@ mod tests {
 
         // Wait for the order to be received
         let order_result =
-            tokio::time::timeout(tokio::time::Duration::from_secs(4), order_rx.recv()).await;
+            tokio::time::timeout(tokio::time::Duration::from_secs(15), order_rx.recv()).await;
 
         match order_result {
             Ok(Some(received_order)) => {
@@ -1340,5 +1421,357 @@ mod tests {
         assert!(!second_page_asc.orders.iter().any(|o| o.order.request.id == order2.request.id));
 
         server_handle.abort();
+    }
+
+    mod heartbeat_tests {
+        use super::*;
+        use alloy::signers::local::PrivateKeySigner;
+        use boundless_market::telemetry::{
+            BrokerHeartbeat, CommitmentOutcome, CompletionOutcome, EvalOutcome, RequestCompleted,
+            RequestEvaluated, RequestHeartbeat, HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH,
+        };
+
+        async fn sign_payload(body: &[u8], signer: &impl alloy::signers::Signer) -> String {
+            let hash = alloy::primitives::eip191_hash_message(body);
+            let sig = signer.sign_hash(&hash).await.unwrap();
+            let mut sig_bytes = [0u8; 65];
+            sig_bytes[..64].copy_from_slice(&sig.as_bytes()[..64]);
+            sig_bytes[64] = sig.v() as u8;
+            format!("0x{}", hex::encode(sig_bytes))
+        }
+
+        fn make_heartbeat(broker_address: Address) -> BrokerHeartbeat {
+            BrokerHeartbeat {
+                broker_address,
+                config: serde_json::json!({"max_proofs": 4}),
+                committed_orders_count: 2,
+                pending_preflight_count: 5,
+                version: "0.1.0-test".to_string(),
+                uptime_secs: 3600,
+                events_dropped: 0,
+                timestamp: Utc::now(),
+            }
+        }
+
+        fn make_request_heartbeat(broker_address: Address) -> RequestHeartbeat {
+            RequestHeartbeat {
+                broker_address,
+                evaluated: vec![RequestEvaluated {
+                    broker_address,
+                    order_id: "0x01-0x00-LockAndFulfill".to_string(),
+                    request_id: "0x01".to_string(),
+                    request_digest: "0x00".to_string(),
+                    requestor: Address::ZERO,
+                    outcome: EvalOutcome::Locked,
+                    skip_code: None,
+                    skip_reason: None,
+                    total_cycles: Some(1_000_000),
+                    fulfillment_type: "LockAndFulfill".to_string(),
+                    queue_duration_ms: Some(100),
+                    preflight_duration_ms: Some(500),
+                    received_at_timestamp: 0,
+                    evaluated_at: Utc::now(),
+                    commitment_outcome: Some(CommitmentOutcome::Committed),
+                    commitment_skip_code: None,
+                    commitment_skip_reason: None,
+                    estimated_proving_time_secs: Some(30),
+                    estimated_proving_time_no_load_secs: Some(10),
+                    monitor_wait_duration_ms: Some(200),
+                    peak_prove_khz: Some(100),
+                    max_capacity: Some(4),
+                    pending_commitment_count: Some(1),
+                    concurrent_proving_jobs: Some(1),
+                    lock_duration_secs: Some(2),
+                }],
+                completed: vec![RequestCompleted {
+                    broker_address,
+                    order_id: "0x02-0x00-LockAndFulfill".to_string(),
+                    request_id: "0x02".to_string(),
+                    request_digest: "0x00".to_string(),
+                    proof_type: "Merkle".to_string(),
+                    outcome: CompletionOutcome::Fulfilled,
+                    error_code: None,
+                    error_reason: None,
+                    lock_duration_secs: Some(5),
+                    proving_duration_secs: Some(25),
+                    aggregation_duration_secs: Some(10),
+                    submission_duration_secs: Some(3),
+                    total_duration_secs: 45,
+                    estimated_proving_time_secs: Some(30),
+                    actual_total_proving_time_secs: Some(25),
+                    concurrent_proving_jobs_start: Some(1),
+                    concurrent_proving_jobs_end: Some(1),
+                    total_cycles: Some(1_000_000),
+                    fulfillment_type: "LockAndFulfill".to_string(),
+                    stark_proving_secs: None,
+                    proof_compression_secs: None,
+                    set_builder_proving_secs: None,
+                    assessor_proving_secs: None,
+                    assessor_compression_proof_secs: None,
+                    received_at_timestamp: 0,
+                    completed_at: Utc::now(),
+                }],
+                events_dropped: 0,
+                timestamp: Utc::now(),
+            }
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_valid_signature(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Valid heartbeat should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_wrong_signer(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+
+            // Sign with a different key than the claimed broker_address
+            let wrong_signer = PrivateKeySigner::random();
+            let sig = sign_payload(&body, &wrong_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 401, "Wrong signer should return 401");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_missing_signature(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 400, "Missing signature should return 400");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_valid(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_request_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Valid request heartbeat should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "config": {"test": true},
+                "committed_orders_count": 0,
+                "pending_preflight_count": 0,
+                "version": "test",
+                "uptime_secs": 0,
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z",
+                "unknown_field": "should_not_cause_400",
+                "another_new_field": 42
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Payload with unknown fields should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [{
+                    "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                    "order_id": "0x01-0x00-LockAndFulfill",
+                    "request_id": "0x01",
+                    "request_digest": "0x00",
+                    "outcome": "Locked",
+                    "fulfillment_type": "LockAndFulfill",
+                    "brand_new_field": "hello",
+                    "future_metric": 999
+                }],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request heartbeat with unknown fields should return 202"
+            );
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_drops_oversized_records(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let padding = "x".repeat(3_000);
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x01-0x00-LockAndFulfill",
+                        "oversized_field": padding
+                    },
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x02-0x00-LockAndFulfill"
+                    }
+                ],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request with oversized records should still succeed (records silently dropped)"
+            );
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_empty_lists(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = RequestHeartbeat {
+                broker_address: ctx.prover_signer.address(),
+                evaluated: vec![],
+                completed: vec![],
+                events_dropped: 0,
+                timestamp: Utc::now(),
+            };
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Empty request heartbeat should return 202");
+
+            server_handle.abort();
+        }
     }
 }

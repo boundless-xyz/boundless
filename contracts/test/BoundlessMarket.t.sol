@@ -761,6 +761,54 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testProver.expectCollateralBalanceChange(2);
     }
 
+    function testCollateralDepositTo() public {
+        Client sender = getClient(2);
+        Client receiver = getClient(3);
+        address senderAddr = sender.addr();
+        address receiverAddr = receiver.addr();
+
+        vm.prank(ownerWallet.addr);
+        collateralToken.mint(senderAddr, 2);
+
+        vm.prank(senderAddr);
+        ERC20(address(collateralToken)).approve(address(boundlessMarket), 2);
+
+        uint256 senderBalanceBefore = boundlessMarket.balanceOfCollateral(senderAddr);
+        uint256 receiverBalanceBefore = boundlessMarket.balanceOfCollateral(receiverAddr);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.CollateralDeposit(receiverAddr, 1);
+        vm.prank(senderAddr);
+        boundlessMarket.depositCollateralTo(receiverAddr, 1);
+
+        assertEq(boundlessMarket.balanceOfCollateral(senderAddr), senderBalanceBefore);
+        assertEq(boundlessMarket.balanceOfCollateral(receiverAddr), receiverBalanceBefore + 1);
+    }
+
+    function testCollateralDepositWithPermitTo() public {
+        Client sender = getClient(2);
+        Client receiver = getClient(3);
+        address senderAddr = sender.addr();
+        address receiverAddr = receiver.addr();
+
+        vm.prank(ownerWallet.addr);
+        collateralToken.mint(senderAddr, 2);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        (uint8 v, bytes32 r, bytes32 s) = sender.signPermit(address(boundlessMarket), 1, deadline);
+
+        uint256 senderBalanceBefore = boundlessMarket.balanceOfCollateral(senderAddr);
+        uint256 receiverBalanceBefore = boundlessMarket.balanceOfCollateral(receiverAddr);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.CollateralDeposit(receiverAddr, 1);
+        vm.prank(senderAddr);
+        boundlessMarket.depositCollateralWithPermitTo(receiverAddr, 1, deadline, v, r, s);
+
+        assertEq(boundlessMarket.balanceOfCollateral(senderAddr), senderBalanceBefore);
+        assertEq(boundlessMarket.balanceOfCollateral(receiverAddr), receiverBalanceBefore + 1);
+    }
+
     function testStakeWithdraw() public {
         // Withdraw stake from the market
         vm.expectEmit(true, true, true, true);
