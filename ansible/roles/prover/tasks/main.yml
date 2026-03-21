@@ -27,6 +27,14 @@
     mode: "0644"
   notify: Restart Bento
 
+- name: Ensure just is installed
+  ansible.builtin.shell: |
+    if ! command -v just &> /dev/null; then
+      curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+    fi
+  args:
+    creates: /usr/local/bin/just
+
 - name: Write the system service file
   ansible.builtin.template:
     src: bento.service.j2
