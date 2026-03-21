@@ -494,9 +494,9 @@ bento action="up" env_file="" compose_flags="" detached="true":
                 esac
             done
             docker compose {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
-            docker compose {{compose_flags}} $ENV_FILE_ARG up $DETACHED_FLAG
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG
         else
-            docker compose {{compose_flags}} $ENV_FILE_ARG up $DETACHED_FLAG
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG
         fi
         if [ "{{detached}}" != "true" ]; then
             echo "Docker Compose services have been started."
