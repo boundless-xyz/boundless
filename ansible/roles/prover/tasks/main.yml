@@ -46,9 +46,8 @@
     - Reload systemd
     - Restart Bento
 
-- name: Ensure Bento service is enabled and started
+- name: Ensure Bento service is enabled
   ansible.builtin.systemd:
     name: bento
     enabled: true
-    state: started
     daemon_reload: true

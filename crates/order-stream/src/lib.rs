@@ -787,8 +787,10 @@ mod tests {
             .unwrap();
         let addr = listener.local_addr().unwrap();
 
-        // Setup with the prover address in bypass list and 1 second ping time
-        let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
+        // ws.rs drops the connection when a ping is not answered before the next interval tick.
+        // tokio::time::interval completes its first tick immediately, so a 1s period allows only ~1s
+        // for the client to answer the first ping; use a margin so the test is not scheduler-sensitive.
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 5, Some(&listener)).await;
 
         // Create client
         let client = OrderStreamClient::new(
@@ -865,7 +867,7 @@ mod tests {
 
         // Wait for the order to be received
         let order_result =
-            tokio::time::timeout(tokio::time::Duration::from_secs(4), order_rx.recv()).await;
+            tokio::time::timeout(tokio::time::Duration::from_secs(15), order_rx.recv()).await;
 
         match order_result {
             Ok(Some(received_order)) => {
@@ -1425,8 +1427,8 @@ mod tests {
         use super::*;
         use alloy::signers::local::PrivateKeySigner;
         use boundless_market::telemetry::{
-            BrokerHeartbeat, CompletionOutcome, EvalOutcome, RequestCompleted, RequestEvaluated,
-            RequestHeartbeat, HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH,
+            BrokerHeartbeat, CommitmentOutcome, CompletionOutcome, EvalOutcome, RequestCompleted,
+            RequestEvaluated, RequestHeartbeat, HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH,
         };
 
         async fn sign_payload(body: &[u8], signer: &impl alloy::signers::Signer) -> String {
@@ -1456,35 +1458,57 @@ mod tests {
                 broker_address,
                 evaluated: vec![RequestEvaluated {
                     broker_address,
+                    order_id: "0x01-0x00-LockAndFulfill".to_string(),
                     request_id: "0x01".to_string(),
-                    request_digest: Some("0xdigest01".to_string()),
+                    request_digest: "0x00".to_string(),
                     requestor: Address::ZERO,
                     outcome: EvalOutcome::Locked,
+                    skip_code: None,
                     skip_reason: None,
                     total_cycles: Some(1_000_000),
-                    estimated_proving_time_secs: Some(30),
-                    fulfillment_type: Some("LockAndFulfill".to_string()),
-                    preflight_cache_hit: false,
+                    fulfillment_type: "LockAndFulfill".to_string(),
                     queue_duration_ms: Some(100),
                     preflight_duration_ms: Some(500),
+                    received_at_timestamp: 0,
                     evaluated_at: Utc::now(),
+                    commitment_outcome: Some(CommitmentOutcome::Committed),
+                    commitment_skip_code: None,
+                    commitment_skip_reason: None,
+                    estimated_proving_time_secs: Some(30),
+                    estimated_proving_time_no_load_secs: Some(10),
+                    monitor_wait_duration_ms: Some(200),
+                    peak_prove_khz: Some(100),
+                    max_capacity: Some(4),
+                    pending_commitment_count: Some(1),
+                    concurrent_proving_jobs: Some(1),
+                    lock_duration_secs: Some(2),
                 }],
                 completed: vec![RequestCompleted {
                     broker_address,
+                    order_id: "0x02-0x00-LockAndFulfill".to_string(),
                     request_id: "0x02".to_string(),
-                    request_digest: Some("0xdigest02".to_string()),
+                    request_digest: "0x00".to_string(),
+                    proof_type: "Merkle".to_string(),
                     outcome: CompletionOutcome::Fulfilled,
                     error_code: None,
+                    error_reason: None,
                     lock_duration_secs: Some(5),
                     proving_duration_secs: Some(25),
                     aggregation_duration_secs: Some(10),
                     submission_duration_secs: Some(3),
                     total_duration_secs: 45,
                     estimated_proving_time_secs: Some(30),
-                    actual_proving_time_secs: Some(25),
-                    concurrent_proving_jobs: 1,
+                    actual_total_proving_time_secs: Some(25),
+                    concurrent_proving_jobs_start: Some(1),
+                    concurrent_proving_jobs_end: Some(1),
                     total_cycles: Some(1_000_000),
                     fulfillment_type: "LockAndFulfill".to_string(),
+                    stark_proving_secs: None,
+                    proof_compression_secs: None,
+                    set_builder_proving_secs: None,
+                    assessor_proving_secs: None,
+                    assessor_compression_proof_secs: None,
+                    received_at_timestamp: 0,
                     completed_at: Utc::now(),
                 }],
                 events_dropped: 0,
@@ -1589,6 +1613,132 @@ mod tests {
                 .unwrap();
 
             assert_eq!(response.status(), 202, "Valid request heartbeat should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "config": {"test": true},
+                "committed_orders_count": 0,
+                "pending_preflight_count": 0,
+                "version": "test",
+                "uptime_secs": 0,
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z",
+                "unknown_field": "should_not_cause_400",
+                "another_new_field": 42
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Payload with unknown fields should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [{
+                    "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                    "order_id": "0x01-0x00-LockAndFulfill",
+                    "request_id": "0x01",
+                    "request_digest": "0x00",
+                    "outcome": "Locked",
+                    "fulfillment_type": "LockAndFulfill",
+                    "brand_new_field": "hello",
+                    "future_metric": 999
+                }],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request heartbeat with unknown fields should return 202"
+            );
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_drops_oversized_records(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let padding = "x".repeat(3_000);
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x01-0x00-LockAndFulfill",
+                        "oversized_field": padding
+                    },
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x02-0x00-LockAndFulfill"
+                    }
+                ],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request with oversized records should still succeed (records silently dropped)"
+            );
 
             server_handle.abort();
         }

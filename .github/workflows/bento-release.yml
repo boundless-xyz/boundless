@@ -53,7 +53,7 @@ jobs:
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev cuda-toolkit-13-0 nvidia-open
+          sudo apt-get install -y build-essential libssl-dev binutils lld mold cuda-toolkit-13-0 nvidia-open
 
 
           # Temporary installations while using the default ubuntu-latest runner. Remove if using self-hosted AMI

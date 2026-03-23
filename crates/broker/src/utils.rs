@@ -26,7 +26,7 @@ use risc0_zkvm::{
     MaybePruned, ReceiptClaim,
 };
 
-use crate::{config::ConfigLock, Order, OrderRequest, OrderStatus};
+use crate::{config::ConfigLock, OrderRequest};
 
 /// Replace the journal bytes in a [`ReceiptClaim`] with their digest to keep claims compact while
 /// preserving the existing `ReceiptClaim::digest` output.
@@ -43,51 +43,6 @@ pub fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
     }
 
     claim
-}
-
-/// Cancel a proof and mark the order as failed
-///
-/// This utility function combines the common pattern of canceling a stark proof
-/// and marking the associated order as failed.
-pub(crate) async fn cancel_proof_and_fail_order(
-    prover: &crate::provers::ProverObj,
-    db: &crate::db::DbObj,
-    config: &crate::config::ConfigLock,
-    order: &Order,
-    failure_reason: &'static str,
-) {
-    let order_id = order.id();
-
-    let should_cancel = match config.lock_all() {
-        Ok(conf) => conf.market.cancel_proving_expired_orders,
-        Err(err) => {
-            tracing::warn!(
-                "[B-UTL-002] Failed to read config for cancellation decision; skipping cancel: {err:?}"
-            );
-            false
-        }
-    };
-
-    if should_cancel {
-        if let Some(proof_id) = order.proof_id.as_ref() {
-            if matches!(order.status, OrderStatus::Proving) {
-                tracing::debug!("Cancelling proof {} for order {}", proof_id, order_id);
-                if let Err(err) = prover.cancel_stark(proof_id).await {
-                    tracing::warn!(
-                        "[B-UTL-001] Failed to cancel proof {proof_id} with reason: {failure_reason} for order {order_id}: {err}"
-                    );
-                }
-            }
-        }
-    }
-
-    // TODO in the case of a failure to cancel, the estimated capacity will be incorrect. Still
-    // setting the order as failed to avoid infinite loops of cancellations.
-    if let Err(err) = db.set_order_failure(&order_id, failure_reason).await {
-        tracing::error!(
-            "Failed to set order {order_id} as failed for reason {failure_reason}: {err}",
-        );
-    }
 }
 
 /// Estimate of gas for locking a single order.

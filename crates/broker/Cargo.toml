@@ -84,6 +84,7 @@ proptest-derive = "0.5"
 rand = { workspace = true }
 risc0-groth16 = { workspace = true, features = ["prove"] }
 risc0-zkvm = { workspace = true, features = ["std"] }
+serial_test = "3.2"
 test-log = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 tracing-test = { workspace = true }

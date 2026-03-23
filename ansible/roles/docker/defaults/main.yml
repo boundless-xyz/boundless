@@ -14,3 +14,6 @@ docker_users: []  # Example: ["ubuntu", "deploy"]
 # Enable NVIDIA Container Toolkit installation (requires NVIDIA GPU)
 docker_nvidia_enabled: true
 docker_zfs_support: false
+
+# Logging driver for all containers (journald integrates with systemd/journalctl)
+docker_log_driver: "journald"

@@ -4,7 +4,8 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
-Type=simple
+Type=oneshot
+RemainAfterExit=true
 User=root
 WorkingDirectory={{ prover_dir }}
 EnvironmentFile={{ prover_env_file }}

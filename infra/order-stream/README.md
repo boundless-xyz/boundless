@@ -45,7 +45,7 @@ To add a new migration, create the next numbered file (e.g. `002_add_new_field.s
 Connect using any Postgres client with the read-only credentials:
 
 ```bash
-psql "postgres://<user>>:<password>@<redshift url>:<redshift port>/telemetry?sslmode=require"
+psql "host=<endpoint> port=5439 dbname=telemetry user=readonly password=<password> sslmode=require"
 ```
 
 ```sql
