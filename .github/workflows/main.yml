@@ -128,12 +128,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential binutils lld mold
 
-      - name: Rust setup
-        uses: ./.github/actions/rust-setup
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-          foundry-version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Cache forge build
+        uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-${{ runner.os }}-
+
+      - name: forge build
+        run: forge build
 
       # TODO: Replace with taiki-e/install-action@nextest once added to the org action allowlist.
       - name: install nextest
