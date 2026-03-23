@@ -60,6 +60,11 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
 
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils lld mold
+
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
@@ -117,6 +122,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils lld mold
 
       - name: Rust setup
         uses: ./.github/actions/rust-setup
@@ -421,6 +431,10 @@ jobs:
     if: needs.files-changed.outputs.main == 'true'
     steps:
       - uses: actions/checkout@v4
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils lld mold
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
       - name: cache sccache local disk
