@@ -491,6 +491,7 @@ bento action="up" env_file="" compose_flags="" detached="true":
                     *agent*|miner) export AGENT_IMAGE="" ;;
                     broker)        export BROKER_IMAGE="" ;;
                     rest_api)      export REST_API_IMAGE="" ;;
+                    *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
                 esac
             done
             docker compose {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
