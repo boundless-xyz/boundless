@@ -35,7 +35,9 @@ use broker::{
     sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
 };
 use clap::Parser;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tower::{Layer, ServiceBuilder};
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
@@ -145,18 +147,23 @@ async fn main() -> Result<()> {
     };
     let balance_alerts_layer = BalanceAlertLayer::new(balance_alerts_config);
 
-    let priority_mode = {
+    let (tx_priority_mode, estimation_priority_mode) = {
         let config = config_watcher.config.lock_all().context("Failed to read config")?;
-        config.market.gas_priority_mode.clone()
+        (
+            config.market.gas_priority_mode.clone(),
+            config.market.gas_estimation_priority_mode.clone(),
+        )
     };
     let dynamic_gas_filler = DynamicGasFiller::new(
         20, // 20% increase of gas limit
-        priority_mode,
+        tx_priority_mode,
         wallet.default_signer().address(),
     );
 
-    // Clone the priority_mode Arc so we can pass it to the broker for runtime updates
+    // Clone the tx priority_mode Arc so we can pass it to the broker for runtime updates.
+    // Create a separate Arc for the estimation priority mode used by ChainMonitorService.
     let gas_priority_mode = dynamic_gas_filler.priority_mode.clone();
+    let gas_estimation_priority_mode = Arc::new(RwLock::new(estimation_priority_mode));
 
     let base_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
@@ -183,6 +190,7 @@ async fn main() -> Result<()> {
         any_provider,
         config_watcher,
         gas_priority_mode,
+        gas_estimation_priority_mode,
     )
     .await?;
 

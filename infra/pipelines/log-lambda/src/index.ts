@@ -8,6 +8,7 @@ import { accountIdToRoleName } from "./roles";
 
 const LOG_QUERY_MINS_BEFORE = 2;
 const LOG_QUERY_MINS_AFTER = 1;
+const RUNBOOK_BASE_URL = "https://github.com/boundless-xyz/runbooks/blob/main/alerts";
 
 export const getChainName = (chainId: string): string => {
   if (chainId === "11155111") {
@@ -39,7 +40,7 @@ export const handler: Handler = async (event: AlarmEvent, context: Context): Pro
     throw new Error('SSO_BASE_URL is not set');
   }
 
-  const response = await processAlarmEvent(process.env.SSO_BASE_URL, process.env.RUNBOOK_URL, new CloudWatchClient({ region: "us-west-2" }), event);
+  const response = await processAlarmEvent(process.env.SSO_BASE_URL, new CloudWatchClient({ region: "us-west-2" }), event);
 
   return {
     statusCode: 200,
@@ -80,7 +81,29 @@ async function queryAlarmTags(alarmArn: string, accountId: string, region: strin
   return tags
 }
 
-export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, client: CloudWatchClient, event: AlarmEvent): Promise<string> => {
+/**
+ * Extract a runbook file slug from the alarm name or description.
+ * Returns a slug like "b-sub-001" or "bento-down" that maps to a .md file
+ * in the runbooks GitHub repo (e.g. https://github.com/boundless-xyz/runbooks/blob/main/b-sub-001.md).
+ */
+function getRunbookSlug(metricAlarmName: string, alarmDescription: string): string {
+  // Try to extract broker error code like [B-SUB-001] from description
+  const codeMatch = alarmDescription.match(/\[B-[A-Z]+-\w+\]/);
+  if (codeMatch) {
+    return codeMatch[0].replace(/[\[\]]/g, '').toLowerCase();
+  }
+
+  // Try to extract from alarm name patterns
+  const alarmLower = metricAlarmName.toLowerCase();
+  if (alarmLower.includes('bento-down') || alarmLower.includes('bento-active')) return 'bento-down';
+  if (alarmLower.includes('no-containers') || alarmLower.includes('bento-containers')) return 'no-containers';
+  if (alarmLower.includes('memory')) return 'memory-high';
+  if (alarmLower.includes('disk')) return 'disk-high';
+
+  return '';
+}
+
+export const processAlarmEvent = async (ssoBaseUrl: string, client: CloudWatchClient, event: AlarmEvent): Promise<string> => {
   const { alarmArn, alarmDescription, timestamp, metricAlarmName } = event;
 
   // Process metric alarm name to get stage, chain id, service name.
@@ -89,8 +112,8 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
   //    e.g. l-prod-84532-og-offchain-84532-log-err-SEV1
   // 2. l-<stage>-<service>-<chainId>-<description>-<severity>
   //    e.g. l-staging-monitor-11155111-requests_number_from_0xe9669e8fe06aa27d3ed5d85a33453987c80bbdc3-SEV2
-  const format1Regex = /^l-([^-]+)-(\d+)-(.+?)-\2/;
-  const format2Regex = /^l-([^-]+)-(.+?)-(\d+)-.+$/;
+  const format1Regex = /^(?:l-)?([^-]+)-(\d+)-(.+?)-\2/;
+  const format2Regex = /^(?:l-)?([^-]+)-(.+?)-(\d+)-.+$/;
 
   let stage: string;
   let chainId: string;
@@ -101,7 +124,12 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
   const region = alarmArn.split(':')[3];
 
   // Attempt to retrieve the needed information from alarm tags
-  const tagsResponse = await queryAlarmTags(alarmArn, accountId, region);
+  let tagsResponse: AlarmTags | undefined;
+  try {
+    tagsResponse = await queryAlarmTags(alarmArn, accountId, region);
+  } catch (e) {
+    console.log(`Failed to query alarm tags: ${e}`);
+  }
   if (tagsResponse) {
     stage = tagsResponse["StackName"]
     chainId = tagsResponse["ChainId"]
@@ -152,6 +180,9 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
     destination: logsUrl
   });
 
+  const runbookSlug = getRunbookSlug(metricAlarmName, alarmDescription);
+  const fullRunbookUrl = runbookSlug ? `${RUNBOOK_BASE_URL}/${runbookSlug}.md` : RUNBOOK_BASE_URL;
+
   const response = `
 <${url}|🔎🔎🔎*View Logs*🔎🔎🔎>
 
@@ -165,7 +196,7 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
 
 *📅 Time:* ${alarmTime.toISOString()} (UTC)
 
-<${runbookUrl}|📘📘📘*View Runbook*📘📘📘>
+<${fullRunbookUrl}|📘📘📘*View Runbook*📘📘📘>
 `;
 
   console.log(`Returning: ${response}`);

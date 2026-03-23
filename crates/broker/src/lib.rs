@@ -37,7 +37,7 @@ use boundless_market::{
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 pub use config::Config;
-use config::ConfigWatcher;
+use config::{ConfigWatcher, TelemetryMode};
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -53,6 +53,7 @@ use url::Url;
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
+const TELEMETRY_CHANNEL_CAPACITY: usize = 40960;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
@@ -78,6 +79,7 @@ pub mod sequential_fallback;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
+pub(crate) mod telemetry;
 pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
@@ -439,6 +441,7 @@ pub struct Broker<P> {
     priority_requestors: requestor_monitor::PriorityRequestors,
     allow_requestors: requestor_monitor::AllowRequestors,
     gas_priority_mode: Arc<RwLock<PriorityMode>>,
+    gas_estimation_priority_mode: Arc<RwLock<PriorityMode>>,
     downloader: ConfigurableDownloader,
 }
 
@@ -452,6 +455,7 @@ where
         any_provider: DynProvider<AnyNetwork>,
         config_watcher: ConfigWatcher,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
+        gas_estimation_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
@@ -489,6 +493,7 @@ where
             priority_requestors,
             allow_requestors,
             gas_priority_mode,
+            gas_estimation_priority_mode,
             downloader,
         })
     }
@@ -779,6 +784,83 @@ where
             })
             .transpose()?;
 
+        let signer = self.args.private_key.clone().expect("Private key must be set");
+        let telemetry_mode =
+            config.lock_all().map(|c| c.market.telemetry_mode.clone()).unwrap_or_default();
+
+        let _telemetry_handle = match telemetry_mode {
+            TelemetryMode::Enabled => {
+                if let Some(ref client) = client {
+                    telemetry::init_with(|| {
+                        let (tx, rx) =
+                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                        let handle = telemetry::TelemetryHandle::new(tx);
+                        let service = telemetry::TelemetryService::new(
+                            rx,
+                            handle.clone(),
+                            client.clone(),
+                            signer.clone(),
+                            config.clone(),
+                            self.db.clone(),
+                        );
+                        let cancel_token = non_critical_cancel_token.clone();
+                        non_critical_tasks.spawn(async move {
+                            telemetry::run_telemetry_service(service, cancel_token)
+                                .await
+                                .context("Telemetry service failed")?;
+                            Ok(())
+                        });
+                        handle
+                    })
+                } else {
+                    tracing::warn!(
+                        "TelemetryMode::Enabled requires order-stream; falling back to LogsOnly"
+                    );
+
+                    telemetry::init_with(|| {
+                        let (tx, rx) =
+                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                        let handle = telemetry::TelemetryHandle::new(tx);
+                        let service = telemetry::TelemetryService::new_debug(
+                            rx,
+                            handle.clone(),
+                            signer.clone(),
+                            config.clone(),
+                            self.db.clone(),
+                        );
+                        let cancel_token = non_critical_cancel_token.clone();
+                        non_critical_tasks.spawn(async move {
+                            telemetry::run_telemetry_service(service, cancel_token)
+                                .await
+                                .context("Telemetry service failed")?;
+                            Ok(())
+                        });
+                        handle
+                    })
+                }
+            }
+            TelemetryMode::LogsOnly => telemetry::init_with(|| {
+                let (tx, rx) =
+                    mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                let handle = telemetry::TelemetryHandle::new(tx);
+                let service = telemetry::TelemetryService::new_debug(
+                    rx,
+                    handle.clone(),
+                    signer.clone(),
+                    config.clone(),
+                    self.db.clone(),
+                );
+                let cancel_token = non_critical_cancel_token.clone();
+                non_critical_tasks.spawn(async move {
+                    telemetry::run_telemetry_service(service, cancel_token)
+                        .await
+                        .context("Telemetry service failed")?;
+                    Ok(())
+                });
+                handle
+            }),
+        };
+
         // Set up chain + market monitoring. Either use the standard ChainMonitorService +
         // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
         // replaces both with a single implementation.
@@ -794,7 +876,7 @@ where
                 self.args.private_key.as_ref().expect("Private key must be set").address(),
                 lookback_blocks,
                 chain_id,
-                self.gas_priority_mode.clone(),
+                self.gas_estimation_priority_mode.clone(),
             )
             .await
             .context("Failed to initialize ChainMonitorV2")?;
@@ -829,7 +911,7 @@ where
             let chain_monitor_service = Arc::new(
                 chain_monitor::ChainMonitorService::new(
                     self.provider.clone(),
-                    self.gas_priority_mode.clone(),
+                    self.gas_estimation_priority_mode.clone(),
                 )
                 .await
                 .context("Failed to initialize chain monitor")?,
@@ -1028,6 +1110,7 @@ where
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
             self.gas_priority_mode.clone(),
+            self.gas_estimation_priority_mode.clone(),
             erc1271_gas_cache,
             self.args.listen_only,
         )?);
@@ -1368,6 +1451,8 @@ pub mod test_utils {
 
         pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+            let gas_estimation_priority_mode =
+                Arc::new(tokio::sync::RwLock::new(PriorityMode::Low));
             let rpc_url = self
                 .args
                 .rpc_url
@@ -1387,6 +1472,7 @@ pub mod test_utils {
                     any_provider,
                     ConfigWatcher::new(self.config_file.path()).await?,
                     gas_priority_mode,
+                    gas_estimation_priority_mode,
                 )
                 .await?,
                 self.config_file,

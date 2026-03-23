@@ -131,7 +131,7 @@ where
         OrderPricingOutcome::Lock { total_cycles, .. } => {
             result_cycle_count = Some(*total_cycles);
         }
-        OrderPricingOutcome::Skip { reason } => {
+        OrderPricingOutcome::Skip { reason, .. } => {
             tracing::warn!("Request may not be accepted to be locked by default: {}", reason);
         }
         OrderPricingOutcome::ProveAfterLockExpire { .. } => {
@@ -160,7 +160,7 @@ where
         OrderPricingOutcome::ProveAfterLockExpire { total_cycles, .. } => {
             result_cycle_count = Some(*total_cycles);
         }
-        OrderPricingOutcome::Skip { reason } => {
+        OrderPricingOutcome::Skip { reason, .. } => {
             tracing::warn!("Request may not be accepted for secondary fulfillment: {}", reason);
         }
         OrderPricingOutcome::Lock { .. } => {

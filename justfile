@@ -33,6 +33,10 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 test-cargo-root:
     RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
 
+# Run broker telemetry e2e tests separately as they can not be run in parallel with other tests due to global telemetry singleton.
+test-broker-telemetry:
+    RISC0_DEV_MODE=1 cargo test -p broker tests::e2e_telemetry --features test-r0vm -- --ignored --nocapture --test-threads=1
+
 # Run Cargo tests for counter example
 test-cargo-example:
     cd examples/counter && \
@@ -201,6 +205,11 @@ check-clippy: check-clippy-main
     cd examples/blake3-groth16 && \
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
+
+# Check that the main workspace compiles (same RISC0 skip flags as check-clippy-main)
+check-cargo-main:
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
+    cargo check --workspace --all-targets
 
 # Check Cargo clippy for the main workspace
 check-clippy-main:
