@@ -58,6 +58,8 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust linker toolchain
         run: |
@@ -385,7 +387,7 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
