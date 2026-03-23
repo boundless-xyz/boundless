@@ -63,7 +63,7 @@ jobs:
           submodules: false
 
       - name: checkout submodules
-        run: git submodule update --init --recursive --depth=1
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Rust linker toolchain
         run: |
@@ -151,7 +151,7 @@ jobs:
           submodules: false
 
       - name: checkout submodules
-        run: git submodule update --init --recursive --depth=1
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Rust linker toolchain
         run: |
@@ -226,7 +226,7 @@ jobs:
           submodules: false
 
       - name: checkout submodules
-        run: git submodule update --init --recursive --depth=1
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Rust linker toolchain
         run: |
@@ -370,7 +370,7 @@ jobs:
           submodules: false
 
       - name: checkout submodules
-        run: git submodule update --init --recursive --depth=1
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -488,7 +488,7 @@ jobs:
           submodules: false
 
       - name: checkout submodules
-        run: git submodule update --init --recursive --depth=1
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Login to Docker Hub
         if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
