@@ -200,7 +200,6 @@ services:
       retries: 5
 
   minio-init:
-    profiles: [input-ttl]
     image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
     depends_on:
       minio:
@@ -210,6 +209,10 @@ services:
       - /bin/bash
       - -c
       - |
+        if [ "$${INPUT_TTL_DAYS:-0}" -le 0 ] 2>/dev/null; then
+          echo "INPUT_TTL_DAYS is 0 or unset, skipping lifecycle rule"
+          exit 0
+        fi
         mc alias set local http://$${MINIO_HOST}:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
         if [[ "$$(mc ilm rule list local/$${MINIO_BUCKET} --json 2>/dev/null)" == *'"Prefix":"inputs/"'* ]]; then
           echo "Lifecycle rule for inputs/ already exists, skipping"
@@ -222,7 +225,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASS:-password}
       MINIO_BUCKET: ${MINIO_BUCKET:-workflow}
-      INPUT_TTL_DAYS: ${INPUT_TTL_DAYS:-1}
+      INPUT_TTL_DAYS: ${INPUT_TTL_DAYS:-0}
 
   prometheus:
     image: ${PROMETHEUS_IMG:-prom/prometheus:v2.53.0}
