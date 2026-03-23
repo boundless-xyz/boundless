@@ -3,13 +3,19 @@ Create/update a pull request for the current changes.
 1. Look at the staged, unstaged, and untracked changes with `git diff`
 2. If no changes to examples/ directory, run `just check-main`. Else run `just check`.
    1. If fails, propose fixes and wait for approval
-3. If there are untracked files, do not add them to the commit, but warn the user
-4. Write a clear commit message based on what changed (use commit message style below)
-5. Commit and push to the current branch
-6. Check if an existing PR exists. Ignore warnings about GraphQL: Projects (classic) being deprecated.
+   2. If the only failure is `check-links` failing with flaky external errors like GitHub `429`s, note it and continue.
+3. Run a lightweight relevant test target for the changed code.
+   1. Prefer the narrowest test target that covers the changed area, such as the affected crate, module, or explicitly failing tests.
+   2. If no smaller relevant target is obvious, run `just test-cargo-root`.
+   3. If changes touch examples/, run `just test`.
+   4. If fails, propose fixes and wait for approval
+4. If there are untracked files, do not add them to the commit, but warn the user
+5. Write a clear commit message based on what changed (use commit message style below)
+6. Commit and push to the current branch (ensure we aren't pushing to main)
+7. Check if an existing PR exists. Ignore warnings about GraphQL: Projects (classic) being deprecated.
    1. If not, do not submit the PR, but use `gh pr create --web --title <title> --body <body>` to open the create PR page with title/description (use PR Title/Description Guidelines below)
    2. Else update the description with the new changes.
-7. Do not submit the PR. Just return the PR creation page URL when done
+8. Do not submit the PR. Just return the PR creation page URL when done
 
 # Commit message style
 
