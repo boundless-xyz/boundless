@@ -36,19 +36,26 @@ runs:
   using: composite
   steps:
     - name: install rust
-      uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
       with:
         toolchain: ${{ inputs.toolchain-version }}
 
+    - name: cache risc0 toolchain
+      id: risc0-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.risc0
+        key: risc0-${{ runner.os }}-${{ runner.arch }}-${{ inputs.risczero-version }}-${{ inputs.toolchain-version }}-${{ inputs.cpp-version }}${{ inputs.install-groth16 == 'true' && format('-groth16-{0}', inputs.groth16-version) || '' }}
+
     - name: install rzup
+      if: steps.risc0-cache.outputs.cache-hit != 'true'
       run: |
-        if [ ! -f "$HOME/.risc0/bin/rzup" ]; then
-          curl -L https://risczero.com/install | bash
-        fi
+        curl -L https://risczero.com/install | bash
         echo "$HOME/.risc0/bin" >> $GITHUB_PATH
       shell: bash
 
     - name: install rzup components
+      if: steps.risc0-cache.outputs.cache-hit != 'true'
       run: |
         rzup install --verbose cargo-risczero ${{ inputs.risczero-version }}
         rzup install --verbose r0vm ${{ inputs.risczero-version }}
@@ -57,8 +64,12 @@ runs:
       shell: bash
 
     - name: install risc0-groth16
-      if: ${{ inputs.install-groth16 }}
+      if: inputs.install-groth16 == 'true' && steps.risc0-cache.outputs.cache-hit != 'true'
       run: rzup install --verbose risc0-groth16 ${{ inputs.groth16-version }}
+      shell: bash
+
+    - name: add rzup to PATH
+      run: echo "$HOME/.risc0/bin" >> $GITHUB_PATH
       shell: bash
 
     - name: test r0vm
