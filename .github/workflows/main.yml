@@ -40,7 +40,6 @@ jobs:
       - infra
       - scaler-tests
       - validate-requestor-lists
-      - xtask
       - check-publish
       - docs-rs
     runs-on: ubuntu-latest
