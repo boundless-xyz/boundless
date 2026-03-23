@@ -59,8 +59,6 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -371,8 +369,6 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
