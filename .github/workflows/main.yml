@@ -62,7 +62,19 @@ jobs:
         with:
           submodules: false
 
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
       - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Rust linker toolchain
@@ -150,7 +162,19 @@ jobs:
         with:
           submodules: false
 
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
       - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Rust linker toolchain
@@ -225,7 +249,19 @@ jobs:
         with:
           submodules: false
 
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
       - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Rust linker toolchain
@@ -369,7 +405,19 @@ jobs:
         with:
           submodules: false
 
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
       - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Foundry
@@ -487,7 +535,19 @@ jobs:
         with:
           submodules: false
 
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
       - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Login to Docker Hub
