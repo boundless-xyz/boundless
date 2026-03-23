@@ -115,32 +115,12 @@ url = "2.5"
 utoipa = "5.2"
 uuid = { version = "1.7", features = ["v4"] }
 
-# Apply some optimizations on dev profile, to speed up tests.
 [profile.dev]
 opt-level = 1
 # Emit only line tables instead of full debug info. Reduces artifact size ~30-50%,
 # improving sccache efficiency. Backtraces still work; variable inspection in a
 # debugger does not.
 debug = "line-tables-only"
-
-[profile.dev.build-override]
-# Compile build scripts and proc-macros (alloy::sol!, risc0_build, etc.) with full
-# optimization. They run before user code and are invoked repeatedly during
-# compilation, so optimizing them once pays off across the whole build.
-opt-level = 3
-
-[profile.dev.package]
-# Crypto deps are extremely slow without optimization. The difference between
-# opt-level 1 (workspace default) and 3 can be 5-10x for hashing/signing.
-sha2.opt-level = 3
-keccak.opt-level = 3
-keccak-asm.opt-level = 3
-k256.opt-level = 3
-p256.opt-level = 3
-secp256k1.opt-level = 3
-rand_chacha.opt-level = 3
-revm-interpreter.opt-level = 3
-revm-precompile.opt-level = 3
 
 [profile.release]
 debug = 1
