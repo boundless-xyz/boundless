@@ -10,16 +10,19 @@ Query the Boundless telemetry database (Amazon Redshift Serverless, Postgres-com
 ## Prerequisites
 
 Before running any queries, check if `REDSHIFT_URL` is already exported in the shell. If not, the user needs to provide two things:
+
 1. The Redshift **endpoint** (hostname or full connection string)
 2. The **readonly password**
 
 They can either:
+
 - Export them as env vars: `export REDSHIFT_ENDPOINT="..."` and `export REDSHIFT_PASSWORD="..."`
 - Provide them directly in the chat
 
 These credentials are available in the **Boundless runbook**. Tell the user to check there if they don't have them.
 
 The user may provide a full `postgres://...` URL or just a hostname. Normalize to a valid connection string:
+
 - If the URL is missing `/telemetry` at the end of the path, append it
 - If the URL is missing `?sslmode=require`, append it
 - If only a hostname is given, construct: `postgres://readonly:<password>@<hostname>:5439/telemetry?sslmode=require`
@@ -46,17 +49,18 @@ SQL
 
 All tables live in the `telemetry` schema. There are three views:
 
-| View | Description |
-|------|-------------|
-| `telemetry.broker_heartbeats` | Hourly broker health snapshots (config, queue sizes, version, uptime) |
+| View                            | Description                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| `telemetry.broker_heartbeats`   | Hourly broker health snapshots (config, queue sizes, version, uptime)                 |
 | `telemetry.request_evaluations` | Per-order evaluation decisions (accepted/skipped, skip reasons, cycle counts, timing) |
-| `telemetry.request_completions` | Terminal order outcomes (success/failure, proving durations, cycle counts) |
+| `telemetry.request_completions` | Terminal order outcomes (success/failure, proving durations, cycle counts)            |
 
 ## Schema Reference
 
 **IMPORTANT**: Before writing any queries, you MUST read `crates/boundless-market/src/telemetry.rs` to get the exact column names and enum values. The view columns map 1:1 to the Rust struct fields (snake_case). Do NOT guess column names.
 
 The key mappings are:
+
 - `BrokerHeartbeat` -> `telemetry.broker_heartbeats`
 - `RequestEvaluated` -> `telemetry.request_evaluations`
 - `RequestCompleted` -> `telemetry.request_completions`
@@ -96,6 +100,7 @@ FROM telemetry.request_completions ORDER BY completed_at DESC LIMIT 10;
 ## Redshift vs Postgres Differences
 
 Redshift is mostly Postgres-compatible but has some differences:
+
 - No `LATERAL` joins
 - No `DISTINCT ON`
 - Use `GETDATE()` instead of `NOW()` (though `NOW()` works in some contexts)
