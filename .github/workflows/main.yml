@@ -179,11 +179,13 @@ jobs:
       - name: forge build
         run: forge build
 
-      - name: install nextest
+      - name: install cargo-binstall
         uses: baptiste0928/cargo-install@v3
         with:
-          crate: cargo-nextest
-          version: "0.9.131"
+          crate: cargo-binstall
+
+      - name: install nextest
+        run: cargo binstall -y cargo-nextest@0.9.128
 
       - name: cargo nextest run
         run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc
@@ -270,11 +272,13 @@ jobs:
           restore-keys: |
             lychee-${{ runner.os }}-
 
-      - name: install lychee
+      - name: install cargo-binstall
         uses: baptiste0928/cargo-install@v3
         with:
-          crate: lychee
-          version: "0.15.1"
+          crate: cargo-binstall
+
+      - name: install lychee
+        run: cargo binstall -y lychee@0.15.1
 
       - name: run lychee
         # lychee does not respect the .gitignore natively
@@ -319,17 +323,16 @@ jobs:
           toolchain: stable
           components: rustfmt
 
-      - name: install dprint
+      - name: install cargo-binstall
         uses: baptiste0928/cargo-install@v3
         with:
-          crate: dprint
-          version: "0.47.2"
+          crate: cargo-binstall
+
+      - name: install dprint
+        run: cargo binstall -y dprint@0.47.2
 
       - name: install cargo-sort
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-sort
-          version: "2"
+        run: cargo binstall -y cargo-sort@2
 
       - name: cargo sort
         run: cargo sort --workspace --check
