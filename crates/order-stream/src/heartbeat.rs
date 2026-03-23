@@ -214,13 +214,21 @@ async fn verify_heartbeat_auth(
     claimed_address: Address,
 ) -> Result<(), impl IntoResponse> {
     let sig_header = headers.get("X-Signature").and_then(|v| v.to_str().ok()).ok_or_else(|| {
+        tracing::warn!(broker = %claimed_address, "Heartbeat rejected: missing X-Signature header");
         (StatusCode::BAD_REQUEST, "Missing X-Signature header".to_string()).into_response()
     })?;
 
-    let recovered = recover_signer(body, sig_header)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Signature error: {e}")).into_response())?;
+    let recovered = recover_signer(body, sig_header).map_err(|e| {
+        tracing::warn!(broker = %claimed_address, "Heartbeat rejected: signature error: {e}");
+        (StatusCode::BAD_REQUEST, format!("Signature error: {e}")).into_response()
+    })?;
 
     if recovered != claimed_address {
+        tracing::warn!(
+            broker = %claimed_address,
+            recovered = %recovered,
+            "Heartbeat rejected: signer does not match claimed address"
+        );
         return Err((
             StatusCode::UNAUTHORIZED,
             format!("Signer {recovered} does not match claimed address {claimed_address}"),
@@ -245,6 +253,12 @@ async fn verify_heartbeat_auth(
         };
 
         if balance < state.config.min_balance {
+            tracing::warn!(
+                broker = %claimed_address,
+                balance = %balance,
+                min = %state.config.min_balance,
+                "Heartbeat rejected: insufficient collateral balance"
+            );
             return Err((
                 StatusCode::UNAUTHORIZED,
                 format!(
@@ -263,9 +277,11 @@ async fn verify_heartbeat_auth(
 #[allow(clippy::result_large_err)]
 fn extract_address(value: &serde_json::Value, field: &str) -> Result<Address, Response> {
     let s = value.get(field).and_then(|v| v.as_str()).ok_or_else(|| {
+        tracing::warn!("Heartbeat rejected: missing or invalid field: {field}");
         (StatusCode::BAD_REQUEST, format!("Missing or invalid field: {field}")).into_response()
     })?;
     s.parse::<Address>().map_err(|_| {
+        tracing::warn!("Heartbeat rejected: invalid address in field: {field}");
         (StatusCode::BAD_REQUEST, format!("Invalid address in field: {field}")).into_response()
     })
 }
@@ -281,6 +297,11 @@ pub(crate) async fn submit_heartbeat(
     body: Bytes,
 ) -> Result<StatusCode, Response> {
     if body.len() > MAX_HEARTBEAT_BYTES {
+        tracing::warn!(
+            size = body.len(),
+            max = MAX_HEARTBEAT_BYTES,
+            "Heartbeat rejected: payload too large"
+        );
         return Err((
             StatusCode::BAD_REQUEST,
             format!("Heartbeat payload too large: {} > {MAX_HEARTBEAT_BYTES}", body.len()),
@@ -289,6 +310,7 @@ pub(crate) async fn submit_heartbeat(
     }
 
     let value: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+        tracing::warn!("Heartbeat rejected: invalid JSON payload: {e}");
         (StatusCode::BAD_REQUEST, format!("Invalid JSON payload: {e}")).into_response()
     })?;
 
@@ -321,6 +343,7 @@ pub(crate) async fn submit_request_heartbeat(
     body: Bytes,
 ) -> Result<StatusCode, Response> {
     let value: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+        tracing::warn!("Request heartbeat rejected: invalid JSON payload: {e}");
         (StatusCode::BAD_REQUEST, format!("Invalid JSON payload: {e}")).into_response()
     })?;
 

@@ -102,7 +102,7 @@ where
             };
 
             let method_str = methods.join(",");
-            tracing::debug!(
+            tracing::trace!(
                 method = method_str,
                 req_bytes,
                 resp_bytes,
