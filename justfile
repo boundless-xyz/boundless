@@ -450,7 +450,7 @@ update-lockfiles:
 #   BOUNDLESS_BUILD=all                - build all images from source
 #   BOUNDLESS_BUILD=broker             - build only the broker image
 #   BOUNDLESS_BUILD="broker rest_api"  - build specific services
-bento action="up" env_file="" compose_flags="" detached="true":
+bento action="up" env_file="" compose_flags="" detached="true" services="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
         ENV_FILE_ARG="--env-file {{env_file}}"
@@ -493,7 +493,7 @@ bento action="up" env_file="" compose_flags="" detached="true":
         # uses the build directive instead of pulling the remote image.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
             export AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE=""
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
                 case "$svc" in
@@ -504,9 +504,9 @@ bento action="up" env_file="" compose_flags="" detached="true":
                 esac
             done
             docker compose {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
         else
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
         fi
         if [ "{{detached}}" != "true" ]; then
             echo "Docker Compose services have been started."
