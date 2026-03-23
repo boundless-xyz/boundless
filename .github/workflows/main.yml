@@ -179,9 +179,11 @@ jobs:
       - name: forge build
         run: forge build
 
-      # TODO: Replace with taiki-e/install-action@nextest once added to the org action allowlist.
       - name: install nextest
-        run: curl -LsSf https://get.nexte.st/0.9.131/linux | tar zxf - -C ~/.cargo/bin
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-nextest
+          version: "0.9.131"
 
       - name: cargo nextest run
         run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc
@@ -268,11 +270,11 @@ jobs:
           restore-keys: |
             lychee-${{ runner.os }}-
 
-      # TODO: Replace with a GitHub Actions action once one is added to the org allowlist.
       - name: install lychee
-        run: |
-          curl -LsSf https://github.com/lycheeverse/lychee/releases/download/v0.15.1/lychee-v0.15.1-x86_64-unknown-linux-gnu.tar.gz | tar -xz
-          sudo mv lychee /usr/local/bin/
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: lychee
+          version: "0.15.1"
 
       - name: run lychee
         # lychee does not respect the .gitignore natively
@@ -317,17 +319,17 @@ jobs:
           toolchain: stable
           components: rustfmt
 
-      # TODO: Replace with baptiste0928/cargo-install action once a version with
-      # a working cache is added to the org action allowlist. The pinned version
-      # (904927dbe) fails with a 400 on every cache restore, falling back to
-      # compilation and adding ~45s to the job.
-      - name: install cargo-binstall
-        run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf \
-            https://github.com/cargo-bins/cargo-binstall/releases/download/v1.15.1/cargo-binstall-x86_64-unknown-linux-musl.tgz \
-            | tar -xz -C ~/.cargo/bin/
+      - name: install dprint
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: dprint
+          version: "0.47.2"
 
-      - run: cargo binstall -y --force dprint@0.47.2 cargo-sort@2
+      - name: install cargo-sort
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-sort
+          version: "2"
 
       - name: cargo sort
         run: cargo sort --workspace --check
