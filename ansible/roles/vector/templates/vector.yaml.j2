@@ -5,6 +5,9 @@ sources:
 {% for service in vector_monitor_services %}
       - {{ service }}
 {% endfor %}
+    include_matches:
+      SYSLOG_IDENTIFIER:
+        - bento
 
 {% if vector_collect_host_metrics | bool %}
   host_metrics:
