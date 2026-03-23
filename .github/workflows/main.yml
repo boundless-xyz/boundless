@@ -205,7 +205,7 @@ jobs:
           BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
 
       - name: cargo nextest run telemetry
-        run: cargo nextest run -p broker --features test-r0vm,test-rpc --run-ignored ignored-only -E 'test(e2e_telemetry)' --no-capture --test-threads 1
+        run: cargo nextest run -p broker --features test-r0vm --run-ignored ignored-only -E 'test(e2e_telemetry)' --no-capture --test-threads 1
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
