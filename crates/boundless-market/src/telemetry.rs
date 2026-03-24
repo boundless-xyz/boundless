@@ -217,14 +217,14 @@ pub struct RequestCompleted {
     /// Wall-clock seconds from when the lock transaction was submitted to when
     /// the order was committed to the DB as locked. None if no lock was needed.
     pub lock_duration_secs: Option<u64>,
-    /// Wall-clock seconds from commitment to when the STARK proof completed
+    /// Wall-clock seconds from commitment to when the application proof completed
     /// (includes optional per-order Groth16 compression for Groth16/Blake3Groth16 proof types).
     /// Calculated as: proving_completed_at - committed_at.
-    pub committed_to_stark_proof_duration_secs: Option<u64>,
-    /// Wall-clock seconds from StarkProvingCompleted to AggregationCompleted.
+    pub committed_to_application_proof_duration_secs: Option<u64>,
+    /// Wall-clock seconds from ApplicationProvingCompleted to AggregationCompleted.
     /// None for orders on Path A (individually compressed, skip aggregation).
     pub aggregation_duration_secs: Option<u64>,
-    /// Wall-clock seconds from AggregationCompleted (or StarkProvingCompleted for Path A)
+    /// Wall-clock seconds from AggregationCompleted (or ApplicationProvingCompleted for Path A)
     /// to when the Fulfilled/Failed event was received.
     pub submission_duration_secs: Option<u64>,
     /// Total wall-clock duration from when the order was first received to when it
@@ -245,17 +245,17 @@ pub struct RequestCompleted {
     /// Queried via db.get_committed_orders().len() at finalization time.
     pub concurrent_proving_jobs_end: Option<u32>,
     /// Total execution cycles reported by the prover. May differ from the preflight
-    /// estimate; updated by StarkProvingCompleted if available.
+    /// estimate; updated by ApplicationProvingCompleted if available.
     pub total_cycles: Option<u64>,
     /// "LockAndFulfill", "FulfillAfterLockExpire", or "FulfillWithoutLocking".
     pub fulfillment_type: String,
 
     /// Wall-clock seconds for the customer STARK proof (session creation through
-    /// proof monitoring to completion). Reported by StarkProvingCompleted.
+    /// proof monitoring to completion). Reported by ApplicationProvingCompleted.
     pub stark_proving_secs: Option<f64>,
     /// Wall-clock seconds for Groth16/Blake3Groth16 compression of the individual
     /// customer STARK proof. Only set on Path A; None for merkle inclusion orders.
-    /// Reported by StarkProvingCompleted.
+    /// Reported by ApplicationProvingCompleted.
     pub proof_compression_secs: Option<f64>,
     /// Wall-clock seconds for the set-builder STARK proof that merges multiple
     /// order claim digests into an aggregation tree. Path B only.

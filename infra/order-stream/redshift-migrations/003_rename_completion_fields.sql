@@ -3,7 +3,7 @@
 -- from evaluations.
 --
 -- request_completions changes:
---   - proving_duration_secs -> committed_to_stark_proof_duration_secs
+--   - proving_duration_secs -> committed_to_application_proof_duration_secs
 --     (JSON field renamed in broker)
 --   - actual_proving_time_secs -> actual_total_proving_time_secs
 --     (align view alias with JSON field name)
@@ -16,7 +16,7 @@ CREATE VIEW telemetry.request_completions AS
 SELECT
     broker_address, order_id, request_id, request_digest, proof_type, outcome,
     error_code, error_reason,
-    lock_duration_secs, committed_to_stark_proof_duration_secs,
+    lock_duration_secs, committed_to_application_proof_duration_secs,
     aggregation_duration_secs, submission_duration_secs, total_duration_secs,
     estimated_proving_time_secs, actual_total_proving_time_secs,
     concurrent_proving_jobs_start, concurrent_proving_jobs_end,
@@ -36,7 +36,7 @@ FROM (
         data.error_code::VARCHAR(32)                               AS error_code,
         data.error_reason::VARCHAR(512)                            AS error_reason,
         data.lock_duration_secs::BIGINT                            AS lock_duration_secs,
-        data.committed_to_stark_proof_duration_secs::BIGINT        AS committed_to_stark_proof_duration_secs,
+        data.committed_to_application_proof_duration_secs::BIGINT   AS committed_to_application_proof_duration_secs,
         data.aggregation_duration_secs::BIGINT                     AS aggregation_duration_secs,
         data.submission_duration_secs::BIGINT                      AS submission_duration_secs,
         data.total_duration_secs::BIGINT                           AS total_duration_secs,
