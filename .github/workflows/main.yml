@@ -52,7 +52,7 @@ jobs:
         run: exit 1
 
   rust-lint:
-    runs-on: [self-hosted, prod, Linux, cpu]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
@@ -77,13 +77,20 @@ jobs:
         if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
-      - name: Install Rust linker toolchain
+      - name: Install mold linker
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
+          sudo apt-get install -y mold
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
+
+      - name: cache sccache local disk
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: sccache-rust-lint-${{ hashFiles('Cargo.lock') }}
+          restore-keys: sccache-
 
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
@@ -131,13 +138,9 @@ jobs:
 
   rust-test:
     runs-on: [self-hosted, prod, Linux, cpu]
-    timeout-minutes: 20
+    timeout-minutes: 40
     needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        partition: [1, 2, 3]
     services:
       postgres:
         image: postgres:latest
@@ -225,7 +228,7 @@ jobs:
         run: cargo binstall -y cargo-nextest@0.9.128
 
       - name: cargo nextest run
-        run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc --partition count:${{ matrix.partition }}/3
+        run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
@@ -455,7 +458,7 @@ jobs:
         with:
           path: ~/.cache/sccache
           key: sccache-check-publish-${{ hashFiles('Cargo.lock') }}
-          restore-keys: sccache-check-publish-
+          restore-keys: sccache-
       - name: Install Rust linker toolchain
         run: |
           sudo apt-get update
