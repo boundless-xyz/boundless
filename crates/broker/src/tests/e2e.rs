@@ -17,7 +17,7 @@ use std::{future::Future, path::PathBuf, sync::Arc};
 use crate::{
     broker_sqlite_url_for_chain,
     config::{Config, ConfigWatcher},
-    now_timestamp, Args, Broker, ChainPipeline, DbObj, SqliteDb,
+    now_timestamp, Broker, ChainPipeline, CoreArgs, DbObj, SqliteDb,
 };
 use alloy::{
     network::{AnyNetwork, Ethereum},
@@ -175,7 +175,7 @@ fn broker_args(
     deployment: Deployment,
     rpc_url: Url,
     private_key: PrivateKeySigner,
-) -> Args {
+) -> CoreArgs {
     let (bonsai_api_url, bonsai_api_key) = match is_dev_mode() {
         true => (None, None),
         false => (
@@ -187,7 +187,7 @@ fn broker_args(
         ),
     };
 
-    Args {
+    CoreArgs {
         db_url: "sqlite::memory:".into(),
         config_file,
         deployment: Some(deployment),
@@ -205,14 +205,6 @@ fn broker_args(
         log_json: false,
         listen_only: false,
         experimental_rpc: false,
-        chain_rpc_url: vec![],
-        chain_private_key: vec![],
-        chain_config_file: vec![],
-        chain_market_address: vec![],
-        chain_set_verifier_address: vec![],
-        chain_verifier_router_address: vec![],
-        chain_collateral_token_address: vec![],
-        chain_order_stream_url: vec![],
     }
 }
 
