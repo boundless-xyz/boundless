@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, path::PathBuf};
+use std::{future::Future, path::PathBuf, sync::Arc};
 
 use crate::{
-    config::{Config, ConfigWatcher},
+    config::{Config, ConfigWatcher, TelemetryMode},
     now_timestamp, Args, Broker,
 };
 use alloy::{
@@ -50,11 +50,12 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 use tempfile::NamedTempFile;
+use tokio::sync::RwLock;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
 
-fn is_dev_mode() -> bool {
+pub(super) fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
         .ok()
         .map(|x| x.to_lowercase())
@@ -62,7 +63,7 @@ fn is_dev_mode() -> bool {
         .is_some()
 }
 
-fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
+pub(super) fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
     let url: url::Url = args.rpc_url.as_deref().unwrap().parse().unwrap();
     DynProvider::new(
         ProviderBuilder::new()
@@ -73,7 +74,7 @@ fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn generate_request(
+pub(super) fn generate_request(
     id: u32,
     addr: &Address,
     proof_type: ProofType,
@@ -119,11 +120,15 @@ fn generate_request(
     )
 }
 
-async fn new_config(min_batch_size: u32) -> NamedTempFile {
-    new_config_with_min_deadline(min_batch_size, 100).await
+pub(super) async fn new_config(min_batch_size: u32) -> NamedTempFile {
+    new_config_with_options(min_batch_size, 100, TelemetryMode::LogsOnly).await
 }
 
-async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
+pub(super) async fn new_config_with_options(
+    min_batch_size: u32,
+    min_deadline: u64,
+    telemetry_mode: TelemetryMode,
+) -> NamedTempFile {
     let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let mut config = Config::default();
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -136,6 +141,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
     config.market.expected_probability_win_secondary_fulfillment = 50;
     config.market.min_deadline = min_deadline;
+    config.market.telemetry_mode = telemetry_mode;
     config.batcher.min_batch_size = min_batch_size;
     // Use static prices for tests to avoid needing real price sources
     config.price_oracle.eth_usd = PriceValue::Static(2500.0);
@@ -144,7 +150,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     config_file
 }
 
-fn broker_args(
+pub(super) fn broker_args(
     config_file: PathBuf,
     deployment: Deployment,
     rpc_url: Url,
@@ -182,7 +188,7 @@ fn broker_args(
     }
 }
 
-async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
+pub(super) async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
 where
     P: Provider + WalletProvider + Clone + 'static,
     F: Future<Output = T>,
@@ -230,7 +236,8 @@ async fn simple_e2e() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -299,7 +306,8 @@ async fn simple_e2e_experimental_rpc() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -380,7 +388,8 @@ async fn simple_e2e_with_callback() {
         ctx.prover_provider.clone(),
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -456,7 +465,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         .unwrap();
     locker_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    let config = new_config_with_min_deadline(1, 0).await;
+    let config = new_config_with_options(1, 0, TelemetryMode::LogsOnly).await;
     let args = broker_args(
         config.path().to_path_buf(),
         ctx.deployment.clone(),
@@ -469,7 +478,8 @@ async fn e2e_fulfill_after_lock_expiry() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -547,7 +557,8 @@ async fn e2e_with_selector() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -619,7 +630,8 @@ async fn e2e_with_blake3_groth16_selector() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -694,7 +706,8 @@ async fn e2e_with_multiple_requests() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -792,7 +805,8 @@ async fn e2e_with_claim_digest_match() {
         ctx.prover_provider,
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -870,7 +884,8 @@ async fn gas_estimation_matches_actual_tx_cost() {
         ctx.prover_provider.clone(),
         any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();

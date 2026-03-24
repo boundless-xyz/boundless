@@ -5,6 +5,9 @@ sources:
 {% for service in vector_monitor_services %}
       - {{ service }}
 {% endfor %}
+    include_matches:
+      SYSLOG_IDENTIFIER:
+        - bento
 
 {% if vector_collect_host_metrics | bool %}
   host_metrics:
@@ -175,6 +178,26 @@ transforms:
           host: "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
 {% endif %}
 
+{% if vector_collect_host_metrics | bool %}
+  tag_host_metrics:
+    type: remap
+    inputs: ["host_metrics"]
+    source: |
+      # host_metrics sets .namespace = "host" which overrides the sink's
+      # default_namespace. Clear it so metrics land in Boundless/SystemMetrics.
+      del(.namespace)
+      # Strip all collector-added tags; keep only what alarms/dashboard query on.
+      # filesystem metrics need mountpoint; everything else needs only host.
+      if starts_with(string!(.name), "filesystem_") {
+        mountpoint = .tags.mountpoint
+        .tags = {}
+        .tags.mountpoint = mountpoint
+      } else {
+        .tags = {}
+      }
+      .tags.host = "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
+{% endif %}
+
 sinks:
   cloudwatch_bento:
     type: aws_cloudwatch_logs
@@ -194,7 +217,7 @@ sinks:
     type: aws_cloudwatch_metrics
     inputs:
 {% if vector_collect_host_metrics | bool %}
-      - host_metrics
+      - tag_host_metrics
 {% endif %}
 {% if vector_track_bento_process | default(true) | bool %}
       - bento_active_gauge

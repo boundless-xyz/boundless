@@ -24,6 +24,19 @@ The repository is structured as a monorepo and contains Rust crates and Solidity
 
 If you don't already have Rust installed, start by [installing Rust and rustup](https://doc.rust-lang.org/cargo/getting-started/installation.html).
 
+### Required system packages (Linux)
+
+`mold` is a required linker for this repository's Rust build configuration.
+Install it before running `cargo build`:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential binutils lld mold
+```
+
+If `mold` (or linker tooling) is missing, builds can fail with linker errors like:
+`collect2: fatal error: cannot find 'ld'`.
+
 Then download the RISC Zero toolchain and install it using rzup:
 
 ```sh
