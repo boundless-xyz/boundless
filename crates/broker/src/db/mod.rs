@@ -215,6 +215,7 @@ pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
 pub fn broker_sqlite_url_for_chain(base_conn_str: &str, chain_id: u64) -> Result<String, String> {
     let base = base_conn_str.trim();
     if sqlite_url_is_memory_base(base) {
+        tracing::info!("Using in-memory broker database for chain {chain_id}");
         return Ok(format!("sqlite:file:boundless_broker_{chain_id}?mode=memory&cache=shared"));
     }
 
@@ -246,6 +247,7 @@ pub fn broker_sqlite_url_for_chain(base_conn_str: &str, chain_id: u64) -> Result
         .to_str()
         .ok_or_else(|| "derived broker database path is not valid UTF-8".to_string())?;
 
+    tracing::info!("Using file broker database for chain {chain_id}: {path_str}");
     Ok(format!("sqlite://{path_str}"))
 }
 
