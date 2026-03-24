@@ -1,0 +1,38 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwGy4vNyniSBIjb3r7tgV6m2AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMGVpaNlpJdTRKkkgKAgEQgDujoTL+D7Faas6rHmETR1dDBZ8fNimbMxHiZhSP5tKL/V3/51geRlBNB4UbHylvcPddZfTeFXUZ/gzBFQ==
+config:
+  aws:region: us-west-2
+  indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100000"
+  indexer:BASE_STACK: organization/bootstrap/services-staging
+  indexer:BENTO_API_KEY:
+    secure: v1:vl/QnQLR2I1yM/yi:fcpES/E4Ap1bJ1PugGlEbePtinufrJNZ4A7s3eLq/bCqUbms+z72MfXYKW44Vjy0k1ErCUhfRPYM/g==
+  indexer:BENTO_API_URL:
+    secure: v1:QxkuroTNcS8CHpp+:bz02jRxaPFiQFHVx2ZjwMsLTADcj8aS+rpR3iI4OQmp/zKmWz23atCyBBTBjxOidDbGwjM/J3mCVxgw=
+  indexer:BLOCK_DELAY: "10"
+  indexer:BOUNDLESS_ADDRESS: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
+  indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
+  indexer:CHAIN_ID: "167000"
+  indexer:CI_CACHE_SECRET:
+    secure: v1:Z3hfTooRhIYYi9LS:33/rAomI0plvyl0ZNJqulM8UIgnxnOR89vxBWaflb0EvD03Uowwj/FWGHid8aXYoSVS0+vtK+dMFOeoYdmvG0/1twL4UDinyJbh6jG2RZ3yKHJVBNcl5by/4Onr14nkmgE/EA5SmO/tJ50cG9WpZ96FJ5axzKjbEKhVTOloLyg==
+  indexer:DOCKER_DIR: ../../
+  indexer:DOCKER_TAG: latest
+  indexer:GH_TOKEN_SECRET:
+    secure: v1:kQhFRDRu6AuAQGWd:hrMCobHMFcbSoSyQtDMLy2mISJZgTpFqfh5iqqJR8Sy/SZxdiPL8Xw4fuqEf8ZcsgTHYycIHkmUl8R9P3TA4M7ZaLW1aslbEUNIJi96pLe5zrYLDMcifKvuC1P3CokjoQr9AYX4bvxu9E+h8XQ==
+  indexer:ORDER_STREAM_API_KEY:
+    secure: v1:OzRIjPUPdxM7/KYF:Js6TcAAYu55c56heDupLPrm3+QbOy8pCwwnzV4zK
+  indexer:ORDER_STREAM_URL:
+    secure: v1:hhS8f50o3Bixf3QB:RWjf8IUWvBgX1/FxFU4rgiRyU88x7zlE7G3HHevzRmyG5uijSqwsNvPe5w0iEJtPfeT1oyu0aGk6XuZsLPgCKScMdHyvIqnqdoUZ9GpDma8ehLbGwVyr5wdDX1Y=
+  indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  indexer:PREMIUM_API_KEY:
+    secure: v1:aATx3vDUp/zAGuf/:mYFQBdfJHrkKUueWIHDmPNLQwWKL/w+5n8bxqw==
+  indexer:PROXY_SECRET:
+    secure: v1:6Y909Rp7sPLTDsDt:q4w74aL2zQYMFm4dEI33vvkYp+Qyh3PTkUWi93mtb8qGKAH2/iM6Og==
+  indexer:RDS_PASSWORD:
+    secure: v1:whl2nJsrVvF3CskI:rY/NU5XZHPz7/iVKG5JBcn4Ym5iNqIBTV9XBUrnbpjoTgg==
+  indexer:RUST_LOG_API: info,indexer_api=debug
+  indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
+  indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
+  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
+  indexer:START_BLOCK: "4819525"
+  indexer:ETH_RPC_URL:
+    secure: v1:NeCBSbnpE/F1u3Xd:NQIbZziEql98xVx8q4nn1GqNCBbY7OCLnMtvz2VbUnIIE2JosOKixF2LeLGA
