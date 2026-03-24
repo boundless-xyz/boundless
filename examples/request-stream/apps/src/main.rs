@@ -476,7 +476,7 @@ mod tests {
         let mut tasks = JoinSet::new();
 
         // Start a broker.
-        let (broker, chain, _config) =
+        let (broker, chain, _config, _db_dir) =
             BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build(&ctx).await?;
         tasks.spawn(async move { broker.start_service(vec![chain]).await });
 
