@@ -85,7 +85,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get -qq update && \
-    apt-get install -y -q --no-install-recommends ca-certificates libssl3 libpq5 && \
+    apt-get install -y -q --no-install-recommends ca-certificates libssl3 libpq5 curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/order_stream /app/order_stream
