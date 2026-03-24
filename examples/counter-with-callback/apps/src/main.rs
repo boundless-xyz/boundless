@@ -196,9 +196,9 @@ mod tests {
         let mut tasks = JoinSet::new();
 
         // Start a broker.
-        let (broker, _config) =
-            BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build().await?;
-        tasks.spawn(async move { broker.start_service().await });
+        let (broker, chain, _config) =
+            BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build(&ctx).await?;
+        tasks.spawn(async move { broker.start_service(vec![chain]).await });
 
         const TIMEOUT_SECS: u64 = 600; // 10 minutes
 

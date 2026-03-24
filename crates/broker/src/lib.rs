@@ -15,20 +15,30 @@
 use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use alloy::{
     network::{AnyNetwork, Ethereum},
-    primitives::{Address, Bytes, FixedBytes, U256},
-    providers::{DynProvider, Provider, WalletProvider},
+    primitives::{utils::parse_ether, Address, Bytes, FixedBytes, U256},
+    providers::{
+        fillers::ChainIdFiller, network::EthereumWallet, DynProvider, Provider, ProviderBuilder,
+        WalletProvider,
+    },
+    rpc::client::RpcClient,
     signers::local::PrivateKeySigner,
+    transports::{
+        http::{reqwest, Http},
+        layers::RetryBackoffLayer,
+    },
 };
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
+    balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
-    dynamic_gas_filler::PriorityMode,
+    dynamic_gas_filler::{DynamicGasFiller, PriorityMode},
+    nonce_layer::NonceProvider,
     order_stream_client::OrderStreamClient,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
     storage::StorageDownloader,
@@ -37,17 +47,21 @@ use boundless_market::{
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 pub use config::Config;
+pub use config::ConfigLock;
 use config::ConfigWatcher;
 use db::{DbObj, SqliteDb};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
+use rpcmetrics::RpcMetricsLayer;
+use sequential_fallback::SequentialFallbackLayer;
 use serde::{Deserialize, Serialize};
 use storage::ConfigurableDownloader;
 use task::{RetryPolicy, Supervisor};
 use tokio::{sync::mpsc, sync::RwLock, task::JoinSet};
 use tokio_util::sync::CancellationToken;
+use tower::{Layer, ServiceBuilder};
 use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
@@ -82,34 +96,12 @@ pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
-pub struct Args {
+/// Clap-derived CLI args shared across single-chain and multi-chain modes.
+/// Per-chain flags (--rpc-url-{chain_id}, etc.) are parsed dynamically in bin/broker.rs.
+pub struct CoreArgs {
     /// sqlite database connection url
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
-
-    /// RPC URL (prefer PROVER_RPC_URL as environment variable; falls back to RPC_URL if unset)
-    ///
-    /// Note we use a String here as the type instead of Url, as the env variable may be
-    /// set to an empty string, especially if using our Docker compose setup, which causes parsing errors with Url.
-    #[clap(long, env = "PROVER_RPC_URL")]
-    pub rpc_url: Option<String>,
-
-    /// Additional RPC URLs for automatic failover.
-    /// Can be specified multiple times or as a comma-separated list.
-    /// If provided along with rpc_url, they will be merged into a single list.
-    /// If 2+ URLs are provided total, a fallback provider will be used.
-    #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
-    pub rpc_urls: Vec<String>,
-
-    /// Wallet key
-    ///
-    /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
-    #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
-    pub private_key: Option<PrivateKeySigner>,
-
-    /// Boundless deployment configuration (contract addresses, etc.)
-    #[clap(flatten, next_help_heading = "Boundless Deployment")]
-    pub deployment: Option<Deployment>,
 
     /// local prover API (Bento)
     ///
@@ -180,11 +172,21 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
 
-    /// Per-chain config override files, merged onto the base config (--config-file).
-    /// Format: {chain_id}:{path}, e.g. --chain-config 8453:broker.base.toml
-    /// Can be specified multiple times.
-    #[clap(long)]
-    pub chain_config: Vec<String>,
+    /// [Deprecated: use --market-address-{chain_id} etc.] Single-chain deployment configuration.
+    #[clap(flatten, next_help_heading = "Boundless Deployment (Deprecated)")]
+    pub deployment: Option<Deployment>,
+
+    /// [Deprecated: use --rpc-url-{chain_id}] Single-chain RPC URL.
+    #[clap(long, env = "PROVER_RPC_URL")]
+    pub rpc_url: Option<String>,
+
+    /// [Deprecated: use --rpc-url-{chain_id}] Additional single-chain RPC URLs for failover.
+    #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
+    pub rpc_urls: Vec<String>,
+
+    /// [Deprecated: use --private-key-{chain_id}] Single-chain wallet key.
+    #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
+    pub private_key: Option<PrivateKeySigner>,
 }
 
 /// Parsed per-chain configuration resolved from environment variables and CLI args.
@@ -194,6 +196,148 @@ pub struct ChainArgs {
     pub rpc_urls: Vec<Url>,
     pub private_key: PrivateKeySigner,
     pub config_override_path: Option<PathBuf>,
+    pub deployment: Option<Deployment>,
+}
+
+/// Build a provider stack for a single chain from its RPC URLs and private key.
+///
+/// Returns (typed provider, AnyNetwork provider, gas priority mode).
+pub fn build_chain_provider(
+    rpc_urls: &[Url],
+    private_key: &PrivateKeySigner,
+    args: &CoreArgs,
+    config: &ConfigLock,
+) -> Result<(
+    impl Provider<Ethereum> + WalletProvider + Clone + 'static,
+    DynProvider<AnyNetwork>,
+    Arc<RwLock<PriorityMode>>,
+)> {
+    let wallet = EthereumWallet::from(private_key.clone());
+
+    let retry_layer = RetryBackoffLayer::new_with_policy(
+        args.rpc_retry_max,
+        args.rpc_retry_backoff,
+        args.rpc_retry_cu,
+        CustomRetryPolicy,
+    );
+
+    let mut http_client_builder = reqwest::Client::builder();
+    if args.rpc_request_timeout > 0 {
+        http_client_builder =
+            http_client_builder.timeout(Duration::from_secs(args.rpc_request_timeout));
+    }
+    let http_client = http_client_builder.build().expect("Failed to build HTTP client");
+
+    let client = if rpc_urls.len() > 1 {
+        let transports: Vec<_> = rpc_urls
+            .iter()
+            .map(|url| {
+                RpcMetricsLayer::new().layer(Http::with_client(http_client.clone(), url.clone()))
+            })
+            .collect();
+
+        tracing::info!(
+            "Configuring chain with sequential fallback RPC support: {} URLs: {:?}",
+            rpc_urls.len(),
+            rpc_urls
+        );
+
+        let transport = ServiceBuilder::new()
+            .layer(retry_layer)
+            .layer(SequentialFallbackLayer)
+            .service(transports);
+
+        RpcClient::builder().transport(transport, false)
+    } else {
+        let single_url = &rpc_urls[0];
+        tracing::info!("Configuring chain with single RPC URL: {}", single_url);
+        let transport = ServiceBuilder::new().layer(retry_layer).service(
+            RpcMetricsLayer::new().layer(Http::with_client(http_client, single_url.clone())),
+        );
+        RpcClient::builder().transport(transport, false)
+    };
+
+    let balance_alerts_config = {
+        let config = config.lock_all().context("Failed to read config")?;
+        BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: config
+                .market
+                .balance_warn_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+            error_threshold: config
+                .market
+                .balance_error_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+        }
+    };
+    let balance_alerts_layer = BalanceAlertLayer::new(balance_alerts_config);
+
+    let priority_mode = {
+        let config = config.lock_all().context("Failed to read config")?;
+        config.market.gas_priority_mode.clone()
+    };
+    let dynamic_gas_filler =
+        DynamicGasFiller::new(20, priority_mode, wallet.default_signer().address());
+
+    let gas_priority_mode = dynamic_gas_filler.priority_mode.clone();
+
+    let base_provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .filler(ChainIdFiller::default())
+        .filler(dynamic_gas_filler)
+        .layer(balance_alerts_layer)
+        .connect_client(client.clone());
+
+    let provider = NonceProvider::new(base_provider, wallet);
+
+    let any_provider = DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .filler(ChainIdFiller::default())
+            .connect_client(client),
+    );
+
+    Ok((provider, any_provider, gas_priority_mode))
+}
+
+/// Per-chain resources constructed by the binary and passed into `start_service`.
+pub struct ChainPipeline<P> {
+    pub provider: Arc<P>,
+    pub any_provider: DynProvider<AnyNetwork>,
+    pub config: ConfigLock,
+    pub gas_priority_mode: Arc<RwLock<PriorityMode>>,
+    pub private_key: PrivateKeySigner,
+    pub chain_id: u64,
+    pub deployment: Deployment,
+}
+
+/// Resolve deployment configuration for a given chain ID.
+pub fn resolve_deployment(
+    args_deployment: Option<&Deployment>,
+    chain_id: u64,
+) -> Result<Deployment> {
+    if let Some(manual_deployment) = args_deployment {
+        if let Some(expected_deployment) = Deployment::from_chain_id(chain_id) {
+            validate_deployment_config(manual_deployment, &expected_deployment, chain_id);
+        } else {
+            tracing::info!(
+                "Using manually configured deployment for chain ID {chain_id} (no default available)"
+            );
+        }
+        Ok(manual_deployment.clone())
+    } else {
+        Deployment::from_chain_id(chain_id).with_context(|| {
+            format!(
+                "No default deployment found for chain ID {chain_id}. \
+                 Please specify deployment configuration manually."
+            )
+        })
+    }
 }
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
@@ -445,144 +589,37 @@ struct Batch {
     pub error_msg: Option<String>,
 }
 
-pub struct Broker<P> {
-    args: Args,
-    provider: Arc<P>,
-    any_provider: DynProvider<AnyNetwork>,
+pub struct Broker {
+    args: CoreArgs,
     db: DbObj,
     config_watcher: ConfigWatcher,
-    priority_requestors: requestor_monitor::PriorityRequestors,
-    allow_requestors: requestor_monitor::AllowRequestors,
-    gas_priority_mode: Arc<RwLock<PriorityMode>>,
     downloader: ConfigurableDownloader,
 }
 
-impl<P> Broker<P>
-where
-    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
-{
-    pub async fn new(
-        mut args: Args,
-        provider: P,
-        any_provider: DynProvider<AnyNetwork>,
-        config_watcher: ConfigWatcher,
-        gas_priority_mode: Arc<RwLock<PriorityMode>>,
-    ) -> Result<Self> {
+impl Broker {
+    pub async fn new(args: CoreArgs, config_watcher: ConfigWatcher) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
-
-        let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-
-        // Resolve deployment configuration if not provided, or validate if provided
-        if let Some(manual_deployment) = &args.deployment {
-            // Check if there's a default deployment for this chain ID
-            if let Some(expected_deployment) = Deployment::from_chain_id(chain_id) {
-                Self::validate_deployment_config(manual_deployment, &expected_deployment, chain_id);
-            } else {
-                tracing::info!("Using manually configured deployment for chain ID {chain_id} (no default available)");
-            }
-        } else {
-            args.deployment = Some(Deployment::from_chain_id(chain_id)
-                .with_context(|| format!("No default deployment found for chain ID {chain_id}. Please specify deployment configuration manually."))?);
-            tracing::info!("Using default deployment configuration for chain ID {chain_id}");
-        }
-
-        let priority_requestors =
-            requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
-        let allow_requestors =
-            requestor_monitor::AllowRequestors::new(config_watcher.config.clone(), chain_id);
         let downloader = ConfigurableDownloader::new(config_watcher.config.clone())
             .await
             .context("Failed to initialize downloader")?;
 
-        Ok(Self {
-            args,
-            db,
-            provider: Arc::new(provider),
-            any_provider,
-            config_watcher,
-            priority_requestors,
-            allow_requestors,
-            gas_priority_mode,
-            downloader,
-        })
+        Ok(Self { args, db, config_watcher, downloader })
     }
 
-    pub fn deployment(&self) -> &Deployment {
-        self.args.deployment.as_ref().unwrap()
-    }
-
-    fn validate_deployment_config(manual: &Deployment, expected: &Deployment, chain_id: u64) {
-        let mut warnings = Vec::new();
-
-        if manual.boundless_market_address != expected.boundless_market_address {
-            warnings.push(format!(
-                "boundless_market_address mismatch: configured={}, expected={}",
-                manual.boundless_market_address, expected.boundless_market_address
-            ));
-        }
-
-        if manual.set_verifier_address != expected.set_verifier_address {
-            warnings.push(format!(
-                "set_verifier_address mismatch: configured={}, expected={}",
-                manual.set_verifier_address, expected.set_verifier_address
-            ));
-        }
-
-        if let (Some(manual_addr), Some(expected_addr)) =
-            (manual.verifier_router_address, expected.verifier_router_address)
-        {
-            if manual_addr != expected_addr {
-                warnings.push(format!(
-                    "verifier_router_address mismatch: configured={manual_addr}, expected={expected_addr}"
-                ));
-            }
-        }
-
-        if let (Some(manual_addr), Some(expected_addr)) =
-            (manual.collateral_token_address, expected.collateral_token_address)
-        {
-            if manual_addr != expected_addr {
-                warnings.push(format!(
-                    "collateral_token_address mismatch: configured={manual_addr}, expected={expected_addr}"
-                ));
-            }
-        }
-
-        if manual.order_stream_url != expected.order_stream_url {
-            warnings.push(format!(
-                "order_stream_url mismatch: configured={:?}, expected={:?}",
-                manual.order_stream_url, expected.order_stream_url
-            ));
-        }
-
-        if let (Some(chain_id), Some(expected_chain_id)) =
-            (manual.market_chain_id, expected.market_chain_id)
-        {
-            if chain_id != expected_chain_id {
-                warnings.push(format!(
-                    "market_chain_id mismatch: configured={chain_id}, expected={expected_chain_id}"
-                ));
-            }
-        }
-
-        if warnings.is_empty() {
-            tracing::info!(
-                "Manual deployment configuration matches expected defaults for chain ID {chain_id}"
-            );
-        } else {
-            tracing::warn!(
-                "Manual deployment configuration differs from expected defaults for chain ID {chain_id}: {}",
-                warnings.join(", ")
-            );
-            tracing::warn!("This may indicate a configuration error. Please verify your deployment addresses are correct.");
-        }
-    }
-
-    async fn fetch_and_upload_set_builder_image(&self, prover: &ProverObj) -> Result<Digest> {
+    async fn fetch_and_upload_set_builder_image<P>(
+        &self,
+        prover: &ProverObj,
+        provider: &Arc<P>,
+        deployment: &Deployment,
+        config: &ConfigLock,
+    ) -> Result<Digest>
+    where
+        P: Provider<Ethereum> + Clone + 'static,
+    {
         let set_verifier_contract = SetVerifierService::new(
-            self.deployment().set_verifier_address,
-            self.provider.clone(),
+            deployment.set_verifier_address,
+            provider.clone(),
             Address::ZERO,
         );
 
@@ -592,7 +629,7 @@ where
             .context("Failed to get set builder image_info")?;
         let image_id = Digest::from_bytes(image_id.0);
         let (path, default_url) = {
-            let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
+            let config = config.lock_all().context("Failed to lock config")?;
             (
                 config.prover.set_builder_guest_path.clone(),
                 config.market.set_builder_default_image_url.clone(),
@@ -612,10 +649,19 @@ where
         Ok(image_id)
     }
 
-    async fn fetch_and_upload_assessor_image(&self, prover: &ProverObj) -> Result<Digest> {
+    async fn fetch_and_upload_assessor_image<P>(
+        &self,
+        prover: &ProverObj,
+        provider: &Arc<P>,
+        deployment: &Deployment,
+        config: &ConfigLock,
+    ) -> Result<Digest>
+    where
+        P: Provider<Ethereum> + Clone + 'static,
+    {
         let boundless_market = BoundlessMarketService::new_for_broker(
-            self.deployment().boundless_market_address,
-            self.provider.clone(),
+            deployment.boundless_market_address,
+            provider.clone(),
             Address::ZERO,
         );
         let (image_id, image_url_str) =
@@ -623,7 +669,7 @@ where
         let image_id = Digest::from_bytes(image_id.0);
 
         let (path, default_url) = {
-            let config = self.config_watcher.config.lock_all().context("Failed to lock config")?;
+            let config = config.lock_all().context("Failed to lock config")?;
             (
                 config.prover.assessor_set_guest_path.clone(),
                 config.market.assessor_default_image_url.clone(),
@@ -748,183 +794,14 @@ where
         }
     }
 
-    pub async fn start_service(&self) -> Result<()> {
-        let mut non_critical_tasks: JoinSet<Result<()>> = JoinSet::new();
-        let mut critical_tasks: JoinSet<Result<()>> = JoinSet::new();
-
-        if self.args.listen_only {
-            tracing::warn!(
-                "LISTEN-ONLY MODE: Broker will monitor the market and evaluate orders but will NOT \
-                lock, prove, or submit. No on-chain transactions will be sent."
-            );
-        }
-
-        let config = self.config_watcher.config.clone();
-
-        let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
-            let config = match config.lock_all() {
-                Ok(res) => res,
-                Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
-            };
-            (
-                config.market.lookback_blocks,
-                config.market.events_poll_blocks,
-                config.market.events_poll_ms,
-            )
-        };
-
-        // Create two cancellation tokens for graceful shutdown:
-        // 1. Non-critical tasks (order discovery, picking, monitoring) - cancelled immediately on shutdown signal
-        // 2. Critical tasks (proving, aggregation, submission) - cancelled only after committed orders complete
-        let non_critical_cancel_token = CancellationToken::new();
-        let critical_cancel_token = CancellationToken::new();
-
-        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self
-            .deployment()
-            .order_stream_url
-            .clone()
-            .map(|url| -> Result<OrderStreamClient> {
-                let url = Url::parse(&url).context("Failed to parse order stream URL")?;
-                Ok(OrderStreamClient::new(
-                    url,
-                    self.deployment().boundless_market_address,
-                    chain_id,
-                ))
-            })
-            .transpose()?;
-
-        // Set up chain + market monitoring. Either use the standard ChainMonitorService +
-        // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
-        // replaces both with a single implementation.
-        let (chain_monitor, block_times, new_order_rx, new_order_tx, order_state_tx) = if self
-            .args
-            .experimental_rpc
-        {
-            let (monitor, new_order_rx) = chain_monitor_v2::ChainMonitorV2::new(
-                self.db.clone(),
-                self.provider.clone(),
-                Arc::new(self.any_provider.clone()),
-                self.deployment().boundless_market_address,
-                self.args.private_key.as_ref().expect("Private key must be set").address(),
-                lookback_blocks,
-                chain_id,
-                self.gas_priority_mode.clone(),
-            )
-            .await
-            .context("Failed to initialize ChainMonitorV2")?;
-            let monitor = Arc::new(monitor);
-            let new_order_tx = monitor.new_order_tx();
-            let order_state_tx = monitor.order_state_tx();
-
-            let cloned = monitor.clone();
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(cloned, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start ChainMonitorV2")?;
-                Ok(())
-            });
-
-            let block_times = monitor.block_time();
-            (
-                monitor as chain_monitor::ChainMonitorObj,
-                block_times,
-                new_order_rx,
-                new_order_tx,
-                order_state_tx,
-            )
-        } else {
-            // Create channels for new orders and order state changes.
-            let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-            let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
-
-            let chain_monitor_service = Arc::new(
-                chain_monitor::ChainMonitorService::new(
-                    self.provider.clone(),
-                    self.gas_priority_mode.clone(),
-                )
-                .await
-                .context("Failed to initialize chain monitor")?,
-            );
-
-            let cloned_chain_monitor = chain_monitor_service.clone();
-            let cloned_config = config.clone();
-            // Critical task, as is relied on to query current chain state
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start chain monitor")?;
-                Ok(())
-            });
-
-            // spin up a supervisor for the market monitor
-            let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
-                lookback_blocks,
-                events_poll_blocks,
-                events_poll_ms,
-                self.deployment().boundless_market_address,
-                self.provider.clone(),
-                self.db.clone(),
-                chain_monitor_service.clone(),
-                self.args.private_key.as_ref().expect("Private key must be set").address(),
-                new_order_tx.clone(),
-                order_state_tx.clone(),
-            ));
-
-            let block_times =
-                market_monitor.get_block_time().await.context("Failed to sample block times")?;
-
-            let cloned_config = config.clone();
-            let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(async move {
-                Supervisor::new(market_monitor, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start market monitor")?;
-                Ok(())
-            });
-
-            (
-                chain_monitor_service as chain_monitor::ChainMonitorObj,
-                block_times,
-                new_order_rx,
-                new_order_tx,
-                order_state_tx,
-            )
-        };
-
-        tracing::debug!("Estimated block time: {block_times}");
-
-        // spin up a supervisor for the offchain market monitor
-        if let Some(client_clone) = client {
-            let offchain_market_monitor =
-                Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
-                    client_clone,
-                    self.args.private_key.clone().expect("Private key must be set"),
-                    new_order_tx.clone(),
-                ));
-            let cloned_config = config.clone();
-            let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(async move {
-                Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start offchain market monitor")?;
-                Ok(())
-            });
-        }
-
-        // Construct the prover object interface
-        let prover: provers::ProverObj;
-        let aggregation_prover: provers::ProverObj;
+    fn build_provers(&self, config: &ConfigLock) -> Result<(ProverObj, ProverObj)> {
+        let prover: ProverObj;
+        let aggregation_prover: ProverObj;
         if is_dev_mode() {
-            tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
-            Receipts generated from this process are invalid and should never be used in production.");
+            tracing::warn!(
+                "WARNING: Running the Broker in dev mode does not generate valid receipts. \
+                 Receipts generated from this process are invalid and should never be used in production."
+            );
             prover = Arc::new(provers::DefaultProver::new());
             aggregation_prover = Arc::clone(&prover);
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
@@ -938,7 +815,6 @@ where
             aggregation_prover = Arc::clone(&prover);
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
-
             prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
@@ -951,213 +827,46 @@ where
         } else {
             prover = Arc::new(provers::DefaultProver::new());
             aggregation_prover = Arc::clone(&prover);
-        };
+        }
+        Ok((prover, aggregation_prover))
+    }
 
-        let prover_addr = self.provider.default_signer_address();
-
-        let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
-
-        let market = Arc::new(BoundlessMarketService::new_for_broker(
-            self.deployment().boundless_market_address,
-            DynProvider::new(self.provider.clone()),
-            prover_addr,
-        ));
-        let collateral_token_decimals = market
-            .collateral_token_decimals()
-            .await
-            .context("Failed to get stake token decimals. Possible RPC error.")?;
-
-        let named_chain = NamedChain::try_from(chain_id)?;
-        let price_oracle = Arc::new(
-            config
-                .lock_all()
-                .unwrap()
-                .price_oracle
-                .build(named_chain, self.provider.clone())
-                .context("Failed to build price oracle")?,
-        );
-        let cloned_config = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        let price_oracle_clone = price_oracle.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("price oracle failed")?;
-            Ok(())
-        });
-
-        // Shared ERC-1271 gas cache between OrderPricer and OrderCommitter so that estimates
-        // computed during preflight are reused when the committer locks the same order.
-        let erc1271_gas_cache: Erc1271GasCache = Arc::new(
-            moka::future::Cache::builder()
-                .eviction_policy(moka::policy::EvictionPolicy::lru())
-                .max_capacity(256)
-                .time_to_live(std::time::Duration::from_secs(60 * 60))
-                .build(),
-        );
-
-        // Spin up the order pricer to pre-flight and find orders to lock
-        let order_pricer = Arc::new(order_pricer::OrderPricer::new(
-            self.db.clone(),
-            config.clone(),
-            prover.clone(),
-            self.deployment().boundless_market_address,
-            self.provider.clone(),
-            chain_monitor.clone(),
-            new_order_rx,
-            pricing_tx,
-            collateral_token_decimals,
-            order_state_tx.clone(),
-            self.priority_requestors.clone(),
-            self.allow_requestors.clone(),
-            self.downloader.clone(),
-            price_oracle.clone(),
-            erc1271_gas_cache.clone(),
-            self.args.listen_only,
-        ));
-        let cloned_config = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(order_pricer, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start order pricer")?;
-            Ok(())
-        });
-
-        // Always start the OrderCommitter so its full decision logic (caching, prioritization,
-        // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
-        let order_committer = Arc::new(order_committer::OrderCommitter::new(
-            self.db.clone(),
-            self.provider.clone(),
-            chain_monitor.clone(),
-            config.clone(),
-            block_times,
-            prover_addr,
-            self.deployment().boundless_market_address,
-            pricing_rx,
-            collateral_token_decimals,
-            order_committer::RpcRetryConfig {
-                retry_count: self.args.rpc_retry_max.into(),
-                retry_sleep_ms: self.args.rpc_retry_backoff,
-            },
-            self.gas_priority_mode.clone(),
-            erc1271_gas_cache,
-            self.args.listen_only,
-        )?);
-        let cloned_config = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(order_committer, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start order committer")?;
-            Ok(())
-        });
-
-        if !self.args.listen_only {
-            let proving_service = Arc::new(proving::ProvingService::new(
-                self.db.clone(),
-                prover.clone(),
-                aggregation_prover.clone(),
-                config.clone(),
-                order_state_tx.clone(),
-                self.priority_requestors.clone(),
-                market.clone(),
-                self.downloader.clone(),
-            ));
-
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(proving_service, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start proving service")?;
-                Ok(())
-            });
-
-            let set_builder_img_id = self.fetch_and_upload_set_builder_image(&prover).await?;
-            let assessor_img_id = self.fetch_and_upload_assessor_image(&prover).await?;
-
-            let aggregator = Arc::new(
-                aggregator::AggregatorService::new(
-                    self.db.clone(),
-                    chain_id,
-                    set_builder_img_id,
-                    assessor_img_id,
-                    self.deployment().boundless_market_address,
-                    prover_addr,
-                    config.clone(),
-                    aggregation_prover.clone(),
-                )
-                .await
-                .context("Failed to initialize aggregator service")?,
+    // chains is passed here rather than in the constructor because Broker would need to be
+    // generic over P, forcing all chains to use the same concrete provider type.
+    pub async fn start_service<P>(&self, chains: Vec<ChainPipeline<P>>) -> Result<()>
+    where
+        P: Provider<Ethereum> + WalletProvider + Clone + 'static,
+    {
+        if self.args.listen_only {
+            tracing::warn!(
+                "LISTEN-ONLY MODE: Broker will monitor the market and evaluate orders but will NOT \
+                 lock, prove, or submit. No on-chain transactions will be sent."
             );
-
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(aggregator, cloned_config, cancel_token)
-                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                    .spawn()
-                    .await
-                    .context("Failed to start aggregator service")?;
-                Ok(())
-            });
-
-            // Start the ReaperTask to check for expired committed orders
-            let reaper =
-                Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
-            let cloned_config = config.clone();
-            // Using critical cancel token to ensure no stuck expired jobs on shutdown
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(reaper, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start reaper service")?;
-                Ok(())
-            });
-
-            let submitter = Arc::new(submitter::Submitter::new(
-                self.db.clone(),
-                config.clone(),
-                aggregation_prover.clone(),
-                self.provider.clone(),
-                self.deployment().set_verifier_address,
-                self.deployment().boundless_market_address,
-                set_builder_img_id,
-            )?);
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(submitter, cloned_config, cancel_token)
-                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                    .spawn()
-                    .await
-                    .context("Failed to start submitter service")?;
-                Ok(())
-            });
         }
 
-        // Start the RequestorMonitor to periodically fetch priority and allow lists
-        let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
-            self.priority_requestors.clone(),
-            self.allow_requestors.clone(),
-        ));
-        let config_clone = config.clone();
-        let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(requestor_monitor, config_clone, non_critical_cancel_token_clone)
-                .spawn()
-                .await
-                .context("Requestor list monitor panicked")?;
-            Ok(())
-        });
+        let base_config = self.config_watcher.config.clone();
+        let (prover, aggregation_prover) = self.build_provers(&base_config)?;
 
-        // Monitor the different supervisor tasks and handle shutdown
+        let mut non_critical_tasks: JoinSet<Result<()>> = JoinSet::new();
+        let mut critical_tasks: JoinSet<Result<()>> = JoinSet::new();
+
+        let non_critical_cancel_token = CancellationToken::new();
+        let critical_cancel_token = CancellationToken::new();
+
+        for chain in &chains {
+            self.start_chain_pipeline(
+                chain,
+                prover.clone(),
+                aggregation_prover.clone(),
+                &mut non_critical_tasks,
+                &mut critical_tasks,
+                non_critical_cancel_token.clone(),
+                critical_cancel_token.clone(),
+            )
+            .await?;
+        }
+
+        // Monitor supervisor tasks and handle shutdown
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("Failed to install SIGTERM handler");
         let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
@@ -1197,15 +906,394 @@ where
         let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             while non_critical_tasks.join_next().await.is_some() {}
         })
-            .await
-            .map_err(|_| {
-                tracing::warn!(
+        .await
+        .map_err(|_| {
+            tracing::warn!(
                 "Timed out waiting for non-critical tasks to exit; proceeding with critical shutdown"
             );
-            });
+        });
 
         // Phase 2: Wait for committed orders to complete, then cancel critical tasks
         self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_chain_pipeline<P>(
+        &self,
+        chain: &ChainPipeline<P>,
+        prover: ProverObj,
+        aggregation_prover: ProverObj,
+        non_critical_tasks: &mut JoinSet<Result<()>>,
+        critical_tasks: &mut JoinSet<Result<()>>,
+        non_critical_cancel_token: CancellationToken,
+        critical_cancel_token: CancellationToken,
+    ) -> Result<()>
+    where
+        P: Provider<Ethereum> + WalletProvider + Clone + 'static,
+    {
+        let provider = chain.provider.clone();
+        let config = chain.config.clone();
+        let gas_priority_mode = chain.gas_priority_mode.clone();
+        let private_key = &chain.private_key;
+        let chain_id = chain.chain_id;
+        let deployment = &chain.deployment;
+
+        let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
+            let config = config.lock_all().context("Failed to lock config")?;
+            (
+                config.market.lookback_blocks,
+                config.market.events_poll_blocks,
+                config.market.events_poll_ms,
+            )
+        };
+
+        let order_stream_client = deployment
+            .order_stream_url
+            .clone()
+            .map(|url| -> Result<OrderStreamClient> {
+                let url = Url::parse(&url).context("Failed to parse order stream URL")?;
+                Ok(OrderStreamClient::new(url, deployment.boundless_market_address, chain_id))
+            })
+            .transpose()?;
+
+        let prover_addr = provider.default_signer_address();
+
+        // Set up chain + market monitoring. Either use the standard ChainMonitorService +
+        // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
+        // replaces both with a single implementation.
+        let (chain_monitor, block_times, new_order_rx, new_order_tx, order_state_tx) = if self
+            .args
+            .experimental_rpc
+        {
+            let (monitor, new_order_rx) = chain_monitor_v2::ChainMonitorV2::new(
+                self.db.clone(),
+                provider.clone(),
+                Arc::new(chain.any_provider.clone()),
+                deployment.boundless_market_address,
+                private_key.address(),
+                lookback_blocks,
+                chain_id,
+                gas_priority_mode.clone(),
+            )
+            .await
+            .context("Failed to initialize ChainMonitorV2")?;
+            let monitor = Arc::new(monitor);
+            let new_order_tx = monitor.new_order_tx();
+            let order_state_tx = monitor.order_state_tx();
+
+            let cloned = monitor.clone();
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(cloned, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start ChainMonitorV2")?;
+                Ok(())
+            });
+
+            let block_times = monitor.block_time();
+            (
+                monitor as chain_monitor::ChainMonitorObj,
+                block_times,
+                new_order_rx,
+                new_order_tx,
+                order_state_tx,
+            )
+        } else {
+            // Create channels for new orders and order state changes.
+            let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+            let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
+
+            let chain_monitor_service = Arc::new(
+                chain_monitor::ChainMonitorService::new(
+                    provider.clone(),
+                    gas_priority_mode.clone(),
+                )
+                .await
+                .context("Failed to initialize chain monitor")?,
+            );
+
+            let cloned_chain_monitor = chain_monitor_service.clone();
+            let cloned_config = config.clone();
+            // Critical task, as is relied on to query current chain state
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start chain monitor")?;
+                Ok(())
+            });
+
+            // Spin up a supervisor for the market monitor
+            let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
+                lookback_blocks,
+                events_poll_blocks,
+                events_poll_ms,
+                deployment.boundless_market_address,
+                provider.clone(),
+                self.db.clone(),
+                chain_monitor_service.clone(),
+                private_key.address(),
+                new_order_tx.clone(),
+                order_state_tx.clone(),
+            ));
+
+            let block_times =
+                market_monitor.get_block_time().await.context("Failed to sample block times")?;
+
+            let cloned_config = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                Supervisor::new(market_monitor, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start market monitor")?;
+                Ok(())
+            });
+
+            (
+                chain_monitor_service as chain_monitor::ChainMonitorObj,
+                block_times,
+                new_order_rx,
+                new_order_tx,
+                order_state_tx,
+            )
+        };
+
+        tracing::debug!(chain_id, "Estimated block time: {block_times}");
+
+        // Spin up a supervisor for the offchain market monitor
+        if let Some(client) = order_stream_client {
+            let offchain_market_monitor =
+                Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
+                    client,
+                    private_key.clone(),
+                    new_order_tx.clone(),
+                ));
+            let cloned_config = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start offchain market monitor")?;
+                Ok(())
+            });
+        }
+
+        let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
+
+        let market = Arc::new(BoundlessMarketService::new_for_broker(
+            deployment.boundless_market_address,
+            DynProvider::new(provider.clone()),
+            prover_addr,
+        ));
+        let collateral_token_decimals = market
+            .collateral_token_decimals()
+            .await
+            .context("Failed to get stake token decimals. Possible RPC error.")?;
+
+        let named_chain = NamedChain::try_from(chain_id)?;
+        let price_oracle = Arc::new(
+            config
+                .lock_all()
+                .unwrap()
+                .price_oracle
+                .build(named_chain, provider.clone())
+                .context("Failed to build price oracle")?,
+        );
+        let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        let price_oracle_clone = price_oracle.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("price oracle failed")?;
+            Ok(())
+        });
+
+        let priority_requestors =
+            requestor_monitor::PriorityRequestors::new(config.clone(), chain_id);
+        let allow_requestors = requestor_monitor::AllowRequestors::new(config.clone(), chain_id);
+
+        // Shared ERC-1271 gas cache between OrderPricer and OrderCommitter so that estimates
+        // computed during preflight are reused when the committer locks the same order.
+        let erc1271_gas_cache: Erc1271GasCache = Arc::new(
+            moka::future::Cache::builder()
+                .eviction_policy(moka::policy::EvictionPolicy::lru())
+                .max_capacity(256)
+                .time_to_live(std::time::Duration::from_secs(60 * 60))
+                .build(),
+        );
+
+        // Spin up the order pricer to pre-flight and find orders to lock
+        let order_pricer = Arc::new(order_pricer::OrderPricer::new(
+            self.db.clone(),
+            config.clone(),
+            prover.clone(),
+            deployment.boundless_market_address,
+            provider.clone(),
+            chain_monitor.clone(),
+            new_order_rx,
+            pricing_tx,
+            collateral_token_decimals,
+            order_state_tx.clone(),
+            priority_requestors.clone(),
+            allow_requestors.clone(),
+            self.downloader.clone(),
+            price_oracle.clone(),
+            erc1271_gas_cache.clone(),
+            self.args.listen_only,
+        ));
+        let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(order_pricer, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("Failed to start order pricer")?;
+            Ok(())
+        });
+
+        // Always start the OrderCommitter so its full decision logic (caching, prioritization,
+        // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
+        let order_committer = Arc::new(order_committer::OrderCommitter::new(
+            self.db.clone(),
+            provider.clone(),
+            chain_monitor.clone(),
+            config.clone(),
+            block_times,
+            prover_addr,
+            deployment.boundless_market_address,
+            pricing_rx,
+            collateral_token_decimals,
+            order_committer::RpcRetryConfig {
+                retry_count: self.args.rpc_retry_max.into(),
+                retry_sleep_ms: self.args.rpc_retry_backoff,
+            },
+            gas_priority_mode.clone(),
+            erc1271_gas_cache,
+            self.args.listen_only,
+        )?);
+        let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(order_committer, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("Failed to start order committer")?;
+            Ok(())
+        });
+
+        if !self.args.listen_only {
+            let proving_service = Arc::new(proving::ProvingService::new(
+                self.db.clone(),
+                prover.clone(),
+                aggregation_prover.clone(),
+                config.clone(),
+                order_state_tx.clone(),
+                priority_requestors.clone(),
+                market.clone(),
+                self.downloader.clone(),
+            ));
+
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(proving_service, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start proving service")?;
+                Ok(())
+            });
+
+            let set_builder_img_id = self
+                .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
+                .await?;
+            let assessor_img_id = self
+                .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
+                .await?;
+
+            let aggregator = Arc::new(
+                aggregator::AggregatorService::new(
+                    self.db.clone(),
+                    chain_id,
+                    set_builder_img_id,
+                    assessor_img_id,
+                    deployment.boundless_market_address,
+                    prover_addr,
+                    config.clone(),
+                    aggregation_prover.clone(),
+                )
+                .await
+                .context("Failed to initialize aggregator service")?,
+            );
+
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(aggregator, cloned_config, cancel_token)
+                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                    .spawn()
+                    .await
+                    .context("Failed to start aggregator service")?;
+                Ok(())
+            });
+
+            // Start the ReaperTask to check for expired committed orders
+            let reaper =
+                Arc::new(reaper::ReaperTask::new(self.db.clone(), config.clone(), prover.clone()));
+            let cloned_config = config.clone();
+            // Using critical cancel token to ensure no stuck expired jobs on shutdown
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(reaper, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start reaper service")?;
+                Ok(())
+            });
+
+            let submitter = Arc::new(submitter::Submitter::new(
+                self.db.clone(),
+                config.clone(),
+                aggregation_prover.clone(),
+                provider.clone(),
+                deployment.set_verifier_address,
+                deployment.boundless_market_address,
+                set_builder_img_id,
+            )?);
+            let cloned_config = config.clone();
+            let cancel_token = critical_cancel_token.clone();
+            critical_tasks.spawn(async move {
+                Supervisor::new(submitter, cloned_config, cancel_token)
+                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                    .spawn()
+                    .await
+                    .context("Failed to start submitter service")?;
+                Ok(())
+            });
+        }
+
+        // Start the RequestorMonitor to periodically fetch priority and allow lists
+        let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
+            priority_requestors,
+            allow_requestors,
+        ));
+        let config_clone = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(requestor_monitor, config_clone, cancel_token)
+                .spawn()
+                .await
+                .context("Requestor list monitor panicked")?;
+            Ok(())
+        });
 
         Ok(())
     }
@@ -1268,6 +1356,75 @@ where
     }
 }
 
+fn validate_deployment_config(manual: &Deployment, expected: &Deployment, chain_id: u64) {
+    let mut warnings = Vec::new();
+
+    if manual.boundless_market_address != expected.boundless_market_address {
+        warnings.push(format!(
+            "boundless_market_address mismatch: configured={}, expected={}",
+            manual.boundless_market_address, expected.boundless_market_address
+        ));
+    }
+
+    if manual.set_verifier_address != expected.set_verifier_address {
+        warnings.push(format!(
+            "set_verifier_address mismatch: configured={}, expected={}",
+            manual.set_verifier_address, expected.set_verifier_address
+        ));
+    }
+
+    if let (Some(manual_addr), Some(expected_addr)) =
+        (manual.verifier_router_address, expected.verifier_router_address)
+    {
+        if manual_addr != expected_addr {
+            warnings.push(format!(
+                "verifier_router_address mismatch: configured={manual_addr}, expected={expected_addr}"
+            ));
+        }
+    }
+
+    if let (Some(manual_addr), Some(expected_addr)) =
+        (manual.collateral_token_address, expected.collateral_token_address)
+    {
+        if manual_addr != expected_addr {
+            warnings.push(format!(
+                "collateral_token_address mismatch: configured={manual_addr}, expected={expected_addr}"
+            ));
+        }
+    }
+
+    if manual.order_stream_url != expected.order_stream_url {
+        warnings.push(format!(
+            "order_stream_url mismatch: configured={:?}, expected={:?}",
+            manual.order_stream_url, expected.order_stream_url
+        ));
+    }
+
+    if let (Some(chain_id), Some(expected_chain_id)) =
+        (manual.market_chain_id, expected.market_chain_id)
+    {
+        if chain_id != expected_chain_id {
+            warnings.push(format!(
+                "market_chain_id mismatch: configured={chain_id}, expected={expected_chain_id}"
+            ));
+        }
+    }
+
+    if warnings.is_empty() {
+        tracing::info!(
+            "Manual deployment configuration matches expected defaults for chain ID {chain_id}"
+        );
+    } else {
+        tracing::warn!(
+            "Manual deployment configuration differs from expected defaults for chain ID {chain_id}: {}",
+            warnings.join(", ")
+        );
+        tracing::warn!(
+            "This may indicate a configuration error. Please verify your deployment addresses are correct."
+        );
+    }
+}
+
 /// A very small utility function to get the current unix timestamp in seconds.
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
@@ -1316,7 +1473,6 @@ pub mod test_utils {
         },
     };
     use anyhow::Result;
-    use boundless_market::dynamic_gas_filler::PriorityMode;
     use boundless_market::price_oracle::config::PriceValue;
     use boundless_market::price_oracle::Amount;
     use boundless_test_utils::{
@@ -1328,20 +1484,17 @@ pub mod test_utils {
 
     use crate::{
         config::{Config, ConfigWatcher},
-        Args, Broker,
+        resolve_deployment, Broker, ChainPipeline, CoreArgs,
     };
 
-    pub struct BrokerBuilder<P> {
-        args: Args,
-        provider: P,
+    pub struct BrokerBuilder {
+        args: CoreArgs,
         config_file: NamedTempFile,
+        rpc_url: Url,
     }
 
-    impl<P> BrokerBuilder<P>
-    where
-        P: Provider<Ethereum> + 'static + Clone + WalletProvider,
-    {
-        pub async fn new_test(ctx: &TestCtx<P>, rpc_url: Url) -> Self {
+    impl BrokerBuilder {
+        pub async fn new_test<P>(ctx: &TestCtx<P>, rpc_url: Url) -> Self {
             let config_file: NamedTempFile = NamedTempFile::new().unwrap();
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -1349,12 +1502,11 @@ pub mod test_utils {
             config.market.min_mcycle_price = Amount::parse("0.0 ETH", None).unwrap();
             config.batcher.min_batch_size = 1;
             config.market.min_deadline = 30;
-            // Use static prices for tests to avoid needing real price sources
             config.price_oracle.eth_usd = PriceValue::Static(2500.0);
             config.price_oracle.zkc_usd = PriceValue::Static(1.0);
             config.write(config_file.path()).await.unwrap();
 
-            let args = Args {
+            let args = CoreArgs {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
@@ -1372,9 +1524,8 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
-                chain_config: vec![],
             };
-            Self { args, provider: ctx.prover_provider.clone(), config_file }
+            Self { args, config_file, rpc_url }
         }
 
         pub fn with_db_url(mut self, db_url: String) -> Self {
@@ -1382,32 +1533,51 @@ pub mod test_utils {
             self
         }
 
-        pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
-            let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
-            let rpc_url = self
-                .args
-                .rpc_url
-                .as_deref()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(|| "http://localhost:8545".parse().unwrap());
-            let any_provider = DynProvider::new(
-                ProviderBuilder::new()
-                    .network::<AnyNetwork>()
-                    .filler(ChainIdFiller::default())
-                    .connect_http(rpc_url),
-            );
-            Ok((
-                Broker::new(
-                    self.args,
-                    self.provider,
-                    any_provider,
-                    ConfigWatcher::new(self.config_file.path()).await?,
-                    gas_priority_mode,
-                )
-                .await?,
-                self.config_file,
-            ))
+        pub async fn build<P>(
+            self,
+            ctx: &TestCtx<P>,
+        ) -> Result<(
+            Broker,
+            ChainPipeline<impl Provider<Ethereum> + WalletProvider + Clone + 'static>,
+            NamedTempFile,
+        )>
+        where
+            P: Provider<Ethereum> + WalletProvider + Clone + 'static,
+        {
+            let config_watcher = ConfigWatcher::new(self.config_file.path()).await?;
+            let config = config_watcher.config.clone();
+            let (provider, any_provider, gas_priority_mode) = crate::build_chain_provider(
+                &[self.rpc_url],
+                &ctx.prover_signer,
+                &self.args,
+                &config,
+            )?;
+            let provider = Arc::new(provider);
+            let chain_id = provider.get_chain_id().await?;
+            let deployment = resolve_deployment(self.args.deployment.as_ref(), chain_id)?;
+
+            let chain = ChainPipeline {
+                provider,
+                any_provider,
+                config,
+                gas_priority_mode,
+                private_key: ctx.prover_signer.clone(),
+                chain_id,
+                deployment,
+            };
+
+            let broker = Broker::new(self.args, config_watcher).await?;
+            Ok((broker, chain, self.config_file))
         }
+    }
+
+    pub fn make_any_provider(rpc_url: Url) -> DynProvider<AnyNetwork> {
+        DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .filler(ChainIdFiller::default())
+                .connect_http(rpc_url),
+        )
     }
 }
 
