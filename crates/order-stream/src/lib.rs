@@ -1493,7 +1493,7 @@ mod tests {
                     error_code: None,
                     error_reason: None,
                     lock_duration_secs: Some(5),
-                    proving_duration_secs: Some(25),
+                    committed_to_stark_proof_duration_secs: Some(25),
                     aggregation_duration_secs: Some(10),
                     submission_duration_secs: Some(3),
                     total_duration_secs: 45,

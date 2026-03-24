@@ -487,7 +487,7 @@ impl ProvingService {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
-                crate::telemetry::telemetry().record_proving_completed(
+                crate::telemetry::telemetry().record_stark_proving_completed(
                     &order_id,
                     order.total_cycles,
                     stark_proving_secs,

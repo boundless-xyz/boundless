@@ -180,7 +180,7 @@ pub(crate) enum TelemetryEvent {
     },
     // Emitted by the proving pipeline when STARK proving (and optional Groth16 compression)
     // completes for an order.
-    ProvingCompleted {
+    StarkProvingCompleted {
         /// Composite order ID.
         order_id: String,
         /// Total execution cycles reported by the prover. May differ from the preflight
@@ -266,8 +266,8 @@ impl TelemetryHandle {
         skip_code: Option<&str>,
         skip_reason: Option<String>,
         total_cycles: Option<u64>,
-        queue_start_secs: u64,
-        preflight_duration_secs: u64,
+        queue_duration_ms: u64,
+        preflight_duration_ms: u64,
     ) {
         self.record(TelemetryEvent::OrderPricing {
             order_id: order.id(),
@@ -280,8 +280,8 @@ impl TelemetryHandle {
             total_cycles,
             fulfillment_type: order.fulfillment_type.to_string(),
             proof_type: proof_type_label(order.request.requirements.selector).to_string(),
-            queue_duration_ms: Some(queue_start_secs * 1000),
-            preflight_duration_ms: Some(preflight_duration_secs * 1000),
+            queue_duration_ms: Some(queue_duration_ms),
+            preflight_duration_ms: Some(preflight_duration_ms),
             received_at_timestamp: order.received_at_timestamp,
         });
     }
@@ -317,14 +317,14 @@ impl TelemetryHandle {
         });
     }
 
-    pub(crate) fn record_proving_completed(
+    pub(crate) fn record_stark_proving_completed(
         &self,
         order_id: &str,
         total_cycles: Option<u64>,
         stark_proving_secs: Option<f64>,
         proof_compression_secs: Option<f64>,
     ) {
-        self.record(TelemetryEvent::ProvingCompleted {
+        self.record(TelemetryEvent::StarkProvingCompleted {
             order_id: order_id.to_string(),
             total_cycles,
             stark_proving_secs,
@@ -703,7 +703,7 @@ impl TelemetryService {
                     self.eval_buffer.push(evaluated);
                 }
             }
-            TelemetryEvent::ProvingCompleted {
+            TelemetryEvent::StarkProvingCompleted {
                 order_id,
                 total_cycles,
                 stark_proving_secs,
@@ -751,10 +751,11 @@ impl TelemetryService {
 
         let total_duration_secs = now_unix().saturating_sub(entry.received_at_timestamp);
 
-        let proving_duration_secs = match (entry.committed_at, entry.proving_completed_at) {
-            (Some(c), Some(p)) => Some(p.duration_since(c).as_secs()),
-            _ => None,
-        };
+        let committed_to_stark_proof_duration_secs =
+            match (entry.committed_at, entry.proving_completed_at) {
+                (Some(c), Some(p)) => Some(p.duration_since(c).as_secs()),
+                _ => None,
+            };
 
         let aggregation_duration_secs =
             match (entry.proving_completed_at, entry.aggregation_completed_at) {
@@ -769,7 +770,12 @@ impl TelemetryService {
             .or(entry.proving_completed_at)
             .map(|t| now.duration_since(t).as_secs());
 
-        let actual_total_proving_time_secs = entry.stark_proving_secs.map(|s| s as u64);
+        // Path A: committed_at to proving_completed_at (STARK + compression).
+        // Path B: committed_at to aggregation_completed_at (STARK + set builder + assessor + batch compression).
+        let actual_total_proving_time_secs = entry.committed_at.and_then(|committed| {
+            let all_proofs_done = entry.aggregation_completed_at.or(entry.proving_completed_at)?;
+            Some(all_proofs_done.duration_since(committed).as_secs())
+        });
 
         let concurrent_proving_jobs_end = match self.db.get_committed_orders().await {
             Ok(orders) => Some(orders.len() as u32),
@@ -792,7 +798,7 @@ impl TelemetryService {
             error_code,
             error_reason,
             lock_duration_secs: entry.lock_duration_secs,
-            proving_duration_secs,
+            committed_to_stark_proof_duration_secs,
             aggregation_duration_secs,
             submission_duration_secs,
             total_duration_secs,
@@ -1188,7 +1194,7 @@ mod tests {
         assert_eq!(service.eval_buffer[0].commitment_outcome, Some(CommitmentOutcome::Committed));
 
         service
-            .process_event(TelemetryEvent::ProvingCompleted {
+            .process_event(TelemetryEvent::StarkProvingCompleted {
                 order_id: oid.clone(),
                 total_cycles: Some(5_000_000),
                 stark_proving_secs: Some(45.2),
