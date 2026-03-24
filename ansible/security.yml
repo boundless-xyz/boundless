@@ -7,3 +7,13 @@
     - name: Configure firewall
       ansible.builtin.include_role:
         name: ufw
+
+    - name: Apply pending UFW changes before reconnecting
+      ansible.builtin.meta: flush_handlers
+
+    - name: Reset SSH connection after firewall changes
+      ansible.builtin.meta: reset_connection
+
+    - name: Wait for SSH after firewall changes
+      ansible.builtin.wait_for_connection:
+        timeout: 60
