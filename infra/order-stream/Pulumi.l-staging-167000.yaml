@@ -3,7 +3,7 @@ encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwH3SbgmxhQeaS1Y7a
 config:
   aws:region: us-west-2
   order-stream:BASE_STACK: organization/bootstrap/services-staging
-  order-stream:BOUNDLESS_ADDRESS: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
+  order-stream:BOUNDLESS_ADDRESS: 0x60d11ef5d4608bab18a663fd486d3b9f162172cf
   order-stream:CHAIN_ID: "167000"
   order-stream:CI_CACHE_SECRET:
     secure: v1:pJAlHd4Bkitr5ANB:a/McUdaet7jYmYJw5VcWRkUciZWP6w5DGET/B1NfaMIV5fH28O1RfZMicx2GX3Epue4g2jdm/3NzXWKFG4Tu86s4C5kwHcYLp+4PCAl8jtaz6e5k7dvXOUH+XUbZOMAEEkwNEFTwelOWlStPLjVT5DQAiXruh6vW0W/MFeFWWA==

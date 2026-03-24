@@ -2,7 +2,7 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwG3r3CmRK2cMq6A9qM8hB0aAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMOAMYiuht5p38WoqHAgEQgDsXsHUbHmmYzT+s/Z6DFvfLAuBs3IBgv82pwBOVzQpKGu1idIYS3FAlc9VgTjRE0R7aQ9nvoAw4KSidxg==
 config:
   distributor:BASE_STACK: organization/bootstrap/services-staging
-  distributor:BOUNDLESS_MARKET_ADDR: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
+  distributor:BOUNDLESS_MARKET_ADDR: 0x60d11ef5d4608bab18a663fd486d3b9f162172cf
   distributor:CHAINALYSIS_ORACLE_ADDRESS: "0x0000000000000000000000000000000000000000"
   distributor:CHAIN_ID: "167000"
   distributor:CI_CACHE_SECRET:
