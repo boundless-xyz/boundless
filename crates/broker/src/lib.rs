@@ -1498,6 +1498,7 @@ pub mod test_utils {
     pub struct BrokerBuilder {
         args: CoreArgs,
         config_file: NamedTempFile,
+        db_dir: tempfile::TempDir,
         rpc_url: Url,
     }
 
@@ -1514,8 +1515,11 @@ pub mod test_utils {
             config.price_oracle.zkc_usd = PriceValue::Static(1.0);
             config.write(config_file.path()).await.unwrap();
 
+            let db_dir = tempfile::tempdir().unwrap();
+            let db_url = format!("sqlite://{}", db_dir.path().join("broker.sqlite").display());
+
             let args = CoreArgs {
-                db_url: "sqlite::memory:".into(),
+                db_url,
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
                 rpc_url: Some(rpc_url.to_string()),
@@ -1533,7 +1537,7 @@ pub mod test_utils {
                 listen_only: false,
                 experimental_rpc: false,
             };
-            Self { args, config_file, rpc_url }
+            Self { args, config_file, db_dir, rpc_url }
         }
 
         pub fn with_db_url(mut self, db_url: String) -> Self {
@@ -1548,6 +1552,7 @@ pub mod test_utils {
             Broker,
             ChainPipeline<impl Provider<Ethereum> + WalletProvider + Clone + 'static>,
             NamedTempFile,
+            tempfile::TempDir,
         )>
         where
             P: Provider<Ethereum> + WalletProvider + Clone + 'static,
@@ -1584,7 +1589,7 @@ pub mod test_utils {
             };
 
             let broker = Broker::new(self.args, config_watcher).await?;
-            Ok((broker, chain, self.config_file))
+            Ok((broker, chain, self.config_file, self.db_dir))
         }
     }
 
