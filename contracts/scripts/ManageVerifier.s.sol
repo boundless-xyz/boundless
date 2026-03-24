@@ -21,7 +21,7 @@ import {RiscZeroSetVerifier, RiscZeroSetVerifierLib} from "risc0/RiscZeroSetVeri
 import {ConfigLoader, Deployment, DeploymentLib, VerifierDeployment} from "../src/config/VerifierConfig.sol";
 
 // Default salt used with CREATE2 for deterministic deployment addresses.
-bytes32 constant CREATE2_SALT = hex"b00d1e45";
+bytes32 constant CREATE2_SALT = hex"b00d1e46";
 
 /// @notice Compare strings for equality.
 function stringEq(string memory a, string memory b) pure returns (bool) {

@@ -128,7 +128,7 @@ timelock-delay = 0
 router = "0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45"
 parent-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
 
-# RISC Zero router (to be deployed by Boundless)
+# RISC Zero router
 risc0-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
 risc0-timelock-controller = "0xf7dF9c97bBe3CFF583Da57D06cC418Dc60abc1Ad"
 risc0-timelock-delay = 0
@@ -156,10 +156,10 @@ estop = "0xFd5A69AF35F1529BF110Ff8BCACE9a263763D02C"
 
 ###
 
-[chains.taiko-hoodi]
-name = "Taiko Hoodi"
-id = 167013
-etherscan-url = "https://hoodi.taikoscan.io/"
+[chains.taiko-staging]
+name = "Taiko Staging"
+id = 167000
+etherscan-url = "https://taikoscan.io/"
 foundry-profile = "shanghai"
 
 # Accounts
@@ -167,14 +167,21 @@ admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
 
 # Contracts
 # Layered Router
-timelock-controller = "0x0000000000000000000000000000000000000000"
+timelock-controller = "0x1701ABdD67ffC717446B019059cDBf5d2E0305E4"
 timelock-delay = 0
-router = "0x0000000000000000000000000000000000000000"
-parent-router = "0x0000000000000000000000000000000000000000"
+router = "0x6E96201D39CE861c7DCeDC56CdB937a9A880Eb73"
+parent-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
 
-# RISC Zero router (to be deployed by Boundless)
-risc0-router = "0x0000000000000000000000000000000000000000"
-risc0-timelock-controller = "0x0000000000000000000000000000000000000000"
+# RISC Zero router (same as mainnet)
+risc0-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
+risc0-timelock-controller = "0xf7dF9c97bBe3CFF583Da57D06cC418Dc60abc1Ad"
 risc0-timelock-delay = 0
+
+[[chains.taiko-staging.verifiers]]
+name = "Blake3Groth16Verifier"
+version = "0.0.1"
+selector = "0x62f049f6"
+verifier = "0x80aC0330D288D52933b9e14B08E0eDCC4CCb8B1d"
+estop = "0xFa59FB9cf20B0f7d717bFd50A949c558758F3e24"
 
 ###
