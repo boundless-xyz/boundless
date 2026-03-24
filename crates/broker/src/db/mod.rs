@@ -129,7 +129,6 @@ pub struct AggregationOrder {
 }
 
 #[async_trait]
-#[allow(private_interfaces)]
 pub trait BrokerDb {
     async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
     async fn insert_accepted_request(
@@ -378,7 +377,6 @@ struct DbLockedRequest {
     block_number: u64,
 }
 
-#[allow(private_interfaces)]
 #[async_trait]
 impl BrokerDb for SqliteDb {
     #[cfg(test)]

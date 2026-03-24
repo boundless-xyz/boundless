@@ -346,7 +346,7 @@ pub fn resolve_deployment(
 /// Orders in initial, intermediate, or terminal non-failure states (e.g. New, Pricing, Done, Skipped)
 /// are managed in-memory or removed from the database.
 #[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
-enum OrderStatus {
+pub enum OrderStatus {
     /// Order is ready to commence proving (either locked or filling without locking)
     PendingProving,
     /// Order is actively ready for proving
@@ -440,7 +440,7 @@ pub(crate) fn proving_order_from_request(order_request: &OrderRequest, lock_pric
 ///
 /// See the id() method for more details on how Orders are identified.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-struct Order {
+pub struct Order {
     /// Address of the boundless market contract. Stored as it is required to compute the order id.
     boundless_market_address: Address,
     /// Chain ID of the boundless market contract. Stored as it is required to compute the order id.
@@ -539,14 +539,14 @@ impl std::fmt::Display for Order {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum CompressionType {
+pub enum CompressionType {
     None,
     Groth16,
     Blake3Groth16,
 }
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
-enum BatchStatus {
+pub enum BatchStatus {
     #[default]
     Aggregating,
     PendingCompression,
@@ -557,7 +557,7 @@ enum BatchStatus {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct AggregationState {
+pub struct AggregationState {
     pub guest_state: risc0_aggregation::GuestState,
     /// All claim digests in this aggregation.
     /// This collection can be used to construct the aggregation Merkle tree and Merkle paths.
@@ -570,7 +570,7 @@ struct AggregationState {
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
-struct Batch {
+pub struct Batch {
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
     pub orders: Vec<String>,
