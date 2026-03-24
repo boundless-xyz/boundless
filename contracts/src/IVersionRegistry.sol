@@ -22,11 +22,24 @@ interface IVersionRegistry {
     /// @notice Emitted when the minimum broker version is updated.
     event MinimumBrokerVersionUpdated(uint64 oldVersion, uint64 newVersion);
 
+    /// @notice Emitted when the governance notice is updated.
+    event NoticeUpdated(string oldNotice, string newNotice);
+
     /// @notice Thrown when the provided version value exceeds the valid 48-bit semver range.
     error InvalidVersion();
 
     /// @notice Returns the minimum acceptable broker version, encoded as (major << 32) | (minor << 16) | patch.
     function minimumBrokerVersion() external view returns (uint64);
+
+    /// @notice Returns the current governance notice string (may be empty).
+    function notice() external view returns (string memory);
+
+    /// @notice Set a governance notice message displayed to brokers on each version check.
+    ///         Set to empty string to clear. Independent of version — can be set/cleared any time.
+    function setNotice(string calldata _notice) external;
+
+    /// @notice Returns both the minimum version and notice in a single call.
+    function getVersionInfo() external view returns (uint64 minimumVersion, string memory _notice);
 
     /// @notice Set the minimum broker version using a packed uint64.
     /// @param _version Packed version: (major << 32) | (minor << 16) | patch. Must not exceed 48 bits.

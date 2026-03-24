@@ -25,6 +25,9 @@ contract VersionRegistry is IVersionRegistry, Initializable, Ownable2StepUpgrade
     /// @notice The minimum acceptable broker version, encoded as (major << 32) | (minor << 16) | patch.
     uint64 public minimumBrokerVersion;
 
+    /// @notice Governance notice displayed to brokers on each version check. Empty means no notice.
+    string public notice;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -79,5 +82,17 @@ contract VersionRegistry is IVersionRegistry, Initializable, Ownable2StepUpgrade
         uint64 old = minimumBrokerVersion;
         minimumBrokerVersion = _version;
         emit MinimumBrokerVersionUpdated(old, _version);
+    }
+
+    /// @inheritdoc IVersionRegistry
+    function setNotice(string calldata _notice) external onlyOwner {
+        string memory old = notice;
+        notice = _notice;
+        emit NoticeUpdated(old, _notice);
+    }
+
+    /// @inheritdoc IVersionRegistry
+    function getVersionInfo() external view returns (uint64 minimumVersion, string memory _notice) {
+        return (minimumBrokerVersion, notice);
     }
 }

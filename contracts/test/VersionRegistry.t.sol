@@ -171,6 +171,65 @@ contract VersionRegistryTest is Test {
         vm.stopPrank();
     }
 
+    function test_setNotice() public {
+        string memory msg_ = "v1.4.0 available, minimum enforced March 28";
+
+        vm.expectEmit(true, true, true, true);
+        emit IVersionRegistry.NoticeUpdated("", msg_);
+
+        vm.prank(owner);
+        registry.setNotice(msg_);
+
+        assertEq(registry.notice(), msg_);
+    }
+
+    function test_setNotice_notOwner() public {
+        vm.prank(nonOwner);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, nonOwner));
+        registry.setNotice("some notice");
+    }
+
+    function test_clearNotice() public {
+        vm.startPrank(owner);
+        registry.setNotice("initial notice");
+
+        vm.expectEmit(true, true, true, true);
+        emit IVersionRegistry.NoticeUpdated("initial notice", "");
+        registry.setNotice("");
+        vm.stopPrank();
+
+        assertEq(registry.notice(), "");
+    }
+
+    function test_getVersionInfo() public {
+        string memory msg_ = "Upgrade required soon";
+        uint64 version = registry.packVersion(2, 0, 0);
+
+        vm.startPrank(owner);
+        registry.setMinimumBrokerVersion(version);
+        registry.setNotice(msg_);
+        vm.stopPrank();
+
+        (uint64 minVersion, string memory returnedNotice) = registry.getVersionInfo();
+        assertEq(minVersion, version);
+        assertEq(returnedNotice, msg_);
+    }
+
+    function test_noticeIndependentOfVersion() public {
+        vm.startPrank(owner);
+
+        // Set notice without touching version
+        registry.setNotice("heads up");
+        assertEq(registry.minimumBrokerVersion(), 0);
+        assertEq(registry.notice(), "heads up");
+
+        // Change version without touching notice
+        registry.setMinimumBrokerVersion(registry.packVersion(1, 0, 0));
+        assertEq(registry.notice(), "heads up");
+
+        vm.stopPrank();
+    }
+
     function test_ownershipTransfer_twoStep() public {
         address newOwner = makeAddr("newOwner");
 
