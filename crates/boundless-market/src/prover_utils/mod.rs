@@ -24,7 +24,7 @@ pub use config::{
     OrderPricingPriority, PricingOverrides, ProverConfig, TelemetryMode,
 };
 #[cfg(not(feature = "prover_utils"))]
-pub use config::{MarketConfig, TelemetryMode};
+pub use config::MarketConfig;
 
 use crate::{
     contracts::{
