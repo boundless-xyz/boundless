@@ -52,39 +52,6 @@ export function buildProverLogPatterns(
             },
         },
 
-        // [Regex] 10 errors of any kind across broker in 1 hour
-        {
-            pattern: '%\\[B-[A-Z]+-\\d+\\]%',
-            metricName: "assorted-errors",
-            alarm: {
-                severity: Severity.SEV2,
-                description: ">=10 assorted broker errors in 1 hour",
-                metricConfig: { period: 3600 },
-                alarmConfig: {
-                    evaluationPeriods: 1,
-                    datapointsToAlarm: 1,
-                    threshold: 10,
-                },
-            },
-        },
-
-        // Any ERROR log without a structured error code (catch-all).
-        // Excludes INTERNAL_ERROR which is returned by dependencies on retryable errors.
-        {
-            pattern: 'ERROR -"[B-" -"INTERNAL_ERROR"',
-            metricName: "error-without-code",
-            alarm: {
-                severity: Severity.SEV2,
-                description: "ERROR log without structured error code",
-                metricConfig: { period: 60 },
-                alarmConfig: {
-                    evaluationPeriods: 1,
-                    datapointsToAlarm: 1,
-                    threshold: 1,
-                },
-            },
-        },
-
         // ── Balance alarms ───────────────────────────────────────────────
         // Once breached, the log continues on every tx, so we use a 1-hour
         // period to prevent noise from repeated triggers.
