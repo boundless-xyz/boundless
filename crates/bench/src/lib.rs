@@ -605,9 +605,7 @@ mod tests {
         let chain_id = provider.get_chain_id().await.unwrap();
         let deployment = resolve_deployment(args.deployment.as_ref(), chain_id).unwrap();
 
-        let db_dir = tempfile::tempdir().unwrap();
-        let base_url = format!("sqlite://{}", db_dir.path().join("broker.sqlite").display());
-        let db_url = broker_sqlite_url_for_chain(&base_url, chain_id).unwrap();
+        let db_url = broker_sqlite_url_for_chain(&args.db_url, chain_id).unwrap();
         let db: DbObj = Arc::new(SqliteDb::new(&db_url).await.unwrap());
 
         let chain = ChainPipeline {
