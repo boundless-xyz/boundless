@@ -11,8 +11,6 @@ WorkingDirectory={{ prover_dir }}
 EnvironmentFile={{ prover_env_file }}
 ExecStart=/usr/local/bin/just bento up "{{ prover_env_file }}" "{{ prover_docker_compose_profile }}" "true" "{{ prover_docker_compose_invoke | default('') }}"
 ExecStop=/usr/local/bin/just bento down "{{ prover_env_file }}" "{{ prover_docker_compose_profile }}"
-Restart=always
-RestartSec=10
 TimeoutStartSec=infinity
 TimeoutStopSec=infinity
 
