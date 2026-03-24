@@ -1,0 +1,29 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwFPnVgNn8JE3VB9/HEPr9KFAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMGfAgnSIdwSu5fRSVAgEQgDv88peTtS5+2PJFGhc1VV1/WqIgSr+priipGeH/gTsggvM2/sGRr3qgFn5CjVNXcgVH+botbM8PocLv1A==
+config:
+  slasher:BASE_STACK: organization/bootstrap/services-prod
+  slasher:BOUNDLESS_MARKET_ADDR: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
+  slasher:CHAIN_ID: "167000"
+  slasher:CI_CACHE_SECRET:
+    secure: v1:it3swDD7ZhOF51Ed:XbaEXxkpaH25Gj434BGPTmMMbwtUu6RKPmHf/Sd5USW+kf3Vz6njPKiwt+Wh/970OSwwbaj9v7Jefb7YYNJE11HWCpQoNx+wEtl3GOOeDA5BNaZYerrMAxSVrnKM7dcZt3Y8dTCtQFAnSy5nLoNpTFAY+AtC6hjiLZJm6sNCvw==
+  slasher:DOCKER_DIR: ../../
+  slasher:DOCKER_TAG: latest
+  slasher:ERROR_BALANCE_BELOW: "0.005"
+  slasher:GH_TOKEN_SECRET:
+    secure: v1:94wx2umwScIQjFV/:IfwC93COE+UVKEEB63OKOSH9Cl+TbaozHpiRdE11XcY47oqtXDkRZ3xIco3ZoA8ty7v1eBnVIz5d7detr137+dguMPKA0Vv/K8Dl0zJHyXbJpG8UcOM4VxR1Qf+xX5XEPBoJE3+AJMNGPVf7fA==
+  slasher:INTERVAL: "15"
+  slasher:LOG_LEVEL: boundless_slasher=trace,boundless_market=debug
+  slasher:MAX_BLOCK_RANGE: "10000"
+  slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  slasher:PRIVATE_KEY:
+    secure: v1:+QXGYTW4KS8noxpr:cNUAdu91W0se1vjGW8ZfkarEF7fnQutPGTBTLbpp0rkF14p7qvhWYABZjV90u85XxXFV4OVCPlPZz73GVhzOrB2jBk9nxXiwMpFUZilNqAs=
+  slasher:RDS_PASSWORD:
+    secure: v1:bW7q9pzUYnL0GvCU:wXVjChJ6K5noBsab44G/XNctpM8nvDfkiOTlhs2Gioo=
+  slasher:RETRIES: "3"
+  slasher:SKIP_ADDRESSES: ""
+  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  slasher:START_BLOCK: "4819525"
+  slasher:TX_TIMEOUT: "60"
+  slasher:WARN_BALANCE_BELOW: "0.01"
+  slasher:ETH_RPC_URL:
+    secure: v1:RpNT+qgcptZH9aRW:1F25S/63yEXhsDafdjZqqc341sluW9B7TzjLWELkHKzg9DNiuvS8oXdIYwa4
