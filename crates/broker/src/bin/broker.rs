@@ -32,10 +32,10 @@ use boundless_market::{
 };
 use broker::{
     config::ConfigWatcher, rpcmetrics::RpcMetricsLayer,
-    sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
+    sequential_fallback::SequentialFallbackLayer, Args, Broker, ChainArgs, CustomRetryPolicy,
 };
 use clap::Parser;
-use std::time::Duration;
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 use tower::{Layer, ServiceBuilder};
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
@@ -59,6 +59,24 @@ async fn main() -> Result<()> {
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .with_span_events(FmtSpan::CLOSE)
             .init();
+    }
+
+    // Discover per-chain configurations from PROVER_RPC_URL_{chain_id} env vars
+    let chains = discover_chains(&args)?;
+    if !chains.is_empty() {
+        for chain in &chains {
+            tracing::info!(
+                chain_id = chain.chain_id,
+                rpc_urls = ?chain.rpc_urls,
+                config_override = chain.config_override_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                "Discovered chain"
+            );
+        }
+        anyhow::bail!(
+            "Multi-chain mode detected ({} chains: {:?}). Multi-chain broker not yet implemented.",
+            chains.len(),
+            chains.iter().map(|c| c.chain_id).collect::<Vec<_>>()
+        );
     }
 
     // Create config watcher early so we can use it for the gas filler
@@ -272,9 +290,116 @@ fn collect_rpc_urls(
     Ok(all_rpc_urls)
 }
 
+/// Discover enabled chains by scanning environment variables for `PROVER_RPC_URL_{chain_id}`.
+///
+/// Returns an empty vec if no per-chain env vars are found (single-chain mode).
+fn discover_chains(args: &Args) -> Result<Vec<ChainArgs>> {
+    // Parse explicit --chain-config args into a map: chain_id -> path
+    let mut explicit_overrides: HashMap<u64, PathBuf> = HashMap::new();
+    for entry in &args.chain_config {
+        let (chain_id_str, path_str) = entry.split_once(':').with_context(|| {
+            format!("Invalid --chain-config format '{entry}', expected {{chain_id}}:{{path}}")
+        })?;
+        let chain_id: u64 = chain_id_str
+            .parse()
+            .with_context(|| format!("Invalid chain_id '{chain_id_str}' in --chain-config"))?;
+        explicit_overrides.insert(chain_id, PathBuf::from(path_str));
+    }
+
+    // Scan env for PROVER_RPC_URL_{chain_id}
+    let mut chain_ids: Vec<u64> = Vec::new();
+    for (key, _) in std::env::vars() {
+        let Some(suffix) = key.strip_prefix("PROVER_RPC_URL_") else {
+            continue;
+        };
+        // Skip PROVER_RPC_URLS_{chain_id} (note the trailing S)
+        if key.starts_with("PROVER_RPC_URLS_") {
+            continue;
+        }
+        let chain_id: u64 = match suffix.parse() {
+            Ok(id) => id,
+            Err(_) => continue, // not a valid chain_id suffix, skip
+        };
+        if !chain_ids.contains(&chain_id) {
+            chain_ids.push(chain_id);
+        }
+    }
+
+    chain_ids.sort();
+
+    if chain_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Resolve the global private key for fallback
+    let global_private_key = args
+        .private_key
+        .clone()
+        .or_else(|| std::env::var("PRIVATE_KEY").ok().and_then(|key| key.parse().ok()));
+
+    let mut chains = Vec::with_capacity(chain_ids.len());
+    for chain_id in chain_ids {
+        // Collect RPC URLs for this chain
+        let primary_url = std::env::var(format!("PROVER_RPC_URL_{chain_id}"))
+            .with_context(|| format!("PROVER_RPC_URL_{chain_id} is set but empty"))?;
+
+        let mut rpc_urls = vec![Url::parse(&primary_url)
+            .with_context(|| format!("Invalid PROVER_RPC_URL_{chain_id}"))?];
+
+        if let Ok(extra_urls) = std::env::var(format!("PROVER_RPC_URLS_{chain_id}")) {
+            for url_str in extra_urls.split(',') {
+                let url_str = url_str.trim();
+                if url_str.is_empty() {
+                    continue;
+                }
+                let url = Url::parse(url_str)
+                    .with_context(|| format!("Invalid URL in PROVER_RPC_URLS_{chain_id}"))?;
+                if !rpc_urls.contains(&url) {
+                    rpc_urls.push(url);
+                }
+            }
+        }
+
+        // Resolve private key: per-chain -> global PROVER_PRIVATE_KEY -> legacy PRIVATE_KEY
+        let private_key = std::env::var(format!("PROVER_PRIVATE_KEY_{chain_id}"))
+            .ok()
+            .and_then(|key| key.parse().ok())
+            .or_else(|| global_private_key.clone())
+            .with_context(|| {
+                format!(
+                    "No private key for chain {chain_id}. \
+                     Set PROVER_PRIVATE_KEY_{chain_id} or PROVER_PRIVATE_KEY"
+                )
+            })?;
+
+        // Resolve config override: explicit --chain-config > auto-discover broker.{chain_id}.toml
+        let config_override_path = explicit_overrides
+            .remove(&chain_id)
+            .or_else(|| ConfigWatcher::override_path_for_chain(&args.config_file, chain_id));
+
+        chains.push(ChainArgs { chain_id, rpc_urls, private_key, config_override_path });
+    }
+
+    // Warn about --chain-config entries for chains that aren't enabled
+    for (chain_id, path) in &explicit_overrides {
+        tracing::warn!(
+            "--chain-config specified for chain {chain_id} ({}) but no PROVER_RPC_URL_{chain_id} found, ignoring",
+            path.display()
+        );
+    }
+
+    Ok(chains)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Anvil default test accounts — only used as valid distinct private key values in assertions
+    const TEST_PRIVATE_KEY_0: &str =
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    const TEST_PRIVATE_KEY_1: &str =
+        "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
     #[test]
     fn primary_url_is_first() {
@@ -305,5 +430,153 @@ mod tests {
     fn errors_on_empty() {
         let result = collect_rpc_urls(None, vec![], false);
         assert!(result.is_err());
+    }
+
+    // Env-mutating tests must run serially to avoid interference.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn default_args() -> Args {
+        Args {
+            db_url: "sqlite::memory:".into(),
+            rpc_url: None,
+            rpc_urls: vec![],
+            private_key: None,
+            deployment: None,
+            bento_api_url: None,
+            bonsai_api_url: None,
+            bonsai_api_key: None,
+            config_file: PathBuf::from("broker.toml"),
+            deposit_amount: None,
+            rpc_retry_max: 10,
+            rpc_retry_backoff: 1000,
+            rpc_retry_cu: 100,
+            rpc_request_timeout: 15,
+            log_json: false,
+            listen_only: false,
+            experimental_rpc: false,
+            chain_config: vec![],
+        }
+    }
+
+    fn clear_chain_env_vars() {
+        let keys_to_remove: Vec<String> = std::env::vars()
+            .filter_map(|(key, _)| {
+                if key.starts_with("PROVER_RPC_URL_")
+                    || key.starts_with("PROVER_RPC_URLS_")
+                    || key.starts_with("PROVER_PRIVATE_KEY_")
+                {
+                    Some(key)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for key in keys_to_remove {
+            std::env::remove_var(&key);
+        }
+    }
+
+    #[test]
+    fn discover_chains_empty_when_no_per_chain_vars() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+
+        let args = default_args();
+        let chains = discover_chains(&args).unwrap();
+        assert!(chains.is_empty());
+    }
+
+    #[test]
+    fn discover_chains_finds_chains_from_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+
+        std::env::set_var("PROVER_RPC_URL_8453", "http://base.example.com");
+        std::env::set_var("PROVER_RPC_URL_1", "http://eth.example.com");
+        std::env::set_var("PROVER_PRIVATE_KEY", TEST_PRIVATE_KEY_0);
+
+        let mut args = default_args();
+        args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
+
+        let chains = discover_chains(&args).unwrap();
+        assert_eq!(chains.len(), 2);
+        assert_eq!(chains[0].chain_id, 1);
+        assert_eq!(chains[0].rpc_urls[0].as_str(), "http://eth.example.com/");
+        assert_eq!(chains[1].chain_id, 8453);
+        assert_eq!(chains[1].rpc_urls[0].as_str(), "http://base.example.com/");
+
+        clear_chain_env_vars();
+    }
+
+    #[test]
+    fn discover_chains_per_chain_private_key() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+
+        let global_key = TEST_PRIVATE_KEY_0;
+        let chain_key = TEST_PRIVATE_KEY_1;
+
+        std::env::set_var("PROVER_RPC_URL_8453", "http://base.example.com");
+        std::env::set_var("PROVER_RPC_URL_1", "http://eth.example.com");
+        std::env::set_var("PROVER_PRIVATE_KEY_1", chain_key);
+
+        let mut args = default_args();
+        args.private_key = Some(global_key.parse().unwrap());
+
+        let chains = discover_chains(&args).unwrap();
+        // Chain 1 should use its own key
+        assert_eq!(chains[0].chain_id, 1);
+        assert_eq!(chains[0].private_key, chain_key.parse().unwrap());
+        // Chain 8453 should fall back to global
+        assert_eq!(chains[1].chain_id, 8453);
+        assert_eq!(chains[1].private_key, global_key.parse().unwrap());
+
+        clear_chain_env_vars();
+        std::env::remove_var("PROVER_PRIVATE_KEY_1");
+    }
+
+    #[test]
+    fn discover_chains_failover_urls() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+
+        std::env::set_var("PROVER_RPC_URL_8453", "http://primary.example.com");
+        std::env::set_var(
+            "PROVER_RPC_URLS_8453",
+            "http://backup1.example.com,http://backup2.example.com",
+        );
+
+        let mut args = default_args();
+        args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
+
+        let chains = discover_chains(&args).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert_eq!(chains[0].rpc_urls.len(), 3);
+        assert_eq!(chains[0].rpc_urls[0].as_str(), "http://primary.example.com/");
+        assert_eq!(chains[0].rpc_urls[1].as_str(), "http://backup1.example.com/");
+        assert_eq!(chains[0].rpc_urls[2].as_str(), "http://backup2.example.com/");
+
+        clear_chain_env_vars();
+    }
+
+    #[test]
+    fn discover_chains_explicit_chain_config() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+
+        std::env::set_var("PROVER_RPC_URL_8453", "http://base.example.com");
+
+        let mut args = default_args();
+        args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
+        args.chain_config = vec!["8453:/custom/path/broker.base.toml".into()];
+
+        let chains = discover_chains(&args).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert_eq!(
+            chains[0].config_override_path,
+            Some(PathBuf::from("/custom/path/broker.base.toml"))
+        );
+
+        clear_chain_env_vars();
     }
 }
