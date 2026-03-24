@@ -46,9 +46,6 @@ parser.add_argument("--povw-mint-deployment-commit", help="PoVW mint deployment 
 parser.add_argument("--zkc", help="ZKC contract address")
 parser.add_argument("--vezkc", help="veZKC contract address")
 
-# VersionRegistry contract fields
-parser.add_argument("--version-registry", help="VersionRegistry contract address")
-parser.add_argument("--version-registry-impl", help="VersionRegistry impl contract address")
 
 args = parser.parse_args()
 
@@ -84,9 +81,6 @@ field_mapping = {
     # ZKC contract fields
     "zkc": args.zkc,
     "vezkc": args.vezkc,
-    # VersionRegistry contract fields
-    "version-registry": args.version_registry,
-    "version-registry-impl": args.version_registry_impl,
 }
 
 # Load TOML file
