@@ -780,7 +780,7 @@ mod tests {
 
     #[sqlx::test]
     #[serial]
-    #[ignore = "flaky: order channel can close unexpectedly under load"]
+    #[ignore = "flaky"]
     async fn integration_test(pool: PgPool) {
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
