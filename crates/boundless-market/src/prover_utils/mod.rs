@@ -18,13 +18,13 @@ pub(crate) mod local_executor;
 pub mod prover;
 pub(crate) mod requestor_pricing;
 
+#[cfg(not(feature = "prover_utils"))]
+pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
     OrderPricingPriority, PricingOverrides, ProverConfig, TelemetryMode,
 };
-#[cfg(not(feature = "prover_utils"))]
-pub use config::{MarketConfig, TelemetryMode};
 
 use crate::{
     contracts::{
