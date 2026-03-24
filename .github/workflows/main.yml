@@ -52,7 +52,7 @@ jobs:
         run: exit 1
 
   rust-lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod, Linux, cpu]
     timeout-minutes: 20
     needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
@@ -77,20 +77,13 @@ jobs:
         if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
-      - name: Install mold linker
+      - name: Install Rust linker toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y mold
+          sudo apt-get install -y build-essential binutils lld mold
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
-
-      - name: cache sccache local disk
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/sccache
-          key: sccache-rust-lint-${{ hashFiles('Cargo.lock') }}
-          restore-keys: sccache-
 
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
@@ -458,7 +451,7 @@ jobs:
         with:
           path: ~/.cache/sccache
           key: sccache-check-publish-${{ hashFiles('Cargo.lock') }}
-          restore-keys: sccache-
+          restore-keys: sccache-check-publish-
       - name: Install Rust linker toolchain
         run: |
           sudo apt-get update
