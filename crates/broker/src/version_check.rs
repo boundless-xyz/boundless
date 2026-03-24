@@ -240,6 +240,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> RetryTask for VersionCheckTask
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{config::ConfigLock, task::Supervisor};
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
@@ -247,8 +248,31 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use std::sync::Arc;
+    use tracing_test::traced_test;
 
-    use crate::{config::ConfigLock, task::Supervisor};
+    /// Temporarily disables `RISC0_DEV_MODE` for the duration of a test. Restores the original
+    /// value on drop. Tests using this guard must run with `--test-threads=1` (or be otherwise
+    /// serialized) because env var mutation is not thread-safe.
+    struct DevModeGuard {
+        original: Option<String>,
+    }
+
+    impl DevModeGuard {
+        fn disable() -> Self {
+            let original = std::env::var("RISC0_DEV_MODE").ok();
+            // SAFETY: must be called from serialized tests (--test-threads=1).
+            unsafe { std::env::remove_var("RISC0_DEV_MODE") };
+            Self { original }
+        }
+    }
+
+    impl Drop for DevModeGuard {
+        fn drop(&mut self) {
+            if let Some(ref val) = self.original {
+                unsafe { std::env::set_var("RISC0_DEV_MODE", val) };
+            }
+        }
+    }
 
     // --- Unit tests ---
 
@@ -295,5 +319,295 @@ mod tests {
     fn test_lookup_registry_unknown_chain() {
         assert!(lookup_registry(999999).is_none());
         assert!(lookup_registry(0).is_none());
+    }
+
+    // --- E2e tests ---
+
+    // Minimal mock: no proxy, no initialization, no ownership checks.
+    // Implements minimumBrokerVersion, setMinimumBrokerVersion, notice, setNotice, getVersionInfo.
+    sol! {
+        #[sol(rpc, bytecode = "0x6080604052348015600e575f80fd5b506107c18061001c5f395ff3fe608060405234801561000f575f80fd5b5060043610610055575f3560e01c8063164e6374146100595780633cf572a71461007857806366491911146100945780639c94e6c6146100b0578063de0f4bd4146100ce575b5f80fd5b6100616100ec565b60405161006f929190610314565b60405180910390f35b610092600480360381019061008d91906103ab565b610197565b005b6100ae60048036038101906100a99190610420565b6101ad565b005b6100b86101d7565b6040516100c5919061044b565b60405180910390f35b6100d6610267565b6040516100e3919061046b565b60405180910390f35b5f60605f8054906101000a900467ffffffffffffffff166001808054610111906104b1565b80601f016020809104026020016040519081016040528092919081815260200182805461013d906104b1565b80156101885780601f1061015f57610100808354040283529160200191610188565b820191905f5260205f20905b81548152906001019060200180831161016b57829003601f168201915b50505050509050915091509091565b8181600191826101a89291906106be565b505050565b805f806101000a81548167ffffffffffffffff021916908367ffffffffffffffff16021790555050565b6060600180546101e6906104b1565b80601f0160208091040260200160405190810160405280929190818152602001828054610212906104b1565b801561025d5780601f106102345761010080835404028352916020019161025d565b820191905f5260205f20905b81548152906001019060200180831161024057829003601f168201915b5050505050905090565b5f805f9054906101000a900467ffffffffffffffff16905090565b5f67ffffffffffffffff82169050919050565b61029e81610282565b82525050565b5f81519050919050565b5f82825260208201905092915050565b8281835e5f83830152505050565b5f601f19601f8301169050919050565b5f6102e6826102a4565b6102f081856102ae565b93506103008185602086016102be565b610309816102cc565b840191505092915050565b5f6040820190506103275f830185610295565b818103602083015261033981846102dc565b90509392505050565b5f80fd5b5f80fd5b5f80fd5b5f80fd5b5f80fd5b5f8083601f84011261036b5761036a61034a565b5b8235905067ffffffffffffffff8111156103885761038761034e565b5b6020830191508360018202830111156103a4576103a3610352565b5b9250929050565b5f80602083850312156103c1576103c0610342565b5b5f83013567ffffffffffffffff8111156103de576103dd610346565b5b6103ea85828601610356565b92509250509250929050565b6103ff81610282565b8114610409575f80fd5b50565b5f8135905061041a816103f6565b92915050565b5f6020828403121561043557610434610342565b5b5f6104428482850161040c565b91505092915050565b5f6020820190508181035f83015261046381846102dc565b905092915050565b5f60208201905061047e5f830184610295565b92915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52602260045260245ffd5b5f60028204905060018216806104c857607f821691505b6020821081036104db576104da610484565b5b50919050565b5f82905092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b5f819050815f5260205f209050919050565b5f6020601f8301049050919050565b5f82821b905092915050565b5f600883026105747fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff82610539565b61057e8683610539565b95508019841693508086168417925050509392505050565b5f819050919050565b5f819050919050565b5f6105c26105bd6105b884610596565b61059f565b610596565b9050919050565b5f819050919050565b6105db836105a8565b6105ef6105e7826105c9565b848454610545565b825550505050565b5f90565b6106036105f7565b61060e8184846105d2565b505050565b5b81811015610631576106265f826105fb565b600181019050610614565b5050565b601f8211156106765761064781610518565b6106508461052a565b8101602085101561065f578190505b61067361066b8561052a565b830182610613565b50505b505050565b5f82821c905092915050565b5f6106965f198460080261067b565b1980831691505092915050565b5f6106ae8383610687565b9150826002028217905092915050565b6106c883836104e1565b67ffffffffffffffff8111156106e1576106e06104eb565b5b6106eb82546104b1565b6106f6828285610635565b5f601f831160018114610723575f8415610711578287013590505b61071b85826106a3565b865550610782565b601f19841661073186610518565b5f5b8281101561075857848901358255600182019150602085019450602081019050610733565b868310156107755784890135610771601f891682610687565b8355505b6001600288020188555050505b5050505050505056fea26469706673582212201f956482673a956133b45eb85239af9fbe93ed5e43821e18ba0ad8014d8184f164736f6c634300081a0033")]
+        contract MockVersionRegistry {
+            constructor() {}
+            function setMinimumBrokerVersion(uint64 version) external;
+            function minimumBrokerVersion() external view returns (uint64);
+            function setNotice(string calldata n) external;
+            function notice() external view returns (string memory);
+            function getVersionInfo() external view returns (uint64 minimumVersion, string memory noticeOut);
+        }
+    }
+
+    async fn make_provider(
+        anvil: &AnvilInstance,
+    ) -> impl Provider + WalletProvider + Clone + 'static {
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .connect_http(anvil.endpoint().parse().unwrap())
+    }
+
+    async fn deploy_mock<P: Provider + WalletProvider + Clone>(
+        provider: &P,
+    ) -> anyhow::Result<Address> {
+        let contract = MockVersionRegistry::deploy(provider).await?;
+        Ok(*contract.address())
+    }
+
+    #[tokio::test]
+    async fn task_faults_when_below_minimum() {
+        let _guard = DevModeGuard::disable();
+        let anvil = Anvil::new().spawn();
+        let provider = make_provider(&anvil).await;
+        let registry_addr = deploy_mock(&provider).await.unwrap();
+
+        // Set minimum to 99.0.0
+        let registry = MockVersionRegistry::new(registry_addr, &provider);
+        registry
+            .setMinimumBrokerVersion(pack_version(99, 0, 0))
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let broker_version = pack_version(1, 0, 0);
+
+        let task = Arc::new(VersionCheckTask {
+            provider: provider.clone(),
+            chain_id,
+            broker_version,
+            registry_address: Some(registry_addr),
+            poll_interval: Duration::from_secs(600),
+        });
+
+        let config = ConfigLock::default();
+        let cancel = CancellationToken::new();
+        let result = Supervisor::new(task, config, cancel).spawn().await;
+
+        assert!(result.is_err(), "Supervisor should fail when broker is below minimum version");
+    }
+
+    #[tokio::test]
+    #[traced_test(debug)]
+    async fn successful_version_check_task() {
+        let _guard = DevModeGuard::disable();
+        let anvil = Anvil::new().spawn();
+        let provider = make_provider(&anvil).await;
+        let registry_addr = deploy_mock(&provider).await.unwrap();
+
+        // Set minimum to 1.0.0 — broker version matches exactly
+        let registry = MockVersionRegistry::new(registry_addr, &provider);
+        registry
+            .setMinimumBrokerVersion(pack_version(1, 0, 0))
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let broker_version = pack_version(1, 0, 0);
+
+        let task = Arc::new(VersionCheckTask {
+            provider: provider.clone(),
+            chain_id,
+            broker_version,
+            registry_address: Some(registry_addr),
+            poll_interval: Duration::from_secs(600),
+        });
+
+        // Cancel after a short delay — the first tick fires immediately,
+        // so check_version runs before cancellation.
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            cancel_clone.cancel();
+        });
+
+        let config = ConfigLock::default();
+        let result = Supervisor::new(task, config, cancel).spawn().await;
+        assert!(result.is_ok(), "Version check should pass when broker meets minimum");
+        assert!(logs_contain("Version check passed"));
+    }
+
+    #[tokio::test]
+    #[traced_test(debug)]
+    async fn version_check_logs_notice() {
+        let _guard = DevModeGuard::disable();
+        let anvil = Anvil::new().spawn();
+        let provider = make_provider(&anvil).await;
+        let registry_addr = deploy_mock(&provider).await.unwrap();
+
+        let registry = MockVersionRegistry::new(registry_addr, &provider);
+        // Set version well below broker's, with a notice message
+        registry
+            .setMinimumBrokerVersion(pack_version(0, 0, 1))
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+        registry
+            .setNotice("Upgrade to v1.4.0 available".to_string())
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let broker_version = pack_version(1, 0, 0);
+
+        let result = check_version(&provider, registry_addr, chain_id, broker_version).await;
+
+        assert!(result.is_ok(), "Version check should pass when broker is above minimum");
+        assert!(logs_contain("VersionRegistry notice"), "Notice should be logged");
+    }
+
+    #[tokio::test]
+    #[traced_test(debug)]
+    async fn rpc_failure_logs_warning_without_panic() {
+        let _guard = DevModeGuard::disable();
+        let anvil = Anvil::new().spawn();
+        let provider = make_provider(&anvil).await;
+        let chain_id = provider.get_chain_id().await.unwrap();
+
+        // Address with no contract deployed — RPC call will fail
+        let bogus_addr: Address = "0x0000000000000000000000000000000000000001".parse().unwrap();
+        let broker_version = pack_version(1, 0, 0);
+
+        let result = check_version(&provider, bogus_addr, chain_id, broker_version).await;
+
+        assert!(result.is_ok(), "RPC failure should not propagate as an error");
+        assert!(
+            logs_contain("Failed to read VersionRegistry"),
+            "Should log warning on RPC failure"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test(debug)]
+    async fn version_check_passes_then_faults_after_update() {
+        let _guard = DevModeGuard::disable();
+        let anvil = Anvil::new().spawn();
+        let provider = make_provider(&anvil).await;
+        let registry_addr = deploy_mock(&provider).await.unwrap();
+
+        let registry = MockVersionRegistry::new(registry_addr, &provider);
+        // Start with minimum 1.0.0 — broker is at 1.0.0, passes
+        registry
+            .setMinimumBrokerVersion(pack_version(1, 0, 0))
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let broker_version = pack_version(1, 0, 0);
+
+        // Phase 1: direct check proves the initial state passes
+        let result = check_version(&provider, registry_addr, chain_id, broker_version).await;
+        assert!(result.is_ok());
+        assert!(logs_contain("Version check passed"), "First check should pass");
+
+        // Bump minimum above broker version
+        registry
+            .setMinimumBrokerVersion(pack_version(99, 0, 0))
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+
+        // Phase 2: supervisor detects the raised minimum on its first (immediate) tick.
+        // tokio interval's first tick always fires immediately, so no timer advancement needed.
+        let task = Arc::new(VersionCheckTask {
+            provider: provider.clone(),
+            chain_id,
+            broker_version,
+            registry_address: Some(registry_addr),
+            poll_interval: Duration::from_secs(600),
+        });
+        let cancel = CancellationToken::new();
+        let config = ConfigLock::default();
+        let result = Supervisor::new(task, config, cancel).spawn().await;
+        assert!(
+            result.is_err(),
+            "Supervisor should fault after minimum is raised above broker version"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test(debug)]
+    async fn notice_set_then_cleared() {
+        let _guard = DevModeGuard::disable();
+        let anvil = Anvil::new().spawn();
+        let provider = make_provider(&anvil).await;
+        let registry_addr = deploy_mock(&provider).await.unwrap();
+
+        let registry = MockVersionRegistry::new(registry_addr, &provider);
+        registry
+            .setMinimumBrokerVersion(pack_version(0, 0, 1))
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+        registry
+            .setNotice("Upgrade to v2.0.0 by March 28".to_string())
+            .send()
+            .await
+            .unwrap()
+            .watch()
+            .await
+            .unwrap();
+
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let broker_version = pack_version(1, 0, 0);
+
+        // First check — notice should be logged
+        let result = check_version(&provider, registry_addr, chain_id, broker_version).await;
+        assert!(result.is_ok());
+        assert!(logs_contain("VersionRegistry notice"), "Notice should be logged when set");
+        assert!(logs_contain("Upgrade to v2.0.0 by March 28"), "Notice text should appear in logs");
+
+        // Clear the notice
+        registry.setNotice(String::new()).send().await.unwrap().watch().await.unwrap();
+
+        // Second check — notice is empty, should NOT be logged again
+        let result = check_version(&provider, registry_addr, chain_id, broker_version).await;
+        assert!(result.is_ok());
+
+        // Notice must appear exactly once — the second call must not log it
+        logs_assert(|lines: &[&str]| {
+            let count = lines.iter().filter(|l| l.contains("VersionRegistry notice")).count();
+            match count {
+                1 => Ok(()),
+                n => Err(format!(
+                    "Expected 'VersionRegistry notice' exactly once, but found {n} occurrences"
+                )),
+            }
+        });
+
+        // Both calls must succeed — "Version check passed" appears twice
+        logs_assert(|lines: &[&str]| {
+            let count = lines.iter().filter(|l| l.contains("Version check passed")).count();
+            match count {
+                2 => Ok(()),
+                n => Err(format!(
+                    "Expected 'Version check passed' exactly twice, but found {n} occurrences"
+                )),
+            }
+        });
     }
 }
