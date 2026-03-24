@@ -22,7 +22,6 @@
 use alloy::primitives::Address;
 use alloy::providers::Provider;
 use alloy::sol;
-use anyhow::Result;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::MissedTickBehavior;
@@ -38,14 +37,14 @@ use crate::{
 sol! {
     #[sol(rpc)]
     interface IVersionRegistry {
-        function minimumBrokerVersion() external view returns (uint64);
+        function getVersionInfo() external view returns (uint64 minimumVersion, string notice);
     }
 }
 
 /// Hardcoded VersionRegistry contract addresses per chain ID.
 /// NOT configurable to prevent bypass.
 const VERSION_REGISTRIES: &[(u64, Address)] = &[
-    // Entries will be added after deployment:
+    // TODO: Entries will be added after deployment:
     // (1, address!("0x...")),        // ETH Mainnet
     // (8453, address!("0x...")),     // Base
     // (11155111, address!("0x...")), // Sepolia
@@ -61,6 +60,24 @@ fn lookup_registry(chain_id: u64) -> Option<Address> {
 pub const fn pack_version(major: u16, minor: u16, patch: u16) -> u64 {
     ((major as u64) << 32) | ((minor as u64) << 16) | (patch as u64)
 }
+
+const fn const_str_to_u16(s: &str) -> u16 {
+    let bytes = s.as_bytes();
+    let mut result: u16 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        result = result * 10 + (bytes[i] - b'0') as u16;
+        i += 1;
+    }
+    result
+}
+
+/// Broker version packed at compile time from Cargo.toml.
+pub const BROKER_VERSION: u64 = pack_version(
+    const_str_to_u16(env!("CARGO_PKG_VERSION_MAJOR")),
+    const_str_to_u16(env!("CARGO_PKG_VERSION_MINOR")),
+    const_str_to_u16(env!("CARGO_PKG_VERSION_PATCH")),
+);
 
 /// Unpack a u64 version into semver components.
 pub fn unpack_version(version: u64) -> (u16, u16, u16) {
@@ -101,27 +118,33 @@ pub(crate) struct VersionCheckTask<P> {
     provider: P,
     /// Chain ID for logging and registry lookup.
     chain_id: u64,
-    /// Packed broker version (using pack_version) for easy comparison with on-chain minimum.
+    /// Packed broker version for comparison with on-chain minimum. Defaults to BROKER_VERSION.
     broker_version: u64,
-    /// Optional override for the VersionRegistry address (used in tests). In production set to None.
-    /// If None, the task will look up the address based on the chain ID. If no entry is found for the chain ID, the task skips the version check.
+    /// Resolved VersionRegistry address for this chain. None means no registry is configured and
+    /// the version check will be skipped.
     registry_address: Option<Address>,
     /// Polling interval for periodic version checks. Default is 10 minutes. Configurable for testing.
     poll_interval: Duration,
 }
 
 impl<P: Provider + Clone + Send + Sync + 'static> VersionCheckTask<P> {
+    /// Create a new `VersionCheckTask`.
+    ///
+    /// - `broker_version`: packed version to enforce. Pass `None` to use the compile-time
+    ///   `BROKER_VERSION` (the default for production).
+    /// - `registry_address`: address of the VersionRegistry contract. Pass `None` to look up the
+    ///   address from the hardcoded chain table (the default for production).
     pub(crate) fn new(
         provider: P,
         chain_id: u64,
-        broker_version: u64,
+        broker_version: Option<u64>,
         registry_address: Option<Address>,
     ) -> Self {
         Self {
             provider,
             chain_id,
-            broker_version,
-            registry_address,
+            broker_version: broker_version.unwrap_or(BROKER_VERSION),
+            registry_address: registry_address.or_else(|| lookup_registry(chain_id)),
             poll_interval: Duration::from_secs(600),
         }
     }
@@ -134,13 +157,18 @@ async fn check_version<P: Provider>(
     broker_version: u64,
 ) -> Result<(), SupervisorErr<VersionCheckError>> {
     let registry = IVersionRegistry::new(registry_address, provider);
-    let min_version = match registry.minimumBrokerVersion().call().await {
-        Ok(v) => v,
+
+    let (min_version, notice) = match registry.getVersionInfo().call().await {
+        Ok(v) => (v.minimumVersion, v.notice),
         Err(e) => {
             tracing::warn!(chain_id, error = %e, "Failed to read VersionRegistry. Continuing.");
             return Ok(());
         }
     };
+
+    if !notice.is_empty() {
+        tracing::warn!(chain_id, notice, "VersionRegistry notice");
+    }
 
     // Returning SupervisorErr::Fault triggers graceful shutdown of the broker.
     if broker_version < min_version {
@@ -181,10 +209,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> RetryTask for VersionCheckTask
                 return Ok(());
             }
 
-            // Determine the VersionRegistry address to use. Precedence:
-            // 1. Explicit override (used in tests)
-            // 2. Hardcoded lookup based on chain ID
-            let registry_addr = match registry_address.or_else(|| lookup_registry(chain_id)) {
+            let registry_addr = match registry_address {
                 Some(addr) => addr,
                 None => {
                     tracing::info!(

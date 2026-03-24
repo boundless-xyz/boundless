@@ -780,15 +780,10 @@ where
         // On version mismatch: supervisor faults, triggering graceful shutdown.
         // On RPC failure: logs a warning and retries next interval (fail-safe).
         {
-            let broker_version = version_check::pack_version(
-                env!("CARGO_PKG_VERSION_MAJOR").parse::<u16>().expect("valid major version"),
-                env!("CARGO_PKG_VERSION_MINOR").parse::<u16>().expect("valid minor version"),
-                env!("CARGO_PKG_VERSION_PATCH").parse::<u16>().expect("valid patch version"),
-            );
             let task = Arc::new(version_check::VersionCheckTask::new(
                 (*self.provider).clone(),
                 self.chain_id,
-                broker_version,
+                None, // use compile-time BROKER_VERSION
                 None, // use hardcoded VERSION_REGISTRIES lookup
             ));
             let config_clone = config.clone();
