@@ -45,7 +45,6 @@ target/
 .DS_Store
 .idea
 .aider*
-.claude
 **/CLAUDE.md
 **/AGENTS.md
 .codex

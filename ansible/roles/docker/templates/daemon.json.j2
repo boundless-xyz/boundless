@@ -1,5 +1,11 @@
 {
-    "iptables": false{{ "," if docker_zfs_support == "true" or docker_nvidia_enabled else "" }}
+    "iptables": false,
+    "log-driver": "{{ docker_log_driver }}"{{ "," if docker_zfs_support == "true" or docker_nvidia_enabled else "" }}
+    {% if docker_log_driver == "journald" %}
+    "log-opts": {
+      "tag": "bento"
+    }{{ "," if docker_zfs_support == "true" or docker_nvidia_enabled else "" }}
+    {% endif %}
     {% if docker_zfs_support == "true" %}
     "storage-driver": "zfs",
     "storage-opts": ["zfs.fsname=prover"]{{ "," if docker_nvidia_enabled else "" }}

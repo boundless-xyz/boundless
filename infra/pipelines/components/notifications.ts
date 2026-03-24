@@ -22,7 +22,6 @@ export class Notifications extends pulumi.ComponentResource {
       slackTeamId: pulumi.Output<string>;
       pagerdutyIntegrationUrl: pulumi.Output<string>;
       ssoBaseUrl: string;
-      runbookUrl: string;
       opsAccountId: string;
     },
     opts?: pulumi.ComponentResourceOptions
@@ -38,7 +37,6 @@ export class Notifications extends pulumi.ComponentResource {
       slackTeamId: slackTeamIdOutput,
       pagerdutyIntegrationUrl,
       ssoBaseUrl,
-      runbookUrl
     } = args;
 
     // Create an IAM Role for AWS Chatbot
@@ -413,7 +411,6 @@ export class Notifications extends pulumi.ComponentResource {
       environment: {
         variables: {
           SSO_BASE_URL: ssoBaseUrl,
-          RUNBOOK_URL: runbookUrl,
         },
       },
     });

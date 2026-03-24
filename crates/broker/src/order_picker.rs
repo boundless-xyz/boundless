@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 use crate::{
-    chain_monitor::ChainMonitorService,
+    chain_monitor::ChainMonitorObj,
     config::{ConfigLock, MarketConfig},
     db::DbObj,
     errors::CodedError,
@@ -37,6 +37,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::prover_utils::apply_secondary_fulfillment_discount;
+use boundless_market::telemetry::EvalOutcome;
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
     prover_utils::estimate_erc1271_gas, selector::SupportedSelectors, storage::StorageDownloader,
@@ -49,6 +50,18 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+
+// Broker-specific skip codes for checks that live in OrderPicker (not in pricing logic).
+const SKIP_NOT_IN_ALLOWLIST: &str = "[S-OP-001]";
+const SKIP_IN_DENYLIST: &str = "[S-OP-002]";
+const SKIP_UNSUPPORTED_SELECTOR_BROKER: &str = "[S-OP-003]";
+const SKIP_ALREADY_LOCKED: &str = "[S-OP-004]";
+const SKIP_ALREADY_FULFILLED: &str = "[S-OP-005]";
+const SKIP_GAS_EXCEEDS_MAX_PRICE: &str = "[S-OP-006]";
+const SKIP_GAS_EXCEEDS_BALANCE: &str = "[S-OP-007]";
+const SKIP_INSUFFICIENT_COLLATERAL: &str = "[S-OP-008]";
+const SKIP_FETCH_ERROR: &str = "[S-OP-009]";
+const SKIP_PRICING_ERROR: &str = "[S-OP-010]";
 
 /// Maximum number of orders to cache for deduplication
 const ORDER_DEDUP_CACHE_SIZE: u64 = 5000;
@@ -81,7 +94,7 @@ pub struct OrderPicker<P> {
     config: ConfigLock,
     prover: ProverObj,
     provider: Arc<P>,
-    chain_monitor: Arc<ChainMonitorService<P>>,
+    chain_monitor: ChainMonitorObj,
     market: BoundlessMarketService<Arc<P>>,
     supported_selectors: SupportedSelectors,
     // TODO ideal not to wrap in mutex, but otherwise would require supervisor refactor, try to find alternative
@@ -110,7 +123,7 @@ where
         prover: ProverObj,
         market_addr: Address,
         provider: Arc<P>,
-        chain_monitor: Arc<ChainMonitorService<P>>,
+        chain_monitor: ChainMonitorObj,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
@@ -169,6 +182,8 @@ where
         cancel_token: CancellationToken,
     ) -> bool {
         let order_id = order.id();
+        let queue_start_secs = now_timestamp().saturating_sub(order.received_at_timestamp);
+
         let f = || async {
             let pricing_result = tokio::select! {
                 result = self.price_order(&mut order) => result,
@@ -183,116 +198,129 @@ where
                 }
             };
 
-            match pricing_result {
-                Ok(Lock {
-                    total_cycles,
-                    target_timestamp_secs,
-                    expiry_secs,
-                    target_mcycle_price,
-                    max_mcycle_price,
-                    current_mcycle_price,
-                    config_min_mcycle_price,
-                    journal_len,
-                }) => {
-                    order.total_cycles = Some(total_cycles);
-                    order.journal_bytes = Some(journal_len);
-                    order.target_timestamp = Some(target_timestamp_secs);
-                    order.expire_timestamp = Some(expiry_secs);
+            let total_elapsed_secs = now_timestamp().saturating_sub(order.received_at_timestamp);
+            let preflight_duration_secs = total_elapsed_secs.saturating_sub(queue_start_secs);
 
-                    tracing::info!(
-                        "Order {order_id} scheduled for lock attempt in {}s (timestamp: {}), when price exceeds: {} ETH/Mcycle (config min price: {} ETH/Mcycle, current price: {} ETH/Mcycle, max price: {} ETH/Mcycle)",
-                        target_timestamp_secs.saturating_sub(now_timestamp()),
+            let (accepted, skip_code, skip_reason, total_cycles, eval_outcome) =
+                match pricing_result {
+                    Ok(Lock {
+                        total_cycles,
                         target_timestamp_secs,
-                        format_ether(target_mcycle_price),
-                        format_ether(config_min_mcycle_price),
-                        format_ether(current_mcycle_price),
-                        format_ether(max_mcycle_price),
-                    );
+                        expiry_secs,
+                        target_mcycle_price,
+                        max_mcycle_price,
+                        current_mcycle_price,
+                        config_min_mcycle_price,
+                        journal_len,
+                    }) => {
+                        order.total_cycles = Some(total_cycles);
+                        order.journal_bytes = Some(journal_len);
+                        order.target_timestamp = Some(target_timestamp_secs);
+                        order.expire_timestamp = Some(expiry_secs);
 
-                    self.priced_orders_tx
-                        .send(order)
-                        .await
-                        .context("Failed to send to order_result_tx")?;
+                        tracing::info!(
+                            "Order {order_id} scheduled for lock attempt in {}s (timestamp: {}), when price exceeds: {} ETH/Mcycle (config min price: {} ETH/Mcycle, current price: {} ETH/Mcycle, max price: {} ETH/Mcycle)",
+                            target_timestamp_secs.saturating_sub(now_timestamp()),
+                            target_timestamp_secs,
+                            format_ether(target_mcycle_price),
+                            format_ether(config_min_mcycle_price),
+                            format_ether(current_mcycle_price),
+                            format_ether(max_mcycle_price),
+                        );
 
-                    Ok::<_, OrderPickerErr>(true)
-                }
-                Ok(ProveAfterLockExpire {
-                    total_cycles,
-                    lock_expire_timestamp_secs,
-                    expiry_secs,
-                    mcycle_price,
-                    config_min_mcycle_price,
-                    journal_len,
-                }) => {
-                    order.journal_bytes = Some(journal_len);
-                    tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", self.format_collateral(mcycle_price), self.format_collateral(config_min_mcycle_price));
-                    order.total_cycles = Some(total_cycles);
-                    order.target_timestamp = Some(lock_expire_timestamp_secs);
-                    order.expire_timestamp = Some(expiry_secs);
+                        order.priced_at_timestamp = Some(now_timestamp());
+                        (true, None, None, Some(total_cycles), EvalOutcome::Locked)
+                    }
+                    Ok(ProveAfterLockExpire {
+                        total_cycles,
+                        lock_expire_timestamp_secs,
+                        expiry_secs,
+                        mcycle_price,
+                        config_min_mcycle_price,
+                        journal_len,
+                    }) => {
+                        order.journal_bytes = Some(journal_len);
+                        tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", self.format_collateral(mcycle_price), self.format_collateral(config_min_mcycle_price));
+                        order.total_cycles = Some(total_cycles);
+                        order.target_timestamp = Some(lock_expire_timestamp_secs);
+                        order.expire_timestamp = Some(expiry_secs);
 
-                    // Compute discounted collateral reward, convert ZKC -> USD -> ETH.
-                    // Later used in order prioritization. This value does not change based on time,
-                    // the only variable is the price of ZKC.
-                    let raw_collateral =
-                        order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
-                    let config = self.market_config()?;
-                    let discounted = apply_secondary_fulfillment_discount(
-                        raw_collateral,
-                        config.expected_probability_win_secondary_fulfillment,
-                    );
-                    let zkc_amount = Amount::new(discounted, Asset::ZKC);
-                    let eth_amount = self
-                        .price_oracle
-                        .convert(&zkc_amount, Asset::ETH)
-                        .await
-                        .map_err(anyhow::Error::from)?;
-                    order.expected_reward_eth = Some(eth_amount.value);
-                    tracing::debug!(
-                        "Secondary order {order_id}: raw_collateral={} ZKC, win_probability={}%, discounted={} ZKC, expected_reward={} ETH",
-                        self.format_collateral(raw_collateral),
-                        config.expected_probability_win_secondary_fulfillment,
-                        self.format_collateral(discounted),
-                        format_ether(eth_amount.value),
-                    );
+                        // Compute discounted collateral reward, convert ZKC -> USD -> ETH.
+                        // Later used in order prioritization. This value does not change based on time,
+                        // the only variable is the price of ZKC.
+                        let raw_collateral =
+                            order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+                        let config = self.market_config()?;
+                        let discounted = apply_secondary_fulfillment_discount(
+                            raw_collateral,
+                            config.expected_probability_win_secondary_fulfillment,
+                        );
+                        let zkc_amount = Amount::new(discounted, Asset::ZKC);
+                        let eth_amount = self
+                            .price_oracle
+                            .convert(&zkc_amount, Asset::ETH)
+                            .await
+                            .map_err(anyhow::Error::from)?;
+                        order.expected_reward_eth = Some(eth_amount.value);
+                        tracing::debug!(
+                            "Secondary order {order_id}: raw_collateral={} ZKC, win_probability={}%, discounted={} ZKC, expected_reward={} ETH",
+                            self.format_collateral(raw_collateral),
+                            config.expected_probability_win_secondary_fulfillment,
+                            self.format_collateral(discounted),
+                            format_ether(eth_amount.value),
+                        );
 
-                    self.priced_orders_tx
-                        .send(order)
-                        .await
-                        .context("Failed to send to order_result_tx")?;
+                        order.priced_at_timestamp = Some(now_timestamp());
+                        (true, None, None, Some(total_cycles), EvalOutcome::FulfillAfterLockExpire)
+                    }
+                    Ok(Skip { code, reason }) => {
+                        tracing::info!("Skipping order {order_id}: {reason}");
+                        (false, Some(code), Some(reason), order.total_cycles, EvalOutcome::Skipped)
+                    }
+                    Err(
+                        OrderPricingError::FetchInputErr(ref inner)
+                        | OrderPricingError::FetchImageErr(ref inner),
+                    ) => {
+                        let reason = format!("failed to fetch input/image: {inner:#}");
+                        tracing::info!(
+                            "Skipping order {order_id}: {reason} (this is expected for private inputs that require specific storage credentials)"
+                        );
+                        (false, Some(SKIP_FETCH_ERROR), Some(reason), None, EvalOutcome::Skipped)
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to price order {order_id}: {err}");
+                        (
+                            false,
+                            Some(SKIP_PRICING_ERROR),
+                            Some(err.to_string()),
+                            None,
+                            EvalOutcome::Skipped,
+                        )
+                    }
+                };
 
-                    Ok(true)
-                }
-                Ok(Skip { reason }) => {
-                    tracing::info!("Skipping order {order_id}: {reason}");
+            crate::telemetry::telemetry().record_order_pricing(
+                &order,
+                eval_outcome,
+                skip_code,
+                skip_reason,
+                total_cycles,
+                queue_start_secs,
+                preflight_duration_secs,
+            );
 
-                    // Add the skipped order to the database
-                    self.db
-                        .insert_skipped_request(&order)
-                        .await
-                        .context("Failed to add skipped order to database")?;
-                    Ok(false)
-                }
-                Err(
-                    OrderPricingError::FetchInputErr(ref inner)
-                    | OrderPricingError::FetchImageErr(ref inner),
-                ) => {
-                    tracing::info!(
-                        "Skipping order {order_id}: failed to fetch input/image (this is expected for private inputs that require specific storage credentials): {inner:#}"
-                    );
-                    self.db
-                        .insert_skipped_request(&order)
-                        .await
-                        .context("Failed to skip failed priced order")?;
-                    Ok(false)
-                }
-                Err(err) => {
-                    tracing::warn!("Failed to price order {order_id}: {err}");
-                    self.db
-                        .insert_skipped_request(&order)
-                        .await
-                        .context("Failed to skip failed priced order")?;
-                    Ok(false)
-                }
+            if accepted {
+                self.priced_orders_tx
+                    .send(order)
+                    .await
+                    .context("Failed to send to order_result_tx")?;
+                Ok::<_, OrderPickerErr>(true)
+            } else {
+                self.db
+                    .insert_skipped_request(&order)
+                    .await
+                    .context("Failed to add skipped order to database")?;
+                Ok(false)
             }
         };
 
@@ -354,6 +382,7 @@ where
             };
             if has_allow_list {
                 return Ok(Some(Skip {
+                    code: SKIP_NOT_IN_ALLOWLIST,
                     reason: format!("order from {client_addr} is not in allow requestors"),
                 }));
             }
@@ -362,6 +391,7 @@ where
         if let Some(deny_addresses) = denied_addresses_opt {
             if deny_addresses.contains(&client_addr) {
                 return Ok(Some(Skip {
+                    code: SKIP_IN_DENYLIST,
                     reason: format!(
                         "order is from {} and is in deny_requestor_addresses",
                         client_addr
@@ -372,6 +402,7 @@ where
 
         if !self.supported_selectors.is_supported(order.request.requirements.selector) {
             return Ok(Some(Skip {
+                code: SKIP_UNSUPPORTED_SELECTOR_BROKER,
                 reason: format!(
                     "unsupported selector requirement. Requested: {:x}. Supported: {:?}",
                     order.request.requirements.selector,
@@ -404,11 +435,17 @@ where
             .context("Failed to check if request is fulfilled before pricing")?;
 
         if order.fulfillment_type == FulfillmentType::LockAndFulfill && is_locked {
-            return Ok(Some(Skip { reason: "order is already locked".to_string() }));
+            return Ok(Some(Skip {
+                code: SKIP_ALREADY_LOCKED,
+                reason: "order is already locked".to_string(),
+            }));
         }
 
         if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire && is_fulfilled {
-            return Ok(Some(Skip { reason: "order is already fulfilled".to_string() }));
+            return Ok(Some(Skip {
+                code: SKIP_ALREADY_FULFILLED,
+                reason: "order is already fulfilled".to_string(),
+            }));
         }
 
         Ok(None)
@@ -478,6 +515,7 @@ where
             // Cannot check the gas cost for lock expired orders where the reward is a fraction of the collateral
             // TODO: This can be added once we have a price feed for the collateral token in gas tokens
             return Ok(Some(Skip {
+                code: SKIP_GAS_EXCEEDS_MAX_PRICE,
                 reason: format!(
                     "estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
                     format_ether(order_gas_cost),
@@ -488,6 +526,7 @@ where
 
         if order_gas_cost > available_gas {
             return Ok(Some(Skip {
+                code: SKIP_GAS_EXCEEDS_BALANCE,
                 reason: format!(
                     "estimated gas cost to lock and fulfill order of {} exceeds available gas of {}",
                     format_ether(order_gas_cost),
@@ -498,6 +537,7 @@ where
 
         if !lock_expired && lockin_collateral > available_collateral {
             return Ok(Some(Skip {
+                code: SKIP_INSUFFICIENT_COLLATERAL,
                 reason: format!(
                     "insufficient available collateral to lock order. Requires {} but has {}",
                     self.format_collateral(lockin_collateral),
@@ -754,6 +794,9 @@ where
                         break;
                     }
                 }
+
+                // Update telemetry with current queue size
+                crate::telemetry::telemetry().set_pending_preflight(pending_orders.len() as u32);
 
                 // Process pending orders if we have capacity
                 if !pending_orders.is_empty() && tasks.len() < current_capacity {
@@ -1099,10 +1142,11 @@ pub(crate) mod tests {
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
-            let chain_monitor = Arc::new(
+            let chain_monitor_service = Arc::new(
                 ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
             );
-            tokio::spawn(chain_monitor.spawn(Default::default()));
+            tokio::spawn(chain_monitor_service.spawn(Default::default()));
+            let chain_monitor: ChainMonitorObj = chain_monitor_service;
 
             let chain_id = provider.get_chain_id().await.unwrap();
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
@@ -2058,7 +2102,7 @@ pub(crate) mod tests {
 
         let locked = ctx.picker.price_order(&mut order).await;
         assert!(
-            matches!(locked, Ok(OrderPricingOutcome::Skip { reason }) if reason.contains("cycle limit hit from max reward"))
+            matches!(locked, Ok(OrderPricingOutcome::Skip { reason, .. }) if reason.contains("cycle limit hit from max reward"))
         );
 
         let mut order2 = ctx
@@ -2109,7 +2153,7 @@ pub(crate) mod tests {
 
         let pricing_outcome = ctx.picker.price_order(&mut order).await?;
         assert!(
-            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason } if reason.contains("already locked"))
+            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason, .. } if reason.contains("already locked"))
         );
 
         Ok(())
@@ -2180,7 +2224,7 @@ pub(crate) mod tests {
 
         let pricing_outcome = ctx.picker.price_order(&mut order).await?;
         assert!(
-            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason } if reason.contains("already fulfilled"))
+            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason, .. } if reason.contains("already fulfilled"))
         );
 
         Ok(())

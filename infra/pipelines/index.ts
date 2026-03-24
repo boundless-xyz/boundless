@@ -83,8 +83,6 @@ const boundlessAlertsStagingLaunchSlackId = config.requireSecret("BOUNDLESS_ALER
 const workspaceSlackId = config.requireSecret("WORKSPACE_SLACK_ID");
 const pagerdutyIntegrationUrl = config.requireSecret("PAGERDUTY_INTEGRATION_URL");
 const ssoBaseUrl = config.require("SSO_BASE_URL");
-const runbookUrl = config.require("RUNBOOK_URL");
-
 const notifications = new Notifications("notifications", {
   opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
   serviceAccountIds: [
@@ -99,7 +97,6 @@ const notifications = new Notifications("notifications", {
   slackTeamId: workspaceSlackId,
   pagerdutyIntegrationUrl,
   ssoBaseUrl,
-  runbookUrl,
 });
 
 // The Docker and GH tokens are used to avoid rate limiting issues when building in the pipelines.

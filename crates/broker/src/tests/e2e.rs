@@ -12,20 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, path::PathBuf};
+use std::{future::Future, path::PathBuf, sync::Arc};
 
 use crate::{
-    config::{Config, ConfigWatcher},
+    config::{Config, ConfigWatcher, TelemetryMode},
     now_timestamp, Args, Broker,
 };
 use alloy::{
+    network::AnyNetwork,
     node_bindings::Anvil,
     primitives::{
         aliases::U96,
         utils::{self, parse_ether},
         Address, Bytes, FixedBytes, U256,
     },
-    providers::{Provider, WalletProvider},
+    providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use boundless_market::price_oracle::config::PriceValue;
@@ -49,11 +50,12 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 use tempfile::NamedTempFile;
+use tokio::sync::RwLock;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
 
-fn is_dev_mode() -> bool {
+pub(super) fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
         .ok()
         .map(|x| x.to_lowercase())
@@ -61,8 +63,18 @@ fn is_dev_mode() -> bool {
         .is_some()
 }
 
+pub(super) fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
+    let url: url::Url = args.rpc_url.as_deref().unwrap().parse().unwrap();
+    DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .filler(ChainIdFiller::default())
+            .connect_http(url),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
-fn generate_request(
+pub(super) fn generate_request(
     id: u32,
     addr: &Address,
     proof_type: ProofType,
@@ -108,11 +120,15 @@ fn generate_request(
     )
 }
 
-async fn new_config(min_batch_size: u32) -> NamedTempFile {
-    new_config_with_min_deadline(min_batch_size, 100).await
+pub(super) async fn new_config(min_batch_size: u32) -> NamedTempFile {
+    new_config_with_options(min_batch_size, 100, TelemetryMode::LogsOnly).await
 }
 
-async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
+pub(super) async fn new_config_with_options(
+    min_batch_size: u32,
+    min_deadline: u64,
+    telemetry_mode: TelemetryMode,
+) -> NamedTempFile {
     let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let mut config = Config::default();
     config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
@@ -125,6 +141,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
     config.market.expected_probability_win_secondary_fulfillment = 50;
     config.market.min_deadline = min_deadline;
+    config.market.telemetry_mode = telemetry_mode;
     config.batcher.min_batch_size = min_batch_size;
     // Use static prices for tests to avoid needing real price sources
     config.price_oracle.eth_usd = PriceValue::Static(2500.0);
@@ -133,7 +150,7 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     config_file
 }
 
-fn broker_args(
+pub(super) fn broker_args(
     config_file: PathBuf,
     deployment: Deployment,
     rpc_url: Url,
@@ -164,12 +181,14 @@ fn broker_args(
         rpc_retry_max: 0,
         rpc_retry_backoff: 200,
         rpc_retry_cu: 1000,
+        rpc_request_timeout: 30,
         log_json: false,
         listen_only: false,
+        experimental_rpc: false,
     }
 }
 
-async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
+pub(super) async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
 where
     P: Provider + WalletProvider + Clone + 'static,
     F: Future<Output = T>,
@@ -211,11 +230,84 @@ async fn simple_e2e() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
+    )
+    .await
+    .unwrap();
+
+    // Provide URL for ECHO program
+    let storage = MockStorageUploader::new();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    // Submit an order
+    let request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    run_with_broker(broker, async move {
+        // Submit the request
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        // Wait for fulfillment
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn simple_e2e_experimental_rpc() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    // Setup signers / providers
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Deposit prover / customer balances
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    // Start broker with experimental RPC path enabled
+    let config = new_config(1).await;
+    let mut args = broker_args(
+        config.path().to_path_buf(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+    );
+    args.experimental_rpc = true;
+    let any_provider = make_any_provider(&args);
+    let broker = Broker::new(
+        args,
+        ctx.prover_provider,
+        any_provider,
+        ConfigWatcher::new(config.path()).await.unwrap(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -290,11 +382,14 @@ async fn simple_e2e_with_callback() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider.clone(),
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -370,18 +465,21 @@ async fn e2e_fulfill_after_lock_expiry() {
         .unwrap();
     locker_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    let config = new_config_with_min_deadline(1, 0).await;
+    let config = new_config_with_options(1, 0, TelemetryMode::LogsOnly).await;
     let args = broker_args(
         config.path().to_path_buf(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -453,11 +551,14 @@ async fn e2e_with_selector() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -523,11 +624,14 @@ async fn e2e_with_blake3_groth16_selector() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -596,11 +700,14 @@ async fn e2e_with_multiple_requests() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -692,11 +799,14 @@ async fn e2e_with_claim_digest_match() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider,
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
@@ -768,11 +878,14 @@ async fn gas_estimation_matches_actual_tx_cost() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
+    let any_provider = make_any_provider(&args);
     let broker = Broker::new(
         args,
         ctx.prover_provider.clone(),
+        any_provider,
         ConfigWatcher::new(config.path()).await.unwrap(),
-        Default::default(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
     )
     .await
     .unwrap();
