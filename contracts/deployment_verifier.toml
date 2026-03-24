@@ -119,7 +119,7 @@ etherscan-url = "https://taikoscan.io/"
 foundry-profile = "shanghai"
 
 # Accounts
-admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+admin = "0x8E537AAeddbC98a9a095397aDb7c0d738458Cc8b"
 
 # Contracts
 # Layered Router

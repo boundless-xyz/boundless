@@ -989,6 +989,279 @@ contract RenounceRole is RiscZeroManagementScript {
     }
 }
 
+/// @notice Schedule grant role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be granted
+///     * ACCOUNT the account to be granted the role
+///     * SCHEDULE_DELAY (optional) minimum delay in seconds for the scheduled action
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract ScheduleGrantRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Schedule the 'grantRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        uint256 scheduleDelay = vm.envOr("SCHEDULE_DELAY", risc0TimelockController().getMinDelay());
+        console2.log("scheduleDelay:", scheduleDelay);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().grantRole, (role, account));
+        address dest = address(risc0TimelockController());
+        risc0Simulate(dest, data);
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data, scheduleDelay);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().schedule(dest, 0, data, 0, 0, scheduleDelay);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        bytes32 role,
+        address account,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE SCHEDULE GRANT RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+        console2.log("scheduleDelay: ", scheduleDelay);
+
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
+        console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Finish grant role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be granted
+///     * ACCOUNT the account to be granted the role
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract FinishGrantRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Execute the 'grantRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().grantRole, (role, account));
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().execute(address(risc0TimelockController()), 0, data, 0, 0);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data)
+        internal
+        pure
+    {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE EXECUTE GRANT RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Schedule revoke role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be revoked
+///     * ACCOUNT the account to be revoked of the role
+///     * SCHEDULE_DELAY (optional) minimum delay in seconds for the scheduled action
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract ScheduleRevokeRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Schedule the 'revokeRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        uint256 scheduleDelay = vm.envOr("SCHEDULE_DELAY", risc0TimelockController().getMinDelay());
+        console2.log("scheduleDelay:", scheduleDelay);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().revokeRole, (role, account));
+        address dest = address(risc0TimelockController());
+        risc0Simulate(dest, data);
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data, scheduleDelay);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().schedule(dest, 0, data, 0, 0, scheduleDelay);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        bytes32 role,
+        address account,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE SCHEDULE REVOKE RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+        console2.log("scheduleDelay: ", scheduleDelay);
+
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
+        console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Finish revoke role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be revoked
+///     * ACCOUNT the account to be revoked of the role
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract FinishRevokeRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Execute the 'revokeRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().revokeRole, (role, account));
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().execute(address(risc0TimelockController()), 0, data, 0, 0);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data)
+        internal
+        pure
+    {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE EXECUTE REVOKE RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Renounce role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * RENOUNCE_ADDRESS the address to send the renounce transaction
+///     * RENOUNCE_ROLE the role to be renounced
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract RenounceRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        address renouncer = vm.envAddress("RENOUNCE_ADDRESS");
+        string memory roleStr = vm.envString("RENOUNCE_ROLE");
+        console2.log("renouncer:", renouncer);
+        console2.log("roleStr:", roleStr);
+
+        console2.log("msg.sender:", msg.sender);
+
+        // Renounce the role
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        vm.broadcast(renouncer);
+        risc0TimelockController().renounceRole(role, msg.sender);
+    }
+}
+
 /// @notice Activate an Emergency Stop mechanism.
 /// @dev Use the following environment variable to control the deployment:
 ///     * VERIFIER_ESTOP contract address of RiscZeroVerifierEmergencyStop
