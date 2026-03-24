@@ -2,14 +2,14 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwGy4vNyniSBIjb3r7tgV6m2AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMGVpaNlpJdTRKkkgKAgEQgDujoTL+D7Faas6rHmETR1dDBZ8fNimbMxHiZhSP5tKL/V3/51geRlBNB4UbHylvcPddZfTeFXUZ/gzBFQ==
 config:
   aws:region: us-west-2
-  indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100000"
+  indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100"
   indexer:BASE_STACK: organization/bootstrap/services-staging
   indexer:BENTO_API_KEY:
     secure: v1:vl/QnQLR2I1yM/yi:fcpES/E4Ap1bJ1PugGlEbePtinufrJNZ4A7s3eLq/bCqUbms+z72MfXYKW44Vjy0k1ErCUhfRPYM/g==
   indexer:BENTO_API_URL:
     secure: v1:QxkuroTNcS8CHpp+:bz02jRxaPFiQFHVx2ZjwMsLTADcj8aS+rpR3iI4OQmp/zKmWz23atCyBBTBjxOidDbGwjM/J3mCVxgw=
   indexer:BLOCK_DELAY: "10"
-  indexer:BOUNDLESS_ADDRESS: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
+  indexer:BOUNDLESS_ADDRESS: 0x60d11ef5d4608bab18a663fd486d3b9f162172cf
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:CHAIN_ID: "167000"
   indexer:CI_CACHE_SECRET:

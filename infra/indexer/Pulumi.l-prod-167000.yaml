@@ -4,7 +4,7 @@ config:
   aws:region: us-west-2
   indexer:ALLOWED_IP_ADDRESSES:
     secure: v1:Zz+pGPqe/bRNXYFa:3k3mZ6Bb2bPlKMXB/1+8j7U4ou257c5MZ5EwOEx5Sxw=
-  indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100000"
+  indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100"
   indexer:BASE_STACK: organization/bootstrap/services-prod
   indexer:BENTO_API_KEY:
     secure: v1:DxdBaElemluc1Ylr:oaShb1JN1VP+y3h+JHUIjTizb5b1c3lRyP7lJiXSGOqtqy5X4vdaFkdy0JgJBmNrUrFfSK4HLKIjEQ==
