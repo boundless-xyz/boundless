@@ -14,6 +14,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use alloy::{
@@ -397,6 +398,9 @@ pub struct AppState {
     balance_cache: BalanceCache,
     /// Telemetry forwarding backend
     telemetry: Arc<dyn TelemetryForwarder>,
+    /// Signals that the broadcast task's PgListener is connected and the task is actively
+    /// processing order notifications. The health check endpoint gates on this.
+    broadcast_ready: AtomicBool,
 }
 
 impl AppState {
@@ -446,6 +450,7 @@ impl AppState {
             shutdown: CancellationToken::new(),
             balance_cache: heartbeat::new_balance_cache(),
             telemetry,
+            broadcast_ready: AtomicBool::new(false),
         }))
     }
 
@@ -561,6 +566,10 @@ pub async fn run_from_parts(
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
+            // Mark as not ready during (re)initialization so the health endpoint
+            // reflects that the broadcast pipeline is down.
+            app_state_clone.broadcast_ready.store(false, Ordering::Release);
+
             let order_stream = match app_state_clone.db.order_stream().await {
                 Ok(stream) => stream,
                 Err(e) => {
@@ -571,6 +580,12 @@ pub async fn run_from_parts(
             };
 
             let broadcast_task = start_broadcast_task(app_state_clone.clone(), order_stream);
+
+            // Signal readiness only after the PgListener is subscribed (via order_stream)
+            // and the broadcast task is spawned. This ensures the health endpoint won't
+            // return 200 until we can actually deliver order notifications to WebSocket clients.
+            app_state_clone.broadcast_ready.store(true, Ordering::Release);
+            tracing::info!("Broadcast task PgListener connected and ready");
 
             match broadcast_task.await {
                 Ok(Ok(())) => {
@@ -740,6 +755,19 @@ mod tests {
         }
     }
 
+    // The server registers WebSocket connections in the on_upgrade callback, which runs
+    // asynchronously after connect_async returns on the client side. Poll until the
+    // connection appears in the map so broadcasts won't miss a client.
+    async fn wait_for_connection(app_state: &Arc<AppState>, addr: &Address) {
+        for _ in 0..100 {
+            if app_state.connections.read().await.contains_key(addr) {
+                return;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+        panic!("Connection for {addr} not registered within 5s");
+    }
+
     /// Comprehensive test helper that sets up server, client, and test environment
     async fn setup_server_and_client(
         pool: PgPool,
@@ -811,16 +839,18 @@ mod tests {
         // Create channels to communicate with the order stream task
         let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(1);
 
-        // Connect to the WebSocket and start listening in a separate task
+        // Connect to the WebSocket and wait for server-side registration
         let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
+        wait_for_connection(&app_state, &ctx.prover_signer.address()).await;
 
-        // Connect customer signer as well
         let customer_client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,
         );
         let customer_socket = customer_client.connect_async(&ctx.customer_signer).await.unwrap();
+        wait_for_connection(&app_state, &ctx.customer_signer.address()).await;
+
         let stream_task = tokio::spawn(async move {
             let mut stream = order_stream(socket);
             let mut customer_order_stream = order_stream(customer_socket);
