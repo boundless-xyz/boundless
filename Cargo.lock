@@ -7458,6 +7458,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sqlx",
+ "test-log",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",

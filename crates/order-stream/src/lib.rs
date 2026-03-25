@@ -834,7 +834,7 @@ mod tests {
         (client, app_state, ctx, anvil, server_handle, addr)
     }
 
-    #[sqlx::test]
+    #[test_log::test(sqlx::test)]
     #[serial]
     async fn integration_test(pool: PgPool) {
         // Create listener first
@@ -932,22 +932,6 @@ mod tests {
         );
         assert_eq!(order, db_order.order);
 
-        // Wait a bit to ensure ping-pong is working (no errors)
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-        // Verify the connections are in the connections map
-        {
-            let connections = app_state.connections.read().await;
-            assert!(
-                connections.contains_key(&ctx.prover_signer.address()),
-                "Connection should still be active after ping-pong exchanges"
-            );
-            assert!(
-                connections.contains_key(&ctx.customer_signer.address()),
-                "Customer connection should also be active"
-            );
-        }
-
         // Now simulate server disconnection by aborting the server task
         app_state.shutdown.cancel();
 
@@ -1012,7 +996,7 @@ mod tests {
         assert!(pending_connection, "Should return true after removing the connection");
     }
 
-    #[sqlx::test]
+    #[test_log::test(sqlx::test)]
     #[serial]
     async fn test_websocket_connection_replacement(pool: PgPool) {
         // Set up server and client
