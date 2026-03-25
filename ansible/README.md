@@ -353,6 +353,11 @@ cd /opt/bento && docker compose logs --tail=100
 - Reboot if drivers were just installed
 - Check Docker has GPU access: `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`
 
+**"collect2: fatal error: cannot find 'ld'"**
+
+- Install required linker packages: `sudo apt-get install -y build-essential binutils lld mold`
+- This repository requires `mold` for Rust builds.
+
 ## Role Documentation
 
 - `roles/awscli/README.md` - AWS CLI v2

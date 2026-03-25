@@ -485,7 +485,12 @@ fn now_timestamp() -> u64 {
 mod tests {
     use std::fs::create_dir_all;
 
-    use alloy::{node_bindings::Anvil, primitives::Address};
+    use alloy::{
+        network::AnyNetwork,
+        node_bindings::Anvil,
+        primitives::Address,
+        providers::{fillers::ChainIdFiller, DynProvider, ProviderBuilder},
+    };
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use broker::{
@@ -545,8 +550,10 @@ mod tests {
             rpc_retry_max: 3,
             rpc_retry_backoff: 200,
             rpc_retry_cu: 1000,
+            rpc_request_timeout: 30,
             log_json: false,
             listen_only: false,
+            experimental_rpc: false,
         }
     }
 
@@ -594,10 +601,18 @@ mod tests {
             ctx.prover_signer,
         );
 
+        let any_provider = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .filler(ChainIdFiller::default())
+                .connect_http(anvil.endpoint_url()),
+        );
         let broker = Broker::new(
             args,
             ctx.prover_provider,
+            any_provider,
             ConfigWatcher::new(config.path()).await.unwrap(),
+            Default::default(),
             Default::default(),
         )
         .await

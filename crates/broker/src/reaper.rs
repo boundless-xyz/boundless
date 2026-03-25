@@ -19,13 +19,14 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use boundless_market::telemetry::CompletionOutcome;
+
 use crate::{
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
-    errors::CodedError,
+    errors::{cancel_proof_and_fail, BrokerFailure, CodedError},
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils::cancel_proof_and_fail_order,
 };
 
 #[derive(Error, Debug)]
@@ -67,18 +68,22 @@ impl ReaperTask {
         let expired_orders = self.db.get_expired_committed_orders(grace_period.into()).await?;
 
         if !expired_orders.is_empty() {
-            info!("Found {} expired committed orders", expired_orders.len());
+            info!("[B-REAP-100] Found {} expired committed orders", expired_orders.len());
 
             for order in expired_orders {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
-                cancel_proof_and_fail_order(
+                cancel_proof_and_fail(
                     &self.prover,
                     &self.db,
                     &self.config,
                     &order,
-                    "Order expired in reaper",
+                    &BrokerFailure::new(
+                        "[B-REAP-003]",
+                        "Order expired in reaper",
+                        CompletionOutcome::ExpiredWhileProving,
+                    ),
                 )
                 .await;
             }
@@ -252,9 +257,15 @@ mod tests {
         let stored_expired2 = db.get_order(&expired_order2.id()).await.unwrap().unwrap();
 
         assert_eq!(stored_expired1.status, OrderStatus::Failed);
-        assert_eq!(stored_expired1.error_msg, Some("Order expired in reaper".to_string()));
+        assert_eq!(
+            stored_expired1.error_msg,
+            Some("[B-REAP-003] Order expired in reaper".to_string())
+        );
         assert_eq!(stored_expired2.status, OrderStatus::Failed);
-        assert_eq!(stored_expired2.error_msg, Some("Order expired in reaper".to_string()));
+        assert_eq!(
+            stored_expired2.error_msg,
+            Some("[B-REAP-003] Order expired in reaper".to_string())
+        );
 
         // Check non-expired orders remain unchanged
         let stored_active = db.get_order(&active_order.id()).await.unwrap().unwrap();
@@ -300,7 +311,10 @@ mod tests {
         for order in orders {
             let stored_order = db.get_order(&order.id()).await.unwrap().unwrap();
             assert_eq!(stored_order.status, OrderStatus::Failed);
-            assert_eq!(stored_order.error_msg, Some("Order expired in reaper".to_string()));
+            assert_eq!(
+                stored_order.error_msg,
+                Some("[B-REAP-003] Order expired in reaper".to_string())
+            );
         }
     }
 }
