@@ -227,6 +227,7 @@ jobs:
             BUILDER_BASE=${{ env.IMAGE_PREFIX }}/builder-base:latest
             S3_CACHE_BUCKET=boundless-ci-prod-cache
             S3_CACHE_PREFIX=public/boundless/rust-cache-docker-Linux-X64/sccache
+            BLAKE3_GROTH16_ARTIFACTS_URL=https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz
           cache-from: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
           cache-to: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
           secrets: |
