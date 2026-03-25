@@ -43,3 +43,84 @@ macro_rules! impl_coded_debug {
 }
 
 pub use impl_coded_debug;
+
+use boundless_market::telemetry::CompletionOutcome;
+
+use crate::config::ConfigLock;
+use crate::db::DbObj;
+use crate::{Order, OrderStatus};
+
+// Structured broker failure combining an error code with a human-readable reason.
+pub(crate) struct BrokerFailure {
+    pub code: String,
+    pub reason: String,
+    pub outcome: CompletionOutcome,
+}
+
+impl BrokerFailure {
+    pub fn new(
+        code: impl Into<String>,
+        reason: impl Into<String>,
+        outcome: CompletionOutcome,
+    ) -> Self {
+        Self { code: code.into(), reason: reason.into(), outcome }
+    }
+}
+
+impl std::fmt::Display for BrokerFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.code, self.reason)
+    }
+}
+
+// Sets DB failure status AND emits a telemetry Failed event.
+pub(crate) async fn handle_order_failure(
+    db: &DbObj,
+    order_id: &str,
+    failure: &BrokerFailure,
+    chain_id: u64,
+) {
+    let db_error_str = failure.to_string();
+    if let Err(e) = db.set_order_failure(order_id, &db_error_str).await {
+        tracing::error!("Failed to set order {order_id} failure: {e:?}");
+    }
+    crate::telemetry::telemetry(chain_id).record_failed(order_id, failure);
+}
+
+// Cancels a proof (if configured) and marks the order as failed with telemetry.
+pub(crate) async fn cancel_proof_and_fail(
+    prover: &crate::provers::ProverObj,
+    db: &DbObj,
+    config: &ConfigLock,
+    order: &Order,
+    failure: &BrokerFailure,
+    chain_id: u64,
+) {
+    let order_id = order.id();
+
+    let should_cancel = match config.lock_all() {
+        Ok(conf) => conf.market.cancel_proving_expired_orders,
+        Err(err) => {
+            tracing::warn!(
+                "[B-UTL-002] Failed to read config for cancellation decision; skipping cancel: {err:?}"
+            );
+            false
+        }
+    };
+
+    if should_cancel {
+        if let Some(proof_id) = order.proof_id.as_ref() {
+            if matches!(order.status, OrderStatus::Proving) {
+                tracing::debug!("Cancelling proof {} for order {}", proof_id, order_id);
+                if let Err(err) = prover.cancel_stark(proof_id).await {
+                    tracing::warn!(
+                        "[B-UTL-001] Failed to cancel proof {proof_id} with reason: {} for order {order_id}: {err}",
+                        failure.code
+                    );
+                }
+            }
+        }
+    }
+
+    handle_order_failure(db, &order_id, failure, chain_id).await;
+}

@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 const TX_TIMEOUT: Duration = Duration::from_secs(180);
+const CHAINALYSIS_API_URL: &str = "https://public.chainalysis.com";
 
 sol! {
     #[sol(rpc)]
@@ -51,11 +52,16 @@ sol! {
     }
 }
 
-sol! {
-    #[sol(rpc)]
-    contract SanctionsList {
-        function isSanctioned(address addr) external view returns (bool);
-    }
+/// Chainalysis Sanctions API response.
+#[derive(Deserialize, Debug)]
+struct SanctionsResponse {
+    identifications: Vec<SanctionsIdentification>,
+}
+
+#[derive(Deserialize, Debug)]
+struct SanctionsIdentification {
+    #[allow(dead_code)]
+    category: Option<String>,
 }
 
 /// Arguments of the order generator.
@@ -118,9 +124,12 @@ struct MainArgs {
     /// Minimum 7D billion-cycles for a prover to qualify for external top-up
     #[clap(long, env, default_value = "1")]
     min_bcycles_threshold: u64,
-    /// Chainalysis sanctions oracle address (set to 0x0 to skip OFAC screening, e.g. on testnets)
-    #[clap(long, env, default_value = "0x0000000000000000000000000000000000000000")]
-    chainalysis_oracle_address: Address,
+    /// Chainalysis Sanctions API key (leave empty to skip OFAC screening, e.g. on testnets)
+    #[clap(long, env = "CHAINALYSIS_API_KEY", default_value = "")]
+    chainalysis_api_key: String,
+    /// Chainalysis Sanctions API base URL override (test only; defaults to the public endpoint)
+    #[clap(skip = CHAINALYSIS_API_URL.to_string())]
+    chainalysis_api_url: String,
     /// ZKC balance below which an external prover gets topped up (human-readable, e.g. "5")
     #[clap(long, env, default_value = "5")]
     external_collateral_threshold: String,
@@ -211,6 +220,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_rpc_url(args.rpc_url.clone())
         .with_private_key(args.private_key.clone())
         .with_deployment(args.deployment.clone())
+        .with_timeout(Some(TX_TIMEOUT))
         .build()
         .await?;
 
@@ -676,7 +686,6 @@ async fn run(args: &MainArgs) -> Result<()> {
                 if let Err(e) = top_up_external_provers(
                     args,
                     &distributor_client.boundless_market,
-                    distributor_client.provider(),
                     collateral_token_decimals,
                     indexer_api_url,
                 )
@@ -699,7 +708,6 @@ async fn run(args: &MainArgs) -> Result<()> {
 async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone + 'static>(
     args: &MainArgs,
     market: &BoundlessMarketService<P>,
-    provider: P,
     collateral_token_decimals: u8,
     indexer_api_url: &Url,
 ) -> Result<()> {
@@ -753,30 +761,32 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
     // 3. Load lifetime allowance state
     let mut state = load_state(&args.allowance_state_file)?;
 
-    // 4. Set up Chainalysis Oracle (skip when address is zero, e.g. testnets)
-    let skip_ofac = args.chainalysis_oracle_address == Address::ZERO;
+    // 4. Set up Chainalysis Sanctions API (skip when API key is empty, e.g. testnets)
+    let skip_ofac = args.chainalysis_api_key.is_empty();
     if skip_ofac {
         tracing::warn!(
-            "Chainalysis oracle address is zero — OFAC screening is DISABLED. \
+            "Chainalysis API key is empty — OFAC screening is DISABLED. \
              This is expected on testnets but must not happen in production."
         );
     }
-    let oracle = SanctionsList::new(args.chainalysis_oracle_address, &provider);
+    let http_client = reqwest::Client::new();
 
     // 5. Chain-aware deposit setup
     let chain_id = market.get_chain_id().await?;
     let use_permit = collateral_token_supports_permit(chain_id);
 
-    if !use_permit {
-        // Non-permit chains (e.g. Base): approve once, deposit N times
-        tracing::info!(
-            "Chain {} does not support permit, using approve+depositCollateralTo",
-            chain_id
-        );
-        market.approve_deposit_collateral(U256::MAX).await?;
-    }
+    // Track whether we still need to send the ERC-20 approve tx.
+    // For non-permit chains we defer it until we know there is at least one deposit to make.
+    let mut needs_approve = !use_permit;
 
     let signer = &args.private_key;
+
+    let mut topped_up: u32 = 0;
+    let mut skipped_exhausted: u32 = 0;
+    let mut skipped_sanctioned: u32 = 0;
+    let mut skipped_above_threshold: u32 = 0;
+    let mut skipped_ofac_err: u32 = 0;
+    let mut failed: u32 = 0;
 
     for prover in &eligible {
         let addr: Address = prover
@@ -796,12 +806,14 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                 addr,
                 format_units(ext_lifetime_allowance, collateral_token_decimals)?
             );
+            skipped_exhausted += 1;
             continue;
         }
 
         // Skip if previously sanctioned
         if entry.sanctioned {
             tracing::info!("[B-TOPUP-OFAC] Prover {} previously flagged as sanctioned", addr);
+            skipped_sanctioned += 1;
             continue;
         }
 
@@ -815,35 +827,63 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
         };
 
         if balance >= ext_collateral_threshold {
-            tracing::debug!(
+            tracing::info!(
                 "Prover {} has {} deposited collateral, above threshold {}. Skipping.",
                 addr,
                 format_units(balance, collateral_token_decimals)?,
                 format_units(ext_collateral_threshold, collateral_token_decimals)?
             );
+            skipped_above_threshold += 1;
             continue;
         }
 
-        // OFAC screen (fail-closed: skip on error)
+        // OFAC screen via Chainalysis REST API (fail-closed: skip on error)
         if !skip_ofac {
-            match oracle.isSanctioned(addr).call().await {
-                Ok(sanctioned) if sanctioned => {
+            let url = format!(
+                "{}/api/v1/address/{:?}",
+                args.chainalysis_api_url.trim_end_matches('/'),
+                addr
+            );
+            match http_client.get(&url).header("X-API-Key", &args.chainalysis_api_key).send().await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<SanctionsResponse>().await {
+                        Ok(body) if !body.identifications.is_empty() => {
+                            tracing::warn!(
+                                "[B-TOPUP-OFAC] Address {} is sanctioned, blocking top-up",
+                                addr
+                            );
+                            entry.sanctioned = true;
+                            skipped_sanctioned += 1;
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "[B-TOPUP-OFAC-ERR] Failed to parse sanctions response for {}: {}. Skipping (fail-closed).",
+                                addr, e
+                            );
+                            skipped_ofac_err += 1;
+                            continue;
+                        }
+                        _ => {} // not sanctioned
+                    }
+                }
+                Ok(resp) => {
                     tracing::warn!(
-                        "[B-TOPUP-OFAC] Address {} is sanctioned, blocking top-up",
-                        addr
+                        "[B-TOPUP-OFAC-ERR] Chainalysis API returned status {} for {}. Skipping (fail-closed).",
+                        resp.status(), addr
                     );
-                    entry.sanctioned = true;
+                    skipped_ofac_err += 1;
                     continue;
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "[B-TOPUP-OFAC-ERR] Oracle call failed for {}: {}. Skipping (fail-closed).",
-                        addr,
-                        e
+                        "[B-TOPUP-OFAC-ERR] Chainalysis API call failed for {}: {}. Skipping (fail-closed).",
+                        addr, e
                     );
+                    skipped_ofac_err += 1;
                     continue;
                 }
-                _ => {}
             }
         }
 
@@ -863,6 +903,16 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
             format_units(remaining, collateral_token_decimals)?
         );
 
+        // Lazily approve on the first deposit for non-permit chains
+        if needs_approve {
+            tracing::info!(
+                "Chain {} does not support permit, using approve+depositCollateralTo",
+                chain_id
+            );
+            market.approve_deposit_collateral(U256::MAX).await?;
+            needs_approve = false;
+        }
+
         // Deposit directly to prover's market balance
         let deposit_result = if use_permit {
             market.deposit_collateral_with_permit_to(addr, amount, signer).await
@@ -880,6 +930,7 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                     addr,
                     format_units(amount, collateral_token_decimals)?
                 );
+                topped_up += 1;
             }
             Err(e) => {
                 tracing::error!(
@@ -887,10 +938,16 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                     addr,
                     e
                 );
+                failed += 1;
                 continue;
             }
         }
     }
+
+    tracing::info!(
+        "External prover top-up summary: {} eligible, {} topped up, {} failed, {} above threshold, {} exhausted, {} sanctioned, {} OFAC errors",
+        eligible.len(), topped_up, failed, skipped_above_threshold, skipped_exhausted, skipped_sanctioned, skipped_ofac_err
+    );
 
     // 6. Save state
     save_state(&args.allowance_state_file, &state)?;
@@ -910,19 +967,6 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-
-    sol! {
-        #[sol(rpc, bytecode = "6080604052348015600e575f5ffd5b506102758061001c5f395ff3fe608060405234801561000f575f5ffd5b506004361061003f575f3560e01c806380b437b114610043578063df592f7d1461005f578063eae4f19f1461008f575b5f5ffd5b61005d600480360381019061005891906101e1565b6100bf565b005b610079600480360381019061007491906101e1565b610116565b6040516100869190610226565b60405180910390f35b6100a960048036038101906100a491906101e1565b610167565b6040516100b69190610226565b60405180910390f35b60015f5f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f6101000a81548160ff02191690831515021790555050565b5f5f5f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f9054906101000a900460ff169050919050565b5f602052805f5260405f205f915054906101000a900460ff1681565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6101b082610187565b9050919050565b6101c0816101a6565b81146101ca575f5ffd5b50565b5f813590506101db816101b7565b92915050565b5f602082840312156101f6576101f5610183565b5b5f610203848285016101cd565b91505092915050565b5f8115159050919050565b6102208161020c565b82525050565b5f6020820190506102395f830184610217565b9291505056fea2646970667358221220f9b8e1a638932d4cf50d7860ea7bd5431ad57b2bb6f747119b6b31f11c64308c64736f6c634300081e0033")]
-        contract MockSanctionsList {
-            mapping(address => bool) sanctioned;
-            function isSanctioned(address addr) external view returns (bool) {
-                return sanctioned[addr];
-            }
-            function addSanctioned(address addr) external {
-                sanctioned[addr] = true;
-            }
-        }
-    }
 
     /// Build a mock indexer server that returns the given prover entries.
     fn mock_indexer_server(provers: &[serde_json::Value]) -> MockServer {
@@ -977,20 +1021,20 @@ mod tests {
 
     /// Common test fixture for external prover top-up tests.
     ///
-    /// Encapsulates anvil, contract deployment, distributor funding, mock oracle
-    /// deployment, state dir, and a Client for post-run assertions.
+    /// Encapsulates anvil, contract deployment, distributor funding, mock Chainalysis
+    /// API server, state dir, and a Client for post-run assertions.
     struct ExternalTopupFixture {
         anvil: alloy::node_bindings::AnvilInstance,
         deployment: Deployment,
         distributor_signer: PrivateKeySigner,
         slasher_signer: PrivateKeySigner,
-        oracle_address: Address,
+        chainalysis_mock: MockServer,
         state_dir: tempfile::TempDir,
     }
 
     impl ExternalTopupFixture {
         /// Create a fully-initialized fixture: anvil, contracts, funded distributor,
-        /// deployed mock oracle, and a temp dir for the state file.
+        /// mock Chainalysis API server, and a temp dir for the state file.
         async fn new() -> Self {
             let anvil = Anvil::new().spawn();
             let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -1009,17 +1053,14 @@ mod tests {
                 .await
                 .unwrap();
 
-            let deployer_provider = ProviderBuilder::new()
-                .wallet(EthereumWallet::from(distributor_signer.clone()))
-                .connect_http(anvil.endpoint_url());
-            let oracle = MockSanctionsList::deploy(&deployer_provider).await.unwrap();
+            let chainalysis_mock = MockServer::start();
 
             Self {
                 anvil,
                 deployment: ctx.deployment,
                 distributor_signer,
                 slasher_signer,
-                oracle_address: *oracle.address(),
+                chainalysis_mock,
                 state_dir: tempfile::tempdir().unwrap(),
             }
         }
@@ -1029,10 +1070,6 @@ mod tests {
         }
 
         fn args(&self, indexer_url: &str) -> MainArgs {
-            self.args_with_oracle(indexer_url, self.oracle_address)
-        }
-
-        fn args_with_oracle(&self, indexer_url: &str, oracle_address: Address) -> MainArgs {
             MainArgs {
                 rpc_url: self.anvil.endpoint_url(),
                 private_key: self.distributor_signer.clone(),
@@ -1052,7 +1089,8 @@ mod tests {
                 enable_external_topup: true,
                 indexer_api_url: Some(indexer_url.parse().unwrap()),
                 min_bcycles_threshold: 1,
-                chainalysis_oracle_address: oracle_address,
+                chainalysis_api_key: "test-key".to_string(),
+                chainalysis_api_url: self.chainalysis_mock.base_url(),
                 external_collateral_threshold: "5".to_string(),
                 external_per_top_up_amount: "10".to_string(),
                 external_lifetime_allowance: "100".to_string(),
@@ -1075,19 +1113,42 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(self.state_file()).unwrap()).unwrap()
         }
 
-        /// Mark an address as sanctioned on the mock oracle.
-        async fn sanction(&self, addr: Address) {
-            let deployer_provider = ProviderBuilder::new()
-                .wallet(EthereumWallet::from(self.distributor_signer.clone()))
-                .connect_http(self.anvil.endpoint_url());
-            MockSanctionsList::new(self.oracle_address, deployer_provider)
-                .addSanctioned(addr)
-                .send()
-                .await
-                .unwrap()
-                .watch()
-                .await
-                .unwrap();
+        /// Register a catch-all mock returning "not sanctioned" for any address.
+        fn allow_all(&self) {
+            self.chainalysis_mock.mock(|when, then| {
+                when.method(GET).path_contains("/api/v1/address/");
+                then.status(200)
+                    .header("Content-Type", "application/json")
+                    .body(r#"{"identifications":[]}"#);
+            });
+        }
+
+        /// Register a mock response marking the given address as sanctioned.
+        fn sanction(&self, addr: Address) {
+            let addr_str = format!("{:?}", addr);
+            self.chainalysis_mock.mock(|when, then| {
+                when.method(GET).path(format!("/api/v1/address/{}", addr_str));
+                then.status(200).header("Content-Type", "application/json").body(
+                    serde_json::to_string(&serde_json::json!({
+                        "identifications": [{
+                            "category": "Sanctions",
+                            "name": "OFAC SDN",
+                            "description": "Sanctioned address",
+                            "url": "https://example.com"
+                        }]
+                    }))
+                    .unwrap(),
+                );
+            });
+        }
+
+        /// Register a mock returning 500 for the given address.
+        fn fail_ofac(&self, addr: Address) {
+            let addr_str = format!("{:?}", addr);
+            self.chainalysis_mock.mock(|when, then| {
+                when.method(GET).path(format!("/api/v1/address/{}", addr_str));
+                then.status(500).body("Internal Server Error");
+            });
         }
     }
 
@@ -1139,7 +1200,8 @@ mod tests {
             enable_external_topup: false,
             indexer_api_url: None,
             min_bcycles_threshold: 1,
-            chainalysis_oracle_address: Address::ZERO,
+            chainalysis_api_key: String::new(),
+            chainalysis_api_url: String::new(),
             external_collateral_threshold: "5".to_string(),
             external_per_top_up_amount: "10".to_string(),
             external_lifetime_allowance: "100".to_string(),
@@ -1193,6 +1255,7 @@ mod tests {
     #[traced_test]
     async fn test_external_topup_below_threshold() {
         let fix = ExternalTopupFixture::new().await;
+        fix.allow_all();
         let external_prover = PrivateKeySigner::random();
 
         let server =
@@ -1256,7 +1319,7 @@ mod tests {
         let fix = ExternalTopupFixture::new().await;
         let sanctioned_prover = PrivateKeySigner::random();
 
-        fix.sanction(sanctioned_prover.address()).await;
+        fix.sanction(sanctioned_prover.address());
 
         let server =
             mock_indexer_server(&[prover_entry(sanctioned_prover.address(), 2_000_000_000, "0")]);
@@ -1279,22 +1342,23 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_external_topup_oracle_failure_fail_closed() {
+    async fn test_external_topup_api_failure_fail_closed() {
         let fix = ExternalTopupFixture::new().await;
         let external_prover = PrivateKeySigner::random();
 
         let server =
             mock_indexer_server(&[prover_entry(external_prover.address(), 2_000_000_000, "0")]);
 
-        // Point at a bogus oracle address — calls will fail
-        let args = fix.args_with_oracle(&server.base_url(), PrivateKeySigner::random().address());
+        // Register a mock returning 500 for this address
+        fix.fail_ofac(external_prover.address());
 
+        let args = fix.args(&server.base_url());
         run(&args).await.unwrap();
 
         assert_eq!(
             fix.collateral_balance_of(external_prover.address()).await,
             U256::ZERO,
-            "Oracle failure should fail-closed, no top-up"
+            "API failure should fail-closed, no top-up"
         );
         assert!(logs_contain("[B-TOPUP-OFAC-ERR]"));
     }

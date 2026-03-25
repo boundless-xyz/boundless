@@ -65,6 +65,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils lld mold
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:

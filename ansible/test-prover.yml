@@ -3,7 +3,6 @@
   hosts: all
   become: true
   gather_facts: true
-  serial: 1
   tasks:
     - name: Download bento CLI bundle
       ansible.builtin.get_url:

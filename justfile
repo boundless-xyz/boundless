@@ -39,6 +39,10 @@ test-broker:
 test-cargo-root:
     RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
 
+# Run broker telemetry e2e tests separately as they can not be run in parallel with other tests due to global telemetry singleton.
+test-broker-telemetry:
+    RISC0_DEV_MODE=1 cargo test -p broker tests::e2e_telemetry --features test-r0vm -- --ignored --nocapture --test-threads=1
+
 # Run Cargo tests for counter example
 test-cargo-example:
     cd examples/counter && \
@@ -207,6 +211,11 @@ check-clippy: check-clippy-main
     cd examples/blake3-groth16 && \
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
+
+# Check that the main workspace compiles (same RISC0 skip flags as check-clippy-main)
+check-cargo-main:
+    RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
+    cargo check --workspace --all-targets
 
 # Check Cargo clippy for the main workspace
 check-clippy-main:
@@ -443,7 +452,11 @@ update-lockfiles:
     cd examples/request-stream && cargo fetch
 
 # Start the bento service
-bento action="up" env_file="" compose_flags="" detached="true":
+# Set BOUNDLESS_BUILD to control image building:
+#   BOUNDLESS_BUILD=all                - build all images from source
+#   BOUNDLESS_BUILD=broker             - build only the broker image
+#   BOUNDLESS_BUILD="broker rest_api"  - build specific services
+bento action="up" env_file="" compose_flags="" detached="true" services="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
         ENV_FILE_ARG="--env-file {{env_file}}"
@@ -479,8 +492,33 @@ bento action="up" env_file="" compose_flags="" detached="true":
         else
             DETACHED_FLAG=""
         fi
+        
+        BOUNDLESS_BUILD="${BOUNDLESS_BUILD:-}"
 
-        docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
+        # When building from source, clear the prebuilt image tags and set
+        # dockerfiles to the source-build variants so Compose builds from source
+        # instead of pulling pre-built images.
+        if [ "$BOUNDLESS_BUILD" = "all" ]; then
+            export AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE=""
+            export AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
+            export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
+            export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
+            export BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile"
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
+        elif [ -n "$BOUNDLESS_BUILD" ]; then
+            for svc in $BOUNDLESS_BUILD; do
+                case "$svc" in
+                    *agent*|miner) export AGENT_IMAGE="" AGENT_DOCKERFILE="dockerfiles/agent.dockerfile" BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile" ;;
+                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="dockerfiles/broker.dockerfile" ;;
+                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile" ;;
+                    *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
+                esac
+            done
+            docker compose {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
+        else
+            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
+        fi
         if [ "{{detached}}" != "true" ]; then
             echo "Docker Compose services have been started."
         fi

@@ -105,6 +105,7 @@ pub struct Submitter<P> {
     set_builder_img_id: Digest,
     prover_address: Address,
     config: ConfigLock,
+    chain_id: u64,
 }
 
 impl<P> Submitter<P>
@@ -120,6 +121,7 @@ where
         set_verifier_addr: Address,
         market_addr: Address,
         set_builder_img_id: Digest,
+        chain_id: u64,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -153,6 +155,7 @@ where
             set_builder_img_id,
             prover_address,
             config,
+            chain_id,
         })
     }
 
@@ -516,6 +519,8 @@ where
                 );
                 continue;
             }
+
+            crate::telemetry::telemetry(self.chain_id).record_fulfilled(order_id);
             let order_price = order_prices
                 .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, collateral_reward: U256::ZERO });
@@ -967,6 +972,7 @@ mod tests {
             set_verifier,
             market_address,
             set_builder_id,
+            anvil.chain_id(),
         )
         .unwrap();
 

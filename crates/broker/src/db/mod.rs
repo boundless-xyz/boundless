@@ -143,7 +143,7 @@ pub trait BrokerDb {
         id: &str,
     ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
     async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
-    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError>;
+    async fn set_order_failure(&self, id: &str, failure_str: &str) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: &str) -> Result<(), DbError>;
     /// Get all orders that are committed to be prove and be fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
@@ -459,7 +459,7 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError> {
+    async fn set_order_failure(&self, id: &str, failure_str: &str) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders

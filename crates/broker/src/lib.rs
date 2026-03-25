@@ -48,7 +48,7 @@ use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 pub use config::Config;
 pub use config::ConfigLock;
-use config::ConfigWatcher;
+use config::{ConfigWatcher, TelemetryMode};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
@@ -66,6 +66,7 @@ use url::Url;
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
+const TELEMETRY_CHANNEL_CAPACITY: usize = 40960;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
@@ -92,6 +93,7 @@ pub mod sequential_fallback;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
+pub(crate) mod telemetry;
 pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
@@ -935,6 +937,13 @@ impl Broker {
         let provider = chain.provider.clone();
         let config = chain.config.clone();
         let gas_priority_mode = chain.gas_priority_mode.clone();
+        let gas_estimation_priority_mode = {
+            let estimation_mode = config
+                .lock_all()
+                .map(|c| c.market.gas_estimation_priority_mode.clone())
+                .unwrap_or_default();
+            Arc::new(RwLock::new(estimation_mode))
+        };
         let private_key = &chain.private_key;
         let chain_id = chain.chain_id;
         let deployment = &chain.deployment;
@@ -957,6 +966,84 @@ impl Broker {
                 Ok(OrderStreamClient::new(url, deployment.boundless_market_address, chain_id))
             })
             .transpose()?;
+
+        let signer = private_key.clone();
+        let telemetry_mode =
+            config.lock_all().map(|c| c.market.telemetry_mode.clone()).unwrap_or_default();
+
+        let _telemetry_handle = match telemetry_mode {
+            TelemetryMode::Enabled => {
+                if let Some(ref client) = order_stream_client {
+                    telemetry::init_for_chain(chain_id, || {
+                        let (tx, rx) =
+                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                        let handle = telemetry::TelemetryHandle::new(tx);
+                        let service = telemetry::TelemetryService::new(
+                            rx,
+                            handle.clone(),
+                            client.clone(),
+                            signer.clone(),
+                            config.clone(),
+                            db.clone(),
+                        );
+                        let cancel_token = non_critical_cancel_token.clone();
+                        non_critical_tasks.spawn(async move {
+                            telemetry::run_telemetry_service(service, cancel_token)
+                                .await
+                                .context("Telemetry service failed")?;
+                            Ok(())
+                        });
+                        handle
+                    })
+                } else {
+                    tracing::warn!(
+                        chain_id,
+                        "TelemetryMode::Enabled requires order-stream; falling back to LogsOnly"
+                    );
+
+                    telemetry::init_for_chain(chain_id, || {
+                        let (tx, rx) =
+                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                        let handle = telemetry::TelemetryHandle::new(tx);
+                        let service = telemetry::TelemetryService::new_debug(
+                            rx,
+                            handle.clone(),
+                            signer.clone(),
+                            config.clone(),
+                            db.clone(),
+                        );
+                        let cancel_token = non_critical_cancel_token.clone();
+                        non_critical_tasks.spawn(async move {
+                            telemetry::run_telemetry_service(service, cancel_token)
+                                .await
+                                .context("Telemetry service failed")?;
+                            Ok(())
+                        });
+                        handle
+                    })
+                }
+            }
+            TelemetryMode::LogsOnly => telemetry::init_for_chain(chain_id, || {
+                let (tx, rx) =
+                    mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+                let handle = telemetry::TelemetryHandle::new(tx);
+                let service = telemetry::TelemetryService::new_debug(
+                    rx,
+                    handle.clone(),
+                    signer.clone(),
+                    config.clone(),
+                    db.clone(),
+                );
+                let cancel_token = non_critical_cancel_token.clone();
+                non_critical_tasks.spawn(async move {
+                    telemetry::run_telemetry_service(service, cancel_token)
+                        .await
+                        .context("Telemetry service failed")?;
+                    Ok(())
+                });
+                handle
+            }),
+        };
 
         let prover_addr = provider.default_signer_address();
 
@@ -1149,6 +1236,7 @@ impl Broker {
             price_oracle.clone(),
             erc1271_gas_cache.clone(),
             self.args.listen_only,
+            chain_id,
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1177,8 +1265,10 @@ impl Broker {
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
             gas_priority_mode.clone(),
+            gas_estimation_priority_mode,
             erc1271_gas_cache,
             self.args.listen_only,
+            chain_id,
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1200,6 +1290,7 @@ impl Broker {
                 priority_requestors.clone(),
                 market.clone(),
                 self.downloader.clone(),
+                chain_id,
             ));
 
             let cloned_config = config.clone();
@@ -1246,8 +1337,12 @@ impl Broker {
             });
 
             // Start the ReaperTask to check for expired committed orders
-            let reaper =
-                Arc::new(reaper::ReaperTask::new(db.clone(), config.clone(), prover.clone()));
+            let reaper = Arc::new(reaper::ReaperTask::new(
+                db.clone(),
+                config.clone(),
+                prover.clone(),
+                chain_id,
+            ));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
             let cancel_token = critical_cancel_token.clone();
@@ -1267,6 +1362,7 @@ impl Broker {
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,
                 set_builder_img_id,
+                chain_id,
             )?);
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();

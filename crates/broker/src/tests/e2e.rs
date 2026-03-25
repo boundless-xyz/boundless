@@ -54,7 +54,7 @@ use tokio::{sync::RwLock, task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
 
-fn is_dev_mode() -> bool {
+pub(super) fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
         .ok()
         .map(|x| x.to_lowercase())
@@ -63,7 +63,7 @@ fn is_dev_mode() -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn generate_request(
+pub(super) fn generate_request(
     id: u32,
     addr: &Address,
     proof_type: ProofType,
@@ -109,17 +109,17 @@ fn generate_request(
     )
 }
 
-struct TestConfig {
-    base: NamedTempFile,
-    override_file: Option<NamedTempFile>,
+pub(super) struct TestConfig {
+    pub(super) base: NamedTempFile,
+    pub(super) override_file: Option<NamedTempFile>,
 }
 
 impl TestConfig {
-    fn base_path(&self) -> PathBuf {
+    pub(super) fn base_path(&self) -> PathBuf {
         self.base.path().to_path_buf()
     }
 
-    async fn watcher(&self) -> ConfigWatcher {
+    pub(super) async fn watcher(&self) -> ConfigWatcher {
         ConfigWatcher::new_with_override(
             self.base.path(),
             self.override_file.as_ref().map(|f| f.path()),
@@ -134,7 +134,10 @@ async fn new_config(min_batch_size: u32) -> TestConfig {
 }
 
 // We put some config into an override file so that we can test the per-chain overrides feature e2e.
-async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> TestConfig {
+pub(super) async fn new_config_with_min_deadline(
+    min_batch_size: u32,
+    min_deadline: u64,
+) -> TestConfig {
     let base_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let override_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
 
@@ -170,7 +173,7 @@ min_batch_size = {min_batch_size}
     TestConfig { base: base_file, override_file: Some(override_file) }
 }
 
-fn broker_args(
+pub(super) fn broker_args(
     config_file: PathBuf,
     deployment: Deployment,
     rpc_url: Url,
@@ -217,7 +220,7 @@ fn make_any_provider(rpc_url: Url) -> DynProvider<AnyNetwork> {
     )
 }
 
-async fn build_test_chain<P>(
+pub(super) async fn build_test_chain<P>(
     prover_provider: &P,
     prover_signer: &PrivateKeySigner,
     deployment: &Deployment,
@@ -244,7 +247,11 @@ where
     }
 }
 
-async fn run_with_broker<P, F, T>(broker: Broker, chains: Vec<ChainPipeline<P>>, f: F) -> T
+pub(super) async fn run_with_broker<P, F, T>(
+    broker: Broker,
+    chains: Vec<ChainPipeline<P>>,
+    f: F,
+) -> T
 where
     P: Provider<Ethereum> + WalletProvider + Clone + Send + Sync + 'static,
     F: Future<Output = T>,

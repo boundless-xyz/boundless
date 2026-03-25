@@ -2,7 +2,7 @@ ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM rust:1.85.0-bookworm AS builder
 
-RUN apt-get -qq update && apt-get install -y -q clang
+RUN apt-get -qq update && apt-get install -y -q clang mold
 
 FROM builder AS rust-builder
 
