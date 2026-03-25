@@ -7,6 +7,8 @@ RUN apt-get -qq update && apt-get install -y -q clang mold
 FROM builder AS rust-builder
 
 ARG S3_CACHE_PREFIX
+ARG S3_CACHE_BUCKET="boundless-sccache"
+ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 WORKDIR /src/
 COPY . .
