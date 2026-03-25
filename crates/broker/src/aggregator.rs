@@ -1695,8 +1695,14 @@ mod tests {
         let current_time = crate::now_timestamp();
 
         // rampUpStart=0, timeout=100 → expires_at()=100 (far in the past)
-        let expired_order =
-            make_test_order(999, FulfillmentType::LockAndFulfill, Some(current_time - 100), 0, 100, 100);
+        let expired_order = make_test_order(
+            999,
+            FulfillmentType::LockAndFulfill,
+            Some(current_time - 100),
+            0,
+            100,
+            100,
+        );
         db.add_order(&expired_order).await.unwrap();
 
         // rampUpStart=current_time, timeout=200 → expires_at()=current_time+200 (future)
@@ -1710,10 +1716,7 @@ mod tests {
         );
         db.add_order(&valid_order).await.unwrap();
 
-        let orders = vec![
-            agg_order_from(&expired_order),
-            agg_order_from(&valid_order),
-        ];
+        let orders = vec![agg_order_from(&expired_order), agg_order_from(&valid_order)];
 
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
