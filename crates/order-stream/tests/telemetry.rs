@@ -133,7 +133,7 @@ async fn telemetry_end_to_end() {
             error_code: None,
             error_reason: None,
             lock_duration_secs: Some(5),
-            proving_duration_secs: Some(30),
+            committed_to_application_proof_duration_secs: Some(30),
             aggregation_duration_secs: Some(12),
             submission_duration_secs: Some(4),
             total_duration_secs: 55,

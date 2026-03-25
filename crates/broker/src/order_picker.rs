@@ -182,7 +182,10 @@ where
         cancel_token: CancellationToken,
     ) -> bool {
         let order_id = order.id();
-        let queue_start_secs = now_timestamp().saturating_sub(order.received_at_timestamp);
+        let queue_duration_ms = order
+            .created_at
+            .map(|t| t.elapsed().as_millis() as u64)
+            .unwrap_or_else(|| now_timestamp().saturating_sub(order.received_at_timestamp) * 1000);
 
         let f = || async {
             let pricing_result = tokio::select! {
@@ -198,8 +201,11 @@ where
                 }
             };
 
-            let total_elapsed_secs = now_timestamp().saturating_sub(order.received_at_timestamp);
-            let preflight_duration_secs = total_elapsed_secs.saturating_sub(queue_start_secs);
+            let total_elapsed_ms =
+                order.created_at.map(|t| t.elapsed().as_millis() as u64).unwrap_or_else(|| {
+                    now_timestamp().saturating_sub(order.received_at_timestamp) * 1000
+                });
+            let preflight_duration_ms = total_elapsed_ms.saturating_sub(queue_duration_ms);
 
             let (accepted, skip_code, skip_reason, total_cycles, eval_outcome) =
                 match pricing_result {
@@ -305,8 +311,8 @@ where
                 skip_code,
                 skip_reason,
                 total_cycles,
-                queue_start_secs,
-                preflight_duration_secs,
+                queue_duration_ms,
+                preflight_duration_ms,
             );
 
             if accepted {
