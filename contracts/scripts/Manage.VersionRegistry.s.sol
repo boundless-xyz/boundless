@@ -128,7 +128,25 @@ contract DeployVersionRegistry is BoundlessScriptBase {
 
         address versionRegistryAdmin = BoundlessScript.requireLib(cfg.admin, "VersionRegistry admin");
 
-        bytes32 salt = bytes32(uint256(keccak256("VersionRegistry2")));
+        bytes32 salt = bytes32(uint256(keccak256("VersionRegistry")));
+
+        // Predict addresses before deploying. Foundry routes `new Contract{salt: ...}()` through
+        // the default CREATE2 factory, so vm.computeCreate2Address matches.
+        // The impl address is chain-independent (no constructor args).
+        // The proxy address depends on the admin — it will differ if admins differ across chains.
+        bytes32 implInitCodeHash = keccak256(type(VersionRegistry).creationCode);
+        address predictedImpl = vm.computeCreate2Address(salt, implInitCodeHash);
+        console2.log("Predicted VersionRegistry impl:  ", predictedImpl);
+
+        bytes32 proxyInitCodeHash = keccak256(
+            abi.encodePacked(
+                type(ERC1967Proxy).creationCode,
+                abi.encode(predictedImpl, abi.encodeCall(VersionRegistry.initialize, (versionRegistryAdmin)))
+            )
+        );
+        address predictedProxy = vm.computeCreate2Address(salt, proxyInitCodeHash);
+        console2.log("Predicted VersionRegistry proxy: ", predictedProxy);
+        console2.log("  (proxy address depends on admin:", versionRegistryAdmin, ")");
 
         vm.startBroadcast(getDeployer());
 
@@ -142,6 +160,9 @@ contract DeployVersionRegistry is BoundlessScriptBase {
         );
         console2.log("Deployed VersionRegistry proxy to", versionRegistryAddress);
         console2.log("VersionRegistry admin:", versionRegistryAdmin);
+
+        require(versionRegistryImpl == predictedImpl, "VersionRegistry impl address mismatch");
+        require(versionRegistryAddress == predictedProxy, "VersionRegistry proxy address mismatch");
 
         vm.stopBroadcast();
 
