@@ -91,7 +91,7 @@ jobs:
       - name: Generate recipes
         run: |
           cargo chef prepare --recipe-path recipe.json
-          cargo chef prepare --manifest-path bento/Cargo.toml --recipe-path bento-recipe.json
+          cd bento && cargo chef prepare --recipe-path ../bento-recipe.json
 
       - name: Upload recipes
         uses: actions/upload-artifact@v4
