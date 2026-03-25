@@ -3,24 +3,7 @@ name: Docker Services
 on:
   push:
     branches: [main]
-    paths:
-      - "dockerfiles/**"
-      - "crates/**"
-      - "contracts/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "foundry.toml"
-      - "blake3_groth16/**"
     tags: ["infra-v*"]
-  pull_request:
-    paths:
-      - "dockerfiles/**"
-      - "crates/**"
-      - "contracts/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "foundry.toml"
-      - "blake3_groth16/**"
   workflow_dispatch:
 
 concurrency:
