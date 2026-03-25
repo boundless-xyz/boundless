@@ -28,7 +28,8 @@ RUN curl -L https://risczero.com/install | bash && \
 FROM rust-builder AS builder
 
 ARG S3_CACHE_PREFIX
-ENV SCCACHE_SERVER_PORT=4227
+# Prevent collisions with concurrent compose builds of the GPU agent image.
+ENV SCCACHE_SERVER_PORT=4228
 
 WORKDIR /src/
 COPY . .
@@ -45,8 +46,9 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
+    export CARGO_TARGET_DIR=/src/bento/target-agent-cpu && \
     cargo build --manifest-path bento/Cargo.toml --release -p workflow --bin agent && \
-    cp bento/target/release/agent /src/agent && \
+    cp ${CARGO_TARGET_DIR}/release/agent /src/agent && \
     sccache --show-stats
 
 FROM ${RUNTIME_IMG} AS runtime
