@@ -2725,16 +2725,19 @@ mod tests {
         let stats = db.get_market_collateral_stats(U256::from(50)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(160)); // 100 + 50 + 10
         assert_eq!(stats.eligible_prover_count, 2); // prover1 and prover2
+        assert_eq!(stats.active_eligible_prover_count, 0); // no fulfillments
 
         // Threshold = 100: only prover1 is eligible
         let stats = db.get_market_collateral_stats(U256::from(100)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(160));
         assert_eq!(stats.eligible_prover_count, 1);
+        assert_eq!(stats.active_eligible_prover_count, 0);
 
         // Threshold = 200: no one eligible
         let stats = db.get_market_collateral_stats(U256::from(200)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(160));
         assert_eq!(stats.eligible_prover_count, 0);
+        assert_eq!(stats.active_eligible_prover_count, 0);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -2764,11 +2767,13 @@ mod tests {
         let stats = db.get_market_collateral_stats(U256::from(50)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(20));
         assert_eq!(stats.eligible_prover_count, 0);
+        assert_eq!(stats.active_eligible_prover_count, 0);
 
         // Threshold = 10: prover1 has 20, eligible
         let stats = db.get_market_collateral_stats(U256::from(10)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(20));
         assert_eq!(stats.eligible_prover_count, 1);
+        assert_eq!(stats.active_eligible_prover_count, 0);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -2896,16 +2901,19 @@ mod tests {
         let stats = db.get_market_collateral_stats(U256::from(50)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(60));
         assert_eq!(stats.eligible_prover_count, 0);
+        assert_eq!(stats.active_eligible_prover_count, 0);
 
         // Threshold = 30: only prover1 eligible (40 >= 30, recipient 20 < 30)
         let stats = db.get_market_collateral_stats(U256::from(30)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(60));
         assert_eq!(stats.eligible_prover_count, 1);
+        assert_eq!(stats.active_eligible_prover_count, 0);
 
         // Threshold = 15: both eligible (prover1=40 >= 15, recipient=20 >= 15)
         let stats = db.get_market_collateral_stats(U256::from(15)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::from(60));
         assert_eq!(stats.eligible_prover_count, 2);
+        assert_eq!(stats.active_eligible_prover_count, 0);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -2916,5 +2924,173 @@ mod tests {
         let stats = db.get_market_collateral_stats(U256::from(20)).await.unwrap();
         assert_eq!(stats.total_collateral_deposited, U256::ZERO);
         assert_eq!(stats.eligible_prover_count, 0);
+        assert_eq!(stats.active_eligible_prover_count, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_market_collateral_stats_active_eligible(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+        let prover2 = Address::from([0xBB; 20]);
+        let prover3 = Address::from([0xCC; 20]);
+        let client = Address::from([0xDD; 20]);
+
+        // All three provers deposit enough to be eligible (threshold will be 50)
+        let deposits = vec![
+            (
+                prover1,
+                U256::from(100),
+                TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 1, 1000, 0),
+            ),
+            (
+                prover2,
+                U256::from(80),
+                TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 2, 1001, 0),
+            ),
+            (
+                prover3,
+                U256::from(30),
+                TxMetadata::new(B256::from([0x03; 32]), Address::ZERO, 3, 1002, 0),
+            ),
+        ];
+        db.add_collateral_deposit_events(&deposits).await.unwrap();
+
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        // prover1 fulfilled a request recently (1 hour ago) — active
+        let status1 = RequestStatus {
+            request_digest: B256::from([0x10; 32]),
+            request_id: U256::from(1),
+            request_status: RequestStatusType::Fulfilled,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: client,
+            lock_prover_address: Some(prover1),
+            fulfill_prover_address: Some(prover1),
+            created_at: now - 7200,
+            updated_at: now - 3600,
+            locked_at: Some(now - 7200),
+            fulfilled_at: Some(now - 3600),
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: Some(101),
+            fulfill_block: Some(102),
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "500".to_string(),
+            ramp_up_start: now - 7200,
+            ramp_up_period: 10,
+            expires_at: now + 10000,
+            lock_end: now + 10000,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
+            submit_tx_hash: Some(B256::from([0x11; 32])),
+            lock_tx_hash: Some(B256::from([0x12; 32])),
+            fulfill_tx_hash: Some(B256::from([0x13; 32])),
+            slash_tx_hash: None,
+            image_id: "test_image".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "test".to_string(),
+            predicate_data: "test".to_string(),
+            input_type: "test".to_string(),
+            input_data: "test".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+
+        // prover2 fulfilled a request 10 days ago — NOT active (outside 7-day window)
+        let status2 = RequestStatus {
+            request_digest: B256::from([0x20; 32]),
+            request_id: U256::from(2),
+            request_status: RequestStatusType::Fulfilled,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: client,
+            lock_prover_address: Some(prover2),
+            fulfill_prover_address: Some(prover2),
+            created_at: now - 900_000,
+            updated_at: now - 864_001,
+            locked_at: Some(now - 900_000),
+            fulfilled_at: Some(now - 864_001), // > 7 days ago (7 * 86400 = 604800)
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(200),
+            lock_block: Some(201),
+            fulfill_block: Some(202),
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "500".to_string(),
+            ramp_up_start: now - 900_000,
+            ramp_up_period: 10,
+            expires_at: now + 10000,
+            lock_end: now + 10000,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
+            submit_tx_hash: Some(B256::from([0x21; 32])),
+            lock_tx_hash: Some(B256::from([0x22; 32])),
+            fulfill_tx_hash: Some(B256::from([0x23; 32])),
+            slash_tx_hash: None,
+            image_id: "test_image".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "test".to_string(),
+            predicate_data: "test".to_string(),
+            input_type: "test".to_string(),
+            input_data: "test".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+
+        // prover3 has no fulfillments at all
+        db.upsert_request_statuses(&[status1, status2]).await.unwrap();
+
+        // Threshold = 50: prover1 (100) and prover2 (80) eligible, prover3 (30) not
+        // Only prover1 is active (fulfilled within 7 days)
+        let stats = db.get_market_collateral_stats(U256::from(50)).await.unwrap();
+        assert_eq!(stats.eligible_prover_count, 2);
+        assert_eq!(stats.active_eligible_prover_count, 1); // only prover1
+
+        // Threshold = 30: all three eligible, but only prover1 active
+        let stats = db.get_market_collateral_stats(U256::from(30)).await.unwrap();
+        assert_eq!(stats.eligible_prover_count, 3);
+        assert_eq!(stats.active_eligible_prover_count, 1); // still only prover1
+
+        // Threshold = 200: no one eligible, so no one active either
+        let stats = db.get_market_collateral_stats(U256::from(200)).await.unwrap();
+        assert_eq!(stats.eligible_prover_count, 0);
+        assert_eq!(stats.active_eligible_prover_count, 0);
     }
 }
