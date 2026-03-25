@@ -37,7 +37,39 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
+  prepare-recipe:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo-chef binary
+        id: cache-chef
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-chef
+          key: cargo-chef-${{ runner.os }}-${{ runner.arch }}-v1
+
+      - name: Install cargo-chef
+        if: steps.cache-chef.outputs.cache-hit != 'true'
+        run: cargo install cargo-chef --locked
+
+      - name: Generate recipe
+        run: cargo chef prepare --recipe-path recipe.json
+
+      - name: Upload recipe
+        uses: actions/upload-artifact@v4
+        with:
+          name: recipe
+          path: recipe.json
+          retention-days: 1
+
   build-and-push:
+    needs: [prepare-recipe]
     runs-on: [self-hosted, prod, Linux, cpu]
     strategy:
       fail-fast: false
@@ -80,6 +112,15 @@ jobs:
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
 
+      - name: Download recipe
+        uses: actions/download-artifact@v4
+        with:
+          name: recipe
+          path: ./recipe-out
+
+      - name: Prepare planner override
+        run: mkdir -p /tmp/planner-ctx/src && cp ./recipe-out/recipe.json /tmp/planner-ctx/src/recipe.json
+
       - name: Fetch sccache AWS creds
         id: sccache-creds
         uses: aws-actions/configure-aws-credentials@v4
@@ -111,6 +152,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-contexts: |
+            planner=/tmp/planner-ctx
           build-args: |
             S3_CACHE_BUCKET=boundless-ci-prod-cache
             S3_CACHE_PREFIX=public/boundless/rust-cache-docker-Linux-X64/sccache

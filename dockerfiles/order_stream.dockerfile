@@ -60,6 +60,8 @@ ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=order_stream_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=order_stream_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo chef cook --release --recipe-path recipe.json --package order-stream && \
     sccache --show-stats
@@ -79,6 +81,8 @@ RUN forge build
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=order_stream_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=order_stream_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p order-stream --bin order_stream && \
     cp /src/target/release/order_stream /src/order_stream && \

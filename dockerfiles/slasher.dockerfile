@@ -63,6 +63,8 @@ ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=slasher_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=slasher_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo chef cook --release --recipe-path recipe.json --package boundless-slasher && \
     sccache --show-stats
@@ -79,8 +81,11 @@ COPY blake3_groth16/ ./blake3_groth16/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=slasher_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=slasher_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release --bin boundless-slasher && \
+    cp /src/target/release/boundless-slasher /src/boundless-slasher && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
@@ -89,6 +94,6 @@ RUN apt-get -qq update && \
     apt-get install -y -q --no-install-recommends ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /src/target/release/boundless-slasher /app/boundless-slasher
+COPY --from=builder /src/boundless-slasher /app/boundless-slasher
 
 ENTRYPOINT ["/app/boundless-slasher"]

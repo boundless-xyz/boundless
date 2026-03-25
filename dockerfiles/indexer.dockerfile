@@ -61,6 +61,8 @@ ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=indexer_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=indexer_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo chef cook --release --recipe-path recipe.json --package boundless-indexer && \
     sccache --show-stats
@@ -78,12 +80,18 @@ COPY xtask/ ./xtask/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=indexer_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=indexer_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release \
         --bin market-indexer \
         --bin rewards-indexer \
         --bin market-efficiency-indexer \
         --bin market-indexer-backfill && \
+    cp /src/target/release/market-indexer /src/market-indexer && \
+    cp /src/target/release/rewards-indexer /src/rewards-indexer && \
+    cp /src/target/release/market-efficiency-indexer /src/market-efficiency-indexer && \
+    cp /src/target/release/market-indexer-backfill /src/market-indexer-backfill && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
@@ -92,7 +100,7 @@ RUN apt-get -qq update && \
     apt-get install -y -q --no-install-recommends ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /src/target/release/market-indexer /app/market-indexer
-COPY --from=builder /src/target/release/rewards-indexer /app/rewards-indexer
-COPY --from=builder /src/target/release/market-efficiency-indexer /app/market-efficiency-indexer
-COPY --from=builder /src/target/release/market-indexer-backfill /app/market-indexer-backfill
+COPY --from=builder /src/market-indexer /app/market-indexer
+COPY --from=builder /src/rewards-indexer /app/rewards-indexer
+COPY --from=builder /src/market-efficiency-indexer /app/market-efficiency-indexer
+COPY --from=builder /src/market-indexer-backfill /app/market-indexer-backfill

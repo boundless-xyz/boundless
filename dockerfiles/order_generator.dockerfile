@@ -57,6 +57,8 @@ ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=order_generator_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=order_generator_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo chef cook --release --recipe-path recipe.json --package boundless-order-generator && \
     sccache --show-stats
@@ -73,8 +75,11 @@ COPY blake3_groth16/ ./blake3_groth16/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=order_generator_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=order_generator_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release --bin boundless-order-generator && \
+    cp /src/target/release/boundless-order-generator /src/boundless-order-generator && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
@@ -83,6 +88,6 @@ RUN apt-get -qq update && \
     apt-get install -y -q --no-install-recommends ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /src/target/release/boundless-order-generator /app/boundless-order-generator
+COPY --from=builder /src/boundless-order-generator /app/boundless-order-generator
 
 ENTRYPOINT ["/app/boundless-order-generator"]
