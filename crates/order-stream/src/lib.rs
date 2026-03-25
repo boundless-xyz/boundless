@@ -14,6 +14,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use alloy::{
@@ -33,8 +34,6 @@ use axum::{
     routing::{get, post},
     Router,
 };
-#[cfg(test)]
-use boundless_market::order_stream_client::OrderData;
 use boundless_market::order_stream_client::{
     AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
     ORDER_LIST_PATH_V2, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
@@ -397,6 +396,9 @@ pub struct AppState {
     balance_cache: BalanceCache,
     /// Telemetry forwarding backend
     telemetry: Arc<dyn TelemetryForwarder>,
+    /// Signals that the broadcast task's PgListener is connected and the task is actively
+    /// processing order notifications. The health check endpoint gates on this.
+    broadcast_ready: AtomicBool,
 }
 
 impl AppState {
@@ -446,6 +448,7 @@ impl AppState {
             shutdown: CancellationToken::new(),
             balance_cache: heartbeat::new_balance_cache(),
             telemetry,
+            broadcast_ready: AtomicBool::new(false),
         }))
     }
 
@@ -561,6 +564,10 @@ pub async fn run_from_parts(
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
+            // Mark as not ready during (re)initialization so the health endpoint
+            // reflects that the broadcast pipeline is down.
+            app_state_clone.broadcast_ready.store(false, Ordering::Release);
+
             let order_stream = match app_state_clone.db.order_stream().await {
                 Ok(stream) => stream,
                 Err(e) => {
@@ -571,6 +578,12 @@ pub async fn run_from_parts(
             };
 
             let broadcast_task = start_broadcast_task(app_state_clone.clone(), order_stream);
+
+            // Signal readiness only after the PgListener is subscribed (via order_stream)
+            // and the broadcast task is spawned. This ensures the health endpoint won't
+            // return 200 until we can actually deliver order notifications to WebSocket clients.
+            app_state_clone.broadcast_ready.store(true, Ordering::Release);
+            tracing::info!("Broadcast task PgListener connected and ready");
 
             match broadcast_task.await {
                 Ok(Ok(())) => {
@@ -633,7 +646,7 @@ mod tests {
             hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
         input::GuestEnv,
-        order_stream_client::{order_stream, OrderStreamClient},
+        order_stream_client::{order_stream, OrderData, OrderStreamClient},
     };
     use boundless_test_utils::market::{create_test_ctx, TestCtx};
     use sqlx::types::chrono::Utc;
@@ -643,7 +656,10 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use serial_test::serial;
     use sqlx::PgPool;
-    use std::net::{Ipv4Addr, SocketAddr};
+    use std::{
+        net::{Ipv4Addr, SocketAddr},
+        pin::Pin,
+    };
     use tokio::task::JoinHandle;
 
     /// Test setup helper that creates common test infrastructure
@@ -740,6 +756,46 @@ mod tests {
         }
     }
 
+    // The server registers WebSocket connections in the on_upgrade callback, which runs
+    // asynchronously after connect_async returns on the client side. Poll until the
+    // connection appears in the map so broadcasts won't miss a client.
+    async fn wait_for_connection(app_state: &Arc<AppState>, addr: &Address) {
+        for _ in 0..100 {
+            if app_state.connections.read().await.contains_key(addr) {
+                return;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+        panic!("Connection for {addr} not registered within 5s");
+    }
+
+    fn spawn_order_observer(
+        label: &'static str,
+        mut stream: Pin<Box<dyn futures_util::Stream<Item = OrderData> + Send>>,
+    ) -> (tokio::sync::oneshot::Receiver<OrderData>, JoinHandle<std::result::Result<(), String>>)
+    {
+        let (order_tx, order_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let mut order_tx = Some(order_tx);
+
+            while let Some(order) = stream.next().await {
+                if let Some(first_order_tx) = order_tx.take() {
+                    first_order_tx.send(order).map_err(|_| {
+                        format!("{label} observer receiver dropped before the first order")
+                    })?;
+                }
+            }
+
+            if order_tx.is_some() {
+                Err(format!("{label} websocket stream closed before receiving an order"))
+            } else {
+                Ok(())
+            }
+        });
+
+        (order_rx, task)
+    }
+
     /// Comprehensive test helper that sets up server, client, and test environment
     async fn setup_server_and_client(
         pool: PgPool,
@@ -778,7 +834,7 @@ mod tests {
         (client, app_state, ctx, anvil, server_handle, addr)
     }
 
-    #[sqlx::test]
+    #[test_log::test(sqlx::test)]
     #[serial]
     async fn integration_test(pool: PgPool) {
         // Create listener first
@@ -808,47 +864,22 @@ mod tests {
         // Poll the health endpoint with exponential backoff
         wait_for_server_health(&client, &addr, 5).await;
 
-        // Create channels to communicate with the order stream task
-        let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(1);
-
-        // Connect to the WebSocket and start listening in a separate task
+        // Connect to the WebSocket and wait for server-side registration
         let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
+        wait_for_connection(&app_state, &ctx.prover_signer.address()).await;
 
-        // Connect customer signer as well
         let customer_client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,
         );
         let customer_socket = customer_client.connect_async(&ctx.customer_signer).await.unwrap();
-        let stream_task = tokio::spawn(async move {
-            let mut stream = order_stream(socket);
-            let mut customer_order_stream = order_stream(customer_socket);
+        wait_for_connection(&app_state, &ctx.customer_signer.address()).await;
 
-            loop {
-                // Wait for either order to come through
-                let (res1, res2) = tokio::join!(stream.next(), customer_order_stream.next());
-
-                // Handle potential errors from both streams
-                match (res1, res2) {
-                    (Some(order1), Some(order2)) => {
-                        if order1.order == order2.order {
-                            order_tx.send(order1).await.unwrap();
-                        } else {
-                            panic!("Orders don't match: {:?} vs {:?}", order1.order, order2.order);
-                        }
-                    }
-
-                    (None, None) => {
-                        // Handle the case on shutdown where both will be closed.
-                        break;
-                    }
-                    (_, _) => {
-                        panic!("Unexpected error in order stream clients");
-                    }
-                }
-            }
-        });
+        let (prover_order_rx, prover_stream_task) =
+            spawn_order_observer("prover", order_stream(socket));
+        let (customer_order_rx, customer_stream_task) =
+            spawn_order_observer("customer", order_stream(customer_socket));
 
         let app_state_clone = app_state.clone();
         let watch_task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
@@ -865,50 +896,61 @@ mod tests {
 
         let db_order = watch_task.await.unwrap().unwrap();
 
-        // Wait for the order to be received
-        let order_result =
-            tokio::time::timeout(tokio::time::Duration::from_secs(15), order_rx.recv()).await;
+        let prover_order_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(15), prover_order_rx).await;
+        let customer_order_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(15), customer_order_rx).await;
 
-        match order_result {
-            Ok(Some(received_order)) => {
-                assert_eq!(
-                    received_order.order, order,
-                    "Received order should match submitted order"
-                );
-                assert_eq!(order, db_order.order);
-            }
-            Ok(None) => {
-                panic!("Order channel closed unexpectedly");
-            }
-            Err(_) => {
-                panic!("Timed out waiting for order");
-            }
-        }
+        let prover_order = match prover_order_result {
+            Ok(Ok(received_order)) => received_order,
+            Ok(Err(_)) => match prover_stream_task.await.unwrap() {
+                Ok(()) => panic!("Prover observer ended before reporting the first order"),
+                Err(err) => panic!("Prover observer failed before receiving an order: {err}"),
+            },
+            Err(_) => panic!("Timed out waiting for order on prover connection"),
+        };
+        let customer_order = match customer_order_result {
+            Ok(Ok(received_order)) => received_order,
+            Ok(Err(_)) => match customer_stream_task.await.unwrap() {
+                Ok(()) => panic!("Customer observer ended before reporting the first order"),
+                Err(err) => panic!("Customer observer failed before receiving an order: {err}"),
+            },
+            Err(_) => panic!("Timed out waiting for order on customer connection"),
+        };
 
-        // Wait a bit to ensure ping-pong is working (no errors)
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-        // Verify the connections are in the connections map
-        {
-            let connections = app_state.connections.read().await;
-            assert!(
-                connections.contains_key(&ctx.prover_signer.address()),
-                "Connection should still be active after ping-pong exchanges"
-            );
-            assert!(
-                connections.contains_key(&ctx.customer_signer.address()),
-                "Customer connection should also be active"
-            );
-        }
+        assert_eq!(
+            prover_order.order, order,
+            "Received order should match submitted order on prover connection"
+        );
+        assert_eq!(
+            customer_order.order, order,
+            "Received order should match submitted order on customer connection"
+        );
+        assert_eq!(
+            prover_order.order, customer_order.order,
+            "Both websocket clients should receive the same order"
+        );
+        assert_eq!(order, db_order.order);
 
         // Now simulate server disconnection by aborting the server task
         app_state.shutdown.cancel();
 
-        // Ensure that the client streams have been closed.
-        tokio::time::timeout(tokio::time::Duration::from_secs(10), stream_task)
-            .await
-            .unwrap()
-            .unwrap();
+        let prover_shutdown_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(10), prover_stream_task).await;
+        match prover_shutdown_result {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(err))) => panic!("Prover observer failed during shutdown: {err}"),
+            Ok(Err(err)) => panic!("Prover observer panicked during shutdown: {err}"),
+            Err(_) => panic!("Timed out waiting for prover observer to shut down"),
+        }
+        let customer_shutdown_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(10), customer_stream_task).await;
+        match customer_shutdown_result {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(err))) => panic!("Customer observer failed during shutdown: {err}"),
+            Ok(Err(err)) => panic!("Customer observer panicked during shutdown: {err}"),
+            Err(_) => panic!("Timed out waiting for customer observer to shut down"),
+        }
 
         // Clean up
         server_handle.abort();
@@ -954,7 +996,7 @@ mod tests {
         assert!(pending_connection, "Should return true after removing the connection");
     }
 
-    #[sqlx::test]
+    #[test_log::test(sqlx::test)]
     #[serial]
     async fn test_websocket_connection_replacement(pool: PgPool) {
         // Set up server and client

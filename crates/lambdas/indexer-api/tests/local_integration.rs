@@ -57,6 +57,8 @@ const END_BLOCK: u32 = 23395398;
 const BOUNDLESS_MARKET_ADDRESS: &str = "0xfd152dadc5183870710fe54f939eae3ab9f0fe82";
 const MARKET_START_BLOCK: u32 = 37833057;
 const MARKET_END_BLOCK: u32 = 37835000;
+const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const MARKET_INDEXER_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Shared test environment that persists across all tests
 struct SharedTestEnv {
@@ -144,7 +146,7 @@ impl TestEnv {
     /// Make a GET request to the API
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> anyhow::Result<T> {
         let url = format!("{}{}", self.api_url, path);
-        let client = Client::new();
+        let client = Client::builder().timeout(API_REQUEST_TIMEOUT).build()?;
         let response = client.get(&url).send().await?;
 
         if !response.status().is_success() {
@@ -445,7 +447,7 @@ impl MarketTestEnv {
         );
 
         // Set a timeout for the indexer to complete
-        let timeout = Duration::from_secs(300); // 5 minutes for market indexer
+        let timeout = MARKET_INDEXER_TIMEOUT;
         let start = std::time::Instant::now();
 
         loop {
