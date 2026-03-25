@@ -20,11 +20,31 @@
 //! - IPFS gateway fallback
 
 use crate::storage::{config::StorageDownloaderConfig, StorageDownloader, StorageError};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::StreamExt;
+use reqwest::{
+    header::{CONTENT_RANGE, RANGE},
+    Response, StatusCode,
+};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use url::Url;
+
+const RANGE_CHUNK_SIZE: u64 = 16 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ContentRange {
+    start: u64,
+    end: u64,
+    total: u64,
+}
+
+impl ContentRange {
+    fn len(self) -> usize {
+        (self.end - self.start + 1) as usize
+    }
+}
 
 /// HTTP/HTTPS downloader with retry support.
 ///
@@ -36,6 +56,7 @@ use url::Url;
 pub struct HttpDownloader {
     client: ClientWithMiddleware,
     ipfs_gateway: Option<Url>,
+    max_retries: u32,
 }
 
 impl Default for HttpDownloader {
@@ -60,7 +81,11 @@ impl HttpDownloader {
             builder = builder.with(RetryTransientMiddleware::new_with_policy(retry_policy));
         }
 
-        Self { client: builder.build(), ipfs_gateway: ipfs_gateway.map(normalize_gateway_url) }
+        Self {
+            client: builder.build(),
+            ipfs_gateway: ipfs_gateway.map(normalize_gateway_url),
+            max_retries: max_retries.unwrap_or(0) as u32,
+        }
     }
 
     /// Attempts to rewrite an IPFS gateway URL to use the configured fallback gateway.
@@ -93,8 +118,93 @@ impl HttpDownloader {
 
         tracing::debug!(%url, "downloading from HTTP");
 
-        let resp = self.client.get(url.clone()).send().await.map_err(StorageError::http)?;
+        let probe_end = RANGE_CHUNK_SIZE.saturating_sub(1);
+        let probe = self.send_request(&url, Some((0, probe_end))).await?;
 
+        match probe.status() {
+            StatusCode::PARTIAL_CONTENT => self.download_with_ranges(url, probe, limit).await,
+            StatusCode::OK => self.read_full_response(url, probe, limit).await,
+            status => Err(StorageError::HttpStatus(status.as_u16())),
+        }
+    }
+
+    async fn download_with_ranges(
+        &self,
+        url: Url,
+        resp: Response,
+        limit: usize,
+    ) -> Result<Vec<u8>, StorageError> {
+        let first_chunk = self.read_ranged_response(resp, 0, RANGE_CHUNK_SIZE - 1, limit).await?;
+        if first_chunk.range.total as usize > limit {
+            return Err(StorageError::SizeLimitExceeded {
+                size: first_chunk.range.total as usize,
+                limit,
+            });
+        }
+
+        let mut buffer = Vec::with_capacity((first_chunk.range.total as usize).min(limit));
+        buffer.extend_from_slice(&first_chunk.bytes);
+
+        let mut next_start = first_chunk.range.end + 1;
+        while next_start < first_chunk.range.total {
+            let next_end = (next_start + RANGE_CHUNK_SIZE - 1).min(first_chunk.range.total - 1);
+            let chunk = self.download_range_with_retry(&url, next_start, next_end, limit).await?;
+            buffer.extend_from_slice(&chunk.bytes);
+            next_start = chunk.range.end + 1;
+        }
+
+        tracing::trace!(size = buffer.len(), %url, "downloaded from HTTP with byte ranges");
+        Ok(buffer)
+    }
+
+    async fn download_range_with_retry(
+        &self,
+        url: &Url,
+        start: u64,
+        end: u64,
+        limit: usize,
+    ) -> Result<DownloadedRange, StorageError> {
+        for attempt in 0..=self.max_retries {
+            match self.download_range_once(url, start, end, limit).await {
+                Ok(chunk) => return Ok(chunk),
+                Err(err) if attempt < self.max_retries && should_retry(&err) => {
+                    tracing::warn!(
+                        %url,
+                        start,
+                        end,
+                        attempt = attempt + 1,
+                        retries_remaining = self.max_retries - attempt,
+                        error = %err,
+                        "Retrying ranged HTTP download chunk"
+                    );
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        unreachable!("retry loop must return before exhausting attempts")
+    }
+
+    async fn download_range_once(
+        &self,
+        url: &Url,
+        start: u64,
+        end: u64,
+        limit: usize,
+    ) -> Result<DownloadedRange, StorageError> {
+        let resp = self.send_request(url, Some((start, end))).await?;
+        match resp.status() {
+            StatusCode::PARTIAL_CONTENT => self.read_ranged_response(resp, start, end, limit).await,
+            status => Err(StorageError::HttpStatus(status.as_u16())),
+        }
+    }
+
+    async fn read_full_response(
+        &self,
+        url: Url,
+        resp: Response,
+        limit: usize,
+    ) -> Result<Vec<u8>, StorageError> {
         let status = resp.status();
         if !status.is_success() {
             return Err(StorageError::HttpStatus(status.as_u16()));
@@ -106,8 +216,63 @@ impl HttpDownloader {
             return Err(StorageError::SizeLimitExceeded { size: content_length, limit });
         }
 
-        // Stream the response body with size checking
-        let mut buffer = Vec::with_capacity(content_length.min(limit));
+        let buffer = Self::read_response_body(resp, content_length.min(limit), limit).await?;
+
+        tracing::trace!(size = buffer.len(), %url, "downloaded from HTTP");
+        Ok(buffer)
+    }
+
+    async fn read_ranged_response(
+        &self,
+        resp: Response,
+        expected_start: u64,
+        expected_end: u64,
+        limit: usize,
+    ) -> Result<DownloadedRange, StorageError> {
+        let range = parse_content_range(&resp)?;
+        if range.start != expected_start || range.end > expected_end {
+            return Err(StorageError::Other(anyhow!(
+                "unexpected content-range {}-{} for requested range {}-{}",
+                range.start,
+                range.end,
+                expected_start,
+                expected_end
+            )));
+        }
+        if range.total as usize > limit {
+            return Err(StorageError::SizeLimitExceeded { size: range.total as usize, limit });
+        }
+
+        let bytes = Self::read_response_body(resp, range.len(), limit).await?;
+        if bytes.len() != range.len() {
+            return Err(StorageError::Other(anyhow!(
+                "incomplete ranged response: expected {} bytes, got {}",
+                range.len(),
+                bytes.len()
+            )));
+        }
+
+        Ok(DownloadedRange { range, bytes })
+    }
+
+    async fn send_request(
+        &self,
+        url: &Url,
+        range: Option<(u64, u64)>,
+    ) -> Result<Response, StorageError> {
+        let mut request = self.client.get(url.clone());
+        if let Some((start, end)) = range {
+            request = request.header(RANGE, format!("bytes={start}-{end}"));
+        }
+        request.send().await.map_err(StorageError::http)
+    }
+
+    async fn read_response_body(
+        resp: Response,
+        capacity: usize,
+        limit: usize,
+    ) -> Result<Vec<u8>, StorageError> {
+        let mut buffer = Vec::with_capacity(capacity.min(limit));
         let mut stream = resp.bytes_stream();
 
         while let Some(chunk) = stream.next().await {
@@ -120,8 +285,6 @@ impl HttpDownloader {
             }
             buffer.extend_from_slice(&chunk);
         }
-
-        tracing::trace!(size = buffer.len(), %url, "downloaded from HTTP");
 
         Ok(buffer)
     }
@@ -143,6 +306,46 @@ fn normalize_gateway_url(mut url: Url) -> Url {
         url.set_path(&format!("{}/", url.path()));
     }
     url
+}
+
+fn parse_content_range(resp: &Response) -> Result<ContentRange, StorageError> {
+    let header = resp.headers().get(CONTENT_RANGE).ok_or_else(|| {
+        StorageError::Other(anyhow!("missing Content-Range header on 206 response"))
+    })?;
+    let header = header
+        .to_str()
+        .map_err(|err| StorageError::Other(anyhow!("invalid Content-Range header: {err}")))?;
+    let range = header.strip_prefix("bytes ").ok_or_else(|| {
+        StorageError::Other(anyhow!("unsupported Content-Range format: {header}"))
+    })?;
+    let (span, total) = range
+        .split_once('/')
+        .ok_or_else(|| StorageError::Other(anyhow!("invalid Content-Range value: {header}")))?;
+    let (start, end) = span
+        .split_once('-')
+        .ok_or_else(|| StorageError::Other(anyhow!("invalid Content-Range span: {header}")))?;
+
+    let start = start
+        .parse::<u64>()
+        .map_err(|err| StorageError::Other(anyhow!("invalid Content-Range start: {err}")))?;
+    let end = end
+        .parse::<u64>()
+        .map_err(|err| StorageError::Other(anyhow!("invalid Content-Range end: {err}")))?;
+    let total = total
+        .parse::<u64>()
+        .map_err(|err| StorageError::Other(anyhow!("invalid Content-Range total: {err}")))?;
+
+    if end < start || end >= total {
+        return Err(StorageError::Other(anyhow!("invalid Content-Range bounds: {header}")));
+    }
+
+    Ok(ContentRange { start, end, total })
+}
+
+#[derive(Debug)]
+struct DownloadedRange {
+    range: ContentRange,
+    bytes: Vec<u8>,
 }
 
 /// Returns `true` if the error is worth retrying with a fallback gateway.
@@ -192,6 +395,15 @@ impl StorageDownloader for HttpDownloader {
 mod tests {
     use super::*;
     use httpmock::prelude::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        task::JoinHandle,
+    };
 
     fn mock_server_with_body(path: &str, body: &[u8]) -> (MockServer, Vec<u8>) {
         let server = MockServer::start();
@@ -219,6 +431,161 @@ mod tests {
 
         let result = HttpDownloader::default().download_url_with_limit(url, 10).await;
         assert!(matches!(result, Err(StorageError::SizeLimitExceeded { .. })));
+    }
+
+    struct TestRangeServer {
+        base_url: String,
+        requests: Arc<Mutex<Vec<Option<(u64, u64)>>>>,
+        _task: JoinHandle<()>,
+    }
+
+    impl TestRangeServer {
+        async fn new(body: Vec<u8>, support_ranges: bool, fail_once_at_start: Option<u64>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let failed_once = Arc::new(AtomicBool::new(false));
+
+            let requests_clone = requests.clone();
+            let failed_once_clone = failed_once.clone();
+            let task = tokio::spawn(async move {
+                loop {
+                    let Ok((mut stream, _)) = listener.accept().await else { break };
+                    let body = body.clone();
+                    let requests = requests_clone.clone();
+                    let failed_once = failed_once_clone.clone();
+
+                    tokio::spawn(async move {
+                        let mut buf = Vec::new();
+                        let mut chunk = [0_u8; 1024];
+                        loop {
+                            let read = stream.read(&mut chunk).await.unwrap();
+                            if read == 0 {
+                                return;
+                            }
+                            buf.extend_from_slice(&chunk[..read]);
+                            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+
+                        let request = String::from_utf8_lossy(&buf);
+                        let range = request.lines().find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            if !name.eq_ignore_ascii_case("range") {
+                                return None;
+                            }
+                            let value = value.trim().strip_prefix("bytes=")?;
+                            let (start, end) = value.split_once('-')?;
+                            Some((start.parse::<u64>().ok()?, end.parse::<u64>().ok()?))
+                        });
+                        requests.lock().unwrap().push(range);
+
+                        if support_ranges {
+                            if let Some((start, end)) = range {
+                                let actual_end = end.min(body.len() as u64 - 1);
+                                let slice = &body[start as usize..=actual_end as usize];
+                                let headers = format!(
+                                    "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                                    slice.len(),
+                                    start,
+                                    actual_end,
+                                    body.len()
+                                );
+                                stream.write_all(headers.as_bytes()).await.unwrap();
+
+                                if fail_once_at_start == Some(start)
+                                    && !failed_once.swap(true, Ordering::SeqCst)
+                                {
+                                    let split = (slice.len() / 2).max(1);
+                                    stream.write_all(&slice[..split]).await.unwrap();
+                                    let _ = stream.shutdown().await;
+                                    return;
+                                }
+
+                                stream.write_all(slice).await.unwrap();
+                                let _ = stream.shutdown().await;
+                                return;
+                            }
+                        }
+
+                        let headers = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        stream.write_all(headers.as_bytes()).await.unwrap();
+                        stream.write_all(&body).await.unwrap();
+                        let _ = stream.shutdown().await;
+                    });
+                }
+            });
+
+            Self { base_url: format!("http://{addr}"), requests, _task: task }
+        }
+
+        fn url(&self, path: &str) -> Url {
+            Url::parse(&format!("{}{}", self.base_url, path)).unwrap()
+        }
+
+        fn requests(&self) -> Vec<Option<(u64, u64)>> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl Drop for TestRangeServer {
+        fn drop(&mut self) {
+            self._task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn download_uses_ranged_requests_when_supported() {
+        let body = vec![0x5a; (RANGE_CHUNK_SIZE as usize * 2) + 123];
+        let server = TestRangeServer::new(body.clone(), true, None).await;
+        let data =
+            HttpDownloader::new(Some(1), None).download_url(server.url("/range")).await.unwrap();
+
+        assert_eq!(data, body);
+        assert_eq!(
+            server.requests(),
+            vec![
+                Some((0, RANGE_CHUNK_SIZE - 1)),
+                Some((RANGE_CHUNK_SIZE, (RANGE_CHUNK_SIZE * 2) - 1)),
+                Some(((RANGE_CHUNK_SIZE * 2), (body.len() as u64) - 1)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn ranged_download_retries_only_failed_chunk() {
+        let body = vec![0x33; (RANGE_CHUNK_SIZE as usize * 3) + 321];
+        let fail_start = RANGE_CHUNK_SIZE;
+        let server = TestRangeServer::new(body.clone(), true, Some(fail_start)).await;
+        let data =
+            HttpDownloader::new(Some(2), None).download_url(server.url("/retry")).await.unwrap();
+
+        assert_eq!(data, body);
+        assert_eq!(
+            server.requests(),
+            vec![
+                Some((0, RANGE_CHUNK_SIZE - 1)),
+                Some((fail_start, (RANGE_CHUNK_SIZE * 2) - 1)),
+                Some((fail_start, (RANGE_CHUNK_SIZE * 2) - 1)),
+                Some(((RANGE_CHUNK_SIZE * 2), (RANGE_CHUNK_SIZE * 3) - 1)),
+                Some(((RANGE_CHUNK_SIZE * 3), (body.len() as u64) - 1)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_full_body_when_range_is_ignored() {
+        let body = vec![0x7b; 4096];
+        let server = TestRangeServer::new(body.clone(), false, None).await;
+        let data =
+            HttpDownloader::new(Some(1), None).download_url(server.url("/full")).await.unwrap();
+
+        assert_eq!(data, body);
+        assert_eq!(server.requests(), vec![Some((0, RANGE_CHUNK_SIZE - 1))]);
     }
 
     #[tokio::test]
