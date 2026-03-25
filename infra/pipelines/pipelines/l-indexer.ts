@@ -17,7 +17,6 @@ const config: LaunchPipelineConfig = {
         '. "$HOME/.cargo/env"',
         'npm install -g @ziglang/cli'
     ],
-    branchName: "main",
 };
 
 export class LIndexerPipeline extends LaunchDefaultPipeline {

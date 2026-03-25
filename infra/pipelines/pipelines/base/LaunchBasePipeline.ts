@@ -14,7 +14,7 @@ export interface LaunchPipelineConfig {
 export const LAUNCH_PIPELINE_DEFAULTS = {
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
-  branchName: "main",
+  branchName: "willpote/infra-taiko-v2",
 } as const;
 
 export interface SecretsResult {
