@@ -43,5 +43,6 @@ utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 boundless-test-utils = { workspace = true }
 risc0-zkvm = { workspace = true }
 serial_test = "3.2"
+test-log = { workspace = true }
 url = { workspace = true }
 urlencoding = "2.1"
