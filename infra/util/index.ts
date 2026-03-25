@@ -70,6 +70,45 @@ export enum Severity {
   SEV2 = 'SEV2',
 }
 
+export const GHCR_IMAGE_PREFIX = 'ghcr.io/boundless-xyz/boundless';
+
+/**
+ * Constructs a GHCR image URI from the current git SHA and waits
+ * for it to exist (CI may still be building). Retries with backoff
+ * for up to ~15 minutes before failing.
+ */
+export async function getGhcrImageUri(serviceName: string): Promise<string> {
+  const sha = require('child_process')
+    .execSync('git rev-parse --short HEAD')
+    .toString().trim();
+  const tag = `main-${sha}`;
+  const uri = `${GHCR_IMAGE_PREFIX}/${serviceName}:${tag}`;
+
+  // Check GHCR manifest via registry API (public, no auth needed)
+  const url = `https://ghcr.io/v2/boundless-xyz/boundless/${serviceName}/manifests/${tag}`;
+  const maxAttempts = 30;      // 30 attempts
+  const intervalMs = 30_000;   // 30s between attempts → ~15 min total
+
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      const res = require('child_process').execSync(
+        `curl -sf -o /dev/null -w "%{http_code}" -H "Accept: application/vnd.oci.image.index.v1+json" "${url}"`,
+        { encoding: 'utf-8' }
+      ).trim();
+      if (res === '200') {
+        console.log(`GHCR image found: ${uri}`);
+        return uri;
+      }
+    } catch { /* curl returns non-zero on 404 */ }
+
+    if (i < maxAttempts) {
+      console.log(`Waiting for GHCR image ${uri} (attempt ${i}/${maxAttempts}, retrying in 30s)...`);
+      require('child_process').execSync(`sleep 30`);
+    }
+  }
+  throw new Error(`GHCR image not found after ${maxAttempts} attempts: ${uri}`);
+}
+
 export const DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS = 7200;
 
 /** Max session duration when assuming a role from another role (role chaining). AWS limit is 1 hour. */

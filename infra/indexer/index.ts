@@ -14,6 +14,7 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
+  const useGhcr = config.getBoolean('USE_GHCR') || false;
   const chainId = config.require('CHAIN_ID');
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
@@ -78,6 +79,7 @@ export = () => {
     dockerDir,
     dockerTag,
     dockerRemoteBuilder,
+    useGhcr,
   });
 
   let marketIndexer: MarketIndexer | undefined;
@@ -123,7 +125,7 @@ export = () => {
       backfillChainDataBlocks,
       chainDataBatchDelayMs,
       backfillBatchSize,
-    }, { parent: infra, dependsOn: [infra, infra.image, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, ...(infra.image ? [infra.image] : []), infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -137,10 +139,10 @@ export = () => {
       povwAccountingAddress,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
-    }, { parent: infra, dependsOn: [infra, infra.image, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, ...(infra.image ? [infra.image] : []), infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
-  const sharedDependencies: pulumi.Resource[] = [infra.image, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
+  const sharedDependencies: pulumi.Resource[] = [...(infra.image ? [infra.image] : []), infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
   if (marketIndexer) {
     sharedDependencies.push(marketIndexer.service);
   }

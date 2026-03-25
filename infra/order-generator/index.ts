@@ -2,7 +2,7 @@ import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
-import { getEnvVar, getServiceNameV1 } from '../util';
+import { getEnvVar, getServiceNameV1, getGhcrImageUri } from '../util';
 import { OrderGenerator } from './components/order-generator';
 import { LoadTestTrigger } from './components/load-test';
 
@@ -41,6 +41,8 @@ export = () => {
   const minPricePerMCycle = baseConfig.get('MIN_PRICE_PER_MCYCLE') || '0';
   const txTimeout = baseConfig.get('TX_TIMEOUT') || '180';
 
+  const useGhcr = baseConfig.getBoolean('USE_GHCR') || false;
+
   const imageName = getServiceNameV1(stackName, `order-generator`);
   const repo = new awsx.ecr.Repository(`${imageName}-ecr-repo`, {
     name: `${imageName}-ecr-repo`,
@@ -56,64 +58,72 @@ export = () => {
     },
   });
 
-  const authToken = aws.ecr.getAuthorizationTokenOutput({
-    registryId: repo.repository.registryId,
-  });
+  let imageRef: pulumi.Output<string>;
 
-  let buildSecrets = {};
-  if (ciCacheSecret !== undefined) {
-    buildSecrets = {
-      ci_cache_creds: ciCacheSecret,
-    };
-  }
-  if (githubTokenSecret !== undefined) {
-    buildSecrets = {
-      ...buildSecrets,
-      githubTokenSecret
-    };
-  }
+  if (useGhcr) {
+    imageRef = pulumi.output(getGhcrImageUri('order-generator'));
+  } else {
+    const authToken = aws.ecr.getAuthorizationTokenOutput({
+      registryId: repo.repository.registryId,
+    });
 
-  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+    let buildSecrets = {};
+    if (ciCacheSecret !== undefined) {
+      buildSecrets = {
+        ci_cache_creds: ciCacheSecret,
+      };
+    }
+    if (githubTokenSecret !== undefined) {
+      buildSecrets = {
+        ...buildSecrets,
+        githubTokenSecret
+      };
+    }
 
-  const image = new docker_build.Image(`${imageName}-image`, {
-    tags: [dockerTagPath],
-    context: {
-      location: dockerDir,
-    },
-    builder: dockerRemoteBuilder ? {
-      name: dockerRemoteBuilder,
-    } : undefined,
-    platforms: ['linux/amd64'],
-    push: true,
-    dockerfile: {
-      location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
-    },
-    secrets: buildSecrets,
-    cacheFrom: [
-      {
-        registry: {
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+    const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+    const image = new docker_build.Image(`${imageName}-image`, {
+      tags: [dockerTagPath],
+      context: {
+        location: dockerDir,
+      },
+      builder: dockerRemoteBuilder ? {
+        name: dockerRemoteBuilder,
+      } : undefined,
+      platforms: ['linux/amd64'],
+      push: true,
+      dockerfile: {
+        location: `${dockerDir}/dockerfiles/order_generator.dockerfile`,
+      },
+      secrets: buildSecrets,
+      cacheFrom: [
+        {
+          registry: {
+            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+          },
         },
-      },
-    ],
-    cacheTo: [
-      {
-        registry: {
-          mode: docker_build.CacheMode.Max,
-          imageManifest: true,
-          ociMediaTypes: true,
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+      ],
+      cacheTo: [
+        {
+          registry: {
+            mode: docker_build.CacheMode.Max,
+            imageManifest: true,
+            ociMediaTypes: true,
+            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+          },
         },
-      },
-    ],
-    registries: [
-      {
-        address: repo.repository.repositoryUrl,
-        password: authToken.password,
-        username: authToken.userName,
-      },
-    ],
-  });
+      ],
+      registries: [
+        {
+          address: repo.repository.repositoryUrl,
+          password: authToken.password,
+          username: authToken.userName,
+        },
+      ],
+    });
+
+    imageRef = image.ref;
+  }
 
   const offchainConfig = new pulumi.Config("order-generator-offchain");
   const offchainAutoDeposit = offchainConfig.get('AUTO_DEPOSIT');
@@ -151,7 +161,7 @@ export = () => {
       offchainConfig: {
         orderStreamUrl,
       },
-      image,
+      imageRef,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -212,7 +222,7 @@ export = () => {
       privateKey: onchainPrivateKey,
       pinataJWT,
       ethRpcUrl,
-      image,
+      imageRef,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -277,7 +287,7 @@ export = () => {
       autoDeposit: randomRequestorAutoDeposit,
       warnBalanceBelow: randomRequestorWarnBalanceBelow,
       errorBalanceBelow: randomRequestorErrorBalanceBelow,
-      image,
+      imageRef,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -342,7 +352,7 @@ export = () => {
       privateKey: evmRequestorPrivateKey,
       pinataJWT,
       ethRpcUrl,
-      image,
+      imageRef,
       logLevel,
       setVerifierAddr,
       boundlessMarketAddr,
@@ -387,7 +397,7 @@ export = () => {
       ethRpcUrl,
       indexerUrl,
       orderStreamUrl,
-      image,
+      imageRef,
       logLevel,
       setVerifierAddr: setVerifierAddr,
       boundlessMarketAddr: boundlessMarketAddr,

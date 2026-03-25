@@ -87,7 +87,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-market-${infra.databaseVersion}`,
-          image: infra.image.ref,
+          image: infra.imageRef,
           entryPoint: ['/app/market-indexer'],
           cpu: 2048,
           memory: 2048,
@@ -189,7 +189,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       taskRole: { roleArn: infra.taskRole.arn },
       container: {
         name: backfillContainerName,
-        image: infra.image.ref,
+        image: infra.imageRef,
         entryPoint: ['/app/market-indexer-backfill'],
         cpu: 2048,
         memory: 2048,
@@ -371,7 +371,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       taskRole: { roleArn: infra.taskRole.arn },
       container: {
         name: efficiencyContainerName,
-        image: infra.image.ref,
+        image: infra.imageRef,
         entryPoint: ['/app/market-efficiency-indexer'],
         cpu: 1024,
         memory: 2048,

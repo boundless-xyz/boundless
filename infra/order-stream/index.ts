@@ -1,7 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import { OrderStreamInstance } from './components/order-stream';
 import { TelemetryInfra } from './components/telemetry';
-import { getEnvVar, getServiceNameV1 } from '../util';
+import { getEnvVar, getServiceNameV1, getGhcrImageUri } from '../util';
 
 require('dotenv').config();
 
@@ -31,6 +31,8 @@ export = () => {
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const disableCert = config.getBoolean('DISABLE_CERT') || false;
+  const useGhcr = config.getBoolean('USE_GHCR') || false;
+  const prebuiltImage = useGhcr ? pulumi.output(getGhcrImageUri('order-stream')) : undefined;
 
   const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
   const premiumRateLimit = config.getNumber('PREMIUM_RATE_LIMIT') ?? 10000;
@@ -55,6 +57,7 @@ export = () => {
     dockerDir,
     dockerTag,
     dockerRemoteBuilder,
+    prebuiltImage,
     orderStreamPingTime,
     privSubNetIds,
     pubSubNetIds,
