@@ -21,6 +21,8 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
     && rustup install 1.88
 
+RUN cargo install cargo-chef --locked
+
 # Install protoc
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
     && unzip protoc.zip -d /usr/local \
@@ -35,6 +37,12 @@ RUN curl -L https://risczero.com/install | bash && \
     /root/.risc0/bin/rzup install risc0-groth16 && \
     # Clean up any temporary files to reduce image size
     rm -rf /tmp/* /var/tmp/*
+
+FROM rust-builder AS planner
+
+WORKDIR /src/bento
+COPY bento/ .
+RUN cargo chef prepare --recipe-path /src/recipe.json
 
 FROM rust-builder AS builder
 
@@ -52,7 +60,9 @@ ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 ENV SCCACHE_SERVER_PORT=4227
 
 WORKDIR /src/
-COPY . .
+
+COPY --from=planner /src/recipe.json /src/recipe.json
+COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
 
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
@@ -64,7 +74,18 @@ ENV RUSTFLAGS=${RUSTFLAGS}
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
     --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
-    --mount=type=cache,target=/src/bento/target,id=agent_target \
+    --mount=type=cache,target=/src/bento/target-agent-gpu,id=agent_target \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    export CARGO_TARGET_DIR=/src/bento/target-agent-gpu && \
+    cargo chef cook --release --recipe-path recipe.json --manifest-path bento/Cargo.toml --package workflow && \
+    sccache --show-stats
+
+COPY . .
+
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/bento/target-agent-gpu,id=agent_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
