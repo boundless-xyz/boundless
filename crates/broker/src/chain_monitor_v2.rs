@@ -243,11 +243,13 @@ where
         self.block_time
     }
 
+    #[allow(dead_code)]
     /// Returns a clone of the new-order sender for use by other monitors (e.g. `OffchainMarketMonitor`).
     pub(crate) fn new_order_tx(&self) -> mpsc::Sender<Box<OrderRequest>> {
         self.new_order_tx.clone()
     }
 
+    #[allow(dead_code)]
     /// Returns a clone of the order-state broadcast sender for use by downstream components.
     pub(crate) fn order_state_tx(&self) -> broadcast::Sender<OrderStateChange> {
         self.order_state_tx.clone()
