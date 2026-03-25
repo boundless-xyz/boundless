@@ -256,7 +256,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
         }
     }
 
-    // Clean up the pending connection entry before upgrading
+    // Clean up the pending connection entry before upgrading.
     state.remove_pending_connection(&address).await;
 
     let mut errors_counter = 0usize;
