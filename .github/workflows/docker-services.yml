@@ -47,12 +47,12 @@ jobs:
             type=raw,value=latest
             type=sha
 
-      - name: Fetch BuildKit cache AWS creds
+      - name: Fetch cache AWS creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: "us-west-2"
           role-duration-seconds: 14400
-          role-to-assume: "arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access"
+          role-to-assume: "arn:aws:iam::033359631619:role/gha_oidc_boundless_cache_public_access"
 
       - name: Build and push builder-base
         uses: docker/build-push-action@v6
@@ -63,8 +63,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           secrets: |
             githubTokenSecret=${{ secrets.GITHUB_TOKEN }}
-          cache-from: type=s3,name=builder-base-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
-          cache-to: type=s3,name=builder-base-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
+          cache-from: type=s3,name=builder-base-cache,manifests_prefix=docker/manifests/,blobs_prefix=docker/blobs/,region=us-west-2,bucket=boundless-ci-prod-cache
+          cache-to: type=s3,name=builder-base-cache,manifests_prefix=docker/manifests/,blobs_prefix=docker/blobs/,region=us-west-2,bucket=boundless-ci-prod-cache,mode=max
 
   prepare-recipe:
     runs-on: [self-hosted, prod, Linux, cpu]
@@ -155,8 +155,8 @@ jobs:
       - name: Prepare planner override
         run: mkdir -p /tmp/planner-ctx/src && cp ./recipe-out/recipe.json /tmp/planner-ctx/src/recipe.json
 
-      - name: Fetch sccache AWS creds
-        id: sccache-creds
+      - name: Fetch cache AWS creds
+        id: cache-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: "us-west-2"
@@ -167,16 +167,9 @@ jobs:
       - name: Create sccache creds file for Docker build
         run: |
           echo "[default]" > ./dockerfiles/ci-cache-creds.txt
-          echo "aws_access_key_id=${{ steps.sccache-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt
-          echo "aws_secret_access_key=${{ steps.sccache-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt
-          echo "aws_session_token=${{ steps.sccache-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
-
-      - name: Fetch BuildKit cache AWS creds
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: "us-west-2"
-          role-duration-seconds: 14400
-          role-to-assume: "arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access"
+          echo "aws_access_key_id=${{ steps.cache-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt
+          echo "aws_secret_access_key=${{ steps.cache-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt
+          echo "aws_session_token=${{ steps.cache-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
 
       - name: Build and push ${{ matrix.service.name }}
         uses: docker/build-push-action@v6
@@ -192,8 +185,8 @@ jobs:
             BUILDER_BASE=${{ env.IMAGE_PREFIX }}/builder-base:latest
             S3_CACHE_BUCKET=boundless-ci-prod-cache
             S3_CACHE_PREFIX=public/boundless/rust-cache-docker-Linux-X64/sccache
-          cache-from: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
-          cache-to: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
+          cache-from: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=docker/manifests/,blobs_prefix=docker/blobs/,region=us-west-2,bucket=boundless-ci-prod-cache
+          cache-to: type=s3,name=${{ matrix.service.name }}-cache,manifests_prefix=docker/manifests/,blobs_prefix=docker/blobs/,region=us-west-2,bucket=boundless-ci-prod-cache,mode=max
           secrets: |
             githubTokenSecret=${{ secrets.GITHUB_TOKEN }}
           secret-files: |
