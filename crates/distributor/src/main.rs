@@ -224,6 +224,9 @@ async fn run(args: &MainArgs) -> Result<()> {
         .build()
         .await?;
 
+    // TODO: Remove this, testing docker builds   
+    println!("TESTING");
+
     // Parse thresholds
     let prover_eth_donate_threshold = parse_ether(&args.prover_eth_donate_threshold)?;
     let collateral_token_decimals =
