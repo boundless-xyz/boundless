@@ -61,6 +61,8 @@ ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/bento/target,id=agent_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
