@@ -451,6 +451,10 @@ pub struct MarketAggregatesResponse {
     /// Number of provers with deposited collateral >= eligibility threshold.
     #[serde(default)]
     pub eligible_prover_count: u64,
+    /// Number of provers with deposited collateral >= eligibility threshold AND who fulfilled a
+    /// request in the last 7 days.
+    #[serde(default)]
+    pub active_eligible_prover_count: u64,
 }
 
 /// A single entry in market cumulative data.
