@@ -264,6 +264,9 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
     let ping_interval_duration = tokio::time::Duration::from_secs(state.config.ping_time);
     let mut ping_data: Option<Vec<u8>> = None;
     let mut ping_interval = tokio::time::interval(ping_interval_duration);
+    // Keepalive uses consecutive ticks as "send ping" and then "timeout waiting for pong".
+    // Delay missed ticks so a scheduler stall cannot fire both checks back-to-back.
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_ping_tick_at: Option<tokio::time::Instant> = None;
     let mut ping_sent_at: Option<tokio::time::Instant> = None;
 
@@ -300,21 +303,6 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                     ping_sent_at.map(|previous_ping_sent| now.duration_since(previous_ping_sent));
                 last_ping_tick_at = Some(now);
 
-                match (since_last_tick, since_ping_sent) {
-                    (Some(last_tick), Some(last_ping)) => tracing::trace!(
-                        "Ping interval tick for {address}: since_last_tick={last_tick:?}, since_ping_sent={last_ping:?}, interval={ping_interval_duration:?}, awaiting_pong={}",
-                        ping_data.is_some()
-                    ),
-                    (Some(last_tick), None) => tracing::trace!(
-                        "Ping interval tick for {address}: since_last_tick={last_tick:?}, interval={ping_interval_duration:?}, awaiting_pong={}",
-                        ping_data.is_some()
-                    ),
-                    (None, _) => tracing::trace!(
-                        "First ping interval tick for {address}: interval={ping_interval_duration:?}, awaiting_pong={}",
-                        ping_data.is_some()
-                    ),
-                }
-
                 if ping_data.is_some() {
                     tracing::warn!(
                         "Client {address} never responded to ping, closing conn (since_last_tick={since_last_tick:?}, since_ping_sent={since_ping_sent:?}, interval={ping_interval_duration:?})"
@@ -337,12 +325,6 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                 // connection.
                 match ws_msg {
                     Some(Ok(Message::Pong(data))) => {
-                        let pong_received_at = tokio::time::Instant::now();
-                        let pong_round_trip =
-                            ping_sent_at.map(|previous_ping_sent| pong_received_at.duration_since(previous_ping_sent));
-                        tracing::trace!(
-                            "Got Pong from {address} after {pong_round_trip:?}"
-                        );
                         if let Some(send_data) = ping_data.take() {
                             if send_data != data {
                                 tracing::warn!("Invalid ping data from client {address}, closing conn");
