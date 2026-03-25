@@ -253,29 +253,12 @@ pub trait RequestorDb: IndexerDb {
 
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
-                "WITH ranked AS (
-                    SELECT *,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY request_id
-                            ORDER BY
-                                CASE request_status
-                                    WHEN 'fulfilled' THEN 0
-                                    WHEN 'expired'   THEN 1
-                                    WHEN 'locked'    THEN 2
-                                    WHEN 'submitted' THEN 3
-                                    ELSE 4
-                                END,
-                                {sort_field} DESC,
-                                request_digest DESC
-                        ) AS rn
-                    FROM request_status
-                    WHERE client_address = $1
-                )
-                SELECT * FROM ranked
-                WHERE rn = 1
-                  AND ({sort_field} < $2 OR ({sort_field} = $2 AND request_digest < $3))
-                ORDER BY {sort_field} DESC, request_digest DESC
-                LIMIT $4",
+                "SELECT * FROM request_status
+                 WHERE client_address = $1
+                   AND ({} < $2 OR ({} = $2 AND request_digest < $3))
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $4",
+                sort_field, sort_field, sort_field
             );
             sqlx::query(&query_str)
                 .bind(&client_str)
@@ -286,28 +269,11 @@ pub trait RequestorDb: IndexerDb {
                 .await?
         } else {
             let query_str = format!(
-                "WITH ranked AS (
-                    SELECT *,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY request_id
-                            ORDER BY
-                                CASE request_status
-                                    WHEN 'fulfilled' THEN 0
-                                    WHEN 'expired'   THEN 1
-                                    WHEN 'locked'    THEN 2
-                                    WHEN 'submitted' THEN 3
-                                    ELSE 4
-                                END,
-                                {sort_field} DESC,
-                                request_digest DESC
-                        ) AS rn
-                    FROM request_status
-                    WHERE client_address = $1
-                )
-                SELECT * FROM ranked
-                WHERE rn = 1
-                ORDER BY {sort_field} DESC, request_digest DESC
-                LIMIT $2",
+                "SELECT * FROM request_status
+                 WHERE client_address = $1
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $2",
+                sort_field
             );
             sqlx::query(&query_str)
                 .bind(&client_str)
@@ -1950,7 +1916,22 @@ async fn get_requestor_leaderboard_impl(
             .await?
     };
 
-    let mut results = Vec::new();
+    // First pass: parse all rows and collect requestor addresses
+    struct ParsedRow {
+        requestor_address: Address,
+        orders_requested: i64,
+        orders_locked: i64,
+        fulfilled: i64,
+        expired: i64,
+        not_locked_and_expired: i64,
+        cycles_requested: U256,
+        acceptance_rate: f32,
+        locked_order_fulfillment_rate: f32,
+    }
+
+    let mut parsed_rows = Vec::new();
+    let mut addresses = Vec::new();
+
     for row in rows {
         let requestor_address_str: String = row.try_get("requestor_address")?;
         let requestor_address = Address::from_str(&requestor_address_str)
@@ -1977,39 +1958,94 @@ async fn get_requestor_leaderboard_impl(
             0.0
         };
 
-        let adjusted_fulfilled_query =
-            "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+        addresses.push(requestor_address);
+        parsed_rows.push(ParsedRow {
+            requestor_address,
+            orders_requested,
+            orders_locked,
+            fulfilled,
+            expired,
+            not_locked_and_expired,
+            cycles_requested,
+            acceptance_rate,
+            locked_order_fulfillment_rate,
+        });
+    }
+
+    // Batch fetch adjusted fulfilled and expired counts for all requestors at once
+    // instead of running 2 queries per requestor (N+1 problem)
+    let (adjusted_fulfilled_map, adjusted_expired_map) = if !addresses.is_empty() {
+        let addr_placeholders: Vec<String> =
+            (3..=addresses.len() + 2).map(|i| format!("${}", i)).collect();
+        let addr_placeholders_str = addr_placeholders.join(", ");
+
+        let batch_fulfilled_query = format!(
+            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.fulfilled_at >= $1
             AND rs.fulfilled_at < $2
             AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
-        let adjusted_fulfilled_row = sqlx::query(adjusted_fulfilled_query)
-            .bind(start_ts as i64)
-            .bind(end_ts as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_optional(pool)
-            .await?;
-        let adjusted_fulfilled: i64 =
-            adjusted_fulfilled_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+            AND rs.client_address IN ({})
+            GROUP BY rs.client_address",
+            addr_placeholders_str
+        );
 
-        let adjusted_expired_query = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+        let batch_expired_query = format!(
+            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.expires_at >= $1
             AND rs.expires_at < $2
             AND rs.request_status = 'expired'
             AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
-        let adjusted_expired_row = sqlx::query(adjusted_expired_query)
-            .bind(start_ts as i64)
-            .bind(end_ts as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_optional(pool)
-            .await?;
-        let adjusted_expired: i64 =
-            adjusted_expired_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+            AND rs.client_address IN ({})
+            GROUP BY rs.client_address",
+            addr_placeholders_str
+        );
+
+        let mut fulfilled_query =
+            sqlx::query(&batch_fulfilled_query).bind(start_ts as i64).bind(end_ts as i64);
+        let mut expired_query =
+            sqlx::query(&batch_expired_query).bind(start_ts as i64).bind(end_ts as i64);
+        for addr in &addresses {
+            fulfilled_query = fulfilled_query.bind(format!("{:x}", addr));
+            expired_query = expired_query.bind(format!("{:x}", addr));
+        }
+
+        let (fulfilled_rows, expired_rows) =
+            tokio::try_join!(fulfilled_query.fetch_all(pool), expired_query.fetch_all(pool),)?;
+
+        let mut fulfilled_map = std::collections::HashMap::new();
+        for row in fulfilled_rows {
+            let addr_str: String = row.try_get("client_address")?;
+            let count: i64 = row.try_get("count")?;
+            if let Ok(addr) = Address::from_str(&addr_str) {
+                fulfilled_map.insert(addr, count);
+            }
+        }
+
+        let mut expired_map = std::collections::HashMap::new();
+        for row in expired_rows {
+            let addr_str: String = row.try_get("client_address")?;
+            let count: i64 = row.try_get("count")?;
+            if let Ok(addr) = Address::from_str(&addr_str) {
+                expired_map.insert(addr, count);
+            }
+        }
+
+        (fulfilled_map, expired_map)
+    } else {
+        (std::collections::HashMap::new(), std::collections::HashMap::new())
+    };
+
+    // Build results using the batched adjusted counts
+    let mut results = Vec::new();
+    for parsed in parsed_rows {
+        let adjusted_fulfilled =
+            adjusted_fulfilled_map.get(&parsed.requestor_address).copied().unwrap_or(0);
+        let adjusted_expired =
+            adjusted_expired_map.get(&parsed.requestor_address).copied().unwrap_or(0);
 
         let total_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
         let locked_orders_fulfillment_rate_adjusted = if total_outcomes_adjusted > 0 {
@@ -2019,16 +2055,16 @@ async fn get_requestor_leaderboard_impl(
         };
 
         results.push(RequestorLeaderboardEntry {
-            requestor_address,
-            orders_requested: orders_requested as u64,
-            orders_locked: orders_locked as u64,
-            orders_fulfilled: fulfilled as u64,
-            orders_expired: expired as u64,
-            orders_not_locked_and_expired: not_locked_and_expired as u64,
-            cycles_requested,
+            requestor_address: parsed.requestor_address,
+            orders_requested: parsed.orders_requested as u64,
+            orders_locked: parsed.orders_locked as u64,
+            orders_fulfilled: parsed.fulfilled as u64,
+            orders_expired: parsed.expired as u64,
+            orders_not_locked_and_expired: parsed.not_locked_and_expired as u64,
+            cycles_requested: parsed.cycles_requested,
             median_lock_price_per_cycle: None,
-            acceptance_rate,
-            locked_order_fulfillment_rate,
+            acceptance_rate: parsed.acceptance_rate,
+            locked_order_fulfillment_rate: parsed.locked_order_fulfillment_rate,
             locked_orders_fulfillment_rate_adjusted,
             last_activity_time: 0,
         });
@@ -3824,149 +3860,6 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].client_address, addr2);
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn test_list_requests_by_requestor_dedup(pool: sqlx::PgPool) {
-        let test_db = test_db(pool).await;
-        let db = &test_db.db;
-
-        let addr = Address::from([0x12; 20]);
-        let base_ts = 1700000000u64;
-
-        // Helper to build a RequestStatus with specific fields
-        let make_status = |request_digest: B256,
-                           request_id: U256,
-                           status: RequestStatusType,
-                           created_at: u64| RequestStatus {
-            request_digest,
-            request_id,
-            request_status: status,
-            slashed_status: SlashedStatus::NotApplicable,
-            source: "onchain".to_string(),
-            client_address: addr,
-            lock_prover_address: None,
-            fulfill_prover_address: None,
-            created_at,
-            updated_at: created_at,
-            locked_at: None,
-            fulfilled_at: None,
-            slashed_at: None,
-            lock_prover_delivered_proof_at: None,
-            submit_block: Some(100),
-            lock_block: None,
-            fulfill_block: None,
-            slashed_block: None,
-            min_price: "1000".to_string(),
-            max_price: "2000".to_string(),
-            lock_collateral: "0".to_string(),
-            ramp_up_start: base_ts,
-            ramp_up_period: 10,
-            expires_at: base_ts + 10000,
-            lock_end: base_ts + 10000,
-            slash_recipient: None,
-            slash_transferred_amount: None,
-            slash_burned_amount: None,
-            program_cycles: None,
-            total_cycles: None,
-            peak_prove_mhz: None,
-            effective_prove_mhz: None,
-            prover_effective_prove_mhz: None,
-            cycle_status: None,
-            lock_price: None,
-            lock_price_per_cycle: None,
-            fixed_cost: None,
-            variable_cost_per_cycle: None,
-            lock_base_fee: None,
-            fulfill_base_fee: None,
-            submit_tx_hash: Some(B256::ZERO),
-            lock_tx_hash: None,
-            fulfill_tx_hash: None,
-            slash_tx_hash: None,
-            image_id: "test".to_string(),
-            image_url: None,
-            selector: "test".to_string(),
-            predicate_type: "digest_match".to_string(),
-            predicate_data: "0x00".to_string(),
-            input_type: "inline".to_string(),
-            input_data: "0x00".to_string(),
-            fulfill_journal: None,
-            fulfill_seal: None,
-        };
-
-        // --- Test 1: 3 rows with SAME request_id but different statuses ---
-        // Only the fulfilled one should be returned.
-        let shared_req_id = U256::from(42);
-        db.upsert_request_statuses(&[
-            make_status(
-                B256::from([0x01; 32]),
-                shared_req_id,
-                RequestStatusType::Submitted,
-                base_ts + 100,
-            ),
-            make_status(
-                B256::from([0x02; 32]),
-                shared_req_id,
-                RequestStatusType::Locked,
-                base_ts + 200,
-            ),
-            make_status(
-                B256::from([0x03; 32]),
-                shared_req_id,
-                RequestStatusType::Fulfilled,
-                base_ts + 300,
-            ),
-        ])
-        .await
-        .unwrap();
-
-        let (results, _) = db
-            .list_requests_by_requestor(addr, None, 10, RequestSortField::CreatedAt)
-            .await
-            .unwrap();
-        assert_eq!(results.len(), 1, "should deduplicate to single row");
-        assert_eq!(results[0].request_status, RequestStatusType::Fulfilled, "fulfilled should win");
-        assert_eq!(results[0].request_id, shared_req_id);
-
-        // --- Test 2: Add rows with DIFFERENT request_ids ---
-        // Each unique request_id should appear independently.
-        for i in 0u8..3 {
-            db.upsert_request_statuses(&[make_status(
-                B256::from([0x10 + i; 32]),
-                U256::from(100 + i as u64),
-                RequestStatusType::Submitted,
-                base_ts + 1000 + (i as u64 * 100),
-            )])
-            .await
-            .unwrap();
-        }
-
-        let (results, _) = db
-            .list_requests_by_requestor(addr, None, 10, RequestSortField::CreatedAt)
-            .await
-            .unwrap();
-        // 1 (deduped group) + 3 (unique) = 4
-        assert_eq!(results.len(), 4, "should have 4 unique request_ids");
-
-        // --- Test 3: Pagination with mixed unique and duplicate request_ids ---
-        let (page1, cursor) = db
-            .list_requests_by_requestor(addr, None, 2, RequestSortField::CreatedAt)
-            .await
-            .unwrap();
-        assert_eq!(page1.len(), 2);
-        assert!(cursor.is_some(), "should have a next page cursor");
-
-        let (page2, _cursor2) = db
-            .list_requests_by_requestor(addr, cursor, 2, RequestSortField::CreatedAt)
-            .await
-            .unwrap();
-        assert_eq!(page2.len(), 2);
-        // Pages should not overlap
-        let page1_ids: Vec<_> = page1.iter().map(|r| r.request_id).collect();
-        let page2_ids: Vec<_> = page2.iter().map(|r| r.request_id).collect();
-        for id in &page2_ids {
-            assert!(!page1_ids.contains(id), "pages should not overlap");
-        }
     }
 
     #[sqlx::test(migrations = "./migrations")]

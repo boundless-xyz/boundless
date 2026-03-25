@@ -88,7 +88,7 @@ const fn default_custom_dynamic_multiplier_percentage() -> u64 {
 
 impl PriorityMode {
     /// Returns the configuration for this priority mode.
-    fn config(&self) -> PriorityModeConfig {
+    pub fn config(&self) -> PriorityModeConfig {
         match self {
             PriorityMode::Low => PriorityModeConfig {
                 base_fee_multiplier_percentage: DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE,
@@ -152,15 +152,15 @@ impl PriorityMode {
 
 /// Configuration for a priority mode.
 #[derive(Clone, Debug)]
-struct PriorityModeConfig {
+pub struct PriorityModeConfig {
     /// Multiplier percentage applied to the base fee estimate.
-    base_fee_multiplier_percentage: u64,
+    pub base_fee_multiplier_percentage: u64,
     /// Multiplier percentage applied to the priority fee estimate.
-    priority_fee_multiplier_percentage: u64,
+    pub priority_fee_multiplier_percentage: u64,
     /// The percentile used when fetching fee history for priority fee estimation.
-    priority_fee_percentile: f64,
+    pub priority_fee_percentile: f64,
     /// The incremental percentage applied to the base fee and priority fee per pending transaction (e.g., 0 = no change, 5 = +5% per pending tx).
-    dynamic_multiplier_percentage: u64,
+    pub dynamic_multiplier_percentage: u64,
 }
 
 #[derive(Clone, Copy, Debug)]

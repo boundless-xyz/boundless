@@ -18,18 +18,19 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
+    errors::{cancel_proof_and_fail, handle_order_failure, BrokerFailure},
     futures_retry::retry_with_context,
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils::cancel_proof_and_fail_order,
     CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
+use boundless_market::telemetry::CompletionOutcome;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
@@ -38,11 +39,23 @@ pub enum ProvingErr {
     #[error("{code} Proving failed after retries: {0:#}", code = self.code())]
     ProvingFailed(anyhow::Error),
 
-    #[error("{code} Order not actionable, should cancel: {0}", code = self.code())]
-    ShouldCancel(&'static str),
+    #[error(
+        "{code} Cancelled: secondary fulfillment order was fulfilled by another prover",
+        code = self.code()
+    )]
+    CancelFulfilledByAnother,
 
-    #[error("{code} Proof completed but order not actionable: {0}", code = self.code())]
-    CompletedNotActionable(&'static str),
+    #[error("{code} Cancelled: order expired during proving", code = self.code())]
+    CancelExpired,
+
+    #[error(
+        "{code} Proof completed but secondary fulfillment order was fulfilled by another prover",
+        code = self.code()
+    )]
+    CompletedFulfilledByAnother,
+
+    #[error("{code} Proof completed but order expired", code = self.code())]
+    CompletedExpired,
 
     #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
@@ -54,9 +67,27 @@ impl CodedError for ProvingErr {
     fn code(&self) -> &str {
         match self {
             ProvingErr::ProvingFailed(_) => "[B-PRO-501]",
-            ProvingErr::ShouldCancel(_) => "[B-PRO-502]",
-            ProvingErr::CompletedNotActionable(_) => "[B-PRO-503]",
+            ProvingErr::CancelFulfilledByAnother => "[B-PRO-502]",
+            ProvingErr::CancelExpired => "[B-PRO-503]",
+            ProvingErr::CompletedFulfilledByAnother => "[B-PRO-505]",
+            ProvingErr::CompletedExpired => "[B-PRO-506]",
             ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
+        }
+    }
+}
+
+impl ProvingErr {
+    fn completion_outcome(&self) -> CompletionOutcome {
+        match self {
+            ProvingErr::ProvingFailed(_) | ProvingErr::UnexpectedError(_) => {
+                CompletionOutcome::ProvingFailed
+            }
+            ProvingErr::CancelExpired | ProvingErr::CompletedExpired => {
+                CompletionOutcome::ExpiredWhileProving
+            }
+            ProvingErr::CancelFulfilledByAnother | ProvingErr::CompletedFulfilledByAnother => {
+                CompletionOutcome::Cancelled
+            }
         }
     }
 }
@@ -260,7 +291,7 @@ impl ProvingService {
         };
 
         // Track whether order is not actionable (expired or fulfilled externally)
-        let mut not_actionable_reason: Option<&'static str> = None;
+        let mut not_actionable_variant: Option<ProvingErr> = None;
 
         let mut order_state_rx = self.order_state_tx.subscribe();
         if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire)
@@ -275,9 +306,9 @@ impl ProvingService {
                         request_id
                     );
                     if should_cancel_on_not_actionable {
-                        return Err(ProvingErr::ShouldCancel("Already fulfilled"));
+                        return Err(ProvingErr::CancelFulfilledByAnother);
                     } else {
-                        not_actionable_reason = Some("Already fulfilled");
+                        not_actionable_variant = Some(ProvingErr::CompletedFulfilledByAnother);
                     }
                 }
                 Ok(false) => {}
@@ -309,14 +340,13 @@ impl ProvingService {
                         format!("Monitoring proof failed for order {order_id}, proof_id: {proof_id}")
                     }).map_err(ProvingErr::ProvingFailed)?;
 
-                    // If order not actionable, return error instead of success
-                    if let Some(reason) = not_actionable_reason {
+                    if let Some(variant) = not_actionable_variant {
                         tracing::info!(
                             "Proof completed for order {} but order not actionable: {}",
                             order_id,
-                            reason
+                            variant
                         );
-                        return Err(ProvingErr::CompletedNotActionable(reason));
+                        return Err(variant);
                     }
 
                     break status;
@@ -327,12 +357,12 @@ impl ProvingService {
                     tracing::debug!("Order {order_id} expired during proving");
 
                     if should_cancel_on_not_actionable {
-                        return Err(ProvingErr::ShouldCancel("Order expired"));
+                        return Err(ProvingErr::CancelExpired);
                     } else {
                         // TODO(austin) this should only mark expired if the order is not fully expired
                         //      and not secondary fulfilled.
                         tracing::debug!("Waiting for proof completion for capacity tracking");
-                        not_actionable_reason = Some("Order expired");
+                        not_actionable_variant = Some(ProvingErr::CompletedExpired);
                         // Disarm timeout so it doesn't fire again
                         timeout_future.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(365 * 24 * 60 * 60));
                     }
@@ -366,10 +396,10 @@ impl ProvingService {
                                 );
 
                                 if should_cancel_on_not_actionable {
-                                    return Err(ProvingErr::ShouldCancel("Externally fulfilled"));
+                                    return Err(ProvingErr::CancelFulfilledByAnother);
                                 } else {
                                     tracing::debug!("Waiting for proof completion for capacity tracking");
-                                    not_actionable_reason = Some("Externally fulfilled");
+                                    not_actionable_variant = Some(ProvingErr::CompletedFulfilledByAnother);
                                 }
                             } else {
                                 tracing::trace!(
@@ -396,6 +426,7 @@ impl ProvingService {
     async fn prove_and_update_db(&self, mut order: Order) {
         let order_id = order.id();
         let request_id = order.request.id;
+        let proving_start = std::time::Instant::now();
 
         let (proof_retry_count, proof_retry_sleep_ms) = {
             let config = self.config.lock_all().unwrap();
@@ -418,7 +449,16 @@ impl ProvingService {
                 tracing::error!(
                     "Failed to create stark session for order {order_id}: {proving_err:?}"
                 );
-                handle_order_failure(&self.db, &order_id, "Proving session create failed").await;
+                handle_order_failure(
+                    &self.db,
+                    &order_id,
+                    &BrokerFailure::new(
+                        proving_err.code(),
+                        "Proving session create failed",
+                        proving_err.completion_outcome(),
+                    ),
+                )
+                .await;
                 return;
             }
         };
@@ -434,9 +474,27 @@ impl ProvingService {
         )
         .await;
 
+        let stark_proving_secs = Some(proving_start.elapsed().as_secs_f64());
+
+        // Compression timing: only set when the request's selector requires Groth16 or
+        // Blake3Groth16. Currently measured as total proving wall-clock since STARK and
+        // compression happen inside the same monitor_proof_internal call.
+        let proof_compression_secs = if order.compression_type() != CompressionType::None {
+            Some(proving_start.elapsed().as_secs_f64())
+        } else {
+            None
+        };
+
         match result {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
+
+                crate::telemetry::telemetry().record_application_proving_completed(
+                    &order_id,
+                    order.total_cycles,
+                    stark_proving_secs,
+                    proof_compression_secs,
+                );
 
                 // Note: this sanity check isn't strictly necessary, but is to avoid submitting the
                 // order when the fulfillment event was missed.
@@ -452,9 +510,18 @@ impl ProvingService {
                         })
                         .unwrap_or(false);
                     if is_fulfilled {
+                        let err = ProvingErr::CancelFulfilledByAnother;
                         tracing::warn!("Fulfillment event was missed, skipping aggregation for fulfilled order {order_id}");
-                        handle_order_failure(&self.db, &order_id, "Fulfilled before aggregation")
-                            .await;
+                        handle_order_failure(
+                            &self.db,
+                            &order_id,
+                            &BrokerFailure::new(
+                                err.code(),
+                                err.to_string(),
+                                err.completion_outcome(),
+                            ),
+                        )
+                        .await;
                         return;
                     }
                 }
@@ -463,19 +530,29 @@ impl ProvingService {
                     tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
                 }
             }
-            Err(ProvingErr::ShouldCancel(reason)) => {
-                tracing::info!("Order {order_id} not actionable, cancelling proof: {reason}");
-                // Config says to cancel - release capacity immediately
-                cancel_proof_and_fail_order(&self.prover, &self.db, &self.config, &order, reason)
-                    .await;
+            Err(ref err @ (ProvingErr::CancelFulfilledByAnother | ProvingErr::CancelExpired)) => {
+                tracing::info!("Order {order_id} not actionable, cancelling proof: {err}");
+                cancel_proof_and_fail(
+                    &self.prover,
+                    &self.db,
+                    &self.config,
+                    &order,
+                    &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
+                )
+                .await;
             }
-            Err(ProvingErr::CompletedNotActionable(reason)) => {
-                tracing::info!(
-                    "Order {order_id} proof completed but order not actionable: {reason}"
-                );
-                handle_order_failure(&self.db, &order_id, reason).await;
+            Err(
+                ref err @ (ProvingErr::CompletedFulfilledByAnother | ProvingErr::CompletedExpired),
+            ) => {
+                tracing::info!("Order {order_id} proof completed but order not actionable: {err}");
+                handle_order_failure(
+                    &self.db,
+                    &order_id,
+                    &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
+                )
+                .await;
             }
-            Err(err) => {
+            Err(ref err) => {
                 tracing::error!(
                     "Order {} with job id {} failed to prove after {} retries: {err:?}",
                     order_id,
@@ -483,7 +560,12 @@ impl ProvingService {
                     proof_retry_count
                 );
 
-                handle_order_failure(&self.db, &order_id, "Proving failed").await;
+                handle_order_failure(
+                    &self.db,
+                    &order_id,
+                    &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
+                )
+                .await;
             }
         }
     }
@@ -498,7 +580,7 @@ impl ProvingService {
 
             if order.proof_id.is_none() {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
-                handle_order_failure(&self.db, &order_id, "Proving status missing proof_id").await;
+                set_order_failure(&self.db, &order_id, "Proving status missing proof_id").await;
                 continue;
             }
 
@@ -559,7 +641,7 @@ impl RetryTask for ProvingService {
     }
 }
 
-async fn handle_order_failure(db: &DbObj, order_id: &str, failure_reason: &'static str) {
+async fn set_order_failure(db: &DbObj, order_id: &str, failure_reason: &str) {
     if let Err(inner_err) = db.set_order_failure(order_id, failure_reason).await {
         tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
     }
@@ -909,7 +991,7 @@ mod tests {
 
         let result = monitor_task.await.unwrap();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("order not actionable"));
+        assert!(result.unwrap_err().to_string().contains("fulfilled by another prover"));
 
         // Test 2: FulfillAfterLockExpire order ignores different request ID
         let request_id_2 = U256::from(456);

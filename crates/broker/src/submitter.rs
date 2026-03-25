@@ -527,6 +527,8 @@ where
                 );
                 continue;
             }
+
+            crate::telemetry::telemetry().record_fulfilled(order_id);
             let order_price = order_prices
                 .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, collateral_reward: U256::ZERO });

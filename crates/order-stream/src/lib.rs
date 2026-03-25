@@ -14,6 +14,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use alloy::{
@@ -33,8 +34,6 @@ use axum::{
     routing::{get, post},
     Router,
 };
-#[cfg(test)]
-use boundless_market::order_stream_client::OrderData;
 use boundless_market::order_stream_client::{
     AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
     ORDER_LIST_PATH_V2, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
@@ -52,6 +51,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 mod api;
+mod heartbeat;
 mod order_db;
 mod ws;
 
@@ -59,6 +59,10 @@ use api::{
     __path_find_orders_by_request_id, __path_get_nonce, __path_health, __path_list_orders,
     __path_list_orders_v2, __path_submit_order, find_orders_by_request_id, get_nonce, health,
     list_orders, list_orders_v2, submit_order,
+};
+use heartbeat::{
+    submit_heartbeat, submit_request_heartbeat, BalanceCache, KinesisForwarder, NoopForwarder,
+    TelemetryForwarder,
 };
 use order_db::OrderDb;
 use ws::{__path_websocket_handler, start_broadcast_task, websocket_handler, ConnectionsMap};
@@ -174,6 +178,19 @@ pub struct Args {
     /// From the `RetryBackoffLayer` of Alloy
     #[clap(long, default_value_t = 100)]
     pub rpc_retry_cu: u64,
+
+    /// Kinesis stream name for broker identity heartbeats. If unset, Kinesis forwarding is disabled.
+    /// When set, all three Kinesis stream names must be provided.
+    #[clap(long, env, requires_all = ["kinesis_evaluations_stream", "kinesis_completions_stream"])]
+    pub kinesis_heartbeat_stream: Option<String>,
+
+    /// Kinesis stream name for request evaluation events.
+    #[clap(long, env, requires_all = ["kinesis_heartbeat_stream", "kinesis_completions_stream"])]
+    pub kinesis_evaluations_stream: Option<String>,
+
+    /// Kinesis stream name for request completion events.
+    #[clap(long, env, requires_all = ["kinesis_heartbeat_stream", "kinesis_evaluations_stream"])]
+    pub kinesis_completions_stream: Option<String>,
 }
 
 /// Configuration struct
@@ -202,6 +219,12 @@ pub struct Config {
     pub rpc_retry_backoff: u64,
     /// RPC HTTP retry compute-unit per second
     pub rpc_retry_cu: u64,
+    /// Kinesis stream name for broker identity heartbeats
+    pub kinesis_heartbeat_stream: String,
+    /// Kinesis stream name for request evaluation events
+    pub kinesis_evaluations_stream: String,
+    /// Kinesis stream name for request completion events
+    pub kinesis_completions_stream: String,
 }
 
 impl Config {
@@ -224,6 +247,9 @@ pub struct ConfigBuilder {
     rpc_retry_max: Option<u32>,
     rpc_retry_backoff: Option<u64>,
     rpc_retry_cu: Option<u64>,
+    kinesis_heartbeat_stream: Option<String>,
+    kinesis_evaluations_stream: Option<String>,
+    kinesis_completions_stream: Option<String>,
 }
 
 impl ConfigBuilder {
@@ -282,6 +308,21 @@ impl ConfigBuilder {
         Self { rpc_retry_cu: Some(cu), ..self }
     }
 
+    /// Set the Kinesis heartbeat stream name
+    pub fn kinesis_heartbeat_stream(self, name: String) -> Self {
+        Self { kinesis_heartbeat_stream: Some(name), ..self }
+    }
+
+    /// Set the Kinesis evaluations stream name
+    pub fn kinesis_evaluations_stream(self, name: String) -> Self {
+        Self { kinesis_evaluations_stream: Some(name), ..self }
+    }
+
+    /// Set the Kinesis completions stream name
+    pub fn kinesis_completions_stream(self, name: String) -> Self {
+        Self { kinesis_completions_stream: Some(name), ..self }
+    }
+
     /// Build the Config with default values for any unset fields
     pub fn build(self) -> Result<Config, ConfigError> {
         Ok(Config {
@@ -298,6 +339,9 @@ impl ConfigBuilder {
             rpc_retry_max: self.rpc_retry_max.unwrap_or(10),
             rpc_retry_backoff: self.rpc_retry_backoff.unwrap_or(1000),
             rpc_retry_cu: self.rpc_retry_cu.unwrap_or(100),
+            kinesis_heartbeat_stream: self.kinesis_heartbeat_stream.unwrap_or_default(),
+            kinesis_evaluations_stream: self.kinesis_evaluations_stream.unwrap_or_default(),
+            kinesis_completions_stream: self.kinesis_completions_stream.unwrap_or_default(),
         })
     }
 }
@@ -315,6 +359,9 @@ impl From<&Args> for Config {
             rpc_retry_max: args.rpc_retry_max,
             rpc_retry_backoff: args.rpc_retry_backoff,
             rpc_retry_cu: args.rpc_retry_cu,
+            kinesis_heartbeat_stream: args.kinesis_heartbeat_stream.clone().unwrap_or_default(),
+            kinesis_evaluations_stream: args.kinesis_evaluations_stream.clone().unwrap_or_default(),
+            kinesis_completions_stream: args.kinesis_completions_stream.clone().unwrap_or_default(),
         }
     }
 }
@@ -345,6 +392,13 @@ pub struct AppState {
     chain_id: u64,
     /// Cancelation tokens set when a graceful shutdown is triggered
     shutdown: CancellationToken,
+    /// TTL cache for collateral balance checks (used by heartbeat auth)
+    balance_cache: BalanceCache,
+    /// Telemetry forwarding backend
+    telemetry: Arc<dyn TelemetryForwarder>,
+    /// Signals that the broadcast task's PgListener is connected and the task is actively
+    /// processing order notifications. The health check endpoint gates on this.
+    broadcast_ready: AtomicBool,
 }
 
 impl AppState {
@@ -370,6 +424,20 @@ impl AppState {
         let chain_id =
             rpc_provider.get_chain_id().await.context("Failed to fetch chain_id from RPC")?;
 
+        let telemetry: Arc<dyn TelemetryForwarder> = if !config.kinesis_heartbeat_stream.is_empty()
+        {
+            let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            let kinesis = aws_sdk_kinesis::Client::new(&aws_config);
+            Arc::new(KinesisForwarder::new(
+                kinesis,
+                config.kinesis_heartbeat_stream.clone(),
+                config.kinesis_evaluations_stream.clone(),
+                config.kinesis_completions_stream.clone(),
+            ))
+        } else {
+            Arc::new(NoopForwarder)
+        };
+
         Ok(Arc::new(Self {
             db,
             connections: Arc::new(RwLock::new(HashMap::new())),
@@ -378,6 +446,9 @@ impl AppState {
             config: config.clone(),
             chain_id,
             shutdown: CancellationToken::new(),
+            balance_cache: heartbeat::new_balance_cache(),
+            telemetry,
+            broadcast_ready: AtomicBool::new(false),
         }))
     }
 
@@ -446,9 +517,15 @@ Service for offchain order submission and fetching
 )]
 struct ApiDoc;
 
+/// Maximum size for heartbeat payloads (1 MiB)
+const MAX_HEARTBEAT_SIZE: usize = 1024 * 1024;
+
 /// Create the application router
 pub fn app(state: Arc<AppState>) -> Router {
+    use boundless_market::telemetry::{HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH};
+
     let body_size_limit = RequestBodyLimitLayer::new(MAX_ORDER_SIZE);
+    let heartbeat_size_limit = RequestBodyLimitLayer::new(MAX_HEARTBEAT_SIZE);
 
     Router::new()
         .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
@@ -458,11 +535,13 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(&format!("{AUTH_GET_NONCE}{{addr}}"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
         .route(HEALTH_CHECK, get(health))
+        .route(HEARTBEAT_PATH, post(submit_heartbeat).layer(heartbeat_size_limit))
+        .route(HEARTBEAT_REQUESTS_PATH, post(submit_request_heartbeat).layer(heartbeat_size_limit))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)
         .layer((
             TraceLayer::new_for_http(),
-            TimeoutLayer::new(tokio::time::Duration::from_secs(10)),
+            TimeoutLayer::new(tokio::time::Duration::from_secs(30)),
         ))
 }
 
@@ -485,6 +564,10 @@ pub async fn run_from_parts(
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
+            // Mark as not ready during (re)initialization so the health endpoint
+            // reflects that the broadcast pipeline is down.
+            app_state_clone.broadcast_ready.store(false, Ordering::Release);
+
             let order_stream = match app_state_clone.db.order_stream().await {
                 Ok(stream) => stream,
                 Err(e) => {
@@ -495,6 +578,12 @@ pub async fn run_from_parts(
             };
 
             let broadcast_task = start_broadcast_task(app_state_clone.clone(), order_stream);
+
+            // Signal readiness only after the PgListener is subscribed (via order_stream)
+            // and the broadcast task is spawned. This ensures the health endpoint won't
+            // return 200 until we can actually deliver order notifications to WebSocket clients.
+            app_state_clone.broadcast_ready.store(true, Ordering::Release);
+            tracing::info!("Broadcast task PgListener connected and ready");
 
             match broadcast_task.await {
                 Ok(Ok(())) => {
@@ -557,7 +646,7 @@ mod tests {
             hit_points::default_allowance, Offer, Predicate, ProofRequest, RequestId, Requirements,
         },
         input::GuestEnv,
-        order_stream_client::{order_stream, OrderStreamClient},
+        order_stream_client::{order_stream, OrderData, OrderStreamClient},
     };
     use boundless_test_utils::market::{create_test_ctx, TestCtx};
     use sqlx::types::chrono::Utc;
@@ -567,7 +656,10 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use serial_test::serial;
     use sqlx::PgPool;
-    use std::net::{Ipv4Addr, SocketAddr};
+    use std::{
+        net::{Ipv4Addr, SocketAddr},
+        pin::Pin,
+    };
     use tokio::task::JoinHandle;
 
     /// Test setup helper that creates common test infrastructure
@@ -606,6 +698,9 @@ mod tests {
             rpc_retry_max: 10,
             rpc_retry_backoff: 1000,
             rpc_retry_cu: 100,
+            kinesis_heartbeat_stream: String::new(),
+            kinesis_evaluations_stream: String::new(),
+            kinesis_completions_stream: String::new(),
         };
 
         let app_state = AppState::new(&config, Some(pool)).await.unwrap();
@@ -661,6 +756,46 @@ mod tests {
         }
     }
 
+    // The server registers WebSocket connections in the on_upgrade callback, which runs
+    // asynchronously after connect_async returns on the client side. Poll until the
+    // connection appears in the map so broadcasts won't miss a client.
+    async fn wait_for_connection(app_state: &Arc<AppState>, addr: &Address) {
+        for _ in 0..100 {
+            if app_state.connections.read().await.contains_key(addr) {
+                return;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+        panic!("Connection for {addr} not registered within 5s");
+    }
+
+    fn spawn_order_observer(
+        label: &'static str,
+        mut stream: Pin<Box<dyn futures_util::Stream<Item = OrderData> + Send>>,
+    ) -> (tokio::sync::oneshot::Receiver<OrderData>, JoinHandle<std::result::Result<(), String>>)
+    {
+        let (order_tx, order_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let mut order_tx = Some(order_tx);
+
+            while let Some(order) = stream.next().await {
+                if let Some(first_order_tx) = order_tx.take() {
+                    first_order_tx.send(order).map_err(|_| {
+                        format!("{label} observer receiver dropped before the first order")
+                    })?;
+                }
+            }
+
+            if order_tx.is_some() {
+                Err(format!("{label} websocket stream closed before receiving an order"))
+            } else {
+                Ok(())
+            }
+        });
+
+        (order_rx, task)
+    }
+
     /// Comprehensive test helper that sets up server, client, and test environment
     async fn setup_server_and_client(
         pool: PgPool,
@@ -699,7 +834,7 @@ mod tests {
         (client, app_state, ctx, anvil, server_handle, addr)
     }
 
-    #[sqlx::test]
+    #[test_log::test(sqlx::test)]
     #[serial]
     async fn integration_test(pool: PgPool) {
         // Create listener first
@@ -708,8 +843,10 @@ mod tests {
             .unwrap();
         let addr = listener.local_addr().unwrap();
 
-        // Setup with the prover address in bypass list and 1 second ping time
-        let (app_state, ctx, _anvil) = setup_test_env(pool, 1, Some(&listener)).await;
+        // ws.rs drops the connection when a ping is not answered before the next interval tick.
+        // tokio::time::interval completes its first tick immediately, so a 1s period allows only ~1s
+        // for the client to answer the first ping; use a margin so the test is not scheduler-sensitive.
+        let (app_state, ctx, _anvil) = setup_test_env(pool, 5, Some(&listener)).await;
 
         // Create client
         let client = OrderStreamClient::new(
@@ -727,47 +864,22 @@ mod tests {
         // Poll the health endpoint with exponential backoff
         wait_for_server_health(&client, &addr, 5).await;
 
-        // Create channels to communicate with the order stream task
-        let (order_tx, mut order_rx) = tokio::sync::mpsc::channel(1);
-
-        // Connect to the WebSocket and start listening in a separate task
+        // Connect to the WebSocket and wait for server-side registration
         let socket = client.connect_async(&ctx.prover_signer).await.unwrap();
+        wait_for_connection(&app_state, &ctx.prover_signer.address()).await;
 
-        // Connect customer signer as well
         let customer_client = OrderStreamClient::new(
             Url::parse(&format!("http://{addr}")).unwrap(),
             app_state.config.market_address,
             app_state.chain_id,
         );
         let customer_socket = customer_client.connect_async(&ctx.customer_signer).await.unwrap();
-        let stream_task = tokio::spawn(async move {
-            let mut stream = order_stream(socket);
-            let mut customer_order_stream = order_stream(customer_socket);
+        wait_for_connection(&app_state, &ctx.customer_signer.address()).await;
 
-            loop {
-                // Wait for either order to come through
-                let (res1, res2) = tokio::join!(stream.next(), customer_order_stream.next());
-
-                // Handle potential errors from both streams
-                match (res1, res2) {
-                    (Some(order1), Some(order2)) => {
-                        if order1.order == order2.order {
-                            order_tx.send(order1).await.unwrap();
-                        } else {
-                            panic!("Orders don't match: {:?} vs {:?}", order1.order, order2.order);
-                        }
-                    }
-
-                    (None, None) => {
-                        // Handle the case on shutdown where both will be closed.
-                        break;
-                    }
-                    (_, _) => {
-                        panic!("Unexpected error in order stream clients");
-                    }
-                }
-            }
-        });
+        let (prover_order_rx, prover_stream_task) =
+            spawn_order_observer("prover", order_stream(socket));
+        let (customer_order_rx, customer_stream_task) =
+            spawn_order_observer("customer", order_stream(customer_socket));
 
         let app_state_clone = app_state.clone();
         let watch_task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
@@ -784,50 +896,61 @@ mod tests {
 
         let db_order = watch_task.await.unwrap().unwrap();
 
-        // Wait for the order to be received
-        let order_result =
-            tokio::time::timeout(tokio::time::Duration::from_secs(4), order_rx.recv()).await;
+        let prover_order_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(15), prover_order_rx).await;
+        let customer_order_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(15), customer_order_rx).await;
 
-        match order_result {
-            Ok(Some(received_order)) => {
-                assert_eq!(
-                    received_order.order, order,
-                    "Received order should match submitted order"
-                );
-                assert_eq!(order, db_order.order);
-            }
-            Ok(None) => {
-                panic!("Order channel closed unexpectedly");
-            }
-            Err(_) => {
-                panic!("Timed out waiting for order");
-            }
-        }
+        let prover_order = match prover_order_result {
+            Ok(Ok(received_order)) => received_order,
+            Ok(Err(_)) => match prover_stream_task.await.unwrap() {
+                Ok(()) => panic!("Prover observer ended before reporting the first order"),
+                Err(err) => panic!("Prover observer failed before receiving an order: {err}"),
+            },
+            Err(_) => panic!("Timed out waiting for order on prover connection"),
+        };
+        let customer_order = match customer_order_result {
+            Ok(Ok(received_order)) => received_order,
+            Ok(Err(_)) => match customer_stream_task.await.unwrap() {
+                Ok(()) => panic!("Customer observer ended before reporting the first order"),
+                Err(err) => panic!("Customer observer failed before receiving an order: {err}"),
+            },
+            Err(_) => panic!("Timed out waiting for order on customer connection"),
+        };
 
-        // Wait a bit to ensure ping-pong is working (no errors)
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-        // Verify the connections are in the connections map
-        {
-            let connections = app_state.connections.read().await;
-            assert!(
-                connections.contains_key(&ctx.prover_signer.address()),
-                "Connection should still be active after ping-pong exchanges"
-            );
-            assert!(
-                connections.contains_key(&ctx.customer_signer.address()),
-                "Customer connection should also be active"
-            );
-        }
+        assert_eq!(
+            prover_order.order, order,
+            "Received order should match submitted order on prover connection"
+        );
+        assert_eq!(
+            customer_order.order, order,
+            "Received order should match submitted order on customer connection"
+        );
+        assert_eq!(
+            prover_order.order, customer_order.order,
+            "Both websocket clients should receive the same order"
+        );
+        assert_eq!(order, db_order.order);
 
         // Now simulate server disconnection by aborting the server task
         app_state.shutdown.cancel();
 
-        // Ensure that the client streams have been closed.
-        tokio::time::timeout(tokio::time::Duration::from_secs(10), stream_task)
-            .await
-            .unwrap()
-            .unwrap();
+        let prover_shutdown_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(10), prover_stream_task).await;
+        match prover_shutdown_result {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(err))) => panic!("Prover observer failed during shutdown: {err}"),
+            Ok(Err(err)) => panic!("Prover observer panicked during shutdown: {err}"),
+            Err(_) => panic!("Timed out waiting for prover observer to shut down"),
+        }
+        let customer_shutdown_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(10), customer_stream_task).await;
+        match customer_shutdown_result {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(err))) => panic!("Customer observer failed during shutdown: {err}"),
+            Ok(Err(err)) => panic!("Customer observer panicked during shutdown: {err}"),
+            Err(_) => panic!("Timed out waiting for customer observer to shut down"),
+        }
 
         // Clean up
         server_handle.abort();
@@ -873,7 +996,7 @@ mod tests {
         assert!(pending_connection, "Should return true after removing the connection");
     }
 
-    #[sqlx::test]
+    #[test_log::test(sqlx::test)]
     #[serial]
     async fn test_websocket_connection_replacement(pool: PgPool) {
         // Set up server and client
@@ -1340,5 +1463,357 @@ mod tests {
         assert!(!second_page_asc.orders.iter().any(|o| o.order.request.id == order2.request.id));
 
         server_handle.abort();
+    }
+
+    mod heartbeat_tests {
+        use super::*;
+        use alloy::signers::local::PrivateKeySigner;
+        use boundless_market::telemetry::{
+            BrokerHeartbeat, CommitmentOutcome, CompletionOutcome, EvalOutcome, RequestCompleted,
+            RequestEvaluated, RequestHeartbeat, HEARTBEAT_PATH, HEARTBEAT_REQUESTS_PATH,
+        };
+
+        async fn sign_payload(body: &[u8], signer: &impl alloy::signers::Signer) -> String {
+            let hash = alloy::primitives::eip191_hash_message(body);
+            let sig = signer.sign_hash(&hash).await.unwrap();
+            let mut sig_bytes = [0u8; 65];
+            sig_bytes[..64].copy_from_slice(&sig.as_bytes()[..64]);
+            sig_bytes[64] = sig.v() as u8;
+            format!("0x{}", hex::encode(sig_bytes))
+        }
+
+        fn make_heartbeat(broker_address: Address) -> BrokerHeartbeat {
+            BrokerHeartbeat {
+                broker_address,
+                config: serde_json::json!({"max_proofs": 4}),
+                committed_orders_count: 2,
+                pending_preflight_count: 5,
+                version: "0.1.0-test".to_string(),
+                uptime_secs: 3600,
+                events_dropped: 0,
+                timestamp: Utc::now(),
+            }
+        }
+
+        fn make_request_heartbeat(broker_address: Address) -> RequestHeartbeat {
+            RequestHeartbeat {
+                broker_address,
+                evaluated: vec![RequestEvaluated {
+                    broker_address,
+                    order_id: "0x01-0x00-LockAndFulfill".to_string(),
+                    request_id: "0x01".to_string(),
+                    request_digest: "0x00".to_string(),
+                    requestor: Address::ZERO,
+                    outcome: EvalOutcome::Locked,
+                    skip_code: None,
+                    skip_reason: None,
+                    total_cycles: Some(1_000_000),
+                    fulfillment_type: "LockAndFulfill".to_string(),
+                    queue_duration_ms: Some(100),
+                    preflight_duration_ms: Some(500),
+                    received_at_timestamp: 0,
+                    evaluated_at: Utc::now(),
+                    commitment_outcome: Some(CommitmentOutcome::Committed),
+                    commitment_skip_code: None,
+                    commitment_skip_reason: None,
+                    estimated_proving_time_secs: Some(30),
+                    estimated_proving_time_no_load_secs: Some(10),
+                    monitor_wait_duration_ms: Some(200),
+                    peak_prove_khz: Some(100),
+                    max_capacity: Some(4),
+                    pending_commitment_count: Some(1),
+                    concurrent_proving_jobs: Some(1),
+                    lock_duration_secs: Some(2),
+                }],
+                completed: vec![RequestCompleted {
+                    broker_address,
+                    order_id: "0x02-0x00-LockAndFulfill".to_string(),
+                    request_id: "0x02".to_string(),
+                    request_digest: "0x00".to_string(),
+                    proof_type: "Merkle".to_string(),
+                    outcome: CompletionOutcome::Fulfilled,
+                    error_code: None,
+                    error_reason: None,
+                    lock_duration_secs: Some(5),
+                    committed_to_application_proof_duration_secs: Some(25),
+                    aggregation_duration_secs: Some(10),
+                    submission_duration_secs: Some(3),
+                    total_duration_secs: 45,
+                    estimated_proving_time_secs: Some(30),
+                    actual_total_proving_time_secs: Some(25),
+                    concurrent_proving_jobs_start: Some(1),
+                    concurrent_proving_jobs_end: Some(1),
+                    total_cycles: Some(1_000_000),
+                    fulfillment_type: "LockAndFulfill".to_string(),
+                    stark_proving_secs: None,
+                    proof_compression_secs: None,
+                    set_builder_proving_secs: None,
+                    assessor_proving_secs: None,
+                    assessor_compression_proof_secs: None,
+                    received_at_timestamp: 0,
+                    completed_at: Utc::now(),
+                }],
+                events_dropped: 0,
+                timestamp: Utc::now(),
+            }
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_valid_signature(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Valid heartbeat should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_wrong_signer(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+
+            // Sign with a different key than the claimed broker_address
+            let wrong_signer = PrivateKeySigner::random();
+            let sig = sign_payload(&body, &wrong_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 401, "Wrong signer should return 401");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_missing_signature(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 400, "Missing signature should return 400");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_valid(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = make_request_heartbeat(ctx.prover_signer.address());
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Valid request heartbeat should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "config": {"test": true},
+                "committed_orders_count": 0,
+                "pending_preflight_count": 0,
+                "version": "test",
+                "uptime_secs": 0,
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z",
+                "unknown_field": "should_not_cause_400",
+                "another_new_field": 42
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Payload with unknown fields should return 202");
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_accepts_unknown_fields(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [{
+                    "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                    "order_id": "0x01-0x00-LockAndFulfill",
+                    "request_id": "0x01",
+                    "request_digest": "0x00",
+                    "outcome": "Locked",
+                    "fulfillment_type": "LockAndFulfill",
+                    "brand_new_field": "hello",
+                    "future_metric": 999
+                }],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request heartbeat with unknown fields should return 202"
+            );
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_drops_oversized_records(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let padding = "x".repeat(3_000);
+            let payload = serde_json::json!({
+                "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                "evaluated": [
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x01-0x00-LockAndFulfill",
+                        "oversized_field": padding
+                    },
+                    {
+                        "broker_address": format!("{:#x}", ctx.prover_signer.address()),
+                        "order_id": "0x02-0x00-LockAndFulfill"
+                    }
+                ],
+                "completed": [],
+                "events_dropped": 0,
+                "timestamp": "2026-01-01T00:00:00Z"
+            });
+            let body = serde_json::to_vec(&payload).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                202,
+                "Request with oversized records should still succeed (records silently dropped)"
+            );
+
+            server_handle.abort();
+        }
+
+        #[sqlx::test]
+        async fn test_request_heartbeat_empty_lists(pool: PgPool) {
+            let (client, _app_state, ctx, _anvil, server_handle, addr) =
+                setup_server_and_client(pool).await;
+
+            let heartbeat = RequestHeartbeat {
+                broker_address: ctx.prover_signer.address(),
+                evaluated: vec![],
+                completed: vec![],
+                events_dropped: 0,
+                timestamp: Utc::now(),
+            };
+            let body = serde_json::to_vec(&heartbeat).unwrap();
+            let sig = sign_payload(&body, &ctx.prover_signer).await;
+
+            let url = format!("http://{addr}{HEARTBEAT_REQUESTS_PATH}");
+            let response = client
+                .client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Signature", &sig)
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), 202, "Empty request heartbeat should return 202");
+
+            server_handle.abort();
+        }
     }
 }

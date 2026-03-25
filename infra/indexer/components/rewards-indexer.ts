@@ -1,7 +1,5 @@
-import * as fs from 'fs';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
-import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { IndexerShared } from './indexer-infra';
 import { Severity } from '../../util';
@@ -9,21 +7,15 @@ import { Severity } from '../../util';
 export interface RewardsIndexerArgs {
   infra: IndexerShared;
   privSubNetIds: pulumi.Output<string[]>;
-  ciCacheSecret?: pulumi.Output<string>;
-  githubTokenSecret?: pulumi.Output<string>;
-  dockerDir: string;
-  dockerTag: string;
   ethRpcUrl: pulumi.Output<string>;
   vezkcAddress: string;
   zkcAddress: string;
   povwAccountingAddress: string;
   serviceMetricsNamespace: string;
   boundlessAlertsTopicArns?: string[];
-  dockerRemoteBuilder?: string;
 }
 
 export class RewardsIndexer extends pulumi.ComponentResource {
-  public readonly image: docker_build.Image;
   public readonly service: awsx.ecs.FargateService;
 
   constructor(name: string, args: RewardsIndexerArgs, opts?: pulumi.ComponentResourceOptions) {
@@ -32,79 +24,15 @@ export class RewardsIndexer extends pulumi.ComponentResource {
     const {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       ethRpcUrl,
       vezkcAddress,
       zkcAddress,
       povwAccountingAddress,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns,
-      dockerRemoteBuilder,
     } = args;
 
     const serviceName = name;
-
-    let buildSecrets: Record<string, pulumi.Input<string>> = {};
-    if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
-      buildSecrets = {
-        ci_cache_creds: cacheFileData,
-      };
-    }
-    if (githubTokenSecret !== undefined) {
-      buildSecrets = {
-        ...buildSecrets,
-        githubTokenSecret,
-      };
-    }
-
-    this.image = new docker_build.Image(`${serviceName}-rewards-img`, {
-      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-${dockerTag}`],
-      context: {
-        location: dockerDir,
-      },
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/rewards-indexer.dockerfile`,
-      },
-      builder: dockerRemoteBuilder
-        ? {
-          name: dockerRemoteBuilder,
-        }
-        : undefined,
-      buildArgs: {
-        S3_CACHE_PREFIX: `private/boundless/${serviceName}/rust-cache-docker-Linux-X64/sccache`,
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
-          },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
-          },
-        },
-      ],
-      registries: [
-        {
-          address: infra.ecrRepository.repository.repositoryUrl,
-          password: infra.ecrAuthToken.apply((authToken) => authToken.password),
-          username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
-        },
-      ],
-    }, { parent: this });
 
     const rewardsServiceLogGroup = `${serviceName}-rewards-service-v2`;
 
@@ -135,7 +63,8 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-rewards`,
-          image: this.image.ref,
+          image: infra.image.ref,
+          entryPoint: ['/app/rewards-indexer'],
           cpu: 512,
           memory: 256,
           essential: true,
@@ -281,7 +210,6 @@ export class RewardsIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     this.registerOutputs({
-      imageRef: this.image.ref,
       serviceUrn: this.service.urn,
     });
   }

@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
@@ -20,6 +19,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       ciCacheSecret?: pulumi.Output<string>;
       dockerDir: string;
       dockerTag: string;
+      dockerRemoteBuilder?: string;
       orderStreamPingTime: number;
       privSubNetIds: pulumi.Output<string[]>;
       pubSubNetIds: pulumi.Output<string[]>;
@@ -38,6 +38,12 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       premiumApiKey?: pulumi.Output<string>;
       standardRateLimit: number;
       premiumRateLimit: number;
+      kinesisHeartbeatStreamName: pulumi.Output<string>;
+      kinesisHeartbeatStreamArn: pulumi.Output<string>;
+      kinesisEvaluationsStreamName: pulumi.Output<string>;
+      kinesisEvaluationsStreamArn: pulumi.Output<string>;
+      kinesisCompletionsStreamName: pulumi.Output<string>;
+      kinesisCompletionsStreamArn: pulumi.Output<string>;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -48,6 +54,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       ciCacheSecret,
       dockerDir,
       dockerTag,
+      dockerRemoteBuilder,
       orderStreamPingTime,
       privSubNetIds,
       pubSubNetIds,
@@ -64,11 +71,18 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       premiumApiKey,
       standardRateLimit,
       premiumRateLimit,
+      kinesisHeartbeatStreamName,
+      kinesisHeartbeatStreamArn,
+      kinesisEvaluationsStreamName,
+      kinesisEvaluationsStreamArn,
+      kinesisCompletionsStreamName,
+      kinesisCompletionsStreamArn,
     } = args;
 
     const stackName = pulumi.getStack();
     const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
     const isStaging = stackName.includes('staging');
+    const isDev = stackName.includes("dev");
     const stage = isStaging ? 'staging' : 'prod';
 
     // If we're in prod and have a domain, create a cert
@@ -106,9 +120,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     // Optionally add in the gh token secret and sccache s3 creds to the build ctx
     let buildSecrets = {};
     if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
       buildSecrets = {
-        ci_cache_creds: cacheFileData,
+        ci_cache_creds: ciCacheSecret,
       };
     }
     if (githubTokenSecret !== undefined) {
@@ -123,6 +136,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       context: {
         location: dockerDir,
       },
+      builder: dockerRemoteBuilder ? {
+        name: dockerRemoteBuilder,
+      } : undefined,
       platforms: ['linux/amd64'],
       push: true,
       dockerfile: {
@@ -193,7 +209,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       },
       // This should be slightly greater than the order-steam configured ping/pong time
       idleTimeout: orderStreamPingTime + orderStreamPingTime * 0.2,
-    }, { protect: isStaging ? false : true });
+    }, { protect: (isStaging || isDev) ? false : true });
 
     const orderStreamSecGroup = new aws.ec2.SecurityGroup(`${serviceName}-sg`, {
       name: `${serviceName}-sg`,
@@ -270,7 +286,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       dbSubnetGroupName: dbSubnets.name,
       vpcSecurityGroupIds: [rdsSecurityGroup.id],
       storageType: 'gp3',
-    }, { protect: isStaging ? false : true });
+    }, { protect: (isStaging || isDev) ? false : true });
 
     // Build WAF rules with tiered rate limiting
     const wafRules: aws.types.input.wafv2.WebAclRule[] = [
@@ -460,6 +476,27 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       }),
     });
 
+    const taskRolePolicies: pulumi.Output<string>[] = [dbSecretAccessPolicy.arn];
+
+    const kinesisPolicy = new aws.iam.Policy(`${serviceName}-kinesis-policy`, {
+      policy: pulumi
+        .all([kinesisHeartbeatStreamArn, kinesisEvaluationsStreamArn, kinesisCompletionsStreamArn])
+        .apply(([hbArn, evalArn, compArn]): aws.iam.PolicyDocument => ({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Effect: 'Allow',
+              Action: [
+                'kinesis:PutRecord',
+                'kinesis:PutRecords',
+              ],
+              Resource: [hbArn, evalArn, compArn],
+            },
+          ],
+        })),
+    });
+    taskRolePolicies.push(kinesisPolicy.arn);
+
     const executionRole = new aws.iam.Role(`${serviceName}-ecs-execution-role`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
         Service: 'ecs-tasks.amazonaws.com',
@@ -544,8 +581,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         taskRole: {
           args: {
             name: `${serviceName}-task`,
-            description: 'order stream ECS task role with db secret access',
-            managedPolicyArns: [dbSecretAccessPolicy.arn],
+            description: 'order stream ECS task role with db secret and kinesis access',
+            managedPolicyArns: taskRolePolicies,
           },
         },
         container: {
@@ -579,6 +616,18 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
           ],
           environment: [
             {
+              name: 'KINESIS_HEARTBEAT_STREAM',
+              value: kinesisHeartbeatStreamName,
+            },
+            {
+              name: 'KINESIS_EVALUATIONS_STREAM',
+              value: kinesisEvaluationsStreamName,
+            },
+            {
+              name: 'KINESIS_COMPLETIONS_STREAM',
+              value: kinesisCompletionsStreamName,
+            },
+            {
               name: 'RUST_LOG',
               value: 'order_stream=debug,tower_http=debug,info',
             },
@@ -599,8 +648,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
             command: ['CMD-SHELL', `curl -f http://localhost:8585${HEALTH_CHECK_PATH} || exit 1`],
             interval: 60,
             timeout: 5,
-            retries: 1,
-            startPeriod: 5,
+            retries: 3,
+            startPeriod: 15,
           },
           portMappings: [
             {

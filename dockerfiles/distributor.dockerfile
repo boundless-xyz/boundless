@@ -9,7 +9,7 @@ SHELL ["/bin/bash", "-c"]
 RUN cargo install cargo-chef
 
 ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
-# The slasher doesn't need r0vm to run, but its tests do need it. 
+# The slasher doesn't need r0vm to run, but its tests do need it.
 # Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
 # to leverage chef. See https://github.com/LukeMathWalker/cargo-chef/issues/114
 # For this reason we also need to build for amd64.
@@ -45,9 +45,25 @@ FROM init AS builder
 
 WORKDIR /src
 
+SHELL ["/bin/bash", "-c"]
+
+ENV RISC0_SKIP_BUILD=1
+ENV RISC0_SKIP_BUILD_KERNELS=1
+ENV CARGO_PROFILE_RELEASE_LTO=thin
+ENV CARGO_PROFILE_RELEASE_DEBUG=0
+
 COPY --from=planner /src/recipe.json /src/recipe.json
 
-RUN cargo chef cook --release --recipe-path recipe.json
+COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
+RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
+
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
+
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=distributor_sc \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    cargo chef cook --release --recipe-path recipe.json --package boundless-distributor && \
+    sccache --show-stats
 
 COPY Cargo.toml .
 COPY Cargo.lock .
@@ -59,11 +75,17 @@ COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
 
-SHELL ["/bin/bash", "-c"]
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=distributor_sc \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    cargo build --release --bin boundless-distributor && \
+    sccache --show-stats
 
-RUN cargo build --release --bin boundless-distributor
+FROM debian:bookworm-slim AS runtime
 
-FROM init AS runtime
+RUN apt-get -qq update && \
+    apt-get install -y -q --no-install-recommends ca-certificates libssl3 && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/target/release/boundless-distributor /app/boundless-distributor
 

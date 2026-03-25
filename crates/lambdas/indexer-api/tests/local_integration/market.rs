@@ -1544,7 +1544,7 @@ async fn test_prover_aggregates() {
             }
         }
 
-        if !list_response.has_more {
+        if prover_address.is_some() || !list_response.has_more {
             break;
         }
         cursor = list_response.next_cursor;
@@ -1671,7 +1671,7 @@ async fn test_prover_cumulatives() {
             }
         }
 
-        if !list_response.has_more {
+        if prover_address.is_some() || !list_response.has_more {
             break;
         }
         cursor = list_response.next_cursor;

@@ -5,6 +5,9 @@ sources:
 {% for service in vector_monitor_services %}
       - {{ service }}
 {% endfor %}
+    include_matches:
+      SYSLOG_IDENTIFIER:
+        - bento
 
 {% if vector_collect_host_metrics | bool %}
   host_metrics:
@@ -90,11 +93,13 @@ transforms:
     inputs: ["exec_bento_active"]
     source: |
       .value = to_int(string!(.message)) ?? 0
+      .host = "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
   parse_bento_containers:
     type: remap
     inputs: ["exec_bento_containers"]
     source: |
       .value = to_int(string!(.message)) ?? 0
+      .host = "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
   bento_active_gauge:
     type: log_to_metric
     inputs: ["parse_bento_active"]
@@ -103,6 +108,8 @@ transforms:
         field: value
         name: bento_active
         kind: absolute
+        tags:
+          host: "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
   bento_containers_gauge:
     type: log_to_metric
     inputs: ["parse_bento_containers"]
@@ -111,6 +118,8 @@ transforms:
         field: value
         name: bento_containers
         kind: absolute
+        tags:
+          host: "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
 {% endif %}
 
 {% if vector_track_kailua_process | default(false) | bool %}
@@ -119,11 +128,13 @@ transforms:
     inputs: ["exec_kailua_active"]
     source: |
       .value = to_int(string!(.message)) ?? 0
+      .host = "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
   parse_kailua_log_age:
     type: remap
     inputs: ["exec_kailua_log_age"]
     source: |
       .value = to_int(string!(.message)) ?? 999999
+      .host = "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
   kailua_active_gauge:
     type: log_to_metric
     inputs: ["parse_kailua_active"]
@@ -132,6 +143,8 @@ transforms:
         field: value
         name: kailua_active
         kind: absolute
+        tags:
+          host: "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
   kailua_log_age_gauge:
     type: log_to_metric
     inputs: ["parse_kailua_log_age"]
@@ -140,6 +153,8 @@ transforms:
         field: value
         name: kailua_log_age_secs
         kind: absolute
+        tags:
+          host: "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
 {% endif %}
 
 {% if vector_track_log_errors | default(true) | bool %}
@@ -147,13 +162,40 @@ transforms:
     type: filter
     inputs: ["journald"]
     condition: 'contains(to_string(.message) ?? "", "ERROR")'
+  parse_log_errors:
+    type: remap
+    inputs: ["filter_log_errors"]
+    source: |
+      .host = "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
   bento_log_errors_counter:
     type: log_to_metric
-    inputs: ["filter_log_errors"]
+    inputs: ["parse_log_errors"]
     metrics:
       - type: counter
         field: message
         name: bento_log_errors
+        tags:
+          host: "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
+{% endif %}
+
+{% if vector_collect_host_metrics | bool %}
+  tag_host_metrics:
+    type: remap
+    inputs: ["host_metrics"]
+    source: |
+      # host_metrics sets .namespace = "host" which overrides the sink's
+      # default_namespace. Clear it so metrics land in Boundless/SystemMetrics.
+      del(.namespace)
+      # Strip all collector-added tags; keep only what alarms/dashboard query on.
+      # filesystem metrics need mountpoint; everything else needs only host.
+      if starts_with(string!(.name), "filesystem_") {
+        mountpoint = .tags.mountpoint
+        .tags = {}
+        .tags.mountpoint = mountpoint
+      } else {
+        .tags = {}
+      }
+      .tags.host = "{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
 {% endif %}
 
 sinks:
@@ -175,7 +217,7 @@ sinks:
     type: aws_cloudwatch_metrics
     inputs:
 {% if vector_collect_host_metrics | bool %}
-      - host_metrics
+      - tag_host_metrics
 {% endif %}
 {% if vector_track_bento_process | default(true) | bool %}
       - bento_active_gauge
