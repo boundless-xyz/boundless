@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-ARG CUDA_IMG=nvidia/cuda:12.9.1-devel-ubuntu24.04
-ARG CUDA_RUNTIME_IMG=nvidia/cuda:12.9.1-runtime-ubuntu24.04
+ARG CUDA_IMG=nvidia/cuda:13.0.2-devel-ubuntu24.04
+ARG CUDA_RUNTIME_IMG=nvidia/cuda:13.0.2-runtime-ubuntu24.04
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${CUDA_IMG} AS rust-builder
@@ -10,7 +10,7 @@ ENV TZ="America/Los_Angeles"
 
 RUN apt-get -qq update && apt-get install -y -q \
     openssl libssl-dev pkg-config curl clang git \
-    build-essential openssh-client unzip
+    build-essential openssh-client unzip mold
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
@@ -56,7 +56,7 @@ RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
-ARG RUSTFLAGS="-C target-cpu=native"
+ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \

@@ -4,15 +4,13 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
-Type=simple
+Type=oneshot
+RemainAfterExit=true
 User=root
 WorkingDirectory={{ prover_dir }}
 EnvironmentFile={{ prover_env_file }}
-ExecStartPre=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} build
-ExecStart=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} up {{ prover_docker_compose_invoke }}
-ExecStop=/usr/bin/docker compose --env-file {{ prover_env_file }} {{ prover_docker_compose_profile }} down
-Restart=always
-RestartSec=10
+ExecStart=/usr/local/bin/just bento up "{{ prover_env_file }}" "{{ prover_docker_compose_profile }}" "true" "{{ prover_docker_compose_invoke | default('') }}"
+ExecStop=/usr/local/bin/just bento down "{{ prover_env_file }}" "{{ prover_docker_compose_profile }}"
 TimeoutStartSec=infinity
 TimeoutStopSec=infinity
 

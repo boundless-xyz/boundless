@@ -648,8 +648,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
             command: ['CMD-SHELL', `curl -f http://localhost:8585${HEALTH_CHECK_PATH} || exit 1`],
             interval: 60,
             timeout: 5,
-            retries: 1,
-            startPeriod: 5,
+            retries: 3,
+            startPeriod: 15,
           },
           portMappings: [
             {
