@@ -66,7 +66,7 @@ envs respectively. It gets copied automatically from the source stack via
   - slasher (`ETH_RPC_URL`)
   - indexer (`ETH_RPC_URL` and optionally `LOGS_ETH_RPC_URL`)
   - order-generator (`ETH_RPC_URL`)
-    The user may provide a single URL for all, or different URLs per service.
+  The user may provide a single URL for all, or different URLs per service.
 - **ALB domain** for order-stream (e.g. `taiko-mainnet.boundless.network`), or skip if not setting up a domain yet
 
 Store all gathered values as variables for use in subsequent steps.
@@ -295,6 +295,12 @@ pulumi config set distributor:CHAINALYSIS_ORACLE_ADDRESS "{CHAINALYSIS_ORACLE_AD
 pulumi config set distributor:BASE_STACK "organization/bootstrap/services-{env}" --stack l-{env}-{CHAIN_ID}
 ```
 
+Set `INDEXER_API_URL` to blank -- the URL is not known until the indexer is deployed:
+
+```bash
+pulumi config set distributor:INDEXER_API_URL "" --stack l-{env}-{CHAIN_ID}
+```
+
 #### slasher
 
 ```bash
@@ -333,17 +339,37 @@ pulumi config set order-generator-base:SET_VERIFIER_ADDR "{SET_VERIFIER_ADDR}" -
 pulumi config set order-generator-base:BASE_STACK "organization/bootstrap/services-{env}" --stack l-{env}-{CHAIN_ID}
 ```
 
-Set `ORDER_STREAM_URL` to blank -- same as indexer, the URL is not known yet:
+Set `ORDER_STREAM_URL` and `INDEXER_URL` to blank -- these URLs are not known
+until the respective services are deployed for the new chain:
 
 ```bash
 pulumi config set order-generator-base:ORDER_STREAM_URL "" --stack l-{env}-{CHAIN_ID}
+pulumi config set order-generator-base:INDEXER_URL "" --stack l-{env}-{CHAIN_ID}
 ```
 
-**Remind the user**: After the order-stream service is deployed for the new
-chain, come back and update `ORDER_STREAM_URL` in both the indexer and
-order-generator stacks (staging and prod) with the actual URL.
+## Step 6: Post-deploy service wiring
 
-## Step 6: Verify
+Several services depend on URLs from other services that only exist after
+deployment. **Remind the user** of the required deployment order:
+
+1. **Deploy order-stream** first
+2. **Update indexer config** with the new `ORDER_STREAM_URL` from step 1
+3. **Deploy indexer**
+4. **Update distributor config** with the new `INDEXER_API_URL` from step 3
+5. **Update order-generator config** with the new `ORDER_STREAM_URL` and `INDEXER_URL` from steps 1 and 3
+6. **Deploy distributor and order-generator**
+7. **Deploy slasher** (no cross-service dependencies)
+
+The configs that need updating after deploys:
+
+- `indexer:ORDER_STREAM_URL` -- set to the order-stream URL
+- `distributor:INDEXER_API_URL` -- set to the indexer API URL
+- `order-generator-base:ORDER_STREAM_URL` -- set to the order-stream URL
+- `order-generator-base:INDEXER_URL` -- set to the indexer URL
+
+These must be updated for both staging and prod stacks.
+
+## Step 7: Verify
 
 1. Confirm all config files exist (10 files expected):
 
