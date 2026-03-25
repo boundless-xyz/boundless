@@ -22,7 +22,7 @@ use alloy_primitives::B256;
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::{DateTime, Utc};
-use futures_util::{Stream, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use siwe::Message as SiweMsg;
@@ -740,38 +740,92 @@ pub fn order_stream(
     mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
 ) -> Pin<Box<dyn Stream<Item = OrderData> + Send>> {
     Box::pin(stream! {
+        // Create a ping interval - configurable via environment variable
+        let ping_duration = match std::env::var("ORDER_STREAM_CLIENT_PING_MS") {
+            Ok(ms) => match ms.parse::<u64>() {
+                Ok(ms) => {
+                    tracing::debug!("Using custom ping interval of {}ms", ms);
+                    tokio::time::Duration::from_millis(ms)
+                },
+                Err(_) => {
+                    tracing::warn!("Invalid ORDER_STREAM_CLIENT_PING_MS value: {}, using default", ms);
+                    tokio::time::Duration::from_secs(30)
+                }
+            },
+            Err(_) => tokio::time::Duration::from_secs(30),
+        };
+
+        let mut ping_interval = tokio::time::interval(ping_duration);
+        // Track the last ping we sent
+        let mut ping_data: Option<Vec<u8>> = None;
+
         loop {
-            match socket.next().await {
-                Some(Ok(tungstenite::Message::Text(msg))) => {
-                    match serde_json::from_str::<OrderData>(&msg) {
-                        Ok(order) => yield order,
-                        Err(err) => {
-                            tracing::warn!("Failed to parse order: {:?}", err);
+            tokio::select! {
+                // Handle incoming messages
+                msg_result = socket.next() => {
+                    match msg_result {
+                        Some(Ok(tungstenite::Message::Text(msg))) => {
+                            match serde_json::from_str::<OrderData>(&msg) {
+                                Ok(order) => yield order,
+                                Err(err) => {
+                                    tracing::warn!("Failed to parse order: {:?}", err);
+                                    continue;
+                                }
+                            }
+                        }
+                        // Reply to Ping's inline
+                        Some(Ok(tungstenite::Message::Ping(data))) => {
+                            tracing::trace!("Responding to ping");
+                            if let Err(err) = socket.send(tungstenite::Message::Pong(data)).await {
+                                tracing::warn!("Failed to send pong: {:?}", err);
+                                break;
+                            }
+                        }
+                        // Handle Pong responses
+                        Some(Ok(tungstenite::Message::Pong(data))) => {
+                            tracing::trace!("Received pong from server");
+                            if let Some(expected_data) = ping_data.take() {
+                                if data != expected_data {
+                                    tracing::warn!("Server responded with invalid pong data");
+                                    break;
+                                }
+                            } else {
+                                tracing::warn!("Received unexpected pong from order-stream server");
+                            }
+                        }
+                        Some(Ok(tungstenite::Message::Close(msg))) => {
+                            tracing::warn!("Server closed the order stream connection with reason: {:?}", msg.map(|m| m.to_string()));
+                            break;
+                        }
+                        Some(Ok(other)) => {
+                            tracing::debug!("Ignoring non-text message: {:?}", other);
                             continue;
+                        }
+                        Some(Err(err)) => {
+                            tracing::warn!("order stream socket error: {:?}", err);
+                            break;
+                        }
+                        None => {
+                            tracing::warn!("order stream socket closed unexpectedly");
+                            break;
                         }
                     }
                 }
-                Some(Ok(tungstenite::Message::Ping(_))) => {
-                    tracing::trace!("Received ping from order-stream server");
-                }
-                Some(Ok(tungstenite::Message::Pong(_))) => {
-                    tracing::trace!("Received pong from order-stream server");
-                }
-                Some(Ok(tungstenite::Message::Close(msg))) => {
-                    tracing::warn!("Server closed the order stream connection with reason: {:?}", msg.map(|m| m.to_string()));
-                    break;
-                }
-                Some(Ok(other)) => {
-                    tracing::debug!("Ignoring non-text message: {:?}", other);
-                    continue;
-                }
-                Some(Err(err)) => {
-                    tracing::warn!("order stream socket error: {:?}", err);
-                    break;
-                }
-                None => {
-                    tracing::warn!("order stream socket closed unexpectedly");
-                    break;
+                // Send periodic pings
+                _ = ping_interval.tick() => {
+                    // If we still have a pending ping that hasn't been responded to
+                    if ping_data.is_some() {
+                        tracing::warn!("Server did not respond to ping, closing connection");
+                        break;
+                    }
+
+                    tracing::trace!("Sending ping to server");
+                    let random_bytes: Vec<u8> = (0..16).map(|_| rand::random::<u8>()).collect();
+                    if let Err(err) = socket.send(tungstenite::Message::Ping(random_bytes.clone())).await {
+                        tracing::warn!("Failed to send ping: {:?}", err);
+                        break;
+                    }
+                    ping_data = Some(random_bytes);
                 }
             }
         }
@@ -782,7 +836,6 @@ pub fn order_stream(
 mod tests {
     use super::*;
     use alloy::signers::local::LocalSigner;
-    use futures_util::SinkExt;
     use std::borrow::Cow;
     use std::time::Duration;
     use tokio::net::TcpListener;

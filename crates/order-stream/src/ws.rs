@@ -261,9 +261,11 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
 
     let mut errors_counter = 0usize;
 
+    let ping_interval_duration = tokio::time::Duration::from_secs(state.config.ping_time);
     let mut ping_data: Option<Vec<u8>> = None;
-    let mut ping_interval =
-        tokio::time::interval(tokio::time::Duration::from_secs(state.config.ping_time));
+    let mut ping_interval = tokio::time::interval(ping_interval_duration);
+    let mut last_ping_tick_at: Option<tokio::time::Instant> = None;
+    let mut ping_sent_at: Option<tokio::time::Instant> = None;
 
     loop {
         tokio::select! {
@@ -292,8 +294,31 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                 }
             }
             _ = ping_interval.tick() => {
+                let now = tokio::time::Instant::now();
+                let since_last_tick = last_ping_tick_at.map(|previous_tick| now.duration_since(previous_tick));
+                let since_ping_sent =
+                    ping_sent_at.map(|previous_ping_sent| now.duration_since(previous_ping_sent));
+                last_ping_tick_at = Some(now);
+
+                match (since_last_tick, since_ping_sent) {
+                    (Some(last_tick), Some(last_ping)) => tracing::trace!(
+                        "Ping interval tick for {address}: since_last_tick={last_tick:?}, since_ping_sent={last_ping:?}, interval={ping_interval_duration:?}, awaiting_pong={}",
+                        ping_data.is_some()
+                    ),
+                    (Some(last_tick), None) => tracing::trace!(
+                        "Ping interval tick for {address}: since_last_tick={last_tick:?}, interval={ping_interval_duration:?}, awaiting_pong={}",
+                        ping_data.is_some()
+                    ),
+                    (None, _) => tracing::trace!(
+                        "First ping interval tick for {address}: interval={ping_interval_duration:?}, awaiting_pong={}",
+                        ping_data.is_some()
+                    ),
+                }
+
                 if ping_data.is_some() {
-                    tracing::warn!("Client {address} never responded to ping, closing conn");
+                    tracing::warn!(
+                        "Client {address} never responded to ping, closing conn (since_last_tick={since_last_tick:?}, since_ping_sent={since_ping_sent:?}, interval={ping_interval_duration:?})"
+                    );
                     break;
                 }
                 // Send ping
@@ -304,6 +329,7 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                 }
                 tracing::trace!("Sent Ping to {address}");
                 ping_data = Some(random_bytes);
+                ping_sent_at = Some(now);
             }
             ws_msg = recver_ws.next() => {
                 // This polls on the recv side of the websocket connection, once a connection closes
@@ -311,12 +337,18 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
                 // connection.
                 match ws_msg {
                     Some(Ok(Message::Pong(data))) => {
-                        tracing::trace!("Got Pong from {address}");
+                        let pong_received_at = tokio::time::Instant::now();
+                        let pong_round_trip =
+                            ping_sent_at.map(|previous_ping_sent| pong_received_at.duration_since(previous_ping_sent));
+                        tracing::trace!(
+                            "Got Pong from {address} after {pong_round_trip:?}"
+                        );
                         if let Some(send_data) = ping_data.take() {
                             if send_data != data {
                                 tracing::warn!("Invalid ping data from client {address}, closing conn");
                                 break;
                             }
+                            ping_sent_at = None;
                             if let Err(err) = state.db.broker_update(address).await {
                                 tracing::error!("Failed to update broker timestamp: {err:?}");
                                 break;
