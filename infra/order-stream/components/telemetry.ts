@@ -1,8 +1,10 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import { ChainId } from '../../util';
 
 export interface TelemetryInfraArgs {
   serviceName: string;
+  chainId: string;
   vpcId: pulumi.Output<string>;
   pubSubNetIds: pulumi.Output<string[]>;
   redshiftAdminPassword: pulumi.Output<string>;
@@ -29,9 +31,13 @@ export class TelemetryInfra extends pulumi.ComponentResource {
   ) {
     super('boundless:telemetry:TelemetryInfra', name, opts);
 
-    const { serviceName, vpcId, pubSubNetIds, redshiftAdminPassword } = args;
+    const { serviceName, chainId, vpcId, pubSubNetIds, redshiftAdminPassword } = args;
     const retentionHours = 72;
-    const version = 'v3';
+
+    const versionByChain: Partial<Record<ChainId, string>> = {
+      [ChainId.TAIKO]: 'v4',
+    };
+    const version = versionByChain[chainId as ChainId] ?? 'v3';
 
     // Kinesis Data Streams
 

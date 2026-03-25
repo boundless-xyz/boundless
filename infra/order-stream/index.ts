@@ -44,6 +44,7 @@ export = () => {
   const redshiftAdminPassword = isDev ? pulumi.output(getEnvVar("REDSHIFT_ADMIN_PASSWORD")) : config.requireSecret('REDSHIFT_ADMIN_PASSWORD');
   const telemetry = new TelemetryInfra(`${serviceName}-telemetry`, {
     serviceName,
+    chainId,
     vpcId,
     pubSubNetIds,
     redshiftAdminPassword,
