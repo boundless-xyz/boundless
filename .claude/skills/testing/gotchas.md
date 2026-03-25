@@ -33,7 +33,3 @@ RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 cargo clippy 
 ## Markdown formatting with dprint
 
 If you create or edit any `.md` files, run `dprint check` (or `dprint fmt` to auto-fix). CI runs `dprint check` as part of `just check-format`. dprint enforces consistent markdown formatting (blank lines around code fences, table alignment, etc). Check the justfile for the exact commands — `just check-format` runs it, `just format` fixes it.
-
-## Flaky Anvil tests
-
-Some tests that spin up Anvil instances can be flaky when run in parallel (e.g. `chain_monitor_smoke_test`). If a single test fails but passes when run in isolation with `--exact`, it's likely a timing issue, not a real failure.

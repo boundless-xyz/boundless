@@ -136,7 +136,7 @@ async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider + Send + Sy
     ctx.customer_market.deposit(utils::parse_ether("10.0")?).await?;
 
     // Start broker
-    let (broker, chain, config_file) = BrokerBuilder::new_test(ctx, rpc_url)
+    let (broker, chain, config_file, _db_dir) = BrokerBuilder::new_test(ctx, rpc_url)
         .await
         .with_db_url(db_url.to_string())
         .build(ctx)

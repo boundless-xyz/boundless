@@ -27,8 +27,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
 use broker::{
-    build_chain_provider, config::ConfigWatcher, resolve_deployment, Broker, ChainArgs,
-    ChainPipeline, CoreArgs,
+    broker_sqlite_url_for_chain, build_chain_provider, config::ConfigWatcher, resolve_deployment,
+    Broker, ChainArgs, ChainPipeline, CoreArgs, SqliteDb,
 };
 use clap::{Arg, ArgAction, CommandFactory, FromArgMatches};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -281,6 +281,12 @@ async fn main() -> Result<()> {
         let deployment = resolve_deployment(args.deployment.as_ref(), chain_id)?;
         tracing::info!(chain_id, %deployment, "Using deployment configuration");
 
+        let db_url = broker_sqlite_url_for_chain(&args.db_url, chain_id)
+            .map_err(|e| anyhow::anyhow!("invalid broker database URL: {e}"))?;
+        let db = Arc::new(
+            SqliteDb::new(&db_url).await.context("Failed to open per-chain sqlite database")?,
+        );
+
         if !args.listen_only {
             if let Some(deposit_amount) = args.deposit_amount.as_ref() {
                 let market = BoundlessMarketService::new_for_broker(
@@ -307,6 +313,7 @@ async fn main() -> Result<()> {
             private_key,
             chain_id,
             deployment,
+            db,
         });
     } else {
         for chain_args in &discovered_chains {
@@ -340,6 +347,12 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|| resolve_deployment(args.deployment.as_ref(), chain_id))?;
             tracing::info!(chain_id, %deployment, "Using deployment configuration");
 
+            let db_url = broker_sqlite_url_for_chain(&args.db_url, chain_id)
+                .map_err(|e| anyhow::anyhow!("invalid broker database URL: {e}"))?;
+            let db = Arc::new(
+                SqliteDb::new(&db_url).await.context("Failed to open per-chain sqlite database")?,
+            );
+
             if !args.listen_only {
                 if let Some(deposit_amount) = args.deposit_amount.as_ref() {
                     let market = BoundlessMarketService::new_for_broker(
@@ -366,6 +379,7 @@ async fn main() -> Result<()> {
                 private_key: chain_args.private_key.clone(),
                 chain_id,
                 deployment,
+                db,
             });
 
             _config_watchers.push(chain_config_watcher);
@@ -504,7 +518,6 @@ fn build_chain_deployments(
 /// Returns an empty vec if no per-chain configuration is found (falls back to
 /// single-chain mode in main).
 fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<ChainArgs>> {
-    // Start with CLI-specified RPC URLs
     let mut chain_urls: BTreeMap<u64, Vec<Url>> = BTreeMap::new();
     for (chain_id, urls) in per_chain.rpc_urls.drain() {
         chain_urls.insert(chain_id, urls);
@@ -561,7 +574,6 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
 
     let mut chains = Vec::with_capacity(chain_urls.len());
     for (chain_id, rpc_urls) in chain_urls {
-        // Resolution order: --private-key-{id} > PROVER_PRIVATE_KEY_{id} > global key
         let private_key = per_chain
             .private_keys
             .remove(&chain_id)

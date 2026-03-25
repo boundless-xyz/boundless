@@ -485,13 +485,18 @@ fn now_timestamp() -> u64 {
 mod tests {
     use std::{fs::create_dir_all, sync::Arc};
 
-    use alloy::{node_bindings::Anvil, primitives::Address, providers::Provider};
+    use alloy::{
+        network::AnyNetwork,
+        node_bindings::Anvil,
+        primitives::Address,
+        providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
+    };
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use broker::{
-        build_chain_provider,
+        broker_sqlite_url_for_chain,
         config::{Config, ConfigWatcher},
-        resolve_deployment, Broker, ChainPipeline, CoreArgs,
+        resolve_deployment, Broker, ChainPipeline, CoreArgs, DbObj, SqliteDb,
     };
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
@@ -599,11 +604,21 @@ mod tests {
             ctx.prover_signer.clone(),
         );
 
-        let (provider, any_provider, gas_priority_mode) =
-            build_chain_provider(&[rpc_url], &ctx.prover_signer, &args, &config_lock).unwrap();
-        let provider = Arc::new(provider);
+        let provider = Arc::new(
+            ProviderBuilder::new().wallet(ctx.prover_signer.clone()).connect_http(rpc_url),
+        );
+        let any_provider = DynProvider::new(
+            ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .filler(ChainIdFiller::default())
+                .connect_http(anvil.endpoint_url()),
+        );
+        let gas_priority_mode = Default::default();
         let chain_id = provider.get_chain_id().await.unwrap();
         let deployment = resolve_deployment(args.deployment.as_ref(), chain_id).unwrap();
+
+        let db_url = broker_sqlite_url_for_chain(&args.db_url, chain_id).unwrap();
+        let db: DbObj = Arc::new(SqliteDb::new(&db_url).await.unwrap());
 
         let chain = ChainPipeline {
             provider,
@@ -613,6 +628,7 @@ mod tests {
             private_key: ctx.prover_signer.clone(),
             chain_id,
             deployment,
+            db,
         };
 
         let broker = Broker::new(args, config_watcher).await.unwrap();
