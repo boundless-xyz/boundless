@@ -782,6 +782,7 @@ pub fn order_stream(
 mod tests {
     use super::*;
     use alloy::signers::local::LocalSigner;
+    use futures_util::SinkExt;
     use std::borrow::Cow;
     use std::time::Duration;
     use tokio::net::TcpListener;
