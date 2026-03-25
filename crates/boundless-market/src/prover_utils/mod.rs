@@ -18,13 +18,13 @@ pub(crate) mod local_executor;
 pub mod prover;
 pub(crate) mod requestor_pricing;
 
+#[cfg(not(feature = "prover_utils"))]
+pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
     OrderPricingPriority, PricingOverrides, ProverConfig, TelemetryMode,
 };
-#[cfg(not(feature = "prover_utils"))]
-pub use config::{MarketConfig, TelemetryMode};
 
 use crate::{
     contracts::{
@@ -228,6 +228,10 @@ pub struct OrderRequest {
     /// Unix timestamp (seconds since epoch) of when the broker first received this
     /// request from the network.
     pub received_at_timestamp: u64,
+    /// High-precision instant when the order was created locally. Used for sub-second
+    /// queue and preflight duration calculations. Not serialized.
+    #[serde(skip)]
+    pub created_at: Option<std::time::Instant>,
     /// Unix timestamp (seconds since epoch) of when the order was priced.
     pub priced_at_timestamp: Option<u64>,
     #[serde(skip)]
@@ -260,6 +264,7 @@ impl OrderRequest {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            created_at: Some(std::time::Instant::now()),
             priced_at_timestamp: None,
             cached_id: OnceLock::new(),
         }

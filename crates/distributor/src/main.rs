@@ -220,6 +220,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_rpc_url(args.rpc_url.clone())
         .with_private_key(args.private_key.clone())
         .with_deployment(args.deployment.clone())
+        .with_timeout(Some(TX_TIMEOUT))
         .build()
         .await?;
 
@@ -774,16 +775,18 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
     let chain_id = market.get_chain_id().await?;
     let use_permit = collateral_token_supports_permit(chain_id);
 
-    if !use_permit {
-        // Non-permit chains (e.g. Base): approve once, deposit N times
-        tracing::info!(
-            "Chain {} does not support permit, using approve+depositCollateralTo",
-            chain_id
-        );
-        market.approve_deposit_collateral(U256::MAX).await?;
-    }
+    // Track whether we still need to send the ERC-20 approve tx.
+    // For non-permit chains we defer it until we know there is at least one deposit to make.
+    let mut needs_approve = !use_permit;
 
     let signer = &args.private_key;
+
+    let mut topped_up: u32 = 0;
+    let mut skipped_exhausted: u32 = 0;
+    let mut skipped_sanctioned: u32 = 0;
+    let mut skipped_above_threshold: u32 = 0;
+    let mut skipped_ofac_err: u32 = 0;
+    let mut failed: u32 = 0;
 
     for prover in &eligible {
         let addr: Address = prover
@@ -803,12 +806,14 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                 addr,
                 format_units(ext_lifetime_allowance, collateral_token_decimals)?
             );
+            skipped_exhausted += 1;
             continue;
         }
 
         // Skip if previously sanctioned
         if entry.sanctioned {
             tracing::info!("[B-TOPUP-OFAC] Prover {} previously flagged as sanctioned", addr);
+            skipped_sanctioned += 1;
             continue;
         }
 
@@ -822,12 +827,13 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
         };
 
         if balance >= ext_collateral_threshold {
-            tracing::debug!(
+            tracing::info!(
                 "Prover {} has {} deposited collateral, above threshold {}. Skipping.",
                 addr,
                 format_units(balance, collateral_token_decimals)?,
                 format_units(ext_collateral_threshold, collateral_token_decimals)?
             );
+            skipped_above_threshold += 1;
             continue;
         }
 
@@ -848,6 +854,7 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                                 addr
                             );
                             entry.sanctioned = true;
+                            skipped_sanctioned += 1;
                             continue;
                         }
                         Err(e) => {
@@ -855,6 +862,7 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                                 "[B-TOPUP-OFAC-ERR] Failed to parse sanctions response for {}: {}. Skipping (fail-closed).",
                                 addr, e
                             );
+                            skipped_ofac_err += 1;
                             continue;
                         }
                         _ => {} // not sanctioned
@@ -865,6 +873,7 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                         "[B-TOPUP-OFAC-ERR] Chainalysis API returned status {} for {}. Skipping (fail-closed).",
                         resp.status(), addr
                     );
+                    skipped_ofac_err += 1;
                     continue;
                 }
                 Err(e) => {
@@ -872,6 +881,7 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                         "[B-TOPUP-OFAC-ERR] Chainalysis API call failed for {}: {}. Skipping (fail-closed).",
                         addr, e
                     );
+                    skipped_ofac_err += 1;
                     continue;
                 }
             }
@@ -893,6 +903,16 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
             format_units(remaining, collateral_token_decimals)?
         );
 
+        // Lazily approve on the first deposit for non-permit chains
+        if needs_approve {
+            tracing::info!(
+                "Chain {} does not support permit, using approve+depositCollateralTo",
+                chain_id
+            );
+            market.approve_deposit_collateral(U256::MAX).await?;
+            needs_approve = false;
+        }
+
         // Deposit directly to prover's market balance
         let deposit_result = if use_permit {
             market.deposit_collateral_with_permit_to(addr, amount, signer).await
@@ -910,6 +930,7 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                     addr,
                     format_units(amount, collateral_token_decimals)?
                 );
+                topped_up += 1;
             }
             Err(e) => {
                 tracing::error!(
@@ -917,10 +938,16 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
                     addr,
                     e
                 );
+                failed += 1;
                 continue;
             }
         }
     }
+
+    tracing::info!(
+        "External prover top-up summary: {} eligible, {} topped up, {} failed, {} above threshold, {} exhausted, {} sanctioned, {} OFAC errors",
+        eligible.len(), topped_up, failed, skipped_above_threshold, skipped_exhausted, skipped_sanctioned, skipped_ofac_err
+    );
 
     // 6. Save state
     save_state(&args.allowance_state_file, &state)?;

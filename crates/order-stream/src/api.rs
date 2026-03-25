@@ -22,6 +22,7 @@ use boundless_market::order_stream_client::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{self, DateTime, Utc};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use utoipa::IntoParams;
 
@@ -297,5 +298,11 @@ pub(crate) async fn get_nonce(
 /// Submit a new order to the market order-stream
 pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Result<(), AppError> {
     state.db.health_check().await.context("Failed health check")?;
+    // Ensure the broadcast task's PgListener is connected so the server can actually
+    // deliver order notifications to WebSocket clients. Without this, the HTTP server
+    // could report healthy while the broadcast pipeline is still initializing.
+    if !state.broadcast_ready.load(Ordering::Acquire) {
+        return Err(AppError::InternalErr(anyhow::anyhow!("Broadcast task not ready")));
+    }
     Ok(())
 }

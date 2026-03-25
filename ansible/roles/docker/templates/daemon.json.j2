@@ -1,20 +1,28 @@
-{
-    "iptables": false,
-    "log-driver": "{{ docker_log_driver }}"{{ "," if docker_zfs_support == "true" or docker_nvidia_enabled else "" }}
-    {% if docker_zfs_support == "true" %}
-    "storage-driver": "zfs",
-    "storage-opts": ["zfs.fsname=prover"]{{ "," if docker_nvidia_enabled else "" }}
-    {% endif %}
-    {% if docker_nvidia_enabled %}
-    {% if docker_zfs_support == "true" %}
-    "storage-driver": "zfs",
-    "storage-opts": ["zfs.fsname=prover"],
-    {% endif %}
-    "runtimes": {
-        "nvidia": {
-            "args": [],
-            "path": "nvidia-container-runtime"
-        }
+{% set daemon_config = {
+  "iptables": false,
+  "log-driver": docker_log_driver,
+} %}
+{% if docker_log_driver == "journald" %}
+{% set daemon_config = daemon_config | combine({
+  "log-opts": {
+    "tag": "bento"
+  }
+}) %}
+{% endif %}
+{% if docker_zfs_support | bool %}
+{% set daemon_config = daemon_config | combine({
+  "storage-driver": "zfs",
+  "storage-opts": ["zfs.fsname=prover"]
+}) %}
+{% endif %}
+{% if docker_nvidia_enabled | bool %}
+{% set daemon_config = daemon_config | combine({
+  "runtimes": {
+    "nvidia": {
+      "args": [],
+      "path": "nvidia-container-runtime"
     }
-    {% endif %}
-}
+  }
+}) %}
+{% endif %}
+{{ daemon_config | to_nice_json }}

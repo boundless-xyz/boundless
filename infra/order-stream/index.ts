@@ -41,7 +41,7 @@ export = () => {
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
   const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
 
-  const redshiftAdminPassword = config.requireSecret('REDSHIFT_ADMIN_PASSWORD');
+  const redshiftAdminPassword = isDev ? pulumi.output(getEnvVar("REDSHIFT_ADMIN_PASSWORD")) : config.requireSecret('REDSHIFT_ADMIN_PASSWORD');
   const telemetry = new TelemetryInfra(`${serviceName}-telemetry`, {
     serviceName,
     vpcId,
