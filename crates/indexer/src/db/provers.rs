@@ -892,6 +892,8 @@ pub struct MarketCollateralStats {
     pub total_collateral_deposited: U256,
     /// Number of provers with deposited balance >= threshold
     pub eligible_prover_count: u64,
+    /// Number of provers with deposited balance >= threshold AND who fulfilled a request in the last 7 days
+    pub active_eligible_prover_count: u64,
 }
 
 // Blanket implementation for anything that implements IndexerDb
@@ -1811,11 +1813,19 @@ async fn get_market_collateral_stats_impl(
                     - COALESCE(w.total_withdrawn, 0)
                     - COALESCE(s.total_slashed, 0)
                     + COALESCE(r.total_received, 0) > 0
+        ),
+        recent_fulfillers AS (
+            SELECT DISTINCT fulfill_prover_address AS account
+            FROM request_status
+            WHERE fulfill_prover_address IS NOT NULL
+              AND fulfilled_at >= EXTRACT(EPOCH FROM NOW())::BIGINT - (7 * 86400)
         )
         SELECT
             COALESCE(LPAD(SUM(balance)::TEXT, 78, '0'), LPAD('0', 78, '0')) as total_deposited,
-            COUNT(CASE WHEN balance >= CAST($1 AS NUMERIC) THEN 1 END)::BIGINT as eligible_count
-        FROM prover_balances",
+            COUNT(CASE WHEN balance >= CAST($1 AS NUMERIC) THEN 1 END)::BIGINT as eligible_count,
+            COUNT(CASE WHEN balance >= CAST($1 AS NUMERIC) AND rf.account IS NOT NULL THEN 1 END)::BIGINT as active_eligible_count
+        FROM prover_balances pb
+        LEFT JOIN recent_fulfillers rf ON pb.account = rf.account",
     )
     .bind(eligible_threshold.to_string())
     .fetch_one(pool)
@@ -1823,10 +1833,12 @@ async fn get_market_collateral_stats_impl(
 
     let total_str: String = row.try_get("total_deposited")?;
     let eligible_count: i64 = row.try_get("eligible_count")?;
+    let active_eligible_count: i64 = row.try_get("active_eligible_count")?;
 
     Ok(MarketCollateralStats {
         total_collateral_deposited: padded_string_to_u256(&total_str)?,
         eligible_prover_count: eligible_count as u64,
+        active_eligible_prover_count: active_eligible_count as u64,
     })
 }
 
