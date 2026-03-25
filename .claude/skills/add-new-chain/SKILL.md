@@ -66,7 +66,7 @@ envs respectively. It gets copied automatically from the source stack via
   - slasher (`ETH_RPC_URL`)
   - indexer (`ETH_RPC_URL` and optionally `LOGS_ETH_RPC_URL`)
   - order-generator (`ETH_RPC_URL`)
-    The user may provide a single URL for all, or different URLs per service.
+  The user may provide a single URL for all, or different URLs per service.
 - **ALB domain** for order-stream (e.g. `taiko-mainnet.boundless.network`), or skip if not setting up a domain yet
 
 Store all gathered values as variables for use in subsequent steps.
@@ -315,10 +315,11 @@ pulumi config set indexer:START_BLOCK "{START_BLOCK}" --stack l-{env}-{CHAIN_ID}
 pulumi config set indexer:BASE_STACK "organization/bootstrap/services-{env}" --stack l-{env}-{CHAIN_ID}
 ```
 
-If ORDER_STREAM_URL should point to the new chain's order-stream:
+Set `ORDER_STREAM_URL` to blank -- the correct URL is not known until the
+order-stream service is deployed for the new chain:
 
 ```bash
-pulumi config set indexer:ORDER_STREAM_URL "https://{ALB_DOMAIN}" --stack l-{env}-{CHAIN_ID}
+pulumi config set indexer:ORDER_STREAM_URL "" --stack l-{env}-{CHAIN_ID}
 ```
 
 #### order-generator
@@ -332,11 +333,15 @@ pulumi config set order-generator-base:SET_VERIFIER_ADDR "{SET_VERIFIER_ADDR}" -
 pulumi config set order-generator-base:BASE_STACK "organization/bootstrap/services-{env}" --stack l-{env}-{CHAIN_ID}
 ```
 
-If ORDER_STREAM_URL should point to the new chain's order-stream:
+Set `ORDER_STREAM_URL` to blank -- same as indexer, the URL is not known yet:
 
 ```bash
-pulumi config set order-generator-base:ORDER_STREAM_URL "https://{ALB_DOMAIN}" --stack l-{env}-{CHAIN_ID}
+pulumi config set order-generator-base:ORDER_STREAM_URL "" --stack l-{env}-{CHAIN_ID}
 ```
+
+**Remind the user**: After the order-stream service is deployed for the new
+chain, come back and update `ORDER_STREAM_URL` in both the indexer and
+order-generator stacks (staging and prod) with the actual URL.
 
 ## Step 6: Verify
 
