@@ -494,17 +494,17 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         # instead of pulling pre-built images.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
             export AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE=""
-            export AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
-            export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
-            export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
-            export BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile"
+            export AGENT_DOCKERFILE="${AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}"
+            export BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}"
+            export REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}"
+            export BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.dockerfile}"
             docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
                 case "$svc" in
-                    *agent*|miner) export AGENT_IMAGE="" AGENT_DOCKERFILE="dockerfiles/agent.dockerfile" BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile" ;;
-                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="dockerfiles/broker.dockerfile" ;;
-                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile" ;;
+                    *agent*|miner) export AGENT_IMAGE="" AGENT_DOCKERFILE="${AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}" BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.dockerfile}" ;;
+                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}" ;;
                     *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
                 esac
             done
