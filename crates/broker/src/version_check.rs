@@ -262,30 +262,6 @@ mod tests {
     use std::sync::Arc;
     use tracing_test::traced_test;
 
-    /// Temporarily disables `RISC0_DEV_MODE` for the duration of a test. Restores the original
-    /// value on drop. Tests using this guard must run with `--test-threads=1` (or be otherwise
-    /// serialized) because env var mutation is not thread-safe.
-    struct DevModeGuard {
-        original: Option<String>,
-    }
-
-    impl DevModeGuard {
-        fn disable() -> Self {
-            let original = std::env::var("RISC0_DEV_MODE").ok();
-            // SAFETY: must be called from serialized tests (--test-threads=1).
-            unsafe { std::env::remove_var("RISC0_DEV_MODE") };
-            Self { original }
-        }
-    }
-
-    impl Drop for DevModeGuard {
-        fn drop(&mut self) {
-            if let Some(ref val) = self.original {
-                unsafe { std::env::set_var("RISC0_DEV_MODE", val) };
-            }
-        }
-    }
-
     // --- Unit tests ---
 
     #[test]
@@ -367,7 +343,6 @@ mod tests {
 
     #[tokio::test]
     async fn task_faults_when_below_minimum() {
-        let _guard = DevModeGuard::disable();
         let anvil = Anvil::new().spawn();
         let provider = make_provider(&anvil).await;
         let registry_addr = deploy_mock(&provider).await.unwrap();
@@ -405,7 +380,6 @@ mod tests {
     #[tokio::test]
     #[traced_test(debug)]
     async fn successful_version_check_task() {
-        let _guard = DevModeGuard::disable();
         let anvil = Anvil::new().spawn();
         let provider = make_provider(&anvil).await;
         let registry_addr = deploy_mock(&provider).await.unwrap();
@@ -451,7 +425,6 @@ mod tests {
     #[tokio::test]
     #[traced_test(debug)]
     async fn version_check_logs_notice() {
-        let _guard = DevModeGuard::disable();
         let anvil = Anvil::new().spawn();
         let provider = make_provider(&anvil).await;
         let registry_addr = deploy_mock(&provider).await.unwrap();
@@ -487,7 +460,6 @@ mod tests {
     #[tokio::test]
     #[traced_test(debug)]
     async fn rpc_failure_logs_warning_without_panic() {
-        let _guard = DevModeGuard::disable();
         let anvil = Anvil::new().spawn();
         let provider = make_provider(&anvil).await;
         let chain_id = provider.get_chain_id().await.unwrap();
@@ -509,7 +481,7 @@ mod tests {
     #[traced_test(debug)]
     async fn version_check_passes_then_faults_after_update() {
         // TODO: remove guard entirely since we now have force
-        let _guard = DevModeGuard::disable();
+
         let anvil = Anvil::new().spawn();
         let provider = make_provider(&anvil).await;
         let registry_addr = deploy_mock(&provider).await.unwrap();
@@ -565,7 +537,6 @@ mod tests {
     #[tokio::test]
     #[traced_test(debug)]
     async fn notice_set_then_cleared() {
-        let _guard = DevModeGuard::disable();
         let anvil = Anvil::new().spawn();
         let provider = make_provider(&anvil).await;
         let registry_addr = deploy_mock(&provider).await.unwrap();
