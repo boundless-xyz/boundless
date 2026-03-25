@@ -62,12 +62,12 @@ COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
 
 ENV PATH="$PATH:/root/.foundry/bin"
-RUN forge build
-
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=order_stream_sc \
     --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
     --mount=type=cache,target=/src/target,id=order_stream_target \
+    --mount=type=cache,target=/src/cache,id=forge_cache \
+    forge build && \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release -p order-stream --bin order_stream && \
     cp /src/target/release/order_stream /src/order_stream && \
