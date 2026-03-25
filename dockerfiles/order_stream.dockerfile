@@ -1,26 +1,10 @@
-FROM rust:1.89.0-bookworm AS init
-
-RUN apt-get -qq update && \
-    apt-get install -y -q clang mold
+ARG BUILDER_BASE=ghcr.io/boundless-xyz/boundless/builder-base:latest
+FROM ${BUILDER_BASE} AS init
 
 SHELL ["/bin/bash", "-c"]
-ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
 RUN curl -L https://foundry.paradigm.xyz | bash && \
     source /root/.bashrc && \
     foundryup
-
-# Github token can be provided as a secret with the name githubTokenSecret. Useful
-# for shared build environments where Github rate limiting is an issue.
-RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
-    if [ -f /run/secrets/githubTokenSecret ]; then \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install; \
-    else \
-    curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install; \
-    fi
-
-RUN cargo install cargo-chef
 
 FROM init AS planner
 

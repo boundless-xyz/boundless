@@ -1,26 +1,10 @@
-FROM rust:1.89.0-bookworm AS init
-
-RUN apt-get -qq update && \
-    apt-get install -y -q clang mold
-
-SHELL ["/bin/bash", "-c"]
-
-RUN cargo install cargo-chef
+ARG BUILDER_BASE=ghcr.io/boundless-xyz/boundless/builder-base:latest
+FROM ${BUILDER_BASE} AS init
 
 # protoc needed for market-indexer-backfill dependencies
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
     && unzip protoc.zip -d /usr/local \
     && rm protoc.zip
-
-ARG CACHE_DATE=2026-02-13
-RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
-    if [ -f /run/secrets/githubTokenSecret ]; then \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install; \
-    else \
-    curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install; \
-    fi
 
 FROM init AS planner
 

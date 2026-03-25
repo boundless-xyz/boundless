@@ -1,29 +1,5 @@
-# Build stage
-FROM rust:1.89.0-bookworm AS init
-
-RUN apt-get -qq update && \
-    apt-get install -y -q clang mold
-
-SHELL ["/bin/bash", "-c"]
-
-RUN cargo install cargo-chef
-
-ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
-# The slasher doesn't need r0vm to run, but its tests do need it.
-# Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
-# to leverage chef. See https://github.com/LukeMathWalker/cargo-chef/issues/114
-# For this reason we also need to build for amd64.
-#
-# Github token can be provided as a secret with the name githubTokenSecret. Useful
-# for shared build environments where Github rate limiting is an issue.
-RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
-    if [ -f /run/secrets/githubTokenSecret ]; then \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install; \
-    else \
-    curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install; \
-    fi
+ARG BUILDER_BASE=ghcr.io/boundless-xyz/boundless/builder-base:latest
+FROM ${BUILDER_BASE} AS init
 
 FROM init AS planner
 
