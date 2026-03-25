@@ -616,8 +616,9 @@ fn handle_lock_event(
     };
 
     let initial_count = order_tasks.len();
+    let lock_suffix = format!("{:?}", FulfillmentType::LockAndFulfill);
     order_tasks.retain(|order_id, task_token| {
-        if order_id.contains("LockAndFulfill") {
+        if order_id.contains(&lock_suffix) {
             task_token.cancel();
             false
         } else {

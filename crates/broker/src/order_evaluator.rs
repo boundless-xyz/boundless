@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::ConfigLock,
     errors::CodedError,
-    prioritization::select_pricing_orders,
+    prioritization::prioritize_orders_to_evaluate,
     requestor_monitor::PriorityRequestors,
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
@@ -65,12 +65,16 @@ pub(crate) struct PreflightComplete {
 pub(crate) enum OrderEvaluatorErr {
     #[error("{code} Config read error: {0}", code = self.code())]
     ConfigReadErr(Arc<anyhow::Error>),
+
+    #[error("{code} Stale capacity for order {order_id} expired after {elapsed_secs}s with no completion", code = self.code())]
+    StaleCapacity { order_id: String, elapsed_secs: u64 },
 }
 
 impl CodedError for OrderEvaluatorErr {
     fn code(&self) -> &str {
         match self {
             OrderEvaluatorErr::ConfigReadErr(_) => "[B-OE-001]",
+            OrderEvaluatorErr::StaleCapacity { .. } => "[B-OE-004]",
         }
     }
 }
@@ -156,7 +160,7 @@ impl OrderEvaluator {
         }
 
         let available_capacity = max_concurrent_preflights - in_flight.len();
-        let selected = select_pricing_orders(
+        let selected = prioritize_orders_to_evaluate(
             pending_orders,
             priority_mode,
             priority_addresses,
@@ -203,7 +207,7 @@ impl OrderEvaluator {
         }
     }
 
-    fn reap_stale_permits(in_flight: &mut HashMap<String, Instant>, max_age_secs: u64) {
+    fn reap_stale_capacity(in_flight: &mut HashMap<String, Instant>, max_age_secs: u64) {
         let threshold = Duration::from_secs(max_age_secs);
         let stale: Vec<String> = in_flight
             .iter()
@@ -213,10 +217,11 @@ impl OrderEvaluator {
 
         for order_id in stale {
             if let Some(dispatched_at) = in_flight.remove(&order_id) {
-                tracing::warn!(
-                    "[B-OE-REAP] Permit for order {order_id} expired after {}s with no completion -- freeing capacity slot",
-                    dispatched_at.elapsed().as_secs()
-                );
+                let err = OrderEvaluatorErr::StaleCapacity {
+                    order_id: order_id.clone(),
+                    elapsed_secs: dispatched_at.elapsed().as_secs(),
+                };
+                tracing::warn!("{err}");
             }
         }
     }
@@ -297,7 +302,7 @@ impl RetryTask for OrderEvaluator {
                                 let removed = initial_len - pending_orders.len();
                                 if removed > 0 {
                                     tracing::debug!(
-                                        "Removed {removed} pending LockAndFulfill orders for locked request 0x{:x}",
+                                        "Removed {removed} LockAndFulfill orders from preflight queue for locked request 0x{:x}",
                                         request_id,
                                     );
                                 }
@@ -312,7 +317,7 @@ impl RetryTask for OrderEvaluator {
                                 let removed = initial_len - pending_orders.len();
                                 if removed > 0 {
                                     tracing::debug!(
-                                        "Removed {removed} pending orders for fulfilled request 0x{:x}",
+                                        "Removed {removed} orders from preflight queue for fulfilled request 0x{:x}",
                                         request_id,
                                     );
                                 }
@@ -343,7 +348,7 @@ impl RetryTask for OrderEvaluator {
                             priority_addresses = new_addresses;
                         }
 
-                        Self::reap_stale_permits(
+                        Self::reap_stale_capacity(
                             &mut in_flight,
                             DEFAULT_MAX_PREFLIGHT_DURATION_SECS,
                         );
@@ -761,14 +766,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_stale_permit_reaper() {
+    async fn test_stale_capacity_reaper() {
         let mut in_flight: HashMap<String, Instant> = HashMap::new();
 
-        // Insert a permit that is already past the threshold
         in_flight.insert("stale_order".to_string(), Instant::now() - Duration::from_secs(700));
         in_flight.insert("fresh_order".to_string(), Instant::now());
 
-        OrderEvaluator::reap_stale_permits(&mut in_flight, 600);
+        OrderEvaluator::reap_stale_capacity(&mut in_flight, 600);
 
         assert!(!in_flight.contains_key("stale_order"));
         assert!(in_flight.contains_key("fresh_order"));

@@ -857,13 +857,17 @@ impl Broker {
 
         let chain_dbs: Vec<DbObj> = chains.iter().map(|c| c.db.clone()).collect();
 
+        // All chain monitors send discovered orders here; the evaluator reads from evaluator_order_rx.
         let (evaluator_order_tx, evaluator_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+        // Pricers send preflight completions here; the evaluator reads from completion_rx to free capacity.
         let (completion_tx, completion_rx) = mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
+        // Lock/fulfill events broadcast to both the evaluator (removes pending) and pricers (cancels active tasks).
         let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
         let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
             std::collections::HashMap::new();
 
         for chain in &chains {
+            // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
             let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
             chain_dispatchers.insert(chain.chain_id, pricer_tx);
 
@@ -882,6 +886,7 @@ impl Broker {
             )
             .await?;
         }
+        // Drop our clones so the evaluator sees channel closure when all producers (monitors/pricers) exit.
         drop(evaluator_order_tx);
         drop(completion_tx);
 

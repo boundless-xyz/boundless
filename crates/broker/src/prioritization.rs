@@ -185,7 +185,7 @@ where
 }
 
 #[allow(clippy::vec_box)]
-pub(crate) fn select_pricing_orders(
+pub(crate) fn prioritize_orders_to_evaluate(
     orders: &mut Vec<Box<OrderRequest>>,
     priority_mode: OrderPricingPriority,
     priority_addresses: Option<&[alloy::primitives::Address]>,
@@ -255,8 +255,12 @@ mod tests {
 
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            let selected_orders =
-                select_pricing_orders(&mut orders, OrderPricingPriority::ObservationTime, None, 1);
+            let selected_orders = prioritize_orders_to_evaluate(
+                &mut orders,
+                OrderPricingPriority::ObservationTime,
+                None,
+                1,
+            );
             if let Some(order) = selected_orders.into_iter().next() {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
@@ -295,8 +299,12 @@ mod tests {
         // Test that shortest_expiry mode returns orders by earliest expiry
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            let selected_orders =
-                select_pricing_orders(&mut orders, OrderPricingPriority::ShortestExpiry, None, 1);
+            let selected_orders = prioritize_orders_to_evaluate(
+                &mut orders,
+                OrderPricingPriority::ShortestExpiry,
+                None,
+                1,
+            );
             if let Some(order) = selected_orders.into_iter().next() {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
@@ -361,8 +369,12 @@ mod tests {
         // Test selection order
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            let selected_orders =
-                select_pricing_orders(&mut orders, OrderPricingPriority::ShortestExpiry, None, 1);
+            let selected_orders = prioritize_orders_to_evaluate(
+                &mut orders,
+                OrderPricingPriority::ShortestExpiry,
+                None,
+                1,
+            );
             if let Some(order) = selected_orders.into_iter().next() {
                 let order_index =
                     boundless_market::contracts::RequestId::try_from(order.request.id)
@@ -399,8 +411,12 @@ mod tests {
 
             let mut selected_order_indices = Vec::new();
             while !orders.is_empty() {
-                let selected_orders =
-                    select_pricing_orders(&mut orders, OrderPricingPriority::Random, None, 1);
+                let selected_orders = prioritize_orders_to_evaluate(
+                    &mut orders,
+                    OrderPricingPriority::Random,
+                    None,
+                    1,
+                );
                 if let Some(order) = selected_orders.into_iter().next() {
                     let order_index =
                         boundless_market::contracts::RequestId::try_from(order.request.id)
@@ -786,8 +802,12 @@ mod tests {
             boundless_market::contracts::RequestId::new(priority_addr, 1).into();
 
         let mut test_orders = vec![regular_order_1, priority_order_1];
-        let selected_orders =
-            select_pricing_orders(&mut test_orders, OrderPricingPriority::ShortestExpiry, None, 1);
+        let selected_orders = prioritize_orders_to_evaluate(
+            &mut test_orders,
+            OrderPricingPriority::ShortestExpiry,
+            None,
+            1,
+        );
         let selected_order = selected_orders.into_iter().next().unwrap();
         assert_eq!(selected_order.request.client_address(), regular_addr); // Regular order selected due to shorter expiry
 
@@ -815,7 +835,7 @@ mod tests {
             boundless_market::contracts::RequestId::new(priority_addr, 1).into();
 
         let mut test_orders = vec![regular_order_2, priority_order_2];
-        let selected_orders = select_pricing_orders(
+        let selected_orders = prioritize_orders_to_evaluate(
             &mut test_orders,
             OrderPricingPriority::ShortestExpiry,
             Some(&priority_addresses),
@@ -1250,8 +1270,12 @@ mod tests {
             orders.push(Box::new(order));
         }
 
-        let selected =
-            select_pricing_orders(&mut orders, OrderPricingPriority::ShortestExpiry, None, 5);
+        let selected = prioritize_orders_to_evaluate(
+            &mut orders,
+            OrderPricingPriority::ShortestExpiry,
+            None,
+            5,
+        );
 
         let result_timeouts: Vec<u32> =
             selected.iter().map(|o| o.request.offer.lockTimeout).collect();
@@ -1296,7 +1320,7 @@ mod tests {
             boundless_market::contracts::RequestId::new(priority_addr, 1).into();
 
         let mut orders = vec![Box::new(regular_chain1), Box::new(priority_chain2)];
-        let selected = select_pricing_orders(
+        let selected = prioritize_orders_to_evaluate(
             &mut orders,
             OrderPricingPriority::ShortestExpiry,
             Some(&priority_addresses),
