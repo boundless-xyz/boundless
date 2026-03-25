@@ -493,6 +493,22 @@ export function buildProverLogPatterns(
             },
         },
 
+        // ── Price Oracle alarms ────────────────────────────────────────────
+        {
+            pattern: '"[B-PO-004]"',
+            metricName: "price-oracle-http-error",
+            alarm: {
+                severity: Severity.SEV2,
+                description: ">=12 price oracle HTTP errors in 1 hour",
+                metricConfig: { period: 3600 },
+                alarmConfig: {
+                    evaluationPeriods: 1,
+                    datapointsToAlarm: 1,
+                    threshold: 12,
+                },
+            },
+        },
+
         // ── Utils alarms ─────────────────────────────────────────────────
         // Failed to cancel proof can cause cascading failures with capacity estimation.
         {
