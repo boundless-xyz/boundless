@@ -22,11 +22,11 @@ name = "Base Mainnet"
 id = 8453
 
 # Accounts
-admin = "0x0000000000000000000000000000000000000000"
+admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
-version-registry = "0x0000000000000000000000000000000000000000"
-version-registry-impl = "0x0000000000000000000000000000000000000000"
+version-registry = "0x5dd2a5fa8c60f9d547a41ad800ff9d122bd5a87f"
+version-registry-impl = "0xcb2cd938153ccc97c2534990dba020809fb2b899"
 
 # Version policy
 minimum-broker-version = "0.0.0"

@@ -19,19 +19,19 @@
 //! the supervisor faults, triggering graceful shutdown. If the contract cannot
 //! be read (RPC error, not deployed, etc.), it logs a warning and continues.
 
-use alloy::primitives::{address, Address};
-use alloy::providers::Provider;
-use alloy::sol;
-use std::time::Duration;
-use thiserror::Error;
-use tokio::time::MissedTickBehavior;
-use tokio_util::sync::CancellationToken;
-
 use crate::{
     errors::{impl_coded_debug, CodedError},
     is_dev_mode,
     task::{RetryRes, RetryTask, SupervisorErr},
 };
+use alloy::primitives::{address, Address};
+use alloy::providers::Provider;
+use alloy::sol;
+use boundless_market::deployments::{BASE, BASE_SEPOLIA};
+use std::time::Duration;
+use thiserror::Error;
+use tokio::time::MissedTickBehavior;
+use tokio_util::sync::CancellationToken;
 
 // Minimal ABI binding for the VersionRegistry contract.
 sol! {
@@ -48,15 +48,15 @@ sol! {
 const VERSION_REGISTRIES: &[(u64, Address, Address)] = &[
     // (chain_id, boundless_market_address, version_registry_address)
     (
-        84532,
-        address!("0x7abb16522f4599481361d318b765af988bfcca8e"), // Base Sepolia staging market
-        address!("0xe359782297d569f1c3cdc02a50217b2b142e27fd"), // Base Sepolia staging registry
+        BASE_SEPOLIA.market_chain_id.unwrap(),
+        BASE_SEPOLIA.boundless_market_address,
+        address!("0xe359782297d569f1c3cdc02a50217b2b142e27fd"),
     ),
-    // TODO: Entries will be added after deployment:
-    // (84532, address!("0x56da3786061c82214d18e634d2817e86ad42d7ce"), address!("0x...")), // Base Sepolia prod
-    // (11155111, address!("0x..."), address!("0x...")), // Sepolia
-    // (8453, address!("0x..."), address!("0x...")),     // Base Mainnet
-    // (1, address!("0x..."), address!("0x...")),        // ETH Mainnet
+    (
+        BASE.market_chain_id.unwrap(),
+        BASE.boundless_market_address,
+        address!("0x5dd2a5fa8c60f9d547a41ad800ff9d122bd5a87f"),
+    ),
 ];
 
 fn lookup_registry(chain_id: u64, market_address: Address) -> Option<Address> {
