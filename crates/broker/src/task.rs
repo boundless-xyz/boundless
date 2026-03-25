@@ -147,6 +147,11 @@ where
                     }
                     Err(ref supervisor_err) => match supervisor_err {
                         SupervisorErr::Recover(ref _err) => {
+                            if self.cancel_token.is_cancelled() {
+                                tracing::info!("Task returned recoverable error during shutdown, not respawning");
+                                break;
+                            }
+
                             if self.retry_policy.critical {
                                 let max_retries = {
                                     let config =

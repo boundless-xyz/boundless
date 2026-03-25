@@ -1243,37 +1243,47 @@ where
                 }
                 // Handle shutdown signals
                 _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("Received CTRL+C, starting graceful shutdown...");
+                    tracing::info!("Received CTRL+C, starting graceful shutdown... Press CTRL+C again to force immediate shutdown.");
                     break;
                 }
                 _ = sigterm.recv() => {
-                    tracing::info!("Received SIGTERM, starting graceful shutdown...");
+                    tracing::info!("Received SIGTERM, starting graceful shutdown... Press CTRL+C to force immediate shutdown.");
                     break;
                 }
                 _ = sigint.recv() => {
-                    tracing::info!("Received SIGINT, starting graceful shutdown...");
+                    tracing::info!("Received SIGINT, starting graceful shutdown... Press CTRL+C to force immediate shutdown.");
                     break;
                 }
             }
         }
 
-        // Phase 1: Cancel non-critical tasks immediately to stop taking new work
-        tracing::info!("Cancelling non-critical tasks (order discovery, picking, monitoring)...");
-        non_critical_cancel_token.cancel();
+        // Phase 1 + Phase 2: graceful shutdown, with force shutdown on second CTRL+C
+        let force_token = critical_cancel_token.clone();
+        tokio::select! {
+            result = async {
+                // Phase 1: Cancel non-critical tasks immediately to stop taking new work
+                tracing::info!("Cancelling non-critical tasks (order discovery, picking, monitoring)...");
+                non_critical_cancel_token.cancel();
 
-        tracing::info!("Waiting for non-critical tasks to exit...");
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
-            while non_critical_tasks.join_next().await.is_some() {}
-        })
-            .await
-            .map_err(|_| {
-                tracing::warn!(
-                "Timed out waiting for non-critical tasks to exit; proceeding with critical shutdown"
-            );
-            });
+                tracing::info!("Waiting for non-critical tasks to exit...");
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                    while non_critical_tasks.join_next().await.is_some() {}
+                })
+                    .await
+                    .map_err(|_| {
+                        tracing::warn!(
+                        "Timed out waiting for non-critical tasks to exit; proceeding with critical shutdown"
+                    );
+                    });
 
-        // Phase 2: Wait for committed orders to complete, then cancel critical tasks
-        self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
+                // Phase 2: Wait for committed orders to complete, then cancel critical tasks
+                self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await
+            } => result?,
+            _ = tokio::signal::ctrl_c() => {
+                tracing::warn!("Received second CTRL+C, forcing immediate shutdown...");
+                force_token.cancel();
+            }
+        }
 
         Ok(())
     }
