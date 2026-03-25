@@ -1098,31 +1098,22 @@ impl Broker {
         // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
         // replaces both with a single implementation.
         let (chain_monitor, block_times) = if self.args.experimental_rpc {
-            let (monitor, v2_order_rx) = chain_monitor_v2::ChainMonitorV2::new(
-                db.clone(),
-                provider.clone(),
-                Arc::new(chain.any_provider.clone()),
-                deployment.boundless_market_address,
-                private_key.address(),
-                lookback_blocks,
-                chain_id,
-                gas_priority_mode.clone(),
-            )
-            .await
-            .context("Failed to initialize ChainMonitorV2")?;
-            let monitor = Arc::new(monitor);
-
-            // Forward V2's internal order channel to the unified evaluator channel
-            let fwd_tx = evaluator_order_tx.clone();
-            non_critical_tasks.spawn(async move {
-                let mut rx = v2_order_rx;
-                while let Some(order) = rx.recv().await {
-                    if fwd_tx.send(order).await.is_err() {
-                        break;
-                    }
-                }
-                Ok(())
-            });
+            let monitor = Arc::new(
+                chain_monitor_v2::ChainMonitorV2::new(
+                    db.clone(),
+                    provider.clone(),
+                    Arc::new(chain.any_provider.clone()),
+                    deployment.boundless_market_address,
+                    private_key.address(),
+                    lookback_blocks,
+                    chain_id,
+                    gas_priority_mode.clone(),
+                    evaluator_order_tx.clone(),
+                    order_state_tx.clone(),
+                )
+                .await
+                .context("Failed to initialize ChainMonitorV2")?,
+            );
 
             let cloned = monitor.clone();
             let cloned_config = config.clone();
