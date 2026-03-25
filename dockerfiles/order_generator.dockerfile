@@ -2,7 +2,7 @@
 FROM rust:1.89.0-bookworm AS init
 
 RUN apt-get -qq update && \
-    apt-get install -y -q clang
+    apt-get install -y -q clang mold
 
 SHELL ["/bin/bash", "-c"]
 ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
@@ -45,6 +45,7 @@ ENV RISC0_SKIP_BUILD=1
 ENV RISC0_SKIP_BUILD_KERNELS=1
 ENV CARGO_PROFILE_RELEASE_LTO=thin
 ENV CARGO_PROFILE_RELEASE_DEBUG=0
+ENV RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 
 COPY --from=planner /src/recipe.json /src/recipe.json
 
