@@ -1617,6 +1617,7 @@ mod tests {
         expire_timestamp: Option<u64>,
         ramp_up_start: u64,
         lock_timeout: u32,
+        timeout: u32,
     ) -> Order {
         Order {
             status: OrderStatus::PendingAgg,
@@ -1631,7 +1632,7 @@ mod tests {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
                     rampUpStart: ramp_up_start,
-                    timeout: 100,
+                    timeout,
                     lockTimeout: lock_timeout,
                     rampUpPeriod: 1,
                     lockCollateral: U256::from(0),
@@ -1655,11 +1656,11 @@ mod tests {
         }
     }
 
-    fn agg_order_from(order: &Order, expiration: u64) -> AggregationOrder {
+    fn agg_order_from(order: &Order) -> AggregationOrder {
         AggregationOrder {
             order_id: order.id(),
             proof_id: "proof".to_string(),
-            expiration,
+            expiration: order.request.expires_at(),
             fee: U256::from(10),
             fulfillment_type: order.fulfillment_type,
             request_id: order.request.id,
@@ -1693,22 +1694,25 @@ mod tests {
 
         let current_time = crate::now_timestamp();
 
+        // rampUpStart=0, timeout=100 → expires_at()=100 (far in the past)
         let expired_order =
-            make_test_order(999, FulfillmentType::LockAndFulfill, Some(current_time - 100), 0, 100);
+            make_test_order(999, FulfillmentType::LockAndFulfill, Some(current_time - 100), 0, 100, 100);
         db.add_order(&expired_order).await.unwrap();
 
+        // rampUpStart=current_time, timeout=200 → expires_at()=current_time+200 (future)
         let valid_order = make_test_order(
             1000,
             FulfillmentType::LockAndFulfill,
-            Some(current_time + 100),
-            0,
+            Some(current_time + 200),
+            current_time,
             100,
+            200,
         );
         db.add_order(&valid_order).await.unwrap();
 
         let orders = vec![
-            agg_order_from(&expired_order, current_time - 100),
-            agg_order_from(&valid_order, current_time + 100),
+            agg_order_from(&expired_order),
+            agg_order_from(&valid_order),
         ];
 
         let valid_orders =
@@ -1736,19 +1740,21 @@ mod tests {
         let current_time = crate::now_timestamp();
 
         // FulfillAfterLockExpire order that has been fulfilled externally
+        // rampUpStart=current_time, timeout=500 → expires_at()=current_time+500 (future)
         let order = make_test_order(
             100,
             FulfillmentType::FulfillAfterLockExpire,
             Some(current_time + 500),
-            0,
+            current_time,
             100,
+            500,
         );
         db.add_order(&order).await.unwrap();
 
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![agg_order_from(&order, current_time + 500)];
+        let orders = vec![agg_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1768,16 +1774,18 @@ mod tests {
         let current_time = crate::now_timestamp();
 
         // FulfillAfterLockExpire order that has NOT been fulfilled
+        // rampUpStart=current_time, timeout=500 → expires_at()=current_time+500 (future)
         let order = make_test_order(
             101,
             FulfillmentType::FulfillAfterLockExpire,
             Some(current_time + 500),
-            0,
+            current_time,
             100,
+            500,
         );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![agg_order_from(&order, current_time + 500)];
+        let orders = vec![agg_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1793,21 +1801,25 @@ mod tests {
         let aggregator_service = setup_aggregator(db.clone()).await;
         let current_time = crate::now_timestamp();
 
-        // LockAndFulfill with lock already expired (rampUpStart + lockTimeout < current_time)
+        // LockAndFulfill with lock already expired but request still valid:
+        // rampUpStart=current_time-200, lockTimeout=100 → lock_expires_at=current_time-100 (past)
+        // timeout=500 → expires_at()=current_time+300 (future)
         let order = make_test_order(
             200,
             FulfillmentType::LockAndFulfill,
-            Some(current_time + 500),
-            0,   // rampUpStart = 0
-            100, // lockTimeout = 100 → lock_expires_at = 100
+            Some(current_time + 300),
+            current_time - 200,
+            100,
+            500,
         );
         db.add_order(&order).await.unwrap();
         assert!(order.request.lock_expires_at() < current_time);
+        assert!(order.request.expires_at() > current_time);
 
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![agg_order_from(&order, current_time + 500)];
+        let orders = vec![agg_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1826,13 +1838,16 @@ mod tests {
         let aggregator_service = setup_aggregator(db.clone()).await;
         let current_time = crate::now_timestamp();
 
-        // LockAndFulfill with lock still active (rampUpStart + lockTimeout > current_time)
+        // LockAndFulfill with lock still active:
+        // rampUpStart=current_time, lockTimeout=1000 → lock_expires_at=current_time+1000 (future)
+        // timeout=2000 → expires_at()=current_time+2000 (future)
         let order = make_test_order(
             201,
             FulfillmentType::LockAndFulfill,
-            Some(current_time + 500),
-            current_time, // rampUpStart = now
-            1000,         // lockTimeout = 1000 → lock_expires_at = current_time + 1000
+            Some(current_time + 2000),
+            current_time,
+            1000,
+            2000,
         );
         db.add_order(&order).await.unwrap();
         assert!(order.request.lock_expires_at() > current_time);
@@ -1840,7 +1855,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![agg_order_from(&order, current_time + 500)];
+        let orders = vec![agg_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1857,16 +1872,114 @@ mod tests {
         let current_time = crate::now_timestamp();
 
         // LockAndFulfill NOT fulfilled
-        let order =
-            make_test_order(202, FulfillmentType::LockAndFulfill, Some(current_time + 500), 0, 100);
+        // rampUpStart=current_time, timeout=500 → expires_at()=current_time+500 (future)
+        let order = make_test_order(
+            202,
+            FulfillmentType::LockAndFulfill,
+            Some(current_time + 500),
+            current_time,
+            100,
+            500,
+        );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![agg_order_from(&order, current_time + 500)];
+        let orders = vec![agg_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be kept — not fulfilled
         assert_eq!(valid_orders.len(), 1);
         assert_eq!(valid_orders[0].order_id, order.id());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn filter_non_actionable_fulfill_without_locking_fulfilled() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let aggregator_service = setup_aggregator(db.clone()).await;
+        let current_time = crate::now_timestamp();
+
+        // rampUpStart=current_time, timeout=500 → expires_at()=current_time+500 (future)
+        let order = make_test_order(
+            300,
+            FulfillmentType::FulfillWithoutLocking,
+            Some(current_time + 500),
+            current_time,
+            100,
+            500,
+        );
+        db.add_order(&order).await.unwrap();
+
+        // Mark the request as fulfilled
+        db.set_request_fulfilled(order.request.id, 1).await.unwrap();
+
+        let orders = vec![agg_order_from(&order)];
+        let valid_orders =
+            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+
+        // Should be filtered out — fulfilled externally
+        assert_eq!(valid_orders.len(), 0);
+
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Failed);
+        assert_eq!(db_order.error_msg, Some("Fulfilled before aggregation".to_string()));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn filter_non_actionable_fulfill_without_locking_not_fulfilled() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let aggregator_service = setup_aggregator(db.clone()).await;
+        let current_time = crate::now_timestamp();
+
+        // rampUpStart=current_time, timeout=500 → expires_at()=current_time+500 (future)
+        let order = make_test_order(
+            301,
+            FulfillmentType::FulfillWithoutLocking,
+            Some(current_time + 500),
+            current_time,
+            100,
+            500,
+        );
+        db.add_order(&order).await.unwrap();
+
+        let orders = vec![agg_order_from(&order)];
+        let valid_orders =
+            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+
+        // Should be kept — not fulfilled
+        assert_eq!(valid_orders.len(), 1);
+        assert_eq!(valid_orders[0].order_id, order.id());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn filter_non_actionable_lock_and_fulfill_lock_expired_request_valid() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let aggregator_service = setup_aggregator(db.clone()).await;
+        let current_time = crate::now_timestamp();
+
+        // Lock expired but request still valid, NOT fulfilled — this is the key scenario
+        // rampUpStart=current_time-200, lockTimeout=100 → lock_expires_at=current_time-100 (past)
+        // timeout=500 → expires_at()=current_time+300 (future)
+        let order = make_test_order(
+            400,
+            FulfillmentType::LockAndFulfill,
+            Some(current_time + 300),
+            current_time - 200,
+            100,
+            500,
+        );
+        db.add_order(&order).await.unwrap();
+        assert!(order.request.lock_expires_at() < current_time);
+        assert!(order.request.expires_at() > current_time);
+
+        let orders = vec![agg_order_from(&order)];
+        let valid =
+            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+
+        // Should be KEPT — lock expired but request still valid and not fulfilled
+        assert_eq!(valid.len(), 1);
+        assert_eq!(valid[0].order_id, order.id());
     }
 }

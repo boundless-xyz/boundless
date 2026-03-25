@@ -352,15 +352,14 @@ impl ProvingService {
                     break status;
                 }
 
-                // Request expiry timeout
+                // Request expiry timeout (fires at expires_at(), the full request deadline).
+                // After this point, the contract will reject any fulfillment attempt.
                 _ = &mut timeout_future => {
                     tracing::debug!("Order {order_id} expired during proving");
 
                     if should_cancel_on_not_actionable {
                         return Err(ProvingErr::CancelExpired);
                     } else {
-                        // TODO(austin) this should only mark expired if the order is not fully expired
-                        //      and not secondary fulfilled.
                         tracing::debug!("Waiting for proof completion for capacity tracking");
                         not_actionable_variant = Some(ProvingErr::CompletedExpired);
                         // Disarm timeout so it doesn't fire again

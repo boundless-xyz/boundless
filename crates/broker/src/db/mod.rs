@@ -201,6 +201,8 @@ pub trait BrokerDb {
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
     #[cfg(test)]
     async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
+    #[cfg(test)]
+    async fn execute_raw(&self, sql: &str) -> Result<(), DbError>;
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
@@ -631,10 +633,7 @@ impl BrokerDb for SqliteDb {
                     .data
                     .proof_id
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
-                expiration: order
-                    .data
-                    .expire_timestamp
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_timestamp"))?,
+                expiration: order.data.request.expires_at(),
                 fee: order
                     .data
                     .lock_price
@@ -1063,6 +1062,12 @@ impl BrokerDb for SqliteDb {
 
         Ok(())
     }
+
+    #[cfg(test)]
+    async fn execute_raw(&self, sql: &str) -> Result<(), DbError> {
+        sqlx::query(sql).execute(&self.pool).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1322,13 +1327,14 @@ mod tests {
         let agg_proof = &agg_proofs[0];
         assert_eq!(agg_proof.order_id, orders[1].id());
         assert_eq!(agg_proof.proof_id, "test_id1");
-        assert_eq!(agg_proof.expiration, 10);
+        // expiration is now derived from request.expires_at() (rampUpStart + timeout = 0 + 100)
+        assert_eq!(agg_proof.expiration, orders[1].request.expires_at());
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let agg_proof = &agg_proofs[1];
         assert_eq!(agg_proof.order_id, orders[2].id());
         assert_eq!(agg_proof.proof_id, "test_id2");
-        assert_eq!(agg_proof.expiration, 10);
+        assert_eq!(agg_proof.expiration, orders[2].request.expires_at());
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let db_order = db.get_order(&agg_proofs[0].order_id).await.unwrap().unwrap();

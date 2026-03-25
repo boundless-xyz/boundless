@@ -231,7 +231,7 @@ where
         let order_ids = batch.orders.iter().map(|order| order.as_str()).collect::<Vec<_>>();
         let orders = self.db.get_orders(&order_ids).await.context("Failed to get orders")?;
         let expired_orders =
-            orders.iter().filter(|order| order.expire_timestamp.unwrap() < now).collect::<Vec<_>>();
+            orders.iter().filter(|order| order.request.expires_at() < now).collect::<Vec<_>>();
         if expired_orders.len() == orders.len() {
             return self.handle_expired_requests_error(batch_id, orders).await;
         } else if !expired_orders.is_empty() {
@@ -1024,5 +1024,31 @@ mod tests {
         assert!(logs_contain("Batch submission attempt 1/2 failed"));
         assert!(logs_contain("reached max submission attempts"));
         assert!(matches!(res, Err(SubmitterErr::BatchSubmissionFailed(_))));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch_all_expired() {
+        let config = ConfigLock::default();
+        let (_anvil, submitter, db, _batch_id) = build_submitter_and_batch(config).await;
+
+        // Expire the order by setting rampUpStart=0 and timeout=100 → expires_at()=100 (past)
+        db.execute_raw(
+            r#"UPDATE orders SET data = json_set(data, '$.request.offer.rampUpStart', 0, '$.request.offer.timeout', 100)"#,
+        )
+        .await
+        .unwrap();
+
+        let res = submitter.process_next_batch().await;
+        // The retry loop wraps all errors in BatchSubmissionFailed; verify every
+        // inner error is AllRequestsExpiredBeforeSubmission.
+        assert!(
+            matches!(
+                &res,
+                Err(SubmitterErr::BatchSubmissionFailed(errs))
+                    if errs.iter().all(|e| matches!(e, SubmitterErr::AllRequestsExpiredBeforeSubmission(_)))
+            ),
+            "Expected BatchSubmissionFailed wrapping AllRequestsExpiredBeforeSubmission but got: {res:?}"
+        );
     }
 }
