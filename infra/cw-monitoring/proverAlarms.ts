@@ -495,16 +495,16 @@ export function buildProverLogPatterns(
 
         // ── Price Oracle alarms ────────────────────────────────────────────
         {
-            pattern: '"[B-PO-004]"',
-            metricName: "price-oracle-http-error",
+            pattern: '?"[B-PO-001]" ?"[B-PO-002]" ?"[B-PO-006]"',
+            metricName: "price-oracle-no-usable-price",
             alarm: {
                 severity: Severity.SEV2,
-                description: ">=12 price oracle HTTP errors in 1 hour",
+                description: ">=20 price oracle failures (all sources failed / insufficient / stale) in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: {
                     evaluationPeriods: 1,
                     datapointsToAlarm: 1,
-                    threshold: 12,
+                    threshold: 20,
                 },
             },
         },
