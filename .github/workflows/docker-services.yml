@@ -123,19 +123,24 @@ jobs:
         service:
           - name: slasher
             dockerfile: dockerfiles/slasher.dockerfile
+            submodules: false
           - name: order-stream
             dockerfile: dockerfiles/order_stream.dockerfile
+            submodules: false
           - name: indexer
             dockerfile: dockerfiles/indexer.dockerfile
+            submodules: false
           - name: distributor
             dockerfile: dockerfiles/distributor.dockerfile
+            submodules: false
           - name: order-generator
             dockerfile: dockerfiles/order_generator.dockerfile
+            submodules: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: ${{ matrix.service.submodules }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
