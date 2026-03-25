@@ -152,14 +152,17 @@ impl<P: Provider + Clone + Send + Sync + 'static> VersionCheckTask<P> {
     ///   (e.g. staging and prod on Base Sepolia).
     /// - `registry_address`: address of the VersionRegistry contract. Pass `None` to look up the
     ///   address from the hardcoded table (the default for production).
+    /// - `force_check`: run the version check even in `RISC0_DEV_MODE`. Auto-set when
+    ///   `registry_address` is provided; also exposed as `--force-version-check` CLI flag.
     pub(crate) fn new(
         provider: P,
         chain_id: u64,
         market_address: Address,
         broker_version: Option<u64>,
         registry_address: Option<Address>,
+        force_check: bool,
     ) -> Self {
-        let force_check = registry_address.is_some();
+        let force_check = force_check || registry_address.is_some();
         Self {
             provider,
             chain_id,

@@ -187,6 +187,7 @@ pub(super) fn broker_args(
         listen_only: false,
         experimental_rpc: false,
         version_registry_address,
+        force_version_check: false,
     }
 }
 

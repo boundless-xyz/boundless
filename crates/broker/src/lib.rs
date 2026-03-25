@@ -187,6 +187,11 @@ pub struct Args {
     /// to exercise the version check against a locally deployed registry.
     #[clap(skip)]
     pub version_registry_address: Option<Address>,
+
+    /// Force the version check even when RISC0_DEV_MODE is enabled.
+    /// Useful for testing version enforcement locally.
+    #[clap(long, env, default_value_t = false)]
+    pub force_version_check: bool,
 }
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
@@ -791,6 +796,7 @@ where
                 self.deployment().boundless_market_address,
                 None,                               // use compile-time BROKER_VERSION
                 self.args.version_registry_address, // None in production -> hardcoded lookup
+                self.args.force_version_check,
             ));
             let config_clone = config.clone();
             let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
@@ -1474,6 +1480,7 @@ pub mod test_utils {
                 listen_only: false,
                 experimental_rpc: false,
                 version_registry_address: Some(ctx.version_registry_address),
+                force_version_check: false,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }

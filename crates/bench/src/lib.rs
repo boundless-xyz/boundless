@@ -555,6 +555,7 @@ mod tests {
             listen_only: false,
             experimental_rpc: false,
             version_registry_address: None,
+            force_version_check: false,
         }
     }
 
