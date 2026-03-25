@@ -19,7 +19,7 @@
 //! the supervisor faults, triggering graceful shutdown. If the contract cannot
 //! be read (RPC error, not deployed, etc.), it logs a warning and continues.
 
-use alloy::primitives::Address;
+use alloy::primitives::{address, Address};
 use alloy::providers::Provider;
 use alloy::sol;
 use std::time::Duration;
@@ -41,18 +41,29 @@ sol! {
     }
 }
 
-/// Hardcoded VersionRegistry contract addresses per chain ID.
+/// Hardcoded VersionRegistry contract addresses keyed by (chain_id, market_address).
+/// Keying on market_address disambiguates multiple deployments on the same chain
+/// (e.g. staging and prod testnet both on Base Sepolia, chain ID 84532).
 /// NOT configurable to prevent bypass.
-const VERSION_REGISTRIES: &[(u64, Address)] = &[
+const VERSION_REGISTRIES: &[(u64, Address, Address)] = &[
+    // (chain_id, boundless_market_address, version_registry_address)
+    (
+        84532,
+        address!("0x7abb16522f4599481361d318b765af988bfcca8e"), // Base Sepolia staging market
+        address!("0xe359782297d569f1c3cdc02a50217b2b142e27fd"), // Base Sepolia staging registry
+    ),
     // TODO: Entries will be added after deployment:
-    // (1, address!("0x...")),        // ETH Mainnet
-    // (8453, address!("0x...")),     // Base
-    // (11155111, address!("0x...")), // Sepolia
-    // (84532, address!("0x...")),    // Base Sepolia
+    // (84532, address!("0x56da3786061c82214d18e634d2817e86ad42d7ce"), address!("0x...")), // Base Sepolia prod
+    // (11155111, address!("0x..."), address!("0x...")), // Sepolia
+    // (8453, address!("0x..."), address!("0x...")),     // Base Mainnet
+    // (1, address!("0x..."), address!("0x...")),        // ETH Mainnet
 ];
 
-fn lookup_registry(chain_id: u64) -> Option<Address> {
-    VERSION_REGISTRIES.iter().find(|(id, _)| *id == chain_id).map(|(_, addr)| *addr)
+fn lookup_registry(chain_id: u64, market_address: Address) -> Option<Address> {
+    VERSION_REGISTRIES
+        .iter()
+        .find(|(id, market, _)| *id == chain_id && *market == market_address)
+        .map(|(_, _, registry)| *registry)
 }
 
 /// Pack a semver triplet into a single u64 for comparison.
@@ -136,11 +147,15 @@ impl<P: Provider + Clone + Send + Sync + 'static> VersionCheckTask<P> {
     ///
     /// - `broker_version`: packed version to enforce. Pass `None` to use the compile-time
     ///   `BROKER_VERSION` (the default for production).
+    /// - `market_address`: address of the BoundlessMarket contract for this deployment. Used
+    ///   to resolve the correct VersionRegistry when multiple deployments share a chain ID
+    ///   (e.g. staging and prod on Base Sepolia).
     /// - `registry_address`: address of the VersionRegistry contract. Pass `None` to look up the
-    ///   address from the hardcoded chain table (the default for production).
+    ///   address from the hardcoded table (the default for production).
     pub(crate) fn new(
         provider: P,
         chain_id: u64,
+        market_address: Address,
         broker_version: Option<u64>,
         registry_address: Option<Address>,
     ) -> Self {
@@ -149,7 +164,8 @@ impl<P: Provider + Clone + Send + Sync + 'static> VersionCheckTask<P> {
             provider,
             chain_id,
             broker_version: broker_version.unwrap_or(BROKER_VERSION),
-            registry_address: registry_address.or_else(|| lookup_registry(chain_id)),
+            registry_address: registry_address
+                .or_else(|| lookup_registry(chain_id, market_address)),
             poll_interval: Duration::from_secs(600),
             force_check,
         }
@@ -305,8 +321,8 @@ mod tests {
 
     #[test]
     fn test_lookup_registry_unknown_chain() {
-        assert!(lookup_registry(999999).is_none());
-        assert!(lookup_registry(0).is_none());
+        assert!(lookup_registry(999999, Address::ZERO).is_none());
+        assert!(lookup_registry(0, Address::ZERO).is_none());
     }
 
     // --- E2e tests ---

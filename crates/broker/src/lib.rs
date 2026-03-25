@@ -788,6 +788,7 @@ where
             let task = Arc::new(version_check::VersionCheckTask::new(
                 (*self.provider).clone(),
                 self.chain_id,
+                self.deployment().boundless_market_address,
                 None,                               // use compile-time BROKER_VERSION
                 self.args.version_registry_address, // None in production -> hardcoded lookup
             ));
