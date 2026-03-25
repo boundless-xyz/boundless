@@ -96,8 +96,9 @@ pub fn format_version(version: u64) -> String {
 #[derive(Error)]
 pub(crate) enum VersionCheckError {
     #[error(
-        "{code} Broker version {broker_version} is below the on-chain minimum \
-         version {min_version} on chain {chain_id}. \
+        "{code} Broker version {broker_version} is below the minimum supported \
+         version {min_version} for chain {chain_id}. Outdated versions may have \
+         known performance or security vulnerabilities. \
          Please upgrade to at least version {min_version}. \
          See https://docs.boundless.network/ for instructions.", code = self.code()
     )]
@@ -125,6 +126,9 @@ pub(crate) struct VersionCheckTask<P> {
     registry_address: Option<Address>,
     /// Polling interval for periodic version checks. Default is 10 minutes. Configurable for testing.
     poll_interval: Duration,
+    /// When true, run the version check even in RISC0_DEV_MODE. Auto-set when registry_address is
+    /// explicitly provided (i.e., in tests). Production always passes None so this stays false.
+    force_check: bool,
 }
 
 impl<P: Provider + Clone + Send + Sync + 'static> VersionCheckTask<P> {
@@ -140,12 +144,14 @@ impl<P: Provider + Clone + Send + Sync + 'static> VersionCheckTask<P> {
         broker_version: Option<u64>,
         registry_address: Option<Address>,
     ) -> Self {
+        let force_check = registry_address.is_some();
         Self {
             provider,
             chain_id,
             broker_version: broker_version.unwrap_or(BROKER_VERSION),
             registry_address: registry_address.or_else(|| lookup_registry(chain_id)),
             poll_interval: Duration::from_secs(600),
+            force_check,
         }
     }
 }
@@ -197,14 +203,20 @@ impl<P: Provider + Clone + Send + Sync + 'static> RetryTask for VersionCheckTask
         let broker_version = self.broker_version;
         let registry_address = self.registry_address;
         let poll_interval = self.poll_interval;
+        let force_check = self.force_check;
 
         Box::pin(async move {
             // Skipping the version check in dev mode is safe because RISC0_DEV_MODE
             // disables real proof generation entirely — the broker produces fake receipts
             // that are rejected by on-chain verifiers. A prover cannot use this flag to
             // bypass only the version check while remaining operational in production.
-            if is_dev_mode() {
-                tracing::info!("Skipping version check (RISC0_DEV_MODE enabled)");
+            // force_check is set when registry_address is explicitly provided (i.e., in tests)
+            // so that e2e tests can exercise the check even under RISC0_DEV_MODE.
+            if is_dev_mode() && !force_check {
+                tracing::info!(
+                    "Skipping version check (RISC0_DEV_MODE enabled). Broker version: {}",
+                    format_version(broker_version)
+                );
                 cancel_token.cancelled().await;
                 return Ok(());
             }
@@ -380,6 +392,7 @@ mod tests {
             broker_version,
             registry_address: Some(registry_addr),
             poll_interval: Duration::from_secs(600),
+            force_check: true,
         });
 
         let config = ConfigLock::default();
@@ -417,6 +430,7 @@ mod tests {
             broker_version,
             registry_address: Some(registry_addr),
             poll_interval: Duration::from_secs(600),
+            force_check: true,
         });
 
         // Cancel after a short delay — the first tick fires immediately,
@@ -494,6 +508,7 @@ mod tests {
     #[tokio::test]
     #[traced_test(debug)]
     async fn version_check_passes_then_faults_after_update() {
+        // TODO: remove guard entirely since we now have force
         let _guard = DevModeGuard::disable();
         let anvil = Anvil::new().spawn();
         let provider = make_provider(&anvil).await;
@@ -536,6 +551,7 @@ mod tests {
             broker_version,
             registry_address: Some(registry_addr),
             poll_interval: Duration::from_secs(600),
+            force_check: true,
         });
         let cancel = CancellationToken::new();
         let config = ConfigLock::default();

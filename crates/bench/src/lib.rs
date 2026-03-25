@@ -554,6 +554,7 @@ mod tests {
             log_json: false,
             listen_only: false,
             experimental_rpc: false,
+            version_registry_address: None,
         }
     }
 

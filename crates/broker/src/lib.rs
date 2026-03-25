@@ -182,6 +182,11 @@ pub struct Args {
     /// Use the experimental ChainMonitorV2 implementation using eth_getBlockReceipts instead of eth_getLogs.
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
+
+    /// VersionRegistry contract address override. Not a CLI flag — set programmatically in tests
+    /// to exercise the version check against a locally deployed registry.
+    #[clap(skip)]
+    pub version_registry_address: Option<Address>,
 }
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
@@ -783,8 +788,8 @@ where
             let task = Arc::new(version_check::VersionCheckTask::new(
                 (*self.provider).clone(),
                 self.chain_id,
-                None, // use compile-time BROKER_VERSION
-                None, // use hardcoded VERSION_REGISTRIES lookup
+                None,                               // use compile-time BROKER_VERSION
+                self.args.version_registry_address, // None in production -> hardcoded lookup
             ));
             let config_clone = config.clone();
             let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
@@ -1467,6 +1472,7 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
+                version_registry_address: Some(ctx.version_registry_address),
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }
