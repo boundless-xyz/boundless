@@ -45,7 +45,9 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: 1.89.0
 
       - name: Cache cargo-chef binary
         id: cache-chef
