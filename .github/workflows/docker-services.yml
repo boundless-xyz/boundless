@@ -96,11 +96,15 @@ jobs:
       - name: Generate bento manifests
         run: |
           mkdir -p bento-manifests
+          # Copy manifest files preserving content but normalizing timestamps
           find . \( -name "Cargo.toml" -o -name "Cargo.lock" -o -name "rust-toolchain.toml" \) \
-              -not -path "*/target/*" -not -path "./.git/*" | \
+              -not -path "*/target/*" -not -path "./.git/*" | sort | \
           while read f; do mkdir -p "bento-manifests/$(dirname "$f")" && cp "$f" "bento-manifests/$f"; done
-          find bento-manifests -name "Cargo.toml" -path "*/crates/*" -o -name "Cargo.toml" -path "*/blake3*" | \
+          # Create stub lib.rs for external path deps
+          find bento-manifests \( -name "Cargo.toml" -path "*/crates/*" -o -name "Cargo.toml" -path "*/blake3*" \) | sort | \
           while read f; do dir=$(dirname "$f") && mkdir -p "$dir/src" && touch "$dir/src/lib.rs"; done
+          # Normalize all timestamps so BuildKit COPY produces a stable content hash
+          find bento-manifests -exec touch -t 200001010000.00 {} +
 
       - name: Upload recipes and manifests
         uses: actions/upload-artifact@v4
