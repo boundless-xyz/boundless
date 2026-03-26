@@ -159,7 +159,7 @@ jobs:
 
       - name: cargo nextest run
         # Warn every 5min, kill test after 30min (6x300s)
-        run: cargo nextest run --all-features --locked --nocapture --slow-timeout=300s --terminate-after=6
+        run: cargo nextest run --all-features --locked --nocapture --config-file "$GITHUB_WORKSPACE/.config/nextest.toml" --profile nightly-examples
         working-directory: ${{ matrix.workspace }}
         env:
           RUST_LOG: "info"
