@@ -102,6 +102,7 @@ pub struct ProvingService {
     priority_requestors: PriorityRequestors,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
     downloader: ConfigurableDownloader,
+    chain_id: u64,
 }
 
 impl ProvingService {
@@ -115,6 +116,7 @@ impl ProvingService {
         priority_requestors: PriorityRequestors,
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
         downloader: ConfigurableDownloader,
+        chain_id: u64,
     ) -> Self {
         Self {
             db,
@@ -125,6 +127,7 @@ impl ProvingService {
             priority_requestors,
             fulfillment_market,
             downloader,
+            chain_id,
         }
     }
 
@@ -455,6 +458,7 @@ impl ProvingService {
                         "Proving session create failed",
                         proving_err.completion_outcome(),
                     ),
+                    self.chain_id,
                 )
                 .await;
                 return;
@@ -487,7 +491,7 @@ impl ProvingService {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
-                crate::telemetry::telemetry().record_application_proving_completed(
+                crate::telemetry::telemetry(self.chain_id).record_application_proving_completed(
                     &order_id,
                     order.total_cycles,
                     stark_proving_secs,
@@ -518,6 +522,7 @@ impl ProvingService {
                                 err.to_string(),
                                 err.completion_outcome(),
                             ),
+                            self.chain_id,
                         )
                         .await;
                         return;
@@ -536,6 +541,7 @@ impl ProvingService {
                     &self.config,
                     &order,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
+                    self.chain_id,
                 )
                 .await;
             }
@@ -547,6 +553,7 @@ impl ProvingService {
                     &self.db,
                     &order_id,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
+                    self.chain_id,
                 )
                 .await;
             }
@@ -562,6 +569,7 @@ impl ProvingService {
                     &self.db,
                     &order_id,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
+                    self.chain_id,
                 )
                 .await;
             }
@@ -776,6 +784,7 @@ mod tests {
             priority_requestors,
             market.clone(),
             downloader.clone(),
+            1,
         );
 
         let order = create_test_order(
@@ -806,6 +815,7 @@ mod tests {
             priority_requestors,
             market.clone(),
             downloader.clone(),
+            1,
         );
 
         let lock_and_fulfill_order = create_test_order(
@@ -865,6 +875,7 @@ mod tests {
             priority_requestors,
             market,
             downloader,
+            1,
         );
 
         let order_id = U256::ZERO;
@@ -960,6 +971,7 @@ mod tests {
             priority_requestors,
             market,
             downloader,
+            1,
         );
 
         let request_id = U256::from(123);

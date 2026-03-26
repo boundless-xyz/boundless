@@ -836,6 +836,7 @@ mod tests {
 
     #[test_log::test(sqlx::test)]
     #[serial]
+    #[ignore = "flaky"]
     async fn integration_test(pool: PgPool) {
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))

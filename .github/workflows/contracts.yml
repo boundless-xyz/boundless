@@ -2,7 +2,7 @@ name: Contracts
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, next]
   workflow_dispatch:
 
 concurrency:

@@ -52,11 +52,12 @@ pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
+    chain_id: u64,
 }
 
 impl ReaperTask {
-    pub fn new(db: DbObj, config: ConfigLock, prover: ProverObj) -> Self {
-        Self { db, config, prover }
+    pub fn new(db: DbObj, config: ConfigLock, prover: ProverObj, chain_id: u64) -> Self {
+        Self { db, config, prover, chain_id }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -84,6 +85,7 @@ impl ReaperTask {
                         "Order expired in reaper",
                         CompletionOutcome::ExpiredWhileProving,
                     ),
+                    self.chain_id,
                 )
                 .await;
             }
@@ -191,7 +193,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1);
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -227,7 +229,7 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -284,7 +286,7 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
