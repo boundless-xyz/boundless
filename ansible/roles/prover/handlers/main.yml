@@ -4,10 +4,7 @@
     daemon_reload: true
 
 - name: Restart Bento
-  listen:
-    - "Restart Bento"
-    - "Restart docker"
-  ansible.builtin.systemd:
-    name: bento
-    state: restarted
-    daemon_reload: true
+  ansible.builtin.shell: |
+    systemctl daemon-reload
+    systemctl restart --no-block bento
+  changed_when: true
