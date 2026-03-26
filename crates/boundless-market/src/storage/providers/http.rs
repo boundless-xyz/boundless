@@ -15,8 +15,8 @@
 //! HTTP/HTTPS download handler.
 //!
 //! This module provides download functionality for HTTP and HTTPS URLs with support for:
-//! - Retry policies with exponential backoff (request-level, via `reqwest-retry` middleware)
-//! - Resumable downloads via HTTP Range headers (stream-level, on mid-transfer failures)
+//! - Retry loop with exponential backoff for all failure modes
+//! - Resumable downloads via HTTP Range headers
 //! - Stream timeout to detect stalled connections
 //! - Size limits
 //! - IPFS gateway fallback
@@ -26,26 +26,29 @@ use std::time::Duration;
 use crate::storage::{config::StorageDownloaderConfig, StorageDownloader, StorageError};
 use async_trait::async_trait;
 use futures::StreamExt;
-use reqwest::StatusCode;
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use url::Url;
 
 /// Per-chunk stream timeout: if no data arrives for this long, the stream is
 /// considered stalled and eligible for a range-based resume.
 const STREAM_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Base delay for exponential backoff between retry attempts.
+const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
+
+/// Maximum delay cap for exponential backoff.
+const RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+
 /// HTTP/HTTPS downloader with retry and resume support.
 ///
 /// This downloader handles `http://` and `https://` URLs. It supports:
-/// - Configurable retry policies with exponential backoff (request-level)
+/// - Unified retry with exponential backoff for all failure modes
 /// - Automatic range-based resume on mid-stream failures
 /// - Stream timeout to detect stalled connections
 /// - Size limits to prevent downloading excessively large files
 /// - Optional IPFS gateway fallback for URLs containing `/ipfs/`
 #[derive(Clone, Debug)]
 pub struct HttpDownloader {
-    client: ClientWithMiddleware,
+    client: reqwest::Client,
     max_retries: u8,
     ipfs_gateway: Option<Url>,
 }
@@ -60,26 +63,18 @@ impl Default for HttpDownloader {
 impl HttpDownloader {
     /// Creates a new HTTP downloader with optional retry configuration.
     ///
-    /// When `max_retries` is set, two layers of retry are enabled:
-    /// 1. Request-level retries (via `reqwest-retry` middleware) for transient HTTP errors.
-    /// 2. Stream-level retries using HTTP `Range` headers when a download is interrupted
-    ///    mid-transfer.
+    /// When `max_retries` is set, a single retry loop handles both connection-level
+    /// failures (transient HTTP errors, retryable status codes) and mid-stream
+    /// failures (using HTTP `Range` headers for resumable downloads). Retries use
+    /// exponential backoff with a base delay of 500ms capped at 30s.
     ///
     /// # Panics
     ///
     /// Panics if `ipfs_gateway` uses a scheme other than `http` or `https`.
     pub fn new(max_retries: Option<u8>, ipfs_gateway: Option<Url>) -> Self {
-        let retries = max_retries.unwrap_or(0);
-        let mut builder = ClientBuilder::new(reqwest::Client::new());
-
-        if retries > 0 {
-            let retry_policy = ExponentialBackoff::builder().build_with_max_retries(retries as u32);
-            builder = builder.with(RetryTransientMiddleware::new_with_policy(retry_policy));
-        }
-
         Self {
-            client: builder.build(),
-            max_retries: retries,
+            client: reqwest::Client::new(),
+            max_retries: max_retries.unwrap_or(0),
             ipfs_gateway: ipfs_gateway.map(normalize_gateway_url),
         }
     }
@@ -108,9 +103,11 @@ impl HttpDownloader {
 
     /// Internal download implementation without IPFS fallback.
     ///
+    /// Uses a single retry loop for both connection-level and mid-stream failures.
     /// On mid-stream failures, retries with a `Range: bytes=<offset>-` header so
     /// only the remaining bytes are re-fetched. Falls back to a full restart if
     /// the server doesn't support Range (responds 200 instead of 206).
+    /// Non-success HTTP status codes are retried with backoff.
     async fn download_impl(&self, url: Url, limit: usize) -> Result<Vec<u8>, StorageError> {
         if !is_http_url(&url) {
             return Err(StorageError::UnsupportedScheme(url.scheme().to_string()));
@@ -128,28 +125,36 @@ impl HttpDownloader {
                     request.header(reqwest::header::RANGE, format!("bytes={}-", buffer.len()));
             }
 
-            let resp = request.send().await.map_err(StorageError::http)?;
+            let resp = match request.send().await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    let Some(delay) = next_retry(&mut attempts, self.max_retries) else {
+                        return Err(StorageError::http(e));
+                    };
+                    tracing::warn!(error = %e, ?delay, %url, "request failed, retrying");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+            };
             let status = resp.status();
 
-            match status {
-                StatusCode::OK => {
-                    // Full response — either first request or server ignoring Range
-                    buffer.clear();
-                    let content_length = resp.content_length().unwrap_or(0) as usize;
-                    if content_length > limit {
-                        return Err(StorageError::SizeLimitExceeded {
-                            size: content_length,
-                            limit,
-                        });
-                    }
-                    buffer.reserve(content_length.min(limit));
+            if status == reqwest::StatusCode::OK {
+                // Server ignored Range header — restart from scratch
+                buffer.clear();
+                let content_length = resp.content_length().unwrap_or(0) as usize;
+                if content_length > limit {
+                    return Err(StorageError::SizeLimitExceeded { size: content_length, limit });
                 }
-                StatusCode::PARTIAL_CONTENT => {
-                    // 206 — server supports Range, will append to existing buffer
-                }
-                _ => {
+                buffer.reserve(content_length.min(limit));
+            } else if status == reqwest::StatusCode::PARTIAL_CONTENT {
+                // 206 — server supports Range, append to existing buffer
+            } else {
+                let Some(delay) = next_retry(&mut attempts, self.max_retries) else {
                     return Err(StorageError::HttpStatus(status.as_u16()));
-                }
+                };
+                tracing::warn!(status = status.as_u16(), ?delay, %url, "HTTP error, retrying");
+                tokio::time::sleep(delay).await;
+                continue;
             }
 
             match stream_body(resp, &mut buffer, limit).await {
@@ -161,18 +166,14 @@ impl HttpDownloader {
                     return Err(StorageError::SizeLimitExceeded { size: buffer.len(), limit });
                 }
                 Err(e) => {
-                    attempts += 1;
-                    if attempts >= self.max_retries || buffer.is_empty() {
+                    let Some(delay) = next_retry(&mut attempts, self.max_retries) else {
                         return Err(e);
-                    }
+                    };
                     tracing::warn!(
-                        bytes_received = buffer.len(),
-                        attempt = attempts,
-                        max_retries = self.max_retries,
-                        error = %e,
-                        %url,
-                        "stream interrupted, attempting range-based resume"
+                        bytes_received = buffer.len(), error = %e, ?delay, %url,
+                        "stream interrupted, retrying"
                     );
+                    tokio::time::sleep(delay).await;
                 }
             }
         }
@@ -208,6 +209,16 @@ async fn stream_body(
             }
         }
     }
+}
+
+/// Increment `attempts` and return the backoff delay, or `None` if retries are exhausted.
+fn next_retry(attempts: &mut u8, max_retries: u8) -> Option<Duration> {
+    *attempts += 1;
+    if *attempts >= max_retries {
+        return None;
+    }
+    let exponent = attempts.saturating_sub(1).min(5) as u32;
+    Some(RETRY_BASE_DELAY.saturating_mul(1u32 << exponent).min(RETRY_MAX_DELAY))
 }
 
 fn is_http_url(url: &Url) -> bool {
