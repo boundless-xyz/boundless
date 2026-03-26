@@ -64,7 +64,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
     export CARGO_TARGET_DIR=/src/bento/target-agent-cpu && \
-    cd /src/bento && \
+    mkdir -p /src/bento && cd /src/bento && \
     cargo chef cook --release --recipe-path /src/recipe.json \
         --package workflow && \
     sccache --show-stats
