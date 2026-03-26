@@ -44,7 +44,9 @@ WORKDIR /src
 RUN mkdir /manifests && \
     find . \( -name "Cargo.toml" -o -name "Cargo.lock" -o -name "rust-toolchain.toml" \) \
         -not -path "*/target/*" | \
-    while read f; do mkdir -p "/manifests/$(dirname "$f")" && cp "$f" "/manifests/$f"; done
+    while read f; do mkdir -p "/manifests/$(dirname "$f")" && cp "$f" "/manifests/$f"; done && \
+    find /manifests -name "Cargo.toml" -path "*/crates/*" -o -name "Cargo.toml" -path "*/blake3*" | \
+    while read f; do dir=$(dirname "$f") && mkdir -p "$dir/src" && touch "$dir/src/lib.rs"; done
 
 # ── builder: cook deps (cached), then compile source ────────────────
 FROM init AS builder

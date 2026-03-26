@@ -50,14 +50,17 @@ COPY bento/ ./bento/
 WORKDIR /src/bento
 RUN cargo chef prepare --recipe-path /src/recipe.json
 
-# Extract only Cargo.toml / Cargo.lock / rust-toolchain.toml into /manifests.
-# These are needed by cargo chef cook to resolve cross-workspace path deps
-# (e.g. bento -> blake3_groth16 -> boundless-market).
+# Extract Cargo.toml / Cargo.lock / rust-toolchain.toml into /manifests, plus
+# create stub src/lib.rs for each crate. cargo chef cook only generates stubs
+# for bento workspace members; external path deps (blake3_groth16,
+# boundless-market, etc.) need these so cargo can parse their manifests.
 WORKDIR /src
 RUN mkdir /manifests && \
     find . \( -name "Cargo.toml" -o -name "Cargo.lock" -o -name "rust-toolchain.toml" \) \
         -not -path "*/target/*" | \
-    while read f; do mkdir -p "/manifests/$(dirname "$f")" && cp "$f" "/manifests/$f"; done
+    while read f; do mkdir -p "/manifests/$(dirname "$f")" && cp "$f" "/manifests/$f"; done && \
+    find /manifests -name "Cargo.toml" -path "*/crates/*" -o -name "Cargo.toml" -path "*/blake3*" | \
+    while read f; do dir=$(dirname "$f") && mkdir -p "$dir/src" && touch "$dir/src/lib.rs"; done
 
 # ── builder: cook deps (cached), then compile source ────────────────
 FROM init AS builder
