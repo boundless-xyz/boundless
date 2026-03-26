@@ -1,40 +1,40 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
-encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwHNpVz9SwZmm7sXCROBDP+OAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMEqHuY1vOYpFqHvcGAgEQgDuelOP8/WrDZMuIwbkxMn7STSUIfC36T9oY5CBMrgwYKsfUw0MVDlyY276gF3JkYAtz5MB6LeV6+ebUWw==
+encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwGJLP78fsbuW4wZV+pqul3iAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMVHb1B0Zut2WvVZA9AgEQgDuV24t/cLeoCMm2dcmk3vu0KNVcqS9gC7OpjDnkc5gUnyOAXbTfdkoa3pViCbOm/CvfK82ITaM6kRJDxg==
 config:
   aws:region: us-west-2
   indexer:ALLOWED_IP_ADDRESSES:
-    secure: v1:Zz+pGPqe/bRNXYFa:3k3mZ6Bb2bPlKMXB/1+8j7U4ou257c5MZ5EwOEx5Sxw=
+    secure: v1:/OwfvlV5c/WpyGOB:39kj/yXgE7TSVsDnn0ChDW4cXeKb13OOdsuZ0EbLXMI=
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100"
   indexer:BASE_STACK: organization/bootstrap/services-prod
   indexer:BENTO_API_KEY:
-    secure: v1:DxdBaElemluc1Ylr:oaShb1JN1VP+y3h+JHUIjTizb5b1c3lRyP7lJiXSGOqtqy5X4vdaFkdy0JgJBmNrUrFfSK4HLKIjEQ==
+    secure: v1:x87gs/MvRT8mPiL5:PivTIVXB+1MPkKOMR4jzieFyTt+jACxZwVezXICcJ1t5xMKFCCDajqApSSmW8faXRvU/+HowOcX02A==
   indexer:BENTO_API_URL:
-    secure: v1:wldS7E9d2Dsyf9Tw:iIT1Zf4MGJUHjbJTKUsyIefXCfV37gbtEioHZnfqARBqR5JzNw9E7vp/rxKVrFFM6Hxi
+    secure: v1:w/1qk8oy02ODv3fB:5+Uhp4MzucvzalcJdIagkqruWh+m+0m9SSc/wz3qiL6xpw4Xn2ZzLrcCc4dTtksgda/a
   indexer:BLOCK_DELAY: "10"
   indexer:BOUNDLESS_ADDRESS: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:CHAIN_ID: "167000"
   indexer:CI_CACHE_SECRET:
-    secure: v1:Ce/EF0AOVWl5PlJo:4sRd34ApwhznNOB6K2Xn+j36llDj1E3q8TsF7z7lbyB1XmIdyRfxT3KKjf0nJ969LRsCyUYg/LO7LkKxOuHeZa1RSM8joWU+qyxWbHCT8OPXjvIpX79d/QGe+Gv7ykzk7F5mk/65idVtBOP732KaIJlbrw+I0T3Fd3kVQ6aNpQ==
+    secure: v1:nfFV2i5Ts8XJpNoq:pm4WiGcldCLqrgAc6DsUsnElLqaodd3ZXe0+ls48Y67xDU0qULPCVQdurFU7K+hBbfxxUJtelh2MllB4GHnI2BngDl4BG8ZZUv65ZJQydK6h930lk0Gcr3rYcp2n0yjy1hLtR6/esABUMUTGmzikkYatGsN1O3qbpF6u9ZQ8Bw==
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
   indexer:GH_TOKEN_SECRET:
-    secure: v1:JFRwG3DxSw4LjTTb:dPAHMC1pm1uAppTMEgMJJne+A2Nx5e9deZvXrmjvWpNuMWYQAu3ojsqdXdPaRALZGKUEhGAqNW4m37uK73A9FFM1T98NsnlZ87IPXSUpSxjef7mwG1xmQl0YU7ou6UlJ5vshOB8xxOaNk0WEvA==
+    secure: v1:cKWMly+7pYAjXvOx:i7+dTJ3eUdFXDbq4Apqe+mE315buqpKyx3QsWxgo8cFaTec+ZFPxN2AMRUHYpZMf7I5Z478Mk6D6hmi+FSS//mGls+e7a/LaVpsD6nijvCf+wA41HjMdDReRiVBgpKWla4v/COJtBpD+S9crnw==
   indexer:ORDER_STREAM_API_KEY:
-    secure: v1:qTzaa6ZO6tYwwoJW:j7YHDRhdaR2uw8T3QPaSIi4rbqMdV6qo33LhVGtq
+    secure: v1:jRnEC0ITCjWjtawv:WMxiA9eNu0xWwOinKzFk8zogBGJSPwZLlTdElVRL
   indexer:ORDER_STREAM_URL:
-    secure: v1:v8rF0YbEHhsgwjgd:GxqcgOD3pSBm0K52ZlIBnlXqgCKctOtXHe5HMbHBPx7mVAmsmpd0hTyLIDQHidK7JEUQJi4HbLPZLI515gmQ8gyOLnPWlDT+UjlZsx62h5IGrqFbh8fBlBpogw==
+    secure: v1:DV6+i/4nICnQAuho:3Zr57euv3Uk8BkBTTRiwTILOWn8sJtSaCkM/jspB3ZxiWZo2xaC+lU+6+dNOu7HYtvSjmvCodtSG68C+uLKsId3t837RGVvHvD21xp3lqoyNjL1Psw8h0Wz4Tg==
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:PREMIUM_API_KEY:
-    secure: v1:Y00nS3KCxjWWjwWe:ezL5nI6jaVjGxL5lvyEJ9XWjFamWQYUuRDtQHw==
+    secure: v1:CtMR8aiDjeNb79XR:HdqjuQ1Mt96mu1PAI16GXaNjzdt2kVsm5+zI7g==
   indexer:PROXY_SECRET:
-    secure: v1:zUdi2ECTnJtV0Hui:ACxqRxNOCd+8udlS1noGnHFyUMJfxdFI2IH1uwDjGNNxN6PaLI9Wjg==
+    secure: v1:6rCTkjIpVhJdA0FZ:rgaTI34Odhl1XI15JEaDbkLCjxf+5RVvaJu//5fPRT8Ebnv+3xX1OQ==
   indexer:RDS_PASSWORD:
-    secure: v1:GMbRbU4TXOoeektZ:df31w7J0hlyAraiX2Q/UCeY36Zeyz3tqcP6dYQJAGn89Aw==
+    secure: v1:zL8UCNx6PJjKczJU:0vp0YghXweTZ32p5zaukkoE6mqS7gAsc1vh70QNK4AHaZw==
   indexer:RUST_LOG_API: debug
   indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "4819525"
   indexer:ETH_RPC_URL:
-    secure: v1:963FN/eaUjMwP98W:beq6It7VvaH4v3ppFmJ+OCpOFJUBtUJi6bbm+yofvl+d+HsUVwvhdCY9P7yJ
+    secure: v1:i5OnXx7QhxsA5/di:+RUggBiN4cB2Or9ddL924PybNqI3lhDOYB63eYKwQWtYye4TteC8dajkJY6P
