@@ -1,11 +1,7 @@
 # Proving artifacts image — contains risc0-groth16 and blake3-groth16 artifacts.
 # Built once and cached; only rebuilds when artifacts change.
 # Used by agent.dockerfile via COPY --from=artifacts.
-FROM debian:bookworm-slim
-
-RUN apt-get -qq update && \
-    apt-get install -y -q --no-install-recommends curl xz-utils ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+FROM rust:1.89.0-bookworm
 
 # Install risc0-groth16 via rzup
 RUN curl -fSL https://risczero.com/install | bash && \
