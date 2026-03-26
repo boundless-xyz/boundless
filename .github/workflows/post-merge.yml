@@ -3,8 +3,6 @@ name: Post-merge checks
 on:
   push:
     branches: [main]
-  pull_request: # TODO: this is only for testing on the PR branch; we should remove this trigger before merging
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -73,16 +71,4 @@ jobs:
           payload: |
             {
               "text": "Post-merge checks failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
-
-  test-notify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: slackapi/slack-github-action@v2.1.0
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            {
-              "text": "Test notification from post-merge workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
