@@ -57,6 +57,11 @@ jobs:
     timeout-minutes: 20
     needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true'
+    env:
+      RUSTFLAGS: "-Dwarnings"
+      RISC0_SKIP_BUILD: 1
+      RISC0_SKIP_BUILD_KERNELS: 1
+      RISC0_DEV_MODE: true
     steps:
       - name: Remove stale submodules
         run: rm -rf lib/
@@ -112,25 +117,13 @@ jobs:
         run: forge build
 
       - name: cargo clippy
-        env:
-          RUSTFLAGS: "-Dwarnings"
-          RISC0_SKIP_BUILD: 1
-          RISC0_SKIP_BUILD_KERNELS: 1
-        run: cargo clippy --locked --all-targets
+        run: cargo clippy --locked --all-targets --features test-r0vm,test-rpc
 
       - name: cargo doc
-        env:
-          RUSTFLAGS: "-Dwarnings"
-          RISC0_SKIP_BUILD: 1
-          RISC0_SKIP_BUILD_KERNELS: 1
-        run: cargo doc --locked --no-deps
+        run: cargo doc --locked --no-deps --features test-r0vm,test-rpc
 
       - name: cargo test (doctests)
         run: cargo test --locked --doc --features test-r0vm,test-rpc
-        env:
-          RISC0_DEV_MODE: true
-          RISC0_SKIP_BUILD: 1
-          RISC0_SKIP_BUILD_KERNELS: 1
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
@@ -246,80 +239,12 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  rust-doctest:
-    runs-on: [self-hosted, prod, Linux, cpu]
-    timeout-minutes: 10
-    needs: [files-changed]
-    if: needs.files-changed.outputs.docs == 'true'
-    steps:
-      - name: Remove stale submodules
-        run: rm -rf lib/
-
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Get submodule cache key
-        id: submodule-key
-        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        id: submodule-cache
-        uses: actions/cache@v4
-        with:
-          path: lib/
-          key: submodules-${{ steps.submodule-key.outputs.hash }}
-
-      - name: checkout submodules
-        if: steps.submodule-cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth=1 --jobs=8
-
-      - name: Install Rust linker toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
-
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: Cache forge build
-        uses: actions/cache@v4
-        with:
-          path: |
-            out
-            cache
-          key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-build-${{ runner.os }}-
-
-      - name: forge build
-        run: forge build
-
-      - name: cargo test (doctests)
-        run: cargo test --locked --doc --features test-r0vm,test-rpc
-        env:
-          RISC0_DEV_MODE: true
-          RISC0_SKIP_BUILD: 1
-          RISC0_SKIP_BUILD_KERNELS: 1
-
-      - name: sccache stats
-        run: sccache --show-stats
-
   link-check:
     name: Link Check (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: files-changed
-    if: needs.files-changed.outputs.docs == 'true'
+    if: needs.files-changed.outputs.main == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -364,7 +289,7 @@ jobs:
           key: lychee-${{ runner.os }}-v1
 
   fmt:
-    name: Fmt (GH)
+    name: fmt (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
