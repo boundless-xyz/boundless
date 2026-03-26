@@ -20,7 +20,9 @@ ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 WORKDIR /src/
 
 COPY --from=planner /src/bento/recipe.json /src/bento/recipe.json
-COPY blake3_groth16/ ./blake3_groth16/
+COPY blake3_groth16/Cargo.toml ./blake3_groth16/Cargo.toml
+RUN printf '[workspace]\nmembers = ["blake3_groth16"]\n\n[workspace.package]\nversion = "0.0.0"\nedition = "2021"\nhomepage = "."\nrepository = "."\n' > /src/Cargo.toml && \
+    mkdir -p /src/blake3_groth16/src && touch /src/blake3_groth16/src/lib.rs
 COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
