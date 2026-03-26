@@ -3,11 +3,14 @@
 # Used by agent.dockerfile via COPY --from=artifacts.
 FROM rust:1.89.0-bookworm
 
-# Install risc0-groth16 via rzup
+# Install risc0-groth16 via rzup and copy to /artifacts
 RUN curl -fSL https://risczero.com/install | bash && \
     /root/.risc0/bin/rzup install risc0-groth16 && \
-    mkdir -p /artifacts/risc0-groth16 && \
-    cp /root/.risc0/extensions/v0.1.0-risc0-groth16/* /artifacts/risc0-groth16/ && \
+    mkdir -p /artifacts/risc0-home/extensions /artifacts/risc0-home/tmp && \
+    cp -r /root/.risc0/extensions/v0.1.0-risc0-groth16 /artifacts/risc0-home/extensions/ && \
+    cp /root/.risc0/settings.toml /artifacts/risc0-home/ && \
+    touch /artifacts/risc0-home/.rzup && \
+    touch /artifacts/risc0-home/tmp/.risc0-groth16-0.1.0.lock && \
     rm -rf /root/.risc0 /tmp/* /var/tmp/*
 
 # Download blake3-groth16 artifacts
@@ -16,8 +19,3 @@ RUN mkdir -p /artifacts/blake3-groth16 && \
     curl -fSL -o /tmp/artifacts.tar.xz "$BLAKE3_GROTH16_ARTIFACTS_URL" && \
     tar -xf /tmp/artifacts.tar.xz -C /artifacts/blake3-groth16 --strip-components=1 && \
     rm -f /tmp/artifacts.tar.xz
-
-# Provide risc0 settings.toml for proper RISC0_HOME setup
-RUN mkdir -p /artifacts/risc0-home/extensions /artifacts/risc0-home/tmp && \
-    printf '[default_versions]\nrisc0-groth16 = "0.1.0"\n' > /artifacts/risc0-home/settings.toml && \
-    ln -s /artifacts/risc0-groth16 /artifacts/risc0-home/extensions/v0.1.0-risc0-groth16
