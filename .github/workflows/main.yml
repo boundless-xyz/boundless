@@ -29,7 +29,7 @@ env:
 
 jobs:
   main-status-check:
-    name: Main Status Check (GH)
+    name: main-status-check
     if: always()
     timeout-minutes: 5
     needs:
