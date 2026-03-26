@@ -115,9 +115,12 @@ url = "2.5"
 utoipa = "5.2"
 uuid = { version = "1.7", features = ["v4"] }
 
-# Apply some optimizations on dev profile, to speed up tests.
 [profile.dev]
 opt-level = 1
+# Emit only line tables instead of full debug info. Reduces artifact size ~30-50%,
+# improving sccache efficiency. Backtraces still work; variable inspection in a
+# debugger does not.
+debug = "line-tables-only"
 
 [profile.release]
 debug = 1
