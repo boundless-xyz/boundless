@@ -103,6 +103,8 @@ Redshift is mostly Postgres-compatible but has some differences:
 
 - No `LATERAL` joins
 - No `DISTINCT ON`
+- `UNION ALL` with `ORDER BY` must be wrapped in a subquery (Redshift rejects bare `UNION ALL ... ORDER BY`)
+- `MEDIAN()` / `PERCENTILE_CONT()` cannot be mixed with regular aggregates or with each other on different columns in the same SELECT -- use UNION ALL with one MEDIAN per subquery
 - Use `GETDATE()` instead of `NOW()` (though `NOW()` works in some contexts)
 - `SUPER` type for JSON -- use `JSON_PARSE()` and dot notation for access
 - `APPROXIMATE COUNT(DISTINCT ...)` is available for large datasets via `APPROXIMATE COUNT(DISTINCT col)`
