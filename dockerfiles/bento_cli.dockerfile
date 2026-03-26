@@ -39,6 +39,6 @@ RUN apt-get update -q -y \
 
 # bento_cli binary
 COPY --from=builder /src/bento_cli /app/bento_cli
-COPY --from=builder /usr/local/risc0 /usr/local/risc0
+COPY --from=builder /root/.risc0 /root/.risc0
 
 ENTRYPOINT ["/app/bento_cli"]
