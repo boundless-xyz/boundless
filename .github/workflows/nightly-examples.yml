@@ -3,8 +3,6 @@ name: Nightly Examples
 on:
   schedule:
     - cron: "0 2 * * *"
-  pull_request: # TODO: remove before merging
-    branches: [main]
   workflow_dispatch:
 
 permissions:
