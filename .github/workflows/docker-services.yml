@@ -88,32 +88,14 @@ jobs:
         if: steps.cache-chef.outputs.cache-hit != 'true'
         run: cargo install cargo-chef --locked
 
-      - name: Generate recipes
-        run: |
-          cargo chef prepare --recipe-path recipe.json
-          cd bento && cargo chef prepare --recipe-path ../bento-recipe.json
+      - name: Generate recipe
+        run: cargo chef prepare --recipe-path recipe.json
 
-      - name: Generate bento manifests
-        run: |
-          mkdir -p bento-manifests
-          # Copy manifest files preserving content but normalizing timestamps
-          find . \( -name "Cargo.toml" -o -name "Cargo.lock" -o -name "rust-toolchain.toml" \) \
-              -not -path "*/target/*" -not -path "./.git/*" | sort | \
-          while read f; do mkdir -p "bento-manifests/$(dirname "$f")" && cp "$f" "bento-manifests/$f"; done
-          # Create stub lib.rs for external path deps
-          find bento-manifests \( -name "Cargo.toml" -path "*/crates/*" -o -name "Cargo.toml" -path "*/blake3*" \) | sort | \
-          while read f; do dir=$(dirname "$f") && mkdir -p "$dir/src" && touch "$dir/src/lib.rs"; done
-          # Normalize all timestamps so BuildKit COPY produces a stable content hash
-          find bento-manifests -exec touch -t 200001010000.00 {} +
-
-      - name: Upload recipes and manifests
+      - name: Upload recipe
         uses: actions/upload-artifact@v4
         with:
-          name: recipes
-          path: |
-            recipe.json
-            bento-recipe.json
-            bento-manifests/
+          name: recipe
+          path: recipe.json
           retention-days: 1
 
   build-and-push:
@@ -126,50 +108,38 @@ jobs:
             dockerfile: dockerfiles/slasher.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
           - name: order-stream
             dockerfile: dockerfiles/order_stream.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
           - name: indexer
             dockerfile: dockerfiles/indexer.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
           - name: distributor
             dockerfile: dockerfiles/distributor.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
           - name: order-generator
             dockerfile: dockerfiles/order_generator.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
           - name: broker
             dockerfile: dockerfiles/broker.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
           - name: rest-api
             dockerfile: dockerfiles/rest_api.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
-            bento: true
           - name: bento-cli
             dockerfile: dockerfiles/bento_cli.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            build_contexts: planner=/tmp/planner-ctx
-            bento: true
           - name: agent
             dockerfile: dockerfiles/agent.dockerfile
             submodules: false
             runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
-            build_contexts: planner=/tmp/planner-ctx
-            bento: true
     runs-on: ${{ matrix.service.runner }}
     steps:
       - name: Checkout code
@@ -198,21 +168,14 @@ jobs:
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
 
-      - name: Download recipes and manifests
+      - name: Download recipe
         uses: actions/download-artifact@v4
         with:
-          name: recipes
+          name: recipe
           path: ./recipe-out
 
       - name: Prepare planner override
-        run: |
-          mkdir -p /tmp/planner-ctx/src
-          if [ "${{ matrix.service.bento }}" = "true" ]; then
-            cp ./recipe-out/bento-recipe.json /tmp/planner-ctx/src/recipe.json
-            cp -r ./recipe-out/bento-manifests/. /tmp/planner-ctx/manifests/
-          else
-            cp ./recipe-out/recipe.json /tmp/planner-ctx/src/recipe.json
-          fi
+        run: mkdir -p /tmp/planner-ctx/src && cp ./recipe-out/recipe.json /tmp/planner-ctx/src/recipe.json
 
       - name: Fetch sccache AWS creds
         id: sccache-creds
@@ -245,7 +208,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-contexts: ${{ matrix.service.build_contexts || '' }}
+          build-contexts: |
+            planner=/tmp/planner-ctx
           build-args: |
             BUILDER_BASE=${{ env.IMAGE_PREFIX }}/builder-base:latest
             S3_CACHE_BUCKET=boundless-ci-prod-cache
