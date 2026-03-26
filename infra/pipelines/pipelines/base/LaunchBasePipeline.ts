@@ -9,12 +9,13 @@ export interface LaunchPipelineConfig {
   additionalBuildSpecCommands?: string[];
   postBuildCommands?: string[];
   branchName?: string;
+  includeTaiko?: boolean;
 }
 
 export const LAUNCH_PIPELINE_DEFAULTS = {
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
-  branchName: "willpote/infra-taiko-v2",
+  branchName: "main",
 } as const;
 
 export interface SecretsResult {

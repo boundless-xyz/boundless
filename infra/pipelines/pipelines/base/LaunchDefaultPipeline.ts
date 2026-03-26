@@ -46,17 +46,21 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
             { dependsOn: [role] }
         );
 
-        const stagingDeploymentTaiko = new aws.codebuild.Project(
-            `l-${this.config.appName}-staging-167000-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-staging-167000", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
+        let stagingDeploymentTaiko: aws.codebuild.Project | undefined;
+        let prodDeploymentTaiko: aws.codebuild.Project | undefined;
+        if (this.config.includeTaiko) {
+            stagingDeploymentTaiko = new aws.codebuild.Project(
+                `l-${this.config.appName}-staging-167000-build`,
+                this.codeBuildProjectArgs(this.config.appName, "l-staging-167000", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+                { dependsOn: [role] }
+            );
 
-        const prodDeploymentTaiko = new aws.codebuild.Project(
-            `l-${this.config.appName}-prod-167000-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-167000", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
+            prodDeploymentTaiko = new aws.codebuild.Project(
+                `l-${this.config.appName}-prod-167000-build`,
+                this.codeBuildProjectArgs(this.config.appName, "l-prod-167000", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+                { dependsOn: [role] }
+            );
+        }
 
         // Create the pipeline
         const pipeline = new aws.codepipeline.Pipeline(`l-${this.config.appName}-pipeline`, {
@@ -99,10 +103,10 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                             outputArtifacts: ["staging_output_base_sepolia"],
                             inputArtifacts: ["source_output"],
                         },
-                        {
+                        ...(stagingDeploymentTaiko ? [{
                             name: "DeployStagingTaiko",
-                            category: "Build",
-                            owner: "AWS",
+                            category: "Build" as const,
+                            owner: "AWS" as const,
                             provider: "CodeBuild",
                             version: "1",
                             runOrder: 1,
@@ -111,7 +115,7 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                             },
                             outputArtifacts: ["staging_output_taiko"],
                             inputArtifacts: ["source_output"],
-                        }
+                        }] : [])
                     ]
                 },
                 {
@@ -165,10 +169,10 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                             outputArtifacts: ["production_output_base_mainnet"],
                             inputArtifacts: ["source_output"],
                         },
-                        {
+                        ...(prodDeploymentTaiko ? [{
                             name: "DeployProductionTaiko",
-                            category: "Build",
-                            owner: "AWS",
+                            category: "Build" as const,
+                            owner: "AWS" as const,
                             provider: "CodeBuild",
                             version: "1",
                             runOrder: 2,
@@ -177,7 +181,7 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                             },
                             outputArtifacts: ["production_output_taiko"],
                             inputArtifacts: ["source_output"],
-                        }
+                        }] : [])
                     ]
                 }
             ],

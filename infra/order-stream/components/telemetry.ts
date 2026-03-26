@@ -35,7 +35,7 @@ export class TelemetryInfra extends pulumi.ComponentResource {
     const retentionHours = 72;
 
     const versionByChain: Partial<Record<ChainId, string>> = {
-      [ChainId.TAIKO]: 'v4',
+      [ChainId.TAIKO]: 'v5',
     };
     const version = versionByChain[chainId as ChainId] ?? 'v3';
 
@@ -183,7 +183,7 @@ export class TelemetryInfra extends pulumi.ComponentResource {
         securityGroupIds: [redshiftSg.id],
         subnetIds: pubSubNetIds,
       },
-      { parent: this, deleteBeforeReplace: true }
+      { parent: this, deleteBeforeReplace: true, dependsOn: [namespace] }
     );
 
     // Outputs

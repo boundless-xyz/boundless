@@ -66,18 +66,6 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
             { dependsOn: [role] }
         );
 
-        const stagingDeploymentTaiko = new aws.codebuild.Project(
-            `l-${this.config.appName}-staging-167000-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-staging-167000", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
-
-        const prodDeploymentTaiko = new aws.codebuild.Project(
-            `l-${this.config.appName}-prod-167000-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-167000", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
-
         // Create the pipeline
         const pipeline = new aws.codepipeline.Pipeline(`l-${this.config.appName}-pipeline`, {
             pipelineType: "V2",
@@ -132,19 +120,6 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
                             outputArtifacts: ["staging_output_eth_sepolia"],
                             inputArtifacts: ["source_output"],
                         },
-                        {
-                            name: "DeployStagingTaiko",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 1,
-                            configuration: {
-                                ProjectName: stagingDeploymentTaiko.name
-                            },
-                            outputArtifacts: ["staging_output_taiko"],
-                            inputArtifacts: ["source_output"],
-                        }
                     ]
                 },
                 {
@@ -211,19 +186,6 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
                             outputArtifacts: ["production_output_eth_mainnet"],
                             inputArtifacts: ["source_output"],
                         },
-                        {
-                            name: "DeployProductionTaiko",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 2,
-                            configuration: {
-                                ProjectName: prodDeploymentTaiko.name
-                            },
-                            outputArtifacts: ["production_output_taiko"],
-                            inputArtifacts: ["source_output"],
-                        }
                     ]
                 }
             ],
