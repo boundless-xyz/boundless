@@ -231,6 +231,7 @@ pub struct OrderRequest {
     /// High-precision instant when the order was created locally. Used for sub-second
     /// queue and preflight duration calculations. Not serialized.
     #[serde(skip)]
+    #[allow(dead_code)]
     pub created_at: Option<std::time::Instant>,
     /// Unix timestamp (seconds since epoch) of when the order was priced.
     pub priced_at_timestamp: Option<u64>,

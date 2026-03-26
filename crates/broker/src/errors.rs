@@ -74,12 +74,17 @@ impl std::fmt::Display for BrokerFailure {
 }
 
 // Sets DB failure status AND emits a telemetry Failed event.
-pub(crate) async fn handle_order_failure(db: &DbObj, order_id: &str, failure: &BrokerFailure) {
+pub(crate) async fn handle_order_failure(
+    db: &DbObj,
+    order_id: &str,
+    failure: &BrokerFailure,
+    chain_id: u64,
+) {
     let db_error_str = failure.to_string();
     if let Err(e) = db.set_order_failure(order_id, &db_error_str).await {
         tracing::error!("Failed to set order {order_id} failure: {e:?}");
     }
-    crate::telemetry::telemetry().record_failed(order_id, failure);
+    crate::telemetry::telemetry(chain_id).record_failed(order_id, failure);
 }
 
 // Cancels a proof (if configured) and marks the order as failed with telemetry.
@@ -89,6 +94,7 @@ pub(crate) async fn cancel_proof_and_fail(
     config: &ConfigLock,
     order: &Order,
     failure: &BrokerFailure,
+    chain_id: u64,
 ) {
     let order_id = order.id();
 
@@ -116,5 +122,5 @@ pub(crate) async fn cancel_proof_and_fail(
         }
     }
 
-    handle_order_failure(db, &order_id, failure).await;
+    handle_order_failure(db, &order_id, failure, chain_id).await;
 }

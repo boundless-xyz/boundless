@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, FixedBytes, U256};
@@ -36,47 +36,39 @@ use crate::config::ConfigLock;
 use crate::db::DbObj;
 use crate::errors::BrokerFailure;
 use crate::futures_retry::retry;
-use crate::order_monitor::{OrderCommitmentMeta, OrderMonitorConfig};
+use crate::order_committer::{OrderCommitmentMeta, OrderCommitterConfig};
 
 const HEARTBEAT_RETRY_COUNT: u64 = 2;
 const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 
-static GLOBAL: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
+static CHAIN_HANDLES: LazyLock<Mutex<HashMap<u64, TelemetryHandle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
-static NOOP_HANDLE_WARNED: Once = Once::new();
 
-/// Initializes the process-global telemetry singleton on first use and returns its handle.
-///
-/// The closure is only run for the first caller, so it is expected to create both the
-/// `TelemetryHandle` and any underlying telemetry service/runtime that consumes it.
-/// Later callers reuse the existing singleton handle without rebuilding the service.
-pub(crate) fn init_with<F>(build_handle: F) -> TelemetryHandle
+/// Initializes the telemetry handle for a specific chain. Each chain gets its own
+/// handle and underlying TelemetryService that sends heartbeats to its order-stream URL.
+pub(crate) fn init_for_chain<F>(chain_id: u64, build_handle: F) -> TelemetryHandle
 where
     F: FnOnce() -> TelemetryHandle,
 {
-    let mut global = GLOBAL.lock().unwrap();
-    if let Some(handle) = global.clone() {
-        tracing::warn!("Telemetry handle already initialized; refusing to replace existing handle");
-        return handle;
+    let mut map = CHAIN_HANDLES.lock().unwrap();
+    if let Some(handle) = map.get(&chain_id) {
+        tracing::warn!(chain_id, "Telemetry handle already initialized for chain");
+        return handle.clone();
     }
 
     let handle = build_handle();
-    tracing::debug!("Telemetry handle initialized");
-    *global = Some(handle.clone());
+    tracing::debug!(chain_id, "Telemetry handle initialized");
+    map.insert(chain_id, handle.clone());
     handle
 }
 
-pub(crate) fn telemetry() -> TelemetryHandle {
-    GLOBAL.lock().unwrap().clone().unwrap_or_else(noop_handle)
+/// Returns the telemetry handle for the given chain, or a noop fallback if none was registered.
+pub(crate) fn telemetry(chain_id: u64) -> TelemetryHandle {
+    CHAIN_HANDLES.lock().unwrap().get(&chain_id).cloned().unwrap_or_else(noop_handle)
 }
 
 fn noop_handle() -> TelemetryHandle {
-    NOOP_HANDLE_WARNED.call_once(|| {
-        tracing::warn!(
-            "Telemetry handle used before initialization; falling back to internal drop handle"
-        );
-    });
-
     NOOP_HANDLE
         .get_or_init(|| {
             let (tx, rx) = mpsc::channel(1);
@@ -293,7 +285,7 @@ impl TelemetryHandle {
         committed: bool,
         meta: Option<&OrderCommitmentMeta>,
         monitor_wait_duration_ms: Option<u64>,
-        config: &OrderMonitorConfig,
+        config: &OrderCommitterConfig,
         pending_commitment_count: u32,
         skip_code: Option<&str>,
         skip_reason: Option<&str>,

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
 use alloy::primitives::{address, Address};
 use clap::Args;
@@ -94,6 +94,26 @@ pub struct Deployment {
     pub indexer_url: Option<Cow<'static, str>>,
 }
 
+impl fmt::Display for Deployment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "market={}", self.boundless_market_address)?;
+        write!(f, " set_verifier={}", self.set_verifier_address)?;
+        if let Some(addr) = self.verifier_router_address {
+            write!(f, " verifier_router={addr}")?;
+        }
+        if let Some(addr) = self.collateral_token_address {
+            write!(f, " collateral_token={addr}")?;
+        }
+        if let Some(chain_id) = self.market_chain_id {
+            write!(f, " chain_id={chain_id}")?;
+        }
+        if let Some(ref url) = self.order_stream_url {
+            write!(f, " order_stream={url}")?;
+        }
+        Ok(())
+    }
+}
+
 impl Deployment {
     /// Create a new [DeploymentBuilder].
     pub fn builder() -> DeploymentBuilder {
@@ -163,5 +183,5 @@ pub const BASE_SEPOLIA: Deployment = Deployment {
 /// Check if the collateral token supports permit.
 /// Some chain's bridged tokens do not support permit, for example Base.
 pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
-    chain_id == 1 || chain_id == 11155111 || chain_id == 31337
+    chain_id == 1 || chain_id == 11155111 || chain_id == 31337 || chain_id == 1337
 }

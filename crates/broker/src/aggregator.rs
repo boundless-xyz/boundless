@@ -762,7 +762,7 @@ impl AggregatorService {
             );
 
             for order_id_str in &batch.orders {
-                crate::telemetry::telemetry().record_aggregation_completed(
+                crate::telemetry::telemetry(self.chain_id).record_aggregation_completed(
                     order_id_str,
                     set_builder_proving_secs,
                     assessor_proving_secs,

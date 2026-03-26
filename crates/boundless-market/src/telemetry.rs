@@ -60,7 +60,7 @@ pub struct RequestHeartbeat {
     pub timestamp: DateTime<Utc>,
 }
 
-/// Outcome of order pricing in the OrderPicker.
+/// Outcome of order evaluation in the OrderPricer.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalOutcome {
     /// Order was locked for proving.
@@ -80,8 +80,8 @@ pub enum CommitmentOutcome {
     Dropped,
 }
 
-/// Produced by the TelemetryService by merging an OrderPricing event (from the OrderPicker)
-/// with an OrderCommitment event (from the OrderMonitor). For orders skipped during pricing,
+/// Produced by the TelemetryService by merging an OrderPricing event (from the OrderPricer)
+/// with an OrderCommitment event (from the OrderCommitter). For orders skipped during pricing,
 /// only the pricing fields are populated; commitment fields remain None.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RequestEvaluated {
