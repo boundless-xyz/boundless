@@ -2,7 +2,7 @@
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 # ── init: toolchain + cargo-chef ────────────────────────────────────
-FROM rust:1.85.0-bookworm AS init
+FROM rust:1.88-bookworm AS init
 
 RUN apt-get -qq update && apt-get install -y -q clang mold
 
@@ -69,7 +69,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     sccache --show-stats
 
 # ── runtime ─────────────────────────────────────────────────────────
-FROM rust:1.85.0-bookworm AS runtime
+FROM rust:1.88-bookworm AS runtime
 
 RUN mkdir /app/ && \
     apt -qq update && \
