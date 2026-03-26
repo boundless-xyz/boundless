@@ -186,13 +186,24 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "release_name=Bento Release $VERSION" >> $GITHUB_OUTPUT
+          # Detect RC version
+          if [[ "$VERSION" == *"-rc."* ]]; then
+            echo "is_rc=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_rc=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
+          PRERELEASE_FLAG=""
+          if [[ "${{ steps.get_version.outputs.is_rc }}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release create "$VERSION" \
+            $PRERELEASE_FLAG \
             --title "${{ steps.get_version.outputs.release_name }}" \
             --notes "## Bento Components Release
 
@@ -250,9 +261,13 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          # Extract minor version (e.g., bento-v1.2.1 -> bento-v1.2)
-          MINOR_VERSION=$(echo "$VERSION" | sed 's/\.[0-9]*$//')
-          echo "minor_version=$MINOR_VERSION" >> $GITHUB_OUTPUT
+          VERSION_UNPREFIXED=${VERSION#bento-}
+          echo "version_unprefixed=$VERSION_UNPREFIXED" >> $GITHUB_OUTPUT
+          # Only compute minor versions for non-RC tags
+          if [[ "$VERSION" != *"-rc."* ]]; then
+            echo "minor_version=$(echo "$VERSION" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
+            echo "minor_version_unprefixed=$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -272,7 +287,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.minor_version }}
+            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.version_unprefixed }}
+            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/bento-agent:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
+            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/bento-agent:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
             ghcr.io/${{ github.repository }}/bento-agent:latest
           build-args: |
             BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
@@ -287,7 +304,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.minor_version }}
+            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.version_unprefixed }}
+            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/bento-rest-api:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
+            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/bento-rest-api:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
             ghcr.io/${{ github.repository }}/bento-rest-api:latest
           build-args: |
             BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
