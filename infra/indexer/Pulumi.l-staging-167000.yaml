@@ -21,7 +21,7 @@ config:
   indexer:ORDER_STREAM_API_KEY:
     secure: v1:OzRIjPUPdxM7/KYF:Js6TcAAYu55c56heDupLPrm3+QbOy8pCwwnzV4zK
   indexer:ORDER_STREAM_URL:
-    secure: v1:hhS8f50o3Bixf3QB:RWjf8IUWvBgX1/FxFU4rgiRyU88x7zlE7G3HHevzRmyG5uijSqwsNvPe5w0iEJtPfeT1oyu0aGk6XuZsLPgCKScMdHyvIqnqdoUZ9GpDma8ehLbGwVyr5wdDX1Y=
+    secure: v1:QdJPtDQFMcUuvW0e:2m9RAvYOahMkCQczU40rm4uovBdYRe/WUNPUHM4uCDd2MqSGfU9Ysjfa5bWRGKJKtScsuTIjoYOY6FxVqrFx4Q6dB/tkBSwm0in7iqMLSg+U9V1QW6E743ZyIfSc
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:PREMIUM_API_KEY:
     secure: v1:aATx3vDUp/zAGuf/:mYFQBdfJHrkKUueWIHDmPNLQwWKL/w+5n8bxqw==
