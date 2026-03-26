@@ -108,8 +108,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-build-${{ runner.os }}-
+          key: forge-build-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-
 
       - name: forge build
         run: forge build
@@ -211,8 +211,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-build-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
-          restore-keys: forge-build-${{ runner.os }}-
+          key: forge-build-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-
 
       - name: forge build
         run: forge build
@@ -372,8 +372,8 @@ jobs:
           path: |
             out
             cache
-          key: forge-test-${{ runner.os }}-${{ hashFiles('contracts/src/**', 'contracts/test/**', 'foundry.toml') }}
-          restore-keys: forge-test-${{ runner.os }}-
+          key: forge-test-${{ hashFiles('contracts/src/**', 'contracts/test/**', 'foundry.toml') }}
+          restore-keys: forge-test-
 
       - name: forge test
         run: forge test -vvv
