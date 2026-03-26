@@ -56,7 +56,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
     --mount=type=cache,target=/src/bento/target,id=bento_cli_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo chef cook --release --recipe-path recipe.json --manifest-path bento/Cargo.toml --package bento-client && \
+    cargo chef cook --release --recipe-path recipe.json --package bento-client && \
     sccache --show-stats
 
 COPY . .
