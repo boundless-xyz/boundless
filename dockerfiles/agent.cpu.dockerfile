@@ -40,6 +40,12 @@ COPY bento/ ./bento/
 WORKDIR /src/bento
 RUN cargo chef prepare --recipe-path /src/recipe.json
 
+WORKDIR /src
+RUN mkdir /manifests && \
+    find . \( -name "Cargo.toml" -o -name "Cargo.lock" -o -name "rust-toolchain.toml" \) \
+        -not -path "*/target/*" | \
+    while read f; do mkdir -p "/manifests/$(dirname "$f")" && cp "$f" "/manifests/$f"; done
+
 # ── builder: cook deps (cached), then compile source ────────────────
 FROM init AS builder
 
@@ -49,6 +55,7 @@ ENV SCCACHE_SERVER_PORT=4228
 WORKDIR /src/
 SHELL ["/bin/bash", "-c"]
 
+COPY --from=planner /manifests/ /src/
 COPY --from=planner /src/recipe.json /src/recipe.json
 
 COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
@@ -64,7 +71,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
     export CARGO_TARGET_DIR=/src/bento/target-agent-cpu && \
-    mkdir -p /src/bento && cd /src/bento && \
+    cd /src/bento && \
     cargo chef cook --release --recipe-path /src/recipe.json \
         --package workflow && \
     sccache --show-stats
