@@ -190,9 +190,9 @@ where
                                 .mul_f64(self.retry_policy.backoff_multiplier)
                                 .min(self.retry_policy.max_delay);
                         }
-                        SupervisorErr::Fault(_err) => {
+                        SupervisorErr::Fault(err) => {
                             tracing::error!("{}", supervisor_err);
-                            anyhow::bail!("Hard failure in supervisor task");
+                            anyhow::bail!("Hard failure in supervisor task: {err}");
                         }
                     },
                 },
