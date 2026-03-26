@@ -223,12 +223,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
-          # Reuse a persistent builder on self-hosted runners so BuildKit's internal
-          # cache and cache mounts (cargo registry, target dir, sccache) survive across runs.
-          name: buildx-${{ matrix.service.name }}
-          cleanup: false
 
       - name: Docker metadata
         id: meta
