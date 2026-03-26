@@ -77,7 +77,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/src/bento/target-agent-gpu,id=agent_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     export CARGO_TARGET_DIR=/src/bento/target-agent-gpu && \
-    cd /src/bento && cargo chef cook --release --recipe-path recipe.json --package workflow && \
+    cd /src/bento && cargo chef cook --release --recipe-path recipe.json --package workflow --features cuda && \
     sccache --show-stats
 
 COPY . .
