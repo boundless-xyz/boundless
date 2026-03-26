@@ -42,7 +42,7 @@ FROM rust-builder AS planner
 
 WORKDIR /src/bento
 COPY bento/ .
-RUN cargo chef prepare --recipe-path /src/recipe.json
+RUN cargo chef prepare --recipe-path /src/bento/recipe.json
 
 FROM rust-builder AS builder
 
@@ -61,7 +61,7 @@ ENV SCCACHE_SERVER_PORT=4227
 
 WORKDIR /src/
 
-COPY --from=planner /src/recipe.json /src/recipe.json
+COPY --from=planner /src/bento/recipe.json /src/bento/recipe.json
 COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
 
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
@@ -77,7 +77,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/src/bento/target-agent-gpu,id=agent_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     export CARGO_TARGET_DIR=/src/bento/target-agent-gpu && \
-    cargo chef cook --release --recipe-path recipe.json --package workflow && \
+    cd /src/bento && cargo chef cook --release --recipe-path recipe.json --package workflow && \
     sccache --show-stats
 
 COPY . .
