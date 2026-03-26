@@ -76,7 +76,6 @@ jobs:
             }
 
   test-notify:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: slackapi/slack-github-action@v2.1.0
