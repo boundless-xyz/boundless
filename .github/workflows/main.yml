@@ -35,7 +35,6 @@ jobs:
     needs:
       - rust-lint
       - rust-test
-      - rust-doctest
       - link-check
       - fmt
       - foundry
@@ -57,7 +56,7 @@ jobs:
     runs-on: [self-hosted, prod, Linux, cpu]
     timeout-minutes: 20
     needs: [files-changed]
-    if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
+    if: needs.files-changed.outputs.main == 'true'
     steps:
       - name: Remove stale submodules
         run: rm -rf lib/
@@ -125,6 +124,13 @@ jobs:
           RISC0_SKIP_BUILD: 1
           RISC0_SKIP_BUILD_KERNELS: 1
         run: cargo doc --locked --no-deps
+
+      - name: cargo test (doctests)
+        run: cargo test --locked --doc --features test-r0vm,test-rpc
+        env:
+          RISC0_DEV_MODE: true
+          RISC0_SKIP_BUILD: 1
+          RISC0_SKIP_BUILD_KERNELS: 1
 
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
@@ -646,7 +652,6 @@ jobs:
     outputs:
       docker: ${{ steps.changes.outputs.docker }}
       main: ${{ steps.changes.outputs.main }}
-      docs: ${{ steps.changes.outputs.docs }}
       infra: ${{ steps.changes.outputs.infra }}
       scaler: ${{ steps.changes.outputs.scaler }}
       requestor_lists: ${{ steps.changes.outputs.requestor_lists }}
@@ -683,14 +688,6 @@ jobs:
               - 'contracts/**'
               - 'blake3_groth16/**'
               - 'lib/**'
-              - '.github/workflows/main.yml'
-            docs:
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - 'crates/**'
-              - 'contracts/**'
-              - 'documentation/**'
               - '.github/workflows/main.yml'
             # Changes to infrastructure code
             infra:
