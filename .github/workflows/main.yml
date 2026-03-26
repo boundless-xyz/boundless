@@ -38,7 +38,6 @@ jobs:
       - link-check
       - fmt
       - foundry
-      - docker
       - infra
       - scaler-tests
       - validate-requestor-lists
@@ -379,67 +378,6 @@ jobs:
         run: forge test -vvv
         working-directory: contracts
 
-  docker:
-    runs-on: [self-hosted, prod, Linux, cpu]
-    timeout-minutes: 30
-    needs: files-changed
-    if: needs.files-changed.outputs.docker == 'true'
-    steps:
-      - name: Remove stale submodules
-        run: rm -rf lib/
-
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Get submodule cache key
-        id: submodule-key
-        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        id: submodule-cache
-        uses: actions/cache@v4
-        with:
-          path: lib/
-          key: submodules-${{ steps.submodule-key.outputs.hash }}
-
-      - name: checkout submodules
-        if: steps.submodule-cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth=1 --jobs=8
-
-      - name: Login to Docker Hub
-        if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_CI_USER }}
-          password: ${{ secrets.DOCKERHUB_CI_PAT }}
-
-      - name: docker-compose lint
-        run: docker compose --profile broker --env-file ./.env.broker-template config
-
-      - name: Fetch CI AWS Creds
-        id: aws-creds
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: "us-west-2"
-          role-duration-seconds: 14400
-          role-to-assume: "arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access"
-          output-credentials: true
-
-      - name: create ci creds file
-        run: |
-          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
-          echo "aws_access_key_id=${{ steps.aws-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt && \
-          echo "aws_secret_access_key=${{ steps.aws-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt && \
-          echo "aws_session_token=${{ steps.aws-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
-
-      - name: Setup docker builder
-        run: docker buildx create --driver docker-container --use
-
-      - name: docker compose build
-        run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
-
   infra:
     runs-on: [self-hosted, prod, Linux, cpu]
     timeout-minutes: 5
@@ -526,7 +464,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      docker: ${{ steps.changes.outputs.docker }}
       main: ${{ steps.changes.outputs.main }}
       infra: ${{ steps.changes.outputs.infra }}
       scaler: ${{ steps.changes.outputs.scaler }}
@@ -539,19 +476,6 @@ jobs:
         id: changes
         with:
           filters: |
-            # Changes to Docker files. Only triggers for files used by the broker build.
-            docker:
-              - 'dockerfiles/**'
-              - '!dockerfiles/market-indexer.dockerfile'
-              - '!dockerfiles/market-indexer-backfill.dockerfile'
-              - '!dockerfiles/market-efficiency-indexer.dockerfile'
-              - '!dockerfiles/rewards-indexer.dockerfile'
-              - '!dockerfiles/order_stream.dockerfile'
-              - '!dockerfiles/order_generator.dockerfile'
-              - '!dockerfiles/slasher.dockerfile'
-              - '!dockerfiles/distributor.dockerfile'
-              - 'compose.yml'
-              - '.env.broker-template'
             # Changes affect the main codebase (rust + contracts).
             main:
               - 'Cargo.toml'
