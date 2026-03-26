@@ -108,26 +108,32 @@ jobs:
             dockerfile: dockerfiles/slasher.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
+            build_contexts: planner=/tmp/planner-ctx
           - name: order-stream
             dockerfile: dockerfiles/order_stream.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
+            build_contexts: planner=/tmp/planner-ctx
           - name: indexer
             dockerfile: dockerfiles/indexer.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
+            build_contexts: planner=/tmp/planner-ctx
           - name: distributor
             dockerfile: dockerfiles/distributor.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
+            build_contexts: planner=/tmp/planner-ctx
           - name: order-generator
             dockerfile: dockerfiles/order_generator.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
+            build_contexts: planner=/tmp/planner-ctx
           - name: broker
             dockerfile: dockerfiles/broker.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
+            build_contexts: planner=/tmp/planner-ctx
           - name: rest-api
             dockerfile: dockerfiles/rest_api.dockerfile
             submodules: false
@@ -208,8 +214,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-contexts: |
-            planner=/tmp/planner-ctx
+          build-contexts: ${{ matrix.service.build_contexts || '' }}
           build-args: |
             BUILDER_BASE=${{ env.IMAGE_PREFIX }}/builder-base:latest
             S3_CACHE_BUCKET=boundless-ci-prod-cache
