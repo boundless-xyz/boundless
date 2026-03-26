@@ -19,7 +19,7 @@ use crate::{
     now_timestamp, Args, Broker,
 };
 use alloy::{
-    network::AnyNetwork,
+    network::{AnyNetwork, EthereumWallet},
     node_bindings::Anvil,
     primitives::{
         aliases::U96,
@@ -33,8 +33,8 @@ use boundless_market::price_oracle::config::PriceValue;
 use boundless_market::price_oracle::Amount;
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
-        RequestId, RequestInput, Requirements,
+        bytecode::VersionRegistry, hit_points::default_allowance, Callback, FulfillmentData, Offer,
+        Predicate, ProofRequest, RequestId, RequestInput, Requirements,
     },
     dynamic_gas_filler::PriorityMode,
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType},
@@ -155,6 +155,7 @@ pub(super) fn broker_args(
     deployment: Deployment,
     rpc_url: Url,
     private_key: PrivateKeySigner,
+    version_registry_address: Option<Address>,
 ) -> Args {
     let (bonsai_api_url, bonsai_api_key) = match is_dev_mode() {
         true => (None, None),
@@ -185,6 +186,8 @@ pub(super) fn broker_args(
         log_json: false,
         listen_only: false,
         experimental_rpc: false,
+        version_registry_address,
+        force_version_check: false,
     }
 }
 
@@ -229,6 +232,7 @@ async fn simple_e2e() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -298,6 +302,7 @@ async fn simple_e2e_experimental_rpc() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     args.experimental_rpc = true;
     let any_provider = make_any_provider(&args);
@@ -381,6 +386,7 @@ async fn simple_e2e_with_callback() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -471,6 +477,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -550,6 +557,7 @@ async fn e2e_with_selector() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -623,6 +631,7 @@ async fn e2e_with_blake3_groth16_selector() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -699,6 +708,7 @@ async fn e2e_with_multiple_requests() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -798,6 +808,7 @@ async fn e2e_with_claim_digest_match() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -877,6 +888,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
     let any_provider = make_any_provider(&args);
     let broker = Broker::new(
@@ -981,4 +993,53 @@ async fn gas_estimation_matches_actual_tx_cost() {
         );
     })
     .await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn version_check_below_minimum_shuts_down_broker() {
+    let anvil = Anvil::new().spawn();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // keys()[0] is the deployer and therefore the owner of the VersionRegistry
+    let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+    let deployer_provider = ProviderBuilder::new()
+        .wallet(EthereumWallet::from(deployer_signer))
+        .connect_http(anvil.endpoint_url());
+
+    // Set minimum version to 99.0.0 — higher than any real broker version
+    let registry = VersionRegistry::new(ctx.version_registry_address, &deployer_provider);
+    registry
+        .setMinimumBrokerVersionSemver(99u16, 0u16, 0u16)
+        .send()
+        .await
+        .unwrap()
+        .watch()
+        .await
+        .unwrap();
+
+    let config = new_config(1).await;
+    let args = broker_args(
+        config.path().to_path_buf(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer,
+        Some(ctx.version_registry_address),
+    );
+    let any_provider = make_any_provider(&args);
+    let broker = Broker::new(
+        args,
+        ctx.prover_provider,
+        any_provider,
+        ConfigWatcher::new(config.path()).await.unwrap(),
+        Arc::new(RwLock::new(PriorityMode::default())),
+        Arc::new(RwLock::new(PriorityMode::default())),
+    )
+    .await
+    .unwrap();
+
+    let result =
+        tokio::time::timeout(Duration::from_secs(30), broker.start_service()).await.unwrap();
+    let err = result.expect_err("broker should exit with error when version check fails");
+    assert!(format!("{err:?}").contains("Version check task failed"), "unexpected error: {err:?}");
 }

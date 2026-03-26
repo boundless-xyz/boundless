@@ -15,7 +15,8 @@
 use std::{env, fs, path::Path, process::Command};
 
 // Contracts to copy to the artificats folder for. If the contract is a directory, all .sol files in the directory.
-const CONTRACTS_TO_COPY: [&str; 3] = ["IBoundlessMarket.sol", "IHitPoints.sol", "types"];
+const CONTRACTS_TO_COPY: [&str; 4] =
+    ["IBoundlessMarket.sol", "IHitPoints.sol", "IVersionRegistry.sol", "types"];
 
 // Contracts to exclude from generating types for automatically.
 const EXCLUDE_CONTRACTS: [&str; 2] = [
@@ -25,7 +26,7 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 9] = [
+const ARTIFACT_TARGET_CONTRACTS: [&str; 10] = [
     "BoundlessMarket",
     "HitPoints",
     "RiscZeroMockVerifier",
@@ -35,6 +36,7 @@ const ARTIFACT_TARGET_CONTRACTS: [&str; 9] = [
     "RiscZeroGroth16Verifier",
     "Blake3Groth16Verifier",
     "MockCallback",
+    "VersionRegistry",
 ];
 
 // Output filename for the generated types. The file is placed in the build directory.
@@ -273,6 +275,13 @@ fn get_interfaces(contract: &str) -> &str {
         "MockCallback" => {
             r#"constructor(address verifier, address boundlessMarket, bytes32 imageId, uint256 _targetGas) {}
             function getCallCount() external view returns (uint256) {}"#
+        }
+        "VersionRegistry" => {
+            r#"constructor() {}
+            function initialize(address _owner) {}
+            function setMinimumBrokerVersionSemver(uint16 major, uint16 minor, uint16 patch) {}
+            function setNotice(string calldata _notice) {}
+            function getVersionInfo() external view returns (uint64 minimumVersion, string memory _notice) {}"#
         }
         _ => "",
     }

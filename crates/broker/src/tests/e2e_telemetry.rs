@@ -66,6 +66,7 @@ async fn e2e_telemetry_events() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
 
     let any_provider = make_any_provider(&args);
