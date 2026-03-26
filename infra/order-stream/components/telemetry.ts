@@ -5,6 +5,7 @@ import { ChainId } from '../../util';
 export interface TelemetryInfraArgs {
   serviceName: string;
   chainId: string;
+  stage: string;
   vpcId: pulumi.Output<string>;
   pubSubNetIds: pulumi.Output<string[]>;
   redshiftAdminPassword: pulumi.Output<string>;
@@ -31,13 +32,23 @@ export class TelemetryInfra extends pulumi.ComponentResource {
   ) {
     super('boundless:telemetry:TelemetryInfra', name, opts);
 
-    const { serviceName, chainId, vpcId, pubSubNetIds, redshiftAdminPassword } = args;
+    const { serviceName, chainId, stage, vpcId, pubSubNetIds, redshiftAdminPassword } = args;
     const retentionHours = 72;
 
-    const versionByChain: Partial<Record<ChainId, string>> = {
-      [ChainId.TAIKO]: 'v5',
+    // Version is used for recreating from scratch the Redshift Serverless namespace/workgroup.
+    // Typically should not need to be changed, unless you want to wipe the Redshift Serverless 
+    // namespace/workgroup and start over.
+    const versionByStageAndChain: Record<string, Partial<Record<ChainId, string>>> = {
+      staging: {
+        [ChainId.TAIKO]: 'v5',
+      },
+      prod: {
+        [ChainId.BASE_SEPOLIA]: 'v4',
+        [ChainId.ETH_SEPOLIA]: 'v4',
+        [ChainId.TAIKO]: 'v5',
+      },
     };
-    const version = versionByChain[chainId as ChainId] ?? 'v3';
+    const version = versionByStageAndChain[stage]?.[chainId as ChainId] ?? 'v3';
 
     // Kinesis Data Streams
 
