@@ -3,7 +3,8 @@ ARG CUDA_IMG=nvidia/cuda:13.0.2-devel-ubuntu24.04
 ARG CUDA_RUNTIME_IMG=nvidia/cuda:13.0.2-runtime-ubuntu24.04
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
-FROM ${CUDA_IMG} AS rust-builder
+# ── init: toolchain, risc0, cargo-chef ──────────────────────────────
+FROM ${CUDA_IMG} AS init
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ="America/Los_Angeles"
@@ -16,7 +17,6 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-# Install rust and target version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
     && rustup install 1.88
@@ -26,17 +26,44 @@ RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/d
     && unzip protoc.zip -d /usr/local \
     && rm protoc.zip
 
-# Install RISC0 and groth16 component early for better caching
 ENV RISC0_HOME=/usr/local/risc0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install RISC0 and groth16 component - this layer will be cached unless RISC0_HOME changes
 RUN curl -L https://risczero.com/install | bash && \
     /root/.risc0/bin/rzup install risc0-groth16 && \
-    # Clean up any temporary files to reduce image size
     rm -rf /tmp/* /var/tmp/*
 
-FROM rust-builder AS builder
+RUN cargo install cargo-chef
+
+# ── planner: generate dependency recipe ─────────────────────────────
+FROM init AS planner
+
+WORKDIR /src/
+
+# Both workspaces are needed: bento/ has a path dep on blake3_groth16/
+# which resolves workspace deps from the root Cargo.toml.
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates/ ./crates/
+COPY blake3_groth16/ ./blake3_groth16/
+COPY bento/ ./bento/
+
+WORKDIR /src/bento
+RUN cargo chef prepare --recipe-path /src/recipe.json
+
+# Extract Cargo.toml / Cargo.lock / rust-toolchain.toml into /manifests, plus
+# create stub src/lib.rs for each crate. cargo chef cook only generates stubs
+# for bento workspace members; external path deps (blake3_groth16,
+# boundless-market, etc.) need these so cargo can parse their manifests.
+WORKDIR /src
+RUN mkdir /manifests && \
+    find . \( -name "Cargo.toml" -o -name "Cargo.lock" -o -name "rust-toolchain.toml" \) \
+        -not -path "*/target/*" | \
+    while read f; do mkdir -p "/manifests/$(dirname "$f")" && cp "$f" "/manifests/$f"; done && \
+    find /manifests -name "Cargo.toml" -path "*/crates/*" -o -name "Cargo.toml" -path "*/blake3*" | \
+    while read f; do dir=$(dirname "$f") && mkdir -p "$dir/src" && touch "$dir/src/lib.rs"; done
+
+# ── builder: cook deps (cached), then compile source ────────────────
+FROM init AS builder
 
 ARG NVCC_APPEND_FLAGS="\
   --generate-code arch=compute_75,code=sm_75 \
@@ -49,17 +76,36 @@ ARG S3_CACHE_BUCKET="boundless-sccache"
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
 ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
-ENV SCCACHE_SERVER_PORT=4227
+ENV SCCACHE_SERVER_PORT=4229
 
 WORKDIR /src/
-COPY . .
-
-RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
-# Consider using if building and running on the same CPU
+# Provide workspace manifests so cook can resolve cross-workspace path deps.
+COPY --from=planner /manifests/ /src/
+COPY --from=planner /src/recipe.json /src/recipe.json
+
+COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
+RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
+
 ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
+
+# Cook dependencies — this layer is cached until Cargo.toml/Cargo.lock change.
+# CUDA kernel compilation (the slowest part) happens here and gets cached.
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    (ulimit -n 65536 2>/dev/null || true) && \
+    export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
+    export CARGO_TARGET_DIR=/src/bento/target-agent-gpu && \
+    cd /src/bento && \
+    cargo chef cook --release --recipe-path /src/recipe.json \
+        --package workflow --features cuda && \
+    sccache --show-stats
+
+# Copy full source and build only the changed application code.
+COPY . .
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
@@ -73,15 +119,14 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cp ${CARGO_TARGET_DIR}/release/agent /src/agent && \
     sccache --show-stats
 
+# ── runtime ─────────────────────────────────────────────────────────
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y \
     && apt-get install -q -y ca-certificates libssl3 curl tar xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract BLAKE3 Groth16 artifacts.
 ARG BLAKE3_GROTH16_ARTIFACTS_URL
-# If USE_LOCAL_BLAKE3_GROTH16_SETUP is set to 1 or yes or true, skip downloading and expect user to mount setup files
 ARG USE_LOCAL_BLAKE3_GROTH16_SETUP
 ENV BLAKE3_GROTH16_SETUP_DIR=/.blake3_groth16_artifacts/
 
@@ -97,9 +142,7 @@ RUN if [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "1" ] || [ "$USE_LOCAL_BLAKE3_GROTH
       rm -rf /tmp/* ; \
     fi
 
-# Main prover
 COPY --from=builder /src/agent /app/agent
 COPY --from=builder /usr/local/risc0 /usr/local/risc0
-
 
 ENTRYPOINT ["/app/agent"]
