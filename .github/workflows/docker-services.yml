@@ -88,18 +88,14 @@ jobs:
         if: steps.cache-chef.outputs.cache-hit != 'true'
         run: cargo install cargo-chef --locked
 
-      - name: Generate recipes
-        run: |
-          cargo chef prepare --recipe-path recipe.json
-          cd bento && cargo chef prepare --recipe-path ../bento-recipe.json
+      - name: Generate recipe
+        run: cargo chef prepare --recipe-path recipe.json
 
-      - name: Upload recipes
+      - name: Upload recipe
         uses: actions/upload-artifact@v4
         with:
-          name: recipes
-          path: |
-            recipe.json
-            bento-recipe.json
+          name: recipe
+          path: recipe.json
           retention-days: 1
 
   build-and-push:
@@ -112,56 +108,38 @@ jobs:
             dockerfile: dockerfiles/slasher.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: recipe.json
-            recipe_dest: src/recipe.json
           - name: order-stream
             dockerfile: dockerfiles/order_stream.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: recipe.json
-            recipe_dest: src/recipe.json
           - name: indexer
             dockerfile: dockerfiles/indexer.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: recipe.json
-            recipe_dest: src/recipe.json
           - name: distributor
             dockerfile: dockerfiles/distributor.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: recipe.json
-            recipe_dest: src/recipe.json
           - name: order-generator
             dockerfile: dockerfiles/order_generator.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: recipe.json
-            recipe_dest: src/recipe.json
           - name: broker
             dockerfile: dockerfiles/broker.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: recipe.json
-            recipe_dest: src/recipe.json
           - name: rest-api
             dockerfile: dockerfiles/rest_api.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: bento-recipe.json
-            recipe_dest: src/bento/recipe.json
           - name: bento-cli
             dockerfile: dockerfiles/bento_cli.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            recipe: bento-recipe.json
-            recipe_dest: src/bento/recipe.json
           - name: agent
             dockerfile: dockerfiles/agent.dockerfile
             submodules: false
             runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
-            recipe: bento-recipe.json
-            recipe_dest: src/bento/recipe.json
     runs-on: ${{ matrix.service.runner }}
     steps:
       - name: Checkout code
@@ -190,16 +168,14 @@ jobs:
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
 
-      - name: Download recipes
+      - name: Download recipe
         uses: actions/download-artifact@v4
         with:
-          name: recipes
+          name: recipe
           path: ./recipe-out
 
       - name: Prepare planner override
-        run: |
-          mkdir -p /tmp/planner-ctx/$(dirname ${{ matrix.service.recipe_dest }})
-          cp ./recipe-out/${{ matrix.service.recipe }} /tmp/planner-ctx/${{ matrix.service.recipe_dest }}
+        run: mkdir -p /tmp/planner-ctx/src && cp ./recipe-out/recipe.json /tmp/planner-ctx/src/recipe.json
 
       - name: Fetch sccache AWS creds
         id: sccache-creds
