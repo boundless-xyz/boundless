@@ -1,31 +1,10 @@
 # syntax=docker/dockerfile:1
-ARG RUST_IMG=rust:1.88-bookworm
+ARG BUILDER_BASE=ghcr.io/boundless-xyz/boundless/builder-base:latest
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
-FROM ${RUST_IMG} AS rust-builder
+FROM ${BUILDER_BASE} AS init
 
-ARG DEBIAN_FRONTEND=noninteractive
-ENV TZ="America/Los_Angeles"
-
-RUN apt-get -qq update && apt-get install -y -q \
-    openssl libssl-dev pkg-config curl clang git \
-    build-essential openssh-client unzip mold
-
-ENV RUSTUP_HOME=/usr/local/rustup \
-    CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
-
-# # Install RISC0 and groth16 component early for better caching
-ENV RISC0_HOME=/usr/local/risc0
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# # Install RISC0 and groth16 component - this layer will be cached unless RISC0_HOME changes
-RUN curl -L https://risczero.com/install | bash && \
-    /root/.risc0/bin/rzup install && \
-    # Clean up any temporary files to reduce image size
-    rm -rf /tmp/* /var/tmp/*
-
-FROM rust-builder AS builder
+FROM init AS builder
 
 ARG S3_CACHE_PREFIX
 ARG S3_CACHE_BUCKET="boundless-sccache"
@@ -38,7 +17,6 @@ COPY . .
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
-# Consider using if building and running on the same CPU
 ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
