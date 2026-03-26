@@ -3,6 +3,8 @@ name: Post-merge checks
 on:
   push:
     branches: [main]
+  pull_request: # TODO: this is only for testing on the PR branch; we should remove this trigger before merging
+    branches: [main]
   workflow_dispatch:
 
 permissions:
