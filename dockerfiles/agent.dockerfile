@@ -29,13 +29,11 @@ RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/d
     && unzip protoc.zip -d /usr/local \
     && rm protoc.zip
 
-# Install RISC0 and groth16 component early for better caching
-ENV RISC0_HOME=/usr/local/risc0
+# Install RISC0 toolchain (groth16 proving artifacts come from proving-artifacts image at runtime)
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install RISC0 and groth16 component - this layer will be cached unless RISC0_HOME changes
 RUN curl -L https://risczero.com/install | bash && \
-    /root/.risc0/bin/rzup install risc0-groth16 && \
+    /root/.risc0/bin/rzup install && \
     rm -rf /tmp/* /var/tmp/*
 
 FROM rust-builder AS planner
@@ -83,8 +81,8 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
         --package workflow --features cuda && \
     sccache --show-stats
 
-# Copy full source and build only the changed application code.
-COPY . .
+# Copy only bento source — blake3_groth16 is a git dep, not a path dep.
+COPY bento/ ./bento/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \

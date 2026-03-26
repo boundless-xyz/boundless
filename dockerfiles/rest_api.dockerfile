@@ -36,8 +36,8 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cargo chef cook --release --recipe-path recipe.json --package api && \
     sccache --show-stats
 
-# Copy full source and build only the changed application code.
-COPY . .
+# Copy only bento source — blake3_groth16 is a git dep, not a path dep.
+COPY bento/ ./bento/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_api_sccache \
