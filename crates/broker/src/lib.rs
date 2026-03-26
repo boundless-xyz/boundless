@@ -95,6 +95,7 @@ pub(crate) mod submitter;
 pub(crate) mod task;
 pub(crate) mod telemetry;
 pub mod utils;
+pub mod version_check;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -597,6 +598,7 @@ pub struct Broker {
     args: CoreArgs,
     config_watcher: ConfigWatcher,
     downloader: ConfigurableDownloader,
+    chain_id: u64,
 }
 
 impl Broker {
@@ -1184,7 +1186,7 @@ impl Broker {
             .await
             .context("Failed to get stake token decimals. Possible RPC error.")?;
 
-        let named_chain = NamedChain::try_from(chain_id)?;
+        let named_chain = NamedChain::try_from(self.chain_id)?;
         let price_oracle = Arc::new(
             config
                 .lock_all()
@@ -1632,6 +1634,8 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
+                version_registry_address: Some(ctx.version_registry_address),
+                force_version_check: false,
             };
             Self { args, config_file, db_dir, rpc_url }
         }

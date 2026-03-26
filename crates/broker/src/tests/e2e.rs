@@ -33,8 +33,8 @@ use alloy::{
 use boundless_market::price_oracle::config::PriceValue;
 use boundless_market::{
     contracts::{
-        hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
-        RequestId, RequestInput, Requirements,
+        bytecode::VersionRegistry, hit_points::default_allowance, Callback, FulfillmentData, Offer,
+        Predicate, ProofRequest, RequestId, RequestInput, Requirements,
     },
     dynamic_gas_filler::PriorityMode,
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType},
@@ -208,6 +208,8 @@ pub(super) fn broker_args(
         log_json: false,
         listen_only: false,
         experimental_rpc: false,
+        version_registry_address,
+        force_version_check: false,
     }
 }
 

@@ -222,7 +222,8 @@ pub trait ProversDb: IndexerDb {
              WHERE lock_prover_address = $1
              AND locked_at IS NOT NULL
              AND locked_at >= $2 AND locked_at < $3
-             AND lock_price IS NOT NULL",
+             AND lock_price IS NOT NULL
+             AND slashed_at IS NULL",
         )
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
@@ -3092,5 +3093,129 @@ mod tests {
         let stats = db.get_market_collateral_stats(U256::from(200)).await.unwrap();
         assert_eq!(stats.eligible_prover_count, 0);
         assert_eq!(stats.active_eligible_prover_count, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_fees_earned_excludes_slashed_orders(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover = Address::from([0xAA; 20]);
+        let client_addr = Address::from([0x11; 20]);
+        let base_ts = 1700000000u64;
+        let period_start = base_ts;
+        let period_end = base_ts + 100_000;
+
+        // Helper to build a RequestStatus with defaults
+        let make_status =
+            |i: u8, lock_price: &str, slashed_at: Option<u64>, slashed_status: SlashedStatus| {
+                RequestStatus {
+                    request_digest: B256::from([i; 32]),
+                    request_id: U256::from(i),
+                    request_status: if slashed_at.is_some() {
+                        RequestStatusType::Locked
+                    } else {
+                        RequestStatusType::Fulfilled
+                    },
+                    slashed_status,
+                    source: "onchain".to_string(),
+                    client_address: client_addr,
+                    lock_prover_address: Some(prover),
+                    fulfill_prover_address: if slashed_at.is_none() { Some(prover) } else { None },
+                    created_at: base_ts + (i as u64 * 100),
+                    updated_at: base_ts + (i as u64 * 100) + 50,
+                    locked_at: Some(base_ts + (i as u64 * 100)),
+                    fulfilled_at: if slashed_at.is_none() {
+                        Some(base_ts + (i as u64 * 100) + 50)
+                    } else {
+                        None
+                    },
+                    slashed_at,
+                    lock_prover_delivered_proof_at: None,
+                    submit_block: Some(100),
+                    lock_block: Some(101),
+                    fulfill_block: if slashed_at.is_none() { Some(102) } else { None },
+                    slashed_block: if slashed_at.is_some() { Some(103) } else { None },
+                    min_price: "1000".to_string(),
+                    max_price: "2000".to_string(),
+                    lock_collateral: "1000".to_string(),
+                    ramp_up_start: base_ts,
+                    ramp_up_period: 10,
+                    expires_at: base_ts + 10000,
+                    lock_end: base_ts + 10000,
+                    slash_recipient: if slashed_at.is_some() { Some(client_addr) } else { None },
+                    slash_transferred_amount: if slashed_at.is_some() {
+                        Some("500".to_string())
+                    } else {
+                        None
+                    },
+                    slash_burned_amount: if slashed_at.is_some() {
+                        Some("500".to_string())
+                    } else {
+                        None
+                    },
+                    program_cycles: Some(U256::from(1000000)),
+                    total_cycles: Some(U256::from(1015800)),
+                    peak_prove_mhz: Some(1000.0),
+                    effective_prove_mhz: Some(950.0),
+                    prover_effective_prove_mhz: Some(950.0),
+                    cycle_status: Some("COMPLETED".to_string()),
+                    lock_price: Some(lock_price.to_string()),
+                    lock_price_per_cycle: Some("100".to_string()),
+                    fixed_cost: None,
+                    variable_cost_per_cycle: None,
+                    lock_base_fee: None,
+                    fulfill_base_fee: None,
+                    submit_tx_hash: Some(B256::ZERO),
+                    lock_tx_hash: Some(B256::from([0x01; 32])),
+                    fulfill_tx_hash: if slashed_at.is_none() {
+                        Some(B256::from([0x02; 32]))
+                    } else {
+                        None
+                    },
+                    slash_tx_hash: if slashed_at.is_some() {
+                        Some(B256::from([0x03; 32]))
+                    } else {
+                        None
+                    },
+                    image_id: "test".to_string(),
+                    image_url: None,
+                    selector: "test".to_string(),
+                    predicate_type: "digest_match".to_string(),
+                    predicate_data: "0x00".to_string(),
+                    input_type: "inline".to_string(),
+                    input_data: "0x00".to_string(),
+                    fulfill_journal: None,
+                    fulfill_seal: None,
+                }
+            };
+
+        // Insert 3 fulfilled orders with lock_price = 1000 each
+        for i in 0..3u8 {
+            let status = make_status(i, "1000", None, SlashedStatus::NotApplicable);
+            db.upsert_request_statuses(&[status]).await.unwrap();
+        }
+
+        // Insert 2 slashed orders with lock_price = 500 each
+        for i in 3..5u8 {
+            let status = make_status(
+                i,
+                "500",
+                Some(base_ts + (i as u64 * 100) + 70),
+                SlashedStatus::Slashed,
+            );
+            db.upsert_request_statuses(&[status]).await.unwrap();
+        }
+
+        // fees_earned should only count the 3 fulfilled orders: 3 * 1000 = 3000
+        // The 2 slashed orders (2 * 500 = 1000) should be excluded
+        let fees =
+            db.get_period_prover_total_fees_earned(period_start, period_end, prover).await.unwrap();
+        assert_eq!(
+            fees,
+            U256::from(3000),
+            "fees_earned should exclude slashed orders; expected 3000, got {}",
+            fees
+        );
     }
 }

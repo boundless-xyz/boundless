@@ -1,0 +1,116 @@
+#################################################################################
+#                                 PRODUCTION                                    #
+#################################################################################
+
+[deployment.ethereum-mainnet]
+name = "Ethereum Mainnet"
+id = 1
+
+# Accounts
+admin = "0x0000000000000000000000000000000000000000"
+
+# Contracts
+version-registry = "0x0000000000000000000000000000000000000000"
+version-registry-impl = "0x0000000000000000000000000000000000000000"
+
+# Version policy
+minimum-broker-version = "0.0.0"
+notice = ""
+
+[deployment.base-mainnet]
+name = "Base Mainnet"
+id = 8453
+
+# Accounts
+admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
+
+# Contracts
+version-registry = "0x5dd2a5fa8c60f9d547a41ad800ff9d122bd5a87f"
+version-registry-impl = "0xcb2cd938153ccc97c2534990dba020809fb2b899"
+
+# Version policy
+minimum-broker-version = "0.0.0"
+notice = ""
+
+[deployment.ethereum-sepolia]
+name = "Ethereum Sepolia [prod]"
+id = 11155111
+
+# Accounts
+admin = "0x0000000000000000000000000000000000000000"
+
+# Contracts
+version-registry = "0x0000000000000000000000000000000000000000"
+version-registry-impl = "0x0000000000000000000000000000000000000000"
+
+# Version policy
+minimum-broker-version = "0.0.0"
+notice = ""
+
+[deployment.base-sepolia]
+name = "Base Sepolia [prod]"
+id = 84532
+
+# Accounts
+admin = "0x0000000000000000000000000000000000000000"
+
+# Contracts
+version-registry = "0x0000000000000000000000000000000000000000"
+version-registry-impl = "0x0000000000000000000000000000000000000000"
+
+# Version policy
+minimum-broker-version = "0.0.0"
+notice = ""
+
+#################################################################################
+#                                  STAGING                                      #
+#################################################################################
+
+[deployment.ethereum-sepolia-staging]
+name = "Ethereum Sepolia [staging]"
+id = 11155111
+
+# Accounts
+admin = "0x0000000000000000000000000000000000000000"
+
+# Contracts
+version-registry = "0x0000000000000000000000000000000000000000"
+version-registry-impl = "0x0000000000000000000000000000000000000000"
+
+# Version policy
+minimum-broker-version = "0.0.0"
+notice = ""
+
+[deployment.base-sepolia-staging]
+name = "Base Sepolia [staging]"
+id = 84532
+
+# Accounts
+admin = "0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"
+
+# Contracts
+version-registry = "0xe359782297d569f1c3cdc02a50217b2b142e27fd"
+version-registry-impl = "0xdbcb8461a8c4031ed0bd2cec13d0650a55ff5069"
+
+# Version policy
+minimum-broker-version = "0.0.0"
+notice = ""
+
+#################################################################################
+#                              DEVELOPMENT                                      #
+#################################################################################
+
+[deployment.anvil]
+name = "Anvil"
+id = 31337
+
+# Accounts
+admin = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+# Contracts
+version-registry = "0x0000000000000000000000000000000000000000"
+version-registry-impl = "0x0000000000000000000000000000000000000000"
+
+# Version policy
+minimum-broker-version = "0.0.0"
+notice = ""
