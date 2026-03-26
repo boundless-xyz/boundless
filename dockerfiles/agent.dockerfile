@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG CUDA_IMG=nvidia/cuda:13.0.2-devel-ubuntu24.04
 ARG CUDA_RUNTIME_IMG=nvidia/cuda:13.0.2-runtime-ubuntu24.04
+ARG PROVING_ARTIFACTS=ghcr.io/boundless-xyz/boundless/proving-artifacts:v1
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${CUDA_IMG} AS rust-builder
@@ -21,6 +22,8 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
     && rustup install 1.88
 
+RUN cargo install cargo-chef --locked
+
 # Install protoc
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
     && unzip protoc.zip -d /usr/local \
@@ -33,8 +36,13 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Install RISC0 and groth16 component - this layer will be cached unless RISC0_HOME changes
 RUN curl -L https://risczero.com/install | bash && \
     /root/.risc0/bin/rzup install risc0-groth16 && \
-    # Clean up any temporary files to reduce image size
     rm -rf /tmp/* /var/tmp/*
+
+FROM rust-builder AS planner
+
+WORKDIR /src/bento
+COPY bento/ .
+RUN cargo chef prepare --recipe-path /src/bento/recipe.json
 
 FROM rust-builder AS builder
 
@@ -52,14 +60,31 @@ ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 ENV SCCACHE_SERVER_PORT=4227
 
 WORKDIR /src/
-COPY . .
 
+COPY --from=planner /src/bento/recipe.json /src/bento/recipe.json
+COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
 ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
+
+# Cook dependencies — cached until Cargo.toml/Cargo.lock change.
+# CUDA kernel compilation happens here and gets cached.
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    (ulimit -n 65536 2>/dev/null || true) && \
+    export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
+    export CARGO_TARGET_DIR=/src/bento/target-agent-gpu && \
+    cd /src/bento && \
+    cargo chef cook --release --recipe-path recipe.json \
+        --package workflow --features cuda && \
+    sccache --show-stats
+
+# Copy full source and build only the changed application code.
+COPY . .
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
@@ -73,33 +98,21 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cp ${CARGO_TARGET_DIR}/release/agent /src/agent && \
     sccache --show-stats
 
+# Proving artifacts — pulled from a pre-built GHCR image. BuildKit caches the
+# pull so artifacts are only downloaded once and reused across builds.
+FROM ${PROVING_ARTIFACTS} AS artifacts
+
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y \
-    && apt-get install -q -y ca-certificates libssl3 curl tar xz-utils \
+    && apt-get install -q -y ca-certificates libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract BLAKE3 Groth16 artifacts.
-ARG BLAKE3_GROTH16_ARTIFACTS_URL
-# If USE_LOCAL_BLAKE3_GROTH16_SETUP is set to 1 or yes or true, skip downloading and expect user to mount setup files
-ARG USE_LOCAL_BLAKE3_GROTH16_SETUP
 ENV BLAKE3_GROTH16_SETUP_DIR=/.blake3_groth16_artifacts/
+ENV RISC0_HOME=/usr/local/risc0
 
-RUN if [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "1" ] || [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "yes" ] || [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "true" ]; then \
-      echo "Using local BLAKE3 Groth16 setup files, skipping download"; \
-    else \
-      if [ -z "$BLAKE3_GROTH16_ARTIFACTS_URL" ]; then \
-        echo "ERROR: BLAKE3_GROTH16_ARTIFACTS_URL not specified. Either set USE_LOCAL_BLAKE3_GROTH16_SETUP=1 and mount the setup files, or provide a URL via BLAKE3_GROTH16_ARTIFACTS_URL"; exit 1; \
-      fi && \
-      mkdir -p $BLAKE3_GROTH16_SETUP_DIR && \
-      curl -L -o /tmp/blake3_groth16_artifacts.tar.xz "$BLAKE3_GROTH16_ARTIFACTS_URL" && \
-      tar -xvf /tmp/blake3_groth16_artifacts.tar.xz -C $BLAKE3_GROTH16_SETUP_DIR  --strip-components=1 && \
-      rm -rf /tmp/* ; \
-    fi
-
-# Main prover
+COPY --from=artifacts /artifacts/blake3-groth16/ /.blake3_groth16_artifacts/
+COPY --from=artifacts /artifacts/risc0-home/ /usr/local/risc0/
 COPY --from=builder /src/agent /app/agent
-COPY --from=builder /usr/local/risc0 /usr/local/risc0
-
 
 ENTRYPOINT ["/app/agent"]

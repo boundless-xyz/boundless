@@ -12,7 +12,6 @@ use workflow_common::metrics::helpers::start_metrics_exporter;
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
-    tracing::info!("cargo-chef cache test — remove me");
 
     let args = Args::parse();
     let task_stream = args.task_stream.clone();
