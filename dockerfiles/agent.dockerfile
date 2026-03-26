@@ -76,30 +76,19 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y \
-    && apt-get install -q -y ca-certificates libssl3 curl tar xz-utils \
+    && apt-get install -q -y ca-certificates libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract BLAKE3 Groth16 artifacts.
-ARG BLAKE3_GROTH16_ARTIFACTS_URL
-# If USE_LOCAL_BLAKE3_GROTH16_SETUP is set to 1 or yes or true, skip downloading and expect user to mount setup files
-ARG USE_LOCAL_BLAKE3_GROTH16_SETUP
+# Proving artifacts (risc0-groth16 + blake3-groth16) are mounted at runtime
+# via Docker volumes, not baked into the image. This keeps the image at ~2.4 GB
+# instead of ~13.7 GB. See compose.yml proving-artifacts service.
 ENV BLAKE3_GROTH16_SETUP_DIR=/.blake3_groth16_artifacts/
+ENV RISC0_HOME=/risc0
 
-RUN if [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "1" ] || [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "yes" ] || [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "true" ]; then \
-      echo "Using local BLAKE3 Groth16 setup files, skipping download"; \
-    else \
-      if [ -z "$BLAKE3_GROTH16_ARTIFACTS_URL" ]; then \
-        echo "ERROR: BLAKE3_GROTH16_ARTIFACTS_URL not specified. Either set USE_LOCAL_BLAKE3_GROTH16_SETUP=1 and mount the setup files, or provide a URL via BLAKE3_GROTH16_ARTIFACTS_URL"; exit 1; \
-      fi && \
-      mkdir -p $BLAKE3_GROTH16_SETUP_DIR && \
-      curl -L -o /tmp/blake3_groth16_artifacts.tar.xz "$BLAKE3_GROTH16_ARTIFACTS_URL" && \
-      tar -xvf /tmp/blake3_groth16_artifacts.tar.xz -C $BLAKE3_GROTH16_SETUP_DIR  --strip-components=1 && \
-      rm -rf /tmp/* ; \
-    fi
+# Bake only the tiny settings.toml; the large artifacts (5 GB) are volume-mounted.
+RUN mkdir -p /risc0/extensions /risc0/tmp && \
+    printf '[default_versions]\nrisc0-groth16 = "0.1.0"\n' > /risc0/settings.toml
 
-# Main prover
 COPY --from=builder /src/agent /app/agent
-COPY --from=builder /usr/local/risc0 /usr/local/risc0
-
 
 ENTRYPOINT ["/app/agent"]

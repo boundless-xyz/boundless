@@ -49,8 +49,6 @@ x-gpu-agent-common: &gpu-agent-common
     dockerfile: ${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}
     args:
       BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
-      BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
-      USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
   restart: always
   depends_on:
     postgres:
@@ -59,8 +57,14 @@ x-gpu-agent-common: &gpu-agent-common
       condition: service_healthy
     minio:
       condition: service_healthy
+    proving-artifacts:
+      condition: service_completed_successfully
+  volumes:
+    - blake3-groth16-data:/.blake3_groth16_artifacts/:ro
+    - risc0-groth16-data:/risc0/extensions/v0.1.0-risc0-groth16:ro
   environment:
     <<: *base-environment
+    RISC0_HOME: /risc0
 
 x-exec-agent-common: &exec-agent-common
   <<: *cpu-agent-common
@@ -100,6 +104,7 @@ x-gpu-prove-agent: &gpu-prove-agent
   <<: *gpu-agent-common
   environment:
     <<: *base-environment
+    RISC0_HOME: /risc0
     REDIS_TTL: ${REDIS_TTL:-57600}
   # Detect GPUs and spawn one agent per GPU, then wait for all
   entrypoint:
@@ -108,14 +113,6 @@ x-gpu-prove-agent: &gpu-prove-agent
       "-c",
       "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
     ]
-  # When USE_LOCAL_BLAKE3_GROTH16_SETUP=1 the image has no artifacts; set BLAKE3_GROTH16_SETUP_DIR
-  # to the host path containing verify_for_guest_final.zkey and verify_for_guest_graph.bin.
-  # When using Ansible, BLAKE3_GROTH16_SETUP_DIR is set in .env and this dir is populated.
-  volumes:
-    - type: bind
-      source: ${BLAKE3_GROTH16_SETUP_DIR}
-      target: /.blake3_groth16_artifacts/
-      read_only: true
 
 x-broker-common: &broker-common
   image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:latest}
@@ -285,6 +282,19 @@ services:
       - minio
       - prometheus
 
+  proving-artifacts:
+    image: rust:1.89.0-bookworm
+    restart: "no"
+    volumes:
+      - blake3-groth16-data:/data/blake3-groth16
+      - risc0-groth16-data:/data/risc0-groth16
+      - ./dockerfiles/download-proving-artifacts.sh:/download.sh:ro
+    environment:
+      BLAKE3_GROTH16_DIR: /data/blake3-groth16
+      RISC0_GROTH16_DIR: /data/risc0-groth16
+      BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
+    entrypoint: ["/bin/bash", "/download.sh"]
+
   exec_agent:
     <<: *exec-agent-common
     deploy:
@@ -439,4 +449,6 @@ volumes:
   broker-data:
   caddy-data:
   caddy-config:
+  blake3-groth16-data:
+  risc0-groth16-data:
   # broker2-data:
