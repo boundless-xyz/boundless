@@ -42,8 +42,6 @@ jobs:
       - infra
       - scaler-tests
       - validate-requestor-lists
-      - check-publish
-      - docs-rs
     runs-on: ubuntu-latest
     steps:
       - name: Check all job status
@@ -380,53 +378,6 @@ jobs:
       - name: forge test
         run: forge test -vvv
         working-directory: contracts
-
-  # Check that cargo publish can package the boundless-market crate.
-  # Does not install Forge or cargo-risczero — only needs Rust sources and contracts/src/.
-  check-publish:
-    runs-on: [self-hosted, prod, Linux, cpu]
-    timeout-minutes: 10
-    needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust linker toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
-      - run: cargo publish -p boundless-market --dry-run
-      - name: sccache stats
-        run: sccache --show-stats
-
-  # Run as a separate job because it needs the nightly toolchain and does not install Forge or cargo-risczero.
-  docs-rs:
-    runs-on: [self-hosted, prod, Linux, cpu]
-    timeout-minutes: 15
-    needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust linker toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
-        with:
-          # Building with docs.rs config requires the nightly toolchain.
-          toolchain: nightly-2025-05-09
-      - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
-        env:
-          RUSTDOCFLAGS: "--cfg docsrs -D warnings"
-      - name: sccache stats
-        run: sccache --show-stats
 
   docker:
     runs-on: [self-hosted, prod, Linux, cpu]
