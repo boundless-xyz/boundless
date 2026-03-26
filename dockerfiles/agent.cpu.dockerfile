@@ -37,7 +37,8 @@ COPY crates/ ./crates/
 COPY blake3_groth16/ ./blake3_groth16/
 COPY bento/ ./bento/
 
-RUN cargo chef prepare --manifest-path bento/Cargo.toml --recipe-path recipe.json
+WORKDIR /src/bento
+RUN cargo chef prepare --recipe-path /src/recipe.json
 
 # ── builder: cook deps (cached), then compile source ────────────────
 FROM init AS builder
@@ -63,8 +64,9 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
     export CARGO_TARGET_DIR=/src/bento/target-agent-cpu && \
-    cargo chef cook --manifest-path bento/Cargo.toml --release \
-        --recipe-path recipe.json --package workflow && \
+    cd /src/bento && \
+    cargo chef cook --release --recipe-path /src/recipe.json \
+        --package workflow && \
     sccache --show-stats
 
 # Copy full source and build only the changed application code.
