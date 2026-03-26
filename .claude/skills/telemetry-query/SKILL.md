@@ -31,19 +31,35 @@ Export the result as `REDSHIFT_URL` before running queries.
 
 ## Connecting
 
-Use `psql` to run queries:
-
-```bash
-psql "$REDSHIFT_URL" -c "<SQL>"
-```
-
-Or for multi-line queries, use a heredoc:
+Prefer heredocs for all queries (avoids shell escaping issues):
 
 ```bash
 psql "$REDSHIFT_URL" <<'SQL'
 SELECT ...
 SQL
 ```
+
+For simple one-liners, `psql -c` works but beware of shell quoting (see below):
+
+```bash
+psql "$REDSHIFT_URL" -c "SELECT 1;"
+```
+
+## Shell Quoting
+
+**CRITICAL**: zsh treats `!` as history expansion inside double-quoted strings. This means `!=` in `psql -c "..."` gets mangled to `\!=`, causing a Redshift syntax error.
+
+**Always use `<>` instead of `!=` in SQL.** This is valid standard SQL and avoids the issue entirely:
+
+```sql
+-- Good
+WHERE outcome <> 'Skipped'
+
+-- Bad (breaks in zsh double quotes)
+WHERE outcome != 'Skipped'
+```
+
+Alternatively, use a heredoc (`<<'SQL'`) which is immune to shell expansion.
 
 ## Available Tables
 
@@ -66,6 +82,10 @@ The key mappings are:
 - `RequestCompleted` -> `telemetry.request_completions`
 
 The Redshift views also include a `received_at` TIMESTAMPTZ column (when Kinesis ingested the record) that is not part of the Rust structs.
+
+## Data Coverage
+
+Telemetry is **opt-in**. Brokers can operate without sending telemetry, so the data here only represents brokers that have opted in. Do not assume that the brokers visible in telemetry are the only ones active on the network.
 
 ## Query Guidelines
 
