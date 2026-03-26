@@ -29,6 +29,7 @@ env:
 
 jobs:
   main-status-check:
+    name: Main Status Check (GH)
     if: always()
     timeout-minutes: 5
     needs:
@@ -58,6 +59,9 @@ jobs:
     needs: [files-changed]
     if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
     steps:
+      - name: Remove stale submodules
+        run: rm -rf lib/
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -158,6 +162,9 @@ jobs:
             sleep 1
           done
 
+      - name: Remove stale submodules
+        run: rm -rf lib/
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -239,6 +246,9 @@ jobs:
     needs: [files-changed]
     if: needs.files-changed.outputs.docs == 'true'
     steps:
+      - name: Remove stale submodules
+        run: rm -rf lib/
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -299,6 +309,7 @@ jobs:
         run: sccache --show-stats
 
   link-check:
+    name: Link Check (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: files-changed
@@ -347,6 +358,7 @@ jobs:
           key: lychee-${{ runner.os }}-v1
 
   fmt:
+    name: Fmt (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -390,6 +402,7 @@ jobs:
         run: dprint check
 
   foundry:
+    name: Foundry (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: files-changed
@@ -485,18 +498,14 @@ jobs:
         run: sccache --show-stats
 
   docker:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    runs-on: [self-hosted, prod, Linux, cpu]
     timeout-minutes: 30
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.docker == 'true'
     steps:
+      - name: Remove stale submodules
+        run: rm -rf lib/
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -550,15 +559,8 @@ jobs:
         run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
 
   infra:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    runs-on: [self-hosted, prod, Linux, cpu]
     timeout-minutes: 5
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
     needs: files-changed
     if: needs.files-changed.outputs.infra == 'true'
     steps:
@@ -590,6 +592,7 @@ jobs:
           done
 
   scaler-tests:
+    name: Scaler Tests (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: files-changed
@@ -614,6 +617,7 @@ jobs:
           pytest -v
 
   validate-requestor-lists:
+    name: Validate Requestor Lists (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: files-changed
@@ -636,6 +640,7 @@ jobs:
           done
 
   files-changed:
+    name: Files Changed (GH)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
