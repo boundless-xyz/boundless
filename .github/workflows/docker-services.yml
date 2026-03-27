@@ -3,7 +3,7 @@ name: Docker Services
 on:
   push:
     branches: [main]
-    tags: ["infra-v*"]
+    tags: ["infra-v*", "bento-v*", "broker-v*"]
   pull_request:
   workflow_dispatch:
 
