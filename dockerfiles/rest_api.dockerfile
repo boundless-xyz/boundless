@@ -1,43 +1,23 @@
-ARG BUILDER_BASE=ghcr.io/boundless-xyz/boundless/builder-base:latest
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
-FROM ${BUILDER_BASE} AS init
+FROM rust:1.88-bookworm AS builder
 
-FROM init AS planner
+RUN apt-get -qq update && apt-get install -y -q clang mold
 
-WORKDIR /src/bento
-COPY bento/ .
-RUN cargo chef prepare --recipe-path /src/bento/recipe.json
-
-FROM init AS builder
+FROM builder AS rust-builder
 
 ARG S3_CACHE_PREFIX
 ARG S3_CACHE_BUCKET="boundless-sccache"
 ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 WORKDIR /src/
-
-COPY --from=planner /src/bento/recipe.json /src/bento/recipe.json
-COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
+COPY . .
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4230
 ENV RUSTFLAGS="-C link-arg=-fuse-ld=mold"
-
-# Cook dependencies — cached until Cargo.toml/Cargo.lock change.
-RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
-    --mount=type=cache,target=/root/.cache/sccache/,id=bento_api_sccache \
-    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
-    (ulimit -n 65536 2>/dev/null || true) && \
-    export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
-    cd /src/bento && \
-    cargo chef cook --release --recipe-path recipe.json --package api && \
-    sccache --show-stats
-
-# Copy only bento source — blake3_groth16 is a git dep, not a path dep.
-COPY bento/ ./bento/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_api_sccache \
@@ -50,11 +30,11 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cp bento/target/release/rest_api /src/rest_api && \
     sccache --show-stats
 
-FROM debian:bookworm-slim AS runtime
+FROM rust:1.88-bookworm AS runtime
 
-RUN apt-get -qq update && \
-    apt-get install -y -q --no-install-recommends ca-certificates libssl3 && \
-    rm -rf /var/lib/apt/lists/*
+RUN mkdir /app/ && \
+    apt -qq update && \
+    apt install -y -q openssl
 
-COPY --from=builder /src/rest_api /app/rest_api
+COPY --from=rust-builder /src/rest_api /app/rest_api
 ENTRYPOINT ["/app/rest_api"]

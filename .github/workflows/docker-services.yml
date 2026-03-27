@@ -73,54 +73,6 @@ jobs:
           cache-from: type=s3,name=builder-base-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
           cache-to: type=s3,name=builder-base-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
 
-  build-proving-artifacts:
-    runs-on: [self-hosted, prod, Linux, cpu]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_CI_USER }}
-          password: ${{ secrets.DOCKERHUB_CI_PAT }}
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/proving-artifacts
-          tags: |
-            type=raw,value=v1
-            type=raw,value=latest
-
-      - name: Fetch BuildKit cache AWS creds
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: "us-west-2"
-          role-duration-seconds: 14400
-          role-to-assume: "arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access"
-
-      - name: Build and push proving-artifacts
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfiles/proving-artifacts.dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=s3,name=proving-artifacts-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
-          cache-to: type=s3,name=proving-artifacts-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
-
   prepare-recipe:
     runs-on: [self-hosted, prod, Linux, cpu]
     steps:
@@ -142,22 +94,18 @@ jobs:
         if: steps.cache-chef.outputs.cache-hit != 'true'
         run: cargo install cargo-chef --locked
 
-      - name: Generate recipes
-        run: |
-          cargo chef prepare --recipe-path recipe.json
-          cd bento && cargo chef prepare --recipe-path ../bento-recipe.json
+      - name: Generate recipe
+        run: cargo chef prepare --recipe-path recipe.json
 
-      - name: Upload recipes
+      - name: Upload recipe
         uses: actions/upload-artifact@v4
         with:
-          name: recipes
-          path: |
-            recipe.json
-            bento-recipe.json
+          name: recipe
+          path: recipe.json
           retention-days: 1
 
   build-and-push:
-    needs: [build-base, build-proving-artifacts, prepare-recipe]
+    needs: [build-base, prepare-recipe]
     strategy:
       fail-fast: false
       matrix:
@@ -190,17 +138,14 @@ jobs:
             dockerfile: dockerfiles/rest_api.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            bento: true
           - name: bento-cli
             dockerfile: dockerfiles/bento_cli.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-            bento: true
           - name: agent
             dockerfile: dockerfiles/agent.dockerfile
             submodules: false
             runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
-            bento: true
     runs-on: ${{ matrix.service.runner }}
     steps:
       - name: Checkout code
@@ -235,20 +180,14 @@ jobs:
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
 
-      - name: Download recipes
+      - name: Download recipe
         uses: actions/download-artifact@v4
         with:
-          name: recipes
+          name: recipe
           path: ./recipe-out
 
       - name: Prepare planner override
-        run: |
-          mkdir -p /tmp/planner-ctx/src/bento
-          if [ "${{ matrix.service.bento }}" = "true" ]; then
-            cp ./recipe-out/bento-recipe.json /tmp/planner-ctx/src/bento/recipe.json
-          else
-            cp ./recipe-out/recipe.json /tmp/planner-ctx/src/recipe.json
-          fi
+        run: mkdir -p /tmp/planner-ctx/src && cp ./recipe-out/recipe.json /tmp/planner-ctx/src/recipe.json
 
       - name: Fetch sccache AWS creds
         id: sccache-creds
