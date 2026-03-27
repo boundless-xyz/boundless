@@ -72,5 +72,7 @@ RUN apt-get -qq update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/boundless-order-generator /app/boundless-order-generator
+COPY --from=builder /root/.risc0/bin /root/.risc0/bin
+COPY --from=builder /root/.risc0/extensions /root/.risc0/extensions
 
 ENTRYPOINT ["/app/boundless-order-generator"]
