@@ -14,14 +14,14 @@ config:
   slasher:INTERVAL: "15"
   slasher:LOG_LEVEL: boundless_slasher=trace,boundless_market=debug
   slasher:MAX_BLOCK_RANGE: "10000"
-  slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+#  slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   slasher:PRIVATE_KEY:
     secure: v1:+QXGYTW4KS8noxpr:cNUAdu91W0se1vjGW8ZfkarEF7fnQutPGTBTLbpp0rkF14p7qvhWYABZjV90u85XxXFV4OVCPlPZz73GVhzOrB2jBk9nxXiwMpFUZilNqAs=
   slasher:RDS_PASSWORD:
     secure: v1:bW7q9pzUYnL0GvCU:wXVjChJ6K5noBsab44G/XNctpM8nvDfkiOTlhs2Gioo=
   slasher:RETRIES: "3"
   slasher:SKIP_ADDRESSES: ""
-  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+#  slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   slasher:START_BLOCK: "4819525"
   slasher:TX_TIMEOUT: "60"
   slasher:WARN_BALANCE_BELOW: "0.01"

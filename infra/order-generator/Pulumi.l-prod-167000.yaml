@@ -19,11 +19,11 @@ config:
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL:
     secure: v1:Dl7yVnXPLngSEO/T:Osm6/+L8w7oVrzkGOmDM3jgmqhdmrtqI8ANNPAlPNQl1eJpHQIJ83Rk4dVsDOEK+UlOsRvMoFOQ0vDK3T4LICGjsZNhvcKt0oBq3vCzIBGMFh/4nZ5MUujjhtw==
-  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+#  order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_JWT:
     secure: v1:kkgNfCRVdBU8NZI0:LXHxPYog21/UhXNTpE/KlAvkeOYzVaDGodUNWp9fIOIkpUAmaSp6wKY05XBDPUoqx6HhHLi3PRmypgvqdnrKUvJbuqKUkemYob76g8yOFbtmQtcya3DU20I81jrivjFLXHjhZ8CiXZuI0xfAIfAibOmw1qPGvNL6xVEpuimOtMUqLE6StweEVovfDHCWfPJY1cxWLrpbbwRwTVFeqPxCc3JVqp3iWqHh2Em9mgDBr57eoHzyNCRPNGw3oXQGjPJ96HNhivHi0sqWqq5C64bRsk0Q8487xHmYQqMW1szRqxs563yY99RrknoIQ40TaOjA27GXr+zq2q855e/VmL4SwOqovXN5RypM2xgbpSMNXe1zIhJ3APffWBMiBBnmc4z7toVYn0ow4JlcQOumZ0A+rFMMRpuU9pfO/7Fpgb3iAgMMhnZKqeTBlpr3D+USPk1fKI1DtgFmKOUV91eBd3+8nzKiFU+HDlZnEnbWvLoYSKayAu2vl04Fuo5qPW81RJyMSMByouN09D6lm4WIkkPf4iC78AtjzfA/zCepEtCP6eDgS1ga5anqY/kguQwr4ugoi8N2axjP9xyG04gdnEXMDSfdZiWMgn2yL6RyAfHkwyx/E/p+3iki3xrKgt79HwMwAw6ATDZj8fdWodUFW04/VEcuw8EL0ftrfdJ0X/cLFUBp6iEhmLpqIQ+1SD0Zluib1mzJn4/m81IVBq+mF5gYGH3q+TKkoIrLk7OrhSRPj8p5q1AbTNbiYUaJqbI4+wmhhXBiUIavd+9MRE0SOgdSB0YhyUtqWACPkNRZcEFCbxQi3PS7rVcmsGjiW3xGcU10xfMHjBBP2YzHqByKkmx64htKrJlFXbBmZEZENwGaCmMx7gImIWs5nog5FOLRVpNL0avSbyJh4XL19c5rKXrLab98V23E7l/Z
   order-generator-base:SET_VERIFIER_ADDR: 0x6135DC08D14EF8a44496B009e2181426628B8ebd
-  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+#  order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   order-generator-base:TX_TIMEOUT: "90"
   order-generator-evm-requestor:AUTO_DEPOSIT: "0.015"
   order-generator-evm-requestor:ERROR_BALANCE_BELOW: "0.005"

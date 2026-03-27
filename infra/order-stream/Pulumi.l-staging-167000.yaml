@@ -14,7 +14,7 @@ config:
     secure: v1:9qM9PiQiLDwk7XRl:awC475v/s72GfjPjHnpg3ct9iC3USqZQmF/Itfv8ZuS8Ik70LceKmuMfSGkmUalJW8eOZ1sKYoPa2C4YjFXIfHSABrcvptQwlfdK0eBJhukpIsR/vn3NwuZt5SRzv/63foG3ArYp/Cgcfqub7w==
   order-stream:MIN_BALANCE_RAW: "5000000000000000000"
   order-stream:ORDER_STREAM_PING_TIME: "100"
-  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+#  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-stream:PREMIUM_API_KEY:
     secure: v1:XTaGKHuTJqkQIk0F:KwUYIPzyBU8VM1u6KKhXigolA24uGSNhnYivowB2
   order-stream:RDS_PASSWORD:
@@ -23,6 +23,6 @@ config:
     secure: v1:mtUljTgAgUqvqC18:M79Ps5yNnmLSeqirxl98Dg8UHOZ1IC3E2Xl6XQ==
   order-stream:REDSHIFT_READONLY_PASSWORD:
     secure: v1:JYjK1WFwQ3lsuVJh:6cuBP82TQgkvU1nFShPJyzdVJVuV0kzOzPq91w==
-  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
+#  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   order-stream:ETH_RPC_URL:
     secure: v1:f1BqdkYofm4y6DY0:h0BVuwZHHoVfg1TTHBS4rodxb2ULGGu6DHrGq2WyNF4j77UzH1aZD0+vGtUm
