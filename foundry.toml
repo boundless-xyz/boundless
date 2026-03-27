@@ -8,6 +8,7 @@ fs_permissions = [
     { access = "read", path = "./contracts/out" },
     { access = "read-write", path = "./contracts/deployment.toml" },
     { access = "read", path = "./contracts/deployment_verifier.toml" },
+    { access = "read-write", path = "./contracts/deployment-version-registry.toml" },
 ]
 libs = ["./lib"]
 script = "./contracts/scripts"

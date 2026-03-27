@@ -20,11 +20,33 @@ x-base-environment: &base-environment
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
-x-agent-common: &agent-common
+x-cpu-agent-common: &cpu-agent-common
+  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
+  runtime: runc
+  build:
+    context: .
+    dockerfile: ${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}
+    args:
+      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
+      BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
+      USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
+  restart: always
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+  environment:
+    <<: *base-environment
+
+x-gpu-agent-common: &gpu-agent-common
+  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
   runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
-    dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
+    dockerfile: ${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}
     args:
       BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
@@ -41,7 +63,7 @@ x-agent-common: &agent-common
     <<: *base-environment
 
 x-exec-agent-common: &exec-agent-common
-  <<: *agent-common
+  <<: *cpu-agent-common
   mem_limit: 4G
   cpus: 3
   environment:
@@ -75,7 +97,7 @@ x-broker-environment: &broker-environment
   POSTGRES_PASS:
 
 x-gpu-prove-agent: &gpu-prove-agent
-  <<: *agent-common
+  <<: *gpu-agent-common
   environment:
     <<: *base-environment
     REDIS_TTL: ${REDIS_TTL:-57600}
@@ -96,6 +118,7 @@ x-gpu-prove-agent: &gpu-prove-agent
       read_only: true
 
 x-broker-common: &broker-common
+  image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:latest}
   restart: always
   depends_on:
     rest_api:
@@ -198,7 +221,6 @@ services:
       retries: 5
 
   minio-init:
-    profiles: [input-ttl]
     image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
     depends_on:
       minio:
@@ -208,6 +230,10 @@ services:
       - /bin/bash
       - -c
       - |
+        if [ "$${INPUT_TTL_DAYS:-0}" -le 0 ] 2>/dev/null; then
+          echo "INPUT_TTL_DAYS is 0 or unset, skipping lifecycle rule"
+          exit 0
+        fi
         mc alias set local http://$${MINIO_HOST}:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
         if [[ "$$(mc ilm rule list local/$${MINIO_BUCKET} --json 2>/dev/null)" == *'"Prefix":"inputs/"'* ]]; then
           echo "Lifecycle rule for inputs/ already exists, skipping"
@@ -220,7 +246,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASS:-password}
       MINIO_BUCKET: ${MINIO_BUCKET:-workflow}
-      INPUT_TTL_DAYS: ${INPUT_TTL_DAYS:-1}
+      INPUT_TTL_DAYS: ${INPUT_TTL_DAYS:-0}
 
   prometheus:
     image: ${PROMETHEUS_IMG:-prom/prometheus:v2.53.0}
@@ -265,7 +291,7 @@ services:
       replicas: ${BENTO_EXECUTOR_COUNT:-4}
 
   aux_agent:
-    <<: *agent-common
+    <<: *cpu-agent-common
     mem_limit: 256M
     deploy:
       replicas: ${BENTO_AUX_WORKER_COUNT:-2}
@@ -300,6 +326,7 @@ services:
               capabilities: [gpu]
 
   rest_api:
+    image: ${REST_API_IMAGE-ghcr.io/boundless-xyz/boundless/bento-rest-api:latest}
     build:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
@@ -363,6 +390,7 @@ services:
   #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
   miner:
+    image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
     build:
       context: .
       dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
