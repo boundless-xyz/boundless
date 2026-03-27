@@ -58,9 +58,9 @@ prover_boundless_build: ""
 # When empty, "latest" is used for all images.
 prover_image_version: ""
 
-# Optional Dockerfile overrides (e.g. "dockerfiles/agent.cpu.dockerfile" for CPU-only hosts)
-# Leave empty to use compose.yml defaults.
+# Optional Dockerfile overrides. Leave empty to use compose.yml defaults.
 prover_agent_dockerfile: ""
+prover_gpu_agent_dockerfile: ""
 prover_broker_dockerfile: ""
 prover_rest_api_dockerfile: ""
 
