@@ -21,7 +21,7 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-cpu-agent-common: &cpu-agent-common
-  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
+  image: ${CPU_AGENT_IMAGE:-${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}}
   runtime: runc
   build:
     context: .
