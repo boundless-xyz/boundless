@@ -58,7 +58,7 @@ use sequential_fallback::SequentialFallbackLayer;
 use serde::{Deserialize, Serialize};
 use storage::ConfigurableDownloader;
 use task::{RetryPolicy, Supervisor};
-use tokio::{sync::mpsc, sync::RwLock, task::JoinSet};
+use tokio::{sync::broadcast, sync::mpsc, sync::RwLock, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tower::{Layer, ServiceBuilder};
 use url::Url;
@@ -67,6 +67,8 @@ const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 const TELEMETRY_CHANNEL_CAPACITY: usize = 40960;
+const PRICER_CHANNEL_CAPACITY: usize = 1000;
+const COMPLETION_CHANNEL_CAPACITY: usize = 1000;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
@@ -80,6 +82,7 @@ pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_committer;
+pub(crate) mod order_evaluator;
 pub(crate) mod order_pricer;
 mod price_oracle;
 pub(crate) mod prioritization;
@@ -854,11 +857,28 @@ impl Broker {
 
         let chain_dbs: Vec<DbObj> = chains.iter().map(|c| c.db.clone()).collect();
 
+        // All chain monitors send discovered orders here; the evaluator reads from evaluator_order_rx.
+        let (evaluator_order_tx, evaluator_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+        // Pricers send preflight completions here; the evaluator reads from completion_rx to free capacity.
+        let (completion_tx, completion_rx) = mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
+        // Lock/fulfill events broadcast to both the evaluator (removes pending) and pricers (cancels active tasks).
+        let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
+        let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
+            std::collections::HashMap::new();
+
         for chain in &chains {
+            // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
+            let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
+            chain_dispatchers.insert(chain.chain_id, pricer_tx);
+
             self.start_chain_pipeline(
                 chain,
                 prover.clone(),
                 aggregation_prover.clone(),
+                evaluator_order_tx.clone(),
+                pricer_rx,
+                completion_tx.clone(),
+                order_state_tx.clone(),
                 &mut non_critical_tasks,
                 &mut critical_tasks,
                 non_critical_cancel_token.clone(),
@@ -866,6 +886,22 @@ impl Broker {
             )
             .await?;
         }
+        let order_evaluator = Arc::new(order_evaluator::OrderEvaluator::new(
+            base_config.clone(),
+            evaluator_order_rx,
+            chain_dispatchers,
+            completion_rx,
+            order_state_tx,
+        ));
+        let cloned_config = base_config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(order_evaluator, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("Failed to start order evaluator")?;
+            Ok(())
+        });
 
         // Monitor supervisor tasks and handle shutdown
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -926,6 +962,10 @@ impl Broker {
         chain: &ChainPipeline<P>,
         prover: ProverObj,
         aggregation_prover: ProverObj,
+        evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
+        pricer_rx: mpsc::Receiver<Box<OrderRequest>>,
+        completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
         non_critical_tasks: &mut JoinSet<Result<()>>,
         critical_tasks: &mut JoinSet<Result<()>>,
         non_critical_cancel_token: CancellationToken,
@@ -1050,25 +1090,23 @@ impl Broker {
         // Set up chain + market monitoring. Either use the standard ChainMonitorService +
         // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
         // replaces both with a single implementation.
-        let (chain_monitor, block_times, new_order_rx, new_order_tx, order_state_tx) = if self
-            .args
-            .experimental_rpc
-        {
-            let (monitor, new_order_rx) = chain_monitor_v2::ChainMonitorV2::new(
-                db.clone(),
-                provider.clone(),
-                Arc::new(chain.any_provider.clone()),
-                deployment.boundless_market_address,
-                private_key.address(),
-                lookback_blocks,
-                chain_id,
-                gas_priority_mode.clone(),
-            )
-            .await
-            .context("Failed to initialize ChainMonitorV2")?;
-            let monitor = Arc::new(monitor);
-            let new_order_tx = monitor.new_order_tx();
-            let order_state_tx = monitor.order_state_tx();
+        let (chain_monitor, block_times) = if self.args.experimental_rpc {
+            let monitor = Arc::new(
+                chain_monitor_v2::ChainMonitorV2::new(
+                    db.clone(),
+                    provider.clone(),
+                    Arc::new(chain.any_provider.clone()),
+                    deployment.boundless_market_address,
+                    private_key.address(),
+                    lookback_blocks,
+                    chain_id,
+                    gas_priority_mode.clone(),
+                    evaluator_order_tx.clone(),
+                    order_state_tx.clone(),
+                )
+                .await
+                .context("Failed to initialize ChainMonitorV2")?,
+            );
 
             let cloned = monitor.clone();
             let cloned_config = config.clone();
@@ -1082,18 +1120,8 @@ impl Broker {
             });
 
             let block_times = monitor.block_time();
-            (
-                monitor as chain_monitor::ChainMonitorObj,
-                block_times,
-                new_order_rx,
-                new_order_tx,
-                order_state_tx,
-            )
+            (monitor as chain_monitor::ChainMonitorObj, block_times)
         } else {
-            // Create channels for new orders and order state changes.
-            let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-            let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
-
             let chain_monitor_service = Arc::new(
                 chain_monitor::ChainMonitorService::new(
                     provider.clone(),
@@ -1105,7 +1133,6 @@ impl Broker {
 
             let cloned_chain_monitor = chain_monitor_service.clone();
             let cloned_config = config.clone();
-            // Critical task, as is relied on to query current chain state
             let cancel_token = critical_cancel_token.clone();
             critical_tasks.spawn(async move {
                 Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
@@ -1115,7 +1142,6 @@ impl Broker {
                 Ok(())
             });
 
-            // Spin up a supervisor for the market monitor
             let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
                 lookback_blocks,
                 events_poll_blocks,
@@ -1125,7 +1151,7 @@ impl Broker {
                 db.clone(),
                 chain_monitor_service.clone(),
                 private_key.address(),
-                new_order_tx.clone(),
+                evaluator_order_tx.clone(),
                 order_state_tx.clone(),
             ));
 
@@ -1142,24 +1168,17 @@ impl Broker {
                 Ok(())
             });
 
-            (
-                chain_monitor_service as chain_monitor::ChainMonitorObj,
-                block_times,
-                new_order_rx,
-                new_order_tx,
-                order_state_tx,
-            )
+            (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
         };
 
         tracing::debug!(chain_id, "Estimated block time: {block_times}");
 
-        // Spin up a supervisor for the offchain market monitor
         if let Some(client) = order_stream_client {
             let offchain_market_monitor =
                 Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
                     client,
                     private_key.clone(),
-                    new_order_tx.clone(),
+                    evaluator_order_tx.clone(),
                 ));
             let cloned_config = config.clone();
             let cancel_token = non_critical_cancel_token.clone();
@@ -1218,7 +1237,6 @@ impl Broker {
                 .build(),
         );
 
-        // Spin up the order pricer to pre-flight and find orders to lock
         let order_pricer = Arc::new(order_pricer::OrderPricer::new(
             db.clone(),
             config.clone(),
@@ -1226,7 +1244,7 @@ impl Broker {
             deployment.boundless_market_address,
             provider.clone(),
             chain_monitor.clone(),
-            new_order_rx,
+            pricer_rx,
             pricing_tx,
             collateral_token_decimals,
             order_state_tx.clone(),
@@ -1237,6 +1255,7 @@ impl Broker {
             erc1271_gas_cache.clone(),
             self.args.listen_only,
             chain_id,
+            completion_tx,
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();

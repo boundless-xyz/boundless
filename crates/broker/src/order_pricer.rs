@@ -23,9 +23,10 @@ use crate::{
     db::DbObj,
     errors::CodedError,
     now_timestamp,
+    order_evaluator::{PreflightComplete, PreflightOutcome},
     provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{RetryRes, RetryTask},
     utils, ConfigurableDownloader, Erc1271GasCache, FulfillmentType, OrderPricingContext,
     OrderPricingError, OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
 };
@@ -49,7 +50,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 // Broker-specific skip codes for checks that live in OrderPicker (not in pricing logic).
 const SKIP_NOT_IN_ALLOWLIST: &str = "[S-OP-001]";
@@ -111,6 +112,7 @@ pub struct OrderPricer<P> {
     price_oracle: Arc<PriceOracleManager>,
     listen_only: bool,
     chain_id: u64,
+    completion_tx: mpsc::Sender<PreflightComplete>,
 }
 
 impl<P> OrderPricer<P>
@@ -136,6 +138,7 @@ where
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
         chain_id: u64,
+        completion_tx: mpsc::Sender<PreflightComplete>,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -176,6 +179,7 @@ where
             price_oracle,
             listen_only,
             chain_id,
+            completion_tx,
         }
     }
 
@@ -602,91 +606,57 @@ where
     }
 }
 
-/// Handles a lock event for a request
-/// Cancels and removes only LockAndFulfill orders
-#[allow(clippy::vec_box)]
+/// Cancels active LockAndFulfill preflight tasks for a locked request.
 fn handle_lock_event(
     request_id: U256,
     active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-    pending_orders: &mut Vec<Box<OrderRequest>>,
 ) {
-    // Cancel only LockAndFulfill active tasks
-    if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
-        let initial_count = order_tasks.len();
-        order_tasks.retain(|order_id, task_token| {
-            if order_id.contains("LockAndFulfill") {
-                task_token.cancel();
-                false
-            } else {
-                true
-            }
-        });
-        let cancelled = initial_count - order_tasks.len();
+    let Some(order_tasks) = active_tasks.get_mut(&request_id) else {
+        return;
+    };
 
-        if cancelled > 0 {
-            tracing::debug!(
-                "Cancelled {} LockAndFulfill preflights for locked request 0x{:x}",
-                cancelled,
-                request_id
-            );
+    let initial_count = order_tasks.len();
+    let lock_suffix = format!("{:?}", FulfillmentType::LockAndFulfill);
+    order_tasks.retain(|order_id, task_token| {
+        if order_id.contains(&lock_suffix) {
+            task_token.cancel();
+            false
+        } else {
+            true
         }
-
-        // Remove the entry if no tasks remain
-        if order_tasks.is_empty() {
-            active_tasks.remove(&request_id);
-        }
-    }
-
-    // Remove only pending LockAndFulfill orders
-    let initial_len = pending_orders.len();
-    pending_orders.retain(|order| {
-        let same_request = U256::from(order.request.id) == request_id;
-        let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
-        !(same_request && is_lock_and_fulfill)
     });
-    let removed_orders = initial_len - pending_orders.len();
+    let cancelled = initial_count - order_tasks.len();
 
-    if removed_orders > 0 {
+    if cancelled > 0 {
         tracing::debug!(
-            "Removed {} pending LockAndFulfill orders for locked request 0x{:x}",
-            removed_orders,
+            "Cancelled {} LockAndFulfill preflights for locked request 0x{:x}",
+            cancelled,
             request_id
         );
+    }
+
+    if order_tasks.is_empty() {
+        active_tasks.remove(&request_id);
     }
 }
 
-/// Handles a fulfill event for a request
-/// Cancels and removes all orders for the request
-#[allow(clippy::vec_box)]
+/// Cancels all active preflight tasks for a fulfilled request.
 fn handle_fulfill_event(
     request_id: U256,
     active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-    pending_orders: &mut Vec<Box<OrderRequest>>,
 ) {
-    // Cancel all active tasks
-    if let Some(order_tasks) = active_tasks.remove(&request_id) {
-        let count = order_tasks.len();
-        tracing::debug!(
-            "Cancelling {} active preflights for fulfilled request 0x{:x}",
-            count,
-            request_id
-        );
-        for (_, task_token) in order_tasks {
-            task_token.cancel();
-        }
-    }
+    let Some(order_tasks) = active_tasks.remove(&request_id) else {
+        return;
+    };
 
-    // Remove all pending orders
-    let initial_len = pending_orders.len();
-    pending_orders.retain(|order| U256::from(order.request.id) != request_id);
-    let removed_orders = initial_len - pending_orders.len();
-
-    if removed_orders > 0 {
-        tracing::debug!(
-            "Removed {} pending orders for fulfilled request 0x{:x}",
-            removed_orders,
-            request_id
-        );
+    let count = order_tasks.len();
+    tracing::debug!(
+        "Cancelling {} active preflights for fulfilled request 0x{:x}",
+        count,
+        request_id
+    );
+    for (_, task_token) in order_tasks {
+        task_token.cancel();
     }
 }
 
@@ -699,163 +669,119 @@ where
         let pricer = self.clone();
 
         Box::pin(async move {
-            tracing::info!("Starting order picking monitor");
+            tracing::info!("Starting order pricer");
 
-            let read_config = || -> Result<_, Self::Error> {
-                let cfg = pricer.config.lock_all().map_err(|err| {
-                    OrderPricerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                        "Failed to read config: {err}"
-                    )))
-                })?;
-                Ok((
-                    cfg.market.max_concurrent_preflights as usize,
-                    cfg.market.order_pricing_priority,
-                    cfg.market.priority_requestor_addresses.clone(),
-                ))
-            };
-
-            let (mut current_capacity, mut priority_mode, mut priority_addresses) =
-                read_config().map_err(SupervisorErr::Fault)?;
-            let mut tasks: JoinSet<(String, U256)> = JoinSet::new();
+            let mut tasks: JoinSet<(String, U256, PreflightOutcome)> = JoinSet::new();
             let mut rx = pricer.new_order_rx.lock().await;
             let mut order_state_rx = pricer.order_state_tx.subscribe();
-            let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
-            let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
             let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> =
                 BTreeMap::new();
             let mut last_active_tasks_log: String = String::new();
+            let mut log_interval = tokio::time::interval(LOG_INTERVAL);
 
             loop {
                 tokio::select! {
-                    // This channel is cancellation safe, so it's fine to use in the select!
                     Some(order) = rx.recv() => {
                         let order_id = order.id();
-                        pending_orders.push(order);
-                        tracing::debug!(
-                            "Queued order {} to be priced. Currently {} queued pricing tasks: {}",
-                            order_id,
-                            pending_orders.len(),
-                            format_truncated(pending_orders.iter().map(|o| o.id()))
-                        );
-                    }
-                    Ok(state_change) = order_state_rx.recv() => {
-                        match state_change {
-                            OrderStateChange::Locked { request_id, prover } => {
-                                tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
-                                    request_id, prover);
-
-                                handle_lock_event(request_id, &mut active_tasks, &mut pending_orders);
-                            }
-                            OrderStateChange::Fulfilled { request_id } => {
-                                tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
-                                    request_id);
-
-                                handle_fulfill_event(request_id, &mut active_tasks, &mut pending_orders);
-                            }
-                        }
-                    }
-                    Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                        if let Ok((order_id, request_id)) = result {
-                            // Clean up the active task entry now that it's completed
-                            if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
-                                order_tasks.remove(&order_id);
-                                if order_tasks.is_empty() {
-                                    active_tasks.remove(&request_id);
-                                }
-                            }
-
-
-                            tracing::trace!("Priced task for order {} (request 0x{:x}) completed ({} remaining)",
-                                order_id, request_id, tasks.len());
-                        }
-                    }
-                    _ = capacity_check_interval.tick() => {
-                        // Check capacity on an interval for capacity changes in config
-                        let (new_capacity, new_priority_mode, new_priority_addresses) = read_config().map_err(SupervisorErr::Fault)?;
-                        if new_capacity != current_capacity{
-                            tracing::debug!("Pricing capacity changed from {} to {}", current_capacity, new_capacity);
-                            current_capacity = new_capacity;
-                        }
-                        if new_priority_mode != priority_mode {
-                            tracing::debug!("Order pricing priority changed from {:?} to {:?}", priority_mode, new_priority_mode);
-                            priority_mode = new_priority_mode;
-                        }
-                        if new_priority_addresses != priority_addresses {
-                            tracing::debug!("Priority requestor addresses changed");
-                            priority_addresses = new_priority_addresses;
-                        }
-
-                        // Log active pricing tasks if they've changed
-                        let current_tasks_log = format_active_tasks(&active_tasks);
-
-                        if last_active_tasks_log != current_tasks_log {
-                            tracing::debug!("Current pricing tasks: [{}]", current_tasks_log);
-                            last_active_tasks_log = current_tasks_log;
-                        }
-                    }
-
-                    _ = cancel_token.cancelled() => {
-                        tracing::debug!("Order pricer received cancellation, shutting down gracefully");
-
-                        // Wait for all pricing tasks to be cancelled gracefully
-                        while tasks.join_next().await.is_some() {}
-                        break;
-                    }
-                }
-
-                crate::telemetry::telemetry(pricer.chain_id)
-                    .set_pending_preflight(pending_orders.len() as u32);
-
-                // Process pending orders if we have capacity
-                if !pending_orders.is_empty() && tasks.len() < current_capacity {
-                    let available_capacity = current_capacity - tasks.len();
-                    let selected_orders = pricer.select_pricing_orders(
-                        &mut pending_orders,
-                        priority_mode,
-                        priority_addresses.as_deref(),
-                        available_capacity,
-                    );
-
-                    for order in selected_orders {
-                        let order_id = order.id();
                         let request_id = U256::from(order.request.id);
+                        let chain_id = order.chain_id;
 
-                        // Check if we're already processing this specific order
                         if let Some(order_tasks) = active_tasks.get(&request_id) {
                             if order_tasks.contains_key(&order_id) {
-                                tracing::debug!(
-                                    "Skipping order {order_id} - already being processed"
-                                );
+                                tracing::debug!("Skipping order {order_id} - already being processed");
+                                let _ = pricer.completion_tx.try_send(PreflightComplete {
+                                    order_id,
+                                    request_id,
+                                    chain_id,
+                                    outcome: PreflightOutcome::Skipped,
+                                });
                                 continue;
                             }
                         }
 
-                        // Check if we've already started processing this order ID
                         if pricer.order_cache.get(&order_id).await.is_some() {
-                            tracing::debug!(
-                                "Skipping duplicate order {order_id}, already being processed"
-                            );
+                            tracing::debug!("Skipping duplicate order {order_id}, already being processed");
+                            let _ = pricer.completion_tx.try_send(PreflightComplete {
+                                order_id,
+                                request_id,
+                                chain_id,
+                                outcome: PreflightOutcome::Skipped,
+                            });
                             continue;
                         }
 
-                        // Mark order as being processed immediately to prevent duplicates
                         pricer.order_cache.insert(order_id.clone(), ()).await;
 
                         let pricer_clone = pricer.clone();
                         let task_cancel_token = cancel_token.child_token();
 
-                        // Track the active task so it can be cancelled if needed
                         active_tasks
                             .entry(request_id)
                             .or_default()
                             .insert(order_id.clone(), task_cancel_token.clone());
 
                         tasks.spawn(async move {
-                            pricer_clone
-                                .price_order_and_update_state(order, task_cancel_token)
+                            let accepted = pricer_clone
+                                .price_order_and_update_state(order, task_cancel_token.clone())
                                 .await;
-                            (order_id, request_id)
+                            let outcome = match (accepted, task_cancel_token.is_cancelled()) {
+                                (true, _) => PreflightOutcome::Priced,
+                                (false, true) => PreflightOutcome::Cancelled,
+                                (false, false) => PreflightOutcome::Skipped,
+                            };
+                            (order_id, request_id, outcome)
                         });
+                    }
+                    Ok(state_change) = order_state_rx.recv() => {
+                        match state_change {
+                            OrderStateChange::Locked { request_id, prover } => {
+                                tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
+                                    request_id, prover);
+                                handle_lock_event(request_id, &mut active_tasks);
+                            }
+                            OrderStateChange::Fulfilled { request_id } => {
+                                tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
+                                    request_id);
+                                handle_fulfill_event(request_id, &mut active_tasks);
+                            }
+                        }
+                    }
+                    Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                        match result {
+                            Ok((order_id, request_id, outcome)) => {
+                                if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
+                                    order_tasks.remove(&order_id);
+                                    if order_tasks.is_empty() {
+                                        active_tasks.remove(&request_id);
+                                    }
+                                }
+
+                                let _ = pricer.completion_tx.try_send(PreflightComplete {
+                                    order_id: order_id.clone(),
+                                    request_id,
+                                    chain_id: pricer.chain_id,
+                                    outcome,
+                                });
+
+                                tracing::trace!("Priced task for order {} (request 0x{:x}) completed with {outcome} ({} remaining)",
+                                    order_id, request_id, tasks.len());
+                            }
+                            Err(e) => {
+                                tracing::error!("Pricing task panicked: {e}");
+                            }
+                        }
+                    }
+                    _ = log_interval.tick() => {
+                        let current_tasks_log = format_active_tasks(&active_tasks);
+                        if last_active_tasks_log != current_tasks_log {
+                            tracing::debug!("Current pricing tasks: [{}]", current_tasks_log);
+                            last_active_tasks_log = current_tasks_log;
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        tracing::debug!("Order pricer received cancellation, shutting down gracefully");
+                        while tasks.join_next().await.is_some() {}
+                        break;
                     }
                 }
             }
@@ -1165,6 +1091,7 @@ pub(crate) mod tests {
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (priced_orders_tx, priced_orders_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (order_state_tx, _) = tokio::sync::broadcast::channel(TEST_CHANNEL_CAPACITY);
+            let (completion_tx, _completion_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
 
             let pricer = OrderPricer::new(
                 db.clone(),
@@ -1184,6 +1111,7 @@ pub(crate) mod tests {
                 Arc::new(Cache::builder().build()),
                 false,
                 chain_id,
+                completion_tx,
             );
 
             PricerTestCtx {
@@ -2027,54 +1955,6 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_capacity_change() {
-        let config = ConfigLock::default();
-        {
-            let mut cfg = config.load_write().unwrap();
-            cfg.market.min_mcycle_price = Amount::parse("0.0000001 ETH", None).unwrap();
-            cfg.market.max_concurrent_preflights = 2;
-        }
-        let mut ctx = PricerTestCtxBuilder::default().with_config(config.clone()).build().await;
-
-        // Start the order pricer task
-        let pricer_task = tokio::spawn(ctx.pricer.spawn(Default::default()));
-
-        // Send an initial order to trigger the capacity check
-        let order1 =
-            ctx.generate_next_order(OrderParams { order_index: 1, ..Default::default() }).await;
-        ctx.new_order_tx.send(order1).await.unwrap();
-
-        // Wait for order to be processed
-        tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
-
-        // Sleep to allow for a capacity check change
-        tokio::time::sleep(MIN_CAPACITY_CHECK_INTERVAL).await;
-
-        // Decrease capacity
-        {
-            let mut cfg = config.load_write().unwrap();
-            cfg.market.max_concurrent_preflights = 1;
-        }
-
-        // Wait a bit more for the interval timer to fire and detect the change
-        tokio::time::sleep(MIN_CAPACITY_CHECK_INTERVAL + Duration::from_millis(100)).await;
-
-        // Send another order to trigger capacity check
-        let order2 =
-            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
-        ctx.new_order_tx.send(order2).await.unwrap();
-
-        // Wait for an order to be processed before updating capacity
-        tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv()).await.unwrap();
-
-        // Check logs for capacity changes
-        assert!(logs_contain("Pricing capacity changed from 2 to 1"));
-
-        pricer_task.abort();
-    }
-
-    #[tokio::test]
-    #[traced_test]
     async fn test_lock_expired_exec_limit_precision_loss() {
         let config = ConfigLock::default();
         let min_deadline = {
@@ -2259,9 +2139,7 @@ pub(crate) mod tests {
         ctx.new_order_tx.send(order1).await.unwrap();
 
         // Wait for the order to be processed and check for the "Added" log
-        tokio::time::timeout(MIN_CAPACITY_CHECK_INTERVAL * 2, ctx.priced_orders_rx.recv())
-            .await
-            .unwrap();
+        tokio::time::timeout(LOG_INTERVAL * 2, ctx.priced_orders_rx.recv()).await.unwrap();
 
         // Check that we logged the task being added (or that it was completed before the interval)
         assert!(logs_contain("Current pricing tasks: [") || logs_contain("Priced task for order"));
@@ -2289,7 +2167,6 @@ pub(crate) mod tests {
     async fn test_handle_lock_event() {
         let ctx = PricerTestCtxBuilder::default().build().await;
         let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
-        let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
 
         let lock_and_fulfill_order = ctx
             .generate_next_order(OrderParams {
@@ -2318,10 +2195,7 @@ pub(crate) mod tests {
         order_tasks.insert(fulfill_after_expire_order.id(), fulfill_after_expire_token.clone());
         active_tasks.insert(request_id, order_tasks);
 
-        pending_orders.push(lock_and_fulfill_order);
-        pending_orders.push(fulfill_after_expire_order);
-
-        handle_lock_event(request_id, &mut active_tasks, &mut pending_orders);
+        handle_lock_event(request_id, &mut active_tasks);
 
         assert!(lock_and_fulfill_token.is_cancelled(), "LockAndFulfill task should be cancelled");
         assert!(
@@ -2334,17 +2208,12 @@ pub(crate) mod tests {
         assert_eq!(remaining_tasks.len(), 1);
         let remaining_order_id = remaining_tasks.keys().next().unwrap();
         assert!(remaining_order_id.contains("FulfillAfterLockExpire"));
-
-        assert_eq!(pending_orders.len(), 1);
-        assert_eq!(pending_orders[0].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
     }
 
     #[tokio::test]
     async fn test_handle_fulfill_event() {
-        // Create test context and orders
         let ctx = PricerTestCtxBuilder::default().build().await;
         let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
-        let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
 
         let lock_and_fulfill_order = ctx
             .generate_next_order(OrderParams {
@@ -2372,17 +2241,12 @@ pub(crate) mod tests {
         order_tasks.insert(fulfill_after_expire_order.id(), token2.clone());
         active_tasks.insert(request_id, order_tasks);
 
-        pending_orders.push(lock_and_fulfill_order);
-        pending_orders.push(fulfill_after_expire_order);
-
-        handle_fulfill_event(request_id, &mut active_tasks, &mut pending_orders);
+        handle_fulfill_event(request_id, &mut active_tasks);
 
         assert!(token1.is_cancelled(), "All tasks should be cancelled");
         assert!(token2.is_cancelled(), "All tasks should be cancelled");
 
         assert!(!active_tasks.contains_key(&request_id));
-
-        assert_eq!(pending_orders.len(), 0, "All pending orders should be removed");
     }
 
     // Mock prover that tracks preflight calls
