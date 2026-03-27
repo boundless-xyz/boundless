@@ -1197,7 +1197,7 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+        let query_str = "SELECT COUNT(DISTINCT (md5(input_data), image_url)) as count
             FROM request_status
             WHERE fulfilled_at >= $1 
             AND fulfilled_at < $2
@@ -1328,7 +1328,7 @@ pub trait RequestorDb: IndexerDb {
         end_ts: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+        let query_str = "SELECT COUNT(DISTINCT (md5(input_data), image_url)) as count
             FROM request_status
             WHERE fulfilled_at < $1
             AND locked_at IS NOT NULL
