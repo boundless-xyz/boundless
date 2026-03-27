@@ -39,7 +39,7 @@ COPY . .
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
-ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
+ARG RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 # Build WITHOUT cuda feature
