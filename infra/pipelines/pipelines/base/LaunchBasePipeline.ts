@@ -9,7 +9,7 @@ export interface LaunchPipelineConfig {
   additionalBuildSpecCommands?: string[];
   postBuildCommands?: string[];
   branchName?: string;
-  includeTaiko?: boolean;
+
 }
 
 export const LAUNCH_PIPELINE_DEFAULTS = {

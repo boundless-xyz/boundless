@@ -9,7 +9,6 @@ const config: LaunchPipelineConfig = {
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
   branchName: "willpote/infra-taiko-v2",
-  includeTaiko: true,
 };
 
 export class LSlasherPipeline extends LaunchDefaultPipeline {

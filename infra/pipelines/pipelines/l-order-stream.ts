@@ -9,7 +9,7 @@ const config: LaunchPipelineConfig = {
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
   branchName: "willpote/infra-taiko-v2",
-  includeTaiko: true,
+
   postBuildCommands: [
     'pulumi stack select $STACK_NAME',
     './post-deploy.sh $STACK_NAME',
