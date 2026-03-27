@@ -734,12 +734,12 @@ where
                     }
                     Ok(state_change) = order_state_rx.recv() => {
                         match state_change {
-                            OrderStateChange::Locked { request_id, prover } => {
+                            OrderStateChange::Locked { request_id, prover, .. } => {
                                 tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
                                     request_id, prover);
                                 handle_lock_event(request_id, &mut active_tasks);
                             }
-                            OrderStateChange::Fulfilled { request_id } => {
+                            OrderStateChange::Fulfilled { request_id, .. } => {
                                 tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
                                     request_id);
                                 handle_fulfill_event(request_id, &mut active_tasks);

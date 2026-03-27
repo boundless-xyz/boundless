@@ -14,6 +14,8 @@
 
 use std::{sync::Arc, time::Duration};
 
+use tokio::sync::mpsc;
+
 use crate::{
     config::ConfigLock,
     db::DbObj,
@@ -21,6 +23,7 @@ use crate::{
     errors::{cancel_proof_and_fail, handle_order_failure, BrokerFailure},
     futures_retry::retry_with_context,
     impl_coded_debug, now_timestamp,
+    order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
@@ -103,6 +106,8 @@ pub struct ProvingService {
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
     downloader: ConfigurableDownloader,
     chain_id: u64,
+    /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
+    commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl ProvingService {
@@ -117,6 +122,7 @@ impl ProvingService {
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
         downloader: ConfigurableDownloader,
         chain_id: u64,
+        commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
         Self {
             db,
@@ -128,6 +134,7 @@ impl ProvingService {
             fulfillment_market,
             downloader,
             chain_id,
+            commitment_completion_tx,
         }
     }
 
@@ -372,7 +379,7 @@ impl ProvingService {
                 // External fulfillment notification
                 recv_res = order_state_rx.recv() => {
                     match recv_res {
-                        Ok(OrderStateChange::Fulfilled { request_id: fulfilled_request_id }) if fulfilled_request_id == request_id => {
+                        Ok(OrderStateChange::Fulfilled { request_id: fulfilled_request_id, .. }) if fulfilled_request_id == request_id => {
                             // Determine if this makes the order not actionable based on order type
                             let is_not_actionable = match order.fulfillment_type {
                                 FulfillmentType::FulfillAfterLockExpire => {
@@ -459,6 +466,7 @@ impl ProvingService {
                         proving_err.completion_outcome(),
                     ),
                     self.chain_id,
+                    &self.commitment_completion_tx,
                 )
                 .await;
                 return;
@@ -523,6 +531,7 @@ impl ProvingService {
                                 err.completion_outcome(),
                             ),
                             self.chain_id,
+                            &self.commitment_completion_tx,
                         )
                         .await;
                         return;
@@ -542,6 +551,7 @@ impl ProvingService {
                     &order,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
                     self.chain_id,
+                    &self.commitment_completion_tx,
                 )
                 .await;
             }
@@ -554,6 +564,7 @@ impl ProvingService {
                     &order_id,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
                     self.chain_id,
+                    &self.commitment_completion_tx,
                 )
                 .await;
             }
@@ -570,6 +581,7 @@ impl ProvingService {
                     &order_id,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
                     self.chain_id,
+                    &self.commitment_completion_tx,
                 )
                 .await;
             }
@@ -586,7 +598,14 @@ impl ProvingService {
 
             if order.proof_id.is_none() {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
-                set_order_failure(&self.db, &order_id, "Proving status missing proof_id").await;
+                set_order_failure(
+                    &self.db,
+                    &order_id,
+                    "Proving status missing proof_id",
+                    self.chain_id,
+                    &self.commitment_completion_tx,
+                )
+                .await;
                 continue;
             }
 
@@ -647,10 +666,21 @@ impl RetryTask for ProvingService {
     }
 }
 
-async fn set_order_failure(db: &DbObj, order_id: &str, failure_reason: &str) {
+async fn set_order_failure(
+    db: &DbObj,
+    order_id: &str,
+    failure_reason: &str,
+    chain_id: u64,
+    completion_tx: &mpsc::Sender<CommitmentComplete>,
+) {
     if let Err(inner_err) = db.set_order_failure(order_id, failure_reason).await {
         tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
     }
+    let _ = completion_tx.try_send(CommitmentComplete {
+        order_id: order_id.to_string(),
+        chain_id,
+        outcome: CommitmentOutcome::ProvingFailed,
+    });
 }
 
 #[cfg(test)]
@@ -659,6 +689,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         now_timestamp,
+        order_committer::CommitmentComplete,
         provers::{encode_input, DefaultProver},
         FulfillmentType, OrderStatus,
     };
@@ -775,6 +806,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -785,6 +817,7 @@ mod tests {
             market.clone(),
             downloader.clone(),
             1,
+            commitment_tx,
         );
 
         let order = create_test_order(
@@ -806,6 +839,7 @@ mod tests {
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -816,6 +850,7 @@ mod tests {
             market.clone(),
             downloader.clone(),
             1,
+            commitment_tx,
         );
 
         let lock_and_fulfill_order = create_test_order(
@@ -833,7 +868,10 @@ mod tests {
         tokio::spawn(async move {
             send_order_state_event(
                 order_state_tx,
-                OrderStateChange::Fulfilled { request_id: lock_and_fulfill_order.request.id },
+                OrderStateChange::Fulfilled {
+                    request_id: lock_and_fulfill_order.request.id,
+                    chain_id: 1,
+                },
             )
             .await
         });
@@ -866,6 +904,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -876,6 +915,7 @@ mod tests {
             market,
             downloader,
             1,
+            commitment_tx,
         );
 
         let order_id = U256::ZERO;
@@ -962,6 +1002,7 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -972,6 +1013,7 @@ mod tests {
             market,
             downloader,
             1,
+            commitment_tx,
         );
 
         let request_id = U256::from(123);
@@ -996,8 +1038,11 @@ mod tests {
         });
 
         // Send fulfillment event - should wait for proof completion (default config)
-        send_order_state_event(order_state_tx.clone(), OrderStateChange::Fulfilled { request_id })
-            .await;
+        send_order_state_event(
+            order_state_tx.clone(),
+            OrderStateChange::Fulfilled { request_id, chain_id: 1 },
+        )
+        .await;
 
         let result = monitor_task.await.unwrap();
         assert!(result.is_err());
@@ -1028,7 +1073,7 @@ mod tests {
         // Send fulfillment event for different request ID - should be ignored
         send_order_state_event(
             order_state_tx,
-            OrderStateChange::Fulfilled { request_id: different_fulfillment_id },
+            OrderStateChange::Fulfilled { request_id: different_fulfillment_id, chain_id: 1 },
         )
         .await;
 

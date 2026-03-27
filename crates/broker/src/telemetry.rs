@@ -36,7 +36,7 @@ use crate::config::ConfigLock;
 use crate::db::DbObj;
 use crate::errors::BrokerFailure;
 use crate::futures_retry::retry;
-use crate::order_committer::{OrderCommitmentMeta, OrderCommitterConfig};
+use crate::order_locker::{OrderCommitmentMeta, OrderLockerConfig};
 
 const HEARTBEAT_RETRY_COUNT: u64 = 2;
 const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
@@ -285,7 +285,7 @@ impl TelemetryHandle {
         committed: bool,
         meta: Option<&OrderCommitmentMeta>,
         monitor_wait_duration_ms: Option<u64>,
-        config: &OrderCommitterConfig,
+        config: &OrderLockerConfig,
         pending_commitment_count: u32,
         skip_code: Option<&str>,
         skip_reason: Option<&str>,

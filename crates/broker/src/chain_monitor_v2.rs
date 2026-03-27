@@ -101,7 +101,7 @@ impl CodedError for ChainMonitorV2Err {
 /// A single polling loop drives everything: one `eth_getBlockByNumber(Latest)` per tick,
 /// then one `eth_getBlockReceipts` per unprocessed block to decode market events.
 /// The chain-head atomics are updated on every tick and read synchronously by
-/// [`ChainMonitorApi`] callers (e.g. `OrderPricer`, `OrderCommitter`).
+/// [`ChainMonitorApi`] callers (e.g. `OrderPricer`, `OrderLocker`).
 #[derive(Clone)]
 pub(crate) struct ChainMonitorV2<P, ANP> {
     db: DbObj,
@@ -613,6 +613,7 @@ where
                         if let Err(err) = process_request_fulfilled(
                             event,
                             block_number,
+                            self.chain_id,
                             &self.db,
                             &self.order_state_tx,
                         )

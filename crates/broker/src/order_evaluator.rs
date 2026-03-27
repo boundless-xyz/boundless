@@ -288,16 +288,18 @@ impl RetryTask for OrderEvaluator {
 
                     Ok(state_change) = order_state_rx.recv() => {
                         match state_change {
-                            OrderStateChange::Locked { request_id, prover } => {
+                            OrderStateChange::Locked { request_id, chain_id, .. } => {
                                 tracing::debug!(
-                                    "Evaluator: request 0x{:x} locked by {:x}, removing pending LockAndFulfill orders",
-                                    request_id, prover,
+                                    chain_id,
+                                    "Evaluator: request 0x{:x} locked, removing pending LockAndFulfill orders",
+                                    request_id,
                                 );
                                 let initial_len = pending_orders.len();
                                 pending_orders.retain(|order| {
                                     let same_request = U256::from(order.request.id) == request_id;
+                                    let same_chain = order.chain_id == chain_id;
                                     let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
-                                    !(same_request && is_lock_and_fulfill)
+                                    !(same_request && same_chain && is_lock_and_fulfill)
                                 });
                                 let removed = initial_len - pending_orders.len();
                                 if removed > 0 {
@@ -307,13 +309,16 @@ impl RetryTask for OrderEvaluator {
                                     );
                                 }
                             }
-                            OrderStateChange::Fulfilled { request_id } => {
+                            OrderStateChange::Fulfilled { request_id, chain_id } => {
                                 tracing::debug!(
+                                    chain_id,
                                     "Evaluator: request 0x{:x} fulfilled, removing all pending orders",
                                     request_id,
                                 );
                                 let initial_len = pending_orders.len();
-                                pending_orders.retain(|order| U256::from(order.request.id) != request_id);
+                                pending_orders.retain(|order| {
+                                    !(U256::from(order.request.id) == request_id && order.chain_id == chain_id)
+                                });
                                 let removed = initial_len - pending_orders.len();
                                 if removed > 0 {
                                     tracing::debug!(
@@ -567,7 +572,11 @@ mod tests {
 
         // Lock request 1 -- should remove LockAndFulfill but keep FulfillAfterLockExpire
         state_tx
-            .send(OrderStateChange::Locked { request_id: queued_request_id, prover: Address::ZERO })
+            .send(OrderStateChange::Locked {
+                request_id: queued_request_id,
+                prover: Address::ZERO,
+                chain_id: 1,
+            })
             .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -616,7 +625,9 @@ mod tests {
 
         // Fulfill request 1 -- should remove ALL orders for that request
         let fulfilled_request_id: U256 = RequestId::new(Address::ZERO, 1).into();
-        state_tx.send(OrderStateChange::Fulfilled { request_id: fulfilled_request_id }).unwrap();
+        state_tx
+            .send(OrderStateChange::Fulfilled { request_id: fulfilled_request_id, chain_id: 1 })
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Free capacity
