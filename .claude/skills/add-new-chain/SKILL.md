@@ -66,7 +66,7 @@ envs respectively. It gets copied automatically from the source stack via
   - slasher (`ETH_RPC_URL`)
   - indexer (`ETH_RPC_URL` and optionally `LOGS_ETH_RPC_URL`)
   - order-generator (`ETH_RPC_URL`)
-    The user may provide a single URL for all, or different URLs per service.
+  The user may provide a single URL for all, or different URLs per service.
 - **ALB domain** for order-stream (e.g. `taiko-mainnet.boundless.network`), or skip if not setting up a domain yet
 
 Store all gathered values as variables for use in subsequent steps.
@@ -313,10 +313,14 @@ pulumi config set slasher:BASE_STACK "organization/bootstrap/services-{env}" --s
 
 #### indexer
 
+Note: `copy_config.sh` skips ALL keys matching `*ETH_RPC_URL*`, which includes
+both `ETH_RPC_URL` and `LOGS_ETH_RPC_URL`. Both must be set manually.
+
 ```bash
 pulumi config set indexer:CHAIN_ID "{CHAIN_ID}" --stack l-{env}-{CHAIN_ID}
 pulumi config set indexer:BOUNDLESS_ADDRESS "{BOUNDLESS_ADDRESS}" --stack l-{env}-{CHAIN_ID}
 pulumi config set indexer:ETH_RPC_URL "{RPC_URL}" --secret --stack l-{env}-{CHAIN_ID}
+pulumi config set indexer:LOGS_ETH_RPC_URL "{RPC_URL}" --secret --stack l-{env}-{CHAIN_ID}
 pulumi config set indexer:START_BLOCK "{START_BLOCK}" --stack l-{env}-{CHAIN_ID}
 pulumi config set indexer:BASE_STACK "organization/bootstrap/services-{env}" --stack l-{env}-{CHAIN_ID}
 ```
