@@ -27,19 +27,22 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
 use crate::{
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     errors::CodedError,
     futures_retry::retry_with_context,
     impl_coded_debug, now_timestamp,
+    order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils::prune_receipt_claim_journal,
     AggregationState, Batch, BatchStatus,
 };
 use thiserror::Error;
-use tokio_util::sync::CancellationToken;
 
 #[derive(Error)]
 pub enum AggregatorErr {
@@ -76,6 +79,8 @@ pub struct AggregatorService {
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
+    /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
+    commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl AggregatorService {
@@ -89,6 +94,7 @@ impl AggregatorService {
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
+        commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         Ok(Self {
             db,
@@ -99,6 +105,7 @@ impl AggregatorService {
             market_addr,
             prover_addr,
             chain_id,
+            commitment_completion_tx,
         })
     }
 
@@ -542,6 +549,11 @@ impl AggregatorService {
                         order.order_id,
                     );
                 }
+                let _ = self.commitment_completion_tx.try_send(CommitmentComplete {
+                    order_id: order.order_id.clone(),
+                    chain_id: self.chain_id,
+                    outcome: CommitmentOutcome::ProvingFailed,
+                });
             } else {
                 valid_orders.push(order);
             }
@@ -820,6 +832,7 @@ mod tests {
         chain_monitor::ChainMonitorService,
         db::SqliteDb,
         now_timestamp,
+        order_committer::CommitmentComplete,
         provers::{encode_input, DefaultProver, Prover},
         BatchStatus, FulfillmentType, Order, OrderStatus,
     };
@@ -894,6 +907,7 @@ mod tests {
             prover_addr,
             config,
             prover,
+            mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
         .unwrap();
@@ -1056,6 +1070,7 @@ mod tests {
             prover_addr,
             config,
             prover,
+            mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
         .unwrap();
@@ -1228,6 +1243,7 @@ mod tests {
             prover_addr,
             config,
             prover,
+            mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
         .unwrap();
@@ -1344,6 +1360,7 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
+            mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
         .unwrap();
@@ -1468,6 +1485,7 @@ mod tests {
             signer.address(),
             config.clone(),
             prover,
+            mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
         .unwrap();
@@ -1586,6 +1604,7 @@ mod tests {
             Address::ZERO,
             config,
             prover,
+            mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
         .unwrap();

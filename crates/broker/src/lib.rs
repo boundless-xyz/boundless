@@ -58,15 +58,18 @@ use sequential_fallback::SequentialFallbackLayer;
 use serde::{Deserialize, Serialize};
 use storage::ConfigurableDownloader;
 use task::{RetryPolicy, Supervisor};
-use tokio::{sync::mpsc, sync::RwLock, task::JoinSet};
+use tokio::{sync::broadcast, sync::mpsc, sync::RwLock, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tower::{Layer, ServiceBuilder};
 use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
-const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 const TELEMETRY_CHANNEL_CAPACITY: usize = 40960;
+const PRICER_CHANNEL_CAPACITY: usize = 1000;
+const COMPLETION_CHANNEL_CAPACITY: usize = 1000;
+const COMMITMENT_CHANNEL_CAPACITY: usize = 1000;
+const COMMITMENT_COMPLETION_CHANNEL_CAPACITY: usize = 1000;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
@@ -80,6 +83,8 @@ pub mod futures_retry;
 pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_committer;
+pub(crate) mod order_evaluator;
+pub(crate) mod order_locker;
 pub(crate) mod order_pricer;
 mod price_oracle;
 pub(crate) mod prioritization;
@@ -375,13 +380,25 @@ pub use boundless_market::prover_utils::{
     ProveLimitReason,
 };
 
-/// Message sent from MarketMonitor to OrderPricer about order state changes
+/// On-chain order state change broadcast from MarketMonitor to all unified components
+/// (OrderEvaluator, OrderPricer, OrderCommitter) and the ProvingService.
+///
+/// Each variant carries `chain_id` to ensure that events on one chain don't affect
+/// pending orders for other chains that may share the same `request_id`.
 #[derive(Debug, Clone)]
 pub enum OrderStateChange {
-    /// Order has been locked by a prover
-    Locked { request_id: U256, prover: Address },
-    /// Order has been fulfilled
-    Fulfilled { request_id: U256 },
+    Locked { request_id: U256, prover: Address, chain_id: u64 },
+    Fulfilled { request_id: U256, chain_id: u64 },
+}
+
+impl OrderStateChange {
+    /// Returns the chain that produced this state change event.
+    pub fn chain_id(&self) -> u64 {
+        match self {
+            OrderStateChange::Locked { chain_id, .. } => *chain_id,
+            OrderStateChange::Fulfilled { chain_id, .. } => *chain_id,
+        }
+    }
 }
 
 /// Helper function to format an order ID consistently
@@ -854,11 +871,45 @@ impl Broker {
 
         let chain_dbs: Vec<DbObj> = chains.iter().map(|c| c.db.clone()).collect();
 
+        // All chain monitors send discovered orders here; the evaluator reads from evaluator_order_rx.
+        let (evaluator_order_tx, evaluator_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+        // Pricers send preflight completions here; the evaluator reads from completion_rx to free capacity.
+        let (completion_tx, completion_rx) = mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
+        // Lock/fulfill events broadcast to both the evaluator (removes pending) and pricers (cancels active tasks).
+        let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
+        let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
+            std::collections::HashMap::new();
+
+        // All per-chain pricers send priced orders here; the unified committer reads from unified_pricing_rx.
+        let (unified_pricing_tx, unified_pricing_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+        // Per-chain committers send commitment completions here; the unified committer reads to free capacity.
+        let (commitment_completion_tx, commitment_completion_rx) =
+            mpsc::channel(COMMITMENT_COMPLETION_CHANNEL_CAPACITY);
+        let mut commitment_dispatchers: std::collections::HashMap<
+            u64,
+            mpsc::Sender<Box<OrderRequest>>,
+        > = std::collections::HashMap::new();
+
         for chain in &chains {
+            // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
+            let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
+            chain_dispatchers.insert(chain.chain_id, pricer_tx);
+
+            // Unified committer dispatches capacity-gated orders to this chain's committer.
+            let (committer_tx, committer_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+            commitment_dispatchers.insert(chain.chain_id, committer_tx);
+
             self.start_chain_pipeline(
                 chain,
                 prover.clone(),
                 aggregation_prover.clone(),
+                evaluator_order_tx.clone(),
+                pricer_rx,
+                completion_tx.clone(),
+                order_state_tx.clone(),
+                unified_pricing_tx.clone(),
+                committer_rx,
+                commitment_completion_tx.clone(),
                 &mut non_critical_tasks,
                 &mut critical_tasks,
                 non_critical_cancel_token.clone(),
@@ -866,6 +917,48 @@ impl Broker {
             )
             .await?;
         }
+        // Drop our clones so the unified components see channel closure when all producers exit.
+        drop(evaluator_order_tx);
+        drop(completion_tx);
+        drop(unified_pricing_tx);
+        drop(commitment_completion_tx);
+
+        let priority_requestors =
+            requestor_monitor::PriorityRequestors::new(base_config.clone(), 0);
+        let order_evaluator = Arc::new(order_evaluator::OrderEvaluator::new(
+            base_config.clone(),
+            evaluator_order_rx,
+            chain_dispatchers,
+            completion_rx,
+            order_state_tx.clone(),
+            priority_requestors.clone(),
+        ));
+        let cloned_config = base_config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(order_evaluator, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("Failed to start order evaluator")?;
+            Ok(())
+        });
+
+        let order_committer = Arc::new(order_committer::OrderCommitter::new(
+            base_config.clone(),
+            unified_pricing_rx,
+            commitment_dispatchers,
+            commitment_completion_rx,
+            order_state_tx,
+        ));
+        let cloned_config = base_config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(order_committer, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("Failed to start unified order committer")?;
+            Ok(())
+        });
 
         // Monitor supervisor tasks and handle shutdown
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -926,6 +1019,13 @@ impl Broker {
         chain: &ChainPipeline<P>,
         prover: ProverObj,
         aggregation_prover: ProverObj,
+        evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
+        pricer_rx: mpsc::Receiver<Box<OrderRequest>>,
+        completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
+        unified_pricing_tx: mpsc::Sender<Box<OrderRequest>>,
+        committer_rx: mpsc::Receiver<Box<OrderRequest>>,
+        commitment_completion_tx: mpsc::Sender<order_committer::CommitmentComplete>,
         non_critical_tasks: &mut JoinSet<Result<()>>,
         critical_tasks: &mut JoinSet<Result<()>>,
         non_critical_cancel_token: CancellationToken,
@@ -1050,25 +1150,23 @@ impl Broker {
         // Set up chain + market monitoring. Either use the standard ChainMonitorService +
         // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
         // replaces both with a single implementation.
-        let (chain_monitor, block_times, new_order_rx, new_order_tx, order_state_tx) = if self
-            .args
-            .experimental_rpc
-        {
-            let (monitor, new_order_rx) = chain_monitor_v2::ChainMonitorV2::new(
-                db.clone(),
-                provider.clone(),
-                Arc::new(chain.any_provider.clone()),
-                deployment.boundless_market_address,
-                private_key.address(),
-                lookback_blocks,
-                chain_id,
-                gas_priority_mode.clone(),
-            )
-            .await
-            .context("Failed to initialize ChainMonitorV2")?;
-            let monitor = Arc::new(monitor);
-            let new_order_tx = monitor.new_order_tx();
-            let order_state_tx = monitor.order_state_tx();
+        let (chain_monitor, block_times) = if self.args.experimental_rpc {
+            let monitor = Arc::new(
+                chain_monitor_v2::ChainMonitorV2::new(
+                    db.clone(),
+                    provider.clone(),
+                    Arc::new(chain.any_provider.clone()),
+                    deployment.boundless_market_address,
+                    private_key.address(),
+                    lookback_blocks,
+                    chain_id,
+                    gas_priority_mode.clone(),
+                    evaluator_order_tx.clone(),
+                    order_state_tx.clone(),
+                )
+                .await
+                .context("Failed to initialize ChainMonitorV2")?,
+            );
 
             let cloned = monitor.clone();
             let cloned_config = config.clone();
@@ -1082,18 +1180,8 @@ impl Broker {
             });
 
             let block_times = monitor.block_time();
-            (
-                monitor as chain_monitor::ChainMonitorObj,
-                block_times,
-                new_order_rx,
-                new_order_tx,
-                order_state_tx,
-            )
+            (monitor as chain_monitor::ChainMonitorObj, block_times)
         } else {
-            // Create channels for new orders and order state changes.
-            let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-            let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
-
             let chain_monitor_service = Arc::new(
                 chain_monitor::ChainMonitorService::new(
                     provider.clone(),
@@ -1105,7 +1193,6 @@ impl Broker {
 
             let cloned_chain_monitor = chain_monitor_service.clone();
             let cloned_config = config.clone();
-            // Critical task, as is relied on to query current chain state
             let cancel_token = critical_cancel_token.clone();
             critical_tasks.spawn(async move {
                 Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
@@ -1115,7 +1202,6 @@ impl Broker {
                 Ok(())
             });
 
-            // Spin up a supervisor for the market monitor
             let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
                 lookback_blocks,
                 events_poll_blocks,
@@ -1125,7 +1211,7 @@ impl Broker {
                 db.clone(),
                 chain_monitor_service.clone(),
                 private_key.address(),
-                new_order_tx.clone(),
+                evaluator_order_tx.clone(),
                 order_state_tx.clone(),
             ));
 
@@ -1142,24 +1228,17 @@ impl Broker {
                 Ok(())
             });
 
-            (
-                chain_monitor_service as chain_monitor::ChainMonitorObj,
-                block_times,
-                new_order_rx,
-                new_order_tx,
-                order_state_tx,
-            )
+            (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
         };
 
         tracing::debug!(chain_id, "Estimated block time: {block_times}");
 
-        // Spin up a supervisor for the offchain market monitor
         if let Some(client) = order_stream_client {
             let offchain_market_monitor =
                 Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
                     client,
                     private_key.clone(),
-                    new_order_tx.clone(),
+                    evaluator_order_tx.clone(),
                 ));
             let cloned_config = config.clone();
             let cancel_token = non_critical_cancel_token.clone();
@@ -1171,8 +1250,6 @@ impl Broker {
                 Ok(())
             });
         }
-
-        let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
         let market = Arc::new(BoundlessMarketService::new_for_broker(
             deployment.boundless_market_address,
@@ -1218,7 +1295,6 @@ impl Broker {
                 .build(),
         );
 
-        // Spin up the order pricer to pre-flight and find orders to lock
         let order_pricer = Arc::new(order_pricer::OrderPricer::new(
             db.clone(),
             config.clone(),
@@ -1226,8 +1302,8 @@ impl Broker {
             deployment.boundless_market_address,
             provider.clone(),
             chain_monitor.clone(),
-            new_order_rx,
-            pricing_tx,
+            pricer_rx,
+            unified_pricing_tx,
             collateral_token_decimals,
             order_state_tx.clone(),
             priority_requestors.clone(),
@@ -1237,6 +1313,7 @@ impl Broker {
             erc1271_gas_cache.clone(),
             self.args.listen_only,
             chain_id,
+            completion_tx,
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1248,9 +1325,7 @@ impl Broker {
             Ok(())
         });
 
-        // Always start the OrderCommitter so its full decision logic (caching, prioritization,
-        // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
-        let order_committer = Arc::new(order_committer::OrderCommitter::new(
+        let order_locker = Arc::new(order_locker::OrderLocker::new(
             db.clone(),
             provider.clone(),
             chain_monitor.clone(),
@@ -1258,9 +1333,9 @@ impl Broker {
             block_times,
             prover_addr,
             deployment.boundless_market_address,
-            pricing_rx,
+            committer_rx,
             collateral_token_decimals,
-            order_committer::RpcRetryConfig {
+            order_locker::RpcRetryConfig {
                 retry_count: self.args.rpc_retry_max.into(),
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
@@ -1269,14 +1344,15 @@ impl Broker {
             erc1271_gas_cache,
             self.args.listen_only,
             chain_id,
+            commitment_completion_tx.clone(),
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         non_critical_tasks.spawn(async move {
-            Supervisor::new(order_committer, cloned_config, cancel_token)
+            Supervisor::new(order_locker, cloned_config, cancel_token)
                 .spawn()
                 .await
-                .context("Failed to start order committer")?;
+                .context("Failed to start order locker")?;
             Ok(())
         });
 
@@ -1291,6 +1367,7 @@ impl Broker {
                 market.clone(),
                 self.downloader.clone(),
                 chain_id,
+                commitment_completion_tx.clone(),
             ));
 
             let cloned_config = config.clone();
@@ -1320,6 +1397,7 @@ impl Broker {
                     prover_addr,
                     config.clone(),
                     aggregation_prover.clone(),
+                    commitment_completion_tx.clone(),
                 )
                 .await
                 .context("Failed to initialize aggregator service")?,
@@ -1342,6 +1420,7 @@ impl Broker {
                 config.clone(),
                 prover.clone(),
                 chain_id,
+                commitment_completion_tx.clone(),
             ));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
@@ -1363,6 +1442,7 @@ impl Broker {
                 deployment.boundless_market_address,
                 set_builder_img_id,
                 chain_id,
+                commitment_completion_tx.clone(),
             )?);
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
