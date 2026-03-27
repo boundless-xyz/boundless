@@ -25,13 +25,12 @@ use crate::{
     config::ConfigLock,
     errors::CodedError,
     prioritization::prioritize_orders_to_evaluate,
-    requestor_monitor::PriorityRequestors,
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
 };
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
-const DEFAULT_MAX_PREFLIGHT_DURATION_SECS: u64 = 30000;
+const DEFAULT_MAX_PREFLIGHT_DURATION_SECS: u64 = 3600;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PreflightOutcome {
@@ -86,8 +85,6 @@ pub(crate) struct OrderEvaluator {
     chain_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
     completion_rx: Arc<Mutex<mpsc::Receiver<PreflightComplete>>>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
-    #[allow(dead_code)]
-    priority_requestors: PriorityRequestors,
 }
 
 impl OrderEvaluator {
@@ -97,7 +94,6 @@ impl OrderEvaluator {
         chain_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
         completion_rx: mpsc::Receiver<PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
-        priority_requestors: PriorityRequestors,
     ) -> Self {
         Self {
             config,
@@ -105,7 +101,6 @@ impl OrderEvaluator {
             chain_dispatchers: Arc::new(chain_dispatchers),
             completion_rx: Arc::new(Mutex::new(completion_rx)),
             order_state_tx,
-            priority_requestors,
         }
     }
 
@@ -442,16 +437,8 @@ mod tests {
             pricer_rxs.insert(chain_id, rx);
         }
 
-        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
-
-        let evaluator = OrderEvaluator::new(
-            config,
-            order_rx,
-            dispatchers,
-            completion_rx,
-            state_tx.clone(),
-            priority_requestors,
-        );
+        let evaluator =
+            OrderEvaluator::new(config, order_rx, dispatchers, completion_rx, state_tx.clone());
 
         (evaluator, order_tx, completion_tx, state_tx, pricer_rxs)
     }
@@ -716,15 +703,8 @@ mod tests {
         let mut dispatchers = HashMap::new();
         dispatchers.insert(1u64, pricer_tx);
 
-        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
-        let evaluator = OrderEvaluator::new(
-            config.clone(),
-            order_rx,
-            dispatchers,
-            completion_rx,
-            state_tx,
-            priority_requestors,
-        );
+        let evaluator =
+            OrderEvaluator::new(config.clone(), order_rx, dispatchers, completion_rx, state_tx);
 
         let cancel = CancellationToken::new();
         let handle = tokio::spawn({

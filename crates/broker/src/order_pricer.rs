@@ -50,7 +50,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 // Broker-specific skip codes for checks that live in OrderPicker (not in pricing logic).
 const SKIP_NOT_IN_ALLOWLIST: &str = "[S-OP-001]";
@@ -677,7 +677,7 @@ where
             let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> =
                 BTreeMap::new();
             let mut last_active_tasks_log: String = String::new();
-            let mut log_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
+            let mut log_interval = tokio::time::interval(LOG_INTERVAL);
 
             loop {
                 tokio::select! {
@@ -2139,9 +2139,7 @@ pub(crate) mod tests {
         ctx.new_order_tx.send(order1).await.unwrap();
 
         // Wait for the order to be processed and check for the "Added" log
-        tokio::time::timeout(MIN_CAPACITY_CHECK_INTERVAL * 2, ctx.priced_orders_rx.recv())
-            .await
-            .unwrap();
+        tokio::time::timeout(LOG_INTERVAL * 2, ctx.priced_orders_rx.recv()).await.unwrap();
 
         // Check that we logged the task being added (or that it was completed before the interval)
         assert!(logs_contain("Current pricing tasks: [") || logs_contain("Priced task for order"));

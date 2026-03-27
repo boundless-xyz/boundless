@@ -886,19 +886,12 @@ impl Broker {
             )
             .await?;
         }
-        // Drop our clones so the evaluator sees channel closure when all producers (monitors/pricers) exit.
-        drop(evaluator_order_tx);
-        drop(completion_tx);
-
-        let priority_requestors =
-            requestor_monitor::PriorityRequestors::new(base_config.clone(), 0);
         let order_evaluator = Arc::new(order_evaluator::OrderEvaluator::new(
             base_config.clone(),
             evaluator_order_rx,
             chain_dispatchers,
             completion_rx,
             order_state_tx,
-            priority_requestors,
         ));
         let cloned_config = base_config.clone();
         let cancel_token = non_critical_cancel_token.clone();
