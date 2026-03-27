@@ -7,7 +7,9 @@ interface LOrderGeneratorPipelineArgs extends BasePipelineArgs { }
 const config: LaunchPipelineConfig = {
   appName: "order-generator",
   buildTimeout: 60,
-  computeType: "BUILD_GENERAL1_LARGE"
+  computeType: "BUILD_GENERAL1_LARGE",
+  branchName: "willpote/infra-taiko-v2",
+  includeTaiko: true,
 };
 
 export class LOrderGeneratorPipeline extends LaunchDefaultPipeline {
