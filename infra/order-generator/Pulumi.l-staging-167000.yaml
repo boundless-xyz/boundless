@@ -11,7 +11,7 @@ config:
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:7PLcXIEjgrqam2dS:xe1rESzWS1cuvaenW4BN50XWB8BUNdGOFc9H7sxXdp+nxWOvVDMh8cpzs8daz5DSPf5D3591f6+1G2DMQL8ysLidB4Gnnq7OKCU2bbbbj7koTz9f86WJunY9KImLT1sITi/bXCdkqCNReuw0Iw==
   order-generator-base:INDEXER_URL:
-    secure: v1:XgPZCxS7eYPmk+0t:xxWR25aAh93RA8+xA6RTrRuV8pLwvql5G/CVDJJlZxSeyiNnWG1aupcw3xq5x/OFL0+Z/ss=
+    secure: v1:89O26wmmlPr/+0Ad:Njr55N9i8S2pJMiVlmxgK0snx9n13ACWnleShjGTpPT4ougeEZ6rG2Z+aqYmxC4eNjdkVdo=
   order-generator-base:INTERVAL: "600"
   order-generator-base:IPFS_GATEWAY_URL: https://gateway.beboundless.cloud
   order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"

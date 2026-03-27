@@ -66,7 +66,7 @@ envs respectively. It gets copied automatically from the source stack via
   - slasher (`ETH_RPC_URL`)
   - indexer (`ETH_RPC_URL` and optionally `LOGS_ETH_RPC_URL`)
   - order-generator (`ETH_RPC_URL`)
-  The user may provide a single URL for all, or different URLs per service.
+    The user may provide a single URL for all, or different URLs per service.
 - **ALB domain** for order-stream (e.g. `taiko-mainnet.boundless.network`), or skip if not setting up a domain yet
 
 Store all gathered values as variables for use in subsequent steps.

@@ -24,7 +24,7 @@ config:
   distributor:GH_TOKEN_SECRET:
     secure: v1:nJLwP56lVOhvNzBl:G/LVIXN1NLmk+cswfgziiKLXCjB+nPPB5PJ4NszV+EHc0g9/r6Sfql4qbax3grATAt2Tg0QPLdntAKDB34/BErXSRa1QxXgmfSpQ3mKbhSSOVcuI4OejHy9m3Z9W/2nmxVJRI1vTDqIkwctnwg==
   distributor:INDEXER_API_URL:
-    secure: v1:XWB/oGm+bm6icfns:GWT5vHhwVjyfD+mqQKGWx+8ldJHIyJ22TEBy0dhes6ourn1SDmKt2jK2AGKpaVd+bolk6dIY
+    secure: v1:es9q9QKxhpB7aWdQ:LX862fHL5Eo/PqkZdGmCHXzo0GT8TpcM7CZ1aycptoGHwAtgkcknQB7a+q9AYyFTJO0i7Ow=
   distributor:LOG_LEVEL: info,boundless_market=debug
   distributor:MIN_BCYCLES_THRESHOLD: "1"
   distributor:ORDER_GENERATOR_KEYS:
@@ -43,3 +43,5 @@ config:
   distributor:STAKE_TOP_UP_AMOUNT: "1000"
   distributor:ETH_RPC_URL:
     secure: v1:aEd+iCjLWIJt5/cD:F3Ilj+X1vTUH88QaW6uUZXTz8TxSmBy/jfyGdnLoT1IXAQGUOaIRTHY7Em0/
+  distributor:CHAINALYSIS_API_KEY:
+    secure: v1:EwnWzq+sLC1goQEA:goaoWUUx3rNoKBr7nrlcQdZlqwSiYFSymnOr0StAd/9KiQaMQeJUP3F3mGdHcjjO5X3FZEe3q9BN/3cDPIs4TFaLHUWlj3Ao6OjRbOQcZk0=

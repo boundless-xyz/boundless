@@ -22,7 +22,7 @@ config:
   distributor:GH_TOKEN_SECRET:
     secure: v1:bsc3c78pA/YuEj9Q:yXnNxu3ljSx4t4BYZEKeT+TwuEQ0PbKnea6bljVrFi32IbF1K9lAusvv+1HfcxFpKmq3+dcGtcH8+Vyj2rfqnfqMum+N01GJDaKvsqcdHufrsruMN9rAP82TktjG2FNJS/fhSS0THuU31YH1+A==
   distributor:INDEXER_API_URL:
-    secure: v1:oGDCpvrR+qPpqome:5DgsDZBmVH0F+sXrj9Z8lVASwYFAkd7nAD6CjXcEzxErtlkitHzZp45CIt4CmA/WCJlcdR8d
+    secure: v1:IpMbmiUz7hL9ldw9:YC2+8mflh684YkK8m1IVSfkUxXmYl8zq9F2lgwCGv3rxOZPkXpKFwJyKJDxIvUAOiUVEB+k=
   distributor:LOG_LEVEL: info,boundless_market=debug
   distributor:MIN_BCYCLES_THRESHOLD: "100"
   distributor:OFFCHAIN_REQUESTOR_ADDRESSES: 0xc197ebe12c7bcf1d9f3b415342bdbc795425335c,0x076aCA5883aDB08C31E9308C59cD8495A2513DA7
