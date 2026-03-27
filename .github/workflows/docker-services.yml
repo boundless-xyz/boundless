@@ -116,7 +116,7 @@ jobs:
         with:
           context: .
           file: dockerfiles/proving-artifacts.dockerfile
-          push: true  # TODO: change back to ${{ github.event_name != 'pull_request' }} after v1 is rebuilt
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=s3,name=proving-artifacts-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache
           cache-to: type=s3,name=proving-artifacts-cache,manifests_prefix=shared/boundless/docker/manifests/,blobs_prefix=shared/boundless/docker/blobs/,region=us-west-2,bucket=risc0-ci-cache,mode=max
