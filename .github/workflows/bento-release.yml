@@ -16,169 +16,98 @@ on:
         default: 'false'
 
 env:
-  RISC0_TOOLCHAIN_VERSION: 1.88.0
-  RISC0_CRATE_VERSION: "3.0.3"
-  RUST_VERSION: "1.88.0"
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
-  build-bento:
-    name: Build Bento Components
-    runs-on: ubuntu-latest
-    # runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+  extract-binaries:
+    name: Extract Binaries from Docker Images
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
-      contents: read    # Required for checkout
-      id-token: write   # Required for OIDC authentication with AWS
-    strategy:
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: linux
-            arch: x64
-            artifact_name: linux-amd64
-
+      contents: read
+      packages: read
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
+      - name: Compute short SHA
+        id: sha
+        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
-      - name: Install deps
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for Docker Services workflow to complete
         run: |
-          # Add NVIDIA repository and install drivers
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-          sudo dpkg -i cuda-keyring_1.1-1_all.deb
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev binutils lld mold cuda-toolkit-13-0 nvidia-open
+          echo "Waiting for docker-services workflow to push nightly-${{ steps.sha.outputs.short_sha }} images..."
+          SHORT_SHA=${{ steps.sha.outputs.short_sha }}
+          IMAGE=${{ env.IMAGE_PREFIX }}/bento-agent:nightly-${SHORT_SHA}
+          for i in $(seq 1 60); do
+            if docker pull "$IMAGE" > /dev/null 2>&1; then
+              echo "Image $IMAGE is available"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "ERROR: Timed out waiting for $IMAGE"
+              exit 1
+            fi
+            echo "Attempt $i/60: Image not yet available, waiting 30s..."
+            sleep 30
+          done
 
-
-          # Temporary installations while using the default ubuntu-latest runner. Remove if using self-hosted AMI
-          sudo apt-get -y install clang curl git-lfs iptables libssl-dev pkg-config uidmap wget zstd cmake tree zlib1g-dev
-
-          # Debug PATH and verify tools
-          echo "=== PATH Debug ==="
-          echo "PATH: $PATH"
-          echo "=== Tool Locations ==="
-          which gcc || echo "gcc not found"
-          which cc || echo "cc not found"
-          which nvcc || echo "nvcc not found"
-          echo "=== CUDA Paths ==="
-          ls -la /usr/local/cuda/bin/ || echo "CUDA bin not found"
-          ls -la /usr/bin/gcc || echo "System gcc not found"
-
-      # - name: setup sccache + s3
-      #   uses: ./.github/actions/sccache
-
-      - name: Setup Rust toolchain
-        uses: risc0/risc0/.github/actions/rustup@v3.0.3
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-
-      - name: Install protoc
-        uses: risc0/risc0/.github/actions/protoc@v3.0.3
-
-      - name: Install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            bento/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build Bento Components Bundle
-        working-directory: bento
-        env:
-          CUDA_PATH: /usr/local/cuda
-          CUDA_HOME: /usr/local/cuda
-          PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
-          LD_LIBRARY_PATH: /usr/local/cuda/lib64:$LD_LIBRARY_PATH
-          NVCC_APPEND_FLAGS: "--generate-code arch=compute_75,code=sm_75 --generate-code arch=compute_80,code=sm_80 --generate-code arch=compute_86,code=sm_86 --generate-code arch=compute_89,code=sm_89 --generate-code arch=compute_120,code=sm_120"
-          SCCACHE_CUDA: "1"
-          SCCACHE_CUDA_COMPILER: "nvcc"
-          SCCACHE_CUDA_INCLUDE: "/usr/local/cuda/include"
-          SCCACHE_CUDA_LIB: "/usr/local/cuda/lib64"
+      - name: Extract binaries from Docker images
         run: |
-          # Build all components
-          cargo build --release --target ${{ matrix.target }} -F cuda --bin agent
-          cargo build --release --target ${{ matrix.target }} --bin rest_api
-          cargo build --release --target ${{ matrix.target }} --bin bento_cli
+          SHORT_SHA=${{ steps.sha.outputs.short_sha }}
+          mkdir -p bento-bundle
 
-          # Create bundle directory in workspace root
-          mkdir -p ../binaries/${{ matrix.artifact_name }}/bento-bundle
+          # Extract agent binary from GPU agent image (already pulled above)
+          docker create --name tmp-agent ${{ env.IMAGE_PREFIX }}/bento-agent:nightly-${SHORT_SHA}
+          docker cp tmp-agent:/app/agent bento-bundle/bento-agent
+          docker rm tmp-agent
 
-          # Copy all components to bundle
-          cp target/${{ matrix.target }}/release/agent ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-agent
-          cp target/${{ matrix.target }}/release/rest_api ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-rest-api
-          cp target/${{ matrix.target }}/release/bento_cli ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-cli
+          # Extract rest_api binary
+          docker pull ${{ env.IMAGE_PREFIX }}/bento-rest-api:nightly-${SHORT_SHA}
+          docker create --name tmp-rest-api ${{ env.IMAGE_PREFIX }}/bento-rest-api:nightly-${SHORT_SHA}
+          docker cp tmp-rest-api:/app/rest_api bento-bundle/bento-rest-api
+          docker rm tmp-rest-api
+
+          # Extract bento_cli binary
+          docker pull ${{ env.IMAGE_PREFIX }}/bento-cli:nightly-${SHORT_SHA}
+          docker create --name tmp-cli ${{ env.IMAGE_PREFIX }}/bento-cli:nightly-${SHORT_SHA}
+          docker cp tmp-cli:/app/bento_cli bento-bundle/bento-cli
+          docker rm tmp-cli
 
           # Create bundle archive
-          cd ../binaries/${{ matrix.artifact_name }}
-          tar -czf bento-bundle-${{ matrix.artifact_name }}.tar.gz bento-bundle/
+          tar -czf bento-bundle-linux-amd64.tar.gz bento-bundle/
+          sha256sum bento-bundle-linux-amd64.tar.gz > bento-bundle-linux-amd64.tar.gz.sha256
           rm -rf bento-bundle/
-
-      # - name: sccache stats
-      #   run: sccache --show-stats
-
-      - name: Create checksums
-        working-directory: binaries/${{ matrix.artifact_name }}
-        run: |
-          sha256sum bento-bundle-${{ matrix.artifact_name }}.tar.gz > bento-bundle-${{ matrix.artifact_name }}.tar.gz.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bento-binaries-${{ matrix.artifact_name }}
-          path: binaries/${{ matrix.artifact_name }}
+          name: bento-binaries-linux-amd64
+          path: |
+            bento-bundle-linux-amd64.tar.gz
+            bento-bundle-linux-amd64.tar.gz.sha256
           retention-days: 30
 
   create-release:
     name: Create GitHub Release
-    needs: build-bento
+    needs: extract-binaries
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/bento-v') && github.event.inputs.dry_run != 'true'
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install gh CLI
-        run: |
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y gh
-
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Prepare release assets
-        run: |
-          mkdir -p release-assets
-          for artifact in artifacts/bento-binaries-*; do
-            if [ -d "$artifact" ]; then
-              cp -r "$artifact"/* release-assets/
-            fi
-          done
-          ls -la release-assets/
+          name: bento-binaries-linux-amd64
+          path: release-assets
 
       - name: Extract version from tag
         id: get_version
@@ -186,7 +115,6 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "release_name=Bento Release $VERSION" >> $GITHUB_OUTPUT
-          # Detect RC version
           if [[ "$VERSION" == *"-rc."* ]]; then
             echo "is_rc=true" >> $GITHUB_OUTPUT
           else
@@ -210,7 +138,7 @@ jobs:
           This release includes a complete bundle of Bento components:
           - **Bento Agent**: Workflow execution agent (with CUDA support)
           - **Bento REST API**: REST API server
-          - **Bento Client**: Client library
+          - **Bento CLI**: CLI tool
 
           ### Supported Platforms
           - Linux AMD64
@@ -218,34 +146,17 @@ jobs:
           ### Installation
           Download the appropriate bundle for your platform and extract:
           \`\`\`bash
-          # Download and extract
           tar -xzf bento-bundle-linux-amd64.tar.gz
           cd bento-bundle
-
-          # Make executables
-          chmod +x bento-agent
-          chmod +x bento-rest-api
-          chmod +x bento-client
-          \`\`\`
-
-          ### Usage
-          \`\`\`bash
-          # Run agent
-          ./bento-agent --help
-
-          # Run REST API
-          ./bento-rest-api --help
-
-          # Run client
-          ./bento-client --help
+          chmod +x bento-agent bento-rest-api bento-cli
           \`\`\`
 
           ### Verification
           Verify the integrity of downloaded bundles using the provided SHA256 checksums." \
             ./release-assets/*
 
-  build-docker:
-    name: Build and Push Docker Images
+  retag-docker:
+    name: Retag Docker Images
     needs: create-release
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
@@ -253,10 +164,7 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Extract version from tag
+      - name: Extract version and commit SHA
         id: get_version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
@@ -268,45 +176,62 @@ jobs:
             echo "minor_version=$(echo "$VERSION" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
             echo "minor_version_unprefixed=$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
           fi
+          # Short SHA for matching the nightly image tag
+          echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install crane
+        run: |
+          VERSION=v0.20.2
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and push bento-agent image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfiles/agent.prebuilt.dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.version_unprefixed }}
-            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/bento-agent:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
-            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/bento-agent:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
-            ghcr.io/${{ github.repository }}/bento-agent:latest
-          build-args: |
-            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
-            BLAKE3_GROTH16_ARTIFACTS_URL=${{ vars.BLAKE3_GROTH16_ARTIFACTS_URL || 'https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz' }}
-            USE_LOCAL_BLAKE3_GROTH16_SETUP=0
+      - name: Retag bento-agent image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-agent:nightly-${{ steps.get_version.outputs.short_sha }}
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done
 
-      - name: Build and push bento-rest-api image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfiles/rest_api.prebuilt.dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.version_unprefixed }}
-            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/bento-rest-api:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
-            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/bento-rest-api:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
-            ghcr.io/${{ github.repository }}/bento-rest-api:latest
-          build-args: |
-            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
+      - name: Retag bento-agent-cpu image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-agent-cpu:nightly-${{ steps.get_version.outputs.short_sha }}
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done
+
+      - name: Retag bento-rest-api image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-rest-api:nightly-${{ steps.get_version.outputs.short_sha }}
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done
+
+      - name: Retag bento-cli image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-cli:nightly-${{ steps.get_version.outputs.short_sha }}
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done

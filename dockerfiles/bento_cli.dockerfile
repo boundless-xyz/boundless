@@ -28,6 +28,8 @@ RUN curl -L https://risczero.com/install | bash && \
 FROM rust-builder AS builder
 
 ARG S3_CACHE_PREFIX
+ARG S3_CACHE_BUCKET="boundless-sccache"
+ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 ENV SCCACHE_SERVER_PORT=4227
 
 WORKDIR /src/
@@ -42,6 +44,8 @@ ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_cli_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/bento/target,id=bento_cli_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
