@@ -210,8 +210,8 @@ jobs:
           Verify the integrity of downloaded files using the provided SHA256 checksums." \
             ./release-assets/*
 
-  build-docker:
-    name: Build and Push Docker Image
+  retag-docker:
+    name: Retag Docker Image
     needs: create-release
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
@@ -219,9 +219,6 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Extract version from tag
         id: get_version
         run: |
@@ -235,27 +232,23 @@ jobs:
             echo "minor_version_unprefixed=$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install crane
+        run: |
+          VERSION=v0.20.2
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and push broker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfiles/broker.prebuilt.dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/broker:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/broker:${{ steps.get_version.outputs.version_unprefixed }}
-            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/broker:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
-            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/broker:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
-            ghcr.io/${{ github.repository }}/broker:latest
-          build-args: |
-            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/broker
+      - name: Retag broker image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/broker:nightly-latest
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done

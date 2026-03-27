@@ -244,8 +244,8 @@ jobs:
           Verify the integrity of downloaded bundles using the provided SHA256 checksums." \
             ./release-assets/*
 
-  build-docker:
-    name: Build and Push Docker Images
+  retag-docker:
+    name: Retag Docker Images
     needs: create-release
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
@@ -253,9 +253,6 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Extract version from tag
         id: get_version
         run: |
@@ -269,44 +266,59 @@ jobs:
             echo "minor_version_unprefixed=$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install crane
+        run: |
+          VERSION=v0.20.2
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and push bento-agent image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfiles/agent.prebuilt.dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.version_unprefixed }}
-            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/bento-agent:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
-            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/bento-agent:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
-            ghcr.io/${{ github.repository }}/bento-agent:latest
-          build-args: |
-            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
-            BLAKE3_GROTH16_ARTIFACTS_URL=${{ vars.BLAKE3_GROTH16_ARTIFACTS_URL || 'https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz' }}
-            USE_LOCAL_BLAKE3_GROTH16_SETUP=0
+      - name: Retag bento-agent image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-agent:nightly-latest
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done
 
-      - name: Build and push bento-rest-api image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfiles/rest_api.prebuilt.dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.version_unprefixed }}
-            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/bento-rest-api:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
-            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/bento-rest-api:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
-            ghcr.io/${{ github.repository }}/bento-rest-api:latest
-          build-args: |
-            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
+      - name: Retag bento-agent-cpu image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-agent-cpu:nightly-latest
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done
+
+      - name: Retag bento-rest-api image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-rest-api:nightly-latest
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done
+
+      - name: Retag bento-cli image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/bento-cli:nightly-latest
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "latest"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done
