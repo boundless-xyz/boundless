@@ -146,6 +146,10 @@ jobs:
             dockerfile: dockerfiles/agent.dockerfile
             submodules: false
             runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+          - name: agent-cpu
+            dockerfile: dockerfiles/agent.cpu.dockerfile
+            submodules: false
+            runner: [self-hosted, prod, Linux, cpu]
     runs-on: ${{ matrix.service.runner }}
     steps:
       - name: Checkout code
