@@ -171,10 +171,11 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           VERSION_UNPREFIXED=${VERSION#bento-}
           echo "version_unprefixed=$VERSION_UNPREFIXED" >> $GITHUB_OUTPUT
-          # Only compute minor versions for non-RC tags
+          # Only compute minor versions and latest tag for non-RC tags
           if [[ "$VERSION" != *"-rc."* ]]; then
             echo "minor_version=$(echo "$VERSION" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
             echo "minor_version_unprefixed=$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
+            echo "latest=latest" >> $GITHUB_OUTPUT
           fi
           # Short SHA for matching the nightly image tag
           echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
@@ -196,7 +197,7 @@ jobs:
             "${{ steps.get_version.outputs.version_unprefixed }}" \
             "${{ steps.get_version.outputs.minor_version }}" \
             "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "latest"; do
+            "${{ steps.get_version.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
 
@@ -208,7 +209,7 @@ jobs:
             "${{ steps.get_version.outputs.version_unprefixed }}" \
             "${{ steps.get_version.outputs.minor_version }}" \
             "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "latest"; do
+            "${{ steps.get_version.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
 
@@ -220,7 +221,7 @@ jobs:
             "${{ steps.get_version.outputs.version_unprefixed }}" \
             "${{ steps.get_version.outputs.minor_version }}" \
             "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "latest"; do
+            "${{ steps.get_version.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
 
@@ -232,6 +233,6 @@ jobs:
             "${{ steps.get_version.outputs.version_unprefixed }}" \
             "${{ steps.get_version.outputs.minor_version }}" \
             "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "latest"; do
+            "${{ steps.get_version.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
