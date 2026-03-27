@@ -1221,9 +1221,9 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+        let query_str = "SELECT COUNT(DISTINCT (md5(input_data), image_url)) as count
             FROM request_status
-            WHERE expires_at >= $1 
+            WHERE expires_at >= $1
             AND expires_at < $2
             AND request_status = 'expired'
             AND locked_at IS NOT NULL
@@ -1349,7 +1349,7 @@ pub trait RequestorDb: IndexerDb {
         end_ts: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+        let query_str = "SELECT COUNT(DISTINCT (md5(input_data), image_url)) as count
             FROM request_status
             WHERE expires_at < $1
             AND request_status = 'expired'
@@ -1980,7 +1980,7 @@ async fn get_requestor_leaderboard_impl(
         let addr_placeholders_str = addr_placeholders.join(", ");
 
         let batch_fulfilled_query = format!(
-            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+            "SELECT rs.client_address, COUNT(DISTINCT (md5(pr.input_data), pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.fulfilled_at >= $1
@@ -1992,7 +1992,7 @@ async fn get_requestor_leaderboard_impl(
         );
 
         let batch_expired_query = format!(
-            "SELECT rs.client_address, COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+            "SELECT rs.client_address, COUNT(DISTINCT (md5(pr.input_data), pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.expires_at >= $1
