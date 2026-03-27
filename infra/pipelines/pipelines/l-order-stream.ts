@@ -8,7 +8,7 @@ const config: LaunchPipelineConfig = {
   appName: "order-stream",
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
-  branchName: "main",
+  branchName: "willpote/infra-taiko-v2",
   includeTaiko: true,
   postBuildCommands: [
     'pulumi stack select $STACK_NAME',
