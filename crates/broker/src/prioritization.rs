@@ -32,6 +32,7 @@ enum UnifiedPriorityMode {
     ShortestExpiry,
     Price,
     CyclePrice,
+    TightestDeadline { peak_prove_khz: u64 },
 }
 
 impl From<OrderPricingPriority> for UnifiedPriorityMode {
@@ -44,13 +45,24 @@ impl From<OrderPricingPriority> for UnifiedPriorityMode {
     }
 }
 
-impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
-    fn from(mode: OrderCommitmentPriority) -> Self {
-        match mode {
+impl UnifiedPriorityMode {
+    fn from_commitment_priority(
+        priority: OrderCommitmentPriority,
+        peak_prove_khz: Option<u64>,
+    ) -> Self {
+        match priority {
             OrderCommitmentPriority::Random => UnifiedPriorityMode::Random,
             OrderCommitmentPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
             OrderCommitmentPriority::Price => UnifiedPriorityMode::Price,
             OrderCommitmentPriority::CyclePrice => UnifiedPriorityMode::CyclePrice,
+            OrderCommitmentPriority::TightestDeadline => {
+                if let Some(peak_prove_khz) = peak_prove_khz {
+                    UnifiedPriorityMode::TightestDeadline { peak_prove_khz }
+                } else {
+                    tracing::warn!("TightestDeadline priority requires peak_prove_khz to be set; falling back to ShortestExpiry");
+                    UnifiedPriorityMode::ShortestExpiry
+                }
+            }
         }
     }
 }
@@ -161,6 +173,23 @@ where
             });
             log_secondary_ranking(orders, now);
         }
+        UnifiedPriorityMode::TightestDeadline { peak_prove_khz } => {
+            orders.sort_by_cached_key(|o| {
+                let order = o.as_ref();
+                let expiry = order.expiry();
+                let time_remaining = expiry.saturating_sub(now);
+                let estimated_prove_time = order.total_cycles.map(|cycles| {
+                    cycles.div_ceil(1_000).div_ceil(peak_prove_khz)
+                }).unwrap_or_else(|| {
+                    tracing::warn!(
+                        order_id = %order.id(),
+                        "TightestDeadline: order has no total_cycles, falling back to raw expiry margin"
+                    );
+                    0
+                });
+                time_remaining.saturating_sub(estimated_prove_time)
+            });
+        }
     }
 }
 
@@ -213,9 +242,11 @@ impl<P> OrderMonitor<P> {
         mut orders: Vec<Arc<OrderRequest>>,
         priority_mode: OrderCommitmentPriority,
         priority_addresses: Option<&[alloy::primitives::Address]>,
+        peak_prove_khz: Option<u64>,
     ) -> Vec<Arc<OrderRequest>> {
-        // Sort orders with priority addresses first, then by mode
-        sort_orders_by_priority_and_mode(&mut orders, priority_addresses, priority_mode.into());
+        let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
+
+        sort_orders_by_priority_and_mode(&mut orders, priority_addresses, mode);
 
         tracing::debug!(
             "Orders ready for proving, prioritized. Before applying capacity limits: {}",
@@ -239,6 +270,13 @@ mod tests {
     };
     use alloy::primitives::U256;
     use tracing_test::traced_test;
+
+    fn test_priority(priority: OrderCommitmentPriority) -> UnifiedPriorityMode {
+        if OrderCommitmentPriority::TightestDeadline == priority {
+            panic!("Use from_commitment_priority instead when testing commitment priority");
+        }
+        UnifiedPriorityMode::from_commitment_priority(priority, None)
+    }
 
     #[tokio::test]
     #[traced_test]
@@ -475,8 +513,12 @@ mod tests {
 
         let orders =
             vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
-        let orders =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+        let orders = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            None,
+            None,
+        );
 
         assert!(orders[0].id() == order_1_id);
         assert!(orders[1].id() == order_3_id);
@@ -524,8 +566,12 @@ mod tests {
 
         for _ in 0..10 {
             let test_orders = orders.clone();
-            let test_orders =
-                ctx.monitor.prioritize_orders(test_orders, OrderCommitmentPriority::Random, None);
+            let test_orders = ctx.monitor.prioritize_orders(
+                test_orders,
+                OrderCommitmentPriority::Random,
+                None,
+                None,
+            );
 
             // Extract the ordering of all orders
             let order_ids: Vec<_> = test_orders.iter().map(|order| order.request.id).collect();
@@ -537,7 +583,7 @@ mod tests {
 
         // Test that random mode produces different orderings
         let prioritized =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random, None);
+            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random, None, None);
 
         // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
         let lock_and_fulfill_count = prioritized
@@ -589,7 +635,11 @@ mod tests {
         let high_value_secondary = std::sync::Arc::new(high_value_secondary);
 
         let mut orders = vec![low_value_primary.clone(), high_value_secondary.clone()];
-        sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
+        sort_orders_by_priority_and_mode(
+            &mut orders,
+            None,
+            test_priority(OrderCommitmentPriority::Price),
+        );
 
         // Secondary order should be first: effective reward [400, 2000] > primary price 200
         assert_eq!(
@@ -644,7 +694,7 @@ mod tests {
         sort_orders_by_priority_and_mode(
             &mut orders,
             None,
-            OrderCommitmentPriority::CyclePrice.into(),
+            test_priority(OrderCommitmentPriority::CyclePrice),
         );
 
         // Secondary order should be first: per-cycle reward [40, 200] >> primary per-cycle 2
@@ -690,8 +740,12 @@ mod tests {
             orders.push(Arc::from(order));
         }
 
-        let prioritized =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+        let prioritized = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            None,
+            None,
+        );
 
         // Orders should be sorted by their relevant expiry times, regardless of type
         // Expected order: LockAndFulfill(100), LockAndFulfill(150), FulfillAfterLockExpire(150), LockAndFulfill(200), FulfillAfterLockExpire(250), FulfillAfterLockExpire(300)
@@ -751,11 +805,16 @@ mod tests {
             _prioritized_random,
             OrderCommitmentPriority::Random,
             None,
+            None,
         );
 
         // Test shortest expiry mode
-        let prioritized_shortest =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+        let prioritized_shortest = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            None,
+            None,
+        );
 
         // In shortest expiry mode, orders should be sorted by expiry time
         for i in 0..3 {
@@ -883,6 +942,7 @@ mod tests {
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             None,
+            None,
         );
         assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 100); // Regular order first
 
@@ -892,6 +952,7 @@ mod tests {
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             Some(&priority_addresses),
+            None,
         );
 
         // Priority order should be first despite longer expiry, regular order second
@@ -984,7 +1045,11 @@ mod tests {
         let mut orders =
             vec![lock_30.clone(), lock_10.clone(), lock_20.clone(), exp_a.clone(), exp_b.clone()];
 
-        sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
+        sort_orders_by_priority_and_mode(
+            &mut orders,
+            None,
+            test_priority(OrderCommitmentPriority::Price),
+        );
 
         // First 3 must be lock-capable, ordered by price desc (30_000, 20_000, 10_000)
         assert_eq!(orders[0].request.offer.maxPrice, U256::from(30_000u64));
@@ -1022,7 +1087,7 @@ mod tests {
             sort_orders_by_priority_and_mode(
                 &mut test_orders,
                 None,
-                OrderCommitmentPriority::Price.into(),
+                test_priority(OrderCommitmentPriority::Price),
             );
             tails.insert((test_orders[3].request.id, test_orders[4].request.id));
             if test_orders[3].request.id == exp_a.request.id {
@@ -1136,7 +1201,7 @@ mod tests {
         sort_orders_by_priority_and_mode(
             &mut orders,
             None,
-            OrderCommitmentPriority::CyclePrice.into(),
+            test_priority(OrderCommitmentPriority::CyclePrice),
         );
 
         assert_eq!(orders[0].request.id, lock_b.request.id);
@@ -1169,7 +1234,7 @@ mod tests {
             sort_orders_by_priority_and_mode(
                 &mut test_orders,
                 None,
-                OrderCommitmentPriority::CyclePrice.into(),
+                test_priority(OrderCommitmentPriority::CyclePrice),
             );
             tails.insert((test_orders[3].request.id, test_orders[4].request.id));
             if test_orders[3].request.id == exp_a.request.id {
@@ -1239,7 +1304,7 @@ mod tests {
             sort_orders_by_priority_and_mode(
                 &mut orders,
                 None,
-                OrderCommitmentPriority::Price.into(),
+                test_priority(OrderCommitmentPriority::Price),
             );
             let ids: Vec<_> = orders.iter().map(|o| o.request.id).collect();
             all_orderings.insert(ids);
@@ -1249,5 +1314,161 @@ mod tests {
             all_orderings.len() > 1,
             "Secondary orders with identical expected_reward_eth should produce different orderings due to random factor"
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_prioritize_orders_closest_timeout() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Order A: expires in 100s, needs 80s to prove → margin = 20s
+        let mut order_a = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+        order_a.total_cycles = Some(80_000_000); // 80M cycles
+        let id_a = order_a.id();
+
+        // Order B: expires in 60s, needs 10s to prove → margin = 50s
+        let mut order_b = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 60, 200)
+            .await;
+        order_b.total_cycles = Some(10_000_000); // 10M cycles
+        let id_b = order_b.id();
+
+        // Order C: expires in 50s, needs 20s to prove → margin = 30s
+        let mut order_c = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 50, 200)
+            .await;
+        order_c.total_cycles = Some(20_000_000); // 20M cycles
+        let id_c = order_c.id();
+
+        let orders = vec![Arc::from(order_b), Arc::from(order_c), Arc::from(order_a)];
+
+        // peak_prove_khz = 1000 → 1M cycles/sec
+        // Order A: margin = 100 - 80 = 20s (tightest)
+        // Order C: margin = 50 - 20 = 30s
+        // Order B: margin = 60 - 10 = 50s (most slack)
+        let result = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            Some(1000), // 1000 kHz = 1M cycles/sec
+        );
+
+        assert_eq!(result[0].id(), id_a, "Order A (margin=20s) should be first");
+        assert_eq!(result[1].id(), id_c, "Order C (margin=30s) should be second");
+        assert_eq!(result[2].id(), id_b, "Order B (margin=50s) should be third");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_prioritize_orders_closest_timeout_no_peak_prove_khz() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Order A: lock expires at current + 100
+        let mut order_a = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+        order_a.total_cycles = Some(80_000_000);
+        let id_a = order_a.id();
+
+        // Order B: lock expires at current + 60 (earlier expiry)
+        let mut order_b = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 60, 200)
+            .await;
+        order_b.total_cycles = Some(10_000_000);
+        let id_b = order_b.id();
+
+        let orders = vec![Arc::from(order_a), Arc::from(order_b)];
+
+        // No peak_prove_khz → falls back to ShortestExpiry (by raw expiry)
+        let result = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            None, // no peak_prove_khz
+        );
+
+        // ShortestExpiry: order_b expires sooner (current+60 < current+100)
+        assert_eq!(result[0].id(), id_b, "Should fall back to ShortestExpiry");
+        assert_eq!(result[1].id(), id_a);
+
+        // Verify warning was logged
+        assert!(logs_contain("falling back to ShortestExpiry"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_prioritize_orders_closest_timeout_no_cycles() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Order A: has cycles, expires in 100s, 80s to prove → margin = 20s
+        let mut order_a = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+        order_a.total_cycles = Some(80_000_000);
+        let id_a = order_a.id();
+
+        // Order B: no cycles, expires in 50s → margin = 50s (prove time treated as 0)
+        let order_b = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 50, 200)
+            .await;
+        // total_cycles is None by default
+        let id_b = order_b.id();
+
+        let orders = vec![Arc::from(order_b), Arc::from(order_a)];
+
+        let result = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            Some(1000),
+        );
+
+        // Order A: margin = 100 - 80 = 20s (tightest)
+        // Order B: margin = 50 - 0 = 50s (no cycles, prove time = 0)
+        assert_eq!(result[0].id(), id_a, "Order A (margin=20s) should be first");
+        assert_eq!(result[1].id(), id_b, "Order B (margin=50s, no cycles) should be second");
+
+        // Verify warning was logged for missing cycles
+        assert!(logs_contain("no total_cycles"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_prioritize_orders_closest_timeout_zero_margin() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Order A: expires in 30s, needs 50s to prove → margin clamps to 0
+        let mut order_a = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 30, 200)
+            .await;
+        order_a.total_cycles = Some(50_000_000);
+        let id_a = order_a.id();
+
+        // Order B: expires in 100s, needs 10s to prove → margin = 90s
+        let mut order_b = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+        order_b.total_cycles = Some(10_000_000);
+        let id_b = order_b.id();
+
+        let orders = vec![Arc::from(order_b), Arc::from(order_a)];
+
+        let result = ctx.monitor.prioritize_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            Some(1000),
+        );
+
+        // Order A: margin = max(0, 30-50) = 0 (clamped, tightest)
+        // Order B: margin = 100-10 = 90
+        assert_eq!(result[0].id(), id_a, "Order A (margin=0, clamped) should be first");
+        assert_eq!(result[1].id(), id_b, "Order B (margin=90s) should be second");
     }
 }

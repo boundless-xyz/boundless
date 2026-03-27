@@ -67,6 +67,7 @@ pub struct TestCtx<P> {
     pub customer_market: BoundlessMarketService<P>,
     pub set_verifier: SetVerifierService<P>,
     pub hit_points_service: HitPointsService<P>,
+    pub version_registry_address: Address,
 }
 
 pub async fn deploy_hit_points<P: Provider>(
@@ -77,6 +78,25 @@ pub async fn deploy_hit_points<P: Provider>(
         .await
         .context("failed to deploy HitPoints contract")?;
     Ok(*instance.address())
+}
+
+pub async fn deploy_version_registry<P: Provider>(
+    owner_address: Address,
+    deployer_provider: P,
+) -> Result<Address> {
+    let impl_instance = VersionRegistry::deploy(&deployer_provider)
+        .await
+        .context("failed to deploy VersionRegistry implementation")?;
+
+    let proxy_instance = ERC1967Proxy::deploy(
+        &deployer_provider,
+        *impl_instance.address(),
+        VersionRegistry::initializeCall { _owner: owner_address }.abi_encode().into(),
+    )
+    .await
+    .context("failed to deploy VersionRegistry proxy")?;
+
+    Ok(*proxy_instance.address())
 }
 
 pub async fn deploy_boundless_market<P: Provider>(
@@ -158,7 +178,7 @@ pub async fn deploy_contracts(
     set_builder_url: String,
     assessor_guest_id: Digest,
     assessor_guest_url: String,
-) -> Result<(Address, Address, Address, Address)> {
+) -> Result<(Address, Address, Address, Address, Address)> {
     let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
     let deployer_address = deployer_signer.address();
     let deployer_provider = ProviderBuilder::new()
@@ -186,12 +206,13 @@ pub async fn deploy_contracts(
         None,
     )
     .await?;
+    let version_registry = deploy_version_registry(deployer_address, &deployer_provider).await?;
 
     // Mine forward some blocks using the provider
     deployer_provider.anvil_mine(Some(10), Some(2)).await.unwrap();
     deployer_provider.anvil_set_interval_mining(2).await.unwrap();
 
-    Ok((verifier_router, set_verifier, hit_points, boundless_market))
+    Ok((verifier_router, set_verifier, hit_points, boundless_market, version_registry))
 }
 
 // Spin up a test deployment with a RiscZeroMockVerifier if in dev mode or
@@ -212,16 +233,21 @@ pub async fn create_test_ctx_with_rpc_url(
     let assessor_guest_id = Digest::from(ASSESSOR_GUEST_ID);
     let assessor_guest_url = format!("file://{ASSESSOR_GUEST_PATH}");
 
-    let (verifier_addr, set_verifier_addr, hit_points_addr, boundless_market_addr) =
-        deploy_contracts(
-            anvil,
-            set_builder_id,
-            set_builder_url,
-            assessor_guest_id,
-            assessor_guest_url,
-        )
-        .await
-        .unwrap();
+    let (
+        verifier_addr,
+        set_verifier_addr,
+        hit_points_addr,
+        boundless_market_addr,
+        version_registry_addr,
+    ) = deploy_contracts(
+        anvil,
+        set_builder_id,
+        set_builder_url,
+        assessor_guest_id,
+        assessor_guest_url,
+    )
+    .await
+    .unwrap();
 
     let prover_signer: PrivateKeySigner = anvil.keys()[1].clone().into();
     let customer_signer: PrivateKeySigner = anvil.keys()[2].clone().into();
@@ -302,6 +328,7 @@ pub async fn create_test_ctx_with_rpc_url(
         customer_market,
         set_verifier,
         hit_points_service,
+        version_registry_address: version_registry_addr,
     })
 }
 
