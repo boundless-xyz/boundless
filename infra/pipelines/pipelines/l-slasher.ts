@@ -8,7 +8,7 @@ const config: LaunchPipelineConfig = {
   appName: "slasher",
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
-  branchName: "willpote/infra-taiko-v2",
+  branchName: "main",
 };
 
 export class LSlasherPipeline extends LaunchDefaultPipeline {
