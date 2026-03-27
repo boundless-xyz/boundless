@@ -22,11 +22,11 @@ if [ -f /root/.aws/credentials ]; then
         echo "Using s3 [$SCCACHE_BUCKET/$SCCACHE_S3_KEY_PREFIX] caching and sccache..."
     else
         echo "AWS credentials file exists but is empty, falling back to local sccache"
-        unset SCCACHE_BUCKET
+        unset SCCACHE_BUCKET 2>/dev/null || true
         export SCCACHE_DIR=/root/.cache/sccache/
     fi
 else
     echo "No AWS credentials found at /root/.aws/credentials, using local sccache"
-    unset SCCACHE_BUCKET
+    unset SCCACHE_BUCKET 2>/dev/null || true
     export SCCACHE_DIR=/root/.cache/sccache/
 fi
