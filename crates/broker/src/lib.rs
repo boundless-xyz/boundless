@@ -81,6 +81,7 @@ pub(crate) mod submitter;
 pub(crate) mod task;
 pub(crate) mod telemetry;
 pub mod utils;
+pub mod version_check;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -181,6 +182,16 @@ pub struct Args {
     /// Use the experimental ChainMonitorV2 implementation using eth_getBlockReceipts instead of eth_getLogs.
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
+
+    /// VersionRegistry contract address override. Not a CLI flag — set programmatically in tests
+    /// to exercise the version check against a locally deployed registry.
+    #[clap(skip)]
+    pub version_registry_address: Option<Address>,
+
+    /// Force the version check even when RISC0_DEV_MODE is enabled.
+    /// Useful for testing version enforcement locally.
+    #[clap(long, env, default_value_t = false)]
+    pub force_version_check: bool,
 }
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
@@ -443,6 +454,7 @@ pub struct Broker<P> {
     gas_priority_mode: Arc<RwLock<PriorityMode>>,
     gas_estimation_priority_mode: Arc<RwLock<PriorityMode>>,
     downloader: ConfigurableDownloader,
+    chain_id: u64,
 }
 
 impl<P> Broker<P>
@@ -495,7 +507,12 @@ where
             gas_priority_mode,
             gas_estimation_priority_mode,
             downloader,
+            chain_id,
         })
+    }
+
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
     }
 
     pub fn deployment(&self) -> &Deployment {
@@ -769,7 +786,29 @@ where
         let non_critical_cancel_token = CancellationToken::new();
         let critical_cancel_token = CancellationToken::new();
 
-        let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
+        // Spawn periodic version check as a supervised non-critical task.
+        // On version mismatch: supervisor faults, triggering graceful shutdown.
+        // On RPC failure: logs a warning and retries next interval (fail-safe).
+        {
+            let task = Arc::new(version_check::VersionCheckTask::new(
+                (*self.provider).clone(),
+                self.chain_id,
+                self.deployment().boundless_market_address,
+                None,                               // use compile-time BROKER_VERSION
+                self.args.version_registry_address, // None in production -> hardcoded lookup
+                self.args.force_version_check,
+            ));
+            let config_clone = config.clone();
+            let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                Supervisor::new(task, config_clone, non_critical_cancel_token_clone)
+                    .spawn()
+                    .await
+                    .context("Version check task failed")?;
+                Ok(())
+            });
+        }
+
         let client = self
             .deployment()
             .order_stream_url
@@ -779,7 +818,7 @@ where
                 Ok(OrderStreamClient::new(
                     url,
                     self.deployment().boundless_market_address,
-                    chain_id,
+                    self.chain_id,
                 ))
             })
             .transpose()?;
@@ -875,7 +914,7 @@ where
                 self.deployment().boundless_market_address,
                 self.args.private_key.as_ref().expect("Private key must be set").address(),
                 lookback_blocks,
-                chain_id,
+                self.chain_id,
                 self.gas_estimation_priority_mode.clone(),
             )
             .await
@@ -1034,7 +1073,7 @@ where
             .await
             .context("Failed to get stake token decimals. Possible RPC error.")?;
 
-        let named_chain = NamedChain::try_from(chain_id)?;
+        let named_chain = NamedChain::try_from(self.chain_id)?;
         let price_oracle = Arc::new(
             config
                 .lock_all()
@@ -1152,7 +1191,7 @@ where
             let aggregator = Arc::new(
                 aggregator::AggregatorService::new(
                     self.db.clone(),
-                    chain_id,
+                    self.chain_id,
                     set_builder_img_id,
                     assessor_img_id,
                     self.deployment().boundless_market_address,
@@ -1440,6 +1479,8 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
+                version_registry_address: Some(ctx.version_registry_address),
+                force_version_check: false,
             };
             Self { args, provider: ctx.prover_provider.clone(), config_file }
         }

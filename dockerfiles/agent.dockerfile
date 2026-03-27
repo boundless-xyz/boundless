@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-ARG CUDA_IMG=nvidia/cuda:12.9.1-devel-ubuntu24.04
-ARG CUDA_RUNTIME_IMG=nvidia/cuda:12.9.1-runtime-ubuntu24.04
+ARG CUDA_IMG=nvidia/cuda:13.0.2-devel-ubuntu24.04
+ARG CUDA_RUNTIME_IMG=nvidia/cuda:13.0.2-runtime-ubuntu24.04
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${CUDA_IMG} AS rust-builder
@@ -47,7 +47,8 @@ ARG CUDA_OPT_LEVEL=1
 ARG S3_CACHE_PREFIX
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
-ENV SCCACHE_SERVER_PORT=4227
+# Prevent collisions with concurrent compose builds of the CPU agent image.
+ENV SCCACHE_SERVER_PORT=4229
 
 WORKDIR /src/
 COPY . .
@@ -64,8 +65,9 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
+    export CARGO_TARGET_DIR=/src/bento/target-agent-gpu && \
     cargo build --manifest-path bento/Cargo.toml --release -p workflow -F cuda --bin agent && \
-    cp bento/target/release/agent /src/agent && \
+    cp ${CARGO_TARGET_DIR}/release/agent /src/agent && \
     sccache --show-stats
 
 FROM ${CUDA_RUNTIME_IMG} AS runtime
