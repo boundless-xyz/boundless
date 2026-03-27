@@ -45,14 +45,24 @@ impl From<OrderPricingPriority> for UnifiedPriorityMode {
     }
 }
 
-impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
-    fn from(mode: OrderCommitmentPriority) -> Self {
-        match mode {
+impl UnifiedPriorityMode {
+    fn from_commitment_priority(
+        priority: OrderCommitmentPriority,
+        peak_prove_khz: Option<u64>,
+    ) -> Self {
+        match priority {
             OrderCommitmentPriority::Random => UnifiedPriorityMode::Random,
             OrderCommitmentPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
             OrderCommitmentPriority::Price => UnifiedPriorityMode::Price,
             OrderCommitmentPriority::CyclePrice => UnifiedPriorityMode::CyclePrice,
-            OrderCommitmentPriority::TightestDeadline => UnifiedPriorityMode::ShortestExpiry,
+            OrderCommitmentPriority::TightestDeadline => {
+                if let Some(peak_prove_khz) = peak_prove_khz {
+                    UnifiedPriorityMode::TightestDeadline { peak_prove_khz }
+                } else {
+                    tracing::warn!("TightestDeadline priority requires peak_prove_khz to be set; falling back to ShortestExpiry");
+                    UnifiedPriorityMode::ShortestExpiry
+                }
+            }
         }
     }
 }
@@ -234,19 +244,7 @@ impl<P> OrderMonitor<P> {
         priority_addresses: Option<&[alloy::primitives::Address]>,
         peak_prove_khz: Option<u64>,
     ) -> Vec<Arc<OrderRequest>> {
-        let mode = match priority_mode {
-            OrderCommitmentPriority::TightestDeadline => match peak_prove_khz {
-                Some(khz) => UnifiedPriorityMode::TightestDeadline { peak_prove_khz: khz },
-                None => {
-                    tracing::warn!(
-                        "TightestDeadline priority requires peak_prove_khz to be set; \
-                         falling back to ShortestExpiry"
-                    );
-                    UnifiedPriorityMode::ShortestExpiry
-                }
-            },
-            other => other.into(),
-        };
+        let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
 
         sort_orders_by_priority_and_mode(&mut orders, priority_addresses, mode);
 
@@ -272,6 +270,13 @@ mod tests {
     };
     use alloy::primitives::U256;
     use tracing_test::traced_test;
+
+    fn test_priority(priority: OrderCommitmentPriority) -> UnifiedPriorityMode {
+        if OrderCommitmentPriority::TightestDeadline == priority {
+            panic!("Use from_commitment_priority instead when testing commitment priority");
+        }
+        UnifiedPriorityMode::from_commitment_priority(priority, None)
+    }
 
     #[tokio::test]
     #[traced_test]
@@ -630,7 +635,11 @@ mod tests {
         let high_value_secondary = std::sync::Arc::new(high_value_secondary);
 
         let mut orders = vec![low_value_primary.clone(), high_value_secondary.clone()];
-        sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
+        sort_orders_by_priority_and_mode(
+            &mut orders,
+            None,
+            test_priority(OrderCommitmentPriority::Price),
+        );
 
         // Secondary order should be first: effective reward [400, 2000] > primary price 200
         assert_eq!(
@@ -685,7 +694,7 @@ mod tests {
         sort_orders_by_priority_and_mode(
             &mut orders,
             None,
-            OrderCommitmentPriority::CyclePrice.into(),
+            test_priority(OrderCommitmentPriority::CyclePrice),
         );
 
         // Secondary order should be first: per-cycle reward [40, 200] >> primary per-cycle 2
@@ -1036,7 +1045,11 @@ mod tests {
         let mut orders =
             vec![lock_30.clone(), lock_10.clone(), lock_20.clone(), exp_a.clone(), exp_b.clone()];
 
-        sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
+        sort_orders_by_priority_and_mode(
+            &mut orders,
+            None,
+            test_priority(OrderCommitmentPriority::Price),
+        );
 
         // First 3 must be lock-capable, ordered by price desc (30_000, 20_000, 10_000)
         assert_eq!(orders[0].request.offer.maxPrice, U256::from(30_000u64));
@@ -1074,7 +1087,7 @@ mod tests {
             sort_orders_by_priority_and_mode(
                 &mut test_orders,
                 None,
-                OrderCommitmentPriority::Price.into(),
+                test_priority(OrderCommitmentPriority::Price),
             );
             tails.insert((test_orders[3].request.id, test_orders[4].request.id));
             if test_orders[3].request.id == exp_a.request.id {
@@ -1188,7 +1201,7 @@ mod tests {
         sort_orders_by_priority_and_mode(
             &mut orders,
             None,
-            OrderCommitmentPriority::CyclePrice.into(),
+            test_priority(OrderCommitmentPriority::CyclePrice),
         );
 
         assert_eq!(orders[0].request.id, lock_b.request.id);
@@ -1221,7 +1234,7 @@ mod tests {
             sort_orders_by_priority_and_mode(
                 &mut test_orders,
                 None,
-                OrderCommitmentPriority::CyclePrice.into(),
+                test_priority(OrderCommitmentPriority::CyclePrice),
             );
             tails.insert((test_orders[3].request.id, test_orders[4].request.id));
             if test_orders[3].request.id == exp_a.request.id {
@@ -1291,7 +1304,7 @@ mod tests {
             sort_orders_by_priority_and_mode(
                 &mut orders,
                 None,
-                OrderCommitmentPriority::Price.into(),
+                test_priority(OrderCommitmentPriority::Price),
             );
             let ids: Vec<_> = orders.iter().map(|o| o.request.id).collect();
             all_orderings.insert(ids);
