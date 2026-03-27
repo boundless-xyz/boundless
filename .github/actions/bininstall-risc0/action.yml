@@ -14,6 +14,18 @@ inputs:
     default: '1.88.0'
     type: string
 
+  cpp-version:
+    description: 'Version of the RISC Zero cpp toolchain to install'
+    required: false
+    default: '2024.1.5'
+    type: string
+
+  groth16-version:
+    description: 'Version of the risc0-groth16 component to install'
+    required: false
+    default: '0.1.0'
+    type: string
+
   install-groth16:
     description: 'Whether to install the risc0-groth16 component; required for Groth16 GPU proving'
     required: false
@@ -24,7 +36,7 @@ runs:
   using: composite
   steps:
     - name: install rust
-      uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
       with:
         toolchain: ${{ inputs.toolchain-version }}
 
@@ -36,15 +48,19 @@ runs:
 
     - name: install rzup components
       run: |
-        rzup install --verbose --force cargo-risczero ${{ inputs.risczero-version }}
-        rzup install --verbose --force r0vm ${{ inputs.risczero-version }}
-        rzup install --verbose --force rust ${{ inputs.toolchain-version }}
-        rzup install --verbose --force cpp
+        rzup install --verbose cargo-risczero ${{ inputs.risczero-version }}
+        rzup install --verbose r0vm ${{ inputs.risczero-version }}
+        rzup install --verbose rust ${{ inputs.toolchain-version }}
+        rzup install --verbose cpp ${{ inputs.cpp-version }}
       shell: bash
 
     - name: install risc0-groth16
-      if: ${{ inputs.install-groth16 }}
-      run: rzup install --verbose --force risc0-groth16
+      if: inputs.install-groth16 == 'true'
+      run: rzup install --verbose risc0-groth16 ${{ inputs.groth16-version }}
+      shell: bash
+
+    - name: add rzup to PATH
+      run: echo "$HOME/.risc0/bin" >> $GITHUB_PATH
       shell: bash
 
     - name: test r0vm
