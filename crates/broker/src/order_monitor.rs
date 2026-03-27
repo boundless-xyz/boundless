@@ -82,6 +82,9 @@ pub enum OrderMonitorErr {
     #[error("{code} Failed to confirm lock tx: {0}", code = self.code())]
     LockTxNotConfirmed(String),
 
+    #[error("{code} Lock tx is still in flight: {0}", code = self.code())]
+    LockTxInFlight(String),
+
     #[error("{code} Insufficient balance for lock", code = self.code())]
     InsufficientBalance,
 
@@ -106,6 +109,7 @@ impl CodedError for OrderMonitorErr {
         match self {
             OrderMonitorErr::LockTxNotConfirmed(_) => "[B-OM-006]",
             OrderMonitorErr::LockTxFailed(_) => "[B-OM-007]",
+            OrderMonitorErr::LockTxInFlight(_) => "[B-OM-013]",
             OrderMonitorErr::AlreadyLocked => "[B-OM-009]",
             OrderMonitorErr::InsufficientBalance => "[B-OM-010]",
             OrderMonitorErr::RpcErr(_) => "[B-OM-011]",
@@ -197,6 +201,39 @@ impl<P> OrderMonitor<P>
 where
     P: Provider<Ethereum> + WalletProvider + 'static,
 {
+    async fn lock_price_from_block(
+        &self,
+        order: &OrderRequest,
+        lock_block: u64,
+    ) -> Result<U256, OrderMonitorErr> {
+        // Fetch the block to retrieve the lock timestamp. This has been observed to return
+        // inconsistent state between the receipt being available but the block not yet.
+        let lock_timestamp = crate::futures_retry::retry(
+            self.rpc_retry_config.retry_count,
+            self.rpc_retry_config.retry_sleep_ms,
+            || async {
+                Ok(self
+                    .provider
+                    .get_block_by_number(lock_block.into())
+                    .await
+                    .with_context(|| format!("failed to get block {lock_block}"))?
+                    .with_context(|| format!("failed to get block {lock_block}: block not found"))?
+                    .header
+                    .timestamp)
+            },
+            "get_block_by_number",
+        )
+        .await
+        .map_err(OrderMonitorErr::UnexpectedError)?;
+
+        order
+            .request
+            .offer
+            .price_at(lock_timestamp)
+            .context("Failed to calculate lock price")
+            .map_err(OrderMonitorErr::UnexpectedError)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
@@ -281,6 +318,31 @@ where
             .await
             .context("Failed to get request status")
             .map_err(OrderMonitorErr::RpcErr)?;
+        if order_status == RequestStatus::Locked {
+            match self.market.query_request_locked_event(request_id, None, None).await {
+                Ok(data) if data.event.prover == self.prover_addr => {
+                    tracing::info!(
+                        "Order {} is already locked by us on-chain; recovering lock state",
+                        order.id()
+                    );
+                    return self.lock_price_from_block(order, data.block_number).await;
+                }
+                Ok(_) => {
+                    tracing::info!(
+                        "Order {} is already locked by another prover, skipping",
+                        order.id()
+                    );
+                    return Err(OrderMonitorErr::AlreadyLocked);
+                }
+                Err(MarketError::RequestNotFound(_, _, _)) => {
+                    return Err(OrderMonitorErr::LockTxInFlight(format!(
+                        "request 0x{:x} is locked on-chain but RequestLocked is not visible yet",
+                        request_id
+                    )));
+                }
+                Err(err) => return Err(OrderMonitorErr::UnexpectedError(err.into())),
+            }
+        }
         if order_status != RequestStatus::Unknown {
             tracing::info!("Request {:x} not open: {order_status:?}, skipping", request_id);
             // TODO: fetch some chain data to find out who / and for how much the order
@@ -350,6 +412,10 @@ where
                             _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
                         },
                         MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                        MarketError::LockTxInFlight(_) => OrderMonitorErr::LockTxInFlight(format!(
+                            "request 0x{:x} lock tx is still in flight",
+                            request_id
+                        )),
                         MarketError::TxnConfirmationError(e) => {
                             OrderMonitorErr::LockTxNotConfirmed(e.to_string())
                         }
@@ -394,33 +460,7 @@ where
                 },
             )?;
 
-        // Fetch the block to retrieve the lock timestamp. This has been observed to return
-        // inconsistent state between the receipt being available but the block not yet.
-        let lock_timestamp = crate::futures_retry::retry(
-            self.rpc_retry_config.retry_count,
-            self.rpc_retry_config.retry_sleep_ms,
-            || async {
-                Ok(self
-                    .provider
-                    .get_block_by_number(lock_block.into())
-                    .await
-                    .with_context(|| format!("failed to get block {lock_block}"))?
-                    .with_context(|| format!("failed to get block {lock_block}: block not found"))?
-                    .header
-                    .timestamp)
-            },
-            "get_block_by_number",
-        )
-        .await
-        .map_err(OrderMonitorErr::UnexpectedError)?;
-
-        let lock_price = order
-            .request
-            .offer
-            .price_at(lock_timestamp)
-            .context("Failed to calculate lock price")?;
-
-        Ok(lock_price)
+        self.lock_price_from_block(order, lock_block).await
     }
 
     async fn get_proving_order_capacity(
@@ -727,8 +767,12 @@ where
                             }
                         }
                         Err(ref err) => {
-                            if let OrderMonitorErr::PreLockCheckRetry(reason) = err {
-                                tracing::warn!("Pre-lock check failed for {order_id}: {reason}, will retry next block");
+                            if let OrderMonitorErr::PreLockCheckRetry(reason)
+                            | OrderMonitorErr::LockTxInFlight(reason) = err
+                            {
+                                tracing::warn!(
+                                    "Lock attempt deferred for {order_id}: {reason}, will retry next block"
+                                );
                                 should_invalidate = false;
                             } else {
                                 if matches!(err, OrderMonitorErr::UnexpectedError(_)) {
@@ -1291,17 +1335,20 @@ pub(crate) mod tests {
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
-        network::EthereumWallet,
+        network::{Ethereum, EthereumWallet, NetworkWallet},
         node_bindings::{Anvil, AnvilInstance},
         primitives::{address, Address, Bytes, U256},
         providers::{
+            ext::AnvilApi,
             fillers::{
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
                 WalletFiller,
             },
-            ProviderBuilder, RootProvider,
+            PendingTransactionBuilder, ProviderBuilder, RootProvider,
         },
+        rpc::types::TransactionRequest,
         signers::local::PrivateKeySigner,
+        transports::{TransportError, TransportErrorKind, TransportResult},
     };
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
@@ -1312,7 +1359,13 @@ pub(crate) mod tests {
     };
 
     use risc0_zkvm::Digest;
-    use std::{future::Future, sync::Arc};
+    use std::{
+        future::Future,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
     use tokio::task::JoinSet;
     use tracing_test::traced_test;
 
@@ -1327,8 +1380,75 @@ pub(crate) mod tests {
         RootProvider,
     >;
 
-    pub struct TestCtx {
-        pub monitor: OrderMonitor<TestProvider>,
+    #[derive(Clone, Copy, Debug)]
+    enum InjectedSendErrorMode {
+        ReturnErrorWithoutBroadcast,
+        BroadcastThenReturnError,
+    }
+
+    #[derive(Clone, Debug)]
+    struct InjectedSendErrorProvider<P> {
+        inner: Arc<P>,
+        wallet: EthereumWallet,
+        mode: InjectedSendErrorMode,
+        send_count: Arc<AtomicUsize>,
+    }
+
+    impl<P> InjectedSendErrorProvider<P> {
+        fn new(inner: Arc<P>, wallet: EthereumWallet, mode: InjectedSendErrorMode) -> Self {
+            Self { inner, wallet, mode, send_count: Arc::new(AtomicUsize::new(0)) }
+        }
+
+        fn injected_error() -> TransportError {
+            TransportErrorKind::custom_str("already known")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl<P> Provider<Ethereum> for InjectedSendErrorProvider<P>
+    where
+        P: Provider<Ethereum> + Send + Sync + std::fmt::Debug,
+    {
+        fn root(&self) -> &RootProvider<Ethereum> {
+            self.inner.root()
+        }
+
+        async fn send_transaction(
+            &self,
+            request: TransactionRequest,
+        ) -> TransportResult<PendingTransactionBuilder<Ethereum>> {
+            if self.send_count.fetch_add(1, Ordering::SeqCst) == 0 {
+                if matches!(self.mode, InjectedSendErrorMode::BroadcastThenReturnError) {
+                    let _ = self.inner.send_transaction(request.clone()).await?;
+                }
+                return Err(Self::injected_error());
+            }
+
+            self.inner.send_transaction(request).await
+        }
+    }
+
+    impl<P> WalletProvider<Ethereum> for InjectedSendErrorProvider<P>
+    where
+        P: Provider<Ethereum> + Send + Sync + std::fmt::Debug,
+    {
+        type Wallet = EthereumWallet;
+
+        fn wallet(&self) -> &Self::Wallet {
+            &self.wallet
+        }
+
+        fn wallet_mut(&mut self) -> &mut Self::Wallet {
+            &mut self.wallet
+        }
+
+        fn default_signer_address(&self) -> Address {
+            <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&self.wallet)
+        }
+    }
+
+    pub struct TestCtx<P> {
+        pub monitor: OrderMonitor<P>,
         pub anvil: AnvilInstance,
         pub db: DbObj,
         pub market_address: Address,
@@ -1339,7 +1459,7 @@ pub(crate) mod tests {
         next_order_id: u32, // Counter to assign unique order IDs
     }
 
-    impl TestCtx {
+    impl<P> TestCtx<P> {
         // Convert the standalone function to a method on TestCtx
         pub async fn create_test_order(
             &mut self,
@@ -1386,7 +1506,7 @@ pub(crate) mod tests {
         }
     }
 
-    pub async fn setup_om_test_context() -> TestCtx {
+    pub async fn setup_om_test_context() -> TestCtx<TestProvider> {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let provider = Arc::new(
@@ -1480,6 +1600,99 @@ pub(crate) mod tests {
             signer,
             market_service,
             next_order_id: 1, // Initialize with 1 instead of 0
+        }
+    }
+
+    async fn setup_om_test_context_with_injected_send_error(
+        mode: InjectedSendErrorMode,
+    ) -> TestCtx<InjectedSendErrorProvider<TestProvider>> {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let base_provider = Arc::new(
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(signer.clone()))
+                .connect(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+
+        let hit_points = deploy_hit_points(signer.address(), base_provider.clone()).await.unwrap();
+
+        let market_address = deploy_boundless_market(
+            signer.address(),
+            base_provider.clone(),
+            address!("0x0000000000000000000000000000000000000001"),
+            hit_points,
+            Digest::from(ASSESSOR_GUEST_ID),
+            format!("file://{ASSESSOR_GUEST_PATH}"),
+            Some(signer.address()),
+        )
+        .await
+        .unwrap();
+
+        let market_service = BoundlessMarketService::new_for_broker(
+            market_address,
+            base_provider.clone(),
+            base_provider.default_signer_address(),
+        );
+
+        let collateral_token_decimals = market_service.collateral_token_decimals().await.unwrap();
+        market_service
+            .deposit(parse_units("10.0", collateral_token_decimals).unwrap().into())
+            .await
+            .unwrap();
+
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+
+        config.load_write().unwrap().market.min_deadline = 50;
+        config.load_write().unwrap().market.lockin_gas_estimate = 200_000;
+        config.load_write().unwrap().market.fulfill_gas_estimate = 300_000;
+        config.load_write().unwrap().market.groth16_verify_gas_estimate = 50_000;
+
+        let wrapped_provider = Arc::new(InjectedSendErrorProvider::new(
+            base_provider.clone(),
+            EthereumWallet::from(signer.clone()),
+            mode,
+        ));
+
+        let block_time = 2;
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor = Arc::new(
+            ChainMonitorService::new(wrapped_provider.clone(), gas_priority_mode).await.unwrap(),
+        );
+        tokio::spawn(chain_monitor.spawn(Default::default()));
+
+        let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+
+        let monitor = OrderMonitor::new(
+            db.clone(),
+            wrapped_provider.clone(),
+            chain_monitor.clone(),
+            config.clone(),
+            block_time,
+            signer.address(),
+            market_address,
+            priced_order_rx,
+            collateral_token_decimals,
+            RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
+            gas_priority_mode,
+            Arc::new(Cache::builder().build()),
+            false,
+        )
+        .unwrap();
+
+        TestCtx {
+            monitor,
+            anvil,
+            db,
+            market_address,
+            config,
+            priced_order_tx,
+            signer,
+            market_service,
+            next_order_id: 1,
         }
     }
 
@@ -2195,6 +2408,120 @@ pub(crate) mod tests {
         assert!(
             logs_contain("No longer have enough collateral deposited to market to lock order"),
             "Expected log message about insufficient collateral balance"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn lock_order_recovers_when_request_is_already_locked_by_us_on_chain() {
+        let mut ctx = setup_om_test_context().await;
+
+        let order =
+            ctx.create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200).await;
+        let _ = ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+        let _ = ctx
+            .market_service
+            .lock_request(&order.request, order.client_sig.clone())
+            .await
+            .unwrap();
+
+        let order_arc = Arc::new(*order);
+        let order_id = order_arc.id().clone();
+        ctx.monitor.test_insert_into_lock_cache(order_arc).await;
+
+        let valid = ctx.monitor.get_valid_orders(now_timestamp(), 0).await.unwrap();
+        assert_eq!(valid.len(), 1, "expected the cached order to remain actionable");
+
+        ctx.monitor.lock_and_prove_orders(&valid).await.unwrap();
+
+        let stored = ctx.db.get_order(&order_id).await.unwrap().expect("order should be stored");
+        assert_eq!(stored.status, OrderStatus::PendingProving);
+        assert!(
+            !ctx.monitor.test_lock_cache_contains(&order_id).await,
+            "Recovered lock should move the order out of the lock cache"
+        );
+        assert!(logs_contain("already locked by us on-chain"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn already_known_without_broadcast_keeps_order_in_lock_cache() {
+        let mut ctx = setup_om_test_context_with_injected_send_error(
+            InjectedSendErrorMode::ReturnErrorWithoutBroadcast,
+        )
+        .await;
+
+        let order =
+            ctx.create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200).await;
+        let _ = ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+
+        let order_arc = Arc::new(*order);
+        let order_id = order_arc.id().clone();
+        ctx.monitor.test_insert_into_lock_cache(order_arc).await;
+
+        let valid = ctx.monitor.get_valid_orders(now_timestamp(), 0).await.unwrap();
+        assert_eq!(valid.len(), 1, "expected the cached order to be ready for locking");
+
+        ctx.monitor.lock_and_prove_orders(&valid).await.unwrap();
+
+        assert!(
+            ctx.monitor.test_lock_cache_contains(&order_id).await,
+            "In-flight lock errors must keep the order in cache for retry"
+        );
+        assert!(
+            ctx.db.get_order(&order_id).await.unwrap().is_none(),
+            "In-flight lock errors must not mark the order as skipped"
+        );
+        assert!(logs_contain("Lock attempt deferred"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn already_known_after_broadcast_recovers_on_retry_to_pending_proving() {
+        let mut ctx = setup_om_test_context_with_injected_send_error(
+            InjectedSendErrorMode::BroadcastThenReturnError,
+        )
+        .await;
+
+        let order =
+            ctx.create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200).await;
+        let _ = ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+
+        let order_arc = Arc::new(*order);
+        let order_id = order_arc.id().clone();
+        ctx.monitor.test_insert_into_lock_cache(order_arc).await;
+
+        let valid = ctx.monitor.get_valid_orders(now_timestamp(), 0).await.unwrap();
+        assert_eq!(valid.len(), 1, "expected the cached order to be ready for locking");
+
+        ctx.monitor.lock_and_prove_orders(&valid).await.unwrap();
+
+        let stored = if let Some(stored) = ctx.db.get_order(&order_id).await.unwrap() {
+            stored
+        } else {
+            assert!(
+                ctx.monitor.test_lock_cache_contains(&order_id).await,
+                "Deferred in-flight locks must stay in cache for retry"
+            );
+            assert!(logs_contain("Lock attempt deferred"));
+
+            ctx.monitor.provider.anvil_mine(Some(1), None).await.unwrap();
+
+            let valid = ctx.monitor.get_valid_orders(now_timestamp(), 0).await.unwrap();
+            assert_eq!(valid.len(), 1, "expected the deferred order to retry on the next block");
+
+            ctx.monitor.lock_and_prove_orders(&valid).await.unwrap();
+            ctx.db.get_order(&order_id).await.unwrap().expect("order should be stored")
+        };
+
+        assert_eq!(stored.status, OrderStatus::PendingProving);
+        assert!(
+            !ctx.monitor.test_lock_cache_contains(&order_id).await,
+            "Recovered in-flight locks should leave the cache"
+        );
+        assert!(
+            logs_contain("Recovered in-flight lock")
+                || logs_contain("already locked by us on-chain")
         );
     }
 

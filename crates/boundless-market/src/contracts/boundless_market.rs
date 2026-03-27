@@ -156,6 +156,10 @@ pub enum MarketError {
     #[error("Request already locked: 0x{0:x}")]
     RequestAlreadyLocked(U256),
 
+    /// Lock transaction is still in flight and cannot yet be reconciled on-chain.
+    #[error("Lock transaction is still in flight for request 0x{0:x}")]
+    LockTxInFlight(U256),
+
     /// Lock request reverted, possibly outbid.
     #[error("Lock request reverted, possibly outbid: txn_hash: {0}")]
     LockRevert(B256),
@@ -372,6 +376,80 @@ pub struct ProverSlashedEventData {
 }
 
 impl<P: Provider> BoundlessMarketService<P> {
+    fn is_in_flight_lock_error(err: &alloy::contract::Error) -> bool {
+        let msg = err.to_string().to_lowercase();
+        msg.contains("already known")
+            || msg.contains("known transaction")
+            || msg.contains("already imported")
+            || msg.contains("nonce too low")
+    }
+
+    async fn resolve_in_flight_lock(&self, request_id: U256) -> Result<u64, MarketError> {
+        match self.query_request_locked_event(request_id, None, None).await {
+            Ok(data) if data.event.prover == self.caller => {
+                tracing::info!(
+                    "Recovered in-flight lock for request 0x{:x} from RequestLocked event in block {}",
+                    request_id,
+                    data.block_number
+                );
+                Ok(data.block_number)
+            }
+            Ok(data) => {
+                tracing::info!(
+                    "Request 0x{:x} is locked by another prover {}, treating in-flight lock as lost race",
+                    request_id,
+                    data.event.prover
+                );
+                Err(MarketError::RequestAlreadyLocked(request_id))
+            }
+            Err(MarketError::RequestNotFound(_, _, _)) => {
+                tracing::info!(
+                    "RequestLocked event for request 0x{:x} is not visible yet; keeping lock tx in flight",
+                    request_id
+                );
+                Err(MarketError::LockTxInFlight(request_id))
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn send_and_confirm_lock_tx(
+        &self,
+        request_id: U256,
+        send_result: Result<PendingTransactionBuilder<Ethereum>, alloy::contract::Error>,
+        tx_description: &str,
+    ) -> Result<u64, MarketError> {
+        let pending_tx = match send_result {
+            Ok(pending_tx) => pending_tx,
+            Err(err) if Self::is_in_flight_lock_error(&err) => {
+                tracing::warn!(
+                    "{} for request 0x{:x} returned an in-flight RPC error: {}",
+                    tx_description,
+                    request_id,
+                    err
+                );
+                return self.resolve_in_flight_lock(request_id).await;
+            }
+            Err(err) => return Err(err.into()),
+        };
+
+        tracing::trace!("Broadcasting {} tx {}", tx_description, pending_tx.tx_hash());
+
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
+        if !receipt.status() {
+            // TODO: Get + print revertReason
+            return Err(MarketError::LockRevert(receipt.transaction_hash));
+        }
+
+        tracing::info!(
+            "Locked request {:x}, transaction hash: {}",
+            request_id,
+            receipt.transaction_hash
+        );
+
+        Ok(receipt.block_number.context("TXN Receipt missing block number")?)
+    }
+
     /// Creates a new Boundless market service.
     ///
     /// The default configuration includes retry logic when querying events to handle
@@ -617,27 +695,12 @@ impl<P: Provider> BoundlessMarketService<P> {
         let call = self.instance.lockRequest(request.clone(), client_sig_bytes).from(self.caller);
 
         tracing::trace!("Sending tx {}", format!("{:?}", call));
-        let pending_tx = call.send().await?;
-
-        let tx_hash = *pending_tx.tx_hash();
-        tracing::trace!("Broadcasting lock request tx {}", tx_hash);
-
-        let receipt = self.get_receipt_with_retry(pending_tx).await?;
-
-        if !receipt.status() {
-            // TODO: Get + print revertReason
-            return Err(MarketError::LockRevert(receipt.transaction_hash));
-        }
-
-        tracing::info!(
-            "Locked request {:x}, transaction hash: {}",
-            request.id,
-            receipt.transaction_hash
-        );
+        let lock_block =
+            self.send_and_confirm_lock_tx(request.id, call.send().await, "lock request").await?;
 
         self.check_collateral_balance().await?;
 
-        Ok(receipt.block_number.context("TXN Receipt missing block number")?)
+        Ok(lock_block)
     }
 
     /// Lock the request to the prover, giving them exclusive rights to be paid to
@@ -674,22 +737,8 @@ impl<P: Provider> BoundlessMarketService<P> {
             .instance
             .lockRequestWithSignature(request.clone(), client_sig_bytes.clone(), prover_sig_bytes)
             .from(self.caller);
-        let pending_tx = call.send().await.context("Failed to lock")?;
-        tracing::trace!("Broadcasting lock request with signature tx {}", pending_tx.tx_hash());
-
-        let receipt = self.get_receipt_with_retry(pending_tx).await?;
-        if !receipt.status() {
-            // TODO: Get + print revertReason
-            return Err(MarketError::LockRevert(receipt.transaction_hash));
-        }
-
-        tracing::info!(
-            "Locked request {:x}, transaction hash: {}",
-            request.id,
-            receipt.transaction_hash
-        );
-
-        Ok(receipt.block_number.context("TXN Receipt missing block number")?)
+        self.send_and_confirm_lock_tx(request.id, call.send().await, "lock request with signature")
+            .await
     }
 
     async fn get_receipt_with_retry(
