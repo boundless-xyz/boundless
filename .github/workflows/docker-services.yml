@@ -142,11 +142,11 @@ jobs:
             dockerfile: dockerfiles/bento_cli.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
-          - name: bento-agent
+          - name: bento-agent-gpu-build
             dockerfile: dockerfiles/agent.dockerfile
             submodules: false
             runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
-          - name: bento-agent-cpu
+          - name: bento-agent-cpu-build
             dockerfile: dockerfiles/agent.cpu.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
@@ -179,10 +179,9 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
           tags: |
-            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=nightly-
+            type=raw,value=nightly-latest
             type=match,pattern=infra-v(.*),group=1
-            type=ref,event=pr
 
       - name: Download recipe
         uses: actions/download-artifact@v4
@@ -221,7 +220,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.service.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-contexts: |
@@ -237,3 +236,56 @@ jobs:
             githubTokenSecret=${{ secrets.GITHUB_TOKEN }}
           secret-files: |
             ci_cache_creds=./dockerfiles/ci-cache-creds.txt
+
+  bento-bundle:
+    needs: [build-and-push]
+    strategy:
+      fail-fast: false
+      matrix:
+        bundle:
+          - name: bento-agent
+            dockerfile: dockerfiles/bento-bundle.dockerfile
+            agent_image_arg: GPU_AGENT_IMAGE
+            agent_build_name: bento-agent-gpu-build
+            runner: [self-hosted, prod, Linux, cpu]
+          - name: bento-agent-cpu
+            dockerfile: dockerfiles/bento-bundle-cpu.dockerfile
+            agent_image_arg: CPU_AGENT_IMAGE
+            agent_build_name: bento-agent-cpu-build
+            runner: [self-hosted, prod, Linux, cpu]
+    runs-on: ${{ matrix.bundle.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.bundle.name }}
+          tags: |
+            type=sha,prefix=nightly-
+            type=raw,value=nightly-latest
+            type=match,pattern=infra-v(.*),group=1
+
+      - name: Build and push ${{ matrix.bundle.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.bundle.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            ${{ matrix.bundle.agent_image_arg }}=${{ env.IMAGE_PREFIX }}/${{ matrix.bundle.agent_build_name }}:nightly-latest
+            BENTO_CLI_IMAGE=${{ env.IMAGE_PREFIX }}/bento-cli:nightly-latest
