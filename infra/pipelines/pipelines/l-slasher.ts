@@ -8,7 +8,6 @@ const config: LaunchPipelineConfig = {
   appName: "slasher",
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_MEDIUM",
-  branchName: "main",
 };
 
 export class LSlasherPipeline extends LaunchDefaultPipeline {

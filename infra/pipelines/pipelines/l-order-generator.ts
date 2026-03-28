@@ -8,7 +8,6 @@ const config: LaunchPipelineConfig = {
   appName: "order-generator",
   buildTimeout: 60,
   computeType: "BUILD_GENERAL1_LARGE",
-  branchName: "main",
 };
 
 export class LOrderGeneratorPipeline extends LaunchDefaultPipeline {

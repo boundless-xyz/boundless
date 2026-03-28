@@ -8,7 +8,6 @@ const config: LaunchPipelineConfig = {
   appName: "distributor",
   buildTimeout: 75,
   computeType: "BUILD_GENERAL1_LARGE",
-  branchName: "main",
 };
 
 export class LDistributorPipeline extends LaunchDefaultPipeline {

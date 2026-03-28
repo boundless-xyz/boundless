@@ -10,7 +10,6 @@ const config: LaunchPipelineConfig = {
     appName: "indexer",
     buildTimeout: 120,
     computeType: "BUILD_GENERAL1_LARGE",
-    branchName: "main",
     additionalBuildSpecCommands: [
         'curl https://sh.rustup.rs -sSf | sh -s -- -y',
         '. "$HOME/.cargo/env"',
