@@ -5,6 +5,7 @@ target
 compose.yml
 .env
 contracts/out
+contracts/out-shanghai
 broadcast
 cache
 .github
