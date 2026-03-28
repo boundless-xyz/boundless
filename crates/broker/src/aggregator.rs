@@ -20,12 +20,14 @@ use boundless_market::{
     input::GuestEnv,
 };
 use chrono::Utc;
+use futures::{stream, StreamExt};
 use hex::FromHex;
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     ReceiptClaim,
 };
+use std::collections::HashMap;
 
 use crate::{
     config::ConfigLock,
@@ -79,6 +81,8 @@ pub struct AggregatorService {
 }
 
 impl AggregatorService {
+    const CLAIM_VALIDATION_CONCURRENCY: usize = 32;
+
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DbObj,
@@ -132,20 +136,38 @@ impl AggregatorService {
     ) -> Result<AggregationState> {
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
         let mut valid_proof_ids = Vec::<String>::with_capacity(proofs.len());
+        let mut valid_claims_by_proof_id =
+            HashMap::<String, ReceiptClaim>::with_capacity(proofs.len());
 
-        // Verify each proof and collect only valid ones
-        for proof_id in proofs {
-            match self.validate_and_extract_claim(proof_id).await {
+        // Verify proofs concurrently (bounded) to reduce wall-clock on large batches.
+        let validation_results = stream::iter(proofs.iter().cloned())
+            .map(|proof_id| async move {
+                let result = self.validate_and_extract_claim(&proof_id).await;
+                (proof_id, result)
+            })
+            .buffer_unordered(Self::CLAIM_VALIDATION_CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await;
+
+        for (proof_id, result) in validation_results {
+            match result {
                 Ok(claim) => {
-                    claims.push(claim);
-                    valid_proof_ids.push(proof_id.clone());
+                    valid_claims_by_proof_id.insert(proof_id, claim);
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Error fetching proof from batch: {e:?} containing orders {:?}, excluding",
+                        "Error fetching proof {proof_id} from batch: {e:?} containing orders {:?}, excluding",
                         all_orders
                     );
                 }
+            }
+        }
+
+        // Preserve original proof ordering when constructing assumptions/input.
+        for proof_id in proofs {
+            if let Some(claim) = valid_claims_by_proof_id.remove(proof_id) {
+                claims.push(claim);
+                valid_proof_ids.push(proof_id.clone());
             }
         }
 

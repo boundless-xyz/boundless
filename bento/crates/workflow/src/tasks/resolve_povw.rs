@@ -4,18 +4,21 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    Agent,
-    redis::{self},
+    Agent, redis,
     tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
+use futures::{StreamExt, stream};
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{GenericReceipt, ReceiptClaim, SuccinctReceipt, Unknown, WorkClaim};
+use std::collections::HashMap;
 use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{
     KECCAK_RECEIPT_PATH, ResolveReq, metrics::helpers, s3::WORK_RECEIPTS_BUCKET_DIR,
 };
+
+const ASSUMPTION_PREFETCH_CONCURRENCY: usize = 64;
 
 /// Run the POVW resolve operation
 pub async fn resolve_povw(
@@ -32,6 +35,7 @@ pub async fn resolve_povw(
     tracing::debug!("Starting POVW resolve for job_id: {job_id}, max_idx: {max_idx}");
 
     let mut conn = agent.redis_pool.get().await?;
+
     // Get root receipt using Redis helper
     let receipt: Vec<u8> = redis::get_key(&mut conn, &root_receipt_key).await.map_err(|e| {
         anyhow::anyhow!(e)
@@ -85,6 +89,11 @@ pub async fn resolve_povw(
                 assumptions_len =
                     Some(assumptions.len().try_into().context("Failed to convert to u64")?);
 
+                let mut assumption_claims = Vec::<String>::with_capacity(assumptions.len());
+                for assumption in assumptions {
+                    assumption_claims.push(assumption.as_value()?.claim.to_string());
+                }
+
                 let mut union_claim = String::new();
                 if let Some(idx) = request.union_max_idx {
                     let union_root_receipt_key =
@@ -93,9 +102,11 @@ pub async fn resolve_povw(
                         "Deserializing union_root_receipt_key: {union_root_receipt_key}"
                     );
                     let union_receipt: Vec<u8> =
-                        redis::get_key(&mut conn, &union_root_receipt_key).await.context(
-                            format!("Failed to get union receipt: {union_root_receipt_key}"),
-                        )?;
+                        redis::get_key(&mut conn, &union_root_receipt_key).await.map_err(|e| {
+                            anyhow::anyhow!(e).context(format!(
+                                "Failed to get union receipt: {union_root_receipt_key}"
+                            ))
+                        })?;
 
                     // Debug: Check the size and content of the union receipt
                     tracing::debug!("Union receipt size: {} bytes", union_receipt.len());
@@ -126,18 +137,60 @@ pub async fn resolve_povw(
                         .context("Failed to resolve the union receipt")?;
                 }
 
-                for assumption in assumptions {
-                    let assumption_claim = assumption.as_value()?.claim.to_string();
+                // Fetch corroborating receipts concurrently to reduce total wait time.
+                let prefetch_claims: Vec<String> = assumption_claims
+                    .iter()
+                    .filter(|claim| !claim.eq(&&union_claim))
+                    .cloned()
+                    .collect();
+                let receipts_key_for_prefetch = receipts_key.clone();
+                let prefetch_results = stream::iter(prefetch_claims.into_iter())
+                    .map(|assumption_claim| {
+                        let receipts_key_for_prefetch = receipts_key_for_prefetch.clone();
+                        async move {
+                            let assumption_key =
+                                format!("{receipts_key_for_prefetch}:{assumption_claim}");
+                            let mut conn = agent.redis_pool.get().await?;
+                            let assumption_bytes: Vec<u8> =
+                                redis::get_key(&mut conn, &assumption_key).await.map_err(|e| {
+                                    anyhow::anyhow!(e).context(format!(
+                                        "corroborating receipt not found: key {assumption_key}"
+                                    ))
+                                })?;
+                            if assumption_bytes.is_empty() {
+                                return Err(anyhow::anyhow!(
+                                    "Assumption receipt is empty for key: {}",
+                                    assumption_key
+                                ));
+                            }
+
+                            Ok::<(String, Vec<u8>), anyhow::Error>((
+                                assumption_claim,
+                                assumption_bytes,
+                            ))
+                        }
+                    })
+                    .buffer_unordered(ASSUMPTION_PREFETCH_CONCURRENCY)
+                    .collect::<Vec<_>>()
+                    .await;
+
+                let mut assumption_bytes_by_claim = HashMap::<String, Vec<u8>>::new();
+                for fetch_result in prefetch_results {
+                    let (assumption_claim, assumption_bytes) = fetch_result?;
+                    assumption_bytes_by_claim.insert(assumption_claim, assumption_bytes);
+                }
+
+                for assumption_claim in assumption_claims {
                     if assumption_claim.eq(&union_claim) {
                         tracing::debug!("Skipping already resolved union claim: {union_claim}");
                         continue;
                     }
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
-                    let assumption_bytes: Vec<u8> =
-                        redis::get_key(&mut conn, &assumption_key).await.context(format!(
-                            "corroborating receipt not found: key {assumption_key}"
-                        ))?;
+                    let assumption_bytes =
+                        assumption_bytes_by_claim.remove(&assumption_claim).with_context(|| {
+                            format!("prefetched assumption missing for key: {assumption_key}")
+                        })?;
 
                     // Debug: Check the size and content of the assumption receipt
                     tracing::debug!(
@@ -182,7 +235,7 @@ pub async fn resolve_povw(
         Some(agent.args.redis_ttl),
     )
     .await
-    .map_err(|e| anyhow::anyhow!(e).context("Failed to set root receipt key with expiry"))?;
+    .map_err(|e| anyhow::anyhow!("Failed to set root receipt key with expiry: {e}"))?;
 
     // Save the resolved receipt to work receipts bucket for later consumption
     let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");
