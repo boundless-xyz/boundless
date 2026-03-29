@@ -57,7 +57,7 @@ where
         } else if req.locked_at.is_some()
             && current_timestamp > req.lock_end
             && (req.lock_prover_delivered_proof_at.is_none()
-                || req.lock_prover_delivered_proof_at.unwrap() > req.lock_end)
+                || req.lock_prover_delivered_proof_at.is_some_and(|t| t > req.lock_end))
         {
             SlashedStatus::Pending
         } else {
