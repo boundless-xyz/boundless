@@ -138,10 +138,7 @@ jobs:
           RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
           RISC0_SKIP_BUILD: "1"
           RISC0_SKIP_BUILD_KERNELS: "1"
-        run: |
-          for pkg in indexer-api indexer-monitor indexer-redrive; do
-            cargo lambda build --release --package $pkg --output-format zip --compiler cargo
-          done
+        run: cargo lambda build --release --package indexer-api --package indexer-monitor --package indexer-redrive --output-format zip --compiler cargo
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
