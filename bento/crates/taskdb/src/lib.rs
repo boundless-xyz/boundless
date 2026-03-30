@@ -1068,18 +1068,11 @@ mod tests {
         let worker_type = "CPU";
 
         // Create an unreserved stream (reserved=0) and a reserved stream (reserved=10)
-        let unreserved_stream =
-            create_stream(&pool, worker_type, 0, 1.0, user_id).await.unwrap();
-        let unreserved_job = create_job(
-            &pool,
-            &unreserved_stream,
-            &JsonValue::default(),
-            0,
-            100,
-            user_id,
-        )
-        .await
-        .unwrap();
+        let unreserved_stream = create_stream(&pool, worker_type, 0, 1.0, user_id).await.unwrap();
+        let unreserved_job =
+            create_job(&pool, &unreserved_stream, &JsonValue::default(), 0, 100, user_id)
+                .await
+                .unwrap();
         create_task(
             &pool,
             &unreserved_job,
@@ -1093,18 +1086,11 @@ mod tests {
         .await
         .unwrap();
 
-        let reserved_stream =
-            create_stream(&pool, worker_type, 10, 1.0, user_id).await.unwrap();
-        let reserved_job = create_job(
-            &pool,
-            &reserved_stream,
-            &JsonValue::default(),
-            0,
-            100,
-            user_id,
-        )
-        .await
-        .unwrap();
+        let reserved_stream = create_stream(&pool, worker_type, 10, 1.0, user_id).await.unwrap();
+        let reserved_job =
+            create_job(&pool, &reserved_stream, &JsonValue::default(), 0, 100, user_id)
+                .await
+                .unwrap();
         create_task(
             &pool,
             &reserved_job,
@@ -1127,7 +1113,10 @@ mod tests {
 
         // Now reserved stream is empty, unreserved stream should be selected.
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
-        assert_eq!(task.job_id, unreserved_job, "unreserved stream should be selected after reserved is drained");
+        assert_eq!(
+            task.job_id, unreserved_job,
+            "unreserved stream should be selected after reserved is drained"
+        );
 
         Ok(())
     }
@@ -1221,8 +1210,7 @@ mod tests {
         for _ in 0..2 {
             let pool_cpy = pool.clone();
             tasks.spawn(async move {
-                let deadline =
-                    tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+                let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
                 loop {
                     if tokio::time::Instant::now() > deadline {
                         panic!("worker timed out waiting for work");
