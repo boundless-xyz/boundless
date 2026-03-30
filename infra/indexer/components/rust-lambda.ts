@@ -82,36 +82,20 @@ export function createRustLambda(
             fs.mkdirSync(zipDir, { recursive: true });
         }
 
-        // Poll for image availability (CI may still be building)
-        const maxAttempts = 30;
-        let found = false;
-        for (let i = 1; i <= maxAttempts; i++) {
-            try {
-                child_process.execSync(`docker manifest inspect ${image}`, { stdio: 'ignore' });
-                found = true;
-                break;
-            } catch { /* not available yet */ }
-            if (i < maxAttempts) {
-                console.log(`Waiting for indexer image ${image} (attempt ${i}/${maxAttempts}, retrying in 30s)...`);
-                child_process.execSync('sleep 30');
-            }
-        }
-        if (!found) {
-            throw new Error(`Indexer image not found after ${maxAttempts} attempts: ${image}`);
-        }
-
-        // Extract binary from indexer image, rename to bootstrap, and zip for Lambda
+        // Extract binary from indexer image, rename to bootstrap, and zip for Lambda.
+        // The indexer image is already resolved by getGhcrImageUri() at this point.
         console.log(`Extracting Lambda binary ${options.packageName} from ${image}...`);
+        const container = `tmp-lambda-${options.packageName}-${Date.now()}`;
+        const tmpDir = fs.mkdtempSync('/tmp/lambda-');
         try {
-            const container = `tmp-lambda-${options.packageName}-${Date.now()}`;
-            const tmpDir = fs.mkdtempSync('/tmp/lambda-');
-            child_process.execSync(`docker create --name ${container} ${image}`, { stdio: 'ignore' });
+            child_process.execSync(`docker create --platform linux/amd64 --name ${container} ${image}`, { stdio: 'ignore' });
             child_process.execSync(`docker cp ${container}:/app/${options.packageName} ${tmpDir}/bootstrap`, { stdio: 'inherit' });
-            child_process.execSync(`docker rm ${container}`, { stdio: 'ignore' });
             child_process.execSync(`cd ${tmpDir} && zip ${zipFilePath} bootstrap`, { stdio: 'inherit' });
-            fs.rmSync(tmpDir, { recursive: true });
         } catch (error) {
             throw new Error(`Failed to extract Lambda binary from ${image}. Ensure the indexer image contains /app/${options.packageName}`);
+        } finally {
+            try { child_process.execSync(`docker rm ${container}`, { stdio: 'ignore' }); } catch {}
+            fs.rmSync(tmpDir, { recursive: true, force: true });
         }
     } else {
         ensureCargoLambdaInstalled();
