@@ -9,6 +9,8 @@ export interface RustLambdaOptions {
     projectPath: string;
     packageName: string;
     release?: boolean;
+    usePrebuilt?: boolean;
+    prebuiltTag?: string;
     environmentVariables?: { [key: string]: pulumi.Input<string> };
     memorySize?: number;
     timeout?: number;
@@ -59,25 +61,7 @@ export function createRustLambda(
     options: RustLambdaOptions,
     resourceOptions?: pulumi.CustomResourceOptions,
 ): { lambda: aws.lambda.Function, logGroupName: pulumi.Output<string> } {
-    ensureCargoLambdaInstalled();
-
     const nameSuffix = options.nameSuffix ?? '';
-    const release = options.release ?? true;
-    const buildMode = release ? '--release' : '';
-
-    // Build the package
-    try {
-        console.log(`Building Rust Lambda ${options.packageName} in ${options.projectPath}...`);
-        child_process.execSync(
-            `cd ${options.projectPath} && cargo lambda build --package ${options.packageName} ${buildMode} --output-format zip`,
-            { stdio: 'inherit' }
-        );
-        console.log('Build successful!');
-    } catch (error) {
-        console.error('Build failed:', error);
-        throw error;
-    }
-
     const zipFilePath = path.join(
         options.projectPath,
         'target',
@@ -86,8 +70,67 @@ export function createRustLambda(
         'bootstrap.zip'
     );
 
+    if (options.usePrebuilt) {
+        const tag = options.prebuiltTag ?? `nightly-${child_process
+            .execSync('git rev-parse HEAD')
+            .toString().trim().substring(0, 7)}`;
+        const image = `ghcr.io/boundless-xyz/boundless/lambda-${options.packageName}:${tag}`;
+
+        // Ensure target directory exists
+        const zipDir = path.dirname(zipFilePath);
+        if (!fs.existsSync(zipDir)) {
+            fs.mkdirSync(zipDir, { recursive: true });
+        }
+
+        // Poll for image availability (CI may still be building)
+        const maxAttempts = 30;
+        let found = false;
+        for (let i = 1; i <= maxAttempts; i++) {
+            try {
+                child_process.execSync(`docker manifest inspect ${image}`, { stdio: 'ignore' });
+                found = true;
+                break;
+            } catch { /* not available yet */ }
+            if (i < maxAttempts) {
+                console.log(`Waiting for pre-built Lambda ${image} (attempt ${i}/${maxAttempts}, retrying in 30s)...`);
+                child_process.execSync('sleep 30');
+            }
+        }
+        if (!found) {
+            throw new Error(`Pre-built Lambda image not found after ${maxAttempts} attempts: ${image}`);
+        }
+
+        // Extract zip from the image
+        console.log(`Extracting pre-built Lambda ${options.packageName} from ${image}...`);
+        try {
+            const container = `tmp-lambda-${options.packageName}-${Date.now()}`;
+            child_process.execSync(`docker create --name ${container} ${image}`, { stdio: 'ignore' });
+            child_process.execSync(`docker cp ${container}:/bootstrap.zip ${zipFilePath}`, { stdio: 'inherit' });
+            child_process.execSync(`docker rm ${container}`, { stdio: 'ignore' });
+        } catch (error) {
+            throw new Error(`Failed to extract pre-built Lambda from ${image}`);
+        }
+    } else {
+        ensureCargoLambdaInstalled();
+
+        const release = options.release ?? true;
+        const buildMode = release ? '--release' : '';
+
+        try {
+            console.log(`Building Rust Lambda ${options.packageName} in ${options.projectPath}...`);
+            child_process.execSync(
+                `cd ${options.projectPath} && cargo lambda build --package ${options.packageName} ${buildMode} --output-format zip`,
+                { stdio: 'inherit' }
+            );
+            console.log('Build successful!');
+        } catch (error) {
+            console.error('Build failed:', error);
+            throw error;
+        }
+    }
+
     if (!fs.existsSync(zipFilePath)) {
-        throw new Error(`Build failed: zip file not found at ${zipFilePath}`);
+        throw new Error(`Lambda zip not found at ${zipFilePath}`);
     }
 
     const logGroup = new aws.cloudwatch.LogGroup(`${name}-log-group`, {
