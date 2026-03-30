@@ -138,6 +138,7 @@ jobs:
           RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
           RISC0_SKIP_BUILD: "1"
           RISC0_SKIP_BUILD_KERNELS: "1"
+          CARGO_PROFILE_RELEASE_LTO: "thin"
         run: cargo lambda build --release --package indexer-api --package indexer-monitor --package indexer-redrive --output-format zip --compiler cargo
 
       - name: Log in to GHCR
