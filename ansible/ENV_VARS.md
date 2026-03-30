@@ -63,19 +63,19 @@ ansible-playbook -i inventory.yml prover.yml \
 
 ### Dockerfiles and Compose (prover vs explorer)
 
-| Variable                          | Default / typical                  | Description                                                                      |
-| --------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
-| `prover_boundless_build`          | `""`                               | Set to `"all"` to build from source (clears image vars, adds `--build`)          |
-| `prover_image_tag`                | `""`                               | Override ALL image tags (e.g. `nightly-latest`). Takes precedence over `prover_image_version`. |
-| `prover_image_version`            | `""`                               | Image version for pre-built images (e.g. `1.2`); empty uses `latest`             |
-| `prover_wait_for_nightly_image`   | `false`                            | Wait for CI images before restarting (use with nightly deploys)                   |
-| `prover_agent_dockerfile`         | `""`                               | CPU agent Dockerfile override (e.g. `dockerfiles/agent.cpu.dockerfile`)           |
-| `prover_gpu_agent_dockerfile`     | `""`                               | GPU agent Dockerfile override                                                    |
-| `prover_rest_api_dockerfile`      | `""`                               | REST API Dockerfile override                                                     |
-| `prover_broker_dockerfile`        | `""`                               | Broker Dockerfile override                                                       |
-| `prover_docker_compose_invoke`    | `""`                               | Services to run (e.g. `exec_agent rest_api caddy` for explorer)                  |
-| `prover_docker_compose_profile`   | `--profile broker --profile miner` | Compose profiles (explorer: `--profile caddy`)                                   |
-| `prover_docker_runtime`           | `nvidia`                           | Docker runtime (`runc` for CPU-only explorer)                                    |
+| Variable                        | Default / typical                  | Description                                                                                    |
+| ------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `prover_boundless_build`        | `""`                               | Set to `"all"` to build from source (clears image vars, adds `--build`)                        |
+| `prover_image_tag`              | `""`                               | Override ALL image tags (e.g. `nightly-latest`). Takes precedence over `prover_image_version`. |
+| `prover_image_version`          | `""`                               | Image version for pre-built images (e.g. `1.2`); empty uses `latest`                           |
+| `prover_wait_for_nightly_image` | `false`                            | Wait for CI images before restarting (use with nightly deploys)                                |
+| `prover_agent_dockerfile`       | `""`                               | CPU agent Dockerfile override (e.g. `dockerfiles/agent.cpu.dockerfile`)                        |
+| `prover_gpu_agent_dockerfile`   | `""`                               | GPU agent Dockerfile override                                                                  |
+| `prover_rest_api_dockerfile`    | `""`                               | REST API Dockerfile override                                                                   |
+| `prover_broker_dockerfile`      | `""`                               | Broker Dockerfile override                                                                     |
+| `prover_docker_compose_invoke`  | `""`                               | Services to run (e.g. `exec_agent rest_api caddy` for explorer)                                |
+| `prover_docker_compose_profile` | `--profile broker --profile miner` | Compose profiles (explorer: `--profile caddy`)                                                 |
+| `prover_docker_runtime`         | `nvidia`                           | Docker runtime (`runc` for CPU-only explorer)                                                  |
 
 Explorer hosts also use Caddy variables: `caddy_domain`, `caddy_acme_email`, `caddy_auth_enabled`, `caddy_api_key`, `prover_caddy_file`. See `inventory.yml` and the prover role templates for current names and usage.
 
@@ -250,8 +250,8 @@ Setting `prover_image_tag` overrides all image tags to use nightly CI builds. Wi
 To build from source instead (slower, not recommended for staging):
 
 ```yaml
-      prover_boundless_build: "all"
-      prover_image_tag: ""
+prover_boundless_build: "all"
+prover_image_tag: ""
 ```
 
 ### Vector logging (credentials from group vars)

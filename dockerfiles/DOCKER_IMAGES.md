@@ -4,13 +4,13 @@ How Boundless Docker images are built, released, tagged, and deployed.
 
 ## Image Inventory
 
-| Image            | Contents                                             | Compose service(s)             | Override env var    |
-| ---------------- | ---------------------------------------------------- | ------------------------------ | ------------------- |
-| `bento-agent`    | GPU proving agent (CUDA build, runs on NVIDIA GPUs)  | `gpu_prove_agent`              | `AGENT_IMAGE`       |
-| `bento-agent-cpu`| CPU agent for executor and auxiliary workers          | `exec_agent`, aux workers      | `CPU_AGENT_IMAGE`   |
-| `bento-rest-api` | REST API for task submission and status               | `rest_api`                     | `REST_API_IMAGE`    |
-| `bento-cli`      | CLI tools; also used as the `miner` service          | `miner`                        | `BENTO_CLI_IMAGE`   |
-| `broker`         | Broker binary for order picking and fulfillment      | `broker`                       | `BROKER_IMAGE`      |
+| Image             | Contents                                            | Compose service(s)        | Override env var  |
+| ----------------- | --------------------------------------------------- | ------------------------- | ----------------- |
+| `bento-agent`     | GPU proving agent (CUDA build, runs on NVIDIA GPUs) | `gpu_prove_agent`         | `AGENT_IMAGE`     |
+| `bento-agent-cpu` | CPU agent for executor and auxiliary workers        | `exec_agent`, aux workers | `CPU_AGENT_IMAGE` |
+| `bento-rest-api`  | REST API for task submission and status             | `rest_api`                | `REST_API_IMAGE`  |
+| `bento-cli`       | CLI tools; also used as the `miner` service         | `miner`                   | `BENTO_CLI_IMAGE` |
+| `broker`          | Broker binary for order picking and fulfillment     | `broker`                  | `BROKER_IMAGE`    |
 
 Five additional infra images are built but not part of the prover compose stack: `slasher`, `order-stream`, `indexer`, `distributor`, `order-generator`.
 
@@ -64,6 +64,7 @@ This prevents RC images from becoming the default pull for production hosts.
 A `workflow_dispatch` workflow to retag any image without rebuilding.
 
 Inputs:
+
 - Source tag (e.g. `nightly-abc1234`)
 - Target tag (e.g. `bento-v1.3.1`)
 - Image name(s)
@@ -74,13 +75,13 @@ Useful for promoting a known-good nightly image to a release tag, or fixing a mi
 
 `compose.yml` defaults (when no env vars are set):
 
-| Service            | Default image tag |
-| ------------------ | ----------------- |
-| GPU agents         | `bento-agent:latest` |
-| CPU agents         | `bento-agent-cpu:latest` |
-| REST API           | `bento-rest-api:latest` |
-| Miner              | `bento-cli:latest` |
-| Broker             | `broker:latest` |
+| Service    | Default image tag        |
+| ---------- | ------------------------ |
+| GPU agents | `bento-agent:latest`     |
+| CPU agents | `bento-agent-cpu:latest` |
+| REST API   | `bento-rest-api:latest`  |
+| Miner      | `bento-cli:latest`       |
+| Broker     | `broker:latest`          |
 
 Override any image via the `.env` file or environment variables:
 
@@ -107,6 +108,7 @@ prover_84532_staging_nightly:
 ```
 
 Key points:
+
 - `prover_image_tag` sets every image to the same tag (e.g. `nightly-latest`).
 - `prover_boundless_build` must be empty (not `"all"`), otherwise images are built locally.
 - `prover_wait_for_nightly_image` prevents the deploy from restarting services before CI has pushed the images for the deployed commit.
