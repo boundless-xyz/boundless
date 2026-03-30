@@ -74,7 +74,7 @@ export function createRustLambda(
         const tag = options.prebuiltTag ?? `nightly-${child_process
             .execSync('git rev-parse HEAD')
             .toString().trim().substring(0, 7)}`;
-        const image = `ghcr.io/boundless-xyz/boundless/lambda-${options.packageName}:${tag}`;
+        const image = `ghcr.io/boundless-xyz/boundless/indexer:${tag}`;
 
         // Ensure target directory exists
         const zipDir = path.dirname(zipFilePath);
@@ -92,23 +92,26 @@ export function createRustLambda(
                 break;
             } catch { /* not available yet */ }
             if (i < maxAttempts) {
-                console.log(`Waiting for pre-built Lambda ${image} (attempt ${i}/${maxAttempts}, retrying in 30s)...`);
+                console.log(`Waiting for indexer image ${image} (attempt ${i}/${maxAttempts}, retrying in 30s)...`);
                 child_process.execSync('sleep 30');
             }
         }
         if (!found) {
-            throw new Error(`Pre-built Lambda image not found after ${maxAttempts} attempts: ${image}`);
+            throw new Error(`Indexer image not found after ${maxAttempts} attempts: ${image}`);
         }
 
-        // Extract zip from the image
-        console.log(`Extracting pre-built Lambda ${options.packageName} from ${image}...`);
+        // Extract binary from indexer image, rename to bootstrap, and zip for Lambda
+        console.log(`Extracting Lambda binary ${options.packageName} from ${image}...`);
         try {
             const container = `tmp-lambda-${options.packageName}-${Date.now()}`;
+            const tmpDir = fs.mkdtempSync('/tmp/lambda-');
             child_process.execSync(`docker create --name ${container} ${image}`, { stdio: 'ignore' });
-            child_process.execSync(`docker cp ${container}:/bootstrap.zip ${zipFilePath}`, { stdio: 'inherit' });
+            child_process.execSync(`docker cp ${container}:/app/${options.packageName} ${tmpDir}/bootstrap`, { stdio: 'inherit' });
             child_process.execSync(`docker rm ${container}`, { stdio: 'ignore' });
+            child_process.execSync(`cd ${tmpDir} && zip ${zipFilePath} bootstrap`, { stdio: 'inherit' });
+            fs.rmSync(tmpDir, { recursive: true });
         } catch (error) {
-            throw new Error(`Failed to extract pre-built Lambda from ${image}`);
+            throw new Error(`Failed to extract Lambda binary from ${image}. Ensure the indexer image contains /app/${options.packageName}`);
         }
     } else {
         ensureCargoLambdaInstalled();

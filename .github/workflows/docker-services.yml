@@ -109,58 +109,6 @@ jobs:
           path: recipe.json
           retention-days: 1
 
-  build-lambdas:
-    runs-on: [self-hosted, prod, Linux, cpu]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
-        with:
-          toolchain: 1.89.0
-
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential mold
-
-      - name: Install cargo-lambda
-        run: |
-          if ! cargo lambda --version 2>/dev/null; then
-            curl -L https://github.com/cargo-lambda/cargo-lambda/releases/download/v1.9.1/cargo-lambda-v1.9.1.x86_64-unknown-linux-musl.tar.gz | sudo tar xz -C /usr/local/bin
-          fi
-
-      - name: Setup sccache
-        uses: ./.github/actions/sccache
-        with:
-          key: lambda-build-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Build lambda zips
-        env:
-          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
-          RISC0_SKIP_BUILD: "1"
-          RISC0_SKIP_BUILD_KERNELS: "1"
-          CARGO_PROFILE_RELEASE_LTO: "thin"
-        run: cargo lambda build --release --package indexer-api --package indexer-monitor --package indexer-redrive --output-format zip --compiler cargo
-
-      - name: sccache stats
-        if: always()
-        run: sccache --show-stats
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push lambda zips to GHCR
-        run: |
-          SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          printf 'FROM scratch\nCOPY bootstrap.zip /bootstrap.zip\n' > /tmp/lambda.Dockerfile
-          for pkg in indexer-api indexer-monitor indexer-redrive; do
-            IMG=${{ env.IMAGE_PREFIX }}/lambda-${pkg}:nightly-${SHA}
-            docker buildx build --push --tag "$IMG" --file /tmp/lambda.Dockerfile target/lambda/$pkg
-          done
-
   build-and-push:
     needs: [build-base, prepare-recipe]
     runs-on: [self-hosted, prod, Linux, cpu]

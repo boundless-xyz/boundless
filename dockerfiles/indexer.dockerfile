@@ -72,11 +72,17 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
         --bin market-indexer \
         --bin rewards-indexer \
         --bin market-efficiency-indexer \
-        --bin market-indexer-backfill && \
+        --bin market-indexer-backfill \
+        --bin indexer-api \
+        --bin indexer-monitor \
+        --bin indexer-redrive && \
     cp /src/target/release/market-indexer /src/market-indexer && \
     cp /src/target/release/rewards-indexer /src/rewards-indexer && \
     cp /src/target/release/market-efficiency-indexer /src/market-efficiency-indexer && \
     cp /src/target/release/market-indexer-backfill /src/market-indexer-backfill && \
+    cp /src/target/release/indexer-api /src/indexer-api && \
+    cp /src/target/release/indexer-monitor /src/indexer-monitor && \
+    cp /src/target/release/indexer-redrive /src/indexer-redrive && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
@@ -89,3 +95,6 @@ COPY --from=builder /src/market-indexer /app/market-indexer
 COPY --from=builder /src/rewards-indexer /app/rewards-indexer
 COPY --from=builder /src/market-efficiency-indexer /app/market-efficiency-indexer
 COPY --from=builder /src/market-indexer-backfill /app/market-indexer-backfill
+COPY --from=builder /src/indexer-api /app/indexer-api
+COPY --from=builder /src/indexer-monitor /app/indexer-monitor
+COPY --from=builder /src/indexer-redrive /app/indexer-redrive
