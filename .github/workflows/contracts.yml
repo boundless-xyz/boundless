@@ -246,6 +246,9 @@ jobs:
       - name: cargo build
         run: cargo build --locked
 
+      - name: Add cargo build output to PATH
+        run: echo "${{ github.workspace }}/target/debug" >> $GITHUB_PATH
+
       - name: spin up local network
         run: just localnet up
         env:
