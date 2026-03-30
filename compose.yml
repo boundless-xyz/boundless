@@ -21,13 +21,13 @@ x-base-environment: &base-environment
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-cpu-agent-common: &cpu-agent-common
-  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
+  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:v1.4.0-rc.0}
   runtime: runc
   build:
     context: .
     dockerfile: ${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}
     args:
-      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
+      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.4.0-rc.0/bento-bundle-linux-amd64.tar.gz}
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
       USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
   restart: always
@@ -42,13 +42,13 @@ x-cpu-agent-common: &cpu-agent-common
     <<: *base-environment
 
 x-gpu-agent-common: &gpu-agent-common
-  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
+  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:v1.4.0-rc.0}
   runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
     dockerfile: ${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}
     args:
-      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
+      BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.4.0-rc.0/bento-bundle-linux-amd64.tar.gz}
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
       USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
   restart: always
@@ -71,6 +71,7 @@ x-exec-agent-common: &exec-agent-common
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
     SEGMENT_SIZE: ${SEGMENT_SIZE:-21}
     REDIS_TTL: ${REDIS_TTL:-57600}
+    LD_LIBRARY_PATH: /usr/local/cuda/compat
   entrypoint:
     [
       "/bin/sh",
@@ -118,7 +119,7 @@ x-gpu-prove-agent: &gpu-prove-agent
       read_only: true
 
 x-broker-common: &broker-common
-  image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:latest}
+  image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:v1.4.0-rc.0}
   restart: always
   depends_on:
     rest_api:
@@ -138,7 +139,7 @@ x-broker-common: &broker-common
     context: .
     dockerfile: ${BROKER_DOCKERFILE:-dockerfiles/broker.prebuilt.dockerfile}
     args:
-      BINARY_URL: ${BROKER_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/broker-v1.2.2/broker}
+      BINARY_URL: ${BROKER_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/broker-v1.4.0-rc.0/broker}
   mem_limit: 2G
   cpus: 2
   stop_grace_period: 3h
@@ -305,6 +306,7 @@ services:
       BENTO_DISABLE_COMPLETED_CLEANUP:
       BENTO_DISABLE_STUCK_TASK_CLEANUP:
       REDIS_TTL: ${REDIS_TTL:-57600}
+      LD_LIBRARY_PATH: /usr/local/cuda/compat
     entrypoint:
       [
         "/bin/sh",
@@ -326,12 +328,12 @@ services:
               capabilities: [gpu]
 
   rest_api:
-    image: ${REST_API_IMAGE-ghcr.io/boundless-xyz/boundless/bento-rest-api:latest}
+    image: ${REST_API_IMAGE-ghcr.io/boundless-xyz/boundless/bento-rest-api:v1.4.0-rc.0}
     build:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
       args:
-        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
+        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.4.0-rc.0/bento-bundle-linux-amd64.tar.gz}
     restart: always
     depends_on:
       postgres:
@@ -390,12 +392,12 @@ services:
   #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
   miner:
-    image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
+    image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:v1.4.0-rc.0}
     build:
       context: .
       dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
       args:
-        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
+        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.4.0-rc.0/bento-bundle-linux-amd64.tar.gz}
         BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
         # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
         USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
