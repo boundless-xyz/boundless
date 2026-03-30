@@ -113,6 +113,9 @@ jobs:
         with:
           toolchain: 1.89.0
 
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential mold
+
       - name: Install cargo-lambda
         run: |
           if ! cargo lambda --version 2>/dev/null; then
