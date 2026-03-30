@@ -114,7 +114,27 @@ docker buildx inspect <builder-name> --bootstrap
 export DOCKER_REMOTE_BUILDER="<builder-name>"
 ```
 
-All service Pulumi stacks read `DOCKER_REMOTE_BUILDER` and offload the build to the remote machine. If the user doesn't have a remote builder, suggest triggering the `docker-services` CI workflow manually (`gh workflow run docker-services.yml`) and using the pre-built GHCR image.
+All service Pulumi stacks read `DOCKER_REMOTE_BUILDER` and offload the build to the remote machine.
+
+**Alternative: use pre-built GHCR images.** If the user doesn't have a remote builder, guide them through this:
+
+```bash
+# 1. Trigger a build with a custom tag
+gh workflow run docker-services.yml --repo boundless-xyz/boundless --ref main -f custom_tag="my-dev-build"
+
+# 2. Wait for it to finish
+gh run list --workflow=docker-services.yml --repo boundless-xyz/boundless -L 1
+
+# 3. Login to GHCR (required — registry is private)
+echo $(gh auth token) | docker login ghcr.io -u $(gh api user --jq .login) --password-stdin
+
+# 4. Deploy with the pre-built image
+export GHCR_IMAGE_TAG="my-dev-build"  # or "latest" for latest main build
+pulumi config set USE_GHCR true
+pulumi up
+```
+
+IMPORTANT: The GHCR login step is required before `pulumi up` when using `USE_GHCR`. Without it, the image existence check will fail with 401. Always remind the user to run the `docker login ghcr.io` command.
 
 ## Teardown workflow
 

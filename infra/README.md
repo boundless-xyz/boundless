@@ -20,8 +20,11 @@ pulumi up
 cd infra/slasher
 export DEV_NAME="<your-name>" BASE_STACK="organization/bootstrap/services-dev" PULUMI_CONFIG_PASSPHRASE=""
 export CHAIN_ID="..." ETH_RPC_URL="..." PRIVATE_KEY="..." BOUNDLESS_MARKET_ADDR="..." RDS_PASSWORD="..."
-# Apple Silicon? Use a remote builder (see below)
+# Option A: Apple Silicon? Use a remote builder (see below)
 # export DOCKER_REMOTE_BUILDER="<builder-name>"
+# Option B: Use a pre-built GHCR image (see below)
+# echo $(gh auth token) | docker login ghcr.io -u $(gh api user --jq .login) --password-stdin
+# export GHCR_IMAGE_TAG="latest" && pulumi config set USE_GHCR true
 pulumi login --local && pulumi stack init dev && pulumi install
 pulumi up
 
@@ -161,7 +164,25 @@ export DOCKER_REMOTE_BUILDER="<builder-name>"
 
 All service Pulumi stacks read `DOCKER_REMOTE_BUILDER` and will offload the build to the remote machine.
 
-**Alternative: use pre-built GHCR images.** The `docker-services` CI workflow builds images on every push to `main`. You can trigger it manually and use the resulting image (see `USE_GHCR` config flag in staging/prod stacks).
+**Alternative: use pre-built GHCR images.** Instead of building locally, use images built by CI:
+
+```bash
+# 1. Trigger a build with a custom tag (from any branch)
+gh workflow run docker-services.yml --repo boundless-xyz/boundless --ref main -f custom_tag="my-dev-build"
+
+# 2. Wait for the workflow to finish
+gh run list --workflow=docker-services.yml --repo boundless-xyz/boundless -L 1
+
+# 3. Login to GHCR (one-time per session)
+echo $(gh auth token) | docker login ghcr.io -u $(gh api user --jq .login) --password-stdin
+
+# 4. Deploy using the pre-built image
+export GHCR_IMAGE_TAG="my-dev-build"
+pulumi config set USE_GHCR true
+pulumi up
+```
+
+You can also use `latest` (built on every push to `main`) instead of a custom tag.
 
 ### Tearing down
 
