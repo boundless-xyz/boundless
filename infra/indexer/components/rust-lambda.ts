@@ -62,7 +62,7 @@ export function createRustLambda(
     resourceOptions?: pulumi.CustomResourceOptions,
 ): { lambda: aws.lambda.Function, logGroupName: pulumi.Output<string> } {
     const nameSuffix = options.nameSuffix ?? '';
-    const zipFilePath = path.join(
+    const zipFilePath = path.resolve(
         options.projectPath,
         'target',
         'lambda',
