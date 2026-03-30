@@ -48,7 +48,6 @@ async fn new_config_with_telemetry(
 }
 
 #[tokio::test]
-#[ignore = "must run separately as telemetry is global and can cause issues when tests are run in parallel, especially with #[traced_test] causing the global telemetry logs to be captured by the first test that runs"]
 #[traced_test("debug")]
 async fn e2e_telemetry_events() {
     let anvil = Anvil::new().spawn();
@@ -66,6 +65,7 @@ async fn e2e_telemetry_events() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer,
+        Some(ctx.version_registry_address),
     );
 
     let any_provider = make_any_provider(&args);

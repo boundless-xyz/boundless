@@ -40,6 +40,10 @@ struct DeploymentConfig {
     // ZKC contract addresses
     address zkc;
     address vezkc;
+    // VersionRegistry contract addresses
+    address versionRegistry;
+    address versionRegistryImpl;
+    address versionRegistryAdmin;
 }
 
 library ConfigLoader {
@@ -149,6 +153,14 @@ library ConfigParser {
         // ZKC contract addresses
         deploymentConfig.zkc = stdToml.readAddressOr(config, string.concat(chain, ".zkc"), address(0));
         deploymentConfig.vezkc = stdToml.readAddressOr(config, string.concat(chain, ".vezkc"), address(0));
+
+        // VersionRegistry contract addresses
+        deploymentConfig.versionRegistry =
+            stdToml.readAddressOr(config, string.concat(chain, ".version-registry"), address(0));
+        deploymentConfig.versionRegistryImpl =
+            stdToml.readAddressOr(config, string.concat(chain, ".version-registry-impl"), address(0));
+        deploymentConfig.versionRegistryAdmin =
+            stdToml.readAddressOr(config, string.concat(chain, ".version-registry-admin"), address(0));
 
         return deploymentConfig;
     }

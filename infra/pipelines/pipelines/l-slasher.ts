@@ -7,7 +7,7 @@ interface LSlasherPipelineArgs extends BasePipelineArgs { }
 const config: LaunchPipelineConfig = {
   appName: "slasher",
   buildTimeout: 60,
-  computeType: "BUILD_GENERAL1_MEDIUM"
+  computeType: "BUILD_GENERAL1_MEDIUM",
 };
 
 export class LSlasherPipeline extends LaunchDefaultPipeline {

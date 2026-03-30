@@ -817,13 +817,11 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
             continue;
         }
 
-        // Use deposited collateral from indexer
+        // Use deposited collateral from indexer (already in raw wei)
         let balance: U256 = if prover.collateral_deposited_zkc.is_empty() {
             U256::ZERO
         } else {
-            parse_units(&prover.collateral_deposited_zkc, collateral_token_decimals)
-                .map(|v| v.into())
-                .unwrap_or(U256::ZERO)
+            prover.collateral_deposited_zkc.parse::<U256>().unwrap_or(U256::ZERO)
         };
 
         if balance >= ext_collateral_threshold {

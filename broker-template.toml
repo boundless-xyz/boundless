@@ -117,6 +117,11 @@ max_collateral = "10 USD"
 # https://docs.boundless.network/provers/broker#settings-in-brokertoml
 max_concurrent_preflights = 8
 
+# Number of times to retry failed HTTP fetches for request images/inputs.
+#
+# Retries are disabled by default. Uncomment to enable, for example:
+# max_fetch_retries = 2
+
 # Maximum number of concurrent proofs that can be processed at once.
 #
 # Used to limit proof tasks spawned to prevent overwhelming the system.

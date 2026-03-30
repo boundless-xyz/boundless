@@ -38,12 +38,22 @@ while [[ $# -gt 0 ]]; do
         shift # past argument
         ;;
     --broadcast|--verify)
-        FORGE_SCRIPT_FLAGS+=("$1") 
+        FORGE_SCRIPT_FLAGS+=("$1")
+        shift
+        ;;
+    -g)
+        shift
+        FORGE_SCRIPT_FLAGS+=("--gas-estimate-multiplier=$1")
         shift
         ;;
     -*|--*)
-        echo "Unknown option $1"
-        exit 1
+        FORGE_SCRIPT_FLAGS+=("$1")
+        shift
+        # If the next arg exists and doesn't start with -, treat it as the flag's value
+        if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+            FORGE_SCRIPT_FLAGS+=("$1")
+            shift
+        fi
         ;;
     *)
         POSITIONAL_ARGS+=("$1") # save positional arg
@@ -103,11 +113,25 @@ Commands:
   FinishRevokeRole        Finish revoking a role from an account on the TimelockController contract
   RenounceRole            Renounce a role on the TimelockController contract
   ActivateEstop           Activate the emergency stop on the Verifier Router contract
+
+  RISC Zero Stack (upstream verifier infrastructure):
+  DeployRisc0TimelockRouter              Deploy RISC Zero TimelockController + RiscZeroVerifierRouter
+  DeployEstopGroth16Verifier             Deploy RiscZeroGroth16Verifier + emergency stop
+  DeployEstopSetVerifier                 Deploy RiscZeroSetVerifier + emergency stop
+  ScheduleAddVerifierToRisc0Router       Schedule adding a verifier to the RISC Zero router
+  FinishAddVerifierToRisc0Router         Finish adding a verifier to the RISC Zero router
+  ScheduleUpdateRisc0TimelockDelay       Schedule updating the RISC Zero timelock delay
+  FinishUpdateRisc0TimelockDelay         Finish updating the RISC Zero timelock delay
+
 Options:
   -f, --fireblocks       Use Fireblocks for transaction signing
   --broadcast            Broadcast transactions to network
   --verify               Verify contracts on Etherscan
+  -g <multiplier>        Gas estimate multiplier (e.g. -g 200 for 200%)
   -h, --help             Show this help message
+
+  Any additional flags (e.g. --gas-limit, --with-gas-price) are passed
+  through to \`forge script\`.
 
 Environment Variables:
   CHAIN_KEY              Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
@@ -125,6 +149,11 @@ Environment Variables:
   RENOUNCE_ROLE          Required for RenounceRole command. Role to renounce (bytes32 string)
   ACCOUNT                Required for role management commands. Account to grant/revoke role to/from
   ROLE                   Required for role management commands. Role to grant/revoke (bytes32 string)
+  RISC0_TIMELOCK_CONTROLLER  Optional. Override RISC Zero timelock address from config
+  RISC0_ROUTER               Optional. Override RISC Zero router address from config
+  RISC0_MIN_DELAY            Required for ScheduleUpdateRisc0TimelockDelay/FinishUpdateRisc0TimelockDelay
+  SET_BUILDER_IMAGE_ID       Required for DeployEstopSetVerifier. SetBuilder guest image ID
+  SET_BUILDER_GUEST_URL      Required for DeployEstopSetVerifier. SetBuilder guest URL
 
 Examples:
   # Deploy TimelockController and Verifier Router
@@ -153,6 +182,34 @@ EOF
     load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
     load_env_var "CHAIN_ID" ".chains[\"${CHAIN_KEY:?}\"].id" "deployment_verifier.toml"
 
+    # Load optional gas-estimate-multiplier from config
+    GAS_MULTIPLIER=$(yq eval ".chains[\"${CHAIN_KEY:?}\"].gas-estimate-multiplier // \"\"" "$REPO_ROOT_DIR/contracts/deployment_verifier.toml")
+    if [[ -n "$GAS_MULTIPLIER" ]] && ! printf '%s\n' "${FORGE_SCRIPT_FLAGS[@]}" | grep -q -- '--gas-estimate-multiplier='; then
+        echo "Using gas-estimate-multiplier from config: ${GAS_MULTIPLIER}"
+        FORGE_SCRIPT_FLAGS+=("--gas-estimate-multiplier=$GAS_MULTIPLIER")
+    fi
+
+    # Load optional gas-limit from config
+    GAS_LIMIT=$(yq eval ".chains[\"${CHAIN_KEY:?}\"].gas-limit // \"\"" "$REPO_ROOT_DIR/contracts/deployment_verifier.toml")
+    if [[ -n "$GAS_LIMIT" ]] && ! printf '%s\n' "${FORGE_SCRIPT_FLAGS[@]}" | grep -q -- '--gas-limit'; then
+        echo "Using gas-limit from config: ${GAS_LIMIT}"
+        FORGE_SCRIPT_FLAGS+=("--gas-limit=$GAS_LIMIT")
+    fi
+
+    # Load optional foundry-profile from config (e.g. "shanghai" for chains without tstore/tload support)
+    CONFIG_PROFILE=$(yq eval ".chains[\"${CHAIN_KEY:?}\"].foundry-profile // \"\"" "$REPO_ROOT_DIR/contracts/deployment_verifier.toml")
+    if [[ -n "$CONFIG_PROFILE" ]]; then
+        echo "Using foundry-profile from config: ${CONFIG_PROFILE}"
+        export FOUNDRY_PROFILE="${CONFIG_PROFILE}"
+    fi
+
+    # Load optional evm-version from config (e.g. "shanghai" for chains without MCOPY support)
+    EVM_VERSION=$(yq eval ".chains[\"${CHAIN_KEY:?}\"].evm-version // \"\"" "$REPO_ROOT_DIR/contracts/deployment_verifier.toml")
+    if [[ -n "$EVM_VERSION" ]] && ! printf '%s\n' "${FORGE_SCRIPT_FLAGS[@]}" | grep -q -- '--evm-version'; then
+        echo "Using evm-version from config: ${EVM_VERSION}"
+        FORGE_SCRIPT_FLAGS+=("--evm-version=$EVM_VERSION")
+    fi
+
     # Check if we're on the correct network
     CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
     if [[ "${CONNECTED_CHAIN_ID:?}" != "${CHAIN_ID:?}" ]]; then
@@ -176,14 +233,14 @@ EOF
 
         # Run forge via fireblocks
         fireblocks-json-rpc --verbose --rpcUrl ${RPC_URL:?} --http --apiKey ${FIREBLOCKS_API_KEY:?} -- \
-            forge script ${FORGE_SCRIPT_FLAGS} \
+            forge script "${FORGE_SCRIPT_FLAGS[@]}" \
             --slow --unlocked \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url {} \
             "$target" "$@"
     else
         # Run forge
-        forge script ${FORGE_SCRIPT_FLAGS} \
+        forge script "${FORGE_SCRIPT_FLAGS[@]}" \
             --private-key=${DEPLOYER_PRIVATE_KEY:?} \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url ${RPC_URL:?} \
