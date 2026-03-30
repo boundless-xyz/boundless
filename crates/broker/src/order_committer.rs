@@ -133,8 +133,8 @@ struct CommitterConfig {
 pub(crate) struct OrderCommitter {
     config: ConfigLock,
     priced_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
-    chain_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
-    completion_rx: Arc<Mutex<mpsc::Receiver<CommitmentComplete>>>,
+    locker_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
+    proving_completion_rx: Arc<Mutex<mpsc::Receiver<CommitmentComplete>>>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
 }
 
@@ -173,15 +173,15 @@ impl OrderCommitter {
     pub fn new(
         config: ConfigLock,
         priced_order_rx: mpsc::Receiver<Box<OrderRequest>>,
-        chain_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
-        completion_rx: mpsc::Receiver<CommitmentComplete>,
+        locker_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
+        proving_completion_rx: mpsc::Receiver<CommitmentComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
     ) -> Self {
         Self {
             config,
             priced_order_rx: Arc::new(Mutex::new(priced_order_rx)),
-            chain_dispatchers: Arc::new(chain_dispatchers),
-            completion_rx: Arc::new(Mutex::new(completion_rx)),
+            locker_dispatchers: Arc::new(locker_dispatchers),
+            proving_completion_rx: Arc::new(Mutex::new(proving_completion_rx)),
             order_state_tx,
         }
     }
@@ -390,7 +390,7 @@ impl OrderCommitter {
                 },
             );
 
-            let Some(committer_tx) = self.chain_dispatchers.get(&chain_id) else {
+            let Some(locker_tx) = self.locker_dispatchers.get(&chain_id) else {
                 in_flight.remove(&order_id);
                 tracing::warn!(
                     chain_id,
@@ -399,7 +399,7 @@ impl OrderCommitter {
                 continue;
             };
 
-            match committer_tx.try_send(order) {
+            match locker_tx.try_send(order) {
                 Ok(()) => {
                     // Note: Successful commitment telemetry is not emitted here — it is recorded by the
                     // per-chain OrderLocker after the on-chain lock transaction succeeds or the order
@@ -471,7 +471,7 @@ impl RetryTask for OrderCommitter {
             let mut committer_config = committer.read_config().map_err(SupervisorErr::Fault)?;
 
             let mut priced_order_rx = committer.priced_order_rx.lock().await;
-            let mut completion_rx = committer.completion_rx.lock().await;
+            let mut proving_completion_rx = committer.proving_completion_rx.lock().await;
             let mut order_state_rx = committer.order_state_tx.subscribe();
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
 
@@ -493,7 +493,7 @@ impl RetryTask for OrderCommitter {
                         );
                     }
 
-                    Some(completion) = completion_rx.recv() => {
+                    Some(completion) = proving_completion_rx.recv() => {
                         if in_flight.remove(&completion.order_id).is_some() {
                             tracing::debug!(
                                 chain_id = completion.chain_id,
@@ -656,21 +656,26 @@ mod tests {
         config.load_write().unwrap().market.max_concurrent_proofs = max_concurrent_proofs;
 
         let (order_tx, order_rx) = mpsc::channel(100);
-        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let (proving_completion_tx, proving_completion_rx) = mpsc::channel(100);
         let (state_tx, _) = broadcast::channel(100);
 
         let mut dispatchers = HashMap::new();
-        let mut committer_rxs = HashMap::new();
+        let mut locker_rxs = HashMap::new();
         for &chain_id in chain_ids {
             let (tx, rx) = mpsc::channel(100);
             dispatchers.insert(chain_id, tx);
-            committer_rxs.insert(chain_id, rx);
+            locker_rxs.insert(chain_id, rx);
         }
 
-        let committer =
-            OrderCommitter::new(config, order_rx, dispatchers, completion_rx, state_tx.clone());
+        let committer = OrderCommitter::new(
+            config,
+            order_rx,
+            dispatchers,
+            proving_completion_rx,
+            state_tx.clone(),
+        );
 
-        (committer, order_tx, completion_tx, state_tx, committer_rxs)
+        (committer, order_tx, proving_completion_tx, state_tx, locker_rxs)
     }
 
     async fn recv_with_timeout<T>(rx: &mut mpsc::Receiver<T>) -> T {
@@ -687,7 +692,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatches_up_to_capacity() {
-        let (committer, order_tx, _completion_tx, _state_tx, mut committer_rxs) =
+        let (committer, order_tx, _proving_completion_tx, _state_tx, mut locker_rxs) =
             setup_committer(2, &[1]);
         let cancel = CancellationToken::new();
 
@@ -696,16 +701,16 @@ mod tests {
             async move { committer.spawn(cancel).await }
         });
 
-        let committer_rx = committer_rxs.get_mut(&1).unwrap();
+        let locker_rx = locker_rxs.get_mut(&1).unwrap();
 
         for i in 0..4 {
             order_tx.send(make_order(1, i, FulfillmentType::LockAndFulfill)).await.unwrap();
         }
 
-        let _ = recv_with_timeout(committer_rx).await;
-        let _ = recv_with_timeout(committer_rx).await;
+        let _ = recv_with_timeout(locker_rx).await;
+        let _ = recv_with_timeout(locker_rx).await;
 
-        assert_no_message(committer_rx).await;
+        assert_no_message(locker_rx).await;
 
         cancel.cancel();
         let _ = handle.await;
@@ -713,7 +718,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_completion_frees_capacity() {
-        let (committer, order_tx, completion_tx, _state_tx, mut committer_rxs) =
+        let (committer, order_tx, proving_completion_tx, _state_tx, mut locker_rxs) =
             setup_committer(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -722,15 +727,15 @@ mod tests {
             async move { committer.spawn(cancel).await }
         });
 
-        let committer_rx = committer_rxs.get_mut(&1).unwrap();
+        let locker_rx = locker_rxs.get_mut(&1).unwrap();
 
         order_tx.send(make_order(1, 0, FulfillmentType::LockAndFulfill)).await.unwrap();
         order_tx.send(make_order(1, 1, FulfillmentType::LockAndFulfill)).await.unwrap();
 
-        let first = recv_with_timeout(committer_rx).await;
-        assert_no_message(committer_rx).await;
+        let first = recv_with_timeout(locker_rx).await;
+        assert_no_message(locker_rx).await;
 
-        completion_tx
+        proving_completion_tx
             .send(CommitmentComplete {
                 order_id: first.id(),
                 chain_id: 1,
@@ -739,7 +744,7 @@ mod tests {
             .await
             .unwrap();
 
-        let _ = recv_with_timeout(committer_rx).await;
+        let _ = recv_with_timeout(locker_rx).await;
 
         cancel.cancel();
         let _ = handle.await;
@@ -747,7 +752,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lock_event_removes_pending() {
-        let (committer, order_tx, completion_tx, state_tx, mut committer_rxs) =
+        let (committer, order_tx, proving_completion_tx, state_tx, mut locker_rxs) =
             setup_committer(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -756,10 +761,10 @@ mod tests {
             async move { committer.spawn(cancel).await }
         });
 
-        let committer_rx = committer_rxs.get_mut(&1).unwrap();
+        let locker_rx = locker_rxs.get_mut(&1).unwrap();
 
         order_tx.send(make_order(1, 0, FulfillmentType::LockAndFulfill)).await.unwrap();
-        let first = recv_with_timeout(committer_rx).await;
+        let first = recv_with_timeout(locker_rx).await;
 
         let queued_order = make_order(1, 1, FulfillmentType::LockAndFulfill);
         let queued_request_id: U256 = queued_order.request.id;
@@ -780,7 +785,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        completion_tx
+        proving_completion_tx
             .send(CommitmentComplete {
                 order_id: first.id(),
                 chain_id: 1,
@@ -789,7 +794,7 @@ mod tests {
             .await
             .unwrap();
 
-        let dispatched = recv_with_timeout(committer_rx).await;
+        let dispatched = recv_with_timeout(locker_rx).await;
         assert_eq!(dispatched.fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
 
         cancel.cancel();
@@ -798,7 +803,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fulfill_event_removes_pending() {
-        let (committer, order_tx, completion_tx, state_tx, mut committer_rxs) =
+        let (committer, order_tx, proving_completion_tx, state_tx, mut locker_rxs) =
             setup_committer(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -807,10 +812,10 @@ mod tests {
             async move { committer.spawn(cancel).await }
         });
 
-        let committer_rx = committer_rxs.get_mut(&1).unwrap();
+        let locker_rx = locker_rxs.get_mut(&1).unwrap();
 
         order_tx.send(make_order(1, 0, FulfillmentType::LockAndFulfill)).await.unwrap();
-        let first = recv_with_timeout(committer_rx).await;
+        let first = recv_with_timeout(locker_rx).await;
 
         order_tx.send(make_order(1, 1, FulfillmentType::LockAndFulfill)).await.unwrap();
         let mut fale_order = *make_order(1, 99, FulfillmentType::FulfillAfterLockExpire);
@@ -824,7 +829,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        completion_tx
+        proving_completion_tx
             .send(CommitmentComplete {
                 order_id: first.id(),
                 chain_id: 1,
@@ -833,7 +838,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_no_message(committer_rx).await;
+        assert_no_message(locker_rx).await;
 
         cancel.cancel();
         let _ = handle.await;
@@ -841,7 +846,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fulfill_event_does_not_remove_other_chain() {
-        let (committer, order_tx, completion_tx, state_tx, mut committer_rxs) =
+        let (committer, order_tx, proving_completion_tx, state_tx, mut locker_rxs) =
             setup_committer(1, &[1, 8453]);
         let cancel = CancellationToken::new();
 
@@ -850,7 +855,7 @@ mod tests {
             async move { committer.spawn(cancel).await }
         });
 
-        let chain_1_rx = committer_rxs.get_mut(&1).unwrap();
+        let chain_1_rx = locker_rxs.get_mut(&1).unwrap();
 
         order_tx.send(make_order(1, 0, FulfillmentType::LockAndFulfill)).await.unwrap();
         let first = recv_with_timeout(chain_1_rx).await;
@@ -867,7 +872,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Free capacity from chain 1 order
-        completion_tx
+        proving_completion_tx
             .send(CommitmentComplete {
                 order_id: first.id(),
                 chain_id: 1,
@@ -877,7 +882,7 @@ mod tests {
             .unwrap();
 
         // Chain 8453 order should still be dispatched
-        let chain_8453_rx = committer_rxs.get_mut(&8453).unwrap();
+        let chain_8453_rx = locker_rxs.get_mut(&8453).unwrap();
         let dispatched = recv_with_timeout(chain_8453_rx).await;
         assert_eq!(dispatched.chain_id, 8453);
 
@@ -887,7 +892,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_routes_to_correct_chain() {
-        let (committer, order_tx, _completion_tx, _state_tx, mut committer_rxs) =
+        let (committer, order_tx, _proving_completion_tx, _state_tx, mut locker_rxs) =
             setup_committer(10, &[1, 8453]);
         let cancel = CancellationToken::new();
 
@@ -901,19 +906,19 @@ mod tests {
         order_tx.send(make_order(1, 2, FulfillmentType::LockAndFulfill)).await.unwrap();
 
         {
-            let chain_1_rx = committer_rxs.get_mut(&1).unwrap();
+            let chain_1_rx = locker_rxs.get_mut(&1).unwrap();
             let dispatched_1a = recv_with_timeout(chain_1_rx).await;
             assert_eq!(dispatched_1a.chain_id, 1);
         }
 
         {
-            let chain_8453_rx = committer_rxs.get_mut(&8453).unwrap();
+            let chain_8453_rx = locker_rxs.get_mut(&8453).unwrap();
             let dispatched_8453 = recv_with_timeout(chain_8453_rx).await;
             assert_eq!(dispatched_8453.chain_id, 8453);
         }
 
         {
-            let chain_1_rx = committer_rxs.get_mut(&1).unwrap();
+            let chain_1_rx = locker_rxs.get_mut(&1).unwrap();
             let dispatched_1b = recv_with_timeout(chain_1_rx).await;
             assert_eq!(dispatched_1b.chain_id, 1);
         }
@@ -924,7 +929,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_chain_drops_order() {
-        let (committer, order_tx, _completion_tx, _state_tx, mut committer_rxs) =
+        let (committer, order_tx, _proving_completion_tx, _state_tx, mut locker_rxs) =
             setup_committer(10, &[1]);
         let cancel = CancellationToken::new();
 
@@ -933,7 +938,7 @@ mod tests {
             async move { committer.spawn(cancel).await }
         });
 
-        let chain_1_rx = committer_rxs.get_mut(&1).unwrap();
+        let chain_1_rx = locker_rxs.get_mut(&1).unwrap();
 
         order_tx.send(make_order(9999, 0, FulfillmentType::LockAndFulfill)).await.unwrap();
         order_tx.send(make_order(1, 1, FulfillmentType::LockAndFulfill)).await.unwrap();
@@ -951,15 +956,20 @@ mod tests {
         config.load_write().unwrap().market.max_concurrent_proofs = 1;
 
         let (order_tx, order_rx) = mpsc::channel(100);
-        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let (proving_completion_tx, proving_completion_rx) = mpsc::channel(100);
         let (state_tx, _) = broadcast::channel(100);
-        let (committer_tx, mut committer_rx) = mpsc::channel(100);
+        let (locker_tx, mut locker_rx) = mpsc::channel(100);
 
         let mut dispatchers = HashMap::new();
-        dispatchers.insert(1u64, committer_tx);
+        dispatchers.insert(1u64, locker_tx);
 
-        let committer =
-            OrderCommitter::new(config.clone(), order_rx, dispatchers, completion_rx, state_tx);
+        let committer = OrderCommitter::new(
+            config.clone(),
+            order_rx,
+            dispatchers,
+            proving_completion_rx,
+            state_tx,
+        );
 
         let cancel = CancellationToken::new();
         let handle = tokio::spawn({
@@ -971,14 +981,14 @@ mod tests {
             order_tx.send(make_order(1, i, FulfillmentType::LockAndFulfill)).await.unwrap();
         }
 
-        let first = recv_with_timeout(&mut committer_rx).await;
-        assert_no_message(&mut committer_rx).await;
+        let first = recv_with_timeout(&mut locker_rx).await;
+        assert_no_message(&mut locker_rx).await;
 
         config.load_write().unwrap().market.max_concurrent_proofs = 3;
 
         tokio::time::sleep(Duration::from_secs(6)).await;
 
-        completion_tx
+        proving_completion_tx
             .send(CommitmentComplete {
                 order_id: first.id(),
                 chain_id: 1,
@@ -987,8 +997,8 @@ mod tests {
             .await
             .unwrap();
 
-        let _ = recv_with_timeout(&mut committer_rx).await;
-        let _ = recv_with_timeout(&mut committer_rx).await;
+        let _ = recv_with_timeout(&mut locker_rx).await;
+        let _ = recv_with_timeout(&mut locker_rx).await;
 
         cancel.cancel();
         let _ = handle.await;

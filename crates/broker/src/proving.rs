@@ -107,7 +107,7 @@ pub struct ProvingService {
     downloader: ConfigurableDownloader,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
-    commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+    proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl ProvingService {
@@ -122,7 +122,7 @@ impl ProvingService {
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
         downloader: ConfigurableDownloader,
         chain_id: u64,
-        commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
         Self {
             db,
@@ -134,7 +134,7 @@ impl ProvingService {
             fulfillment_market,
             downloader,
             chain_id,
-            commitment_completion_tx,
+            proving_completion_tx,
         }
     }
 
@@ -466,7 +466,7 @@ impl ProvingService {
                         proving_err.completion_outcome(),
                     ),
                     self.chain_id,
-                    &self.commitment_completion_tx,
+                    &self.proving_completion_tx,
                 )
                 .await;
                 return;
@@ -531,7 +531,7 @@ impl ProvingService {
                                 err.completion_outcome(),
                             ),
                             self.chain_id,
-                            &self.commitment_completion_tx,
+                            &self.proving_completion_tx,
                         )
                         .await;
                         return;
@@ -551,7 +551,7 @@ impl ProvingService {
                     &order,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
                     self.chain_id,
-                    &self.commitment_completion_tx,
+                    &self.proving_completion_tx,
                 )
                 .await;
             }
@@ -564,7 +564,7 @@ impl ProvingService {
                     &order_id,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
                     self.chain_id,
-                    &self.commitment_completion_tx,
+                    &self.proving_completion_tx,
                 )
                 .await;
             }
@@ -581,7 +581,7 @@ impl ProvingService {
                     &order_id,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
                     self.chain_id,
-                    &self.commitment_completion_tx,
+                    &self.proving_completion_tx,
                 )
                 .await;
             }
@@ -603,7 +603,7 @@ impl ProvingService {
                     &order_id,
                     "Proving status missing proof_id",
                     self.chain_id,
-                    &self.commitment_completion_tx,
+                    &self.proving_completion_tx,
                 )
                 .await;
                 continue;
@@ -671,12 +671,12 @@ async fn set_order_failure(
     order_id: &str,
     failure_reason: &str,
     chain_id: u64,
-    completion_tx: &mpsc::Sender<CommitmentComplete>,
+    proving_completion_tx: &mpsc::Sender<CommitmentComplete>,
 ) {
     if let Err(inner_err) = db.set_order_failure(order_id, failure_reason).await {
         tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
     }
-    let _ = completion_tx.try_send(CommitmentComplete {
+    let _ = proving_completion_tx.try_send(CommitmentComplete {
         order_id: order_id.to_string(),
         chain_id,
         outcome: CommitmentOutcome::ProvingFailed,
@@ -806,7 +806,8 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
-        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
+        let (proving_completion_tx, _proving_completion_rx) =
+            mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -817,7 +818,7 @@ mod tests {
             market.clone(),
             downloader.clone(),
             1,
-            commitment_tx,
+            proving_completion_tx,
         );
 
         let order = create_test_order(
@@ -839,7 +840,8 @@ mod tests {
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
-        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
+        let (proving_completion_tx, _proving_completion_rx) =
+            mpsc::channel::<CommitmentComplete>(100);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -850,7 +852,7 @@ mod tests {
             market.clone(),
             downloader.clone(),
             1,
-            commitment_tx,
+            proving_completion_tx,
         );
 
         let lock_and_fulfill_order = create_test_order(
@@ -904,7 +906,8 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
-        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
+        let (proving_completion_tx, _proving_completion_rx) =
+            mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -915,7 +918,7 @@ mod tests {
             market,
             downloader,
             1,
-            commitment_tx,
+            proving_completion_tx,
         );
 
         let order_id = U256::ZERO;
@@ -1002,7 +1005,8 @@ mod tests {
 
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
-        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
+        let (proving_completion_tx, _proving_completion_rx) =
+            mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
@@ -1013,7 +1017,7 @@ mod tests {
             market,
             downloader,
             1,
-            commitment_tx,
+            proving_completion_tx,
         );
 
         let request_id = U256::from(123);

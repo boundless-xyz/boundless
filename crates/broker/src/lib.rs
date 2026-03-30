@@ -873,19 +873,20 @@ impl Broker {
 
         // All chain monitors send discovered orders here; the evaluator reads from evaluator_order_rx.
         let (evaluator_order_tx, evaluator_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-        // Pricers send preflight completions here; the evaluator reads from completion_rx to free capacity.
-        let (completion_tx, completion_rx) = mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
+        // Pricers send preflight completions here; the evaluator reads from pricing_completion_rx to free capacity.
+        let (pricing_completion_tx, pricing_completion_rx) =
+            mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
         // Lock/fulfill events broadcast to both the evaluator (removes pending) and pricers (cancels active tasks).
         let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
         let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
             std::collections::HashMap::new();
 
-        // All per-chain pricers send priced orders here; the unified committer reads from unified_pricing_rx.
-        let (unified_pricing_tx, unified_pricing_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
-        // Per-chain committers send commitment completions here; the unified committer reads to free capacity.
-        let (commitment_completion_tx, commitment_completion_rx) =
+        // All per-chain pricers send priced orders here; the order committer reads from priced_orders_rx.
+        let (priced_orders_tx, priced_orders_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+        // Proving pipeline components send completion signals here; the order committer reads to free capacity.
+        let (proving_completion_tx, proving_completion_rx) =
             mpsc::channel(COMMITMENT_COMPLETION_CHANNEL_CAPACITY);
-        let mut commitment_dispatchers: std::collections::HashMap<
+        let mut locker_dispatchers: std::collections::HashMap<
             u64,
             mpsc::Sender<Box<OrderRequest>>,
         > = std::collections::HashMap::new();
@@ -895,9 +896,9 @@ impl Broker {
             let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
             chain_dispatchers.insert(chain.chain_id, pricer_tx);
 
-            // Unified committer dispatches capacity-gated orders to this chain's committer.
-            let (committer_tx, committer_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
-            commitment_dispatchers.insert(chain.chain_id, committer_tx);
+            // Order committer dispatches capacity-gated orders to this chain's locker.
+            let (locker_tx, locker_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+            locker_dispatchers.insert(chain.chain_id, locker_tx);
 
             self.start_chain_pipeline(
                 chain,
@@ -905,11 +906,11 @@ impl Broker {
                 aggregation_prover.clone(),
                 evaluator_order_tx.clone(),
                 pricer_rx,
-                completion_tx.clone(),
+                pricing_completion_tx.clone(),
                 order_state_tx.clone(),
-                unified_pricing_tx.clone(),
-                committer_rx,
-                commitment_completion_tx.clone(),
+                priced_orders_tx.clone(),
+                locker_rx,
+                proving_completion_tx.clone(),
                 &mut non_critical_tasks,
                 &mut critical_tasks,
                 non_critical_cancel_token.clone(),
@@ -919,9 +920,9 @@ impl Broker {
         }
         // Drop our clones so the unified components see channel closure when all producers exit.
         drop(evaluator_order_tx);
-        drop(completion_tx);
-        drop(unified_pricing_tx);
-        drop(commitment_completion_tx);
+        drop(pricing_completion_tx);
+        drop(priced_orders_tx);
+        drop(proving_completion_tx);
 
         let priority_requestors =
             requestor_monitor::PriorityRequestors::new(base_config.clone(), 0);
@@ -929,7 +930,7 @@ impl Broker {
             base_config.clone(),
             evaluator_order_rx,
             chain_dispatchers,
-            completion_rx,
+            pricing_completion_rx,
             order_state_tx.clone(),
             priority_requestors.clone(),
         ));
@@ -945,9 +946,9 @@ impl Broker {
 
         let order_committer = Arc::new(order_committer::OrderCommitter::new(
             base_config.clone(),
-            unified_pricing_rx,
-            commitment_dispatchers,
-            commitment_completion_rx,
+            priced_orders_rx,
+            locker_dispatchers,
+            proving_completion_rx,
             order_state_tx,
         ));
         let cloned_config = base_config.clone();
@@ -1021,11 +1022,11 @@ impl Broker {
         aggregation_prover: ProverObj,
         evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pricer_rx: mpsc::Receiver<Box<OrderRequest>>,
-        completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
+        pricing_completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
-        unified_pricing_tx: mpsc::Sender<Box<OrderRequest>>,
-        committer_rx: mpsc::Receiver<Box<OrderRequest>>,
-        commitment_completion_tx: mpsc::Sender<order_committer::CommitmentComplete>,
+        priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
+        locker_rx: mpsc::Receiver<Box<OrderRequest>>,
+        proving_completion_tx: mpsc::Sender<order_committer::CommitmentComplete>,
         non_critical_tasks: &mut JoinSet<Result<()>>,
         critical_tasks: &mut JoinSet<Result<()>>,
         non_critical_cancel_token: CancellationToken,
@@ -1303,7 +1304,7 @@ impl Broker {
             provider.clone(),
             chain_monitor.clone(),
             pricer_rx,
-            unified_pricing_tx,
+            priced_orders_tx,
             collateral_token_decimals,
             order_state_tx.clone(),
             priority_requestors.clone(),
@@ -1313,7 +1314,7 @@ impl Broker {
             erc1271_gas_cache.clone(),
             self.args.listen_only,
             chain_id,
-            completion_tx,
+            pricing_completion_tx,
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1333,7 +1334,7 @@ impl Broker {
             block_times,
             prover_addr,
             deployment.boundless_market_address,
-            committer_rx,
+            locker_rx,
             collateral_token_decimals,
             order_locker::RpcRetryConfig {
                 retry_count: self.args.rpc_retry_max.into(),
@@ -1344,7 +1345,7 @@ impl Broker {
             erc1271_gas_cache,
             self.args.listen_only,
             chain_id,
-            commitment_completion_tx.clone(),
+            proving_completion_tx.clone(),
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1367,7 +1368,7 @@ impl Broker {
                 market.clone(),
                 self.downloader.clone(),
                 chain_id,
-                commitment_completion_tx.clone(),
+                proving_completion_tx.clone(),
             ));
 
             let cloned_config = config.clone();
@@ -1397,7 +1398,7 @@ impl Broker {
                     prover_addr,
                     config.clone(),
                     aggregation_prover.clone(),
-                    commitment_completion_tx.clone(),
+                    proving_completion_tx.clone(),
                 )
                 .await
                 .context("Failed to initialize aggregator service")?,
@@ -1420,7 +1421,7 @@ impl Broker {
                 config.clone(),
                 prover.clone(),
                 chain_id,
-                commitment_completion_tx.clone(),
+                proving_completion_tx.clone(),
             ));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
@@ -1442,7 +1443,7 @@ impl Broker {
                 deployment.boundless_market_address,
                 set_builder_img_id,
                 chain_id,
-                commitment_completion_tx.clone(),
+                proving_completion_tx.clone(),
             )?);
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();

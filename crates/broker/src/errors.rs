@@ -83,14 +83,14 @@ pub(crate) async fn handle_order_failure(
     order_id: &str,
     failure: &BrokerFailure,
     chain_id: u64,
-    completion_tx: &mpsc::Sender<CommitmentComplete>,
+    proving_completion_tx: &mpsc::Sender<CommitmentComplete>,
 ) {
     let db_error_str = failure.to_string();
     if let Err(e) = db.set_order_failure(order_id, &db_error_str).await {
         tracing::error!("Failed to set order {order_id} failure: {e:?}");
     }
     crate::telemetry::telemetry(chain_id).record_failed(order_id, failure);
-    let _ = completion_tx.try_send(CommitmentComplete {
+    let _ = proving_completion_tx.try_send(CommitmentComplete {
         order_id: order_id.to_string(),
         chain_id,
         outcome: CommitmentOutcome::ProvingFailed,
@@ -106,7 +106,7 @@ pub(crate) async fn cancel_proof_and_fail(
     order: &Order,
     failure: &BrokerFailure,
     chain_id: u64,
-    completion_tx: &mpsc::Sender<CommitmentComplete>,
+    proving_completion_tx: &mpsc::Sender<CommitmentComplete>,
 ) {
     let order_id = order.id();
 
@@ -134,5 +134,5 @@ pub(crate) async fn cancel_proof_and_fail(
         }
     }
 
-    handle_order_failure(db, &order_id, failure, chain_id, completion_tx).await;
+    handle_order_failure(db, &order_id, failure, chain_id, proving_completion_tx).await;
 }

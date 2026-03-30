@@ -80,7 +80,7 @@ pub struct AggregatorService {
     prover_addr: Address,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
-    commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+    proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl AggregatorService {
@@ -94,7 +94,7 @@ impl AggregatorService {
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
-        commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         Ok(Self {
             db,
@@ -105,7 +105,7 @@ impl AggregatorService {
             market_addr,
             prover_addr,
             chain_id,
-            commitment_completion_tx,
+            proving_completion_tx,
         })
     }
 
@@ -549,7 +549,7 @@ impl AggregatorService {
                         order.order_id,
                     );
                 }
-                let _ = self.commitment_completion_tx.try_send(CommitmentComplete {
+                let _ = self.proving_completion_tx.try_send(CommitmentComplete {
                     order_id: order.order_id.clone(),
                     chain_id: self.chain_id,
                     outcome: CommitmentOutcome::ProvingFailed,

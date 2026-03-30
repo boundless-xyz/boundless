@@ -160,7 +160,7 @@ pub struct OrderLocker<P> {
     gas_estimation_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
     listen_only: bool,
     chain_id: u64,
-    commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+    proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl<P> OrderLocker<P>
@@ -184,7 +184,7 @@ where
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
         chain_id: u64,
-        commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -229,7 +229,7 @@ where
             gas_estimation_priority_mode,
             listen_only,
             chain_id,
-            commitment_completion_tx,
+            proving_completion_tx,
         };
         Ok(monitor)
     }
@@ -238,7 +238,7 @@ where
     /// `Skipped` outcomes — successful commitment does NOT free capacity (the proving
     /// pipeline holds the slot until ProvingCompleted/ProvingFailed).
     fn send_completion(&self, order: &OrderRequest, outcome: CommitmentOutcome) {
-        let _ = self.commitment_completion_tx.try_send(CommitmentComplete {
+        let _ = self.proving_completion_tx.try_send(CommitmentComplete {
             order_id: order.id(),
             chain_id: self.chain_id,
             outcome,
@@ -1158,7 +1158,7 @@ pub(crate) mod tests {
         let gas_estimation_priority_mode =
             Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
 
-        let (commitment_completion_tx, _commitment_completion_rx) = mpsc::channel(100);
+        let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
 
         let monitor = OrderLocker::new(
             db.clone(),
@@ -1176,7 +1176,7 @@ pub(crate) mod tests {
             Arc::new(Cache::builder().build()),
             false,
             anvil.chain_id(),
-            commitment_completion_tx,
+            proving_completion_tx,
         )
         .unwrap();
 

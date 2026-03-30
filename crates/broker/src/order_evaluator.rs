@@ -84,7 +84,7 @@ pub(crate) struct OrderEvaluator {
     config: ConfigLock,
     new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
     chain_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
-    completion_rx: Arc<Mutex<mpsc::Receiver<PreflightComplete>>>,
+    pricing_completion_rx: Arc<Mutex<mpsc::Receiver<PreflightComplete>>>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
     #[allow(dead_code)]
     priority_requestors: PriorityRequestors,
@@ -95,7 +95,7 @@ impl OrderEvaluator {
         config: ConfigLock,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         chain_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
-        completion_rx: mpsc::Receiver<PreflightComplete>,
+        pricing_completion_rx: mpsc::Receiver<PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
     ) -> Self {
@@ -103,7 +103,7 @@ impl OrderEvaluator {
             config,
             new_order_rx: Arc::new(Mutex::new(new_order_rx)),
             chain_dispatchers: Arc::new(chain_dispatchers),
-            completion_rx: Arc::new(Mutex::new(completion_rx)),
+            pricing_completion_rx: Arc::new(Mutex::new(pricing_completion_rx)),
             order_state_tx,
             priority_requestors,
         }
@@ -246,7 +246,7 @@ impl RetryTask for OrderEvaluator {
                 evaluator.read_config().map_err(SupervisorErr::Fault)?;
 
             let mut order_rx = evaluator.new_order_rx.lock().await;
-            let mut completion_rx = evaluator.completion_rx.lock().await;
+            let mut pricing_completion_rx = evaluator.pricing_completion_rx.lock().await;
             let mut order_state_rx = evaluator.order_state_tx.subscribe();
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
 
@@ -268,7 +268,7 @@ impl RetryTask for OrderEvaluator {
                         );
                     }
 
-                    Some(completion) = completion_rx.recv() => {
+                    Some(completion) = pricing_completion_rx.recv() => {
                         if in_flight.remove(&completion.order_id).is_some() {
                             tracing::debug!(
                                 chain_id = completion.chain_id,
@@ -436,7 +436,7 @@ mod tests {
         config.load_write().unwrap().market.max_concurrent_preflights = max_concurrent_preflights;
 
         let (order_tx, order_rx) = mpsc::channel(100);
-        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let (pricing_completion_tx, pricing_completion_rx) = mpsc::channel(100);
         let (state_tx, _) = broadcast::channel(100);
 
         let mut dispatchers = HashMap::new();
@@ -453,12 +453,12 @@ mod tests {
             config,
             order_rx,
             dispatchers,
-            completion_rx,
+            pricing_completion_rx,
             state_tx.clone(),
             priority_requestors,
         );
 
-        (evaluator, order_tx, completion_tx, state_tx, pricer_rxs)
+        (evaluator, order_tx, pricing_completion_tx, state_tx, pricer_rxs)
     }
 
     async fn recv_with_timeout<T>(rx: &mut mpsc::Receiver<T>) -> T {
@@ -475,7 +475,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatches_up_to_capacity() {
-        let (evaluator, order_tx, _completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, _pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(2, &[1]);
         let cancel = CancellationToken::new();
 
@@ -504,7 +504,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_completion_frees_capacity() {
-        let (evaluator, order_tx, completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -524,7 +524,7 @@ mod tests {
         assert_no_message(pricer_rx).await;
 
         // Send completion for the first
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,
@@ -543,7 +543,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lock_event_removes_pending() {
-        let (evaluator, order_tx, completion_tx, state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, pricing_completion_tx, state_tx, mut pricer_rxs) =
             setup_evaluator(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -581,7 +581,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Complete the in-flight order 0 to free capacity
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,
@@ -601,7 +601,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fulfill_event_removes_pending() {
-        let (evaluator, order_tx, completion_tx, state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, pricing_completion_tx, state_tx, mut pricer_rxs) =
             setup_evaluator(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -631,7 +631,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Free capacity
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,
@@ -650,7 +650,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_routes_to_correct_chain() {
-        let (evaluator, order_tx, _completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, _pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(10, &[1, 8453]);
         let cancel = CancellationToken::new();
 
@@ -690,7 +690,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_chain_drops_order() {
-        let (evaluator, order_tx, _completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, _pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(10, &[1]);
         let cancel = CancellationToken::new();
 
@@ -720,7 +720,7 @@ mod tests {
         config.load_write().unwrap().market.max_concurrent_preflights = 1;
 
         let (order_tx, order_rx) = mpsc::channel(100);
-        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let (pricing_completion_tx, pricing_completion_rx) = mpsc::channel(100);
         let (state_tx, _) = broadcast::channel(100);
         let (pricer_tx, mut pricer_rx) = mpsc::channel(100);
 
@@ -732,7 +732,7 @@ mod tests {
             config.clone(),
             order_rx,
             dispatchers,
-            completion_rx,
+            pricing_completion_rx,
             state_tx,
             priority_requestors,
         );
@@ -758,7 +758,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(6)).await;
 
         // Complete first to trigger re-dispatch with new capacity (3)
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,

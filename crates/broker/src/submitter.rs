@@ -110,7 +110,7 @@ pub struct Submitter<P> {
     config: ConfigLock,
     chain_id: u64,
     /// Sends ProvingCompleted or ProvingFailed to the OrderCommitter to free the capacity slot.
-    commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+    proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl<P> Submitter<P>
@@ -127,7 +127,7 @@ where
         market_addr: Address,
         set_builder_img_id: Digest,
         chain_id: u64,
-        commitment_completion_tx: mpsc::Sender<CommitmentComplete>,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -162,7 +162,7 @@ where
             prover_address,
             config,
             chain_id,
-            commitment_completion_tx,
+            proving_completion_tx,
         })
     }
 
@@ -414,7 +414,7 @@ where
                 if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
                     tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }
-                let _ = self.commitment_completion_tx.try_send(CommitmentComplete {
+                let _ = self.proving_completion_tx.try_send(CommitmentComplete {
                     order_id: order_id.to_string(),
                     chain_id: self.chain_id,
                     outcome: CommitmentOutcome::ProvingFailed,
@@ -531,7 +531,7 @@ where
                 );
                 continue;
             }
-            let _ = self.commitment_completion_tx.try_send(CommitmentComplete {
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
                 order_id: order_id.to_string(),
                 chain_id: self.chain_id,
                 outcome: CommitmentOutcome::ProvingCompleted,
@@ -587,7 +587,7 @@ where
                     order.id()
                 );
             }
-            let _ = self.commitment_completion_tx.try_send(CommitmentComplete {
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
                 order_id: order.id(),
                 chain_id: self.chain_id,
                 outcome: CommitmentOutcome::ProvingFailed,
@@ -614,7 +614,7 @@ where
                     fulfillment.id
                 );
             }
-            let _ = self.commitment_completion_tx.try_send(CommitmentComplete {
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
                 order_id: order_id.to_string(),
                 chain_id: self.chain_id,
                 outcome: CommitmentOutcome::ProvingFailed,
