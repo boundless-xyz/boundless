@@ -1060,20 +1060,31 @@ mod tests {
     }
 
     #[sqlx::test()]
-    async fn stream_multiplier(pool: PgPool) -> sqlx::Result<()> {
+    /// Validates that request_work prioritizes streams with higher reserved capacity.
+    /// Migration 9 changed ordering from `priority, reserved DESC` to `reserved DESC`
+    /// to fix negative priority values causing broker work to spill to miner capacity.
+    async fn stream_reserved_priority(pool: PgPool) -> sqlx::Result<()> {
         let user_id = "user1";
-        // Creates two streams.
         let worker_type = "CPU";
-        let stream_id_0 = create_stream(&pool, worker_type, 0, 1.0, user_id).await.unwrap();
-        let job_id_0 =
-            create_job(&pool, &stream_id_0, &JsonValue::default(), 0, 100, user_id).await.unwrap();
 
-        // populates both streams with two tasks.
+        // Create an unreserved stream (reserved=0) and a reserved stream (reserved=10)
+        let unreserved_stream =
+            create_stream(&pool, worker_type, 0, 1.0, user_id).await.unwrap();
+        let unreserved_job = create_job(
+            &pool,
+            &unreserved_stream,
+            &JsonValue::default(),
+            0,
+            100,
+            user_id,
+        )
+        .await
+        .unwrap();
         create_task(
             &pool,
-            &job_id_0,
-            "task2",
-            &stream_id_0,
+            &unreserved_job,
+            "task1",
+            &unreserved_stream,
             &JsonValue::default(),
             &serde_json::json!([]),
             0,
@@ -1081,19 +1092,24 @@ mod tests {
         )
         .await
         .unwrap();
-        // starts 'running' a task from each to get the system out of round robin stream selection
-        // and into best effort.
-        refresh_stream_counters(&pool).await.unwrap();
-        let _task = request_work(&pool, worker_type).await.unwrap().unwrap();
 
-        let stream_id_1 = create_stream(&pool, worker_type, 0, 1.1, user_id).await.unwrap();
-        let job_id_1 =
-            create_job(&pool, &stream_id_1, &JsonValue::default(), 0, 100, user_id).await.unwrap();
+        let reserved_stream =
+            create_stream(&pool, worker_type, 10, 1.0, user_id).await.unwrap();
+        let reserved_job = create_job(
+            &pool,
+            &reserved_stream,
+            &JsonValue::default(),
+            0,
+            100,
+            user_id,
+        )
+        .await
+        .unwrap();
         create_task(
             &pool,
-            &job_id_1,
-            "task2",
-            &stream_id_1,
+            &reserved_job,
+            "task1",
+            &reserved_stream,
             &JsonValue::default(),
             &serde_json::json!([]),
             0,
@@ -1101,16 +1117,17 @@ mod tests {
         )
         .await
         .unwrap();
-        refresh_stream_counters(&pool).await.unwrap();
-        let _task = request_work(&pool, worker_type).await.unwrap().unwrap();
 
-        // validate that the higher be_mult stream is emitted first.
-        refresh_stream_counters(&pool).await.unwrap();
+        // request_work should pick the reserved stream first (higher reserved value).
+        // Drain both tasks from the reserved stream.
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
-        assert_eq!(task.job_id, job_id_1);
-        refresh_stream_counters(&pool).await.unwrap();
+        assert_eq!(task.job_id, reserved_job, "reserved stream should be selected first (init)");
         let task = request_work(&pool, worker_type).await.unwrap().unwrap();
-        assert_eq!(task.job_id, job_id_0);
+        assert_eq!(task.job_id, reserved_job, "reserved stream should be selected first (task1)");
+
+        // Now reserved stream is empty, unreserved stream should be selected.
+        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        assert_eq!(task.job_id, unreserved_job, "unreserved stream should be selected after reserved is drained");
 
         Ok(())
     }
@@ -1199,15 +1216,20 @@ mod tests {
         let task_def = serde_json::json!({"init": "test"});
         let job_id = create_job(&pool, &stream_id, &task_def, 0, 100, user_id).await.unwrap();
 
-        // Create two workers pooling for work
+        // Create two workers polling for work
         let mut tasks = tokio::task::JoinSet::new();
         for _ in 0..2 {
             let pool_cpy = pool.clone();
             tasks.spawn(async move {
+                let deadline =
+                    tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
                 loop {
+                    if tokio::time::Instant::now() > deadline {
+                        panic!("worker timed out waiting for work");
+                    }
                     match request_work(&pool_cpy, worker_type).await.unwrap() {
                         Some(task) => break task.task_id,
-                        None => tokio::time::sleep(tokio::time::Duration::from_secs(1)).await,
+                        None => tokio::time::sleep(tokio::time::Duration::from_millis(100)).await,
                     }
                 }
             });
