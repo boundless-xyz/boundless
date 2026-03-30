@@ -267,7 +267,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         ],
       });
 
-      const rule = new aws.cloudwatch.EventRule(`${serviceName}-schedule-rule`, {
+      const rule = new aws.cloudwatch.EventRule(`${serviceName}-sched`, {
         scheduleExpression: args.oneShotConfig.scheduleExpression,
       });
 

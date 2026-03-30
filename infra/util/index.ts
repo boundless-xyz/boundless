@@ -3,6 +3,7 @@ export enum ChainId {
   ETH_SEPOLIA = "11155111",
   BASE = "8453",
   BASE_SEPOLIA = "84532",
+  TAIKO = "167000",
 }
 
 export const getChainName = (chainId: string | ChainId): string => {
@@ -17,6 +18,9 @@ export const getChainName = (chainId: string | ChainId): string => {
   }
   if (chainId === "84532") {
     return "Base Sepolia";
+  }
+  if (chainId === ChainId.TAIKO) {
+    return "Taiko";
   }
   throw new Error(`Invalid chain ID: ${chainId}`);
 };
@@ -33,6 +37,9 @@ export const getChainId = (chainId: string): ChainId => {
   }
   if (chainId === "84532") {
     return ChainId.BASE_SEPOLIA;
+  }
+  if (chainId === "167000") {
+    return ChainId.TAIKO;
   }
   throw new Error(`Invalid chain ID: ${chainId}`);
 };
