@@ -16,11 +16,12 @@ import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 import {Blake3Groth16Verifier} from "../src/blake3-groth16/Blake3Groth16Verifier.sol";
 import {ControlID} from "../src/blake3-groth16/ControlID.sol";
-import {ConfigLoader, Deployment, DeploymentLib} from "../src/config/VerifierConfig.sol";
+import {ControlID as Groth16ControlID, RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol";
+import {RiscZeroSetVerifier, RiscZeroSetVerifierLib} from "risc0/RiscZeroSetVerifier.sol";
+import {ConfigLoader, Deployment, DeploymentLib, VerifierDeployment} from "../src/config/VerifierConfig.sol";
 
 // Default salt used with CREATE2 for deterministic deployment addresses.
-// NOTE: It kind of spelled risc0 in 1337.
-bytes32 constant CREATE2_SALT = hex"1215c0";
+bytes32 constant CREATE2_SALT = hex"b00d1e46";
 
 /// @notice Compare strings for equality.
 function stringEq(string memory a, string memory b) pure returns (bool) {
@@ -51,6 +52,11 @@ contract RiscZeroManagementScript is Script {
     RiscZeroVerifierEmergencyStop internal _verifierEstop;
     IRiscZeroVerifier internal _verifier;
 
+    // RISC Zero stack (upstream verifier infrastructure)
+    TimelockController internal _risc0TimelockController;
+    RiscZeroVerifierRouter internal _risc0Router;
+    RiscZeroVerifierEmergencyStop internal _risc0VerifierEstop;
+
     function loadConfig() internal {
         string memory configPath =
             vm.envOr("DEPLOYMENT_CONFIG", string.concat(vm.projectRoot(), "/", "contracts/deployment_verifier.toml"));
@@ -62,6 +68,8 @@ contract RiscZeroManagementScript is Script {
         _timelockController = TimelockController(payable(deployment.timelockController));
         _verifierRouter = VerifierLayeredRouter(deployment.router);
         _parentRouter = RiscZeroVerifierRouter(deployment.parentRouter);
+        _risc0TimelockController = TimelockController(payable(deployment.risc0TimelockController));
+        _risc0Router = RiscZeroVerifierRouter(deployment.risc0Router);
     }
 
     modifier withConfig() {
@@ -173,6 +181,69 @@ contract RiscZeroManagementScript is Script {
         console2.logBytes(data);
         uint256 snapshot = vm.snapshot();
         vm.prank(address(timelockController()));
+        (bool success,) = dest.call(data);
+        require(success, "simulation of transaction to schedule failed");
+        vm.revertTo(snapshot);
+        console2.log("Simulation successful");
+    }
+
+    /// @notice Returns the RISC Zero stack TimelockController.
+    function risc0TimelockController() internal returns (TimelockController) {
+        if (address(_risc0TimelockController) != address(0)) {
+            return _risc0TimelockController;
+        }
+        _risc0TimelockController = TimelockController(payable(vm.envAddress("RISC0_TIMELOCK_CONTROLLER")));
+        console2.log("Using RISC Zero TimelockController at address", address(_risc0TimelockController));
+        return _risc0TimelockController;
+    }
+
+    /// @notice Returns the RISC Zero stack RiscZeroVerifierRouter (= parentRouter).
+    function risc0Router() internal returns (RiscZeroVerifierRouter) {
+        if (address(_risc0Router) != address(0)) {
+            return _risc0Router;
+        }
+        _risc0Router = RiscZeroVerifierRouter(vm.envAddress("RISC0_ROUTER"));
+        console2.log("Using RISC Zero RiscZeroVerifierRouter at address", address(_risc0Router));
+        return _risc0Router;
+    }
+
+    /// @notice Returns a verifier estop from the risc0Verifiers config by VERIFIER_SELECTOR.
+    function risc0VerifierEstop() internal returns (RiscZeroVerifierEmergencyStop) {
+        if (address(_risc0VerifierEstop) != address(0)) {
+            return _risc0VerifierEstop;
+        }
+        // Use the address set in the RISC0_VERIFIER_ESTOP environment variable if it is set.
+        _risc0VerifierEstop = RiscZeroVerifierEmergencyStop(vm.envOr("RISC0_VERIFIER_ESTOP", address(0)));
+        if (address(_risc0VerifierEstop) != address(0)) {
+            console2.log("Using RISC Zero RiscZeroVerifierEmergencyStop at address", address(_risc0VerifierEstop));
+            return _risc0VerifierEstop;
+        }
+        bytes4 selector = bytes4(vm.envBytes("VERIFIER_SELECTOR"));
+        for (uint256 i = 0; i < deployment.risc0Verifiers.length; i++) {
+            if (deployment.risc0Verifiers[i].selector == selector) {
+                _risc0VerifierEstop = RiscZeroVerifierEmergencyStop(deployment.risc0Verifiers[i].estop);
+                break;
+            }
+        }
+        console2.log(
+            "Using RISC Zero RiscZeroVerifierEmergencyStop at address %s and selector %x",
+            address(_risc0VerifierEstop),
+            uint256(bytes32(selector))
+        );
+        return _risc0VerifierEstop;
+    }
+
+    /// @notice Returns the timelock-delay for the RISC Zero stack, set in the RISC0_MIN_DELAY env var.
+    function risc0TimelockDelay() internal view returns (uint256) {
+        return vm.envOr("RISC0_MIN_DELAY", deployment.risc0TimelockDelay);
+    }
+
+    /// @notice Simulates a call as the RISC Zero timelock to check if it will succeed.
+    function risc0Simulate(address dest, bytes memory data) internal {
+        console2.log("Simulating call to", dest);
+        console2.logBytes(data);
+        uint256 snapshot = vm.snapshot();
+        vm.prank(address(risc0TimelockController()));
         (bool success,) = dest.call(data);
         require(success, "simulation of transaction to schedule failed");
         vm.revertTo(snapshot);
@@ -918,6 +989,279 @@ contract RenounceRole is RiscZeroManagementScript {
     }
 }
 
+/// @notice Schedule grant role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be granted
+///     * ACCOUNT the account to be granted the role
+///     * SCHEDULE_DELAY (optional) minimum delay in seconds for the scheduled action
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract ScheduleGrantRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Schedule the 'grantRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        uint256 scheduleDelay = vm.envOr("SCHEDULE_DELAY", risc0TimelockController().getMinDelay());
+        console2.log("scheduleDelay:", scheduleDelay);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().grantRole, (role, account));
+        address dest = address(risc0TimelockController());
+        risc0Simulate(dest, data);
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data, scheduleDelay);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().schedule(dest, 0, data, 0, 0, scheduleDelay);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        bytes32 role,
+        address account,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE SCHEDULE GRANT RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+        console2.log("scheduleDelay: ", scheduleDelay);
+
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
+        console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Finish grant role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be granted
+///     * ACCOUNT the account to be granted the role
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract FinishGrantRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Execute the 'grantRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().grantRole, (role, account));
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().execute(address(risc0TimelockController()), 0, data, 0, 0);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data)
+        internal
+        pure
+    {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE EXECUTE GRANT RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Schedule revoke role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be revoked
+///     * ACCOUNT the account to be revoked of the role
+///     * SCHEDULE_DELAY (optional) minimum delay in seconds for the scheduled action
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract ScheduleRevokeRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Schedule the 'revokeRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        uint256 scheduleDelay = vm.envOr("SCHEDULE_DELAY", risc0TimelockController().getMinDelay());
+        console2.log("scheduleDelay:", scheduleDelay);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().revokeRole, (role, account));
+        address dest = address(risc0TimelockController());
+        risc0Simulate(dest, data);
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data, scheduleDelay);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().schedule(dest, 0, data, 0, 0, scheduleDelay);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        bytes32 role,
+        address account,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE SCHEDULE REVOKE RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+        console2.log("scheduleDelay: ", scheduleDelay);
+
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
+        console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Finish revoke role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * ROLE the role to be revoked
+///     * ACCOUNT the account to be revoked of the role
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract FinishRevokeRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        // Check for deployment mode flags
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        string memory roleStr = vm.envString("ROLE");
+        console2.log("roleStr:", roleStr);
+
+        address account = vm.envAddress("ACCOUNT");
+        console2.log("account:", account);
+
+        // Execute the 'revokeRole()' request
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().revokeRole, (role, account));
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), role, account, data);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().execute(address(risc0TimelockController()), 0, data, 0, 0);
+    }
+
+    /// @notice Print Gnosis Safe transaction information for manual submissions
+    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data)
+        internal
+        pure
+    {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE EXECUTE REVOKE RISC0 ROLE INFO ===");
+        console2.log("Target Timelock Controller Address (To): ", timelockAddress);
+        console2.log("Role: ", uint256(role));
+        console2.log("Account: ", account);
+
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Renounce role on the RISC Zero timelock controller.
+/// @dev Use the following environment variable to control the deployment:
+///     * RENOUNCE_ADDRESS the address to send the renounce transaction
+///     * RENOUNCE_ROLE the role to be renounced
+///     * RISC0_TIMELOCK_CONTROLLER contract address of RISC Zero TimelockController
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract RenounceRisc0Role is RiscZeroManagementScript {
+    function run() external withConfig {
+        address renouncer = vm.envAddress("RENOUNCE_ADDRESS");
+        string memory roleStr = vm.envString("RENOUNCE_ROLE");
+        console2.log("renouncer:", renouncer);
+        console2.log("roleStr:", roleStr);
+
+        console2.log("msg.sender:", msg.sender);
+
+        // Renounce the role
+        bytes32 role = timelockControllerRole(risc0TimelockController(), roleStr);
+        console2.log("role: ");
+        console2.logBytes32(role);
+
+        vm.broadcast(renouncer);
+        risc0TimelockController().renounceRole(role, msg.sender);
+    }
+}
+
 /// @notice Activate an Emergency Stop mechanism.
 /// @dev Use the following environment variable to control the deployment:
 ///     * VERIFIER_ESTOP contract address of RiscZeroVerifierEmergencyStop
@@ -949,6 +1293,335 @@ contract ActivateEstop is RiscZeroManagementScript {
         console2.log("RiscZeroVerifierEmergencyStop Address (To): ", estopAddress);
         bytes memory callData = abi.encodeWithSignature("estop()");
         console2.log("Function: estop()");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+// ============================================================================
+// RISC Zero Stack Deployment Scripts
+// ============================================================================
+// These scripts deploy the upstream RISC Zero verifier infrastructure
+// (TimelockController + RiscZeroVerifierRouter + Groth16Verifier + SetVerifier)
+// on chains where RISC Zero hasn't deployed their stack yet.
+
+/// @notice Deploy the RISC Zero TimelockController and RiscZeroVerifierRouter.
+/// @dev Use the following environment variables:
+///     * MIN_DELAY (optional) minimum delay in seconds for operations (defaults to risc0-timelock-delay)
+///     * PROPOSER (optional) address of proposer (defaults to ADMIN_ADDRESS)
+///     * EXECUTOR (optional) address of executor (defaults to ADMIN_ADDRESS)
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract DeployRisc0TimelockRouter is RiscZeroManagementScript {
+    function run() external withConfig {
+        // initial minimum delay in seconds for operations
+        uint256 minDelay = risc0TimelockDelay();
+        console2.log("minDelay:", minDelay);
+
+        // accounts to be granted proposer and canceller roles
+        address[] memory proposers = new address[](1);
+        proposers[0] = vm.envOr("PROPOSER", adminAddress());
+        console2.log("proposers:", proposers[0]);
+
+        // accounts to be granted executor role
+        address[] memory executors = new address[](1);
+        executors[0] = vm.envOr("EXECUTOR", adminAddress());
+        console2.log("executors:", executors[0]);
+
+        // Deploy new contracts
+        vm.broadcast(deployerAddress());
+        _risc0TimelockController =
+            new TimelockController{salt: CREATE2_SALT}(minDelay, proposers, executors, address(0));
+        console2.log("Deployed RISC Zero TimelockController to", address(risc0TimelockController()));
+
+        vm.broadcast(deployerAddress());
+        _risc0Router = new RiscZeroVerifierRouter{salt: CREATE2_SALT}(address(risc0TimelockController()));
+        console2.log("Deployed RiscZeroVerifierRouter to", address(risc0Router()));
+
+        // Print TOML snippet
+        string memory chainKey = vm.envString("CHAIN_KEY");
+        console2.log("");
+        console2.log("# Add to [chains.%s] in deployment_verifier.toml:", chainKey);
+        console2.log("risc0-router = \"%s\"", address(risc0Router()));
+        console2.log("risc0-timelock-controller = \"%s\"", address(risc0TimelockController()));
+        console2.log("risc0-timelock-delay = %d", minDelay);
+        console2.log("parent-router = \"%s\"", address(risc0Router()));
+    }
+}
+
+/// @notice Deploy the RiscZeroGroth16Verifier with Emergency Stop mechanism.
+/// @dev Use the following environment variables:
+///     * CHAIN_KEY key of the target chain
+///     * VERIFIER_ESTOP_OWNER (optional) owner of the emergency stop contract (defaults to ADMIN_ADDRESS)
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract DeployEstopGroth16Verifier is RiscZeroManagementScript {
+    function run() external withConfig {
+        string memory chainKey = vm.envString("CHAIN_KEY");
+        console2.log("chainKey:", chainKey);
+        address verifierEstopOwner = vm.envOr("VERIFIER_ESTOP_OWNER", adminAddress());
+        console2.log("verifierEstopOwner:", verifierEstopOwner);
+
+        // Deploy new contracts
+        vm.broadcast(deployerAddress());
+        RiscZeroGroth16Verifier groth16Verifier = new RiscZeroGroth16Verifier{salt: CREATE2_SALT}(
+            Groth16ControlID.CONTROL_ROOT, Groth16ControlID.BN254_CONTROL_ID
+        );
+
+        vm.broadcast(deployerAddress());
+        RiscZeroVerifierEmergencyStop estop =
+            new RiscZeroVerifierEmergencyStop{salt: CREATE2_SALT}(groth16Verifier, verifierEstopOwner);
+
+        // Print in TOML format
+        console2.log("");
+        console2.log("[[chains.%s.risc0-verifiers]]", chainKey);
+        console2.log("name = \"RiscZeroGroth16Verifier\"");
+        console2.log("version = \"%s\"", groth16Verifier.VERSION());
+        console2.log("selector = \"%s\"", Strings.toHexString(uint256(uint32(groth16Verifier.SELECTOR())), 4));
+        console2.log("verifier = \"%s\"", address(groth16Verifier));
+        console2.log("estop = \"%s\"", address(estop));
+        console2.log("unroutable = true # remove when added to the router");
+    }
+}
+
+/// @notice Deploy the RiscZeroSetVerifier with Emergency Stop mechanism.
+/// @dev Use the following environment variables:
+///     * CHAIN_KEY key of the target chain
+///     * VERIFIER_ESTOP_OWNER (optional) owner of the emergency stop contract (defaults to ADMIN_ADDRESS)
+///     * SET_BUILDER_IMAGE_ID image ID of the SetBuilder guest
+///     * SET_BUILDER_GUEST_URL URL of the SetBuilder guest
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract DeployEstopSetVerifier is RiscZeroManagementScript {
+    function run() external withConfig {
+        string memory chainKey = vm.envString("CHAIN_KEY");
+        console2.log("chainKey:", chainKey);
+        address verifierEstopOwner = vm.envOr("VERIFIER_ESTOP_OWNER", adminAddress());
+        console2.log("verifierEstopOwner:", verifierEstopOwner);
+
+        bytes32 SET_BUILDER_IMAGE_ID = vm.envBytes32("SET_BUILDER_IMAGE_ID");
+        console2.log("SET_BUILDER_IMAGE_ID:", Strings.toHexString(uint256(SET_BUILDER_IMAGE_ID)));
+        string memory SET_BUILDER_GUEST_URL = vm.envString("SET_BUILDER_GUEST_URL");
+        console2.log("SET_BUILDER_GUEST_URL:", SET_BUILDER_GUEST_URL);
+
+        // Deploy new contracts
+        vm.broadcast(deployerAddress());
+        RiscZeroSetVerifier setVerifier =
+            new RiscZeroSetVerifier{salt: CREATE2_SALT}(risc0Router(), SET_BUILDER_IMAGE_ID, SET_BUILDER_GUEST_URL);
+
+        vm.broadcast(deployerAddress());
+        RiscZeroVerifierEmergencyStop estop =
+            new RiscZeroVerifierEmergencyStop{salt: CREATE2_SALT}(setVerifier, verifierEstopOwner);
+
+        // Print in TOML format
+        console2.log("");
+        console2.log("[[chains.%s.risc0-verifiers]]", chainKey);
+        console2.log("name = \"RiscZeroSetVerifier\"");
+        console2.log("version = \"%s\"", setVerifier.VERSION());
+        console2.log("selector = \"%s\"", Strings.toHexString(uint256(uint32(setVerifier.SELECTOR())), 4));
+        console2.log("verifier = \"%s\"", address(setVerifier));
+        console2.log("estop = \"%s\"", address(estop));
+        console2.log("unroutable = true # remove when added to the router");
+    }
+}
+
+/// @notice Schedule addition of a verifier to the RISC Zero router.
+/// @dev Use the following environment variables:
+///     * VERIFIER_SELECTOR the selector of the verifier to add
+///     * SCHEDULE_DELAY (optional) minimum delay in seconds for the scheduled action
+///     * GNOSIS_EXECUTE (optional) if true, print Gnosis Safe calldata instead of broadcasting
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract ScheduleAddVerifierToRisc0Router is RiscZeroManagementScript {
+    function run() external withConfig {
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+
+        RiscZeroVerifierEmergencyStop estop = risc0VerifierEstop();
+        IRiscZeroSelectable selectableVerifier = IRiscZeroSelectable(address(estop.verifier()));
+        bytes4 selector = selectableVerifier.SELECTOR();
+        console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
+
+        uint256 scheduleDelay = vm.envOr("SCHEDULE_DELAY", risc0TimelockController().getMinDelay());
+        console2.log("scheduleDelay: ", scheduleDelay);
+
+        bytes memory data = abi.encodeCall(risc0Router().addVerifier, (selector, estop));
+        address dest = address(risc0Router());
+        risc0Simulate(dest, data);
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), dest, selector, data, scheduleDelay);
+            return;
+        }
+        vm.broadcast(adminAddress());
+        risc0TimelockController().schedule(dest, 0, data, 0, 0, scheduleDelay);
+    }
+
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        address dest,
+        bytes4 selector,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE SCHEDULE ADD VERIFIER TO RISC0 ROUTER INFO ===");
+        console2.log("Target RISC Zero Timelock Controller Address (To): ", timelockAddress);
+        console2.log("RISC Zero Verifier Router Address (dest): ", dest);
+        console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
+        console2.log("scheduleDelay: ", scheduleDelay);
+
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", dest, 0, data, 0, 0, scheduleDelay
+        );
+        console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Finish addition of a verifier to the RISC Zero router.
+/// @dev Use the following environment variables:
+///     * VERIFIER_SELECTOR the selector of the verifier to add
+///     * GNOSIS_EXECUTE (optional) if true, print Gnosis Safe calldata instead of broadcasting
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract FinishAddVerifierToRisc0Router is RiscZeroManagementScript {
+    function run() external withConfig {
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+
+        RiscZeroVerifierEmergencyStop estop = risc0VerifierEstop();
+        IRiscZeroSelectable selectableVerifier = IRiscZeroSelectable(address(estop.verifier()));
+        bytes4 selector = selectableVerifier.SELECTOR();
+        console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
+
+        bytes memory data = abi.encodeCall(risc0Router().addVerifier, (selector, estop));
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), address(risc0Router()), selector, data);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().execute(address(risc0Router()), 0, data, 0, 0);
+    }
+
+    function _printGnosisSafeInfo(address timelockAddress, address dest, bytes4 selector, bytes memory data)
+        internal
+        pure
+    {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE EXECUTE ADD VERIFIER TO RISC0 ROUTER INFO ===");
+        console2.log("Target RISC Zero Timelock Controller Address (To): ", timelockAddress);
+        console2.log("RISC Zero Verifier Router Address (dest): ", dest);
+        console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
+
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", dest, 0, data, 0, 0);
+        console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Schedule updating the RISC Zero timelock delay.
+/// @dev Use the following environment variables:
+///     * RISC0_MIN_DELAY new minimum delay in seconds for the RISC Zero timelock
+///     * SCHEDULE_DELAY (optional) minimum delay in seconds for the scheduled action
+///     * GNOSIS_EXECUTE (optional) if true, print Gnosis Safe calldata instead of broadcasting
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract ScheduleUpdateRisc0TimelockDelay is RiscZeroManagementScript {
+    function run() external withConfig {
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        uint256 minDelay = vm.envUint("RISC0_MIN_DELAY");
+        console2.log("minDelay:", minDelay);
+
+        uint256 scheduleDelay = vm.envOr("SCHEDULE_DELAY", risc0TimelockController().getMinDelay());
+        console2.log("scheduleDelay:", scheduleDelay);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().updateDelay, minDelay);
+        address dest = address(risc0TimelockController());
+        risc0Simulate(dest, data);
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), minDelay, data, scheduleDelay);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().schedule(dest, 0, data, 0, 0, scheduleDelay);
+    }
+
+    function _printGnosisSafeInfo(address timelockAddress, uint256 minDelay, bytes memory data, uint256 scheduleDelay)
+        internal
+        pure
+    {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE SCHEDULE RISC0 TIMELOCK DELAY INFO ===");
+        console2.log("Target RISC Zero Timelock Controller Address (To): ", timelockAddress);
+        console2.log("New min delay: ", minDelay);
+        console2.log("scheduleDelay: ", scheduleDelay);
+
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
+        console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("================================");
+    }
+}
+
+/// @notice Finish updating the RISC Zero timelock delay.
+/// @dev Use the following environment variables:
+///     * RISC0_MIN_DELAY new minimum delay in seconds for the RISC Zero timelock
+///     * GNOSIS_EXECUTE (optional) if true, print Gnosis Safe calldata instead of broadcasting
+///
+/// See the Foundry documentation for more information about Solidity scripts.
+/// https://book.getfoundry.sh/guides/scripting-with-solidity
+contract FinishUpdateRisc0TimelockDelay is RiscZeroManagementScript {
+    function run() external withConfig {
+        bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
+        uint256 minDelay = vm.envUint("RISC0_MIN_DELAY");
+        console2.log("minDelay:", minDelay);
+
+        bytes memory data = abi.encodeCall(risc0TimelockController().updateDelay, minDelay);
+
+        if (gnosisExecute) {
+            _printGnosisSafeInfo(address(risc0TimelockController()), minDelay, data);
+            return;
+        }
+
+        vm.broadcast(adminAddress());
+        risc0TimelockController().execute(address(risc0TimelockController()), 0, data, 0, 0);
+    }
+
+    function _printGnosisSafeInfo(address timelockAddress, uint256 minDelay, bytes memory data) internal pure {
+        console2.log("================================");
+        console2.log("================================");
+        console2.log("=== GNOSIS SAFE EXECUTE RISC0 TIMELOCK DELAY INFO ===");
+        console2.log("Target RISC Zero Timelock Controller Address (To): ", timelockAddress);
+        console2.log("New min delay: ", minDelay);
+
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
         console2.log("Calldata:");
         console2.logBytes(callData);
         console2.log("");
