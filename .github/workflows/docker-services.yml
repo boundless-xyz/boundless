@@ -122,16 +122,10 @@ jobs:
             curl -L https://github.com/cargo-lambda/cargo-lambda/releases/download/v1.9.1/cargo-lambda-v1.9.1.x86_64-unknown-linux-musl.tar.gz | sudo tar xz -C /usr/local/bin
           fi
 
-      - name: Cache cargo registry and target
-        uses: actions/cache@v4
+      - name: Setup sccache
+        uses: ./.github/actions/sccache
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: lambda-build-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            lambda-build-${{ runner.os }}-
+          key: lambda-build-${{ runner.os }}-${{ runner.arch }}
 
       - name: Build lambda zips
         env:
@@ -140,6 +134,10 @@ jobs:
           RISC0_SKIP_BUILD_KERNELS: "1"
           CARGO_PROFILE_RELEASE_LTO: "thin"
         run: cargo lambda build --release --package indexer-api --package indexer-monitor --package indexer-redrive --output-format zip --compiler cargo
+
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
