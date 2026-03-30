@@ -37,7 +37,7 @@ COPY . .
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
-ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
+ARG RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 # Build WITHOUT cuda feature
@@ -46,8 +46,8 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
-    export CARGO_TARGET_DIR=/src/bento/target-agent-cpu && \
-    cargo build --manifest-path bento/Cargo.toml --release -p workflow --bin agent && \
+    export CARGO_TARGET_DIR=/src/prover/target-agent-cpu && \
+    cargo build --manifest-path prover/Cargo.toml --release -p workflow --bin agent && \
     cp ${CARGO_TARGET_DIR}/release/agent /src/agent && \
     sccache --show-stats
 
