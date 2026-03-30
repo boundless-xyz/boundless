@@ -130,22 +130,33 @@ jobs:
           FOUNDRY_OUT: contracts/reference-contract/out
 
   deployment-scripts:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    timeout-minutes: 30
     needs: contracts-changed
     if: needs.contracts-changed.outputs.src == 'true' ||
         needs.contracts-changed.outputs.foundry == 'true' ||
         needs.contracts-changed.outputs.scripts == 'true' ||
         needs.contracts-changed.outputs.ci == 'true'
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
     steps:
       - name: checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
+      - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: install npm
         uses: actions/setup-node@v4
@@ -168,7 +179,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.0.0
+          version: ${{ env.FOUNDRY_VERSION }}
 
       - name: Install Rust linker toolchain
         run: |
@@ -176,10 +187,9 @@ jobs:
           sudo apt-get install -y build-essential binutils lld mold
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-      
-      - uses: risc0/risc0/.github/actions/sccache@v3.0.3
-        with:
-          key: ${{ matrix.os }}-${{ matrix.feature }}
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
@@ -188,13 +198,19 @@ jobs:
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
       - name: Install protoc
-        run: sudo apt install protobuf-compiler -y
+        uses: risc0/risc0/.github/actions/protoc@v3.0.3
+
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
       - name: checkout main code
         uses: actions/checkout@v4
         with:
           ref: main
-          submodules: recursive
+          submodules: false
+
+      - name: checkout main submodules
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Forge build on main branch
         run: forge build
@@ -211,7 +227,11 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Restore submodules from cache
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Download build-info artifact
         uses: actions/download-artifact@v4
@@ -222,12 +242,6 @@ jobs:
       - name: forge build
         run: forge build
 
-      - name: cargo install boundless-cli
-        run: cargo install boundless-cli --path crates/boundless-cli --locked
-
-      - name: cargo install just
-        run: cargo install just
-
       - name: cargo build
         run: cargo build --locked
 
@@ -237,12 +251,11 @@ jobs:
           CI: 1
           RISC0_DEV_MODE: 1
           REPO_ROOT: ${{ github.workspace }}
-      
+
       - name: deploy script
         run: ./contracts/scripts/manage DeployBoundlessMarket --broadcast
         env:
           CHAIN_KEY: anvil
-          # This key is a prefunded address for the anvil test configuration (index 0)
           DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -257,12 +270,11 @@ jobs:
         run: forge clean
         env:
           FOUNDRY_OUT: contracts/out
-      
+
       - name: upgrade script
         run: ./contracts/scripts/manage UpgradeBoundlessMarket --broadcast
         env:
           CHAIN_KEY: anvil
-          # This key is a prefunded address for the anvil test configuration (index 0)
           DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -277,7 +289,6 @@ jobs:
         run: ./contracts/scripts/manage RollbackBoundlessMarket --broadcast
         env:
           CHAIN_KEY: anvil
-          # This key is a prefunded address for the anvil test configuration (index 0)
           DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
