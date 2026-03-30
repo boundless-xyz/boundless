@@ -111,8 +111,15 @@ jobs:
           SCCACHE_CUDA_INCLUDE: "/usr/local/cuda/include"
           SCCACHE_CUDA_LIB: "/usr/local/cuda/lib64"
         run: |
-          # Build all components
+          # Build GPU agent (with CUDA support)
           cargo build --release --target ${{ matrix.target }} -F cuda --bin agent
+          # Save GPU binary before CPU build overwrites it
+          cp target/${{ matrix.target }}/release/agent /tmp/bento-agent-gpu
+
+          # Build CPU agent (without CUDA, reuses cached deps)
+          cargo build --release --target ${{ matrix.target }} --bin agent
+
+          # Build other components
           cargo build --release --target ${{ matrix.target }} --bin rest_api
           cargo build --release --target ${{ matrix.target }} --bin bento_cli
 
@@ -120,7 +127,8 @@ jobs:
           mkdir -p ../binaries/${{ matrix.artifact_name }}/bento-bundle
 
           # Copy all components to bundle
-          cp target/${{ matrix.target }}/release/agent ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-agent
+          cp /tmp/bento-agent-gpu ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-agent
+          cp target/${{ matrix.target }}/release/agent ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-agent-cpu
           cp target/${{ matrix.target }}/release/rest_api ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-rest-api
           cp target/${{ matrix.target }}/release/bento_cli ../binaries/${{ matrix.artifact_name }}/bento-bundle/bento-cli
 
@@ -208,7 +216,8 @@ jobs:
             --notes "## Bento Components Release
 
           This release includes a complete bundle of Bento components:
-          - **Bento Agent**: Workflow execution agent (with CUDA support)
+          - **Bento Agent**: GPU workflow agent (with CUDA support)
+          - **Bento Agent CPU**: CPU-only workflow agent (for exec/aux tasks)
           - **Bento REST API**: REST API server
           - **Bento Client**: Client library
 
@@ -295,6 +304,21 @@ jobs:
             BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
             BLAKE3_GROTH16_ARTIFACTS_URL=${{ vars.BLAKE3_GROTH16_ARTIFACTS_URL || 'https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz' }}
             USE_LOCAL_BLAKE3_GROTH16_SETUP=0
+
+      - name: Build and push bento-agent-cpu image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfiles/agent.cpu.prebuilt.dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/bento-agent-cpu:${{ steps.get_version.outputs.version }}
+            ghcr.io/${{ github.repository }}/bento-agent-cpu:${{ steps.get_version.outputs.version_unprefixed }}
+            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/bento-agent-cpu:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
+            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/bento-agent-cpu:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
+            ghcr.io/${{ github.repository }}/bento-agent-cpu:latest
+          build-args: |
+            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
 
       - name: Build and push bento-rest-api image
         uses: docker/build-push-action@v6
