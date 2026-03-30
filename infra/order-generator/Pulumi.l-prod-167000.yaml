@@ -11,7 +11,7 @@ config:
     secure: v1:v0CqkVuF6OQo6w3I:Ie40GUu+YUdbHL/SdIJeEIjvJs0wY+kkVX379/uaqcbTLHFpaTVeTdR0wglkUt2D3k2mXZ/1yXjV9DzpJxhjDZ8ezWiL3iZKnUu4xgllKllOC+t6znOMyWSjH1djCDAw5sAUKgrRhC/k9OfeDg==
   order-generator-base:INDEXER_URL:
     secure: v1:TU3/Yju/3FP9d/fY:ccwXwEIySoHl0Gnzf4g49Cvd2aSylHhvxwFjk1eytjBJo2KueszIhrAUJM+jOUXqwl2wIjk=
-  order-generator-base:INTERVAL: "32"
+  order-generator-base:INTERVAL: "900"
   order-generator-base:IPFS_GATEWAY_URL: https://gateway.beboundless.cloud
   order-generator-base:LOCK_COLLATERAL_RAW: "15000000000000000000"
   order-generator-base:LOCK_TIMEOUT: "900"
@@ -47,7 +47,7 @@ config:
   order-generator-offchain:EXEC_RATE_KHZ: "1000"
   order-generator-offchain:INPUT_MAX_MCYCLES: "2000"
   order-generator-offchain:INPUT_MIN_MCYCLES: "1000"
-  order-generator-offchain:INTERVAL: "45"
+  order-generator-offchain:INTERVAL: "900"
   order-generator-offchain:LOCK_TIMEOUT: "1500"
   order-generator-offchain:MAX_OUTSTANDING_REQUESTS: "30"
   order-generator-offchain:MAX_PRICE_CAP: "0.0001"
@@ -63,7 +63,7 @@ config:
   order-generator-onchain:EXEC_RATE_KHZ: "1000"
   order-generator-onchain:INPUT_MAX_MCYCLES: "4000"
   order-generator-onchain:INPUT_MIN_MCYCLES: "1000"
-  order-generator-onchain:INTERVAL: "55"
+  order-generator-onchain:INTERVAL: "900"
   order-generator-onchain:LOCK_TIMEOUT: "2100"
   order-generator-onchain:MAX_OUTSTANDING_REQUESTS: "30"
   order-generator-onchain:MAX_PRICE_CAP: "0.0001"
