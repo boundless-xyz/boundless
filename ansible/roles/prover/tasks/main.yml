@@ -11,7 +11,7 @@
 
 - name: Get deployed commit SHA
   ansible.builtin.command:
-    cmd: git rev-parse --short=7 HEAD
+    cmd: git rev-parse HEAD
     chdir: "{{ prover_dir }}"
   register: prover_commit_sha
   changed_when: false
@@ -19,7 +19,7 @@
 
 - name: Wait for nightly Docker image to be available
   ansible.builtin.shell: |
-    IMAGE="ghcr.io/boundless-xyz/boundless/bento-agent:nightly-{{ prover_commit_sha.stdout }}"
+    IMAGE="ghcr.io/boundless-xyz/boundless/bento-agent:nightly-{{ prover_commit_sha.stdout[:7] }}"
     echo "Waiting for $IMAGE ..."
     for i in $(seq 1 60); do
       if docker pull "$IMAGE" > /dev/null 2>&1; then
