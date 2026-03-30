@@ -146,7 +146,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
           tags: |
-            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=nightly-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
