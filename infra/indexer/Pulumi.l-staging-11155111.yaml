@@ -29,3 +29,4 @@ config:
     secure: v1:RWN9MDG5YyGSkGa7:ft7AjHpHEXU0n56zsehS9xhcimZ5Omvv8FpmQSGz1xJsOcIOyd9AfDHfuhuJU5ve/Svb8mcanPS4PMIJCraJw66g1Sy+so1tiUKxleRFHW6cWtS0v/BWRvPaggMXHtVH6hCNc+hUxAAxxnQA//vVazunjUl2iEk0dFAD767zyA==
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFHtwzjU7yLfdQ9logy0MInAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNhj+98DbHRflFcp9AgEQgDvp1BoYvt06/rXZ3L1vMct30E+uQelDoPiY/hIdIIdV2JfqTHKgFfsu73W3Rsy2zG9W0sRQcSl8jrc1tg==
+  indexer:USE_GHCR: true

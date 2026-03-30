@@ -27,3 +27,4 @@ config:
   slasher:WARN_BALANCE_BELOW: "0.01"
   slasher:ETH_RPC_URL:
     secure: v1:RpNT+qgcptZH9aRW:1F25S/63yEXhsDafdjZqqc341sluW9B7TzjLWELkHKzg9DNiuvS8oXdIYwa4
+  slasher:USE_GHCR: true
