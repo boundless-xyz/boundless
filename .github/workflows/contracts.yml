@@ -204,26 +204,52 @@ jobs:
       - name: Install just
         run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
 
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-registry-
+
       - name: checkout main code
         uses: actions/checkout@v4
         with:
           ref: main
           submodules: false
 
-      - name: checkout main submodules
-        run: git submodule update --init --recursive --depth=1 --jobs=8
+      - name: Restore submodules for main
+        uses: actions/cache/restore@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+          restore-keys: submodules-
+
+      - name: checkout main submodules (if cache missed)
+        run: |
+          if [ ! -d "lib/openzeppelin-contracts" ]; then
+            git submodule update --init --recursive --depth=1 --jobs=8
+          fi
+
+      - name: Cache forge build (main)
+        id: forge-main-cache
+        uses: actions/cache@v4
+        with:
+          path: contracts/out/build-info
+          key: forge-main-buildinfo-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
 
       - name: Forge build on main branch
+        if: steps.forge-main-cache.outputs.cache-hit != 'true'
         run: forge build
         env:
           FOUNDRY_PROFILE: reference-contract
           FOUNDRY_OUT: contracts/out
 
-      - name: Upload build-info artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-info-deployment
-          path: contracts/out/build-info/
+      - name: Save main build-info
+        run: |
+          mkdir -p /tmp/build-info-reference
+          cp -r contracts/out/build-info/* /tmp/build-info-reference/
 
       - name: checkout code
         uses: actions/checkout@v4
@@ -231,14 +257,28 @@ jobs:
           submodules: false
 
       - name: Restore submodules from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
+      - name: checkout submodules (if cache missed)
         if: steps.submodule-cache.outputs.cache-hit != 'true'
         run: git submodule update --init --recursive --depth=1 --jobs=8
 
-      - name: Download build-info artifact
-        uses: actions/download-artifact@v4
+      - name: Restore main build-info
+        run: |
+          mkdir -p contracts/build-info-reference
+          cp -r /tmp/build-info-reference/* contracts/build-info-reference/
+
+      - name: Cache forge build (PR branch)
+        uses: actions/cache@v4
         with:
-          name: build-info-deployment
-          path: contracts/build-info-reference
+          path: |
+            contracts/out
+            cache
+          key: forge-deployment-pr-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-deployment-pr-
 
       - name: forge build
         run: forge build
