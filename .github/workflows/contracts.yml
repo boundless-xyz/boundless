@@ -213,24 +213,14 @@ jobs:
           key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-registry-
 
+      - name: Clean submodules before main checkout
+        run: rm -rf lib/
+
       - name: checkout main code
         uses: actions/checkout@v4
         with:
           ref: main
-          submodules: false
-
-      - name: Restore submodules for main
-        uses: actions/cache/restore@v4
-        with:
-          path: lib/
-          key: submodules-${{ steps.submodule-key.outputs.hash }}
-          restore-keys: submodules-
-
-      - name: checkout main submodules (if cache missed)
-        run: |
-          if [ ! -d "lib/openzeppelin-contracts" ]; then
-            git submodule update --init --recursive --depth=1 --jobs=8
-          fi
+          submodules: recursive
 
       - name: Cache forge build (main)
         id: forge-main-cache
@@ -251,20 +241,13 @@ jobs:
           mkdir -p /tmp/build-info-reference
           cp -r contracts/out/build-info/* /tmp/build-info-reference/
 
+      - name: Clean submodules before PR checkout
+        run: rm -rf lib/
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          submodules: false
-
-      - name: Restore submodules from cache
-        uses: actions/cache/restore@v4
-        with:
-          path: lib/
-          key: submodules-${{ steps.submodule-key.outputs.hash }}
-
-      - name: checkout submodules (if cache missed)
-        if: steps.submodule-cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive --depth=1 --jobs=8
+          submodules: recursive
 
       - name: Restore main build-info
         run: |
