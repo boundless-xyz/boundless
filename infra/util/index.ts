@@ -88,7 +88,7 @@ export async function getGhcrImageUri(serviceName: string): Promise<string> {
   const sha = require('child_process')
     .execSync('git rev-parse --short HEAD')
     .toString().trim();
-  const tag = `main-${sha}`;
+  const tag = `nightly-${sha}`;
   const uri = `${GHCR_IMAGE_PREFIX}/${serviceName}:${tag}`;
 
   // Check GHCR manifest via registry API (public, no auth needed)
