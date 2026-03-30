@@ -62,7 +62,7 @@ async fn list_orders_v2_with_retry(
                         "Failed to fetch orders (attempt {}/{}): {:?}. Retrying in {}ms",
                         attempt + 1,
                         MAX_RETRIES + 1,
-                        last_error.as_ref().unwrap(),
+                        last_error.as_ref().expect("last_error must be set after failed attempt"),
                         delay_ms
                     );
                     tokio::time::sleep(Duration::from_millis(delay_ms)).await;
@@ -71,7 +71,11 @@ async fn list_orders_v2_with_retry(
         }
     }
 
-    Err(anyhow!("Failed to fetch orders after {} retries: {:?}", MAX_RETRIES, last_error.unwrap()))
+    Err(anyhow!(
+        "Failed to fetch orders after {} retries: {:?}",
+        MAX_RETRIES,
+        last_error.expect("last_error must be set after retries exhausted")
+    ))
 }
 
 impl<P, ANP> IndexerService<P, ANP>
