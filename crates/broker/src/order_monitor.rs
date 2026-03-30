@@ -1211,7 +1211,12 @@ where
                         }
 
                         // Prioritize the orders that intend to fulfill based on configured commitment priority.
-                        valid_orders = self.prioritize_orders(valid_orders, monitor_config.order_commitment_priority, monitor_config.priority_addresses.as_deref());
+                        valid_orders = self.prioritize_orders(
+                            valid_orders,
+                            monitor_config.order_commitment_priority,
+                            monitor_config.priority_addresses.as_deref(),
+                            monitor_config.peak_prove_khz,
+                        );
 
                         // Filter down the orders given our max concurrent proofs, peak khz limits, and gas limitations.
                         let capacity_result = self
