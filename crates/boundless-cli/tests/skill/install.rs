@@ -114,7 +114,7 @@ fn test_skill_install_first_request_with_path() {
     assert!(skill_content.contains("first"));
 }
 
-/// Test that --all installs both skills.
+/// Test that --all installs all skills.
 #[test]
 fn test_skill_install_all_with_path() {
     let tmp_dir = TempDir::new().unwrap();
@@ -134,8 +134,7 @@ fn test_skill_install_all_with_path() {
     assert!(install_path.join("first-request/SKILL.md").exists());
     assert!(install_path.join("first-request/scripts/check-prerequisites.sh").exists());
     assert!(install_path.join("first-request/examples/request.yaml").exists());
-    assert!(install_path.join("contributing-skills/SKILL.md").exists());
-    assert!(install_path.join("contributing-skills/references/registration-guide.md").exists());
+    assert!(install_path.join("telemetry-query/SKILL.md").exists());
 }
 
 /// Test that --list prints available skills without installing.
@@ -149,10 +148,7 @@ fn test_skill_install_list() {
         .success()
         .stdout(contains("boundless-overview"))
         .stdout(contains("first-request"))
-        .stdout(contains("contributing-skills"))
-        .stdout(contains("Boundless CLI overview"))
-        .stdout(contains("Guided walkthrough"))
-        .stdout(contains("create, test, and ship"));
+        .stdout(contains("telemetry-query"));
 }
 
 /// Test that an invalid skill name produces a helpful error.
