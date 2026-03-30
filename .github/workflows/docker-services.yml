@@ -5,6 +5,11 @@ on:
     branches: [main]
     tags: ["infra-v*"]
   workflow_dispatch:
+    inputs:
+      custom_tag:
+        description: 'Optional custom image tag (e.g. "my-feature", "test-123")'
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -145,6 +150,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
+            type=raw,value=${{ inputs.custom_tag }},enable=${{ inputs.custom_tag != '' }}
 
       - name: Download recipe
         uses: actions/download-artifact@v4
