@@ -115,8 +115,8 @@ jobs:
 
       - name: Install cargo-lambda
         run: |
-          if ! command -v cargo-lambda &>/dev/null; then
-            curl -sSf https://lambda.tools/install.sh | sh
+          if ! cargo lambda --version 2>/dev/null; then
+            pip3 install cargo-lambda
           fi
 
       - name: Build lambda zips
