@@ -329,6 +329,23 @@ jobs:
       - name: dprint check
         run: dprint check
 
+      - name: Check Cargo.lock files are up to date
+        run: |
+          cargo fetch
+          cd bento && cargo fetch && cd ..
+          for dir in examples/*/; do
+            if [ -f "$dir/Cargo.toml" ]; then
+              (cd "$dir" && cargo fetch)
+            fi
+          done
+          CHANGED=$(git diff --name-only -- '**/Cargo.lock')
+          if [ -n "$CHANGED" ]; then
+            echo "::error::The following Cargo.lock files are out of date. Run 'just update-lockfiles' and commit the changes."
+            echo "$CHANGED"
+            git diff --stat -- '**/Cargo.lock'
+            exit 1
+          fi
+
   foundry:
     name: Foundry (GH)
     runs-on: ubuntu-latest
