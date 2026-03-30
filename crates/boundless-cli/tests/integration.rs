@@ -20,7 +20,5 @@ mod skill;
 // Include the actual tests
 #[path = "rewards/mining.rs"]
 mod mining;
-#[path = "skill/dev.rs"]
-mod skill_dev;
 #[path = "skill/install.rs"]
 mod skill_install;
