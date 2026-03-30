@@ -90,22 +90,19 @@ export async function getGhcrImageUri(serviceName: string, overrideTag?: string)
     .toString().trim()}`;
   const uri = `${GHCR_IMAGE_PREFIX}/${serviceName}:${tag}`;
 
-  // Check GHCR manifest via registry API (public, no auth needed)
-  const url = `https://ghcr.io/v2/boundless-xyz/boundless/${serviceName}/manifests/${tag}`;
-  const maxAttempts = 30;      // 30 attempts
-  const intervalMs = 30_000;   // 30s between attempts → ~15 min total
+  // Poll until the image exists (CI may still be building it).
+  // Uses `docker manifest inspect` which respects local Docker credentials.
+  const maxAttempts = 30;      // 30 attempts × 30s = ~15 min total
 
   for (let i = 1; i <= maxAttempts; i++) {
     try {
-      const res = require('child_process').execSync(
-        `curl -sf -o /dev/null -w "%{http_code}" -H "Accept: application/vnd.oci.image.index.v1+json" "${url}"`,
-        { encoding: 'utf-8' }
-      ).trim();
-      if (res === '200') {
-        console.log(`GHCR image found: ${uri}`);
-        return uri;
-      }
-    } catch { /* curl returns non-zero on 404 */ }
+      require('child_process').execSync(
+        `docker manifest inspect ${uri}`,
+        { stdio: 'ignore' }
+      );
+      console.log(`GHCR image found: ${uri}`);
+      return uri;
+    } catch { /* manifest not found yet */ }
 
     if (i < maxAttempts) {
       console.log(`Waiting for GHCR image ${uri} (attempt ${i}/${maxAttempts}, retrying in 30s)...`);
