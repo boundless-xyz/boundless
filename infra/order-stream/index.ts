@@ -32,7 +32,8 @@ export = () => {
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const disableCert = config.getBoolean('DISABLE_CERT') || false;
   const useGhcr = config.getBoolean('USE_GHCR') || false;
-  const prebuiltImage = useGhcr ? pulumi.output(getGhcrImageUri('order-stream')) : undefined;
+  const ghcrImageTag = isDev ? process.env.GHCR_IMAGE_TAG : config.get('GHCR_IMAGE_TAG');
+  const prebuiltImage = useGhcr ? pulumi.output(getGhcrImageUri('order-stream', ghcrImageTag)) : undefined;
 
   const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
   const premiumRateLimit = config.getNumber('PREMIUM_RATE_LIMIT') ?? 10000;

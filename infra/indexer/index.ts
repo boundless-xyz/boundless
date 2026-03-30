@@ -15,6 +15,7 @@ export = () => {
   const isDev = stackName === "dev";
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const useGhcr = config.getBoolean('USE_GHCR') || false;
+  const ghcrImageTag = isDev ? process.env.GHCR_IMAGE_TAG : config.get('GHCR_IMAGE_TAG');
   const chainId = config.require('CHAIN_ID');
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
@@ -80,6 +81,7 @@ export = () => {
     dockerTag,
     dockerRemoteBuilder,
     useGhcr,
+    ghcrImageTag,
   });
 
   let marketIndexer: MarketIndexer | undefined;

@@ -18,6 +18,7 @@ export interface IndexerInfraArgs {
   dockerTag: string;
   dockerRemoteBuilder?: string;
   useGhcr?: boolean;
+  ghcrImageTag?: string;
 }
 
 export class IndexerShared extends pulumi.ComponentResource {
@@ -402,7 +403,7 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     if (args.useGhcr) {
       this.image = undefined;
-      this.imageRef = pulumi.output(getGhcrImageUri('indexer'));
+      this.imageRef = pulumi.output(getGhcrImageUri('indexer', args.ghcrImageTag));
     } else {
       let buildSecrets: Record<string, pulumi.Input<string>> = {};
       if (ciCacheSecret !== undefined) {

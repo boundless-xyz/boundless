@@ -42,6 +42,7 @@ export = () => {
   const txTimeout = baseConfig.get('TX_TIMEOUT') || '180';
 
   const useGhcr = baseConfig.getBoolean('USE_GHCR') || false;
+  const ghcrImageTag = isDev ? process.env.GHCR_IMAGE_TAG : baseConfig.get('GHCR_IMAGE_TAG');
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
   const repo = new awsx.ecr.Repository(`${imageName}-ecr-repo`, {
@@ -61,7 +62,7 @@ export = () => {
   let imageRef: pulumi.Output<string>;
 
   if (useGhcr) {
-    imageRef = pulumi.output(getGhcrImageUri('order-generator'));
+    imageRef = pulumi.output(getGhcrImageUri('order-generator', ghcrImageTag));
   } else {
     const authToken = aws.ecr.getAuthorizationTokenOutput({
       registryId: repo.repository.registryId,

@@ -84,11 +84,10 @@ export const GHCR_IMAGE_PREFIX = 'ghcr.io/boundless-xyz/boundless';
  * for it to exist (CI may still be building). Retries with backoff
  * for up to ~15 minutes before failing.
  */
-export async function getGhcrImageUri(serviceName: string): Promise<string> {
-  const sha = require('child_process')
+export async function getGhcrImageUri(serviceName: string, overrideTag?: string): Promise<string> {
+  const tag = overrideTag ?? `nightly-${require('child_process')
     .execSync('git rev-parse --short HEAD')
-    .toString().trim();
-  const tag = `nightly-${sha}`;
+    .toString().trim()}`;
   const uri = `${GHCR_IMAGE_PREFIX}/${serviceName}:${tag}`;
 
   // Check GHCR manifest via registry API (public, no auth needed)

@@ -66,6 +66,7 @@ export = () => {
     });
 
   const useGhcr = config.getBoolean('USE_GHCR') || false;
+  const ghcrImageTag = isDev ? process.env.GHCR_IMAGE_TAG : config.get('GHCR_IMAGE_TAG');
 
   const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
     name: `${serviceName}-ecr-repo`,
@@ -84,7 +85,7 @@ export = () => {
   let imageRef: pulumi.Output<string>;
 
   if (useGhcr) {
-    imageRef = pulumi.output(getGhcrImageUri('slasher'));
+    imageRef = pulumi.output(getGhcrImageUri('slasher', ghcrImageTag));
   } else {
     const authToken = aws.ecr.getAuthorizationTokenOutput({
       registryId: repo.repository.registryId,
