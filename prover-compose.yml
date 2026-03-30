@@ -7,8 +7,8 @@ name: bento
 #   nvidia-smi --list-gpus
 
 # Anchors:
-x-base-environment: &base-environment
-  # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
+x-base-environment:
+  &base-environment # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
   REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
   NO_COLOR: 1
   RUST_LOG: ${RUST_LOG:-info}
@@ -20,7 +20,7 @@ x-agent-common: &agent-common
   runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
-    dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
+    dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/prover/agent.prebuilt.dockerfile}
     args:
       BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
@@ -58,13 +58,6 @@ x-broker-environment: &broker-environment
   BOUNDLESS_MARKET_ADDRESS:
   SET_VERIFIER_ADDRESS:
   ORDER_STREAM_URL:
-  # TODO these env vars are temporary for handling cancellations. These should be removed when
-  # updated.
-  POSTGRES_HOST:
-  POSTGRES_DB:
-  POSTGRES_PORT:
-  POSTGRES_USER:
-  POSTGRES_PASS:
 
 x-gpu-prove-agent: &gpu-prove-agent
   <<: *agent-common
@@ -214,7 +207,7 @@ services:
     image: ${REST_API_IMAGE-ghcr.io/boundless-xyz/boundless/bento-rest-api:latest}
     build:
       context: .
-      dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
+      dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.prebuilt.dockerfile}
       args:
         BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
     restart: always
@@ -252,7 +245,12 @@ services:
     #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
     environment:
       <<: *broker-environment
-    entrypoint: ["/bin/sh", "-c", "exec /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 ${BROKER_EXTRA_ARGS:-}"]
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "exec /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 ${BROKER_EXTRA_ARGS:-}",
+      ]
 
   # # Example second broker with different configuration
   # broker2:
@@ -273,7 +271,7 @@ services:
     image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
     build:
       context: .
-      dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
+      dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/prover/agent.prebuilt.dockerfile}
       args:
         BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.2/bento-bundle-linux-amd64.tar.gz}
         BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
