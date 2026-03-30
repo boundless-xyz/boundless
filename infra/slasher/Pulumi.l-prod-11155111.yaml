@@ -24,3 +24,4 @@ config:
     secure: v1:mMaP5wecyR9zeT4s:3jb9ANipltArpp1yJ62ooRnnuNlSqbtETFJXjPlGsxo=
   slasher:CI_CACHE_SECRET:
     secure: v1:/gTX3aYOK+/i1KDs:D8PdP0EkeAch8lMRFpeyb9gTgReQ+WXpkzvbUAbSl3cCrNyXOaUb82VQRnG8Y6IsXnGPz4gNcW/D+7NuvtQZatddvjKrd9fOKVrtj99+JBAJsFGc+H5NUCLP4gAEyfPhFxbylVfyt6hoX/gu/mp7vsV06tIPGYUH/ffYQfwPKQ==
+  slasher:USE_GHCR: true

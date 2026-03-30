@@ -93,3 +93,4 @@ config:
   order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0xC284A781072442cC1882a8Db4573990B7B49DaC4
   order-generator-base:ETH_RPC_URL:
     secure: v1:xEr+3YrBChML9Trc:XDsGD92bqngMa/xCSkLZBDSrXAsfocBx3dqSR/KrX4DatERCWsglRWz5ic2c
+  order-generator-base:USE_GHCR: true

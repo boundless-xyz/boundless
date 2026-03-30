@@ -74,3 +74,4 @@ config:
     secure: v1:E8q2Dlw+CaL5J4yF:OeTsiMNliITIEykUETaxMb7iQUOmdiTi0K5TZ4s8huAcIBPtys6HN4s/ujHC039wD2K3LNq9BD6qpETRAj1z0Etz/XcRP+YkFcC/GXhs+qJJv1e60pHHS7QEiV7t+wUVtMkBm/4uydEulU7qvpOV9nLihW5iAfl9wKbp3jrchw==
   order-generator-base:ETH_RPC_URL:
     secure: v1:bLK0eADRmEZTUA15:m/73RpJTwORLS6ePURDrk6QGVMw9p44APreK1Z1BhGs2AWRH3Qz7+XNLBSM6
+  order-generator-base:USE_GHCR: true
