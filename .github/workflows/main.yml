@@ -288,13 +288,22 @@ jobs:
   fmt:
     name: fmt (GH)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - name: checkout code
         uses: actions/checkout@v4
         with:
           # Full history is required by license-check.py
           fetch-depth: 0
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-registry-
 
       - name: install python
         uses: actions/setup-python@v4

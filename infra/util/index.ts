@@ -77,6 +77,41 @@ export enum Severity {
   SEV2 = 'SEV2',
 }
 
+export const GHCR_IMAGE_PREFIX = 'ghcr.io/boundless-xyz/boundless';
+
+/**
+ * Constructs a GHCR image URI from the current git SHA and waits
+ * for it to exist (CI may still be building). Retries with backoff
+ * for up to ~15 minutes before failing.
+ */
+export async function getGhcrImageUri(serviceName: string, overrideTag?: string): Promise<string> {
+  const tag = overrideTag ?? `nightly-${require('child_process')
+    .execSync('git rev-parse HEAD')
+    .toString().trim().substring(0, 7)}`;
+  const uri = `${GHCR_IMAGE_PREFIX}/${serviceName}:${tag}`;
+
+  // Poll until the image exists (CI may still be building it).
+  // Uses `docker manifest inspect` which respects local Docker credentials.
+  const maxAttempts = 30;      // 30 attempts × 30s = ~15 min total
+
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      require('child_process').execSync(
+        `docker manifest inspect ${uri}`,
+        { stdio: 'ignore' }
+      );
+      console.log(`GHCR image found: ${uri}`);
+      return uri;
+    } catch { /* manifest not found yet */ }
+
+    if (i < maxAttempts) {
+      console.log(`Waiting for GHCR image ${uri} (attempt ${i}/${maxAttempts}, retrying in 30s)...`);
+      require('child_process').execSync(`sleep 30`);
+    }
+  }
+  throw new Error(`GHCR image not found after ${maxAttempts} attempts: ${uri}`);
+}
+
 export const DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS = 7200;
 
 /** Max session duration when assuming a role from another role (role chaining). AWS limit is 1 hour. */
