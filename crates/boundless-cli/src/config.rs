@@ -145,6 +145,7 @@ impl RequestorConfig {
                         "base-mainnet" => Some(boundless_market::deployments::BASE),
                         "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
                         "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
+                        "taiko-mainnet" => Some(boundless_market::deployments::TAIKO),
                         custom => {
                             config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
                                 let mut builder = boundless_market::Deployment::builder();
@@ -624,6 +625,7 @@ impl ProverConfig {
                         "base-mainnet" => Some(boundless_market::deployments::BASE),
                         "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
                         "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
+                        "taiko-mainnet" => Some(boundless_market::deployments::TAIKO),
                         custom => {
                             config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
                                 let mut builder = boundless_market::Deployment::builder();

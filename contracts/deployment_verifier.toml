@@ -7,10 +7,18 @@ etherscan-url = "https://etherscan.io/"
 admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
+# Layered Router
 timelock-controller = "0x0000000000000000000000000000000000000000"
-timelock-delay = 259200
+timelock-delay = 0
 router = "0x0000000000000000000000000000000000000000"
 parent-router = "0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319"
+
+# RISC Zero router (currently owned by RISC Zero)
+risc0-router = "0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319"
+risc0-timelock-controller = "0x0b144E07A0826182B6b59788c34b32Bfa86Fb711"
+risc0-timelock-delay = 259200
+
+# Layered Router verifiers
 
 ###
 
@@ -23,11 +31,18 @@ etherscan-url = "https://sepolia.etherscan.io/"
 admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
+# Layered Router
 timelock-controller = "0x20c64F0C59ac248F10B5a5ddDd3a418Bed75c91C"
 timelock-delay = 0
 router = "0xB121B667dd2cf27F95f9F5107137696F56f188f6"
 parent-router = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
 
+# RISC Zero router (currently owned by RISC Zero)
+risc0-router = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+risc0-timelock-controller = "0xB4E3306129208cC8e6E75157f75f62eAe0B920a0"
+risc0-timelock-delay = 1
+
+# Layered Router verifiers
 [[chains.ethereum-sepolia.verifiers]]
 name = "Blake3Groth16Verifier"
 version = "0.0.1"
@@ -46,11 +61,18 @@ etherscan-url = "https://basescan.org/"
 admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
+# Layered Router
 timelock-controller = "0x20c64F0C59ac248F10B5a5ddDd3a418Bed75c91C"
 timelock-delay = 259200
 router = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
 parent-router = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 
+# RISC Zero router (currently owned by RISC Zero)
+risc0-router = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+risc0-timelock-controller = "0xdc986a09728f76110ff666ee7b20d99086501d15"
+risc0-timelock-delay = 259200
+
+# Layered Router verifiers
 [[chains.base-mainnet.verifiers]]
 name = "Blake3Groth16Verifier"
 version = "0.0.1"
@@ -69,16 +91,97 @@ etherscan-url = "https://sepolia.basescan.org/"
 admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
+# Layered Router
 timelock-controller = "0x20c64F0C59ac248F10B5a5ddDd3a418Bed75c91C"
 timelock-delay = 0
 router = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
 parent-router = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 
+# RISC Zero router (currently owned by RISC Zero)
+risc0-router = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+risc0-timelock-controller = "0xdc986a09728f76110ff666ee7b20d99086501d15"
+risc0-timelock-delay = 1
+
+# Layered Router verifiers
 [[chains.base-sepolia.verifiers]]
 name = "Blake3Groth16Verifier"
 version = "0.0.1"
 selector = "0x62f049f6"
 verifier = "0x7bdf79856cf17D9f8D778249E1A5120cdA7cEA93"
 estop = "0x9A59695891d60A120741A0Bb35A1a7d002b4242E"
+
+###
+
+[chains.taiko-mainnet]
+name = "Taiko Mainnet"
+id = 167000
+etherscan-url = "https://taikoscan.io/"
+foundry-profile = "shanghai"
+
+# Accounts
+admin = "0x8E537AAeddbC98a9a095397aDb7c0d738458Cc8b"
+
+# Contracts
+# Layered Router
+timelock-controller = "0xdCD3CD6388a6C5bFa3919AC24427D6aE3e66F16C"
+timelock-delay = 0
+router = "0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45"
+parent-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
+
+# RISC Zero router
+risc0-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
+risc0-timelock-controller = "0xf7dF9c97bBe3CFF583Da57D06cC418Dc60abc1Ad"
+risc0-timelock-delay = 0
+
+[[chains.taiko-mainnet.verifiers]]
+name = "Blake3Groth16Verifier"
+version = "0.0.1"
+selector = "0x62f049f6"
+verifier = "0x80aC0330D288D52933b9e14B08E0eDCC4CCb8B1d"
+estop = "0xFa59FB9cf20B0f7d717bFd50A949c558758F3e24"
+
+[[chains.taiko-mainnet.risc0-verifiers]]
+name = "RiscZeroGroth16Verifier"
+version = "3.0.0"
+selector = "0x73c457ba"
+verifier = "0xb6CD6AC42451BABD8D248Bfd656E9cEC76AA9752"
+estop = "0x6C90475c151854C3E11A8c37b680A2BCe922B22a"
+
+[[chains.taiko-mainnet.risc0-verifiers]]
+name = "RiscZeroSetVerifier"
+version = "0.9.0"
+selector = "0x242f9d5b"
+verifier = "0x6135DC08D14EF8a44496B009e2181426628B8ebd"
+estop = "0xFd5A69AF35F1529BF110Ff8BCACE9a263763D02C"
+
+###
+
+[chains.taiko-staging]
+name = "Taiko Staging"
+id = 167000
+etherscan-url = "https://taikoscan.io/"
+foundry-profile = "shanghai"
+
+# Accounts
+admin = "0x8E537AAeddbC98a9a095397aDb7c0d738458Cc8b"
+
+# Contracts
+# Layered Router
+timelock-controller = "0x1701ABdD67ffC717446B019059cDBf5d2E0305E4"
+timelock-delay = 0
+router = "0x6E96201D39CE861c7DCeDC56CdB937a9A880Eb73"
+parent-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
+
+# RISC Zero router (same as mainnet)
+risc0-router = "0x7d0184DA330a1fAd7D3D6079a96e078a51a74AE1"
+risc0-timelock-controller = "0xf7dF9c97bBe3CFF583Da57D06cC418Dc60abc1Ad"
+risc0-timelock-delay = 0
+
+[[chains.taiko-staging.verifiers]]
+name = "Blake3Groth16Verifier"
+version = "0.0.1"
+selector = "0x62f049f6"
+verifier = "0x80aC0330D288D52933b9e14B08E0eDCC4CCb8B1d"
+estop = "0xFa59FB9cf20B0f7d717bFd50A949c558758F3e24"
 
 ###
