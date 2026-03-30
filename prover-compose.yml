@@ -16,7 +16,6 @@ x-base-environment:
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
-  image: ${AGENT_IMAGE-ghcr.io/boundless-xyz/boundless/bento-agent:latest}
   runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
@@ -204,7 +203,6 @@ services:
               capabilities: [gpu]
 
   rest_api:
-    image: ${REST_API_IMAGE-ghcr.io/boundless-xyz/boundless/bento-rest-api:latest}
     build:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.prebuilt.dockerfile}
