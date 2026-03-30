@@ -119,29 +119,3 @@ fs_permissions = [
     { access = "read-write", path = "./contracts/deployment.toml" },
     { access = "read", path = "./contracts/deployment_verifier.toml" },
 ]
-
-# Profile for deploying PoVW contracts on Shanghai-compatible chains with higher optimization.
-# TIP: You can select this profile by setting env var FOUNDRY_PROFILE=shanghai-povw-deploy
-[profile.shanghai-povw-deploy]
-src = "./contracts/shanghai/src"
-out = "./out-shanghai"
-libs = ["./lib"]
-script = "./contracts/shanghai/scripts"
-test = "./contracts/shanghai/test"
-ffi = true
-evm_version = 'shanghai'
-via_ir = true
-optimizer = true
-optimizer_runs = 1000000
-ast = true
-build_info = true
-extra_output = ["storageLayout"]
-solc_version = "0.8.26"
-bytecode_hash = "none"
-isolate = true
-fs_permissions = [
-    { access = "read", path = "./out-shanghai" },
-    { access = "read", path = "./contracts/out" },
-    { access = "read-write", path = "./contracts/deployment.toml" },
-    { access = "read", path = "./contracts/deployment_verifier.toml" },
-]
