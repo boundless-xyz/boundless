@@ -122,7 +122,7 @@ jobs:
       - name: Build lambda zips
         run: |
           for pkg in indexer-api indexer-monitor indexer-redrive; do
-            cargo lambda build --release --package $pkg --output-format zip
+            cargo lambda build --release --package $pkg --output-format zip --compiler cargo
           done
 
       - name: Log in to GHCR
