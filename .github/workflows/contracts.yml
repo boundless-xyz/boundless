@@ -202,7 +202,7 @@ jobs:
         uses: risc0/risc0/.github/actions/protoc@v3.0.3
 
       - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
 
       - name: checkout main code
         uses: actions/checkout@v4
