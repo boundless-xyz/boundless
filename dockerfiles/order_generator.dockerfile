@@ -72,5 +72,6 @@ RUN apt-get -qq update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/boundless-order-generator /app/boundless-order-generator
+COPY --from=builder /usr/local/cargo/bin/r0vm /usr/local/bin/r0vm
 
 ENTRYPOINT ["/app/boundless-order-generator"]

@@ -32,7 +32,7 @@ config:
   distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.5"
   distributor:DISTRIBUTOR_STAKE_ALERT_THRESHOLD: "200.0"
   distributor:CHAINALYSIS_API_KEY:
-    secure: v1:eIkEFXRL8AcsuasY:QFZWMeYSpqNvdsIdb7xOYKFZIQ/uZVyxuezIwVqF2Ks1zGOt8OhEKvrs4gEMLIQ9h+07Tem92gf4GBNHtB1Bub4xfaNlD3pCffCxbABXWx8=
+    secure: v1:Se5GvGug3taHqrJe:nVjhUQjmtzevIQOlIAKcAje5coB4yLqxp2lnU0UAPTfRyVqQnfDN9XccBcPuzOJXlJL8pPrauI5bq5zkzOMHwWMu8h06eYC6AgmeB+UXq7Q=
   distributor:ENABLE_EXTERNAL_TOPUP: "true"
   distributor:MIN_BCYCLES_THRESHOLD: "100"
   distributor:EXTERNAL_COLLATERAL_THRESHOLD: "50"
