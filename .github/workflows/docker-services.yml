@@ -119,7 +119,22 @@ jobs:
             curl -L https://github.com/cargo-lambda/cargo-lambda/releases/download/v1.9.1/cargo-lambda-v1.9.1.x86_64-unknown-linux-musl.tar.gz | sudo tar xz -C /usr/local/bin
           fi
 
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: lambda-build-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            lambda-build-${{ runner.os }}-
+
       - name: Build lambda zips
+        env:
+          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+          RISC0_SKIP_BUILD: "1"
+          RISC0_SKIP_BUILD_KERNELS: "1"
         run: |
           for pkg in indexer-api indexer-monitor indexer-redrive; do
             cargo lambda build --release --package $pkg --output-format zip --compiler cargo
