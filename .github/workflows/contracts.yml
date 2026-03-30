@@ -202,7 +202,10 @@ jobs:
         uses: risc0/risc0/.github/actions/protoc@v3.0.3
 
       - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
+        run: |
+          if ! command -v just &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
+          fi
 
       - name: Cache cargo registry
         uses: actions/cache@v4
