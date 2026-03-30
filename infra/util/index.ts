@@ -86,7 +86,7 @@ export const GHCR_IMAGE_PREFIX = 'ghcr.io/boundless-xyz/boundless';
  */
 export async function getGhcrImageUri(serviceName: string, overrideTag?: string): Promise<string> {
   const tag = overrideTag ?? `nightly-${require('child_process')
-    .execSync('git rev-parse --short HEAD')
+    .execSync('git rev-parse --short=7 HEAD')
     .toString().trim()}`;
   const uri = `${GHCR_IMAGE_PREFIX}/${serviceName}:${tag}`;
 
