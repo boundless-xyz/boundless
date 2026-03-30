@@ -8,6 +8,7 @@ compose.yml
 contracts/out
 out
 out-shanghai
+contracts/out-shanghai
 broadcast
 cache
 .github

@@ -38,3 +38,4 @@ config:
     secure: v1:GDCVmeBDnCDJPel7:TIqIAhs5ctadWkwXZIBWtbiYcaPdrIj9/YV2/J3KRlF59TgCOET9zLf2vhVU
   indexer:LOGS_ETH_RPC_URL:
     secure: v1:7Ab51mL+jmBDjohs:4KC10+X15k/hfdxfbci07vue+1bCfCxSpPrXPUdndCY9Pn+QxngId1s3WLAO
+  indexer:USE_GHCR: true

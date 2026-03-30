@@ -46,3 +46,4 @@ config:
     secure: v1:u+FItSVvpEIvuFme:T8xn2aQHagdfApANFSR7M7D3Cy6kWV32Hid9TO09fJ7TbfDljnBjFweNzw83
   distributor:CHAINALYSIS_API_KEY:
     secure: v1:lJfYcxn0Vi8uXva6:IQ35lIALLwgVafKIpvFBcW2iPczOqvCflcDGnCq2NlmVdBZElBjtG8lwMjWyx5/plCp97VibZnIwEvFTJ6SyhxgZFfT5D8OIEilAcIrK6UE=
+  distributor:USE_GHCR: true
