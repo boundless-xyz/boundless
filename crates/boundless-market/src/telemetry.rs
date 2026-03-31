@@ -118,7 +118,7 @@ pub struct RequestEvaluated {
     /// Outcome of the commitment phase (Committed or Dropped). None for orders skipped
     /// during pricing (they never reach the OrderMonitor).
     pub commitment_outcome: Option<CommitmentOutcome>,
-    /// Structured skip code from the commitment phase (e.g. "[B-OM-001]").
+    /// Structured skip code from the commitment phase (e.g. "[B-OL-001]").
     /// Set when the order is dropped at commitment.
     pub commitment_skip_code: Option<String>,
     /// Human-readable reason the order was dropped at commitment.

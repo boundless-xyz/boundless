@@ -49,6 +49,7 @@ use crate::{
     now_timestamp,
     order_locker::OrderCommitmentMeta,
     prioritization::prioritize_orders_to_commit,
+    requestor_monitor::PriorityRequestors,
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
 };
@@ -136,6 +137,7 @@ pub(crate) struct OrderCommitter {
     locker_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
     proving_completion_rx: Arc<Mutex<mpsc::Receiver<CommitmentComplete>>>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
+    priority_requestors: Arc<HashMap<u64, PriorityRequestors>>,
 }
 
 /// Records telemetry for orders skipped at the committer level (e.g. expiration, channel closed).
@@ -176,6 +178,7 @@ impl OrderCommitter {
         locker_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
         proving_completion_rx: mpsc::Receiver<CommitmentComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
+        priority_requestors: HashMap<u64, PriorityRequestors>,
     ) -> Self {
         Self {
             config,
@@ -183,6 +186,7 @@ impl OrderCommitter {
             locker_dispatchers: Arc::new(locker_dispatchers),
             proving_completion_rx: Arc::new(Mutex::new(proving_completion_rx)),
             order_state_tx,
+            priority_requestors: Arc::new(priority_requestors),
         }
     }
 
@@ -200,6 +204,14 @@ impl OrderCommitter {
             order_commitment_priority: cfg.market.order_commitment_priority,
             priority_addresses: cfg.market.priority_requestor_addresses.clone(),
         })
+    }
+
+    fn collect_priority_addresses(&self, static_addresses: Option<Vec<Address>>) -> Vec<Address> {
+        let mut merged = static_addresses.unwrap_or_default();
+        for pr in self.priority_requestors.values() {
+            merged.extend(pr.dynamic_addresses());
+        }
+        merged
     }
 
     #[allow(clippy::vec_box)]
@@ -265,6 +277,7 @@ impl OrderCommitter {
         pending_orders: &mut Vec<Box<OrderRequest>>,
         in_flight: &mut HashMap<String, InFlightOrder>,
         committer_config: &CommitterConfig,
+        priority_addresses: &[Address],
     ) {
         if pending_orders.is_empty() {
             return;
@@ -296,10 +309,12 @@ impl OrderCommitter {
             .saturating_sub(in_flight.len())
             .min(MAX_PROVING_BATCH_SIZE);
 
+        let priority_ref =
+            if priority_addresses.is_empty() { None } else { Some(priority_addresses) };
         let mut selected = prioritize_orders_to_commit(
             &mut ready,
             committer_config.order_commitment_priority,
-            committer_config.priority_addresses.as_deref(),
+            priority_ref,
             available_capacity,
         );
 
@@ -381,6 +396,14 @@ impl OrderCommitter {
             let chain_id = order.chain_id;
             let total_cycles = order.total_cycles;
 
+            let Some(locker_tx) = self.locker_dispatchers.get(&chain_id) else {
+                tracing::warn!(
+                    chain_id,
+                    "[B-OC-002] Dropping order {order_id}: no dispatch channel for chain"
+                );
+                continue;
+            };
+
             in_flight.insert(
                 order_id.clone(),
                 InFlightOrder {
@@ -390,20 +413,8 @@ impl OrderCommitter {
                 },
             );
 
-            let Some(locker_tx) = self.locker_dispatchers.get(&chain_id) else {
-                in_flight.remove(&order_id);
-                tracing::warn!(
-                    chain_id,
-                    "[B-OC-002] Dropping order {order_id}: no dispatch channel for chain"
-                );
-                continue;
-            };
-
             match locker_tx.try_send(order) {
                 Ok(()) => {
-                    // Note: Successful commitment telemetry is not emitted here — it is recorded by the
-                    // per-chain OrderLocker after the on-chain lock transaction succeeds or the order
-                    // enters the proving pipeline.
                     tracing::debug!(
                         chain_id,
                         "Dispatched order {order_id} for commitment ({} in-flight, {} pending)",
@@ -469,6 +480,8 @@ impl RetryTask for OrderCommitter {
             tracing::info!("Starting order committer");
 
             let mut committer_config = committer.read_config().map_err(SupervisorErr::Fault)?;
+            let mut priority_addresses =
+                committer.collect_priority_addresses(committer_config.priority_addresses.take());
 
             let mut priced_order_rx = committer.priced_order_rx.lock().await;
             let mut proving_completion_rx = committer.proving_completion_rx.lock().await;
@@ -578,6 +591,8 @@ impl RetryTask for OrderCommitter {
                         }
 
                         committer_config = new_config;
+                        priority_addresses = committer
+                            .collect_priority_addresses(committer_config.priority_addresses.take());
 
                         Self::reap_stale_capacity(
                             &mut in_flight,
@@ -591,7 +606,12 @@ impl RetryTask for OrderCommitter {
                     }
                 }
 
-                committer.commit_orders(&mut pending_orders, &mut in_flight, &committer_config);
+                committer.commit_orders(
+                    &mut pending_orders,
+                    &mut in_flight,
+                    &committer_config,
+                    &priority_addresses,
+                );
             }
 
             Ok(())
@@ -667,12 +687,19 @@ mod tests {
             locker_rxs.insert(chain_id, rx);
         }
 
+        let mut priority_requestors_map = HashMap::new();
+        for &chain_id in chain_ids {
+            priority_requestors_map
+                .insert(chain_id, PriorityRequestors::new(config.clone(), chain_id));
+        }
+
         let committer = OrderCommitter::new(
             config,
             order_rx,
             dispatchers,
             proving_completion_rx,
             state_tx.clone(),
+            priority_requestors_map,
         );
 
         (committer, order_tx, proving_completion_tx, state_tx, locker_rxs)
@@ -963,12 +990,15 @@ mod tests {
         let mut dispatchers = HashMap::new();
         dispatchers.insert(1u64, locker_tx);
 
+        let mut priority_requestors_map = HashMap::new();
+        priority_requestors_map.insert(1u64, PriorityRequestors::new(config.clone(), 1));
         let committer = OrderCommitter::new(
             config.clone(),
             order_rx,
             dispatchers,
             proving_completion_rx,
             state_tx,
+            priority_requestors_map,
         );
 
         let cancel = CancellationToken::new();

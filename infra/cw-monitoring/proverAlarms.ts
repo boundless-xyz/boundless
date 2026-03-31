@@ -282,8 +282,8 @@ export function buildProverLogPatterns(
 
         // ── Order Monitor alarms ─────────────────────────────────────────
         {
-            pattern: '"[B-OM-500]"',
-            metricName: "order-monitor-unexpected-error",
+            pattern: '"[B-OL-500]"',
+            metricName: "order-locker-unexpected-error",
             alarm: {
                 severity: Severity.SEV2,
                 description: ">=2 order monitor unexpected errors in 30 min",
@@ -292,11 +292,11 @@ export function buildProverLogPatterns(
             },
         },
         // Metric only — expected when another prover locks before us.
-        { pattern: '"[B-OM-007]"', metricName: "order-monitor-lock-tx-failed" },
-        { pattern: '"[B-OM-009]"', metricName: "order-monitor-already-locked" },
+        { pattern: '"[B-OL-007]"', metricName: "order-locker-lock-tx-failed" },
+        { pattern: '"[B-OL-009]"', metricName: "order-locker-already-locked" },
         {
-            pattern: '"[B-OM-010]"',
-            metricName: "order-monitor-insufficient-balance",
+            pattern: '"[B-OL-010]"',
+            metricName: "order-locker-insufficient-balance",
             alarm: {
                 severity: Severity.SEV2,
                 description: ">=2 insufficient balance for lock in 2 hours",
@@ -306,8 +306,8 @@ export function buildProverLogPatterns(
         },
         // Sepolia sees more tx-not-confirmed errors than other chains.
         {
-            pattern: '"[B-OM-006]"',
-            metricName: "order-monitor-lock-tx-not-confirmed",
+            pattern: '"[B-OL-006]"',
+            metricName: "order-locker-lock-tx-not-confirmed",
             alarm: {
                 severity: Severity.SEV2,
                 description: `>=${isSepolia ? 10 : 3} lock tx not confirmed in 1 hour`,
@@ -320,8 +320,8 @@ export function buildProverLogPatterns(
             },
         },
         {
-            pattern: '"[B-OM-011]"',
-            metricName: "order-monitor-rpc-error",
+            pattern: '"[B-OL-011]"',
+            metricName: "order-locker-rpc-error",
             alarm: {
                 severity: Severity.SEV2,
                 description: ">=3 order monitor RPC errors in 15 min",

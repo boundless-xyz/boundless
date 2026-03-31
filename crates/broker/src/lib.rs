@@ -891,6 +891,11 @@ impl Broker {
             mpsc::Sender<Box<OrderRequest>>,
         > = std::collections::HashMap::new();
 
+        let mut priority_requestors_map: std::collections::HashMap<
+            u64,
+            requestor_monitor::PriorityRequestors,
+        > = std::collections::HashMap::new();
+
         for chain in &chains {
             // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
             let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
@@ -899,6 +904,10 @@ impl Broker {
             // Order committer dispatches capacity-gated orders to this chain's locker.
             let (locker_tx, locker_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
             locker_dispatchers.insert(chain.chain_id, locker_tx);
+
+            let priority_requestors =
+                requestor_monitor::PriorityRequestors::new(chain.config.clone(), chain.chain_id);
+            priority_requestors_map.insert(chain.chain_id, priority_requestors.clone());
 
             self.start_chain_pipeline(
                 chain,
@@ -911,6 +920,7 @@ impl Broker {
                 priced_orders_tx.clone(),
                 locker_rx,
                 proving_completion_tx.clone(),
+                priority_requestors,
                 &mut non_critical_tasks,
                 &mut critical_tasks,
                 non_critical_cancel_token.clone(),
@@ -924,15 +934,13 @@ impl Broker {
         drop(priced_orders_tx);
         drop(proving_completion_tx);
 
-        let priority_requestors =
-            requestor_monitor::PriorityRequestors::new(base_config.clone(), 0);
         let order_evaluator = Arc::new(order_evaluator::OrderEvaluator::new(
             base_config.clone(),
             evaluator_order_rx,
             chain_dispatchers,
             pricing_completion_rx,
             order_state_tx.clone(),
-            priority_requestors.clone(),
+            priority_requestors_map.clone(),
         ));
         let cloned_config = base_config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -950,6 +958,7 @@ impl Broker {
             locker_dispatchers,
             proving_completion_rx,
             order_state_tx,
+            priority_requestors_map,
         ));
         let cloned_config = base_config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1027,6 +1036,7 @@ impl Broker {
         priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
         locker_rx: mpsc::Receiver<Box<OrderRequest>>,
         proving_completion_tx: mpsc::Sender<order_committer::CommitmentComplete>,
+        priority_requestors: requestor_monitor::PriorityRequestors,
         non_critical_tasks: &mut JoinSet<Result<()>>,
         critical_tasks: &mut JoinSet<Result<()>>,
         non_critical_cancel_token: CancellationToken,
@@ -1282,8 +1292,6 @@ impl Broker {
             Ok(())
         });
 
-        let priority_requestors =
-            requestor_monitor::PriorityRequestors::new(config.clone(), chain_id);
         let allow_requestors = requestor_monitor::AllowRequestors::new(config.clone(), chain_id);
 
         // Shared ERC-1271 gas cache between OrderPricer and OrderCommitter so that estimates

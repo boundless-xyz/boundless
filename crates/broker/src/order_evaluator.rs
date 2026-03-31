@@ -86,8 +86,7 @@ pub(crate) struct OrderEvaluator {
     chain_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
     pricing_completion_rx: Arc<Mutex<mpsc::Receiver<PreflightComplete>>>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
-    #[allow(dead_code)]
-    priority_requestors: PriorityRequestors,
+    priority_requestors: Arc<HashMap<u64, PriorityRequestors>>,
 }
 
 impl OrderEvaluator {
@@ -97,7 +96,7 @@ impl OrderEvaluator {
         chain_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
         pricing_completion_rx: mpsc::Receiver<PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
-        priority_requestors: PriorityRequestors,
+        priority_requestors: HashMap<u64, PriorityRequestors>,
     ) -> Self {
         Self {
             config,
@@ -105,7 +104,7 @@ impl OrderEvaluator {
             chain_dispatchers: Arc::new(chain_dispatchers),
             pricing_completion_rx: Arc::new(Mutex::new(pricing_completion_rx)),
             order_state_tx,
-            priority_requestors,
+            priority_requestors: Arc::new(priority_requestors),
         }
     }
 
@@ -131,6 +130,17 @@ impl OrderEvaluator {
         ))
     }
 
+    fn collect_priority_addresses(
+        &self,
+        static_addresses: Option<Vec<alloy::primitives::Address>>,
+    ) -> Vec<alloy::primitives::Address> {
+        let mut merged = static_addresses.unwrap_or_default();
+        for pr in self.priority_requestors.values() {
+            merged.extend(pr.dynamic_addresses());
+        }
+        merged
+    }
+
     #[allow(clippy::vec_box)]
     fn format_per_chain_counts(orders: &[Box<OrderRequest>]) -> String {
         let mut counts: HashMap<u64, usize> = HashMap::new();
@@ -153,17 +163,19 @@ impl OrderEvaluator {
         in_flight: &mut HashMap<String, Instant>,
         max_concurrent_preflights: usize,
         priority_mode: boundless_market::prover_utils::config::OrderPricingPriority,
-        priority_addresses: Option<&[alloy::primitives::Address]>,
+        priority_addresses: &[alloy::primitives::Address],
     ) {
         if pending_orders.is_empty() || in_flight.len() >= max_concurrent_preflights {
             return;
         }
 
         let available_capacity = max_concurrent_preflights - in_flight.len();
+        let priority_ref =
+            if priority_addresses.is_empty() { None } else { Some(priority_addresses) };
         let selected = prioritize_orders_to_evaluate(
             pending_orders,
             priority_mode,
-            priority_addresses,
+            priority_ref,
             available_capacity,
         );
 
@@ -242,8 +254,9 @@ impl RetryTask for OrderEvaluator {
         Box::pin(async move {
             tracing::info!("Starting order evaluator");
 
-            let (mut max_concurrent_preflights, mut priority_mode, mut priority_addresses) =
+            let (mut max_concurrent_preflights, mut priority_mode, static_addresses) =
                 evaluator.read_config().map_err(SupervisorErr::Fault)?;
+            let mut priority_addresses = evaluator.collect_priority_addresses(static_addresses);
 
             let mut order_rx = evaluator.new_order_rx.lock().await;
             let mut pricing_completion_rx = evaluator.pricing_completion_rx.lock().await;
@@ -331,7 +344,7 @@ impl RetryTask for OrderEvaluator {
                     }
 
                     _ = capacity_check_interval.tick() => {
-                        let (new_capacity, new_priority, new_addresses) =
+                        let (new_capacity, new_priority, new_static_addresses) =
                             evaluator.read_config().map_err(SupervisorErr::Fault)?;
 
                         if new_capacity != max_concurrent_preflights {
@@ -348,10 +361,8 @@ impl RetryTask for OrderEvaluator {
                             );
                             priority_mode = new_priority;
                         }
-                        if new_addresses != priority_addresses {
-                            tracing::debug!("Evaluator priority requestor addresses changed");
-                            priority_addresses = new_addresses;
-                        }
+                        priority_addresses =
+                            evaluator.collect_priority_addresses(new_static_addresses);
 
                         Self::reap_stale_capacity(
                             &mut in_flight,
@@ -372,7 +383,7 @@ impl RetryTask for OrderEvaluator {
                     &mut in_flight,
                     max_concurrent_preflights,
                     priority_mode,
-                    priority_addresses.as_deref(),
+                    &priority_addresses,
                 );
             }
 
@@ -447,7 +458,11 @@ mod tests {
             pricer_rxs.insert(chain_id, rx);
         }
 
-        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let mut priority_requestors_map = HashMap::new();
+        for &chain_id in chain_ids {
+            priority_requestors_map
+                .insert(chain_id, PriorityRequestors::new(config.clone(), chain_id));
+        }
 
         let evaluator = OrderEvaluator::new(
             config,
@@ -455,7 +470,7 @@ mod tests {
             dispatchers,
             pricing_completion_rx,
             state_tx.clone(),
-            priority_requestors,
+            priority_requestors_map,
         );
 
         (evaluator, order_tx, pricing_completion_tx, state_tx, pricer_rxs)
@@ -727,14 +742,15 @@ mod tests {
         let mut dispatchers = HashMap::new();
         dispatchers.insert(1u64, pricer_tx);
 
-        let priority_requestors = PriorityRequestors::new(config.clone(), 1);
+        let mut priority_requestors_map = HashMap::new();
+        priority_requestors_map.insert(1u64, PriorityRequestors::new(config.clone(), 1));
         let evaluator = OrderEvaluator::new(
             config.clone(),
             order_rx,
             dispatchers,
             pricing_completion_rx,
             state_tx,
-            priority_requestors,
+            priority_requestors_map,
         );
 
         let cancel = CancellationToken::new();

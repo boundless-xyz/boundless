@@ -113,13 +113,13 @@ impl_coded_debug!(OrderLockerErr);
 impl CodedError for OrderLockerErr {
     fn code(&self) -> &str {
         match self {
-            OrderLockerErr::LockTxNotConfirmed(_) => "[B-OM-006]",
-            OrderLockerErr::LockTxFailed(_) => "[B-OM-007]",
-            OrderLockerErr::AlreadyLocked => "[B-OM-009]",
-            OrderLockerErr::InsufficientBalance => "[B-OM-010]",
-            OrderLockerErr::RpcErr(_) => "[B-OM-011]",
-            OrderLockerErr::PreLockCheckRetry(_) => "[B-OM-012]",
-            OrderLockerErr::UnexpectedError(_) => "[B-OM-500]",
+            OrderLockerErr::LockTxNotConfirmed(_) => "[B-OL-006]",
+            OrderLockerErr::LockTxFailed(_) => "[B-OL-007]",
+            OrderLockerErr::AlreadyLocked => "[B-OL-009]",
+            OrderLockerErr::InsufficientBalance => "[B-OL-010]",
+            OrderLockerErr::RpcErr(_) => "[B-OL-011]",
+            OrderLockerErr::PreLockCheckRetry(_) => "[B-OL-012]",
+            OrderLockerErr::UnexpectedError(_) => "[B-OL-500]",
         }
     }
 }
@@ -238,11 +238,17 @@ where
     /// `Skipped` outcomes — successful commitment does NOT free capacity (the proving
     /// pipeline holds the slot until ProvingCompleted/ProvingFailed).
     fn send_completion(&self, order: &OrderRequest, outcome: CommitmentOutcome) {
-        let _ = self.proving_completion_tx.try_send(CommitmentComplete {
-            order_id: order.id(),
+        let order_id = order.id();
+        if let Err(e) = self.proving_completion_tx.try_send(CommitmentComplete {
+            order_id: order_id.clone(),
             chain_id: self.chain_id,
             outcome,
-        });
+        }) {
+            tracing::warn!(
+                "Failed to send commitment completion for order {order_id}: {e}. \
+                 Committer capacity slot will be reclaimed by the stale reaper."
+            );
+        }
     }
 
     async fn lock_order(&self, order: &OrderRequest) -> Result<U256, OrderLockerErr> {
@@ -492,14 +498,14 @@ where
                         );
                         self.skip_order(
                             &order,
-                            "[B-OM-020]",
+                            "[B-OL-020]",
                             "Order fulfilled by another prover",
                             config,
                             None,
                         )
                         .await;
                     } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
-                        self.skip_order(&order, "[B-OM-021]", "Order expired", config, None).await;
+                        self.skip_order(&order, "[B-OL-021]", "Order expired", config, None).await;
                     } else if self.market.is_fulfilled(order.request.id).await? {
                         tracing::debug!(
                             "Request 0x{:x} already fulfilled by another prover. Skipping.",
@@ -507,7 +513,7 @@ where
                         );
                         self.skip_order(
                             &order,
-                            "[B-OM-020]",
+                            "[B-OL-020]",
                             "Order fulfilled by another prover",
                             config,
                             None,
@@ -526,7 +532,7 @@ where
                         );
                         self.skip_order(
                             &order,
-                            "[B-OM-022]",
+                            "[B-OL-022]",
                             "Lock expired before we locked",
                             config,
                             None,
@@ -549,7 +555,7 @@ where
                             );
                             self.skip_order(
                                 &order,
-                                "[B-OM-023]",
+                                "[B-OL-023]",
                                 "Locked by another prover",
                                 config,
                                 None,
@@ -565,7 +571,7 @@ where
                     } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                         self.skip_order(
                             &order,
-                            "[B-OM-024]",
+                            "[B-OL-024]",
                             "Insufficient deadline",
                             config,
                             None,
@@ -802,7 +808,7 @@ where
                     format_ether(order_cost_wei),
                     format_ether(remaining_balance_wei)
                 );
-                self.skip_order(&order, "[B-OM-025]", "Insufficient balance", config, None).await;
+                self.skip_order(&order, "[B-OL-025]", "Insufficient balance", config, None).await;
                 continue;
             }
 
