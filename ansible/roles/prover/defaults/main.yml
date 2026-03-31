@@ -47,7 +47,7 @@ prover_segment_size: 20
 prover_risc0_keccak_po2: 17
 prover_redis_ttl: 57600
 prover_snark_timeout: "180"
-prover_executor_count: 4
+prover_executor_count: 8
 prover_aux_worker_count: 2
 
 # Set to "all" to build all images from source, or leave empty to use pre-built images.
@@ -81,8 +81,10 @@ prover_broker_experimental_rpc: false
 # Optional extra CLI args for the broker (e.g. "--other-flag"). Ignored when prover_broker_experimental_rpc is true.
 prover_broker_extra_args: ""
 
-# Broker configuration URL
+# Broker configuration URL (used when prover_broker_toml_local is not set)
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
+# Local broker.toml file path. When set, copies this file instead of downloading from URL.
+prover_broker_toml_local: ""
 # MinIO input TTL: 0 disables the lifecycle rule, >0 expires inputs/ objects after N days
 prover_input_ttl_days: 1
 
