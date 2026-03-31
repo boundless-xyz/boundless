@@ -6,6 +6,7 @@ config:
   slasher:CHAIN_ID: "84532"
   slasher:DOCKER_DIR: ../../
   slasher:DOCKER_TAG: latest
+  slasher:USE_GHCR: true
   slasher:ERROR_BALANCE_BELOW: "0.005"
   slasher:GH_TOKEN_SECRET:
     secure: v1:BB6R1nFfMpeLMnrL:fMrR2FyIP6KRHOIEOpRYWG4dQIQ90X4ZHtQLap+c46u12BbtKxk/rD0h7MjdULiCFv2nrvzH8je5aZd5uTeOec7RTnVfIg4uFSoJXBHMsooLT3zrpiMBBVBrPUM8Mfa3r28+Nb0YX+dD84DdwA==

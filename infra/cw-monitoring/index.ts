@@ -114,6 +114,14 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     const { metricsNamespace, alarmNamespace, logGroupPrefix, retentionDays, alarmActions, stackName } = opts;
     const logGroupName = `${logGroupPrefix}/${node.hostname}`;
     const prefix = `cw-${stackName}-${node.name}`;
+    const stage = stackName.includes("prod") ? "prod" : "staging";
+
+    const alarmTags = {
+        StackName: stage,
+        ChainId: node.chainId,
+        ServiceName: "Prover",
+        LogGroupName: logGroupName,
+    };
 
     // ── Log Group ────────────────────────────────────────────────────────
     // Vector creates the log group on first write. We adopt it into Pulumi
@@ -142,6 +150,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "bento-down"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -160,6 +169,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "no-containers"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -204,6 +214,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "memory-high"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -248,6 +259,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "disk-high"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -306,6 +318,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                 })(),
                 actionsEnabled: true,
                 alarmActions,
+                tags: alarmTags,
             });
         }
     }
