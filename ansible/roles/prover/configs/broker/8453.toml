@@ -10,8 +10,8 @@ allow_requestor_lists = [
     "https://requestors.boundless.network/boundless-allowed-list.json"
 ]
 max_collateral = "200"
-balance_warn_threshold = "0.05"
-balance_error_threshold = "0.01"
+balance_warn_threshold = "0.02"
+balance_error_threshold = "0.005"
 collateral_balance_warn_threshold = "100"
 collateral_balance_error_threshold = "50"
 max_concurrent_preflights = 10
