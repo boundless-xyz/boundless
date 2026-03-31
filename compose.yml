@@ -69,7 +69,6 @@ x-exec-agent-common: &exec-agent-common
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
     SEGMENT_SIZE: ${SEGMENT_SIZE:-21}
     REDIS_TTL: ${REDIS_TTL:-57600}
-    LD_LIBRARY_PATH: /usr/local/cuda/compat
   entrypoint:
     [
       "/bin/sh",
@@ -304,7 +303,6 @@ services:
       BENTO_DISABLE_COMPLETED_CLEANUP:
       BENTO_DISABLE_STUCK_TASK_CLEANUP:
       REDIS_TTL: ${REDIS_TTL:-57600}
-      LD_LIBRARY_PATH: /usr/local/cuda/compat
     entrypoint:
       [
         "/bin/sh",
