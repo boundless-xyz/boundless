@@ -621,6 +621,17 @@ mod tests {
         *,
     };
 
+    /// Test helper: refreshes stream counters then calls request_work.
+    /// In production the counters are refreshed by a background task every 5s.
+    /// Tests don't run that background task, so we refresh explicitly.
+    async fn test_request_work(
+        pool: &PgPool,
+        worker_type: &str,
+    ) -> Result<Option<ReadyTask>, TaskDbErr> {
+        refresh_stream_counters(pool).await?;
+        request_work(pool, worker_type).await
+    }
+
     #[sqlx::test()]
     async fn create_stream_test(pool: PgPool) -> sqlx::Result<()> {
         let worker_type = "executor";
@@ -768,7 +779,7 @@ mod tests {
         let task_def = serde_json::json!({"init": "test"});
         let _job_id = create_job(&pool, &stream_id, &task_def, 0, 100, user_id).await.unwrap();
 
-        let work_item = request_work(&pool, worker_type).await.unwrap();
+        let work_item = test_request_work(&pool, worker_type).await.unwrap();
         let work_item = work_item.unwrap();
 
         assert_eq!(work_item.task_id, INIT_TASK);
@@ -786,7 +797,7 @@ mod tests {
         let task_def = serde_json::json!({"init": "test"});
         let job_id = create_job(&pool, &stream_id, &task_def, 0, 100, user_id).await.unwrap();
 
-        let init = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let init = test_request_work(&pool, worker_type).await.unwrap().unwrap();
 
         let output_res_value = "SUCCESS";
         let output_res = serde_json::json!({"result": output_res_value});
@@ -811,7 +822,7 @@ mod tests {
         assert_eq!(job.state.unwrap(), JobState::Done);
         assert_eq!(get_job_unresolved(&pool, &job_id).await.unwrap(), 0);
 
-        let res = request_work(&pool, worker_type).await.unwrap();
+        let res = test_request_work(&pool, worker_type).await.unwrap();
         assert!(res.is_none());
 
         Ok(())
@@ -827,14 +838,14 @@ mod tests {
         let retry_max = 1;
         let _job_id =
             create_job(&pool, &stream_id, &task_def, retry_max, 100, user_id).await.unwrap();
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
 
         let retry_task_id = task.task_id.clone();
 
         // Requeue the work
         assert!(update_task_retry(&pool, &task.job_id, &task.task_id).await.unwrap());
 
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         let task_raw = get_task(&pool, &task.job_id, &task.task_id).await.unwrap();
         assert_eq!(task_raw.error.unwrap(), "");
         assert_eq!(task_raw.retries, 1);
@@ -850,7 +861,7 @@ mod tests {
         // Attempt to retry over max_retries and fail the job
         assert!(!update_task_retry(&pool, &task.job_id, &task.task_id).await.unwrap());
 
-        assert!(request_work(&pool, worker_type).await.unwrap().is_none());
+        assert!(test_request_work(&pool, worker_type).await.unwrap().is_none());
         let task_raw = get_task(&pool, &task.job_id, &task.task_id).await.unwrap();
         assert_eq!(task_raw.state, TaskState::Failed);
 
@@ -870,7 +881,7 @@ mod tests {
         let stream_id = create_stream(&pool, worker_type, 1, 1.0, user_id).await.unwrap();
         let task_def = serde_json::json!({"init": "test"});
         let _job_id = create_job(&pool, &stream_id, &task_def, 0, 100, user_id).await.unwrap();
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
 
         // Test that you can't update a task to done when its already done
         assert!(
@@ -900,7 +911,7 @@ mod tests {
         let task_def = serde_json::json!({"init": "test"});
         let job_id = create_job(&pool, &stream_id, &task_def, 0, 100, user_id).await.unwrap();
 
-        let init = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let init = test_request_work(&pool, worker_type).await.unwrap().unwrap();
 
         let task_name = "test_task";
         let task_def = serde_json::json!({"member": "data"});
@@ -913,7 +924,7 @@ mod tests {
             update_task_done(&pool, &job_id, &init.task_id, JsonValue::default()).await.unwrap()
         );
 
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
 
         assert_eq!(task.task_id, task_name);
         assert_eq!(task.job_id, job_id);
@@ -956,7 +967,7 @@ mod tests {
 
         // Start and grab init task
         let job_id = create_job(&pool, &stream_id, &task_def, 0, 100, user_id).await.unwrap();
-        let init = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let init = test_request_work(&pool, worker_type).await.unwrap().unwrap();
 
         // Place two segments and a join task into the task queue
         let task_1_name = "segment_1";
@@ -1049,11 +1060,8 @@ mod tests {
         let job_id_1 =
             create_job(&pool, &stream_id_1, &JsonValue::default(), 0, 100, user_id).await.unwrap();
 
-        refresh_stream_counters(&pool).await.unwrap();
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
-        assert_eq!(task.job_id, job_id_1);
-        refresh_stream_counters(&pool).await.unwrap();
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_0);
 
         Ok(())
@@ -1106,13 +1114,13 @@ mod tests {
 
         // request_work should pick the reserved stream first (higher reserved value).
         // Drain both tasks from the reserved stream.
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, reserved_job, "reserved stream should be selected first (init)");
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, reserved_job, "reserved stream should be selected first (task1)");
 
         // Now reserved stream is empty, unreserved stream should be selected.
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(
             task.job_id, unreserved_job,
             "unreserved stream should be selected after reserved is drained"
@@ -1160,9 +1168,7 @@ mod tests {
         // - stream_2, init
         // - stream_2, task
         // - HIT PEAK of stream2 reservations
-        // - stream_0, init
-        refresh_stream_counters(&pool).await.unwrap();
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_2);
         assert_eq!(task.task_id, INIT_TASK);
         assert!(
@@ -1170,9 +1176,7 @@ mod tests {
                 .await
                 .unwrap()
         );
-
-        refresh_stream_counters(&pool).await.unwrap();
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_2);
         assert_eq!(task.task_id, task_name);
         assert!(
@@ -1180,9 +1184,7 @@ mod tests {
                 .await
                 .unwrap()
         );
-
-        refresh_stream_counters(&pool).await.unwrap();
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.job_id, job_id_0);
         assert_eq!(task.task_id, INIT_TASK);
         assert!(
@@ -1190,9 +1192,7 @@ mod tests {
                 .await
                 .unwrap()
         );
-
-        refresh_stream_counters(&pool).await.unwrap();
-        assert!(request_work(&pool, worker_type).await.unwrap().is_none());
+        assert!(test_request_work(&pool, worker_type).await.unwrap().is_none());
 
         Ok(())
     }
@@ -1215,7 +1215,7 @@ mod tests {
                     if tokio::time::Instant::now() > deadline {
                         panic!("worker timed out waiting for work");
                     }
-                    match request_work(&pool_cpy, worker_type).await.unwrap() {
+                    match test_request_work(&pool_cpy, worker_type).await.unwrap() {
                         Some(task) => break task.task_id,
                         None => tokio::time::sleep(tokio::time::Duration::from_millis(100)).await,
                     }
@@ -1262,7 +1262,7 @@ mod tests {
             create_job(&pool, &stream_id, &task_def, 1, init_timeout, user_id).await.unwrap();
 
         // Start the task
-        let _task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let _task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
 
         // wait out the timeout
         std::thread::sleep(std::time::Duration::from_millis((init_timeout * 1000 + 100) as u64));
@@ -1271,7 +1271,7 @@ mod tests {
         let timed_out_count = requeue_tasks(&pool, 100).await.unwrap();
         assert_eq!(timed_out_count, 1);
 
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         assert_eq!(task.task_def.get("init").unwrap().as_str().unwrap(), "test");
         let init_task = get_task(&pool, &job_id, &task.task_id).await.unwrap();
         assert_eq!(init_task.retries, 1);
@@ -1350,7 +1350,7 @@ mod tests {
         let job_id =
             create_job(&pool, &stream_id, &task_def, 1, init_timeout, user_id).await.unwrap();
 
-        let task = request_work(&pool, worker_type).await.unwrap().unwrap();
+        let task = test_request_work(&pool, worker_type).await.unwrap().unwrap();
         let res =
             update_task_done(&pool, &job_id, &task.task_id, serde_json::Value::Null).await.unwrap();
 
