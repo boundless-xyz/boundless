@@ -102,13 +102,13 @@ ssh <user>@<host> "sudo docker compose -f /opt/bento/compose.yml --env-file /opt
 
 ## Image modes
 
-| Mode | Config | Description |
-|------|--------|-------------|
-| **Pre-built nightly** | `prover_image_tag: "nightly-latest"` | Pull latest CI images from GHCR (recommended) |
-| **Pinned nightly SHA** | `prover_image_tag: "nightly-abc1234"` | Pin to a specific CI build by commit SHA |
-| **Custom tag** | `prover_image_tag: "my-custom-tag"` | Any tag from GHCR (e.g. from `gh workflow run docker-services.yml -f custom_tag="my-custom-tag"`) |
-| **Pinned release** | `prover_image_version: "1.3"` | Use release-tagged images (e.g. `bento-v1.3`, `broker-v1.3`) |
-| **Build from source** | `prover_boundless_build: "all"` | Build Docker images on the server (slow, not recommended) |
+| Mode                   | Config                                | Description                                                                                       |
+| ---------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Pre-built nightly**  | `prover_image_tag: "nightly-latest"`  | Pull latest CI images from GHCR (recommended)                                                     |
+| **Pinned nightly SHA** | `prover_image_tag: "nightly-abc1234"` | Pin to a specific CI build by commit SHA                                                          |
+| **Custom tag**         | `prover_image_tag: "my-custom-tag"`   | Any tag from GHCR (e.g. from `gh workflow run docker-services.yml -f custom_tag="my-custom-tag"`) |
+| **Pinned release**     | `prover_image_version: "1.3"`         | Use release-tagged images (e.g. `bento-v1.3`, `broker-v1.3`)                                      |
+| **Build from source**  | `prover_boundless_build: "all"`       | Build Docker images on the server (slow, not recommended)                                         |
 
 `prover_image_tag` takes precedence over `prover_image_version`. When set, ALL images use the exact same tag.
 
@@ -140,11 +140,11 @@ The wizard calculates `peak_prove_khz`, `max_concurrent_preflights`, `max_exec_a
 
 Key settings to tune per GPU:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `peak_prove_khz` | 100 | Estimated GPU proving throughput. Too low = underutilizes GPU |
-| `max_concurrent_preflights` | 8 | Should match `prover_executor_count` |
-| `max_concurrent_proofs` | 1 | Number of concurrent GPU proofs |
+| Setting                     | Default | Description                                                   |
+| --------------------------- | ------- | ------------------------------------------------------------- |
+| `peak_prove_khz`            | 100     | Estimated GPU proving throughput. Too low = underutilizes GPU |
+| `max_concurrent_preflights` | 8       | Should match `prover_executor_count`                          |
+| `max_concurrent_proofs`     | 1       | Number of concurrent GPU proofs                               |
 
 ## Selective deployment
 
@@ -175,9 +175,11 @@ ssh <user>@<host> "sudo systemctl stop bento"
 ### SSH permission denied
 
 Check which SSH key the server expects:
+
 ```bash
 ssh -v <user>@<host> 2>&1 | grep "Offering\|Accepted"
 ```
+
 Add `ansible_ssh_private_key_file` to the inventory.
 
 ### NVIDIA drivers not detected after deploy
@@ -288,12 +290,12 @@ aws autoscaling update-auto-scaling-group \
 
 ### When to scale
 
-| Queue Depth | Suggested Overflow |
-|-------------|-------------------|
-| < 20 | 0 (primary handles it) |
-| 20-50 | 2-4 |
-| 50-200 | 4-8 |
-| 200+ | 8+ (check ASG max) |
+| Queue Depth | Suggested Overflow     |
+| ----------- | ---------------------- |
+| < 20        | 0 (primary handles it) |
+| 20-50       | 2-4                    |
+| 50-200      | 4-8                    |
+| 200+        | 8+ (check ASG max)     |
 
 Scale down gradually (8 → 4 → 0) so in-flight proofs can finish. Wait until queue is stable/near-zero for 30+ minutes.
 
@@ -312,18 +314,19 @@ aws logs get-query-results --query-id $Q --region us-west-2 --output json | jq -
 
 ## Key references
 
-| What | Location |
-|------|----------|
-| Pipeline definition | `infra/pipelines/pipelines/l-prover-ansible.ts` |
-| Pipeline inventory | AWS Secrets Manager `l-prover-ansible-inventory` |
-| Prover role | `ansible/roles/prover/tasks/main.yml` |
-| Role defaults | `ansible/roles/prover/defaults/main.yml` |
-| All variables | `ansible/ENV_VARS.md` |
-| Inventory guide | `ansible/INVENTORY.md` |
+| What                | Location                                         |
+| ------------------- | ------------------------------------------------ |
+| Pipeline definition | `infra/pipelines/pipelines/l-prover-ansible.ts`  |
+| Pipeline inventory  | AWS Secrets Manager `l-prover-ansible-inventory` |
+| Prover role         | `ansible/roles/prover/tasks/main.yml`            |
+| Role defaults       | `ansible/roles/prover/defaults/main.yml`         |
+| All variables       | `ansible/ENV_VARS.md`                            |
+| Inventory guide     | `ansible/INVENTORY.md`                           |
 
 ## Supported providers
 
 Tested with:
+
 - **Latitude.sh** — bare metal and GPU VMs, `ubuntu` user, SSH key via their CLI (`lsh`)
 - **AWS** — EC2 GPU instances
 - **Local dev machine** — Ubuntu 24.04 with RTX 5090 (NVIDIA/Docker roles are idempotent and skip if already installed)
