@@ -165,6 +165,8 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       serviceMetricsNamespace,
       marketMetricsNamespace,
+      usePrebuiltLambdas: useGhcr,
+      ghcrImageTag,
     }, { parent: infra, dependsOn: sharedDependencies });
 
     new RedriveLambda(indexerServiceName, {
@@ -172,6 +174,8 @@ export = () => {
       dbUrlSecret: infra.dbUrlSecret,
       indexerSgId: infra.indexerSecurityGroup.id,
       rustLogLevel: rustLogIndexer,
+      usePrebuiltLambdas: useGhcr,
+      ghcrImageTag,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
@@ -192,6 +196,8 @@ export = () => {
       proxySecret,
       allowedIpAddresses,
       premiumApiKey,
+      usePrebuiltLambdas: useGhcr,
+      ghcrImageTag,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
