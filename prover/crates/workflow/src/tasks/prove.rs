@@ -82,7 +82,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
         // Write out lifted POVW receipt
         let lift_asset =
-            serialize_obj(&lift_receipt).expect("Failed to serialize the POVW segment");
+            serialize_obj(&lift_receipt).context("Failed to serialize the POVW segment")?;
         agent
             .hot_set_bytes(&output_key, lift_asset)
             .await
@@ -105,7 +105,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         tracing::debug!("lifting complete {job_id} - {index}");
 
         // Write out lifted regular receipt
-        let lift_asset = serialize_obj(&lift_receipt).expect("Failed to serialize the segment");
+        let lift_asset = serialize_obj(&lift_receipt).context("Failed to serialize the segment")?;
         agent
             .hot_set_bytes(&output_key, lift_asset)
             .await

@@ -848,12 +848,15 @@ impl RedisTaskDb {
                 .await?;
 
             drop(conn);
+            let mut requeued = 0usize;
             for compound in &expired {
                 let (job_id, task_id) = split_compound(compound)?;
-                let _ = self.update_task_retry(&job_id, &task_id).await?;
+                if self.update_task_retry(&job_id, &task_id).await? {
+                    requeued += 1;
+                }
             }
 
-            Ok(expired.len())
+            Ok(requeued)
         })
         .await
     }

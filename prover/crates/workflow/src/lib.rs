@@ -739,9 +739,9 @@ impl Agent {
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
             tracing::debug!("Triggering a requeue job...");
-            let retry_tasks = task_db.requeue_tasks(100).await?;
-            if retry_tasks > 0 {
-                tracing::info!("Found {retry_tasks} tasks that needed to be retried");
+            let requeued = task_db.requeue_tasks(100).await?;
+            if requeued > 0 {
+                tracing::info!("Requeued {requeued} expired tasks for retry");
             }
             time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
         }

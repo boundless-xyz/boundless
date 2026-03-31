@@ -1,404 +1,159 @@
-# Bento
+# Prover
 
-**Bento** is a high-performance, distributed zero-knowledge proof (ZKP) computation platform built on RISC Zero's zkVM technology. It provides a scalable infrastructure for executing, proving, and verifying computational workloads with cryptographic guarantees.
+Distributed zero-knowledge proof computation platform built on RISC Zero's zkVM. Breaks ZKP workloads into parallelizable tasks (execute, prove, join, resolve, snark) and distributes them across CPU and GPU worker nodes coordinated through Redis.
 
-## 🚀 Overview
+## Architecture
 
-Bento is designed to handle large-scale ZKP workloads by distributing computation across multiple worker nodes. It provides:
+```
+                 ┌─────────────┐
+  Broker ──────> │  REST API   │ <────── bento_cli
+                 │  (port 8081)│
+                 └──────┬──────┘
+                        │
+                 ┌──────┴──────┐
+                 │    Redis    │
+                 │  (taskdb)   │
+                 └──────┬──────┘
+                        │
+       ┌────────────────┼────────────────┐
+       │                │                │
+┌──────┴──────┐  ┌─────┴──────┐  ┌──────┴──────┐
+│ exec agents │  │prove agents│  │  aux agents  │
+│   (CPU)     │  │   (GPU)    │  │   (CPU)      │
+└─────────────┘  └────────────┘  └──────────────┘
+```
 
-- **Distributed ZKP Execution**: Execute RISC Zero guest programs across multiple compute nodes
-- **Proof Generation**: Generate STARK proofs with configurable segment sizes and cycle limits
-- **Proof Composition**: Join multiple proofs into larger, more efficient proofs
-- **Proof Verification**: Verify proofs and handle assumption-based verification
-- **Scalable Architecture**: Worker-based architecture that can scale horizontally
-- **POVW Support**: Optional Proof of Verifiable Work for enhanced security
+**REST API** (`crates/api`) -- HTTP service that accepts job submissions, manages image/input uploads, orchestrates the task DAG in Redis, and serves results. Also exposes internal worker endpoints that GPU agents use to claim tasks and report results.
 
-## 🏗️ Architecture
+**Workflow Agent** (`crates/workflow`) -- Single binary that runs in one of several modes depending on `--task-stream`:
 
-### Core Components
+- `exec` -- Executes guest programs, produces segments. CPU-bound. Reads/writes directly to Redis.
+- `prove` -- Proves individual segments (STARK). GPU-bound. Claims work via the REST API.
+- `join` -- Joins adjacent proofs into larger proofs. GPU-bound.
+- `snark` -- Converts STARK proofs to Groth16/BLAKE3-Groth16 SNARKs. GPU-bound.
+- `aux` -- Housekeeping: requeues timed-out tasks, cleans up completed jobs, fixes stuck dependencies.
+- `keccak` -- Keccak coprocessor proofs. GPU-bound.
 
-#### 1. **Workflow Engine** (`crates/workflow`)
+GPU workers (`prove`, `join`, `snark`, `keccak`) operate statelessly through the API -- they don't need direct Redis access. CPU workers (`exec`, `aux`) connect to Redis directly.
 
-The central orchestration service that manages task distribution and execution.
+**TaskDB** (`crates/taskdb`) -- Redis-backed task scheduler with dependency resolution, priority queues (high/medium/low), blocking work claims with push wakeups, retry tracking, and timeout management.
 
-**Key Features:**
+**Workflow Common** (`crates/workflow-common`) -- Shared types (task definitions, request/response structs), local-disk object storage client, and Prometheus metrics helpers.
 
-- Task polling and distribution
-- Worker management and load balancing
-- Retry logic and failure handling
-- POVW (Proof of Verifiable Work) support
-- Background task monitoring
+**Bento Client** (`crates/bento-client`) -- CLI tool for submitting test jobs. Useful for benchmarking and smoke tests.
 
-**Worker Types:**
+**Sample Guest** (`crates/sample-guest`) -- Example RISC Zero guest programs with configurable iteration counts for testing.
 
-- `exec` - Executes guest programs and generates segments
-- `prove` - Generates STARK proofs from segments
-- `join` - Composes multiple proofs into larger proofs
-- `resolve` - Resolves assumption-based verification
-- `finalize` - Finalizes proof verification
-- `snark` - Converts STARK proofs to SNARKs
-- `keccak` - Handles Keccak hash computations
-- `union` - Combines multiple proof types
+## Proof Pipeline
 
-#### 2. **Task Database** (`crates/taskdb`)
+A job submission triggers this task DAG:
 
-Redis-based task management system with dependency resolution, priority scheduling, and push wakeups.
+1. **Execute** -- Run the guest program, produce N segments
+2. **Prove** -- Prove each segment independently (N parallel tasks)
+3. **Join** -- Binary-tree reduction of proofs (log2(N) levels)
+4. **Resolve** -- Resolve assumption-based verification
+5. **Finalize** -- Produce the final composite receipt
+6. **Snark** (optional) -- Compress to Groth16 or BLAKE3-Groth16
 
-**Features:**
+When POVW is enabled (`POVW_LOG_ID` env var), join and resolve use POVW-aware variants that track proof provenance.
 
-- Job and task lifecycle management
-- Dependency-based task scheduling
-- Retry logic and timeout handling
-- Task state tracking (Pending, Ready, Running, Done, Failed)
-- Job state management (Running, Done, Failed)
+## Running with Docker Compose
 
-#### 3. **API Service** (`crates/api`)
+The recommended deployment uses `prover-compose.yml` from the repo root:
 
-HTTP API for submitting jobs and managing the Bento cluster.
+```bash
+# Start the full stack (Redis + API + agents + monitoring)
+docker compose -f prover-compose.yml up -d
 
-**Endpoints:**
+# With broker profile
+docker compose -f prover-compose.yml --profile broker up -d
 
-- Job submission and management
-- Image and input upload
-- Receipt retrieval and verification
-- Cluster status and metrics
+# Scale executor agents
+BENTO_EXECUTOR_COUNT=8 docker compose -f prover-compose.yml up -d
+```
 
-#### 4. **Client Library** (`crates/bento-client`)
+The compose file automatically detects all GPUs via `nvidia-smi` and spawns one prove agent per GPU.
 
-Rust client library for interacting with Bento services.
+## Development Setup
 
-**Features:**
+```bash
+cd prover
 
-- Job submission and monitoring
-- Receipt verification
-- Batch processing support
+# Start Redis for tests
+./scripts/docker-setup.sh
 
-#### 5. **Workflow Common** (`crates/workflow-common`)
+# Build
+cargo build --workspace
 
-Shared data structures and constants used across the workflow system.
+# Run tests
+./scripts/run_tests.sh
 
-**Components:**
+# Run specific crate tests
+./scripts/run_tests.sh taskdb
+./scripts/run_tests.sh workflow
 
-- Task request/response types
-- Object storage client (local disk backend)
-- Compression type definitions
-- Work type constants
+# Tear down
+./scripts/docker-cleanup.sh
+```
 
-#### 6. **Sample Guest** (`crates/sample-guest`)
+### Running Agents Locally
 
-Example RISC Zero guest programs and methods for testing and development.
-
-**Features:**
-
-- Iterative computation examples
-- Composition and Keccak workflows
-- Test vectors for validation
-
-## 🔧 Technology Stack
-
-### Core Technologies
-
-- **RISC Zero zkVM**: Zero-knowledge virtual machine for secure computation
-- **Rust**: Primary programming language for performance and safety
-- **Redis**: Task database, hot storage, and worker wakeup backbone
-- **Local Disk Storage**: Object storage for images, inputs, and receipts
-
-### Dependencies
-
-- **tokio**: Async runtime for high-performance I/O
-- **serde**: Serialization framework
-- **anyhow**: Error handling utilities
-- **tracing**: Structured logging and observability
-- **bonsai-sdk**: Integration with Bonsai proving service
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Rust**: Latest stable version (1.70+)
-- **Docker**: For running Redis
-- **Redis**: 6+ (or use Docker)
-
-### Quick Start with Docker
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/boundless-xyz/boundless.git
-   cd bento
-   ```
-
-2. **Start services using Docker**
-   ```bash
-   ./scripts/docker-setup.sh
-   ```
-
-3. **Run full tests (requires database)**
-   ```bash
-   ./scripts/run_tests.sh
-   ```
-
-4. **Clean up Docker services**
-   ```bash
-   ./scripts/docker-cleanup.sh
-   ```
-
-### Manual Setup
-
-1. **Set environment variables**
-   ```bash
-   ```
-
+```bash
 export REDIS_URL="redis://localhost:6379"
-export STORAGE_DIR="./data/object_store"
-export BENTO_API_URL="http://localhost:8081"
 export RISC0_DEV_MODE=true
 
-````
-2. **Build and test**
-```bash
-cargo build
-cargo test --workspace
-````
+# Start the API
+cargo run -p api --bin rest_api -- --bind-addr 0.0.0.0:8081
 
-## 📖 Usage
+# Start an executor (in another terminal)
+cargo run -p workflow --bin agent -- -t exec
 
-### Running a Workflow Agent
+# Start a prover (in another terminal, needs GPU)
+cargo run -p workflow --bin agent -- -t prove
 
-```bash
-# Start an executor agent
-cargo run -p workflow -- --task-stream exec --redis-url $REDIS_URL --storage-dir $STORAGE_DIR --api-url $BENTO_API_URL
-
-# Start a prover agent (GPU workers only need the API and storage path)
-cargo run -p workflow -- --task-stream prove --storage-dir $STORAGE_DIR --api-url $BENTO_API_URL
-
-# Start a join agent (GPU workers only need the API and storage path)
-cargo run -p workflow -- --task-stream join --storage-dir $STORAGE_DIR --api-url $BENTO_API_URL
+# Submit a test job
+cargo run -p bento-client --bin bento_cli -- --iter-count 32
 ```
 
-### Submitting Jobs via API
-
-```bash
-# Start the API service
-cargo run -p api -- --redis-url $REDIS_URL --storage-dir $STORAGE_DIR
-
-# Submit a job (example)
-curl -X POST http://localhost:8081/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "image": "base64_encoded_elf",
-    "input": "base64_encoded_input",
-    "user_id": "user123",
-    "assumptions": [],
-    "execute_only": false
-  }'
-```
-
-### Using the Client Library
-
-```rust
-use bento_client::Client;
-
-let client = Client::new("http://localhost:8081");
-let job_id = client.submit_job(image, input, user_id, assumptions).await?;
-let receipt = client.wait_for_receipt(job_id).await?;
-```
-
-### Using the Bento CLI
-
-The `bento_cli` provides a command-line interface for submitting jobs and testing the system:
-
-```bash
-# Run with iteration count (for testing)
-RUST_LOG=info cargo run --bin bento_cli -- -c 32
-
-# Run with custom ELF file and input
-RUST_LOG=info cargo run --bin bento_cli -- -f path/to/program.elf -i path/to/input.bin
-
-# Execute only (no proof generation)
-RUST_LOG=info cargo run --bin bento_cli -- -e -c 32
-
-# Use custom API endpoint
-RUST_LOG=info cargo run --bin bento_cli -- -t http://api.bento.com -c 32
-```
-
-**CLI Options:**
-
-- `-f, --elf-file`: Path to RISC Zero ELF file
-- `-i, --input-file`: Path to input data file
-- `-c, --iter-count`: Iteration count for test vectors
-- `-e, --exec-only`: Execute without proof generation
-- `-t, --endpoint`: Bento API endpoint (default: http://localhost:8081)
-
-## 🔐 POVW (Proof of Verifiable Work)
-
-Bento supports optional Proof of Verifiable Work for enhanced security:
-
-```bash
-# Enable POVW
-export POVW_LOG_ID="0x0000000000000000000000000000000000000000"
-
-# Start agents with POVW support
-cargo run -p workflow -- join --task-stream join
-```
-
-When POVW is enabled:
-
-- Join operations use `join_povw` instead of regular `join`
-- Resolve operations use `resolve_povw` instead of regular `resolve`
-- Enhanced verification and logging for proof composition
-
-## 🧪 Testing
-
-### Test Types
-
-- **Basic Tests**: No external dependencies, fast execution
-- **Integration Tests**: Require Redis
-- **Unit Tests**: Individual component testing
-
-### Running Tests
-
-```bash
-# Full tests (with Redis)
-./scripts/run_tests.sh
-```
-
-## 📊 Configuration
+## Configuration
 
 ### Environment Variables
 
-| Variable         | Description             | Default                 |
-| ---------------- | ----------------------- | ----------------------- |
-| `REDIS_URL`      | Redis connection string | Required                |
-| `RISC0_DEV_MODE` | Enable development mode | `false`                 |
-| `POVW_LOG_ID`    | POVW log identifier     | Required to enable POVW |
+| Variable         | Description                      | Default                  |
+| ---------------- | -------------------------------- | ------------------------ |
+| `REDIS_URL`      | Redis connection string          | Required for CPU workers |
+| `BENTO_API_URL`  | REST API base URL                | `http://localhost:8081`  |
+| `RISC0_DEV_MODE` | Skip real proving (fast, no GPU) | `false`                  |
+| `POVW_LOG_ID`    | Enable Proof of Verifiable Work  | Disabled when unset      |
+| `RUST_LOG`       | Log level filter                 | `info`                   |
 
-### Agent Configuration
-
-```bash
-# Task stream configuration
---task-stream <stream_type>     # exec, prove, join, resolve, etc.
-
-# Performance tuning
---segment-po2 <size>            # Segment size (default: 20)
---exec-cycle-limit <cycles>     # Execution cycle limit (default: 100M)
---poll-time <seconds>           # Polling interval (default: 1)
-
-# Retry and timeout settings
---prove-retries <count>         # Prove retry attempts (default: 3)
---prove-timeout <minutes>       # Prove timeout (default: 30)
---join-retries <count>          # Join retry attempts (default: 3)
---join-timeout <minutes>        # Join timeout (default: 10)
-
-# Redis and storage
---redis-ttl <seconds>          # Redis TTL (default: 8 hours)
-```
-
-## 🏭 Production Deployment
-
-### Scaling Considerations
-
-- **Horizontal Scaling**: Run multiple agents of each type
-- **Load Balancing**: Distribute tasks across multiple workers
-- **Redis Clustering**: For high-availability caching
-- **Object Storage**: Shared local disk storage for large files
-
-### Monitoring and Observability
-
-- **Structured Logging**: Uses `tracing` for comprehensive logging
-- **Metrics**: Task completion rates, processing times, error rates
-- **Health Checks**: Redis and object storage connectivity monitoring
-- **Alerting**: Task failure and timeout notifications
-
-### Security
-
-- **API Key Authentication**: Required for job submission
-- **Network Isolation**: Separate worker and API networks
-- **Input Validation**: Comprehensive input sanitization
-- **Resource Limits**: Configurable execution limits
-
-## 🔧 Development
-
-### Project Structure
+### Agent CLI Flags
 
 ```
-bento/
+-t, --task-stream <type>       Worker type: exec, prove, join, snark, aux, keccak
+-s, --segment-po2 <size>       Segment size power-of-2 (default: 20)
+-e, --exec-cycle-limit <M>     Max execution cycles in millions (default: 100000)
+    --redis-ttl <secs>         Object expiry in Redis (default: 28800 / 8h)
+    --prove-retries <n>        Max prove retry attempts (default: 3)
+    --prove-timeout <min>      Prove timeout in minutes (default: 30)
+    --monitor-requeue          Enable background retry/requeue monitoring
+```
+
+## Project Structure
+
+```
+prover/
 ├── crates/
-│   ├── workflow/           # Main workflow engine
-│   ├── workflow-common/    # Shared types and utilities
-│   ├── taskdb/            # Task database management
-│   ├── api/               # HTTP API service
-│   ├── bento-client/      # Client library
-│   └── sample-guest/      # Example guest programs
-├── scripts/               # Development and deployment scripts
-├── target/                # Build artifacts
-└── Cargo.toml            # Workspace configuration
+│   ├── api/               # REST API (axum)
+│   ├── workflow/           # Agent binary and task handlers
+│   ├── workflow-common/    # Shared types, storage, metrics
+│   ├── taskdb/             # Redis task scheduler
+│   ├── bento-client/       # CLI test tool
+│   └── sample-guest/       # Example guest programs
+├── scripts/                # Docker setup, test runner
+└── Cargo.toml              # Workspace root
 ```
 
-### Adding New Task Types
+## License
 
-1. **Define the task type** in `workflow-common/src/lib.rs`
-2. **Implement the task handler** in `workflow/src/tasks/`
-3. **Add routing logic** in `workflow/src/lib.rs`
-4. **Update tests** and documentation
-
-### Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-## 📚 API Reference
-
-### Job Management
-
-- `POST /jobs` - Submit a new job
-- `GET /jobs/{job_id}` - Get job status
-- `GET /jobs/{job_id}/receipt` - Get job receipt
-- `DELETE /jobs/{job_id}` - Cancel a job
-
-### Image Management
-
-- `POST /images` - Upload a new image
-- `GET /images/{image_id}` - Get image information
-- `DELETE /images/{image_id}` - Delete an image
-
-### Receipt Management
-
-- `GET /receipts` - List available receipts
-- `GET /receipts/{receipt_id}` - Download a receipt
-- `POST /receipts/verify` - Verify a receipt
-
-### Work Receipts Management
-
-- `GET /work-receipts` - List all work receipts with POVW metadata
-- `GET /work-receipts/{receipt_id}` - Download a specific work receipt
-
-**POVW Metadata**: Each work receipt includes Proof of Verifiable Work (POVW) information:
-
-- `povw_log_id`: The POVW log identifier for tracking receipt provenance
-- `povw_job_number`: The POVW job number for client-side deduplication
-- Metadata is stored alongside receipts in `{receipt_id}_metadata.json` files
-
-## 🤝 Community
-
-- **GitHub**: [https://github.com/boundless-xyz/boundless](https://github.com/boundless-xyz/boundless)
-- **Discussions**: GitHub Discussions for questions and ideas
-- **Issues**: Bug reports and feature requests
-- **Contributing**: See CONTRIBUTING.md for development guidelines
-
-## 📄 License
-
-This project is licensed under the Business Source License (BSL). See the [LICENSE-BSL](LICENSE-BSL) file for details.
-
-## 🙏 Acknowledgments
-
-- **RISC Zero**: For the foundational zkVM technology
-- **Contributors**: All the developers who have contributed to Bento
-- **Open Source Community**: For the excellent tools and libraries used
-
----
-
-**Bento** - Scaling zero-knowledge proofs to new heights 🚀
+Business Source License (BSL). See [LICENSE-BSL](LICENSE-BSL).

@@ -48,8 +48,9 @@ pub async fn resolve_povw(
 
     // Unwrap the POVW receipt to get the ReceiptClaim for processing
     let povw_unwrap_start = Instant::now();
+    let prover = agent.prover.as_ref().context("Missing prover for POVW resolve task")?;
     let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
-        match agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt) {
+        match prover.unwrap_povw(&povw_receipt) {
             Ok(receipt) => {
                 helpers::record_task(
                     "resolve_povw",
@@ -256,8 +257,7 @@ pub async fn resolve_povw(
         .and_then(|x| x.work.value())
         .ok()
         .map(|work| format!("{}", work.nonce_min.job))
-        .context("Failed to get POVW job number")
-        .unwrap();
+        .context("Failed to get POVW job number")?;
 
     metadata_fields
         .insert("povw_job_number".to_string(), serde_json::Value::String(povw_job_number));

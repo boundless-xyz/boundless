@@ -78,7 +78,7 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
         .verify_integrity_with_context(&agent.verifier_ctx)
         .context("[BENTO-JOIN-006] Failed to verify join receipt integrity")?;
 
-    let join_result = serialize_obj(&joined).expect("Failed to serialize the segment");
+    let join_result = serialize_obj(&joined).context("Failed to serialize the joined receipt")?;
     let output_key = format!("{recur_receipts_prefix}:{}", request.idx);
 
     // Store joined receipt using Redis helper

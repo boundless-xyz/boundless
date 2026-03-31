@@ -349,8 +349,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     // validate elf
-    if elf_data[0..V2_ELF_MAGIC.len()] != *V2_ELF_MAGIC {
-        bail!("[BENTO-EXEC-018] ELF MAGIC mismatch");
+    if elf_data.len() < V2_ELF_MAGIC.len() || elf_data[..V2_ELF_MAGIC.len()] != *V2_ELF_MAGIC {
+        bail!("[BENTO-EXEC-018] ELF MAGIC mismatch (data too short or invalid header)");
     };
 
     // validate image id
@@ -583,7 +583,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
             match task_type {
                 SenderType::Segment(segment_index) => {
-                    planner.enqueue_segment().expect("Failed to enqueue segment");
+                    planner.enqueue_segment().map_err(|e| anyhow!("[BENTO-EXEC-051] Failed to enqueue segment: {e}"))?;
                     let first = planner.next_task();
                     match first {
                         Some(join_task) if matches!(join_task.command, TaskCmd::Join) => {
@@ -782,7 +782,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     .context("[BENTO-EXEC-030h] create_task failure for single-segment Prove")?;
             }
 
-            planner.finish().expect("Planner failed to finish()");
+            planner.finish().map_err(|e| anyhow!("[BENTO-EXEC-052] Planner failed to finish: {e}"))?;
             while let Some(tree_task) = planner.next_task() {
                 if let Err(e) = process_task(
                     &args_copy,
