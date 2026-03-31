@@ -221,9 +221,11 @@ impl OrderEvaluator {
         }
     }
 
-    fn update_pending_preflight_telemetry(&self, count: u32) {
-        for chain_id in self.chain_dispatchers.keys() {
-            crate::telemetry::telemetry(*chain_id).set_pending_preflight(count);
+    fn update_pending_preflight_telemetry(&self, pending_orders: &[Box<OrderRequest>]) {
+        // Reset all chains to 0, then count.
+        for &chain_id in self.chain_dispatchers.keys() {
+            let count = pending_orders.iter().filter(|o| o.chain_id == chain_id).count();
+            crate::telemetry::telemetry(chain_id).set_pending_preflight(count as u32);
         }
     }
 }
@@ -355,7 +357,7 @@ impl RetryTask for OrderEvaluator {
                     }
                 }
 
-                evaluator.update_pending_preflight_telemetry(pending_orders.len() as u32);
+                evaluator.update_pending_preflight_telemetry(&pending_orders);
 
                 evaluator.dispatch_pending(
                     &mut pending_orders,
