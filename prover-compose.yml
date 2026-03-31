@@ -9,6 +9,7 @@ name: bento
 # Anchors:
 x-base-environment:
   &base-environment # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
+  BENTO_API_URL: http://rest_api:8081
   REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
   NO_COLOR: 1
   RUST_LOG: ${RUST_LOG:-info}
@@ -27,6 +28,8 @@ x-agent-common: &agent-common
   restart: always
   depends_on:
     redis:
+      condition: service_healthy
+    rest_api:
       condition: service_healthy
   environment:
     <<: *base-environment
