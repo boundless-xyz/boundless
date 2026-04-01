@@ -1,6 +1,6 @@
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
-FROM rust:1.88-bookworm AS builder
+FROM rust:1.89-bookworm AS builder
 
 RUN apt-get -qq update && apt-get install -y -q clang mold
 
@@ -30,7 +30,7 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     cp bento/target/release/rest_api /src/rest_api && \
     sccache --show-stats
 
-FROM rust:1.88-bookworm AS runtime
+FROM debian:bookworm-slim AS runtime
 
 RUN mkdir /app/ && \
     apt -qq update && \
