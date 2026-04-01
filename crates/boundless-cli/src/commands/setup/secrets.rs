@@ -41,8 +41,9 @@ pub fn address_from_private_key(pk: &str) -> Option<alloy::primitives::Address> 
 /// Strips whitespace, invisible characters, and optional 0x prefix.
 /// Returns the cleaned hex string or an error describing what's wrong.
 pub fn validate_private_key(pk: &str) -> Result<String, String> {
-    // Strip all whitespace and common invisible characters that terminals add when pasting
-    let cleaned: String = pk.chars().filter(|c| !c.is_whitespace() && !c.is_control()).collect();
+    // Strip whitespace, control characters, and non-ASCII invisible chars (e.g. zero-width
+    // spaces \u{200B}, BOM \u{FEFF}) that terminals can inject when pasting
+    let cleaned: String = pk.chars().filter(|c| c.is_ascii_graphic()).collect();
 
     // Strip optional 0x prefix
     let hex_str = cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X")).unwrap_or(&cleaned);
@@ -158,38 +159,66 @@ mod tests {
         assert_eq!(result, Some("new".to_string()));
     }
 
+    // ─── validate_private_key tests ─────────────────────────────────────
+
+    const VALID_PK: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    const VALID_PK_ADDRESS: &str = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+
     #[test]
-    fn test_validate_private_key_valid() {
-        let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-        assert!(validate_private_key(pk).is_ok());
+    fn test_validate_private_key_valid_bare() {
+        let result = validate_private_key(VALID_PK).unwrap();
+        assert_eq!(result, VALID_PK);
     }
 
     #[test]
-    fn test_validate_private_key_with_0x() {
-        let pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    fn test_validate_private_key_with_0x_lowercase() {
+        let pk = format!("0x{}", VALID_PK);
+        let result = validate_private_key(&pk).unwrap();
+        assert_eq!(result, VALID_PK);
+    }
+
+    #[test]
+    fn test_validate_private_key_with_0x_uppercase() {
+        let pk = format!("0X{}", VALID_PK);
+        let result = validate_private_key(&pk).unwrap();
+        assert_eq!(result, VALID_PK);
+    }
+
+    #[test]
+    fn test_validate_private_key_mixed_case_hex() {
+        let pk = "AC0974BEC39A17E36BA4A6B4D238FF944BACB478CBED5EFCAE784D7BF4F2FF80";
         let result = validate_private_key(pk).unwrap();
-        assert_eq!(result, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        assert_eq!(result, VALID_PK); // should be lowercased
     }
 
     #[test]
-    fn test_validate_private_key_with_whitespace() {
-        let pk = "  0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80  \n";
+    fn test_validate_private_key_with_leading_trailing_whitespace() {
+        let pk = format!("  0x{}  \n", VALID_PK);
+        let result = validate_private_key(&pk).unwrap();
+        assert_eq!(result, VALID_PK);
+    }
+
+    #[test]
+    fn test_validate_private_key_with_tabs_and_carriage_return() {
+        let pk = format!("\t0x{}\r\n", VALID_PK);
+        let result = validate_private_key(&pk).unwrap();
+        assert_eq!(result, VALID_PK);
+    }
+
+    #[test]
+    fn test_validate_private_key_with_embedded_spaces() {
+        // Some terminals insert spaces when pasting
+        let pk = "ac09 74be c39a 17e3 6ba4 a6b4 d238 ff94 4bac b478 cbed 5efc ae78 4d7b f4f2 ff80";
         let result = validate_private_key(pk).unwrap();
-        assert_eq!(result, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        assert_eq!(result, VALID_PK);
     }
 
     #[test]
-    fn test_validate_private_key_odd_length() {
-        let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff8";
-        let err = validate_private_key(pk).unwrap_err();
-        assert!(err.contains("63 hex characters, expected 64"));
-    }
-
-    #[test]
-    fn test_validate_private_key_invalid_chars() {
-        let pk = "gc0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-        let err = validate_private_key(pk).unwrap_err();
-        assert!(err.contains("invalid character"));
+    fn test_validate_private_key_with_control_chars() {
+        // Zero-width spaces and other invisible chars from copy-paste
+        let pk = format!("0x{}\u{200B}\u{FEFF}", VALID_PK);
+        let result = validate_private_key(&pk).unwrap();
+        assert_eq!(result, VALID_PK);
     }
 
     #[test]
@@ -199,15 +228,89 @@ mod tests {
     }
 
     #[test]
-    fn test_process_private_key_valid() {
-        let pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-        let (clean, addr) = process_private_key(pk).unwrap();
-        assert_eq!(clean, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
-        assert_eq!(addr.unwrap(), "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+    fn test_validate_private_key_only_whitespace() {
+        let err = validate_private_key("   \n\t  ").unwrap_err();
+        assert!(err.contains("empty"));
     }
 
     #[test]
-    fn test_process_private_key_invalid() {
+    fn test_validate_private_key_only_0x_prefix() {
+        let err = validate_private_key("0x").unwrap_err();
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn test_validate_private_key_too_short() {
+        let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff8";
+        let err = validate_private_key(pk).unwrap_err();
+        assert!(err.contains("63 hex characters, expected 64"));
+    }
+
+    #[test]
+    fn test_validate_private_key_too_long() {
+        let pk = format!("{}00", VALID_PK); // 66 hex chars
+        let err = validate_private_key(&pk).unwrap_err();
+        assert!(err.contains("66 hex characters, expected 64"));
+    }
+
+    #[test]
+    fn test_validate_private_key_invalid_char_at_start() {
+        let pk = "gc0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+        let err = validate_private_key(pk).unwrap_err();
+        assert!(err.contains("invalid character 'g' at position 0"));
+    }
+
+    #[test]
+    fn test_validate_private_key_invalid_char_in_middle() {
+        let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4fZff80";
+        let err = validate_private_key(pk).unwrap_err();
+        assert!(err.contains("invalid character 'Z'"));
+    }
+
+    #[test]
+    fn test_validate_private_key_all_zeros() {
+        // All zeros is not a valid secp256k1 private key
+        let pk = "0000000000000000000000000000000000000000000000000000000000000000";
+        let err = validate_private_key(pk).unwrap_err();
+        assert!(err.contains("not a valid secp256k1 private key"));
+    }
+
+    #[test]
+    fn test_validate_private_key_returns_lowercase() {
+        let pk = "AC0974BEC39A17E36BA4A6B4D238FF944BACB478CBED5EFCAE784D7BF4F2FF80";
+        let result = validate_private_key(pk).unwrap();
+        assert!(result.chars().all(|c| !c.is_ascii_uppercase()));
+    }
+
+    // ─── process_private_key tests ──────────────────────────────────────
+
+    #[test]
+    fn test_process_private_key_valid_returns_clean_key_and_address() {
+        let pk = format!("0x{}", VALID_PK);
+        let (clean, addr) = process_private_key(&pk).unwrap();
+        assert_eq!(clean, VALID_PK);
+        assert_eq!(addr.unwrap(), VALID_PK_ADDRESS);
+    }
+
+    #[test]
+    fn test_process_private_key_with_whitespace() {
+        let pk = format!("  0x{}  \n", VALID_PK);
+        let (clean, addr) = process_private_key(&pk).unwrap();
+        assert_eq!(clean, VALID_PK);
+        assert!(addr.is_some());
+    }
+
+    #[test]
+    fn test_process_private_key_invalid_returns_error() {
         assert!(process_private_key("not_valid").is_err());
+        assert!(process_private_key("").is_err());
+        assert!(process_private_key("0x").is_err());
+        assert!(process_private_key("0xZZZZ").is_err());
+    }
+
+    #[test]
+    fn test_process_private_key_error_is_descriptive() {
+        let err = process_private_key("tooshort").unwrap_err();
+        assert!(err.contains("hex characters, expected 64") || err.contains("invalid character"));
     }
 }
