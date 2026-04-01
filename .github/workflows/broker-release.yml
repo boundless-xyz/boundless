@@ -16,144 +16,81 @@ on:
         default: 'false'
 
 env:
-  RISC0_TOOLCHAIN_VERSION: 1.88.0
-  RISC0_CRATE_VERSION: "3.0.3"
-  RUST_VERSION: "1.88.0"
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  FOUNDRY_VERSION: v1.5.0
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
-  build-broker:
-    name: Build Broker
+  extract-binaries:
+    name: Extract Broker Binary from Docker Image
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
-      contents: read    # Required for checkout
-      id-token: write   # Required for OIDC authentication with AWS
-    strategy:
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: linux
-            arch: x64
-            artifact_name: linux-amd64
-
+      contents: read
+      packages: read
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Compute short SHA
+        id: sha
+        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          submodules: recursive
-          fetch-depth: 0
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-
-      - name: Install deps
+      - name: Wait for Docker Services workflow to complete
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev binutils lld mold
+          echo "Waiting for docker-services workflow to push nightly-${{ steps.sha.outputs.short_sha }} images..."
+          SHORT_SHA=${{ steps.sha.outputs.short_sha }}
+          IMAGE=${{ env.IMAGE_PREFIX }}/broker:nightly-${SHORT_SHA}
+          for i in $(seq 1 60); do
+            if docker pull "$IMAGE" > /dev/null 2>&1; then
+              echo "Image $IMAGE is available"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "ERROR: Timed out waiting for $IMAGE"
+              exit 1
+            fi
+            echo "Attempt $i/60: Image not yet available, waiting 30s..."
+            sleep 30
+          done
 
-      - name: Setup Rust toolchain
-        uses: risc0/risc0/.github/actions/rustup@v3.0.3
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-
-      - name: Install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: forge build
-        run: forge build
-        working-directory: contracts
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build Broker Components
-        env:
-          PATH: /usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
+      - name: Extract broker binary from Docker image
         run: |
-          # Build broker
-          cargo build --release --target ${{ matrix.target }} --bin broker
+          SHORT_SHA=${{ steps.sha.outputs.short_sha }}
 
-          # Build broker stress test
-          cargo build --release --target ${{ matrix.target }} --bin broker-stress
+          docker create --name tmp-broker ${{ env.IMAGE_PREFIX }}/broker:nightly-${SHORT_SHA}
+          docker cp tmp-broker:/app/broker ./broker
+          docker rm tmp-broker
 
-          # Create binaries directory
-          mkdir -p binaries/${{ matrix.artifact_name }}
-
-          # Copy binaries
-          cp target/${{ matrix.target }}/release/broker binaries/${{ matrix.artifact_name }}/broker
-          cp target/${{ matrix.target }}/release/broker-stress binaries/${{ matrix.artifact_name }}/broker-stress
-
-      - name: sccache stats
-        run: sccache --show-stats
-
-      - name: Create checksums
-        working-directory: binaries/${{ matrix.artifact_name }}
-        run: |
           sha256sum broker > broker.sha256
-          sha256sum broker-stress > broker-stress.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: broker-binaries-${{ matrix.artifact_name }}
-          path: binaries/${{ matrix.artifact_name }}
+          name: broker-binaries-linux-amd64
+          path: |
+            broker
+            broker.sha256
           retention-days: 30
 
   create-release:
     name: Create GitHub Release
-    needs: build-broker
+    needs: extract-binaries
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/broker-v') && github.event.inputs.dry_run != 'true'
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install gh CLI
-        run: |
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y gh
-
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Prepare release assets
-        run: |
-          mkdir -p release-assets
-          for artifact in artifacts/broker-binaries-*; do
-            if [ -d "$artifact" ]; then
-              cp -r "$artifact"/* release-assets/
-            fi
-          done
-          ls -la release-assets/
+          name: broker-binaries-linux-amd64
+          path: release-assets
 
       - name: Extract version from tag
         id: get_version
@@ -161,7 +98,6 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "release_name=Broker Release $VERSION" >> $GITHUB_OUTPUT
-          # Detect RC version
           if [[ "$VERSION" == *"-rc."* ]]; then
             echo "is_rc=true" >> $GITHUB_OUTPUT
           else
@@ -182,36 +118,20 @@ jobs:
             --title "${{ steps.get_version.outputs.release_name }}" \
             --notes "## Broker Release
 
-          This release includes the following components:
           - **Broker**: Core broker service for order management
-          - **Broker Stress Test**: Stress testing tool for broker
-
-          ### Supported Platforms
-          - Linux (AMD64, ARM64)
-          - macOS (Intel, Apple Silicon)
 
           ### Installation
-          Download the appropriate binary for your platform and make it executable:
           \`\`\`bash
           chmod +x broker
-          chmod +x broker-stress
-          \`\`\`
-
-          ### Usage
-          \`\`\`bash
-          # Run broker
           ./broker --help
-
-          # Run stress test
-          ./broker-stress --help
           \`\`\`
 
           ### Verification
-          Verify the integrity of downloaded files using the provided SHA256 checksums." \
+          Verify the integrity using the provided SHA256 checksum." \
             ./release-assets/*
 
-  build-docker:
-    name: Build and Push Docker Image
+  retag-docker:
+    name: Retag Docker Image
     needs: create-release
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
@@ -219,9 +139,6 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Extract version from tag
         id: get_version
         run: |
@@ -229,33 +146,32 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           VERSION_UNPREFIXED=${VERSION#broker-}
           echo "version_unprefixed=$VERSION_UNPREFIXED" >> $GITHUB_OUTPUT
-          # Only compute minor versions for non-RC tags
+          # Only compute minor versions and latest tag for non-RC tags
           if [[ "$VERSION" != *"-rc."* ]]; then
             echo "minor_version=$(echo "$VERSION" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
             echo "minor_version_unprefixed=$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
+            echo "latest=latest" >> $GITHUB_OUTPUT
           fi
+          # Short SHA for matching the nightly image tag
+          echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install crane
+        run: |
+          VERSION=v0.20.2
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and push broker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfiles/broker.prebuilt.dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/broker:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ github.repository }}/broker:${{ steps.get_version.outputs.version_unprefixed }}
-            ${{ steps.get_version.outputs.minor_version && format('ghcr.io/{0}/broker:{1}', github.repository, steps.get_version.outputs.minor_version) || '' }}
-            ${{ steps.get_version.outputs.minor_version_unprefixed && format('ghcr.io/{0}/broker:{1}', github.repository, steps.get_version.outputs.minor_version_unprefixed) || '' }}
-            ghcr.io/${{ github.repository }}/broker:latest
-          build-args: |
-            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/broker
+      - name: Retag broker image
+        run: |
+          SRC=ghcr.io/${{ github.repository }}/broker:nightly-${{ steps.get_version.outputs.short_sha }}
+          for TAG in \
+            "${{ steps.get_version.outputs.version }}" \
+            "${{ steps.get_version.outputs.version_unprefixed }}" \
+            "${{ steps.get_version.outputs.minor_version }}" \
+            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
+            "${{ steps.get_version.outputs.latest }}"; do
+            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+          done

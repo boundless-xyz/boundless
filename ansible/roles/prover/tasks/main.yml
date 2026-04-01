@@ -9,6 +9,31 @@
     force: true
   notify: Restart Bento
 
+- name: Get deployed commit SHA
+  ansible.builtin.command:
+    cmd: git rev-parse HEAD
+    chdir: "{{ prover_dir }}"
+  register: prover_commit_sha
+  changed_when: false
+  when: prover_wait_for_nightly_image | default(false) | bool
+
+- name: Wait for nightly Docker image to be available
+  ansible.builtin.shell: |
+    IMAGE="ghcr.io/boundless-xyz/boundless/bento-agent:nightly-{{ prover_commit_sha.stdout[:7] }}"
+    echo "Waiting for $IMAGE ..."
+    for i in $(seq 1 60); do
+      if docker pull "$IMAGE" > /dev/null 2>&1; then
+        echo "Image available after attempt $i"
+        exit 0
+      fi
+      echo "Attempt $i/60: not available yet, waiting 30s..."
+      sleep 30
+    done
+    echo "ERROR: timed out waiting for $IMAGE"
+    exit 1
+  when: prover_wait_for_nightly_image | default(false) | bool
+  changed_when: false
+
 - name: Generate Docker Compose environment file
   ansible.builtin.template:
     src: docker-compose.env.j2
@@ -18,6 +43,16 @@
     mode: "0600"
   notify: Restart Bento
 
+- name: Copy local broker configuration file
+  ansible.builtin.copy:
+    src: "{{ prover_broker_toml_local }}"
+    dest: "{{ prover_dir }}/broker.toml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: prover_broker_toml_local | string | length > 0
+  notify: Restart Bento
+
 - name: Download broker configuration file
   ansible.builtin.get_url:
     url: "{{ prover_broker_toml_url }}"
@@ -25,6 +60,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: prover_broker_toml_local | string | length == 0
   notify: Restart Bento
 
 - name: Ensure just is installed
