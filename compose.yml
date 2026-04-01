@@ -339,7 +339,7 @@ services:
       minio:
         condition: service_healthy
 
-    mem_limit: 1G
+    mem_limit: 4G
     cpus: 1
 
     environment:
