@@ -50,7 +50,81 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+/// A preflight task that can be cancelled, tagged with its fulfillment type.
+struct PreflightHandle {
+    cancel_token: CancellationToken,
+    fulfillment_type: FulfillmentType,
+}
+
+/// Per-request map of in-flight preflight tasks: request_id → { order_id → task }
+#[derive(Default)]
+struct ActivePreflights(BTreeMap<U256, BTreeMap<String, PreflightHandle>>);
+
+impl ActivePreflights {
+    fn insert(&mut self, order: &OrderRequest, cancel_token: CancellationToken) {
+        let request_id = U256::from(order.request.id);
+        self.0.entry(request_id).or_default().insert(
+            order.id(),
+            PreflightHandle { cancel_token, fulfillment_type: order.fulfillment_type },
+        );
+    }
+
+    fn remove(&mut self, request_id: &U256, order_id: &str) {
+        if let Some(tasks) = self.0.get_mut(request_id) {
+            tasks.remove(order_id);
+            if tasks.is_empty() {
+                self.0.remove(request_id);
+            }
+        }
+    }
+
+    fn contains(&self, request_id: &U256, order_id: &str) -> bool {
+        self.0.get(request_id).is_some_and(|t| t.contains_key(order_id))
+    }
+
+    /// Cancel and remove LockAndFulfill tasks for a locked request.
+    fn cancel_lock_and_fulfill(&mut self, request_id: &U256) {
+        let Some(tasks) = self.0.get_mut(request_id) else { return };
+
+        let before = tasks.len();
+        tasks.retain(|_, task| {
+            let should_cancel = task.fulfillment_type == FulfillmentType::LockAndFulfill;
+            if should_cancel {
+                task.cancel_token.cancel();
+            }
+            !should_cancel
+        });
+
+        let cancelled = before - tasks.len();
+        if cancelled > 0 {
+            tracing::debug!(
+                "Cancelled {cancelled} LockAndFulfill preflights for locked request 0x{request_id:x}"
+            );
+        }
+        if tasks.is_empty() {
+            self.0.remove(request_id);
+        }
+    }
+
+    /// Cancel and remove all tasks for a fulfilled request.
+    fn cancel_all(&mut self, request_id: &U256) {
+        let Some(tasks) = self.0.remove(request_id) else { return };
+
+        tracing::debug!(
+            "Cancelling {} active preflights for fulfilled request 0x{request_id:x}",
+            tasks.len(),
+        );
+        for (_, task) in tasks {
+            task.cancel_token.cancel();
+        }
+    }
+
+    fn format(&self) -> String {
+        format_truncated(self.0.values().flat_map(|orders| orders.keys()))
+    }
+}
 
 // Broker-specific skip codes for checks that live in OrderPicker (not in pricing logic).
 const SKIP_NOT_IN_ALLOWLIST: &str = "[S-OP-001]";
@@ -606,60 +680,6 @@ where
     }
 }
 
-/// Cancels active LockAndFulfill preflight tasks for a locked request.
-fn handle_lock_event(
-    request_id: U256,
-    active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-) {
-    let Some(order_tasks) = active_tasks.get_mut(&request_id) else {
-        return;
-    };
-
-    let initial_count = order_tasks.len();
-    let lock_suffix = format!("{:?}", FulfillmentType::LockAndFulfill);
-    order_tasks.retain(|order_id, task_token| {
-        if order_id.contains(&lock_suffix) {
-            task_token.cancel();
-            false
-        } else {
-            true
-        }
-    });
-    let cancelled = initial_count - order_tasks.len();
-
-    if cancelled > 0 {
-        tracing::debug!(
-            "Cancelled {} LockAndFulfill preflights for locked request 0x{:x}",
-            cancelled,
-            request_id
-        );
-    }
-
-    if order_tasks.is_empty() {
-        active_tasks.remove(&request_id);
-    }
-}
-
-/// Cancels all active preflight tasks for a fulfilled request.
-fn handle_fulfill_event(
-    request_id: U256,
-    active_tasks: &mut BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-) {
-    let Some(order_tasks) = active_tasks.remove(&request_id) else {
-        return;
-    };
-
-    let count = order_tasks.len();
-    tracing::debug!(
-        "Cancelling {} active preflights for fulfilled request 0x{:x}",
-        count,
-        request_id
-    );
-    for (_, task_token) in order_tasks {
-        task_token.cancel();
-    }
-}
-
 impl<P> RetryTask for OrderPricer<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
@@ -674,10 +694,9 @@ where
             let mut tasks: JoinSet<(String, U256, PreflightOutcome)> = JoinSet::new();
             let mut rx = pricer.new_order_rx.lock().await;
             let mut order_state_rx = pricer.order_state_tx.subscribe();
-            let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> =
-                BTreeMap::new();
-            let mut last_active_tasks_log: String = String::new();
-            let mut log_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
+            let mut active_preflights = ActivePreflights::default();
+            let mut last_preflights_log: String = String::new();
+            let mut log_interval = tokio::time::interval(LOG_INTERVAL);
 
             loop {
                 tokio::select! {
@@ -686,17 +705,15 @@ where
                         let request_id = U256::from(order.request.id);
                         let chain_id = order.chain_id;
 
-                        if let Some(order_tasks) = active_tasks.get(&request_id) {
-                            if order_tasks.contains_key(&order_id) {
-                                tracing::debug!("Skipping order {order_id} - already being processed");
-                                let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
-                                    order_id,
-                                    request_id,
-                                    chain_id,
-                                    outcome: PreflightOutcome::Skipped,
-                                });
-                                continue;
-                            }
+                        if active_preflights.contains(&request_id, &order_id) {
+                            tracing::debug!("Skipping order {order_id} - already being processed");
+                            let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
+                                order_id,
+                                request_id,
+                                chain_id,
+                                outcome: PreflightOutcome::Skipped,
+                            });
+                            continue;
                         }
 
                         if pricer.order_cache.get(&order_id).await.is_some() {
@@ -715,10 +732,7 @@ where
                         let pricer_clone = pricer.clone();
                         let task_cancel_token = cancel_token.child_token();
 
-                        active_tasks
-                            .entry(request_id)
-                            .or_default()
-                            .insert(order_id.clone(), task_cancel_token.clone());
+                        active_preflights.insert(&order, task_cancel_token.clone());
 
                         tasks.spawn(async move {
                             let accepted = pricer_clone
@@ -737,24 +751,19 @@ where
                             OrderStateChange::Locked { request_id, prover, .. } => {
                                 tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
                                     request_id, prover);
-                                handle_lock_event(request_id, &mut active_tasks);
+                                active_preflights.cancel_lock_and_fulfill(&request_id);
                             }
                             OrderStateChange::Fulfilled { request_id, .. } => {
                                 tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
                                     request_id);
-                                handle_fulfill_event(request_id, &mut active_tasks);
+                                active_preflights.cancel_all(&request_id);
                             }
                         }
                     }
                     Some(result) = tasks.join_next(), if !tasks.is_empty() => {
                         match result {
                             Ok((order_id, request_id, outcome)) => {
-                                if let Some(order_tasks) = active_tasks.get_mut(&request_id) {
-                                    order_tasks.remove(&order_id);
-                                    if order_tasks.is_empty() {
-                                        active_tasks.remove(&request_id);
-                                    }
-                                }
+                                active_preflights.remove(&request_id, &order_id);
 
                                 let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
                                     order_id: order_id.clone(),
@@ -772,10 +781,10 @@ where
                         }
                     }
                     _ = log_interval.tick() => {
-                        let current_tasks_log = format_active_tasks(&active_tasks);
-                        if last_active_tasks_log != current_tasks_log {
-                            tracing::debug!("Current pricing tasks: [{}]", current_tasks_log);
-                            last_active_tasks_log = current_tasks_log;
+                        let current_log = active_preflights.format();
+                        if last_preflights_log != current_log {
+                            tracing::debug!("Active preflights: [{}]", current_log);
+                            last_preflights_log = current_log;
                         }
                     }
                     _ = cancel_token.cancelled() => {
@@ -804,13 +813,6 @@ where
     } else {
         format!("{}, ... ({} total)", first_three.join(", "), first_three.len() + remaining_count)
     }
-}
-
-/// Format active pricing tasks for logging, limiting to first 3 and showing total count
-fn format_active_tasks(
-    active_tasks: &BTreeMap<U256, BTreeMap<String, CancellationToken>>,
-) -> String {
-    format_truncated(active_tasks.values().flat_map(|orders| orders.keys()))
 }
 
 #[cfg(test)]
@@ -2121,7 +2123,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_active_tasks_logging() {
+    async fn test_active_preflights_logging() {
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.min_mcycle_price =
@@ -2139,9 +2141,7 @@ pub(crate) mod tests {
         ctx.new_order_tx.send(order1).await.unwrap();
 
         // Wait for the order to be processed and check for the "Added" log
-        tokio::time::timeout(MIN_CAPACITY_CHECK_INTERVAL * 2, ctx.priced_orders_rx.recv())
-            .await
-            .unwrap();
+        tokio::time::timeout(LOG_INTERVAL * 2, ctx.priced_orders_rx.recv()).await.unwrap();
 
         // Check that we logged the task being added (or that it was completed before the interval)
         assert!(logs_contain("Current pricing tasks: [") || logs_contain("Priced task for order"));
@@ -2168,7 +2168,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_handle_lock_event() {
         let ctx = PricerTestCtxBuilder::default().build().await;
-        let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
+        let mut active_preflights = ActivePreflights::default();
 
         let lock_and_fulfill_order = ctx
             .generate_next_order(OrderParams {
@@ -2191,13 +2191,10 @@ pub(crate) mod tests {
         let lock_and_fulfill_token = CancellationToken::new();
         let fulfill_after_expire_token = CancellationToken::new();
 
-        // Add active tasks using actual order IDs
-        let mut order_tasks = BTreeMap::new();
-        order_tasks.insert(lock_and_fulfill_order.id(), lock_and_fulfill_token.clone());
-        order_tasks.insert(fulfill_after_expire_order.id(), fulfill_after_expire_token.clone());
-        active_tasks.insert(request_id, order_tasks);
+        active_preflights.insert(&lock_and_fulfill_order, lock_and_fulfill_token.clone());
+        active_preflights.insert(&fulfill_after_expire_order, fulfill_after_expire_token.clone());
 
-        handle_lock_event(request_id, &mut active_tasks);
+        active_preflights.cancel_lock_and_fulfill(&request_id);
 
         assert!(lock_and_fulfill_token.is_cancelled(), "LockAndFulfill task should be cancelled");
         assert!(
@@ -2205,17 +2202,14 @@ pub(crate) mod tests {
             "FulfillAfterLockExpire task should NOT be cancelled"
         );
 
-        assert!(active_tasks.contains_key(&request_id));
-        let remaining_tasks = active_tasks.get(&request_id).unwrap();
-        assert_eq!(remaining_tasks.len(), 1);
-        let remaining_order_id = remaining_tasks.keys().next().unwrap();
-        assert!(remaining_order_id.contains("FulfillAfterLockExpire"));
+        assert!(active_preflights.contains(&request_id, &fulfill_after_expire_order.id()));
+        assert!(!active_preflights.contains(&request_id, &lock_and_fulfill_order.id()));
     }
 
     #[tokio::test]
     async fn test_handle_fulfill_event() {
         let ctx = PricerTestCtxBuilder::default().build().await;
-        let mut active_tasks: BTreeMap<U256, BTreeMap<String, CancellationToken>> = BTreeMap::new();
+        let mut active_preflights = ActivePreflights::default();
 
         let lock_and_fulfill_order = ctx
             .generate_next_order(OrderParams {
@@ -2235,20 +2229,19 @@ pub(crate) mod tests {
 
         let request_id = U256::from(lock_and_fulfill_order.request.id);
 
-        let token1 = CancellationToken::new();
-        let token2 = CancellationToken::new();
+        let lock_cancel = CancellationToken::new();
+        let expire_cancel = CancellationToken::new();
 
-        let mut order_tasks = BTreeMap::new();
-        order_tasks.insert(lock_and_fulfill_order.id(), token1.clone());
-        order_tasks.insert(fulfill_after_expire_order.id(), token2.clone());
-        active_tasks.insert(request_id, order_tasks);
+        active_preflights.insert(&lock_and_fulfill_order, lock_cancel.clone());
+        active_preflights.insert(&fulfill_after_expire_order, expire_cancel.clone());
 
-        handle_fulfill_event(request_id, &mut active_tasks);
+        active_preflights.cancel_all(&request_id);
 
-        assert!(token1.is_cancelled(), "All tasks should be cancelled");
-        assert!(token2.is_cancelled(), "All tasks should be cancelled");
+        assert!(lock_cancel.is_cancelled(), "All preflights should be cancelled");
+        assert!(expire_cancel.is_cancelled(), "All preflights should be cancelled");
 
-        assert!(!active_tasks.contains_key(&request_id));
+        assert!(!active_preflights.contains(&request_id, &lock_and_fulfill_order.id()));
+        assert!(!active_preflights.contains(&request_id, &fulfill_after_expire_order.id()));
     }
 
     // Mock prover that tracks preflight calls

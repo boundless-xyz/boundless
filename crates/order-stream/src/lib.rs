@@ -862,7 +862,7 @@ mod tests {
             self::run_from_parts(app_state_clone, listener).await.unwrap();
         });
 
-        // Poll the health endpoint with exponential backoff
+        // Poll the health endpoint with exponential backoff.
         wait_for_server_health(&client, &addr, 5).await;
 
         // Connect to the WebSocket and wait for server-side registration

@@ -408,6 +408,7 @@ async fn get_market_aggregates_impl(
         total_collateral_deposited: total_deposited_str.clone(),
         total_collateral_deposited_formatted: format_zkc(&total_deposited_str),
         eligible_prover_count: collateral_stats.eligible_prover_count,
+        active_eligible_prover_count: collateral_stats.active_eligible_prover_count,
     })
 }
 
@@ -527,6 +528,7 @@ async fn get_epoch_market_aggregates_impl(
         total_collateral_deposited: total_deposited_str.clone(),
         total_collateral_deposited_formatted: format_zkc(&total_deposited_str),
         eligible_prover_count: collateral_stats.eligible_prover_count,
+        active_eligible_prover_count: collateral_stats.active_eligible_prover_count,
     })
 }
 
