@@ -122,7 +122,7 @@ pub struct Args {
     resolve_retries: i32,
 
     /// How long can a resolve can be running for, before it is marked as timed-out
-    #[clap(env, long, default_value_t = 10)]
+    #[clap(env, long, default_value_t = 300)]
     resolve_timeout: i32,
 
     /// How many times a finalize can fail before hard failure
