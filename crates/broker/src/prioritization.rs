@@ -14,14 +14,12 @@
 
 use crate::{
     config::{OrderCommitmentPriority, OrderPricingPriority},
-    order_committer::OrderCommitter,
     FulfillmentType, OrderRequest,
 };
 
 use alloy::primitives::{utils::format_ether, U256};
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::sync::Arc;
 
 /// Unified priority mode for both pricing and commitment
 #[derive(Debug, Clone, Copy)]
@@ -201,38 +199,48 @@ pub(crate) fn prioritize_orders_to_evaluate(
     orders.drain(..take_count).collect()
 }
 
-impl<P> OrderCommitter<P> {
-    /// Default implementation of order prioritization logic for choosing which order to commit to
-    /// prove.
-    pub(crate) fn prioritize_orders(
-        &self,
-        mut orders: Vec<Arc<OrderRequest>>,
-        priority_mode: OrderCommitmentPriority,
-        priority_addresses: Option<&[alloy::primitives::Address]>,
-    ) -> Vec<Arc<OrderRequest>> {
-        // Sort orders with priority addresses first, then by mode
-        sort_orders_by_priority_and_mode(&mut orders, priority_addresses, priority_mode.into());
-
-        tracing::debug!(
-            "Orders ready for proving, prioritized. Before applying capacity limits: {}",
-            orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
-        );
-
-        orders
+/// Selects and prioritizes orders for commitment by the OrderCommitter.
+/// Mirrors [`prioritize_orders_to_evaluate`] but uses [`OrderCommitmentPriority`]
+/// and operates on `Box<OrderRequest>` (owned by the committer's pending queue).
+/// Returns up to `capacity` orders drained from the input, sorted by priority mode.
+#[allow(clippy::vec_box)]
+pub(crate) fn prioritize_orders_to_commit(
+    orders: &mut Vec<Box<OrderRequest>>,
+    priority_mode: OrderCommitmentPriority,
+    priority_addresses: Option<&[alloy::primitives::Address]>,
+    capacity: usize,
+) -> Vec<Box<OrderRequest>> {
+    if orders.is_empty() || capacity == 0 {
+        return Vec::new();
     }
+
+    sort_orders_by_priority_and_mode(orders, priority_addresses, priority_mode.into());
+
+    let take_count = std::cmp::min(capacity, orders.len());
+    orders.drain(..take_count).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::sync::Arc;
 
     use super::*;
     use crate::{
         now_timestamp,
-        order_committer::tests::setup_oc_test_context,
+        order_locker::tests::setup_oc_test_context,
         order_pricer::tests::{OrderParams, PricerTestCtxBuilder},
         FulfillmentType,
     };
+
+    fn prioritize_commitment_orders(
+        mut orders: Vec<Arc<OrderRequest>>,
+        priority_mode: OrderCommitmentPriority,
+        priority_addresses: Option<&[alloy::primitives::Address]>,
+    ) -> Vec<Arc<OrderRequest>> {
+        sort_orders_by_priority_and_mode(&mut orders, priority_addresses, priority_mode.into());
+        orders
+    }
     use alloy::primitives::U256;
     use tracing_test::traced_test;
 
@@ -472,7 +480,7 @@ mod tests {
         let orders =
             vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
         let orders =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
 
         assert!(orders[0].id() == order_1_id);
         assert!(orders[1].id() == order_3_id);
@@ -521,7 +529,7 @@ mod tests {
         for _ in 0..10 {
             let test_orders = orders.clone();
             let test_orders =
-                ctx.monitor.prioritize_orders(test_orders, OrderCommitmentPriority::Random, None);
+                prioritize_commitment_orders(test_orders, OrderCommitmentPriority::Random, None);
 
             // Extract the ordering of all orders
             let order_ids: Vec<_> = test_orders.iter().map(|order| order.request.id).collect();
@@ -533,7 +541,7 @@ mod tests {
 
         // Test that random mode produces different orderings
         let prioritized =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random, None);
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::Random, None);
 
         // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
         let lock_and_fulfill_count = prioritized
@@ -687,7 +695,7 @@ mod tests {
         }
 
         let prioritized =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
 
         // Orders should be sorted by their relevant expiry times, regardless of type
         // Expected order: LockAndFulfill(100), LockAndFulfill(150), FulfillAfterLockExpire(150), LockAndFulfill(200), FulfillAfterLockExpire(250), FulfillAfterLockExpire(300)
@@ -743,7 +751,7 @@ mod tests {
 
         // Test random mode (no need to capture result since it's random)
         let _prioritized_random = orders.clone();
-        let _prioritized_random = ctx.monitor.prioritize_orders(
+        let _prioritized_random = prioritize_commitment_orders(
             _prioritized_random,
             OrderCommitmentPriority::Random,
             None,
@@ -751,7 +759,7 @@ mod tests {
 
         // Test shortest expiry mode
         let prioritized_shortest =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
 
         // In shortest expiry mode, orders should be sorted by expiry time
         for i in 0..3 {
@@ -875,7 +883,7 @@ mod tests {
 
         // Test shortest expiry mode without priority addresses
         let test_orders = orders.clone();
-        let prioritized_orders = ctx.monitor.prioritize_orders(
+        let prioritized_orders = prioritize_commitment_orders(
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             None,
@@ -884,7 +892,7 @@ mod tests {
 
         // Test shortest expiry mode with priority addresses
         let test_orders = orders.clone();
-        let prioritized_orders = ctx.monitor.prioritize_orders(
+        let prioritized_orders = prioritize_commitment_orders(
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             Some(&priority_addresses),
