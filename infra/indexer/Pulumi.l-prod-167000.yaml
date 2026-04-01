@@ -40,3 +40,4 @@ config:
     secure: v1:i5OnXx7QhxsA5/di:+RUggBiN4cB2Or9ddL924PybNqI3lhDOYB63eYKwQWtYye4TteC8dajkJY6P
   indexer:LOGS_ETH_RPC_URL:
     secure: v1:0COnkQt+kc1Ny/AU:EaznI13nAZGXy8VKQJxOkcTonADEB4OR4XDwlQlxT8WiqII14pBqq86XlEt5
+  indexer:USE_GHCR: true

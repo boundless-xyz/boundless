@@ -42,6 +42,8 @@ export interface IndexerApiArgs {
   allowedIpAddresses?: pulumi.Input<string>;
   /** Optional API key that grants 5x the default rate limit (1000 per 5 minutes) via x-api-key header */
   premiumApiKey?: pulumi.Input<string>;
+  usePrebuiltLambdas?: boolean;
+  ghcrImageTag?: string;
 }
 
 export class IndexerApi extends pulumi.ComponentResource {
@@ -144,6 +146,8 @@ export class IndexerApi extends pulumi.ComponentResource {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-api',
       release: true,
+      usePrebuilt: args.usePrebuiltLambdas,
+      prebuiltTag: args.ghcrImageTag,
       nameSuffix: args.databaseVersion ?? '',
       role: role.arn,
       environmentVariables: {

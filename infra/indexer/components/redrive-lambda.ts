@@ -12,6 +12,8 @@ export interface RedriveLambdaArgs {
   indexerSgId: pulumi.Input<string>;
   /** RUST_LOG level */
   rustLogLevel: string;
+  usePrebuiltLambdas?: boolean;
+  ghcrImageTag?: string;
 }
 
 export class RedriveLambda extends pulumi.ComponentResource {
@@ -85,6 +87,8 @@ export class RedriveLambda extends pulumi.ComponentResource {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-redrive',
       release: true,
+      usePrebuilt: args.usePrebuiltLambdas,
+      prebuiltTag: args.ghcrImageTag,
       role: role.arn,
       environmentVariables: {
         DB_URL: dbUrl,

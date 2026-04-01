@@ -2,7 +2,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-import { ChainId, getServiceNameV1, getEnvVar, Severity } from '../util';
+import { ChainId, getServiceNameV1, getEnvVar, Severity, getGhcrImageUri } from '../util';
 import * as crypto from 'crypto';
 require('dotenv').config();
 
@@ -65,6 +65,9 @@ export = () => {
       return hash.digest("hex");
     });
 
+  const useGhcr = config.getBoolean('USE_GHCR') || false;
+  const ghcrImageTag = isDev ? process.env.GHCR_IMAGE_TAG : config.get('GHCR_IMAGE_TAG');
+
   const repo = new awsx.ecr.Repository(`${serviceName}-ecr-repo`, {
     name: `${serviceName}-ecr-repo`,
     forceDelete: true,
@@ -79,67 +82,75 @@ export = () => {
     },
   });
 
-  const authToken = aws.ecr.getAuthorizationTokenOutput({
-    registryId: repo.repository.registryId,
-  });
+  let imageRef: pulumi.Output<string>;
 
-  const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+  if (useGhcr) {
+    imageRef = pulumi.output(getGhcrImageUri('slasher', ghcrImageTag));
+  } else {
+    const authToken = aws.ecr.getAuthorizationTokenOutput({
+      registryId: repo.repository.registryId,
+    });
 
-  // Optionally add in the gh token secret and sccache s3 creds to the build ctx
-  let buildSecrets = {};
-  if (ciCacheSecret !== undefined) {
-    buildSecrets = {
-      ci_cache_creds: ciCacheSecret,
-    };
-  }
-  if (githubTokenSecret !== undefined) {
-    buildSecrets = {
-      ...buildSecrets,
-      githubTokenSecret
+    const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
+
+    // Optionally add in the gh token secret and sccache s3 creds to the build ctx
+    let buildSecrets = {};
+    if (ciCacheSecret !== undefined) {
+      buildSecrets = {
+        ci_cache_creds: ciCacheSecret,
+      };
     }
-  }
+    if (githubTokenSecret !== undefined) {
+      buildSecrets = {
+        ...buildSecrets,
+        githubTokenSecret
+      }
+    }
 
-  const image = new docker_build.Image(`${serviceName}-image`, {
-    tags: [dockerTagPath],
-    context: {
-      location: dockerDir,
-    },
-    // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
-    // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
-    platforms: ['linux/amd64'],
-    secrets: buildSecrets,
-    push: true,
-    builder: dockerRemoteBuilder ? {
-      name: dockerRemoteBuilder,
-    } : undefined,
-    dockerfile: {
-      location: `${dockerDir}/dockerfiles/slasher.dockerfile`,
-    },
-    cacheFrom: [
-      {
-        registry: {
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+    const image = new docker_build.Image(`${serviceName}-image`, {
+      tags: [dockerTagPath],
+      context: {
+        location: dockerDir,
+      },
+      // Due to limitations with cargo-chef, we need to build for amd64, even though slasher doesn't
+      // strictly need r0vm. See `dockerfiles/slasher.dockerfile` for more details.
+      platforms: ['linux/amd64'],
+      secrets: buildSecrets,
+      push: true,
+      builder: dockerRemoteBuilder ? {
+        name: dockerRemoteBuilder,
+      } : undefined,
+      dockerfile: {
+        location: `${dockerDir}/dockerfiles/slasher.dockerfile`,
+      },
+      cacheFrom: [
+        {
+          registry: {
+            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+          },
         },
-      },
-    ],
-    cacheTo: [
-      {
-        registry: {
-          mode: docker_build.CacheMode.Max,
-          imageManifest: true,
-          ociMediaTypes: true,
-          ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+      ],
+      cacheTo: [
+        {
+          registry: {
+            mode: docker_build.CacheMode.Max,
+            imageManifest: true,
+            ociMediaTypes: true,
+            ref: pulumi.interpolate`${repo.repository.repositoryUrl}:cache`,
+          },
         },
-      },
-    ],
-    registries: [
-      {
-        address: repo.repository.repositoryUrl,
-        password: authToken.password,
-        username: authToken.userName,
-      },
-    ],
-  });
+      ],
+      registries: [
+        {
+          address: repo.repository.repositoryUrl,
+          password: authToken.password,
+          username: authToken.userName,
+        },
+      ],
+    });
+
+    imageRef = image.ref;
+  }
 
   // Security group allow outbound, deny inbound
   const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
@@ -276,7 +287,7 @@ export = () => {
         },
         container: {
           name: serviceName,
-          image: image.ref,
+          image: imageRef,
           cpu: 128,
           memory: 512,
           essential: true,

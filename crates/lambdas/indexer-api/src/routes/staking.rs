@@ -73,7 +73,6 @@ async fn get_staking_summary(State(state): State<Arc<AppState>>) -> Response {
 async fn get_staking_summary_impl(state: Arc<AppState>) -> anyhow::Result<StakingSummaryStats> {
     tracing::debug!("Fetching staking summary stats");
 
-    // Fetch summary stats
     let summary = state
         .rewards_db
         .get_staking_summary_stats()
@@ -205,7 +204,6 @@ async fn get_staking_epoch_summary_impl(
 ) -> anyhow::Result<EpochStakingSummary> {
     tracing::debug!("Fetching staking summary for epoch {}", epoch);
 
-    // Fetch epoch summary
     let summary = state
         .rewards_db
         .get_epoch_staking_summary(epoch)
