@@ -454,6 +454,60 @@ redis.register_function('count_unresolved', function(keys, args)
   end
   return unresolved
 end)
+
+-- Find pending tasks whose waiting_on counter is stale (all prerequisites
+-- are actually done). Returns an array of {job_id, task_id, waiting_on,
+-- actual_deps, completed_deps} tuples encoded as flat strings.
+redis.register_function('find_stuck_pending', function(keys, args)
+  local p = args[1]
+  local limit = tonumber(args[2]) or 100
+  local results = {}
+  local cursor = '0'
+  repeat
+    local res = redis.call('SCAN', cursor, 'MATCH', p .. ':tasks:by_job:*', 'COUNT', 200)
+    cursor = res[1]
+    for _, set_key in ipairs(res[2]) do
+      local job_id = string.match(set_key, p .. ':tasks:by_job:(.+)')
+      if job_id then
+        local job_state = redis.call('HGET', p .. ':job:' .. job_id .. ':meta', 'state')
+        if job_state == 'running' then
+          local task_ids = redis.call('SMEMBERS', set_key)
+          for _, tid in ipairs(task_ids) do
+            local tkey = p .. ':task:' .. job_id .. ':' .. tid
+            local state = redis.call('HGET', tkey, 'state')
+            if state == 'pending' then
+              local waiting_on = tonumber(redis.call('HGET', tkey, 'waiting_on') or '0')
+              if waiting_on > 0 then
+                local prereqs_json = redis.call('HGET', tkey, 'prerequisites') or '[]'
+                local prereqs = cjson.decode(prereqs_json)
+                local actual_deps = #prereqs
+                local completed = 0
+                for _, pre_tid in ipairs(prereqs) do
+                  local pre_state = redis.call('HGET', p .. ':task:' .. job_id .. ':' .. pre_tid, 'state')
+                  if pre_state == 'done' then
+                    completed = completed + 1
+                  end
+                end
+                if completed >= actual_deps then
+                  table.insert(results, job_id)
+                  table.insert(results, tid)
+                  table.insert(results, tostring(waiting_on))
+                  table.insert(results, tostring(actual_deps))
+                  table.insert(results, tostring(completed))
+                  if #results / 5 >= limit then
+                    return results
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  until cursor == '0'
+  return results
+end)
+
 "#;
 
 async fn load_lua_functions(
@@ -1085,6 +1139,37 @@ impl RedisTaskDb {
                 .query_async(&mut conn)
                 .await?;
             Ok(())
+        })
+        .await
+    }
+
+    pub async fn check_stuck_pending_tasks(&self) -> Result<Vec<crate::StuckTaskInfo>, TaskDbErr> {
+        record("redis:check_stuck_pending", async {
+            let mut conn = self.conn().await?;
+            self.ensure_functions_loaded(&mut conn).await?;
+
+            let raw: Vec<String> = redis::cmd("FCALL")
+                .arg("find_stuck_pending")
+                .arg(0)
+                .arg(&self.namespace)
+                .arg(100)
+                .query_async(&mut conn)
+                .await?;
+
+            let mut results = Vec::new();
+            let mut i = 0;
+            while i + 4 < raw.len() {
+                results.push(crate::StuckTaskInfo {
+                    job_id: parse_uuid(&raw[i], "stuck_task job_id")?,
+                    task_id: raw[i + 1].clone(),
+                    waiting_on: raw[i + 2].parse().unwrap_or(0),
+                    actual_deps: raw[i + 3].parse().unwrap_or(0),
+                    completed_deps: raw[i + 4].parse().unwrap_or(0),
+                });
+                i += 5;
+            }
+
+            Ok(results)
         })
         .await
     }

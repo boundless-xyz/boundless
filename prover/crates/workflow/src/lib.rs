@@ -764,27 +764,21 @@ impl Agent {
 
             tracing::debug!("Checking for stuck pending tasks...");
 
-            // First check if there are any stuck tasks
             let stuck_tasks = task_db.check_stuck_pending_tasks().await?;
             if !stuck_tasks.is_empty() {
-                tracing::warn!("Found {} stuck pending tasks", stuck_tasks.len());
-
-                // Log details about stuck tasks
+                tracing::error!(
+                    count = stuck_tasks.len(),
+                    "STUCK TASKS DETECTED — pending tasks with all prerequisites done (possible data inconsistency)"
+                );
                 for task in &stuck_tasks {
-                    tracing::info!(
-                        "Stuck task: job_id={}, task_id={}, waiting_on={}, actual_deps={}, completed_deps={}",
-                        task.job_id,
-                        task.task_id,
-                        task.waiting_on,
-                        task.actual_deps,
-                        task.completed_deps
+                    tracing::error!(
+                        job_id = %task.job_id,
+                        task_id = %task.task_id,
+                        waiting_on = task.waiting_on,
+                        actual_deps = task.actual_deps,
+                        completed_deps = task.completed_deps,
+                        "Stuck task details"
                     );
-                }
-
-                // Fix the stuck tasks
-                let fixed_count = task_db.fix_stuck_pending_tasks().await?;
-                if fixed_count > 0 {
-                    tracing::info!("Fixed {} stuck pending tasks", fixed_count);
                 }
             }
         }

@@ -228,12 +228,9 @@ impl TaskDb {
     }
 
     pub async fn check_stuck_pending_tasks(&self) -> Result<Vec<StuckTaskInfo>, TaskDbErr> {
-        Ok(vec![])
+        self.redis.check_stuck_pending_tasks().await
     }
 
-    pub async fn fix_stuck_pending_tasks(&self) -> Result<i32, TaskDbErr> {
-        Ok(0)
-    }
 
     pub async fn clear_completed_jobs(&self) -> Result<i32, TaskDbErr> {
         self.redis.clear_completed_jobs().await
