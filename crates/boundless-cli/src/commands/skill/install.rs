@@ -21,11 +21,11 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::config::GlobalConfig;
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use colored::Colorize;
 use inquire::Select;
-use crate::config::GlobalConfig;
 
 const GITHUB_REPO: &str = "boundless-xyz/boundless";
 const GITHUB_BRANCH: &str = "main";
@@ -119,7 +119,11 @@ fn discover_local_skills(skills_dir: &Path) -> Result<Vec<Skill>> {
 }
 
 /// Recursively collect all files under `dir`, storing paths relative to `base`.
-fn collect_files_recursive(base: &Path, dir: &Path, files: &mut Vec<(String, String)>) -> Result<()> {
+fn collect_files_recursive(
+    base: &Path,
+    dir: &Path,
+    files: &mut Vec<(String, String)>,
+) -> Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -145,25 +149,18 @@ fn collect_files_recursive(base: &Path, dir: &Path, files: &mut Vec<(String, Str
 async fn discover_github_skills(client: &reqwest::Client) -> Result<Vec<Skill>> {
     // Use the Git Trees API to get the entire skills directory in one request.
     // First, we need the tree SHA for the branch.
-    let branch_url = format!(
-        "https://api.github.com/repos/{}/git/ref/heads/{}",
-        GITHUB_REPO, GITHUB_BRANCH
-    );
-    let branch: serde_json::Value = github_get_json(client, &branch_url).await
+    let branch_url =
+        format!("https://api.github.com/repos/{}/git/ref/heads/{}", GITHUB_REPO, GITHUB_BRANCH);
+    let branch: serde_json::Value = github_get_json(client, &branch_url)
+        .await
         .context("Failed to fetch branch ref from GitHub")?;
-    let commit_sha = branch["object"]["sha"]
-        .as_str()
-        .context("Could not find commit SHA")?;
+    let commit_sha = branch["object"]["sha"].as_str().context("Could not find commit SHA")?;
 
     // Get the commit to find the root tree.
-    let commit_url = format!(
-        "https://api.github.com/repos/{}/git/commits/{}",
-        GITHUB_REPO, commit_sha
-    );
+    let commit_url =
+        format!("https://api.github.com/repos/{}/git/commits/{}", GITHUB_REPO, commit_sha);
     let commit: serde_json::Value = github_get_json(client, &commit_url).await?;
-    let root_tree_sha = commit["tree"]["sha"]
-        .as_str()
-        .context("Could not find root tree SHA")?;
+    let root_tree_sha = commit["tree"]["sha"].as_str().context("Could not find root tree SHA")?;
 
     // Get the full repo tree recursively (single API call).
     let tree_url = format!(
@@ -171,9 +168,7 @@ async fn discover_github_skills(client: &reqwest::Client) -> Result<Vec<Skill>> 
         GITHUB_REPO, root_tree_sha
     );
     let tree: serde_json::Value = github_get_json(client, &tree_url).await?;
-    let entries = tree["tree"]
-        .as_array()
-        .context("Invalid tree response")?;
+    let entries = tree["tree"].as_array().context("Invalid tree response")?;
 
     // Filter to files under .claude/skills/ and group by skill name.
     let prefix = format!("{}/", SKILLS_PATH);
@@ -188,10 +183,7 @@ async fn discover_github_skills(client: &reqwest::Client) -> Result<Vec<Skill>> 
             if let Some(slash) = rel.find('/') {
                 let skill_name = &rel[..slash];
                 let file_path = &rel[slash + 1..];
-                skill_files
-                    .entry(skill_name.to_string())
-                    .or_default()
-                    .push(file_path.to_string());
+                skill_files.entry(skill_name.to_string()).or_default().push(file_path.to_string());
             }
         }
     }
@@ -209,12 +201,7 @@ async fn discover_github_skills(client: &reqwest::Client) -> Result<Vec<Skill>> 
         match fetch_github_skill_files(client, skill_name, file_paths).await {
             Ok(skill) => skills.push(skill),
             Err(e) => {
-                eprintln!(
-                    "{} Skipping skill '{}': {}",
-                    "⚠".yellow().bold(),
-                    skill_name,
-                    e
-                );
+                eprintln!("{} Skipping skill '{}': {}", "⚠".yellow().bold(), skill_name, e);
             }
         }
     }
@@ -267,11 +254,7 @@ async fn fetch_github_skill_files(
         files.push((file_path.clone(), content));
     }
 
-    Ok(Skill {
-        name: skill_name.to_string(),
-        description,
-        files,
-    })
+    Ok(Skill { name: skill_name.to_string(), description, files })
 }
 
 /// Where skills come from.
@@ -381,11 +364,7 @@ impl SkillInstall {
         // Discover skills: prefer local repo, fall back to GitHub.
         let (source, skills) = self.discover_skills().await?;
 
-        println!(
-            "  {} {}",
-            "Source:".dimmed(),
-            source.to_string().dimmed()
-        );
+        println!("  {} {}", "Source:".dimmed(), source.to_string().dimmed());
 
         if skills.is_empty() {
             bail!("No skills found");
@@ -397,11 +376,7 @@ impl SkillInstall {
             println!("{}", "Available skills:".bold());
             println!();
             for skill in &skills {
-                println!(
-                    "  {} {}",
-                    skill.name.bold(),
-                    format!("- {}", skill.description).dimmed()
-                );
+                println!("  {} {}", skill.name.bold(), format!("- {}", skill.description).dimmed());
             }
             println!();
             return Ok(());
@@ -416,11 +391,7 @@ impl SkillInstall {
                 Some(s) => vec![s],
                 None => {
                     let available: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
-                    bail!(
-                        "Unknown skill '{}'. Available skills: {}",
-                        name,
-                        available.join(", ")
-                    );
+                    bail!("Unknown skill '{}'. Available skills: {}", name, available.join(", "));
                 }
             }
         } else {
@@ -470,10 +441,7 @@ impl SkillInstall {
         }
 
         // Fall back to GitHub.
-        eprintln!(
-            "{}",
-            "Not inside the Boundless repo — fetching skills from GitHub...".dimmed()
-        );
+        eprintln!("{}", "Not inside the Boundless repo — fetching skills from GitHub...".dimmed());
         let client = reqwest::Client::new();
         let skills = discover_github_skills(&client).await?;
         Ok((SkillSource::Remote, skills))
@@ -488,8 +456,9 @@ impl SkillInstall {
             if let Some(parent) = Path::new(rel_path).parent() {
                 if !parent.as_os_str().is_empty() {
                     let dir = install_dir.join(parent);
-                    std::fs::create_dir_all(&dir)
-                        .with_context(|| format!("Failed to create directory: {}", dir.display()))?;
+                    std::fs::create_dir_all(&dir).with_context(|| {
+                        format!("Failed to create directory: {}", dir.display())
+                    })?;
                 }
             }
         }
@@ -505,11 +474,7 @@ impl SkillInstall {
 
         // Print success.
         println!();
-        println!(
-            "{} Skill '{}' installed successfully!",
-            "✓".green().bold(),
-            skill.name
-        );
+        println!("{} Skill '{}' installed successfully!", "✓".green().bold(), skill.name);
         println!();
 
         let display_path = if let Ok(cwd) = std::env::current_dir() {
