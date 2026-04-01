@@ -138,11 +138,11 @@ const PROD_BENTO_DOWN: AlarmConfig[] = [
 const STAGING_BENTO_DOWN: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "bento service down for 6 consecutive 5-min periods (30 min)",
-        metricConfig: { period: 300 },
+        description: "bento service down for 4 consecutive 15-min periods (1 hour)",
+        metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 6,
-            datapointsToAlarm: 6,
+            evaluationPeriods: 4,
+            datapointsToAlarm: 4,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
