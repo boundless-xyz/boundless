@@ -222,23 +222,30 @@ redis.register_function('request_work', function(keys, args)
       local task_id = string.sub(compound, sep + 1)
       local task_key = p .. ':task:' .. job_id .. ':' .. task_id
       local state = redis.call('HGET', task_key, 'state')
-      if state == 'ready' then
-        redis.call('HSET', task_key,
-          'state', 'running',
-          'started_at', tostring(now),
-          'updated_at', tostring(now))
-        local timeout = tonumber(redis.call('HGET', task_key, 'timeout_secs') or '0')
-        if timeout < 0 then
-          timeout = 0
+      if state ~= 'ready' then
+        -- stale entry (already cancelled/failed/done); skip to next candidate
+      else
+        local job_state = redis.call('HGET', p .. ':job:' .. job_id .. ':meta', 'state')
+        if job_state == 'failed' then
+          redis.call('HSET', task_key, 'state', 'cancelled', 'updated_at', tostring(now))
+        else
+          redis.call('HSET', task_key,
+            'state', 'running',
+            'started_at', tostring(now),
+            'updated_at', tostring(now))
+          local timeout = tonumber(redis.call('HGET', task_key, 'timeout_secs') or '0')
+          if timeout < 0 then
+            timeout = 0
+          end
+          redis.call('ZADD', p .. ':tasks:running', now + timeout, compound)
+          return {
+            job_id,
+            task_id,
+            redis.call('HGET', task_key, 'task_def'),
+            redis.call('HGET', task_key, 'prerequisites'),
+            redis.call('HGET', task_key, 'max_retries')
+          }
         end
-        redis.call('ZADD', p .. ':tasks:running', now + timeout, compound)
-        return {
-          job_id,
-          task_id,
-          redis.call('HGET', task_key, 'task_def'),
-          redis.call('HGET', task_key, 'prerequisites'),
-          redis.call('HGET', task_key, 'max_retries')
-        }
       end
     end
   end
@@ -326,6 +333,21 @@ redis.register_function('update_task_failed', function(keys, args)
   local job_user = redis.call('HGET', job_key, 'user_id')
   if job_user then
     redis.call('SREM', p .. ':jobs:running:' .. job_user, job_id)
+  end
+  -- Cancel all sibling tasks that are still pending or ready
+  local all_tasks = redis.call('SMEMBERS', p .. ':tasks:by_job:' .. job_id)
+  for _, tid in ipairs(all_tasks) do
+    if tid ~= task_id then
+      local sib_key = p .. ':task:' .. job_id .. ':' .. tid
+      local sib_state = redis.call('HGET', sib_key, 'state')
+      if sib_state == 'ready' or sib_state == 'pending' then
+        local sib_compound = job_id .. '|' .. tid
+        if sib_state == 'ready' then
+          remove_task_from_ready(p, sib_key, sib_compound)
+        end
+        redis.call('HSET', sib_key, 'state', 'cancelled', 'updated_at', tostring(now))
+      end
+    end
   end
   return 1
 end)
@@ -1086,8 +1108,9 @@ impl RedisTaskDb {
 
                 for key in keys {
                     let state: Option<String> = conn.hget(&key, "state").await?;
-                    if state.as_deref() != Some("done") {
-                        continue;
+                    match state.as_deref() {
+                        Some("done") | Some("failed") => {}
+                        _ => continue,
                     }
 
                     if let Some(job_id) = extract_job_id_from_meta_key(&self.namespace, &key)? {
