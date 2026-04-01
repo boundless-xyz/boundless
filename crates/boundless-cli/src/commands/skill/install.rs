@@ -210,13 +210,37 @@ async fn discover_github_skills(client: &reqwest::Client) -> Result<Vec<Skill>> 
 }
 
 /// Fetch a JSON response from the GitHub API.
+/// Uses GITHUB_TOKEN env var for authentication if available (avoids rate limits).
 async fn github_get_json(client: &reqwest::Client, url: &str) -> Result<serde_json::Value> {
-    client
+    let mut request = client
         .get(url)
         .header("User-Agent", "boundless-cli")
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await?
+        .header("Accept", "application/vnd.github.v3+json");
+
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        request = request.header("Authorization", format!("Bearer {}", token));
+    }
+
+    let response = request.send().await?;
+
+    if response.status() == reqwest::StatusCode::FORBIDDEN {
+        let is_rate_limited = response
+            .headers()
+            .get("x-ratelimit-remaining")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v == "0")
+            .unwrap_or(false);
+
+        if is_rate_limited {
+            bail!(
+                "GitHub API rate limit exceeded. Set GITHUB_TOKEN env var to authenticate \
+                 and increase your rate limit (unauthenticated: 60 req/hr, authenticated: 5,000 req/hr). \
+                 Create a token at https://github.com/settings/tokens"
+            );
+        }
+    }
+
+    response
         .error_for_status()?
         .json()
         .await
