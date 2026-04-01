@@ -7,9 +7,5 @@
   listen:
     - "Restart Bento"
     - "Restart docker"
-  ansible.builtin.systemd:
-    name: bento
-    state: restarted
-    daemon_reload: true
-  async: 3600
-  poll: 15
+  ansible.builtin.command:
+    cmd: systemctl restart --no-block bento
