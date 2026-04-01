@@ -17,6 +17,18 @@
   changed_when: false
   when: prover_wait_for_nightly_image | default(false) | bool
 
+- name: Wait for nightly Docker image to be available
+  ansible.builtin.command:
+    cmd: >-
+      docker manifest inspect
+      ghcr.io/boundless-xyz/boundless/bento-agent:nightly-{{ prover_commit_sha.stdout[:7] }}
+  register: _image_check
+  until: _image_check.rc == 0
+  retries: 60
+  delay: 30
+  when: prover_wait_for_nightly_image | default(false) | bool
+  changed_when: false
+
 - name: Generate Docker Compose environment file
   ansible.builtin.template:
     src: docker-compose.env.j2
