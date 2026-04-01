@@ -418,6 +418,20 @@ redis.register_function('delete_job', function(keys, args)
   redis.call('DEL', job_key)
   return 1
 end)
+
+redis.register_function('count_unresolved', function(keys, args)
+  local p = args[1]
+  local job_id = args[2]
+  local all_tasks = redis.call('SMEMBERS', p .. ':tasks:by_job:' .. job_id)
+  local unresolved = 0
+  for _, tid in ipairs(all_tasks) do
+    local state = redis.call('HGET', p .. ':task:' .. job_id .. ':' .. tid, 'state')
+    if state ~= 'done' then
+      unresolved = unresolved + 1
+    end
+  end
+  return unresolved
+end)
 "#;
 
 async fn load_lua_functions(
@@ -944,17 +958,15 @@ impl RedisTaskDb {
     pub async fn get_job_unresolved(&self, job_id: &Uuid) -> Result<i64, TaskDbErr> {
         record("redis:get_job_unresolved", async {
             let mut conn = self.conn().await?;
-            let task_ids: Vec<String> =
-                conn.smembers(self.prefixed(&format!("tasks:by_job:{job_id}"))).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
-            let mut unresolved = 0_i64;
-            for task_id in task_ids {
-                let state: Option<String> =
-                    conn.hget(self.prefixed(&format!("task:{job_id}:{task_id}")), "state").await?;
-                if state.as_deref() != Some("done") {
-                    unresolved += 1;
-                }
-            }
+            let unresolved: i64 = redis::cmd("FCALL")
+                .arg("count_unresolved")
+                .arg(0)
+                .arg(&self.namespace)
+                .arg(job_id.to_string())
+                .query_async(&mut conn)
+                .await?;
 
             Ok(unresolved)
         })
