@@ -37,11 +37,52 @@ pub fn address_from_private_key(pk: &str) -> Option<alloy::primitives::Address> 
     pk.parse::<PrivateKeySigner>().ok().map(|signer| signer.address())
 }
 
-/// Process a private key: strip 0x prefix and derive address
-pub fn process_private_key(pk: &str) -> (String, Option<String>) {
-    let pk_clean = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+/// Validate and clean a private key string.
+/// Strips whitespace, invisible characters, and optional 0x prefix.
+/// Returns the cleaned hex string or an error describing what's wrong.
+pub fn validate_private_key(pk: &str) -> Result<String, String> {
+    // Strip all whitespace and common invisible characters that terminals add when pasting
+    let cleaned: String = pk.chars().filter(|c| !c.is_whitespace() && !c.is_control()).collect();
+
+    // Strip optional 0x prefix
+    let hex_str = cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X")).unwrap_or(&cleaned);
+
+    if hex_str.is_empty() {
+        return Err("Private key is empty".to_string());
+    }
+
+    // Check for non-hex characters
+    if let Some(pos) = hex_str.find(|c: char| !c.is_ascii_hexdigit()) {
+        let bad_char = hex_str.chars().nth(pos).unwrap();
+        return Err(format!(
+            "Private key contains invalid character '{}' at position {}. Only hex characters (0-9, a-f, A-F) are allowed",
+            bad_char, pos
+        ));
+    }
+
+    // Check length (should be exactly 64 hex chars = 32 bytes)
+    if hex_str.len() != 64 {
+        return Err(format!(
+            "Private key has {} hex characters, expected 64 (32 bytes)",
+            hex_str.len()
+        ));
+    }
+
+    // Verify it actually parses as a valid private key
+    let lowercase = hex_str.to_lowercase();
+    if address_from_private_key(&lowercase).is_none() {
+        return Err("Private key is not a valid secp256k1 private key".to_string());
+    }
+
+    Ok(lowercase)
+}
+
+/// Process a private key: strip 0x prefix, validate, and derive address.
+/// Returns an error if the key is invalid.
+pub fn process_private_key(pk: &str) -> Result<(String, Option<String>), String> {
+    let pk_clean = validate_private_key(pk)?;
     let address = address_from_private_key(&pk_clean).map(|a| format!("{:#x}", a));
-    (pk_clean, address)
+    Ok((pk_clean, address))
 }
 
 #[cfg(test)]
@@ -115,5 +156,58 @@ mod tests {
 
         let result = merge_optional(&new_value, existing_value, &display, "Updated");
         assert_eq!(result, Some("new".to_string()));
+    }
+
+    #[test]
+    fn test_validate_private_key_valid() {
+        let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+        assert!(validate_private_key(pk).is_ok());
+    }
+
+    #[test]
+    fn test_validate_private_key_with_0x() {
+        let pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+        let result = validate_private_key(pk).unwrap();
+        assert_eq!(result, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+    }
+
+    #[test]
+    fn test_validate_private_key_with_whitespace() {
+        let pk = "  0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80  \n";
+        let result = validate_private_key(pk).unwrap();
+        assert_eq!(result, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+    }
+
+    #[test]
+    fn test_validate_private_key_odd_length() {
+        let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff8";
+        let err = validate_private_key(pk).unwrap_err();
+        assert!(err.contains("63 hex characters, expected 64"));
+    }
+
+    #[test]
+    fn test_validate_private_key_invalid_chars() {
+        let pk = "gc0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+        let err = validate_private_key(pk).unwrap_err();
+        assert!(err.contains("invalid character"));
+    }
+
+    #[test]
+    fn test_validate_private_key_empty() {
+        let err = validate_private_key("").unwrap_err();
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn test_process_private_key_valid() {
+        let pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+        let (clean, addr) = process_private_key(pk).unwrap();
+        assert_eq!(clean, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        assert_eq!(addr.unwrap(), "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+    }
+
+    #[test]
+    fn test_process_private_key_invalid() {
+        assert!(process_private_key("not_valid").is_err());
     }
 }
