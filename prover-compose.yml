@@ -122,7 +122,7 @@ services:
       [
         "sh",
         "-c",
-        'exec valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes $$(test -n "$$REDIS_PASSWORD" && echo "--requirepass $$REDIS_PASSWORD")',
+        'exec valkey-server --maxmemory-policy noeviction --save 900 1 --appendonly yes $$(test -n "$$REDIS_PASSWORD" && echo "--requirepass $$REDIS_PASSWORD")',
       ]
     healthcheck:
       test:

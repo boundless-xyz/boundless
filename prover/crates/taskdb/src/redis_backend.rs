@@ -3,6 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -419,22 +420,21 @@ redis.register_function('delete_job', function(keys, args)
 end)
 "#;
 
-static TASKDB_LIBRARY_LOADED: AtomicBool = AtomicBool::new(false);
-
-async fn ensure_functions_loaded(
+async fn load_lua_functions(
     conn: &mut redis::aio::MultiplexedConnection,
 ) -> Result<(), TaskDbErr> {
-    if TASKDB_LIBRARY_LOADED.load(Ordering::Acquire) {
-        return Ok(());
-    }
     redis::cmd("FUNCTION")
         .arg("LOAD")
         .arg("REPLACE")
         .arg(TASKDB_LIBRARY)
         .query_async::<_, String>(conn)
         .await?;
-    TASKDB_LIBRARY_LOADED.store(true, Ordering::Release);
     Ok(())
+}
+
+fn is_function_not_found(err: &redis::RedisError) -> bool {
+    err.to_string().to_lowercase().contains("no matching script")
+        || err.to_string().to_lowercase().contains("function not found")
 }
 
 async fn record<T, Fut>(op: &str, f: Fut) -> Result<T, TaskDbErr>
@@ -456,6 +456,7 @@ where
 pub struct RedisTaskDb {
     client: redis::Client,
     namespace: String,
+    lua_loaded: Arc<AtomicBool>,
 }
 
 impl RedisTaskDb {
@@ -468,11 +469,53 @@ impl RedisTaskDb {
         namespace: impl Into<String>,
     ) -> Result<Self, TaskDbErr> {
         let client = redis::Client::open(redis_url)?;
-        Ok(Self { client, namespace: namespace.into() })
+        Ok(Self {
+            client,
+            namespace: namespace.into(),
+            lua_loaded: Arc::new(AtomicBool::new(false)),
+        })
+    }
+
+    /// Reset the Lua loaded flag, forcing re-load on the next operation.
+    /// Call this when a Redis reconnect is detected or suspected.
+    pub fn reset_lua_loaded(&self) {
+        self.lua_loaded.store(false, Ordering::Release);
     }
 
     async fn conn(&self) -> Result<redis::aio::MultiplexedConnection, TaskDbErr> {
         Ok(self.client.get_multiplexed_async_connection().await?)
+    }
+
+    async fn ensure_functions_loaded(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+    ) -> Result<(), TaskDbErr> {
+        if self.lua_loaded.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        load_lua_functions(conn).await?;
+        self.lua_loaded.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    /// Run an FCALL, automatically reloading Lua functions on "No matching script" errors
+    /// (e.g. after a Redis restart that flushed the function library).
+    async fn fcall(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        cmd: &mut redis::Cmd,
+    ) -> Result<redis::Value, TaskDbErr> {
+        match cmd.query_async::<redis::Value>(conn).await {
+            Ok(val) => Ok(val),
+            Err(e) if is_function_not_found(&e) => {
+                tracing::warn!("Lua function not found, reloading library after likely Redis restart");
+                self.lua_loaded.store(false, Ordering::Release);
+                load_lua_functions(conn).await?;
+                self.lua_loaded.store(true, Ordering::Release);
+                Ok(cmd.query_async::<redis::Value>(conn).await?)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn prefixed(&self, key: &str) -> String {
@@ -545,7 +588,7 @@ impl RedisTaskDb {
 
             let stream_id = Uuid::new_v4();
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let created_id: String = redis::cmd("FCALL")
                 .arg("create_stream")
@@ -598,7 +641,7 @@ impl RedisTaskDb {
             let task_def_str = serde_json::to_string(task_def)?;
 
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let created_id: String = redis::cmd("FCALL")
                 .arg("create_job")
@@ -637,7 +680,7 @@ impl RedisTaskDb {
             let prereqs_str = serde_json::to_string(prereqs)?;
 
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let _: i32 = redis::cmd("FCALL")
                 .arg("create_task")
@@ -662,7 +705,7 @@ impl RedisTaskDb {
     async fn request_work_inner(&self, worker_type: &str) -> Result<Option<ReadyTask>, TaskDbErr> {
         let now = now_seconds();
         let mut conn = self.conn().await?;
-        ensure_functions_loaded(&mut conn).await?;
+        self.ensure_functions_loaded(&mut conn).await?;
 
         let raw: Option<(String, String, String, String, i32)> = redis::cmd("FCALL")
             .arg("request_work")
@@ -739,7 +782,7 @@ impl RedisTaskDb {
             let output_str = serde_json::to_string(&output)?;
 
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let updated: i32 = redis::cmd("FCALL")
                 .arg("update_task_done")
@@ -766,7 +809,7 @@ impl RedisTaskDb {
         record("redis:update_task_failed", async {
             let now = now_seconds();
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let updated: i32 = redis::cmd("FCALL")
                 .arg("update_task_failed")
@@ -793,7 +836,7 @@ impl RedisTaskDb {
         record("redis:update_task_progress", async {
             let now = now_seconds();
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let updated: i32 = redis::cmd("FCALL")
                 .arg("update_task_progress")
@@ -815,7 +858,7 @@ impl RedisTaskDb {
         record("redis:update_task_retry", async {
             let now = now_seconds();
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let updated: i32 = redis::cmd("FCALL")
                 .arg("update_task_retry")
@@ -998,7 +1041,7 @@ impl RedisTaskDb {
     pub async fn delete_job(&self, job_id: &Uuid) -> Result<(), TaskDbErr> {
         record("redis:delete_job", async {
             let mut conn = self.conn().await?;
-            ensure_functions_loaded(&mut conn).await?;
+            self.ensure_functions_loaded(&mut conn).await?;
 
             let _: i32 = redis::cmd("FCALL")
                 .arg("delete_job")
