@@ -61,9 +61,6 @@ use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
-const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
-
 #[derive(Error)]
 pub enum ChainMonitorV2Err {
     #[error("{code} RPC error: {0:#}", code = self.code())]
@@ -152,7 +149,9 @@ where
         lookback_blocks: u64,
         chain_id: u64,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
-    ) -> Result<(Self, mpsc::Receiver<Box<OrderRequest>>)> {
+        new_order_tx: mpsc::Sender<Box<OrderRequest>>,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
+    ) -> Result<Self> {
         let initial_block = provider
             .get_block_by_number(BlockNumberOrTag::Latest)
             .await
@@ -210,47 +209,31 @@ where
              poll_interval={poll_interval:?}, initial_gas_price={initial_gas_price}"
         );
 
-        let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-        let (order_state_tx, _) = broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
-
-        Ok((
-            Self {
-                db,
-                provider,
-                any_provider,
-                market_addr,
-                prover_addr,
-                lookback_blocks,
-                chain_id,
-                poll_interval,
-                block_time,
-                new_order_tx,
-                order_state_tx,
-                head_block_number: Arc::new(AtomicU64::new(initial_number)),
-                head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
-                open_orders_found: Arc::new(AtomicBool::new(false)),
-                last_processed_block: Arc::new(AtomicU64::new(initial_number)),
-                gas_priority_mode,
-                block_history: Arc::new(RwLock::new(block_history)),
-                gas_price: Arc::new(RwLock::new(initial_gas_price)),
-            },
-            new_order_rx,
-        ))
+        Ok(Self {
+            db,
+            provider,
+            any_provider,
+            market_addr,
+            prover_addr,
+            lookback_blocks,
+            chain_id,
+            poll_interval,
+            block_time,
+            new_order_tx,
+            order_state_tx,
+            head_block_number: Arc::new(AtomicU64::new(initial_number)),
+            head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
+            open_orders_found: Arc::new(AtomicBool::new(false)),
+            last_processed_block: Arc::new(AtomicU64::new(initial_number)),
+            gas_priority_mode,
+            block_history: Arc::new(RwLock::new(block_history)),
+            gas_price: Arc::new(RwLock::new(initial_gas_price)),
+        })
     }
 
     /// Returns the sampled block time (in seconds) from construction.
     pub(crate) fn block_time(&self) -> u64 {
         self.block_time
-    }
-
-    /// Returns a clone of the new-order sender for use by other monitors (e.g. `OffchainMarketMonitor`).
-    pub(crate) fn new_order_tx(&self) -> mpsc::Sender<Box<OrderRequest>> {
-        self.new_order_tx.clone()
-    }
-
-    /// Returns a clone of the order-state broadcast sender for use by downstream components.
-    pub(crate) fn order_state_tx(&self) -> broadcast::Sender<OrderStateChange> {
-        self.order_state_tx.clone()
     }
 
     #[cfg(test)]
@@ -781,7 +764,10 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let gas_priority_mode = Arc::new(RwLock::new(PriorityMode::default()));
 
-        let (monitor, _new_order_rx) = ChainMonitorV2::new(
+        let (new_order_tx, _new_order_rx) = mpsc::channel(100);
+        let (order_state_tx, _) = broadcast::channel(100);
+
+        ChainMonitorV2::new(
             db,
             provider,
             any_provider,
@@ -790,10 +776,11 @@ mod tests {
             10, // lookback_blocks
             1,  // chain_id
             gas_priority_mode,
+            new_order_tx,
+            order_state_tx,
         )
         .await
-        .expect("ChainMonitorV2::new should succeed with valid mock responses");
-        monitor
+        .expect("ChainMonitorV2::new should succeed with valid mock responses")
     }
 
     /// Verifies that `verify_receipts_root` correctly computes the receipts root for a real
