@@ -64,7 +64,7 @@ mod selection_strings {
 #[derive(Args, Clone, Debug)]
 pub struct ProverGenerateConfig {
     /// Path to output broker.toml file
-    #[clap(long, default_value = "./broker.toml")]
+    #[clap(long, default_value = "./config/broker.toml")]
     pub broker_toml_file: PathBuf,
 
     /// Path to output compose.yml file

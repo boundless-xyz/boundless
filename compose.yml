@@ -356,8 +356,8 @@ services:
     <<: *broker-common
     volumes:
       - type: bind
-        source: ./broker.toml
-        target: /app/broker.toml
+        source: ${BROKER_CONFIG_DIR:-./config}
+        target: /app/config
       - broker-data:/db/
     # Uncomment when using locally built set-builder and assessor guest programs
     # - type: bind
@@ -368,7 +368,7 @@ services:
     #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
     environment:
       <<: *broker-environment
-    entrypoint: ["/bin/sh", "-c", "exec /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 ${BROKER_EXTRA_ARGS:-}"]
+    entrypoint: ["/bin/sh", "-c", "exec /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/config/broker.toml --bento-api-url http://localhost:8081 ${BROKER_EXTRA_ARGS:-}"]
 
   # # Example second broker with different configuration
   # broker2:
