@@ -129,6 +129,30 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  broker:
+    profiles: ["dev-broker"]
+    build:
+      context: ..
+      dockerfile: dockerfiles/broker.localnet.dockerfile
+      args:
+        BUILD_PROFILE: ${BUILD_PROFILE:-dev}
+    network_mode: host
+    depends_on:
+      deployer:
+        condition: service_completed_successfully
+      order-stream:
+        condition: service_healthy
+    environment:
+      RISC0_DEV_MODE: "${RISC0_DEV_MODE:-1}"
+      RUST_LOG: "info,broker=debug,boundless_market=debug"
+      PROVER_RPC_URL: "http://localhost:8545"
+      PROVER_PRIVATE_KEY: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
+      ORDER_STREAM_URL: "http://localhost:8585"
+    volumes:
+      - deployer-env:/shared:ro
+      - ../broker.toml:/app/broker.toml:ro
+    restart: unless-stopped
+
 volumes:
   anvil-data:
   deployer-env:

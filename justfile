@@ -252,22 +252,30 @@ clean:
 localnet action="up":
     #!/usr/bin/env bash
     set -e
+    COMPOSE="docker compose -f dockerfiles/compose.localnet.yml"
+    DEV_MODE="${RISC0_DEV_MODE:-1}"
+
+    # Ensure broker.toml exists with localnet-compatible price oracle config
+    if [ ! -f broker.toml ]; then
+        cp broker-template.toml broker.toml
+    fi
+    if ! grep -q '\[price_oracle\]' broker.toml 2>/dev/null; then
+        printf '\n# Localnet price oracle: static prices, no on-chain feeds (anvil has no chainlink).\n[price_oracle]\neth_usd = "2500.0"\nzkc_usd = "1.0"\n\n[price_oracle.onchain.chainlink]\nenabled = false\n' >> broker.toml
+    fi
+
+    # In dev mode, include the broker container
+    if [ "$DEV_MODE" = "1" ] || [ "$DEV_MODE" = "true" ]; then
+        COMPOSE="$COMPOSE --profile dev-broker"
+    fi
+
     case "{{action}}" in
         up)
             [ -f .env.localnet ] || cp .env.localnet-template .env.localnet
-            docker compose -f dockerfiles/compose.localnet.yml up -d --build --wait
-            # Ensure broker.toml exists with localnet-compatible price oracle config
-            if [ ! -f broker.toml ]; then
-                cp broker-template.toml broker.toml
-            fi
-            # Workaround given price feed default doesn't work on localnet
-            if ! grep -q '\[price_oracle\]' broker.toml 2>/dev/null; then
-                printf '\n# Localnet price oracle: static prices, no on-chain feeds (anvil has no chainlink).\n[price_oracle]\neth_usd = "2500.0"\nzkc_usd = "1.0"\n\n[price_oracle.onchain.chainlink]\nenabled = false\n' >> broker.toml
-            fi
+            $COMPOSE up -d --build --wait
             ;;
-        down)  docker compose -f dockerfiles/compose.localnet.yml down ;;
-        clean) docker compose -f dockerfiles/compose.localnet.yml down -v && rm -f .env.localnet ;;
-        logs)  docker compose -f dockerfiles/compose.localnet.yml logs -f ;;
+        down)  $COMPOSE --all down ;;
+        clean) $COMPOSE --all down -v && rm -f .env.localnet ;;
+        logs)  $COMPOSE logs -f ;;
         *)     echo "Available actions: up, down, clean, logs"; exit 1 ;;
     esac
 
