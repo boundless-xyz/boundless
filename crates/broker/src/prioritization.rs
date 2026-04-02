@@ -244,8 +244,7 @@ pub(crate) fn prioritize_orders_to_commit(
         return Vec::new();
     }
 
-    let mode =
-        UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
+    let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
     sort_orders_by_priority_and_mode(orders, priority_addresses, mode);
 
     let take_count = std::cmp::min(capacity, orders.len());
@@ -1421,11 +1420,8 @@ mod tests {
         // Order A: margin = 100 - 80 = 20s (tightest)
         // Order C: margin = 50 - 20 = 30s
         // Order B: margin = 60 - 10 = 50s (most slack)
-        let result = prioritize_commitment_orders(
-            orders,
-            OrderCommitmentPriority::TightestDeadline,
-            None,
-        );
+        let result =
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
 
         assert_eq!(result[0].id(), id_a, "Order A (margin=20s) should be first");
         assert_eq!(result[1].id(), id_c, "Order C (margin=30s) should be second");
@@ -1455,11 +1451,8 @@ mod tests {
         let orders = vec![Arc::from(order_a), Arc::from(order_b)];
 
         // No peak_prove_khz → falls back to ShortestExpiry (by raw expiry)
-        let result = prioritize_commitment_orders(
-            orders,
-            OrderCommitmentPriority::TightestDeadline,
-            None,
-        );
+        let result =
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
 
         // ShortestExpiry: order_b expires sooner (current+60 < current+100)
         assert_eq!(result[0].id(), id_b, "Should fall back to ShortestExpiry");
@@ -1491,11 +1484,8 @@ mod tests {
 
         let orders = vec![Arc::from(order_b), Arc::from(order_a)];
 
-        let result = prioritize_commitment_orders(
-            orders,
-            OrderCommitmentPriority::TightestDeadline,
-            None,
-        );
+        let result =
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
 
         // Order A: margin = 100 - 80 = 20s (tightest)
         // Order B: margin = 50 - 0 = 50s (no cycles, prove time = 0)
@@ -1528,11 +1518,8 @@ mod tests {
 
         let orders = vec![Arc::from(order_b), Arc::from(order_a)];
 
-        let result = prioritize_commitment_orders(
-            orders,
-            OrderCommitmentPriority::TightestDeadline,
-            None,
-        );
+        let result =
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
 
         // Order A: margin = max(0, 30-50) = 0 (clamped, tightest)
         // Order B: margin = 100-10 = 90
