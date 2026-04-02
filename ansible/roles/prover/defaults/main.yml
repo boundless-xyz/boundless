@@ -47,20 +47,25 @@ prover_segment_size: 20
 prover_risc0_keccak_po2: 17
 prover_redis_ttl: 57600
 prover_snark_timeout: "180"
-prover_executor_count: 4
+prover_executor_count: 8
 prover_aux_worker_count: 2
 
-# Set to "all" to build all images from source (nightly), or leave empty to use pre-built images (release)
+# Set to "all" to build all images from source, or leave empty to use pre-built images.
 prover_boundless_build: ""
-# Docker image version for pre-built images (ignored when building from source)
-# Tags are constructed per image: bento-agent uses "bento-v{version}", broker uses "broker-v{version}",
-# bento-rest-api uses "bento-v{version}". Set to e.g. "1.2" for the v1.2 release tags.
+# Docker image tag override. When set, ALL images use this exact tag (e.g. "nightly-latest").
+# Takes precedence over prover_image_version.
+prover_image_tag: ""
+# Docker image version for release images (ignored when prover_image_tag is set).
+# Tags are constructed per image: bento-agent uses "bento-v{version}", broker uses "broker-v{version}".
 # When empty, "latest" is used for all images.
 prover_image_version: ""
+# When true and prover_image_tag starts with "nightly", wait for the nightly image matching
+# the deployed commit SHA before restarting. Prevents deploying before docker-services CI finishes.
+prover_wait_for_nightly_image: false
 
-# Optional Dockerfile overrides (e.g. "dockerfiles/agent.cpu.dockerfile" for CPU-only hosts)
-# Leave empty to use compose.yml defaults.
+# Optional Dockerfile overrides. Leave empty to use compose.yml defaults.
 prover_agent_dockerfile: ""
+prover_gpu_agent_dockerfile: ""
 prover_broker_dockerfile: ""
 prover_rest_api_dockerfile: ""
 
@@ -76,8 +81,10 @@ prover_broker_experimental_rpc: false
 # Optional extra CLI args for the broker (e.g. "--other-flag"). Ignored when prover_broker_experimental_rpc is true.
 prover_broker_extra_args: ""
 
-# Broker configuration URL
+# Broker configuration URL (used when prover_broker_toml_local is not set)
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
+# Local broker.toml file path. When set, copies this file instead of downloading from URL.
+prover_broker_toml_local: ""
 # MinIO input TTL: 0 disables the lifecycle rule, >0 expires inputs/ objects after N days
 prover_input_ttl_days: 1
 

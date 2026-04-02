@@ -1,6 +1,6 @@
 ---
 name: ops-indexer-query
-description: Query the Boundless Indexer REST API for on-chain market data, staking, PoVW rewards, delegations, and market efficiency on prod/staging environments. Use when the user asks about proof requests, provers, requestors, staking data, PoVW rewards, delegations, market aggregates, leaderboards, or wants to fetch data from the indexer API on live networks. Also use when the user mentions "indexer" and wants to look up addresses, requests, or market statistics on deployed environments. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
+description: Internal — for Boundless team members only. Query the Boundless Indexer REST API for on-chain market data, staking, PoVW rewards, delegations, and market efficiency on prod/staging environments. Use when the user asks about proof requests, provers, requestors, staking data, PoVW rewards, delegations, market aggregates, leaderboards, or wants to fetch data from the indexer API on live networks. Also use when the user mentions "indexer" and wants to look up addresses, requests, or market statistics on deployed environments. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
 ---
 
 # Indexer Query

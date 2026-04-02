@@ -1,6 +1,6 @@
 ---
 name: ops-telemetry-query
-description: Query Boundless broker telemetry tables on Redshift for prod/staging operational data. Use when the user asks about broker health, request evaluations, request completions, proving times, skip rates, telemetry data, or wants to run SQL against the telemetry database on live networks. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
+description: Internal — for Boundless team members only. Query Boundless broker telemetry tables on Redshift for prod/staging operational data. Use when the user asks about broker health, request evaluations, request completions, proving times, skip rates, telemetry data, or wants to run SQL against the telemetry database on live networks. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
 ---
 
 # Telemetry Query
