@@ -38,8 +38,8 @@ Telemetry is **opt-in** -- not all brokers send telemetry. If a prover address h
 All investigations follow the same pattern:
 
 1. **Identify targets** -- Use the indexer to find the relevant requests/addresses/time periods.
-2. **Correlate with telemetry** -- Use the request IDs, digests, or broker address + time window to look up telemetry data.
-3. **Dig into logs** (if applicable) -- Search CloudWatch logs for the same request IDs/digests within the time window to get raw error messages, stack traces, or detailed runtime context.
+2. **Correlate with telemetry** -- Use the request IDs, digests, or broker address + time window to look up telemetry data. Telemetry provides a pre-processed view with structured skip reasons, error codes, proving durations, and estimation accuracy -- this should answer most questions about why orders were skipped, failed, or slashed without needing raw logs.
+3. **Dig into logs** (last resort) -- Only go to CloudWatch logs if the indexer and telemetry data are insufficient. Logs are useful when you need raw error messages, stack traces, or runtime details that telemetry doesn't capture (e.g. infrastructure-level failures, panics, or non-prover service issues). One particularly useful check: **look for recent deployments** in bento prover logs. Nightly deployments restart Docker Compose and can explain gaps in telemetry, sudden behavior changes, or outages. New code deployed can also introduce bugs. See the "Checking for Recent Deployments" section in the ops-logs-query skill.
 4. **Analyze and synthesize** -- Combine findings from all sources into a coherent narrative.
 
 Rate limit all sources:
@@ -48,17 +48,43 @@ Rate limit all sources:
 - Redshift: No rate limit, but use `LIMIT` on exploratory queries.
 - CloudWatch: `sleep 1` between paginated log queries.
 
-## Investigations
+## Pre-Built Investigations
 
-For detailed step-by-step investigation procedures, read [references/investigations.md](references/investigations.md).
+**Before starting any work, check if the user's question matches a pre-built investigation.** These are tested playbooks with the right queries, presentation format, and step-by-step instructions. Using them produces consistent, comprehensive results. Each lives in its own file under `references/`:
 
-Available investigations:
+| Investigation | File | When to use |
+| --- | --- | --- |
+| **Market Summary** | [references/market-summary.md](references/market-summary.md) | "How's the market?" / "give me a summary" / overview of health, prover activity, failures, skips |
+| **Slashing Reasons** | [references/slashing-reasons.md](references/slashing-reasons.md) | Prover was slashed -- find out why |
+| **Fulfillment Rate Drops** | [references/fulfillment-rate-drops.md](references/fulfillment-rate-drops.md) | Market or prover fulfillment rate declined, success rate alarms |
+| **Prover Performance** | [references/prover-performance.md](references/prover-performance.md) | Deep dive into a specific prover's operational health |
+| **Request Lifecycle** | [references/request-lifecycle.md](references/request-lifecycle.md) | Trace a specific request end-to-end across all data sources |
 
-| Investigation              | When to use                                                                                                     |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| **Slashing Reasons**       | Prover was slashed on one or more requests. Find out why -- proving failures, estimation errors, overload, etc. |
-| **Fulfillment Rate Drops** | Market or prover fulfillment rate declined. Correlate with telemetry error patterns.                            |
-| **Prover Performance**     | Deep dive into a prover's operational health -- proving speeds, error rates, capacity utilization.              |
-| **Request Lifecycle**      | Trace a specific request from submission through evaluation, proving, and completion across both data sources.  |
+If the user's question clearly maps to one of these, read the corresponding file and follow it step by step. If it doesn't fit any pre-built investigation, fall back to the general Investigation Workflow above and build a custom investigation.
 
-If the user's question doesn't map to a specific investigation, use the general pattern: identify targets in the indexer, then correlate with telemetry.
+## Presenting Results
+
+### Addresses
+
+Always show the **full address** when displaying broker/prover addresses. Do not truncate to `0x8305...04b5`. If a label exists in `network_address_labels.json`, show both: `0x83052f16a84e6f2cec4bf3beda45c40c800904b5 (BP1)`.
+
+### Prover Summary Tables
+
+When showing prover activity, pivot telemetry outcomes into columns so each prover is one row. Include fulfilled, failures, and skips as separate columns. By default summary tables should cover the **top 5 provers by volume** plus **all provers we operate** (from address labels).
+
+### Failure and Skip Breakdowns
+
+After the summary table, include two separate breakdown sections:
+
+**Failure breakdown**: For each prover, show a per-prover table of `outcome`, `error_code`, summarized `error_reason`, and count. Group by error pattern, not by individual request.
+
+**Skip breakdown**: Same structure — per-prover table of `skip_code`, example reason, and count, sorted by count descending.
+
+**Drop breakdown**: Same structure — per-prover table of `commitment_skip_code`, reason, and count, sorted by count descending.
+
+### Telemetry Terminology
+
+- **Locked**: Order was priced and the broker decided to try locking it on-chain.
+- **Skipped**: Order was rejected during pricing in the OrderPicker (e.g. unprofitable, wrong image, over capacity). It never reached the OrderMonitor.
+- **Committed**: Order was successfully committed to the proving pipeline (lock tx succeeded or immediate commitment for FulfillAfterLockExpire).
+- **Dropped**: Order reached the OrderMonitor but was NOT committed to the proving pipeline. Reasons include: lock tx failed, order was fulfilled/expired/locked by another prover before we could act, insufficient deadline remaining, or insufficient balance. Check `commitment_skip_code` for specifics.

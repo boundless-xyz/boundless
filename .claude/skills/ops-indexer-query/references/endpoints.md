@@ -7,6 +7,15 @@ Two indexer types exist with non-overlapping endpoint sets:
 - **Market Indexers** (L2 chains): market, requestor, prover, efficiency endpoints. Use `$MARKET_INDEXER_URL`.
 - **ZKC Indexers** (Ethereum L1): staking, PoVW, delegation endpoints. Use `$ZKC_INDEXER_URL`.
 
+**Note**: This reference may be out of date. The source of truth for response schemas and query parameters is the codebase:
+
+- **Market response types**: `crates/boundless-market/src/indexer_types.rs`
+- **Staking/PoVW/delegation/efficiency types**: `crates/lambdas/indexer-api/src/models.rs`
+- **Route definitions**: `crates/lambdas/indexer-api/src/routes/`
+- **OpenAPI spec**: `$INDEXER_URL/openapi.yaml` (live, always current)
+
+If a field is missing from this reference, check those files or fetch the live OpenAPI spec.
+
 ## Table of Contents
 
 **Market Indexer** (`$MARKET_INDEXER_URL`):

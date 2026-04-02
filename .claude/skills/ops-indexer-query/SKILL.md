@@ -26,6 +26,7 @@ If the user does not specify which network to query, ask them which network they
 | ------------ | ----------- | --------------------------------------- | ------------------- |
 | Base         | prod        | `https://d2mdvlnmyov1e1.cloudfront.net` | Eth Mainnet Prod    |
 | Taiko        | prod        | `https://d29nqt0gudcxhl.cloudfront.net` | Eth Mainnet Prod    |
+| Eth Sepolia  | prod        | `https://d3jjbcwhlw21k7.cloudfront.net` | Eth Sepolia Prod    |
 | Base Sepolia | prod        | `https://d3kkukmpiqlzm1.cloudfront.net` | Eth Sepolia Prod    |
 | Taiko        | staging     | `https://d1wuyzcum0d4x4.cloudfront.net` | Eth Sepolia Staging |
 | Base Sepolia | staging     | `https://d29i5cy5rhdodq.cloudfront.net` | Eth Sepolia Staging |

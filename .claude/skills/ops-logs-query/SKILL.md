@@ -21,15 +21,24 @@ export AWS_DEFAULT_REGION="us-west-2"
 
 ## Finding Log Groups
 
-### Known prover log groups
+### Prover log groups
 
-These are stable and won't change:
+Prover log groups follow the pattern `/boundless/bento/<hostname>`. The hostnames are defined in the Pulumi config files:
 
-| Log Group                                       | Environment | Network      | Description                    |
-| ----------------------------------------------- | ----------- | ------------ | ------------------------------ |
-| `/boundless/bento/prover-84532-staging-nightly` | staging     | Base Sepolia | Staging nightly prover         |
-| `/boundless/bento/base-mainnet-prover-nightly`  | prod        | Base         | Prod nightly prover            |
-| `/boundless/bento/base-mainnet-prover-release`  | prod        | Base         | Prod release prover (backstop) |
+- **Staging**: `infra/cw-monitoring/Pulumi.staging.yaml`
+- **Prod**: `infra/cw-monitoring/Pulumi.production.yaml`
+
+Read the relevant Pulumi config to find current hostnames. As of now:
+
+| Log Group                                       | Environment | Chain ID               | Description                                                                      |
+| ----------------------------------------------- | ----------- | ---------------------- | -------------------------------------------------------------------------------- |
+| `/boundless/bento/prover-84532-staging-nightly` | staging     | 84532 (Base Sepolia)   | Staging nightly prover                                                           |
+| `/boundless/bento/prover-8453-prod-release`     | prod        | 8453 (Base)            | Prod release prover. Legacy name: `/boundless/bento/base-mainnet-prover-release` |
+| `/boundless/bento/prover-8453-prod-nightly`     | prod        | 8453 (Base)            | Prod nightly prover. Legacy name: `/boundless/bento/base-mainnet-prover-nightly` |
+| `/boundless/bento/prover-84532-prod-nightly`    | prod        | 84532 (Base Sepolia)   | Prod Base Sepolia nightly prover                                                 |
+| `/boundless/bento/prover-11155111-prod-nightly` | prod        | 11155111 (Eth Sepolia) | Prod Eth Sepolia nightly prover                                                  |
+
+If these are out of date, check the Pulumi config files for the current list.
 
 We only have prover log groups for provers we operate. External provers do not have queryable logs.
 
@@ -218,6 +227,47 @@ done
 - `?term1 ?term2` -- OR: matches logs containing either term
 - `"term1" "term2"` -- AND: matches logs containing both terms
 - `"ERROR" "request_id"` -- combine filters
+
+## Checking for Recent Deployments
+
+When investigating fulfillment rate drops, prover downtime, or success rate alarms for provers we operate, **always check for recent deployments first**. Nightly deployments restart the bento Docker Compose stack and can cause extended outages if the new image is broken.
+
+Deployment events appear in the bento prover log groups (e.g. `/boundless/bento/prover-11155111-prod-nightly`). Look for these patterns:
+
+```bash
+# Find recent deployments in a time window
+aws logs filter-log-events \
+  --log-group-name "$LOG_GROUP" \
+  --start-time "$START_MS" \
+  --end-time "$END_MS" \
+  --filter-pattern '?"Stopping Docker Compose" ?"Starting Docker Compose"' \
+  --output json | jq '.events[] | {timestamp: (.timestamp / 1000 | todate), message: .message}'
+```
+
+A deployment cycle looks like:
+
+1. `"Stopping Docker Compose services"` — old containers torn down
+2. `"Image ghcr.io/boundless-xyz/boundless/broker:<tag> Pulling"` — new image pulled (the tag contains the git commit, e.g. `nightly-3b8a71f`)
+3. `"Container bento-broker-1 Created"` / `"Starting"` — new containers come up
+4. Optionally: `"dependency failed to start: container ... is unhealthy"` — a container failed its healthcheck, cascading to broker failure
+
+Deployments are significant events -- they restart the broker (causing a brief gap in telemetry and fulfillments even when healthy) and deploy new code that could introduce bugs or behavior changes. Always note when a deployment occurred relative to the issue being investigated.
+
+If the broker stopped fulfilling shortly after a deployment, check for:
+
+- **Healthcheck failures**: `?"unhealthy" ?"failed to start" ?"Error dependency"` — a dependency container (often `rest_api`) failed, preventing the broker from starting
+- **Container crashes**: `?"exit" ?"Exited" ?"Restarting"` — the broker or a dependency crashed after startup
+- **Image tag**: compare the deployed image tag (git commit hash) against the git log to identify what changed
+
+```bash
+# Check for container failures after a deployment
+aws logs filter-log-events \
+  --log-group-name "$LOG_GROUP" \
+  --start-time "$START_MS" \
+  --end-time "$END_MS" \
+  --filter-pattern '?"unhealthy" ?"failed to start" ?"Exited" ?"Error dependency"' \
+  --output json | jq '.events[] | {timestamp: (.timestamp / 1000 | todate), message: .message}'
+```
 
 ## Tips
 

@@ -1,7 +1,7 @@
 ---
 name: release-notes
 description: >-
-  Generate release notes for a new Boundless version. Fetches PR details,
+  Internal — for Boundless team members only. Generate release notes for a new Boundless version. Fetches PR details,
   explores code changes, and produces prover-facing documentation with config
   examples, migration guides, and worked examples. Use when the user wants to
   write release notes, changelog entries, or upgrade guides.
