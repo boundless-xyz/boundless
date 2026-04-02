@@ -53,7 +53,7 @@ Look for: hours/days with 0 locks (prover was down), drops in fulfillment rate, 
 
 ## Step 3: Get telemetry completion and evaluation summary
 
-When presenting prover telemetry, pivot outcomes into **columns** rather than showing one row per outcome. Include fulfilled count, failure count, skip count, and average timing.
+When presenting prover telemetry, pivot outcomes into **columns** rather than showing one row per outcome. Include fulfilled count, cancelled (race losses), failure count, and average timing. `Cancelled` means the broker completed a proof but another prover fulfilled first — it's wasted work but not an error.
 
 For completions:
 
@@ -62,7 +62,8 @@ SELECT
   broker_address,
   COUNT(*) AS completions,
   SUM(CASE WHEN outcome = 'Fulfilled' THEN 1 ELSE 0 END) AS fulfilled,
-  SUM(CASE WHEN outcome <> 'Fulfilled' THEN 1 ELSE 0 END) AS failures,
+  SUM(CASE WHEN outcome = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled,
+  SUM(CASE WHEN outcome NOT IN ('Fulfilled', 'Cancelled') THEN 1 ELSE 0 END) AS failures,
   ROUND(AVG(CASE WHEN outcome = 'Fulfilled' THEN total_duration_secs END), 0) AS avg_total_s,
   ROUND(AVG(CASE WHEN outcome = 'Fulfilled' THEN actual_total_proving_time_secs END), 0) AS avg_proving_s
 FROM telemetry.request_completions
@@ -91,7 +92,7 @@ ORDER BY evaluations DESC;
 
 ## Step 4: Failure breakdown
 
-If the prover has failures, get the breakdown by outcome and error code:
+If the prover has failures, get the breakdown by outcome and error code. Exclude `Cancelled` (race losses, not errors):
 
 ```sql
 SELECT
@@ -101,7 +102,7 @@ SELECT
 FROM telemetry.request_completions
 WHERE broker_address = '<PROVER_ADDRESS>'
   AND completed_at > GETDATE() - INTERVAL '24 hours'
-  AND outcome <> 'Fulfilled'
+  AND outcome NOT IN ('Fulfilled', 'Cancelled')
 GROUP BY outcome, error_code
 ORDER BY count DESC;
 ```
