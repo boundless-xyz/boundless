@@ -33,8 +33,9 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
 FROM debian:bookworm-slim AS runtime
 
 RUN mkdir /app/ && \
-    apt -qq update && \
-    apt install -y -q openssl
+    apt-get -qq update && \
+    apt-get install -y -q --no-install-recommends ca-certificates libssl3 curl && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=rust-builder /src/rest_api /app/rest_api
 ENTRYPOINT ["/app/rest_api"]
