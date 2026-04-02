@@ -252,7 +252,7 @@ clean:
 localnet action="up":
     #!/usr/bin/env bash
     set -e
-    COMPOSE="docker compose -f dockerfiles/compose.localnet.yml"
+    COMPOSE="docker compose -f dockerfiles/compose.localnet.yml --profile order-stream"
     DEV_MODE="${RISC0_DEV_MODE:-1}"
 
     # Ensure broker.toml exists with localnet-compatible price oracle config

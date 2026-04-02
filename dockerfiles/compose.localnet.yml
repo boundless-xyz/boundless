@@ -20,6 +20,7 @@ services:
     restart: unless-stopped
 
   postgres:
+    profiles: ["order-stream"]
     image: postgres:16.3-bullseye
     environment:
       POSTGRES_PASSWORD: password
@@ -90,6 +91,8 @@ services:
       CHAIN_ID: "31337"
       DEPOSIT_AMOUNT: "100000000000000000000"
       DEFAULT_ADDRESS: "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
+      CI: "${CI:-0}"
+      REPO_ROOT: "${REPO_ROOT:-}"
     volumes:
       - deployer-env:/shared
       - ../contracts:/src/contracts
@@ -104,6 +107,7 @@ services:
       - ../scripts/localnet-deploy.sh:/src/scripts/localnet-deploy.sh:ro
 
   order-stream:
+    profiles: ["order-stream"]
     build:
       context: ..
       dockerfile: dockerfiles/order_stream.localnet.dockerfile

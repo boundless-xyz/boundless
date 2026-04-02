@@ -159,4 +159,41 @@ echo "Generating .env.localnet..."
 generate_env_localnet
 echo ".env.localnet generated successfully."
 
+# --- CI-specific: create deployment_secrets.toml and update deployment.toml ---
+# The contracts/scripts/manage script needs these to run deploy/upgrade/rollback tests.
+if [ "${CI:-0}" = "1" ]; then
+    echo "CI mode: updating deployment config for manage script..."
+
+    # Create deployment_secrets.toml (host-accessible Anvil URL)
+    cat > /src/contracts/deployment_secrets.toml <<EOF
+[chains.anvil]
+rpc-url = "http://localhost:${ANVIL_PORT}"
+etherscan-api-key = "none"
+EOF
+    echo "Created contracts/deployment_secrets.toml"
+
+    # Compute assessor image ID
+    ASSESSOR_BIN="target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin"
+    ASSESSOR_ID="0x$(r0vm --id --elf "$ASSESSOR_BIN")"
+
+    # Use host path for guest URL (manage script runs on the host, not in Docker)
+    if [ -n "${REPO_ROOT:-}" ]; then
+        ASSESSOR_GUEST_URL="file://${REPO_ROOT}/${ASSESSOR_BIN}"
+    else
+        ASSESSOR_GUEST_URL="file://$(realpath "$ASSESSOR_BIN")"
+    fi
+
+    # Update deployment.toml with deployed addresses
+    CHAIN_KEY="${CHAIN_KEY:-anvil}" python3 contracts/update_deployment_toml.py \
+        --verifier "$VERIFIER_ADDRESS" \
+        --application-verifier "$VERIFIER_ADDRESS" \
+        --set-verifier "$SET_VERIFIER_ADDRESS" \
+        --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
+        --collateral-token "$COLLATERAL_TOKEN_ADDRESS" \
+        --assessor-image-id "$ASSESSOR_ID" \
+        --assessor-guest-url "$ASSESSOR_GUEST_URL"
+
+    echo "CI deployment config updated."
+fi
+
 echo "Deployment complete!"
