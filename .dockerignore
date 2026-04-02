@@ -1,10 +1,14 @@
 target
+**/target/
 .git
 .gitignore
 .gitmodules
 compose.yml
 .env
 contracts/out
+out
+out-shanghai
+contracts/out-shanghai
 broadcast
 cache
 .github
@@ -13,5 +17,7 @@ examples
 crates/**/target
 crates/**/cache_market_x2
 examples/**/target
-**/target/
 infra
+docs
+logs
+licenses

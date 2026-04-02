@@ -45,7 +45,6 @@ async fn new_config_with_telemetry(
 }
 
 #[tokio::test]
-#[ignore = "must run separately as telemetry uses a per-chain global registry"]
 #[traced_test("debug")]
 async fn e2e_telemetry_events() {
     let anvil = Anvil::new().spawn();
@@ -64,6 +63,7 @@ async fn e2e_telemetry_events() {
         ctx.deployment.clone(),
         anvil.endpoint_url(),
         ctx.prover_signer.clone(),
+        Some(ctx.version_registry_address),
     );
     let db_dir = tempfile::tempdir().unwrap();
     let chain = build_test_chain(

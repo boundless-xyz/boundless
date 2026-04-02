@@ -37,31 +37,27 @@ test-broker:
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
-
-# Run broker telemetry e2e tests separately as they can not be run in parallel with other tests due to global telemetry singleton.
-test-broker-telemetry:
-    RISC0_DEV_MODE=1 cargo test -p broker tests::e2e_telemetry --features test-r0vm -- --ignored --nocapture --test-threads=1
+    RISC0_DEV_MODE=1 cargo nextest run --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
 
 # Run Cargo tests for counter example
 test-cargo-example:
     cd examples/counter && \
     forge build && \
-    RISC0_DEV_MODE=1 cargo test
+    RISC0_DEV_MODE=1 cargo nextest run
 
 # Run database tests
 test-cargo-db:
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-bench --features test-r0vm
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --features test-r0vm
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-bench --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p order-stream
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-cli --features test-r0vm
     just test-db clean
 
 # Run slasher tests (requires database)
 test-slasher:
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-slasher --features test-r0vm
     just test-db clean
 
 # Run order-stream tests (requires database)
@@ -70,7 +66,7 @@ test-order-stream:
     set -e
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p order-stream
 
 # Run all indexer tests (requires both RPC URLs)
 test-indexer:
@@ -86,7 +82,7 @@ test-indexer:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --features test-r0vm,test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --features test-r0vm,test-rpc
 
 # Run indexer market integration tests (requires BASE_MAINNET_RPC_URL)
 test-indexer-market:
@@ -98,7 +94,7 @@ test-indexer-market:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test market --features test-r0vm,test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --test market --features test-r0vm,test-rpc
 
 # Run indexer rewards integration tests (requires ETH_MAINNET_RPC_URL)
 test-indexer-rewards:
@@ -110,7 +106,7 @@ test-indexer-rewards:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test rewards --features test-r0vm,test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --test rewards --features test-r0vm,test-rpc
 
 # Run indexer-api integration tests (requires both RPC URLs)
 test-indexer-api:
@@ -128,7 +124,7 @@ test-indexer-api:
     just test-db setup
     # Ensure indexer binaries are built with latest changes, API tests depend on them.
     RISC0_DEV_MODE=1 cargo build -p boundless-indexer --bin rewards-indexer --bin market-indexer
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p indexer-api --features test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p indexer-api --features test-rpc
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
@@ -499,20 +495,21 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         # dockerfiles to the source-build variants so Compose builds from source
         # instead of pulling pre-built images.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
-            export AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE=""
+            export AGENT_IMAGE="" CPU_AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE="" BENTO_CLI_IMAGE=""
             export CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile"
             export GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
             export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
             export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
-            export BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile"
+            export BENTO_CLI_DOCKERFILE="dockerfiles/bento_cli.dockerfile"
             docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
                 case "$svc" in
-                    exec_agent|aux_agent) export AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile" ;;
-                    gpu_prove_agent|miner) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile" BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile" ;;
-                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="dockerfiles/broker.dockerfile" ;;
-                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile" ;;
+                    exec_agent|aux_agent) export CPU_AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}" ;;
+                    gpu_prove_agent) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}" ;;
+                    miner) export BENTO_CLI_IMAGE="" BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/bento_cli.dockerfile}" ;;
+                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}" ;;
                     *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
                 esac
             done

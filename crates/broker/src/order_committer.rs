@@ -316,6 +316,7 @@ impl OrderCommitter {
             committer_config.order_commitment_priority,
             priority_ref,
             available_capacity,
+            committer_config.peak_prove_khz,
         );
 
         let pending_ready_commitment_order_count = ready.len();

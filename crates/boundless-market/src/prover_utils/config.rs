@@ -283,6 +283,8 @@ pub enum OrderCommitmentPriority {
     Price,
     /// Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire random weighted by collateral reward
     CyclePrice,
+    /// Process orders by tightest time margin first (expiry minus estimated proving time)
+    TightestDeadline,
 }
 
 impl Default for OrderCommitmentPriority {

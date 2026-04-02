@@ -45,6 +45,7 @@ async fn e2e(pool: PgPool) -> Result<()> {
     taskdb::create_job(&pool, &aux_stream, &task_def, 0, 100, user_id).await.unwrap();
 
     // Init stage, spawn the executor task, move things into hot storage
+    taskdb::refresh_stream_counters(&pool).await.unwrap();
     let task = taskdb::request_work(&pool, aux_worker_type).await.unwrap().unwrap();
     // DO INIT TASKS HERE...
 
@@ -69,6 +70,7 @@ async fn e2e(pool: PgPool) -> Result<()> {
     );
 
     // Executor stage:
+    taskdb::refresh_stream_counters(&pool).await.unwrap();
     let exec_task = taskdb::request_work(&pool, cpu_worker_type).await.unwrap().unwrap();
 
     // Mock executor
@@ -236,6 +238,7 @@ async fn e2e(pool: PgPool) -> Result<()> {
 
     // Mock GPU workers consuming the work items
     let mut idx = 0;
+    taskdb::refresh_stream_counters(&pool).await.unwrap();
     while let Some(task) = taskdb::request_work(&pool, gpu_worker_type).await.unwrap() {
         let idx_str = idx.to_string();
         assert_eq!(task.task_id, idx_str);
@@ -282,6 +285,7 @@ async fn e2e(pool: PgPool) -> Result<()> {
     }
 
     // grab the final task to perform finalization work..
+    taskdb::refresh_stream_counters(&pool).await.unwrap();
     let final_task = taskdb::request_work(&pool, aux_worker_type).await.unwrap().unwrap();
     assert_eq!(final_task.task_id, "finalize");
     assert!(

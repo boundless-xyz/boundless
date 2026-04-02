@@ -8,7 +8,7 @@ config:
   # cw-monitoring:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-pagerduty-alerts"
   cw-monitoring:nodes:
     - name: execution-84532-staging
-      hostname: stage-explorer-exec
+      hostname: execution-84532-staging
       role: explorer
       chainId: "84532"
       alarmProfile: staging
