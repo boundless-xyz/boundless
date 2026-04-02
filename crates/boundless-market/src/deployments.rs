@@ -142,7 +142,20 @@ impl Deployment {
     pub fn collateral_token_supports_permit(&self) -> bool {
         self.market_chain_id.map(collateral_token_supports_permit).unwrap_or(false)
     }
+
+    /// Check if this deployment has an indexer URL configured.
+    pub fn has_indexer(&self) -> bool {
+        self.indexer_url.is_some()
+    }
 }
+
+/// All supported chains: (chain_id, display_name, is_mainnet).
+pub const SUPPORTED_CHAINS: &[(u64, &str, bool)] = &[
+    (8453, "Base Mainnet", true),
+    (167000, "Taiko Mainnet", true),
+    (11155111, "Ethereum Sepolia", false),
+    (84532, "Base Sepolia", false),
+];
 
 // TODO(#654): Ensure consistency with deployment.toml and with docs
 /// [Deployment] for the Sepolia testnet.

@@ -31,11 +31,12 @@ use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
 use boundless_market::{
-    Deployment, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
+    Deployment, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, SUPPORTED_CHAINS,
+    XL_REQUESTOR_LIST_THRESHOLD_KHZ,
 };
 use chrono::Utc;
 use clap::Args;
-use inquire::{Confirm, Select, Text};
+use inquire::{Confirm, MultiSelect, Select, Text};
 use std::path::{Path, PathBuf};
 use url::Url;
 
@@ -75,6 +76,16 @@ pub struct ProverGenerateConfig {
     pub skip_backup: bool,
 }
 
+#[derive(Debug, Clone)]
+struct ChainConfig {
+    chain_id: u64,
+    chain_name: String,
+    rpc_url: Url,
+    max_collateral: String,
+    min_mcycle_price: String,
+    expected_probability_win_secondary_fulfillment: u32,
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 struct WizardConfig {
@@ -86,9 +97,7 @@ struct WizardConfig {
     peak_prove_khz: f64,
     segment_size: u32,
     priority_requestor_lists: Vec<String>,
-    max_collateral: String,
-    min_mcycle_price: String,
-    expected_probability_win_secondary_fulfillment: u32,
+    chains: Vec<ChainConfig>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -131,6 +140,19 @@ impl ProverGenerateConfig {
         self.generate_broker_toml(&config, broker_strategy, &display)?;
         display.item_colored("Created", self.broker_toml_file.display(), "green");
 
+        // Generate per-chain override files (only for multi-chain setups)
+        if config.chains.len() > 1 {
+            for chain in &config.chains {
+                self.generate_chain_override_toml(chain)?;
+                let broker_dir = self.broker_toml_file.parent().unwrap_or(Path::new("."));
+                display.item_colored(
+                    "Created",
+                    broker_dir.join(format!("broker.{}.toml", chain.chain_id)).display(),
+                    "green",
+                );
+            }
+        }
+
         // Backup and generate compose.yml
         if let Some(backup_path) = self.backup_file(&self.compose_yml_file)? {
             display.item_colored("Backup saved", backup_path.display(), "cyan");
@@ -150,7 +172,7 @@ impl ProverGenerateConfig {
         global_config: &GlobalConfig,
     ) -> Result<WizardConfig> {
         // Step 1: Machine configuration
-        display.step(1, 7, "Machine Configuration");
+        display.step(1, 8, "Machine Configuration");
 
         let run_on_single_machine =
             Confirm::new("Do you plan to run your prover entirely on your current machine?")
@@ -191,7 +213,7 @@ impl ProverGenerateConfig {
 
         // Step 2: GPU configuration
         display.separator();
-        display.step(2, 7, "GPU Configuration");
+        display.step(2, 8, "GPU Configuration");
 
         let num_gpus = match detect_gpus() {
             Ok(count) if count > 0 => {
@@ -258,7 +280,7 @@ impl ProverGenerateConfig {
 
         // Step 3: Performance Benchmarking
         display.separator();
-        display.step(3, 7, "Performance Benchmarking");
+        display.step(3, 8, "Performance Benchmarking");
 
         let peak_prove_khz =
             self.get_peak_performance(display, global_config, segment_size).await?.floor();
@@ -270,7 +292,7 @@ impl ProverGenerateConfig {
 
         // Step 4: Calculated Configuration
         display.separator();
-        display.step(4, 7, "Calculated Configuration");
+        display.step(4, 8, "Calculated Configuration");
 
         display.note("The following values are calculated based on your hardware:");
         display.note("");
@@ -321,7 +343,7 @@ impl ProverGenerateConfig {
 
         // Step 5: Priority Requestor Lists
         display.separator();
-        display.step(5, 7, "Priority Requestor Lists");
+        display.step(5, 8, "Priority Requestor Lists");
 
         display.note("Requestor priority lists specify proof requestors that the broker should");
         display
@@ -376,257 +398,287 @@ impl ProverGenerateConfig {
             display.item_colored("  List", list, "cyan");
         }
 
-        // Step 6: Collateral Configuration
+        // Step 6: Chain Selection
         display.separator();
-        display.step(6, 7, "Collateral Configuration");
+        display.step(6, 8, "Chain Selection");
 
-        // Get RPC URL for market query
-        let rpc_url = self.get_or_prompt_rpc_url(display)?;
-        let temp_provider = alloy::providers::ProviderBuilder::new()
-            .connect(rpc_url.as_ref())
-            .await
-            .context("Failed to connect to RPC provider")?;
+        display.note("Select which chains your prover should operate on.");
+        display.note("All selected chains will share the same proving hardware.");
+        display.note("");
 
-        let chain_id = temp_provider
-            .get_chain_id()
-            .await
-            .context("Failed to query chain ID from RPC provider")?;
+        let include_testnets = Confirm::new("Include testnets?")
+            .with_default(false)
+            .prompt()
+            .context("Failed to get testnet preference")?;
 
-        // Initialize price oracle for dual-currency display
-        let price_oracle = match try_init_price_oracle(&rpc_url, chain_id).await {
-            Ok(oracle) => {
-                fetch_and_display_prices(oracle.clone(), display).await?;
-                Some(oracle)
+        let chain_options: Vec<&(u64, &str, bool)> = SUPPORTED_CHAINS
+            .iter()
+            .filter(|(_, _, is_mainnet)| *is_mainnet || include_testnets)
+            .collect();
+
+        let display_options: Vec<String> =
+            chain_options.iter().map(|(id, name, _)| format!("{name} ({id})")).collect();
+
+        // Default: all visible chains selected
+        let defaults: Vec<usize> = (0..display_options.len()).collect();
+
+        let selected_indices = MultiSelect::new("Select chains to operate on:", display_options)
+            .with_default(&defaults)
+            .prompt()
+            .context("Failed to get chain selection")?;
+
+        if selected_indices.is_empty() {
+            bail!("At least one chain must be selected");
+        }
+
+        let selected_chains: Vec<(u64, String)> = selected_indices
+            .iter()
+            .enumerate()
+            .filter(|(_, selected)| !selected.is_empty())
+            .map(|(i, _)| {
+                let (id, name, _) = chain_options[i];
+                (*id, name.to_string())
+            })
+            .collect();
+
+        // MultiSelect returns the selected items, not indices — remap
+        let selected_chains: Vec<(u64, String)> = selected_indices
+            .iter()
+            .filter_map(|selected_label| {
+                chain_options.iter().find_map(|(id, name, _)| {
+                    let label = format!("{name} ({id})");
+                    if &label == selected_label {
+                        Some((*id, name.to_string()))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        for (id, name) in &selected_chains {
+            display.item_colored("Chain", format!("{name} ({id})"), "green");
+        }
+
+        // Step 7: Per-chain RPC URLs, Collateral & Pricing
+        display.separator();
+        display.step(7, 8, "Collateral & Pricing Configuration");
+
+        let mut chain_configs: Vec<ChainConfig> = Vec::new();
+
+        for (chain_idx, (chain_id, chain_name)) in selected_chains.iter().enumerate() {
+            if selected_chains.len() > 1 {
+                display.separator();
+                display.note(&format!(
+                    "── Configuring {} ({}) [{}/{}] ──",
+                    chain_name,
+                    chain_id,
+                    chain_idx + 1,
+                    selected_chains.len()
+                ));
             }
-            Err(e) => {
-                display.note(&format!("⚠  Price oracle initialization failed: {}", e));
-                display.note("   Collateral and pricing will be shown in single currency only.");
-                None
+
+            // Get RPC URL for this chain
+            let rpc_url = self
+                .get_or_prompt_chain_rpc_url(display, *chain_id, chain_name, selected_chains.len())
+                .await?;
+
+            let temp_provider = alloy::providers::ProviderBuilder::new()
+                .connect(rpc_url.as_ref())
+                .await
+                .context(format!("Failed to connect to RPC for {chain_name}"))?;
+
+            let detected_chain_id = temp_provider
+                .get_chain_id()
+                .await
+                .context(format!("Failed to query chain ID for {chain_name}"))?;
+
+            if detected_chain_id != *chain_id {
+                display.warning(&format!(
+                    "RPC returned chain ID {} but expected {}. Please verify the RPC URL.",
+                    detected_chain_id, chain_id
+                ));
+                let continue_anyway = Confirm::new("Continue with this RPC anyway?")
+                    .with_default(false)
+                    .prompt()
+                    .context("Failed to get confirmation")?;
+                if !continue_anyway {
+                    bail!("Chain ID mismatch for {chain_name}");
+                }
             }
-        };
 
-        let recommended_collateral = match priority_requestor_lists.len() {
-            1 => &format!(
-                "{} USD",
-                boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
-            ),
-            2 => "30 USD",
-            _ => "80 USD",
-        };
+            // Initialize price oracle
+            let price_oracle = match try_init_price_oracle(&rpc_url, *chain_id).await {
+                Ok(oracle) => {
+                    fetch_and_display_prices(oracle.clone(), display).await?;
+                    Some(oracle)
+                }
+                Err(e) => {
+                    display.note(&format!("⚠  Price oracle initialization failed: {}", e));
+                    display
+                        .note("   Collateral and pricing will be shown in single currency only.");
+                    None
+                }
+            };
 
-        display.note(&format!(
-            "We recommend a max collateral of {} for your configuration.",
-            recommended_collateral
-        ));
-        display.note(&format!(
-            "  • {}: Recommended for the standard requestor list",
-            format_amount_with_conversion(
-                &format!(
+            // Collateral
+            let recommended_collateral = match priority_requestor_lists.len() {
+                1 => format!(
                     "{} USD",
                     boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
                 ),
-                Some(Asset::ZKC),
-                price_oracle.clone()
-            )
-            .await
-        ));
-        display.note("    (lower risk)");
-        display.note(&format!(
-            "  • {}: Recommended for standard + large lists",
-            format_amount_with_conversion("50 USD", Some(Asset::ZKC), price_oracle.clone()).await
-        ));
-        display.note("    (large orders, higher rewards, higher risk)");
-        display.note(&format!(
-            "  • {}: Recommended for standard + large + XL lists",
-            format_amount_with_conversion("100 USD", Some(Asset::ZKC), price_oracle.clone()).await
-        ));
-        display.note("    (largest orders, highest rewards, highest risk)");
-        display.note("");
-        display
-            .note("Higher collateral enables higher-reward orders but increases slashing risks.");
-        display.note("");
-        display.note("You can specify collateral in ZKC or USD:");
-        display.note("  • ZKC: Fixed amount in ZKC (e.g., '200 ZKC')");
-        display.note("  • USD: Amount in USD, converted to ZKC at runtime (e.g., '100 USD')");
-        display.note("");
+                2 => "30 USD".to_string(),
+                _ => "80 USD".to_string(),
+            };
 
-        let max_collateral = prompt_validated_amount(
-            "Max collateral:",
-            recommended_collateral,
-            "Format: '<value> ZKC' or '<value> USD'",
-            &[Asset::USD, Asset::ZKC],
-            "max_collateral",
-        )?;
+            display.note(&format!("Recommended max collateral: {}", recommended_collateral));
+            display.note("");
 
-        // Step 7: Pricing Configuration
-        display.separator();
-        display.step(7, 7, "Pricing Configuration");
+            let max_collateral = prompt_validated_amount(
+                &format!("Max collateral for {chain_name}:"),
+                &recommended_collateral,
+                "Format: '<value> ZKC' or '<value> USD'",
+                &[Asset::USD, Asset::ZKC],
+                "max_collateral",
+            )?;
 
-        display.note("Analyzing recent market prices to determine competitive pricing...");
-        display.note("");
+            // Pricing — check if chain has an indexer for market analysis
+            display.note("");
+            display.note("Analyzing market prices for competitive pricing...");
 
-        // Validate chain ID to ensure it's Base Mainnet
-        display.status("Status", "Validating RPC connection", "yellow");
-        if chain_id != 8453 {
-            display.note(&format!("⚠  Detected Chain ID: {}", chain_id));
-            display.note(
-                "    Market pricing analyis requires a Base Mainnet RPC URL (Chain ID: 8453)",
-            );
-            let continue_anyway = Confirm::new("Continue with this RPC anyway?")
-                .with_default(false)
-                .prompt()
-                .context("Failed to get confirmation")?;
-            if !continue_anyway {
-                bail!("Incorrect chain detected");
-            }
-        }
+            let deployment = Deployment::from_chain_id(*chain_id)
+                .context(format!("No deployment config for chain {chain_id}"))?;
 
-        let deployment = Deployment::from_chain_id(chain_id)
-            .context("Failed to get deployment configuration for chain ID")?;
-        let indexer_url =
-            deployment.clone().indexer_url.context("No indexer URL found for deployment")?;
-        let price_provider = StandardPriceProvider::new(
-            IndexerClient::new(
-                Url::parse(indexer_url.as_ref()).context("Failed to parse indexer URL")?,
-            )
-            .context("Failed to create indexer client")?,
-        )
-        .with_fallback(MarketPricing::new(
-            Url::parse(rpc_url.as_ref()).context("Failed to parse RPC URL")?,
-            MarketPricingConfigBuilder::default()
-                .deployment(deployment)
-                .build()
-                .context("Failed to build market pricing config")?,
-        ));
+            let min_mcycle_price = if deployment.has_indexer() {
+                let indexer_url = deployment.clone().indexer_url.context("No indexer URL")?;
+                let price_provider = StandardPriceProvider::new(
+                    IndexerClient::new(
+                        Url::parse(indexer_url.as_ref()).context("Failed to parse indexer URL")?,
+                    )
+                    .context("Failed to create indexer client")?,
+                )
+                .with_fallback(MarketPricing::new(
+                    Url::parse(rpc_url.as_ref()).context("Failed to parse RPC URL")?,
+                    MarketPricingConfigBuilder::default()
+                        .deployment(deployment)
+                        .build()
+                        .context("Failed to build market pricing config")?,
+                ));
 
-        // Query market pricing with fallback to defaults
-        let market_pricing = match price_provider.price_percentiles().await {
-            Ok(price_percentiles) => {
-                display.item_colored(
-                    "Median price",
-                    format!(
-                        "{} / Mcycle",
-                        format_amount_with_conversion(
-                            &format!(
-                                "{} ETH",
-                                format_units(
-                                    price_percentiles.p50 * U256::from(1_000_000),
-                                    "ether"
-                                )?
+                match price_provider.price_percentiles().await {
+                    Ok(price_percentiles) => {
+                        display.item_colored(
+                            "Median price",
+                            format!(
+                                "{} / Mcycle",
+                                format_amount_with_conversion(
+                                    &format!(
+                                        "{} ETH",
+                                        format_units(
+                                            price_percentiles.p50 * U256::from(1_000_000),
+                                            "ether"
+                                        )?
+                                    ),
+                                    None,
+                                    price_oracle.clone()
+                                )
+                                .await,
                             ),
-                            None,
-                            price_oracle.clone()
-                        )
-                        .await,
-                    ),
-                    "cyan",
-                );
-                display.item_colored(
-                    "25th percentile",
-                    format!(
-                        "{} / Mcycle",
-                        format_amount_with_conversion(
+                            "cyan",
+                        );
+
+                        let recommended = try_convert_to_usd(
                             &format!(
                                 "{} ETH",
-                                format_units(
+                                &format_units(
                                     price_percentiles.p25 * U256::from(1_000_000),
                                     "ether"
                                 )?
                             ),
-                            None,
-                            price_oracle.clone()
+                            price_oracle.clone(),
                         )
-                        .await,
-                    ),
-                    "cyan",
-                );
-                Some(price_percentiles)
+                        .await;
+
+                        prompt_validated_amount(
+                            &format!("Minimum price per Mcycle for {chain_name}:"),
+                            &recommended,
+                            "Format: '<value> ETH' or '<value> USD'",
+                            &[Asset::USD, Asset::ETH],
+                            "min_mcycle_price",
+                        )?
+                    }
+                    Err(e) => {
+                        display.note(&format!("⚠  Failed to query market prices: {}", e));
+                        Text::new(&format!("Minimum price per Mcycle for {chain_name}:"))
+                            .with_default("0.00000001 ETH")
+                            .with_help_message("You can update this later in broker.toml")
+                            .prompt()
+                            .context("Failed to get price")?
+                    }
+                }
+            } else {
+                display.note(&format!(
+                    "⚠  No indexer available for {chain_name} — skipping market analysis."
+                ));
+                display.note("   Enter pricing manually.");
+                display.note("");
+
+                Text::new(&format!("Minimum price per Mcycle for {chain_name}:"))
+                    .with_default("0.00000001 ETH")
+                    .with_help_message("You can update this later in broker.toml")
+                    .prompt()
+                    .context("Failed to get price")?
+            };
+
+            // Secondary fulfillment
+            let expected_probability_str = Text::new(&format!(
+                "Secondary fulfillment win multiplier for {chain_name} (%, default 50):"
+            ))
+            .with_default("50")
+            .with_help_message("< 100 discounts reward, 100 = no change, > 100 boosts reward")
+            .prompt()
+            .context("Failed to get expected probability")?;
+
+            let expected_probability_win_secondary_fulfillment =
+                expected_probability_str.parse::<u32>().context("Invalid number format")?;
+
+            chain_configs.push(ChainConfig {
+                chain_id: *chain_id,
+                chain_name: chain_name.clone(),
+                rpc_url,
+                max_collateral,
+                min_mcycle_price,
+                expected_probability_win_secondary_fulfillment,
+            });
+
+            // After first chain, offer "same for all?" shortcut
+            if chain_idx == 0 && selected_chains.len() > 1 {
+                let use_same = Confirm::new("Use the same collateral and pricing for all chains?")
+                    .with_default(true)
+                    .prompt()
+                    .context("Failed to get confirmation")?;
+
+                if use_same {
+                    let first = chain_configs[0].clone();
+                    for (id, name) in selected_chains.iter().skip(1) {
+                        // Still need RPC URL per chain
+                        let rpc = self
+                            .get_or_prompt_chain_rpc_url(display, *id, name, selected_chains.len())
+                            .await?;
+                        chain_configs.push(ChainConfig {
+                            chain_id: *id,
+                            chain_name: name.clone(),
+                            rpc_url: rpc,
+                            max_collateral: first.max_collateral.clone(),
+                            min_mcycle_price: first.min_mcycle_price.clone(),
+                            expected_probability_win_secondary_fulfillment: first
+                                .expected_probability_win_secondary_fulfillment,
+                        });
+                    }
+                    break;
+                }
             }
-            Err(e) => {
-                display.note(&format!("⚠  Failed to query market prices: {}", e));
-                display.note("Falling back to default pricing");
-                None
-            }
-        };
-
-        // Prompt user to accept or override
-        let min_mcycle_price = if let Some(pricing) = market_pricing {
-            display.note("");
-            display.note(&format!(
-                "Recommended minimum price: {} / Mcycle",
-                format_amount_with_conversion(
-                    &format!("{} ETH", format_units(pricing.p25 * U256::from(1_000_000), "ether")?),
-                    None,
-                    price_oracle.clone()
-                )
-                .await,
-            ));
-            display.note("");
-            display
-                .note("This value is computed based on recent market prices. It ensures you are");
-            display
-                .note("priced competitively such that you will be able to lock and fulfill orders");
-            display.note("for ETH rewards in the market.");
-            display.note("");
-            display.note("Example: If set to 0.00000001 ETH/Mcycle, a 1000 Mcycle order must");
-            display.note("         offer at least 0.00001 ETH for your broker to accept it.");
-            display.note("");
-
-            display.note("You can specify the price in ETH or USD:");
-            display.note("  • ETH: Price in ETH per mega-cycle (e.g., '0.00000001 ETH')");
-            display.note("  • USD: Price in USD per mega-cycle, converted to ETH at runtime (e.g., '0.02 USD')");
-            display.note("");
-
-            prompt_validated_amount(
-                "Minimum price per Mcycle:",
-                &try_convert_to_usd(
-                    &format!(
-                        "{} ETH",
-                        &format_units(pricing.p25 * U256::from(1_000_000), "ether")?
-                    ),
-                    price_oracle.clone(),
-                )
-                .await,
-                "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
-                &[Asset::USD, Asset::ETH],
-                "min_mcycle_price",
-            )?
-        } else {
-            // Fallback to manual entry if query failed
-            Text::new("Minimum price per mcycle (ETH):")
-                .with_default("0.00000001 ETH")
-                .with_help_message("You can update this later in broker.toml")
-                .prompt()
-                .context("Failed to get price")?
-        };
-
-        // Step 7b: Secondary Fulfillment Configuration
-        display.separator();
-        display.note("Secondary fulfillment occurs when a prover's lock expires and the order");
-        display.note("becomes available to any prover. Multiple provers may race to fulfill it.");
-        display.note("This multiplier scales the expected reward when evaluating profitability.");
-        display.note("");
-        display.note(
-            "For example, with a value of 50, a 100 ZKC reward is valued at 50 ZKC (discounted).",
-        );
-        display.note("Values above 100 boost the perceived reward to prioritize secondaries.");
-        display.note("");
-
-        let expected_probability_str =
-            Text::new("Expected secondary fulfillment win multiplier (percentage, default 50):")
-                .with_default("50")
-                .with_help_message("< 100 discounts reward, 100 = no change, > 100 boosts reward")
-                .prompt()
-                .context("Failed to get expected probability")?;
-
-        let expected_probability_win_secondary_fulfillment =
-            expected_probability_str.parse::<u32>().context("Invalid number format")?;
-
-        display.item_colored(
-            "Using",
-            format!("{}% expected win probability", expected_probability_win_secondary_fulfillment),
-            "green",
-        );
+        }
 
         Ok(WizardConfig {
             num_threads,
@@ -637,9 +689,7 @@ impl ProverGenerateConfig {
             peak_prove_khz,
             segment_size,
             priority_requestor_lists,
-            max_collateral,
-            min_mcycle_price,
-            expected_probability_win_secondary_fulfillment,
+            chains: chain_configs,
         })
     }
 
@@ -871,6 +921,44 @@ impl ProverGenerateConfig {
         Ok(url)
     }
 
+    async fn get_or_prompt_chain_rpc_url(
+        &self,
+        display: &DisplayManager,
+        chain_id: u64,
+        chain_name: &str,
+        total_chains: usize,
+    ) -> Result<Url> {
+        // Check PROVER_RPC_URL_{chain_id} env var first
+        let chain_env_var = format!("PROVER_RPC_URL_{chain_id}");
+        if let Ok(rpc_url) = std::env::var(&chain_env_var) {
+            let url = rpc_url.parse::<Url>().with_context(|| format!("Invalid {chain_env_var}"))?;
+            display.item_colored(&format!("RPC ({chain_id})"), obscure_url(url.as_ref()), "green");
+            return Ok(url);
+        }
+
+        // Single-chain: also check legacy PROVER_RPC_URL
+        if total_chains == 1 {
+            if let Ok(rpc_url) = std::env::var("PROVER_RPC_URL") {
+                let url = rpc_url.parse::<Url>().context("Invalid PROVER_RPC_URL")?;
+                display.item_colored(
+                    &format!("RPC ({chain_id})"),
+                    obscure_url(url.as_ref()),
+                    "green",
+                );
+                return Ok(url);
+            }
+        }
+
+        // Prompt
+        let rpc_url = Text::new(&format!("RPC URL for {chain_name} ({chain_id}):"))
+            .prompt()
+            .context("Failed to get RPC URL")?;
+
+        let url = rpc_url.parse::<Url>().context("Invalid RPC URL format")?;
+        display.item_colored(&format!("RPC ({chain_id})"), obscure_url(url.as_ref()), "green");
+        Ok(url)
+    }
+
     fn backup_file(&self, file_path: &Path) -> Result<Option<PathBuf>> {
         // Skip if backup flag is set or file doesn't exist
         if self.skip_backup || !file_path.exists() {
@@ -992,9 +1080,11 @@ impl ProverGenerateConfig {
                 *item = toml_edit::value(config.peak_prove_khz as i64);
             }
 
-            // Update max_collateral
+            // Update max_collateral (uses first chain's value as base default)
             if let Some(item) = market.get_mut("max_collateral") {
-                *item = toml_edit::value(config.max_collateral.clone());
+                if let Some(first_chain) = config.chains.first() {
+                    *item = toml_edit::value(first_chain.max_collateral.clone());
+                }
             }
 
             // Update max_concurrent_proofs with calculation comment
@@ -1040,8 +1130,13 @@ impl ProverGenerateConfig {
                 *item = toml_edit::value(config.max_concurrent_preflights as i64);
             }
 
-            // Update min_mcycle_price
+            // Update min_mcycle_price (uses first chain's value as base default)
             if let Some(item) = market.get_mut("min_mcycle_price") {
+                let first_chain_price = config
+                    .chains
+                    .first()
+                    .map(|c| c.min_mcycle_price.clone())
+                    .unwrap_or_else(|| "0.00000001 ETH".to_string());
                 let should_update = match strategy {
                     FileHandlingStrategy::ModifyExisting => {
                         // Get existing price and compare with recommended price
@@ -1049,7 +1144,7 @@ impl ProverGenerateConfig {
                         let (existing_value, existing_asset) =
                             Self::extract_price_value(existing_price_str);
                         let (recommended_value, recommended_asset) =
-                            Self::extract_price_value(&config.min_mcycle_price);
+                            Self::extract_price_value(&first_chain_price);
 
                         // Only compare if same asset, otherwise always update to new format
                         if existing_asset == recommended_asset && existing_value > 0.0 {
@@ -1073,20 +1168,55 @@ impl ProverGenerateConfig {
                 };
 
                 if should_update {
-                    *item = toml_edit::value(config.min_mcycle_price.clone());
+                    *item = toml_edit::value(first_chain_price);
                 }
             }
 
-            // Update expected_probability_win_secondary_fulfillment
+            // Update expected_probability_win_secondary_fulfillment (uses first chain's value)
             if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment") {
-                *item =
-                    toml_edit::value(config.expected_probability_win_secondary_fulfillment as i64);
+                if let Some(first_chain) = config.chains.first() {
+                    *item = toml_edit::value(
+                        first_chain.expected_probability_win_secondary_fulfillment as i64,
+                    );
+                }
             }
         }
 
         // Write to file
         std::fs::write(&self.broker_toml_file, doc.to_string())
             .context("Failed to write broker.toml")?;
+
+        Ok(())
+    }
+
+    /// Generate a per-chain override TOML file containing only per-chain fields.
+    fn generate_chain_override_toml(&self, chain: &ChainConfig) -> Result<()> {
+        let broker_dir = self.broker_toml_file.parent().unwrap_or(Path::new("."));
+        let override_path = broker_dir.join(format!("broker.{}.toml", chain.chain_id));
+
+        let content = format!(
+            "# Per-chain override for {} ({})\n\
+             # Generated by boundless-cli v{} on {}\n\
+             \n\
+             [market]\n\
+             max_collateral = \"{}\"\n\
+             min_mcycle_price = \"{}\"\n\
+             expected_probability_win_secondary_fulfillment = {}\n",
+            chain.chain_name,
+            chain.chain_id,
+            env!("CARGO_PKG_VERSION"),
+            Utc::now().format("%Y-%m-%d"),
+            chain.max_collateral,
+            chain.min_mcycle_price,
+            chain.expected_probability_win_secondary_fulfillment,
+        );
+
+        if let Some(backup_path) = self.backup_file(&override_path)? {
+            tracing::info!("Backed up {} to {}", override_path.display(), backup_path.display());
+        }
+
+        std::fs::write(&override_path, content)
+            .with_context(|| format!("Failed to write {}", override_path.display()))?;
 
         Ok(())
     }
@@ -1271,7 +1401,7 @@ impl ProverGenerateConfig {
         display.note("");
         display.note(&format!(
             "2. Ensure you have a minimum of {} ZKC collateral in your prover address:",
-            config.max_collateral
+            config.chains.first().map(|c| c.max_collateral.as_str()).unwrap_or("10 USD")
         ));
         display.note("   boundless prover balance-collateral");
 
