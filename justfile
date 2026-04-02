@@ -256,6 +256,14 @@ localnet action="up":
         up)
             [ -f .env.localnet ] || cp .env.localnet-template .env.localnet
             docker compose -f dockerfiles/compose.localnet.yml up -d --build --wait
+            # Ensure broker.toml exists with localnet-compatible price oracle config
+            if [ ! -f broker.toml ]; then
+                cp broker-template.toml broker.toml
+            fi
+            # Workaround given price feed default doesn't work on localnet
+            if ! grep -q '\[price_oracle\]' broker.toml 2>/dev/null; then
+                printf '\n# Localnet price oracle: static prices, no on-chain feeds (anvil has no chainlink).\n[price_oracle]\neth_usd = "2500.0"\nzkc_usd = "1.0"\n\n[price_oracle.onchain.chainlink]\nenabled = false\n' >> broker.toml
+            fi
             ;;
         down)  docker compose -f dockerfiles/compose.localnet.yml down ;;
         clean) docker compose -f dockerfiles/compose.localnet.yml down -v && rm -f .env.localnet ;;
