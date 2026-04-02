@@ -20,9 +20,7 @@ The Boundless CLI is a command-line interface for interacting with Boundless.
 
 use anyhow::Result;
 use boundless_cli::{
-    commands::{
-        prover::ProverCommands, requestor::RequestorCommands, rewards::RewardsCommands,
-    },
+    commands::{prover::ProverCommands, requestor::RequestorCommands, rewards::RewardsCommands},
     config::GlobalConfig,
 };
 use clap::{CommandFactory, Parser, Subcommand};
