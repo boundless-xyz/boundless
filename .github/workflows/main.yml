@@ -60,8 +60,10 @@ jobs:
       RISC0_SKIP_BUILD_KERNELS: 1
       RISC0_DEV_MODE: true
     steps:
-      - name: Remove stale submodules
-        run: rm -rf lib/
+      - name: Clean stale artifacts
+        run: |
+          rm -rf lib/
+          sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
 
       - name: checkout code
         uses: actions/checkout@v4
@@ -158,8 +160,10 @@ jobs:
             sleep 1
           done
 
-      - name: Remove stale submodules
-        run: rm -rf lib/
+      - name: Clean stale artifacts
+        run: |
+          rm -rf lib/
+          sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
 
       - name: checkout code
         uses: actions/checkout@v4
