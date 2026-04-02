@@ -219,10 +219,17 @@ impl PriceOracleConfig {
                 if let Some(ref onchain) = self.onchain {
                     if let Some(ref chainlink_config) = onchain.chainlink {
                         if chainlink_config.enabled && pair == TradingPair::EthUsd {
-                            // Chainlink only supports ETH/USD
-                            let chainlink =
-                                ChainlinkSource::for_eth_usd(provider.clone(), named_chain)?;
-                            sources.push(Arc::new(chainlink));
+                            // Chainlink only supports ETH/USD on specific chains
+                            match ChainlinkSource::for_eth_usd(provider.clone(), named_chain) {
+                                Ok(chainlink) => sources.push(Arc::new(chainlink)),
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Chainlink source unavailable for chain {:?}, skipping: {}",
+                                        named_chain,
+                                        e
+                                    );
+                                }
+                            }
                         }
                     }
                 }

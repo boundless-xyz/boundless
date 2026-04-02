@@ -1,0 +1,135 @@
+name: localnet
+
+services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:stable
+    user: root
+    entrypoint: ["/scripts/localnet-anvil.sh"]
+    ports:
+      - "8545:8545"
+    volumes:
+      - anvil-data:/data
+      - ../scripts/localnet-anvil.sh:/scripts/localnet-anvil.sh:ro
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16.3-bullseye
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5435:5432"
+    command: ["-c", "max_connections=500"]
+    shm_size: 2gb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  minio-init:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        mc alias set local http://minio:9000 admin password &&
+        mc mb --ignore-existing local/localnet-guests &&
+        mc anonymous set download local/localnet-guests &&
+        mc mb --ignore-existing local/artifacts &&
+        mc anonymous set download local/artifacts &&
+        echo "Buckets ready: localnet-guests, artifacts"
+
+  deployer:
+    build:
+      context: ..
+      dockerfile: dockerfiles/deployer.localnet.dockerfile
+    depends_on:
+      anvil:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      MINIO_URL: http://minio:9000
+      MINIO_HOST_URL: http://localhost:9100
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+      MINIO_BUCKET: localnet-guests
+      DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+      CHAIN_KEY: anvil
+      RISC0_DEV_MODE: "${RISC0_DEV_MODE:-1}"
+      BOUNDLESS_MARKET_OWNER: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+      CHAIN_ID: "31337"
+      DEPOSIT_AMOUNT: "100000000000000000000"
+      DEFAULT_ADDRESS: "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
+    volumes:
+      - deployer-env:/shared
+      - ../contracts:/src/contracts
+      - ../out:/src/out
+      - ../lib:/src/lib
+      - ../remappings.txt:/src/remappings.txt:ro
+      - ../foundry.toml:/src/foundry.toml:ro
+      - ../.env.localnet-template:/src/.env.localnet-template:ro
+      - ../target/riscv-guest:/src/target/riscv-guest:ro
+      - ../broadcast:/src/broadcast
+      - ../.env.localnet:/host/.env.localnet
+      - ../scripts/localnet-deploy.sh:/src/scripts/localnet-deploy.sh:ro
+
+  order-stream:
+    build:
+      context: ..
+      dockerfile: dockerfiles/order_stream.localnet.dockerfile
+      args:
+        BUILD_PROFILE: ${BUILD_PROFILE:-dev}
+    depends_on:
+      deployer:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:password@postgres:5432/postgres
+      RUST_LOG: "info,order_stream=debug"
+    ports:
+      - "8585:8585"
+    volumes:
+      - deployer-env:/shared:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8585/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  anvil-data:
+  deployer-env:
+  minio-data:
