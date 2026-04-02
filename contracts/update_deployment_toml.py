@@ -46,6 +46,7 @@ parser.add_argument("--povw-mint-deployment-commit", help="PoVW mint deployment 
 parser.add_argument("--zkc", help="ZKC contract address")
 parser.add_argument("--vezkc", help="veZKC contract address")
 
+
 args = parser.parse_args()
 
 # Map CLI args to TOML field keys

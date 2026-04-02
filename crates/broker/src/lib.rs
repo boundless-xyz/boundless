@@ -100,6 +100,7 @@ pub(crate) mod submitter;
 pub(crate) mod task;
 pub(crate) mod telemetry;
 pub mod utils;
+pub mod version_check;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -179,6 +180,16 @@ pub struct CoreArgs {
     /// Use the experimental ChainMonitorV2 implementation using eth_getBlockReceipts instead of eth_getLogs.
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
+
+    /// VersionRegistry contract address override. Not a CLI flag — set programmatically in tests
+    /// to exercise the version check against a locally deployed registry.
+    #[clap(skip)]
+    pub version_registry_address: Option<Address>,
+
+    /// Force the version check even when RISC0_DEV_MODE is enabled.
+    /// Useful for testing version enforcement locally.
+    #[clap(long, env, default_value_t = false)]
+    pub force_version_check: bool,
 
     /// [Deprecated: use --market-address-{chain_id} etc.] Single-chain deployment configuration.
     #[clap(flatten, next_help_heading = "Boundless Deployment (Deprecated)")]
@@ -857,6 +868,7 @@ impl Broker {
             tracing::warn!(
                 "LISTEN-ONLY MODE: Broker will monitor the market and evaluate orders but will NOT \
                  lock, prove, or submit. No on-chain transactions will be sent."
+
             );
         }
 
@@ -1059,6 +1071,26 @@ impl Broker {
         let chain_id = chain.chain_id;
         let deployment = &chain.deployment;
         let db = chain.db.clone();
+
+        {
+            let task = Arc::new(version_check::VersionCheckTask::new(
+                (*provider).clone(),
+                chain_id,
+                deployment.boundless_market_address,
+                None,
+                self.args.version_registry_address,
+                self.args.force_version_check,
+            ));
+            let config_clone = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                Supervisor::new(task, config_clone, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Version check task failed")?;
+                Ok(())
+            });
+        }
 
         let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
             let config = config.lock_all().context("Failed to lock config")?;
@@ -1721,6 +1753,8 @@ pub mod test_utils {
                 log_json: false,
                 listen_only: false,
                 experimental_rpc: false,
+                version_registry_address: Some(ctx.version_registry_address),
+                force_version_check: false,
             };
             Self { args, config_file, db_dir, rpc_url }
         }

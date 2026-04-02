@@ -64,7 +64,7 @@ pub use contracts::{Offer, ProofRequest, RequestId, RequestInput, Requirements};
 #[cfg(not(target_os = "zkvm"))]
 pub mod deployments;
 #[cfg(not(target_os = "zkvm"))]
-pub use deployments::Deployment;
+pub use deployments::{Deployment, SUPPORTED_CHAINS};
 
 /// Input module for serializing input.
 #[cfg(not(target_os = "zkvm"))]

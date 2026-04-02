@@ -9,6 +9,8 @@ export interface RustLambdaOptions {
     projectPath: string;
     packageName: string;
     release?: boolean;
+    usePrebuilt?: boolean;
+    prebuiltTag?: string;
     environmentVariables?: { [key: string]: pulumi.Input<string> };
     memorySize?: number;
     timeout?: number;
@@ -59,26 +61,8 @@ export function createRustLambda(
     options: RustLambdaOptions,
     resourceOptions?: pulumi.CustomResourceOptions,
 ): { lambda: aws.lambda.Function, logGroupName: pulumi.Output<string> } {
-    ensureCargoLambdaInstalled();
-
     const nameSuffix = options.nameSuffix ?? '';
-    const release = options.release ?? true;
-    const buildMode = release ? '--release' : '';
-
-    // Build the package
-    try {
-        console.log(`Building Rust Lambda ${options.packageName} in ${options.projectPath}...`);
-        child_process.execSync(
-            `cd ${options.projectPath} && cargo lambda build --package ${options.packageName} ${buildMode} --output-format zip`,
-            { stdio: 'inherit' }
-        );
-        console.log('Build successful!');
-    } catch (error) {
-        console.error('Build failed:', error);
-        throw error;
-    }
-
-    const zipFilePath = path.join(
+    const zipFilePath = path.resolve(
         options.projectPath,
         'target',
         'lambda',
@@ -86,8 +70,54 @@ export function createRustLambda(
         'bootstrap.zip'
     );
 
+    if (options.usePrebuilt) {
+        const tag = options.prebuiltTag ?? `nightly-${child_process
+            .execSync('git rev-parse HEAD')
+            .toString().trim().substring(0, 7)}`;
+        const image = `ghcr.io/boundless-xyz/boundless/indexer:${tag}`;
+
+        // Ensure target directory exists
+        const zipDir = path.dirname(zipFilePath);
+        if (!fs.existsSync(zipDir)) {
+            fs.mkdirSync(zipDir, { recursive: true });
+        }
+
+        // Extract binary from indexer image, rename to bootstrap, and zip for Lambda.
+        // The indexer image is already resolved by getGhcrImageUri() at this point.
+        console.log(`Extracting Lambda binary ${options.packageName} from ${image}...`);
+        const container = `tmp-lambda-${options.packageName}-${Date.now()}`;
+        const tmpDir = fs.mkdtempSync('/tmp/lambda-');
+        try {
+            child_process.execSync(`docker create --platform linux/amd64 --name ${container} ${image}`, { stdio: 'ignore' });
+            child_process.execSync(`docker cp ${container}:/app/${options.packageName} ${tmpDir}/bootstrap`, { stdio: 'inherit' });
+            child_process.execSync(`cd ${tmpDir} && zip ${zipFilePath} bootstrap`, { stdio: 'inherit' });
+        } catch (error) {
+            throw new Error(`Failed to extract Lambda binary from ${image}. Ensure the indexer image contains /app/${options.packageName}`);
+        } finally {
+            try { child_process.execSync(`docker rm ${container}`, { stdio: 'ignore' }); } catch {}
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    } else {
+        ensureCargoLambdaInstalled();
+
+        const release = options.release ?? true;
+        const buildMode = release ? '--release' : '';
+
+        try {
+            console.log(`Building Rust Lambda ${options.packageName} in ${options.projectPath}...`);
+            child_process.execSync(
+                `cd ${options.projectPath} && cargo lambda build --package ${options.packageName} ${buildMode} --output-format zip`,
+                { stdio: 'inherit' }
+            );
+            console.log('Build successful!');
+        } catch (error) {
+            console.error('Build failed:', error);
+            throw error;
+        }
+    }
+
     if (!fs.existsSync(zipFilePath)) {
-        throw new Error(`Build failed: zip file not found at ${zipFilePath}`);
+        throw new Error(`Lambda zip not found at ${zipFilePath}`);
     }
 
     const logGroup = new aws.cloudwatch.LogGroup(`${name}-log-group`, {

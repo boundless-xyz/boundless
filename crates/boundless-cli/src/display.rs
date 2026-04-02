@@ -230,6 +230,7 @@ pub fn network_name_from_chain_id(chain_id: Option<u64>) -> &'static str {
         Some(8453) => "Base Mainnet",
         Some(84532) => "Base Sepolia",
         Some(11155111) => "Ethereum Sepolia",
+        Some(167000) => "Taiko Mainnet",
         Some(_) => "Custom Network",
         None => "Unknown Network",
     }

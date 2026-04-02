@@ -28,3 +28,4 @@ config:
     secure: v1:BRdfqzFwbK0lKwSE:ycN6Yv30QVafq/ii4U8mb9Vpl+PWMt1jE3iGbw==
   order-stream:CI_CACHE_SECRET:
     secure: v1:8N5Q9rPjBj2jE9gn:/xiVMwvjNjnAnzkzcVR9FztyO1yqtTgZb7x9ZvLgBLuURpNHjW9+T6kGjhWBwrYX5guJmIohRALWIyRy5Q3rXQEtDCp7XlhQ8wPSMsadrSLVunvaxSAuqqITQAZARfGPYEtBCmhBDV+tWlQ0aFQFpRcWWyhB2QYlMyFW/qws2A==
+  order-stream:USE_GHCR: true

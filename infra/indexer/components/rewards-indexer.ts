@@ -63,7 +63,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-rewards`,
-          image: infra.image.ref,
+          image: infra.imageRef,
           entryPoint: ['/app/rewards-indexer'],
           cpu: 512,
           memory: 256,

@@ -1,0 +1,251 @@
+#!/bin/bash
+
+set -eo pipefail
+
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+SCRIPT_FILE="${SCRIPT_DIR}/ManageVerifier.s.sol"
+REPO_ROOT_DIR="${SCRIPT_DIR:?}/../../.."
+FIREBLOCKS=0
+export FOUNDRY_PROFILE=shanghai
+
+# # Check for python3, required for updating the deployment toml
+# if ! command -v python3 >/dev/null 2>&1; then
+#     echo "❌ python3 is not installed"
+#     exit 1
+# fi
+
+# # Check for tomlkit (Python package), required for updating the deployment toml
+# if ! python3 -c "import tomlkit" >/dev/null 2>&1; then
+#     echo "❌ tomlkit is not installed for python3"
+#     echo "To install: python3 -m pip install tomlkit"
+#     exit 1
+# fi
+
+# Check for yq
+if ! command -v yq >/dev/null 2>&1; then
+    echo "❌ yq is not installed"
+    echo "Install yq v4+ from: https://github.com/mikefarah/yq"
+    exit 1
+fi
+
+POSITIONAL_ARGS=()
+FORGE_SCRIPT_FLAGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+    -f|--fireblocks)
+        FIREBLOCKS=1
+        shift # past argument
+        ;;
+    --broadcast|--verify)
+        FORGE_SCRIPT_FLAGS+=("$1")
+        shift
+        ;;
+    -g)
+        shift
+        FORGE_SCRIPT_FLAGS+=("--gas-estimate-multiplier=$1")
+        shift
+        ;;
+    -*|--*)
+        FORGE_SCRIPT_FLAGS+=("$1")
+        shift
+        # If the next arg exists and doesn't start with -, treat it as the flag's value
+        if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+            FORGE_SCRIPT_FLAGS+=("$1")
+            shift
+        fi
+        ;;
+    *)
+        POSITIONAL_ARGS+=("$1") # save positional arg
+        shift # past argument
+        ;;
+    esac
+done
+
+set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
+
+# HINT: deployment_secrets.toml contains API keys. You can write it yourself, or ask a friend.
+load_env_var() {
+    local var_name="$1"
+    local config_key="$2"
+    local config_file="$3"
+
+    # Get current value of the variable
+    local current_value=$(eval echo \$$var_name)
+
+    if [ -z "$current_value" ]; then
+        echo "$var_name from $config_file: " > /dev/stderr
+        local new_value=$(yq eval -e "$config_key" "$REPO_ROOT_DIR/contracts/$config_file")
+        [ -n "$new_value" ] && [[ "$new_value" != "null" ]] || exit 1
+        export $var_name="$new_value"
+    else
+        echo "$var_name from env $current_value"
+    fi
+}
+
+# Run a Forge script with support for Fireblocks with options set automatically
+forge_script() {
+    # Set our function. If the function is "help", or if the function is
+    # unspecified, then print some help.
+    local script_function="${1:-help}"
+    shift
+
+    if [ "${script_function:?}" == "help" ]; then
+        cat << EOF
+🔧 Verifiers Management Script
+==================================
+
+Usage: $0 <command> [options]
+
+Commands:
+  DeployTimelockRouter    Deploy the TimelockController and Verifier Router contracts
+  DeployEstopBlake3Groth16Verifier         Deploy the Estop and Blake3 Groth16 Verifier contracts
+  ScheduleAddVerifier     Schedule adding a verifier to the Verifier Router contract
+  FinishAddVerifier       Finish adding a verifier to the Verifier Router contract
+  ScheduleRemoveVerifier  Schedule removing a verifier from the Verifier Router contract
+  FinishRemoveVerifier    Finish removing a verifier from the Verifier Router contract
+  ScheduleUpdateDelay     Schedule updating the timelock delay on the TimelockController contract
+  FinishUpdateDelay       Finish updating the timelock delay on the TimelockController contract
+  CancelOperation         Cancel a scheduled operation on the TimelockController contract
+  ScheduleGrantRole       Schedule granting a role to an account on the TimelockController contract
+  FinishGrantRole         Finish granting a role to an account on the TimelockController contract
+  ScheduleRevokeRole      Schedule revoking a role from an account on the TimelockController contract
+  FinishRevokeRole        Finish revoking a role from an account on the TimelockController contract
+  RenounceRole            Renounce a role on the TimelockController contract
+  ActivateEstop           Activate the emergency stop on the Verifier Router contract
+
+  RISC Zero Stack (upstream verifier infrastructure):
+  DeployRisc0TimelockRouter              Deploy RISC Zero TimelockController + RiscZeroVerifierRouter
+  DeployEstopGroth16Verifier             Deploy RiscZeroGroth16Verifier + emergency stop
+  DeployEstopSetVerifier                 Deploy RiscZeroSetVerifier + emergency stop
+  ScheduleAddVerifierToRisc0Router       Schedule adding a verifier to the RISC Zero router
+  FinishAddVerifierToRisc0Router         Finish adding a verifier to the RISC Zero router
+  ScheduleUpdateRisc0TimelockDelay       Schedule updating the RISC Zero timelock delay
+  FinishUpdateRisc0TimelockDelay         Finish updating the RISC Zero timelock delay
+
+Options:
+  -f, --fireblocks       Use Fireblocks for transaction signing
+  --broadcast            Broadcast transactions to network
+  --verify               Verify contracts on Etherscan
+  -g <multiplier>        Gas estimate multiplier (e.g. -g 200 for 200%)
+  -h, --help             Show this help message
+
+  Any additional flags (e.g. --gas-limit, --with-gas-price) are passed
+  through to \`forge script\`.
+
+Environment Variables:
+  CHAIN_KEY              Required. Deployment environment key (anvil, ethereum-mainnet, ethereum-sepolia, ethereum-sepolia-staging)
+  STACK_TAG              Optional. Stack tag for multi-deployment environments
+  DEPLOYER_PRIVATE_KEY   Required. Private key for transaction signing (0x...)
+  DEPLOYER_ADDRESS       Optional. Address for transaction signing
+  ADMIN_ADDRESS          Optional. Address to use as admin for deployed contracts
+  VERIFIER_ESTOP_OWNER   Optional. Address to set as estop owner for deployed verifiers (defaults to ADMIN_ADDRESS)
+  GNOSIS_EXECUTE         Optional. If true, generate Gnosis Safe calldata for admin operations
+  VERIFIER_SELECTOR      Required for verifier management commands. Verifier selector to add/remove (string)
+  SCHEDULE_DELAY         Optional. Delay (in seconds) for scheduling operations (defaults to timelock delay)
+  MIN_DELAY              Minimum delay (in seconds) for updating the timelock controller
+  OPERATION_ID           Required for CancelOperation command. Operation ID to cancel (bytes32 string)
+  RENOUNCE_ADDRESS       Optional. Address to renounce role from (defaults to DEPLOYER_PRIVATE_KEY address)
+  RENOUNCE_ROLE          Required for RenounceRole command. Role to renounce (bytes32 string)
+  ACCOUNT                Required for role management commands. Account to grant/revoke role to/from
+  ROLE                   Required for role management commands. Role to grant/revoke (bytes32 string)
+  RISC0_TIMELOCK_CONTROLLER  Optional. Override RISC Zero timelock address from config
+  RISC0_ROUTER               Optional. Override RISC Zero router address from config
+  RISC0_MIN_DELAY            Required for ScheduleUpdateRisc0TimelockDelay/FinishUpdateRisc0TimelockDelay
+  SET_BUILDER_IMAGE_ID       Required for DeployEstopSetVerifier. SetBuilder guest image ID
+  SET_BUILDER_GUEST_URL      Required for DeployEstopSetVerifier. SetBuilder guest URL
+
+Examples:
+  # Deploy TimelockController and Verifier Router
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 DeployTimelockRouter --broadcast
+
+  # Deploy Estop and Blake3 Groth16 Verifier
+  CHAIN_KEY=ethereum-sepolia DEPLOYER_PRIVATE_KEY=0x... $0 DeployEstopBlake3Groth16Verifier --broadcast
+
+Notes:
+  - Network configuration is loaded from deployment_verifier.toml and deployment_secrets.toml
+  - Private keys must be provided via DEPLOYER_PRIVATE_KEY environment variable
+  - Admin operations support GNOSIS_EXECUTE=true for Gnosis Safe calldata generation
+EOF
+        exit 0
+    fi
+
+    # Load environment variables only when running actual commands
+    if [ -n "$STACK_TAG" ]; then
+        DEPLOY_KEY=${CHAIN_KEY:?}-${STACK_TAG:?}
+    else
+        DEPLOY_KEY=${CHAIN_KEY:?}
+    fi
+
+    echo "Loading environment variables from deployment_verifier TOML files"
+    load_env_var "RPC_URL" ".chains[\"${CHAIN_KEY:?}\"].rpc-url" "deployment_secrets.toml"
+    load_env_var "ETHERSCAN_API_KEY" ".chains[\"${CHAIN_KEY:?}\"].etherscan-api-key" "deployment_secrets.toml"
+    load_env_var "CHAIN_ID" ".chains[\"${CHAIN_KEY:?}\"].id" "deployment_verifier.toml"
+
+    # Load optional gas-estimate-multiplier from config
+    GAS_MULTIPLIER=$(yq eval ".chains[\"${CHAIN_KEY:?}\"].gas-estimate-multiplier // \"\"" "$REPO_ROOT_DIR/contracts/deployment_verifier.toml")
+    if [[ -n "$GAS_MULTIPLIER" ]] && ! printf '%s\n' "${FORGE_SCRIPT_FLAGS[@]}" | grep -q -- '--gas-estimate-multiplier='; then
+        echo "Using gas-estimate-multiplier from config: ${GAS_MULTIPLIER}"
+        FORGE_SCRIPT_FLAGS+=("--gas-estimate-multiplier=$GAS_MULTIPLIER")
+    fi
+
+    # Load optional gas-limit from config
+    GAS_LIMIT=$(yq eval ".chains[\"${CHAIN_KEY:?}\"].gas-limit // \"\"" "$REPO_ROOT_DIR/contracts/deployment_verifier.toml")
+    if [[ -n "$GAS_LIMIT" ]] && ! printf '%s\n' "${FORGE_SCRIPT_FLAGS[@]}" | grep -q -- '--gas-limit'; then
+        echo "Using gas-limit from config: ${GAS_LIMIT}"
+        FORGE_SCRIPT_FLAGS+=("--gas-limit=$GAS_LIMIT")
+    fi
+
+    # Load optional evm-version from config (e.g. "shanghai" for chains without MCOPY support)
+    EVM_VERSION=$(yq eval ".chains[\"${CHAIN_KEY:?}\"].evm-version // \"\"" "$REPO_ROOT_DIR/contracts/deployment_verifier.toml")
+    if [[ -n "$EVM_VERSION" ]] && ! printf '%s\n' "${FORGE_SCRIPT_FLAGS[@]}" | grep -q -- '--evm-version'; then
+        echo "Using evm-version from config: ${EVM_VERSION}"
+        FORGE_SCRIPT_FLAGS+=("--evm-version=$EVM_VERSION")
+    fi
+
+    # Check if we're on the correct network
+    CONNECTED_CHAIN_ID=$(cast chain-id --rpc-url ${RPC_URL:?})
+    if [[ "${CONNECTED_CHAIN_ID:?}" != "${CHAIN_ID:?}" ]]; then
+        echo -e "${RED}Error: connected chain id and configured chain id do not match: ${CONNECTED_CHAIN_ID:?} != ${CHAIN_ID:?} ${NC}"
+        echo ${RPC_URL:?}
+
+        exit 1
+    fi
+
+    local target="${SCRIPT_FILE:?}:${script_function:?}"
+    echo "Running forge script $target"
+
+    if [ $FIREBLOCKS -gt 0 ]; then
+        # Check for fireblocks
+        if ! command -v fireblocks-json-rpc &> /dev/null
+        then
+            echo "fireblocks-json-rpc not found"
+            echo "can be installed with npm install -g @fireblocks/fireblocks-json-rpc"
+            exit 1
+        fi
+
+        # Run forge via fireblocks
+        fireblocks-json-rpc --verbose --rpcUrl ${RPC_URL:?} --http --apiKey ${FIREBLOCKS_API_KEY:?} -- \
+            forge script "${FORGE_SCRIPT_FLAGS[@]}" \
+            --slow --unlocked \
+            --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
+            --rpc-url {} \
+            "$target" "$@"
+    else
+        # Run forge
+        forge script "${FORGE_SCRIPT_FLAGS[@]}" \
+            --private-key=${DEPLOYER_PRIVATE_KEY:?} \
+            --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
+            --rpc-url ${RPC_URL:?} \
+            "$target" "$@"
+    fi
+}
+
+# Run from the repo root for consistency.
+cd ${REPO_ROOT_DIR:?}
+
+# Get current git commit hash for deployment tracking
+CURRENT_COMMIT=$(git rev-parse --short HEAD)
+export CURRENT_COMMIT
+
+forge_script "$@"
