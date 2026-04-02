@@ -1,7 +1,7 @@
 ---
-name: deploy-prover
+name: setup-prover
 description: >-
-  Deploy a Boundless prover to a GPU server using Ansible. Handles inventory
+  Set up and deploy a Boundless prover to a GPU server using Ansible. Handles inventory
   setup, SSH connectivity, NVIDIA drivers, Docker, and the full bento stack.
   Use when deploying a new prover, redeploying to an existing server, or
   troubleshooting prover infrastructure.

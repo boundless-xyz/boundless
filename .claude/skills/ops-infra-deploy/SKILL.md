@@ -1,7 +1,8 @@
 ---
-name: infra-deploy
+name: ops-infra-deploy
 description: >-
-  Help developers deploy Boundless AWS infrastructure to the dev environment.
+  Internal — for Boundless team members only. Help developers deploy Boundless
+  AWS infrastructure to the dev environment.
   Use when the user wants to deploy a service to dev, bootstrap their dev
   environment, troubleshoot infrastructure issues, or understand what env vars
   a service needs. Also handles teardown and status checks.

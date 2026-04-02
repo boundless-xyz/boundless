@@ -1,4 +1,4 @@
-# Troubleshooting — Boundless First Request
+# Troubleshooting — Boundless Requesting
 
 ## Common Errors
 
@@ -27,12 +27,12 @@ The CLI's embedded AWS SDK tries to contact the EC2 Instance Metadata Service on
 | `RequestHasExpired`                      | Proof request timed out before a prover fulfilled it                                | Increase `--timeout` and `--max-price` to attract provers                                         |
 | `program too large`                      | ELF binary exceeds 50MB limit                                                       | Ensure you're using a valid program URL from the discovery script                                 |
 | `connection refused` / `transport error` | RPC endpoint unreachable                                                            | Verify `REQUESTOR_RPC_URL` is correct and the provider is online                                  |
-| `invalid Pinata JWT`                     | Bad or expired Pinata token                                                         | Regenerate JWT at app.pinata.cloud/keys                                                           |
+| `Malformed ProgramBinary`                | Serving raw `.elf` instead of `.bin` (R0BF format)                                  | Use the `.bin` file from `target/riscv-guest/guests/<name>/.../release/<name>.bin`                |
 | `no provers available`                   | No provers currently serving requests                                               | Wait and retry — prover availability fluctuates. Increase `--max-price`                           |
 | `Failed to build Boundless Client`       | Config missing or invalid                                                           | Run `boundless requestor config` to check, or re-run `boundless requestor setup`                  |
 | `Failed to parse request from YAML`      | Malformed YAML in submit-file                                                       | Validate YAML syntax; check field names match expected schema                                     |
 | `Invalid imageUrl`                       | Malformed program URL in YAML                                                       | Ensure URL is a valid HTTP/HTTPS URL (IPFS gateway URLs work)                                     |
-| `Malformed ProgramBinary`                | Program ELF was built against a different risc0-zkvm version than the installed CLI | Use `scripts/discover-programs.sh` to find a recently fulfilled program with known-working inputs |
+| `Malformed ProgramBinary` (replay)       | Program ELF was built against a different risc0-zkvm version than the installed CLI | Use `scripts/discover-programs.sh` to find a recently fulfilled program with known-working inputs |
 
 ## Installation Issues
 
@@ -103,6 +103,25 @@ boundless requestor setup
 ```
 
 This removes all stored config and re-runs the interactive wizard.
+
+## Self-Hosting Issues (Cloudflare Tunnel)
+
+### `429 Too Many Requests` from Cloudflare
+
+Cloudflare rate-limits quick tunnel creation to ~20 tunnels/hour/IP. If you hit this:
+- Wait 10–15 minutes for the limit to reset
+- Don't create/destroy tunnels in rapid succession
+- Keep one tunnel alive and reuse it rather than restarting the script
+
+### Tunnel URL not reachable
+
+- Ensure `cloudflared` is not blocked by a firewall (e.g., Little Snitch, corporate firewall)
+- The tunnel needs a few seconds after registration before DNS propagates
+- Try again — quick tunnels are occasionally slow to become routable
+
+### Request expired — tunnel died
+
+If the tunnel died before the prover downloaded the program, they can't fulfill. Ensure the `self-host.sh` script stays running until fulfillment. The script guards against accidental Ctrl-C (3× to force quit).
 
 ## Getting Help
 
