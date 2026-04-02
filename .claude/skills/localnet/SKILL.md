@@ -43,16 +43,25 @@ Uses `RISC0_DEV_MODE=false`. The broker is NOT included in the localnet cluster.
 # Start the full localnet (anvil + postgres + minio + order-stream + broker)
 # Run in foreground — wait for it to finish before proceeding
 RISC0_DEV_MODE=1 just localnet
-
-# Submit a test request (separate terminal)
-source .env.localnet && cargo run --example submit_echo
 ```
 
-To have the request picked up immediately (no price ramp delay):
+#### Submitting a test request
+
+Submit in a **background task**, then monitor status through order-stream, on-chain, and broker logs while it waits for fulfillment.
+
+For **immediate broker acceptance**, the offer's `min-price` must exceed the broker's minimum profitable price (gas costs + min_mcycle_price). On anvil, gas costs are ~0.00003 ETH, so `0.0001 ETH` is safely above the threshold. The price starts at `min-price` before `rampUpStart` (defaults to `now() + 30s`), so setting `min-price` high enough means the broker accepts before the ramp even begins.
 
 ```bash
-source .env.localnet && cargo run --example submit_echo -- --ramp-up-period 0 --min-price "0.00001 ETH" --max-price "0.0001 ETH"
+source .env.localnet && cargo run --example submit_echo -- \
+  --bidding-start "$(date +%s)" \
+  --min-price "0.0001 ETH" \
+  --max-price "0.0004 ETH"
 ```
+
+**Why these values:**
+- `--bidding-start "$(date +%s)"`: Sets `rampUpStart` to now. Without this, the default is `now() + 30s` (`DEFAULT_BASE_RAMP_UP_DELAY`), which delays when the auction begins.
+- `--min-price "0.0001 ETH"`: Above broker's minimum profitable price (~0.00003 ETH gas on anvil). If min-price is too low, the broker schedules a delayed lock attempt and waits for the auction price to ramp up past its threshold.
+- `--max-price "0.0004 ETH"`: ~4x min-price, reasonable ceiling
 
 ### Full Proving Mode
 
@@ -66,7 +75,10 @@ RISC0_DEV_MODE=false just localnet
 source .env.localnet && just prover
 
 # Terminal 3: Submit a test request
-source .env.localnet && cargo run --example submit_echo -- --ramp-up-period 0 --min-price "0.00001 ETH" --max-price "0.0001 ETH"
+source .env.localnet && cargo run --example submit_echo -- \
+  --bidding-start "$(date +%s)" \
+  --min-price "0.0001 ETH" \
+  --max-price "0.0004 ETH"
 ```
 
 ## Checking Order Status
@@ -138,8 +150,11 @@ just localnet clean
 - If `Broadcasted order ... to 0 clients`, the broker isn't connected to the WebSocket
 - In dev mode, check broker container is running: `docker compose -f dockerfiles/compose.localnet.yml --profile dev-broker ps`
 
+### Broker delays lock ("scheduled for lock attempt in Ns")
+The broker waits until the auction price exceeds its minimum profitable price (gas costs + min_mcycle_price). To avoid this delay, set `--min-price` above the broker's gas cost threshold (~0.0001 ETH on anvil). The price sits at `min-price` before `rampUpStart` (default `now() + 30s`), so a sufficiently high `min-price` means instant acceptance.
+
 ### Broker not picking up orders
-- Check `--ramp-up-period`: default ramp means the price starts low and increases over time. Use `--ramp-up-period 0` for instant pickup.
+- Check that `--min-price` is high enough to cover gas + min_mcycle_price
 - Check broker's `min_mcycle_price` in `broker.toml` vs the offer price
 
 ### Price oracle errors on anvil

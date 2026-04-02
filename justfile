@@ -273,8 +273,8 @@ localnet action="up":
             [ -f .env.localnet ] || cp .env.localnet-template .env.localnet
             $COMPOSE up -d --build --wait
             ;;
-        down)  $COMPOSE --all down ;;
-        clean) $COMPOSE --all down -v && rm -f .env.localnet ;;
+        down)  $COMPOSE --profile dev-broker down ;;
+        clean) $COMPOSE --profile dev-broker down -v && rm -f .env.localnet ;;
         logs)  $COMPOSE logs -f ;;
         *)     echo "Available actions: up, down, clean, logs"; exit 1 ;;
     esac
