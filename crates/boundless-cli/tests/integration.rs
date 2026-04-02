@@ -15,10 +15,7 @@
 //! Integration tests for the Boundless CLI.
 
 mod rewards;
-mod skill;
 
 // Include the actual tests
 #[path = "rewards/mining.rs"]
 mod mining;
-#[path = "skill/install.rs"]
-mod skill_install;

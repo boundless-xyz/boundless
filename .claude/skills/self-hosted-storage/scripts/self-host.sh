@@ -159,7 +159,7 @@ fi
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
 cleanup() {
-    local exit_code=$?
+    local exit_code=${1:-$?}
     # Suppress errors during cleanup
     set +e
     [[ -n "$HTTP_PID" ]]   && kill "$HTTP_PID" 2>/dev/null && wait "$HTTP_PID" 2>/dev/null
@@ -181,8 +181,7 @@ handle_sigint() {
         printf "\n"
     else
         printf "\n${RED}${BOLD}🛑 Force quitting. Cleaning up...${NC}\n"
-        cleanup
-        exit 1
+        cleanup 130
     fi
 }
 trap handle_sigint INT
