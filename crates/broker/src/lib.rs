@@ -1072,6 +1072,26 @@ impl Broker {
         let deployment = &chain.deployment;
         let db = chain.db.clone();
 
+        {
+            let task = Arc::new(version_check::VersionCheckTask::new(
+                (*provider).clone(),
+                chain_id,
+                deployment.boundless_market_address,
+                None,
+                self.args.version_registry_address,
+                self.args.force_version_check,
+            ));
+            let config_clone = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                Supervisor::new(task, config_clone, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Version check task failed")?;
+                Ok(())
+            });
+        }
+
         let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
             let config = config.lock_all().context("Failed to lock config")?;
             (

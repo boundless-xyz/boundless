@@ -80,6 +80,7 @@ pub struct ProverGenerateConfig {
 struct ChainConfig {
     chain_id: u64,
     chain_name: String,
+    #[allow(dead_code)]
     rpc_url: Url,
     max_collateral: String,
     min_mcycle_price: String,
@@ -431,7 +432,7 @@ impl ProverGenerateConfig {
             bail!("At least one chain must be selected");
         }
 
-        let selected_chains: Vec<(u64, String)> = selected_indices
+        let _selected_chains: Vec<(u64, String)> = selected_indices
             .iter()
             .enumerate()
             .filter(|(_, selected)| !selected.is_empty())
