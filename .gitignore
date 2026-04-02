@@ -21,6 +21,8 @@ build-info-reference/
 
 # Ignore the file with RPC and Etherscan API keys for deployment.
 deployment_secrets.toml
+network_secrets.toml
+network_address_labels.json
 
 # Devnet logs
 /logs
