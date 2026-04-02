@@ -52,13 +52,13 @@ Rate limit all sources:
 
 **Before starting any work, check if the user's question matches a pre-built investigation.** These are tested playbooks with the right queries, presentation format, and step-by-step instructions. Using them produces consistent, comprehensive results. Each lives in its own file under `references/`:
 
-| Investigation | File | When to use |
-| --- | --- | --- |
-| **Market Summary** | [references/market-summary.md](references/market-summary.md) | "How's the market?" / "give me a summary" / overview of health, prover activity, failures, skips |
-| **Slashing Reasons** | [references/slashing-reasons.md](references/slashing-reasons.md) | Prover was slashed -- find out why |
-| **Fulfillment Rate Drops** | [references/fulfillment-rate-drops.md](references/fulfillment-rate-drops.md) | Market or prover fulfillment rate declined, success rate alarms |
-| **Prover Performance** | [references/prover-performance.md](references/prover-performance.md) | Deep dive into a specific prover's operational health |
-| **Request Lifecycle** | [references/request-lifecycle.md](references/request-lifecycle.md) | Trace a specific request end-to-end across all data sources |
+| Investigation              | File                                                                         | When to use                                                                                      |
+| -------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **Market Summary**         | [references/market-summary.md](references/market-summary.md)                 | "How's the market?" / "give me a summary" / overview of health, prover activity, failures, skips |
+| **Slashing Reasons**       | [references/slashing-reasons.md](references/slashing-reasons.md)             | Prover was slashed -- find out why                                                               |
+| **Fulfillment Rate Drops** | [references/fulfillment-rate-drops.md](references/fulfillment-rate-drops.md) | Market or prover fulfillment rate declined, success rate alarms                                  |
+| **Prover Performance**     | [references/prover-performance.md](references/prover-performance.md)         | Deep dive into a specific prover's operational health                                            |
+| **Request Lifecycle**      | [references/request-lifecycle.md](references/request-lifecycle.md)           | Trace a specific request end-to-end across all data sources                                      |
 
 If the user's question clearly maps to one of these, read the corresponding file and follow it step by step. If it doesn't fit any pre-built investigation, fall back to the general Investigation Workflow above and build a custom investigation.
 
