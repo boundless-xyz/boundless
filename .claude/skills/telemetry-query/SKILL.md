@@ -1,6 +1,6 @@
 ---
 name: telemetry-query
-description: Query Boundless broker telemetry tables on Redshift. Use when the user asks about broker health, request evaluations, request completions, proving times, skip rates, telemetry data, or wants to run SQL against the telemetry database.
+description: Query Boundless broker telemetry tables on Redshift for prod/staging operational data. Use when the user asks about broker health, request evaluations, request completions, proving times, skip rates, telemetry data, or wants to run SQL against the telemetry database on live networks. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
 ---
 
 # Telemetry Query
@@ -9,7 +9,18 @@ Query the Boundless telemetry database (Amazon Redshift Serverless, Postgres-com
 
 ## Prerequisites
 
-Before running any queries, check if `REDSHIFT_URL` is already exported in the shell. If not, the user needs to provide two things:
+Before running any queries, check if `REDSHIFT_URL` is already exported in the shell.
+
+If not, try to read `network_secrets.toml` from the repo root. If it exists, extract the telemetry credentials for the selected environment from `[environments.<env>.telemetry]`:
+
+- `db_url` -- the Redshift hostname:port/database?sslmode path
+- `readonly_password` -- the readonly user password
+
+Construct the connection string: `postgres://readonly:<password>@<db_url>`
+
+Also read `network_address_labels.json` (same directory) for translating addresses to human-readable labels in output.
+
+If `network_secrets.toml` is not present, recommend the user create it -- instructions and credentials are in the **Boundless runbook**. Alternatively, they can provide credentials directly:
 
 1. The Redshift **endpoint** (hostname or full connection string)
 2. The **readonly password**
@@ -19,7 +30,7 @@ They can either:
 - Export them as env vars: `export REDSHIFT_ENDPOINT="..."` and `export REDSHIFT_PASSWORD="..."`
 - Provide them directly in the chat
 
-These credentials are available in the **Boundless runbook**. Tell the user to check there if they don't have them.
+If `network_address_labels.json` is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**. The file is plain JSON (`{"0xaddr": "label", ...}`).
 
 The user may provide a full `postgres://...` URL or just a hostname. Normalize to a valid connection string:
 
@@ -28,6 +39,10 @@ The user may provide a full `postgres://...` URL or just a hostname. Normalize t
 - If only a hostname is given, construct: `postgres://readonly:<password>@<hostname>:5439/telemetry?sslmode=require`
 
 Export the result as `REDSHIFT_URL` before running queries.
+
+## Known Addresses
+
+If `network_address_labels.json` exists at the repo root, use it to label addresses in results. The file is plain JSON (`{"0xaddr": "label", ...}`) so the user can paste directly from the canonical mapping. When displaying addresses from query output, check if the address (case-insensitive) has a known label and show it alongside, e.g. `0xbdA9...5542 (BP1)`.
 
 ## Connecting
 
