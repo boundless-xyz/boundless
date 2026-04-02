@@ -268,8 +268,9 @@ mod tests {
         mut orders: Vec<Arc<OrderRequest>>,
         priority_mode: OrderCommitmentPriority,
         priority_addresses: Option<&[alloy::primitives::Address]>,
+        peak_prove_khz: Option<u64>,
     ) -> Vec<Arc<OrderRequest>> {
-        let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, None);
+        let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
         sort_orders_by_priority_and_mode(&mut orders, priority_addresses, mode);
         orders
     }
@@ -518,8 +519,12 @@ mod tests {
 
         let orders =
             vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
-        let orders =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+        let orders = prioritize_commitment_orders(
+            orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            None,
+            None,
+        );
 
         assert!(orders[0].id() == order_1_id);
         assert!(orders[1].id() == order_3_id);
@@ -567,8 +572,12 @@ mod tests {
 
         for _ in 0..10 {
             let test_orders = orders.clone();
-            let test_orders =
-                prioritize_commitment_orders(test_orders, OrderCommitmentPriority::Random, None);
+            let test_orders = prioritize_commitment_orders(
+                test_orders,
+                OrderCommitmentPriority::Random,
+                None,
+                None,
+            );
 
             // Extract the ordering of all orders
             let order_ids: Vec<_> = test_orders.iter().map(|order| order.request.id).collect();
@@ -580,7 +589,7 @@ mod tests {
 
         // Test that random mode produces different orderings
         let prioritized =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::Random, None);
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::Random, None, None);
 
         // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
         let lock_and_fulfill_count = prioritized
@@ -737,8 +746,12 @@ mod tests {
             orders.push(Arc::from(order));
         }
 
-        let prioritized =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+        let prioritized = prioritize_commitment_orders(
+            orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            None,
+            None,
+        );
 
         // Orders should be sorted by their relevant expiry times, regardless of type
         // Expected order: LockAndFulfill(100), LockAndFulfill(150), FulfillAfterLockExpire(150), LockAndFulfill(200), FulfillAfterLockExpire(250), FulfillAfterLockExpire(300)
@@ -798,11 +811,16 @@ mod tests {
             _prioritized_random,
             OrderCommitmentPriority::Random,
             None,
+            None,
         );
 
         // Test shortest expiry mode
-        let prioritized_shortest =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::ShortestExpiry, None);
+        let prioritized_shortest = prioritize_commitment_orders(
+            orders,
+            OrderCommitmentPriority::ShortestExpiry,
+            None,
+            None,
+        );
 
         // In shortest expiry mode, orders should be sorted by expiry time
         for i in 0..3 {
@@ -930,6 +948,7 @@ mod tests {
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             None,
+            None,
         );
         assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 100); // Regular order first
 
@@ -939,6 +958,7 @@ mod tests {
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             Some(&priority_addresses),
+            None,
         );
 
         // Priority order should be first despite longer expiry, regular order second
@@ -1420,8 +1440,12 @@ mod tests {
         // Order A: margin = 100 - 80 = 20s (tightest)
         // Order C: margin = 50 - 20 = 30s
         // Order B: margin = 60 - 10 = 50s (most slack)
-        let result =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
+        let result = prioritize_commitment_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            Some(1000),
+        );
 
         assert_eq!(result[0].id(), id_a, "Order A (margin=20s) should be first");
         assert_eq!(result[1].id(), id_c, "Order C (margin=30s) should be second");
@@ -1451,8 +1475,12 @@ mod tests {
         let orders = vec![Arc::from(order_a), Arc::from(order_b)];
 
         // No peak_prove_khz → falls back to ShortestExpiry (by raw expiry)
-        let result =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
+        let result = prioritize_commitment_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            None,
+        );
 
         // ShortestExpiry: order_b expires sooner (current+60 < current+100)
         assert_eq!(result[0].id(), id_b, "Should fall back to ShortestExpiry");
@@ -1484,8 +1512,12 @@ mod tests {
 
         let orders = vec![Arc::from(order_b), Arc::from(order_a)];
 
-        let result =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
+        let result = prioritize_commitment_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            Some(1000),
+        );
 
         // Order A: margin = 100 - 80 = 20s (tightest)
         // Order B: margin = 50 - 0 = 50s (no cycles, prove time = 0)
@@ -1518,8 +1550,12 @@ mod tests {
 
         let orders = vec![Arc::from(order_b), Arc::from(order_a)];
 
-        let result =
-            prioritize_commitment_orders(orders, OrderCommitmentPriority::TightestDeadline, None);
+        let result = prioritize_commitment_orders(
+            orders,
+            OrderCommitmentPriority::TightestDeadline,
+            None,
+            Some(1000),
+        );
 
         // Order A: margin = max(0, 30-50) = 0 (clamped, tightest)
         // Order B: margin = 100-10 = 90
