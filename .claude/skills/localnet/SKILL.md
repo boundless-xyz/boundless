@@ -15,6 +15,7 @@ Guide the user through starting and using the docker compose-based localnet.
 ## Prerequisites
 
 Before starting, ensure:
+
 - Docker is running
 - Contracts and guest binaries are built: `forge build && cargo check`
 - Guest ELF binaries exist at `target/riscv-guest/` (built by `cargo check`)
@@ -59,6 +60,7 @@ source .env.localnet && cargo run --example submit_echo -- \
 ```
 
 **Why these values:**
+
 - `--bidding-start "$(date +%s)"`: Sets `rampUpStart` to now. Without this, the default is `now() + 30s` (`DEFAULT_BASE_RAMP_UP_DELAY`), which delays when the auction begins.
 - `--min-price "0.0001 ETH"`: Above broker's minimum profitable price (~0.00003 ETH gas on anvil). If min-price is too low, the broker schedules a delayed lock attempt and waits for the auction price to ramp up past its threshold.
 - `--max-price "0.0004 ETH"`: ~4x min-price, reasonable ceiling
@@ -84,6 +86,7 @@ source .env.localnet && cargo run --example submit_echo -- \
 ## Checking Order Status
 
 After submitting a request, you'll see a request ID like:
+
 ```
 Submitted request: 90f79bf6eb2c4f870365e785982e1f101e93b9061d289271
 ```
@@ -110,16 +113,17 @@ docker compose -f dockerfiles/compose.localnet.yml --profile dev-broker logs bro
 ```
 
 Key log lines to look for:
+
 - `Locked request <ID>` — when the broker locked it
 - `Completed order: <ID> eth_reward: <PRICE>` — when it was fulfilled and at what price
 - The order's `created_at` field from the order-stream query shows submission time
 
 Present status to the user as:
 
-| Event | Time |
-|-------|------|
-| Submitted | (from order-stream `created_at`) |
-| Locked | (from broker log "Locked request") |
+| Event     | Time                                |
+| --------- | ----------------------------------- |
+| Submitted | (from order-stream `created_at`)    |
+| Locked    | (from broker log "Locked request")  |
 | Fulfilled | (from broker log "Completed order") |
 
 **Fulfilled price:** (from `eth_reward` in the "Completed order" log line)
@@ -146,20 +150,25 @@ just localnet clean
 ## Troubleshooting
 
 ### Request stuck at "Unknown"
+
 - Check order-stream logs — did it receive the order?
 - If `Broadcasted order ... to 0 clients`, the broker isn't connected to the WebSocket
 - In dev mode, check broker container is running: `docker compose -f dockerfiles/compose.localnet.yml --profile dev-broker ps`
 
 ### Broker delays lock ("scheduled for lock attempt in Ns")
+
 The broker waits until the auction price exceeds its minimum profitable price (gas costs + min_mcycle_price). To avoid this delay, set `--min-price` above the broker's gas cost threshold (~0.0001 ETH on anvil). The price sits at `min-price` before `rampUpStart` (default `now() + 30s`), so a sufficiently high `min-price` means instant acceptance.
 
 ### Broker not picking up orders
+
 - Check that `--min-price` is high enough to cover gas + min_mcycle_price
 - Check broker's `min_mcycle_price` in `broker.toml` vs the offer price
 
 ### Price oracle errors on anvil
+
 - Ensure `broker.toml` has the `[price_oracle]` section with static prices and chainlink disabled. `just localnet` adds this automatically.
 
 ### Port conflicts
+
 - Localnet uses ports: 8545 (anvil), 8585 (order-stream), 5435 (postgres), 9100/9101 (minio)
 - Check for conflicts: `ss -tlnp | grep -E '8545|8585|5435|9100'`
