@@ -15,7 +15,6 @@
     chdir: "{{ prover_dir }}"
   register: prover_commit_sha
   changed_when: false
-  when: prover_wait_for_nightly_image | default(false) | bool
 
 - name: Wait for nightly Docker image to be available
   ansible.builtin.command:
@@ -28,6 +27,13 @@
   delay: 30
   when: prover_wait_for_nightly_image | default(false) | bool
   changed_when: false
+
+- name: Pin image tag to deployed commit
+  ansible.builtin.set_fact:
+    prover_image_tag: "nightly-{{ prover_commit_sha.stdout[:7] }}"
+  when:
+    - prover_wait_for_nightly_image | default(false) | bool
+    - prover_image_tag | default('') | string | length == 0
 
 - name: Generate Docker Compose environment file
   ansible.builtin.template:
