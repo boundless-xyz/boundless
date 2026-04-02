@@ -1,5 +1,5 @@
 ---
-name: query
+name: ops-query
 description: Cross-reference Boundless indexer API data, broker telemetry, and service logs to investigate production and staging operational issues. Use when the user wants to understand why slashings happened on prod/staging, diagnose prover or service failures in deployed environments, correlate market events with broker behavior, investigate fulfillment rate drops, look at prover/service logs, or perform any analysis that requires combining on-chain indexer data with off-chain broker telemetry and CloudWatch logs. Also use when the user asks to "investigate", "diagnose", or "find root cause" for prover, service, or market issues on live networks. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
 ---
 
@@ -13,11 +13,11 @@ Set up the data sources needed for the investigation. Not all sources are needed
 
 1. **Read `network_secrets.toml`** from the repo root. If it exists, it contains credentials for all environments (indexer API keys, telemetry DB URLs/passwords, AWS creds). Also read `network_address_labels.json` (same directory) for labelling addresses -- it is plain JSON (`{"0xaddr": "label", ...}`). If `network_secrets.toml` is not present, recommend the user create it -- instructions and credentials are in the **Boundless runbook**. If `network_address_labels.json` is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**.
 
-2. **Read and follow the indexer-query skill** at `.claude/skills/indexer-query/SKILL.md` to set up indexer access (`MARKET_INDEXER_URL`, `ZKC_INDEXER_URL`, optional `INDEXER_API_KEY`, and the `indexer_get` helper function).
+2. **Read and follow the ops-indexer-query skill** at `.claude/skills/ops-indexer-query/SKILL.md` to set up indexer access (`MARKET_INDEXER_URL`, `ZKC_INDEXER_URL`, optional `INDEXER_API_KEY`, and the `indexer_get` helper function).
 
-3. **Read and follow the telemetry-query skill** at `.claude/skills/telemetry-query/SKILL.md` to set up Redshift access (`REDSHIFT_URL`). Before writing any telemetry SQL, read `crates/boundless-market/src/telemetry.rs` for exact column names and enum values.
+3. **Read and follow the ops-telemetry-query skill** at `.claude/skills/ops-telemetry-query/SKILL.md` to set up Redshift access (`REDSHIFT_URL`). Before writing any telemetry SQL, read `crates/boundless-market/src/telemetry.rs` for exact column names and enum values.
 
-4. **Read and follow the logs-query skill** at `.claude/skills/logs-query/SKILL.md` to set up CloudWatch log access (AWS credentials, log group discovery). Use when the investigation benefits from raw service logs -- especially for our own operated provers, or for other services like indexer, order stream, slasher, etc.
+4. **Read and follow the ops-logs-query skill** at `.claude/skills/ops-logs-query/SKILL.md` to set up CloudWatch log access (AWS credentials, log group discovery). Use when the investigation benefits from raw service logs -- especially for our own operated provers, or for other services like indexer, order stream, slasher, etc.
 
 5. Ask the user which **network** they want to investigate (determines which market indexer + ZKC indexer to use).
 
