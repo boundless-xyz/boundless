@@ -1,7 +1,8 @@
 ---
-name: add-new-chain
+name: ops-add-new-chain
 description: >-
-  Deploy Boundless infrastructure to a new blockchain. Creates Pulumi stacks,
+  Internal — for Boundless team members only. Deploy Boundless infrastructure
+  to a new blockchain. Creates Pulumi stacks,
   config files, updates ChainId enum, and wires CI/CD pipelines for staging
   and prod environments. Use when adding a new chain, deploying to a new
   network, or setting up new chain infrastructure.
