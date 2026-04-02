@@ -201,6 +201,7 @@ transforms:
 sinks:
   cloudwatch_bento:
     type: aws_cloudwatch_logs
+    create_missing_group: false
     inputs: ["extract_message"]
     group_name: "{{ vector_cloudwatch_log_group }}"
     stream_name: "{{ vector_cloudwatch_stream_name }}"
