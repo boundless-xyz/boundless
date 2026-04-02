@@ -28,39 +28,39 @@ If they want to experiment without cost, point them to the [Boundless SDK exampl
 
 Ask the developer which applies:
 
-| Path | When to use | What happens |
-|------|-------------|--------------|
+| Path                           | When to use                                       | What happens                                                        |
+| ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------- |
 | **A — Bring your own program** | Developer has (or wants to build) a guest program | Build the guest, self-host the binary via Cloudflare tunnel, submit |
-| **B — Just trying it out** | Developer wants to see Boundless work end-to-end | Discover a recently fulfilled request and replay it |
+| **B — Just trying it out**     | Developer wants to see Boundless work end-to-end  | Discover a recently fulfilled request and replay it                 |
 
 Both paths share the same setup (Phases 1–4) and submission flow (Phase 6+). They differ only in where the program comes from (Phase 5).
 
 ## Quick Command Reference
 
-| Step | Command |
-|------|---------|
-| Check prerequisites | `bash scripts/check-prerequisites.sh` (from this skill's directory) |
-| Create wallet | `cast wallet new` |
-| Check balance | `cast balance <ADDRESS> --rpc-url https://mainnet.base.org` |
-| Install CLI | `cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.2 --bin boundless` |
-| Configure | `boundless requestor setup` |
-| Deposit | `boundless requestor deposit 0.005` |
-| Check deposit | `boundless requestor balance` |
-| **Path A** — Self-host + submit | `bash scripts/self-host.sh ./program.bin ./input.bin --image-id <ID> --submit --wait` |
-| **Path B** — Discover programs | `bash scripts/discover-programs.sh` |
-| **Path B** — Build YAML | `bash scripts/build-request-yaml.sh <URL> <IMAGE_ID> <HEX>` |
-| Submit (manual) | `boundless requestor submit-file request.yaml --no-preflight` |
-| Check status | `boundless requestor status <REQUEST_ID>` |
-| Get proof | `boundless requestor get-proof <REQUEST_ID>` |
+| Step                            | Command                                                                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Check prerequisites             | `bash scripts/check-prerequisites.sh` (from this skill's directory)                                                          |
+| Create wallet                   | `cast wallet new`                                                                                                            |
+| Check balance                   | `cast balance <ADDRESS> --rpc-url https://mainnet.base.org`                                                                  |
+| Install CLI                     | `cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.2 --bin boundless` |
+| Configure                       | `boundless requestor setup`                                                                                                  |
+| Deposit                         | `boundless requestor deposit 0.005`                                                                                          |
+| Check deposit                   | `boundless requestor balance`                                                                                                |
+| **Path A** — Self-host + submit | `bash scripts/self-host.sh ./program.bin ./input.bin --image-id <ID> --submit --wait`                                        |
+| **Path B** — Discover programs  | `bash scripts/discover-programs.sh`                                                                                          |
+| **Path B** — Build YAML         | `bash scripts/build-request-yaml.sh <URL> <IMAGE_ID> <HEX>`                                                                  |
+| Submit (manual)                 | `boundless requestor submit-file request.yaml --no-preflight`                                                                |
+| Check status                    | `boundless requestor status <REQUEST_ID>`                                                                                    |
+| Get proof                       | `boundless requestor get-proof <REQUEST_ID>`                                                                                 |
 
 For full CLI docs, see `references/cli-reference.md`.
 
 ## CRITICAL: Use `submit-file`, NOT `submit`
 
-| Command | Preflight Behavior | Use |
-|---------|-------------------|-----|
-| `boundless requestor submit` | **Always runs preflight** — spawns `r0vm` locally. Can hang 10+ minutes. **No `--no-preflight` flag.** | ❌ Do NOT use |
-| `boundless requestor submit-file` | Has `--no-preflight` flag to skip local execution. Completes in seconds. | ✅ Use this |
+| Command                           | Preflight Behavior                                                                                     | Use           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------- |
+| `boundless requestor submit`      | **Always runs preflight** — spawns `r0vm` locally. Can hang 10+ minutes. **No `--no-preflight` flag.** | ❌ Do NOT use |
+| `boundless requestor submit-file` | Has `--no-preflight` flag to skip local execution. Completes in seconds.                               | ✅ Use this   |
 
 **Always use `submit-file` with `--no-preflight`.**
 
@@ -76,20 +76,20 @@ bash /path/to/requesting/scripts/check-prerequisites.sh
 
 **Required tools:**
 
-| Tool | Purpose | Install |
-|------|---------|---------|
-| Rust (`rustc`, `cargo`) | Building the Boundless CLI | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Foundry (`cast`) | Wallet management, chain interaction | `curl -L https://foundry.paradigm.xyz \| bash && foundryup` |
-| `cloudflared` | Cloudflare tunnel for self-hosting (Path A) | `brew install cloudflared` |
-| Python 3 | HTTP server, JSON parsing in scripts | Usually pre-installed |
-| `curl` | Health checks | Usually pre-installed |
+| Tool                    | Purpose                                     | Install                                                           |
+| ----------------------- | ------------------------------------------- | ----------------------------------------------------------------- |
+| Rust (`rustc`, `cargo`) | Building the Boundless CLI                  | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| Foundry (`cast`)        | Wallet management, chain interaction        | `curl -L https://foundry.paradigm.xyz \| bash && foundryup`       |
+| `cloudflared`           | Cloudflare tunnel for self-hosting (Path A) | `brew install cloudflared`                                        |
+| Python 3                | HTTP server, JSON parsing in scripts        | Usually pre-installed                                             |
+| `curl`                  | Health checks                               | Usually pre-installed                                             |
 
 **Optional (installed during walkthrough):**
 
-| Tool | Purpose | Install |
-|------|---------|---------|
-| Boundless CLI | Submitting requests | `cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.2 --bin boundless` |
-| `rzup` | RISC Zero toolchain (Path A, if building a guest) | `curl -L https://risczero.com/install \| bash && rzup install` |
+| Tool          | Purpose                                           | Install                                                                                                                      |
+| ------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Boundless CLI | Submitting requests                               | `cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.2 --bin boundless` |
+| `rzup`        | RISC Zero toolchain (Path A, if building a guest) | `curl -L https://risczero.com/install \| bash && rzup install`                                                               |
 
 ## Phase 2: Wallet Setup
 
@@ -108,6 +108,7 @@ Save the **address** and **private key** securely.
 ### Fund the Wallet
 
 Options:
+
 1. **Bridge from Ethereum mainnet**: [bridge.base.org](https://bridge.base.org)
 2. **CEX withdrawal**: Withdraw ETH directly to Base from Coinbase, Binance, etc. (select Base network)
 3. **Transfer from another wallet**
@@ -142,6 +143,7 @@ boundless requestor setup
 ```
 
 The wizard prompts for:
+
 1. **Network** — select Base Mainnet
 2. **RPC URL** — `https://mainnet.base.org` (or Alchemy/Infura for better reliability)
 3. **Private key** — from Phase 2
@@ -198,10 +200,12 @@ No signup, no API keys, no JWT tokens.
 The guest program must be the **`.bin` file** (R0BF wrapped format), NOT the raw `.elf`.
 
 When you build a guest with `cargo build -p guests`, the build produces both:
+
 - `is-even` — raw ELF (starts with `\x7fELF`) ❌ **Do NOT use**
 - `is-even.bin` — R0BF wrapped format (starts with `R0BF`) ✅ **Use this**
 
 The `.bin` file lives at:
+
 ```
 target/riscv-guest/guests/<name>/riscv32im-risc0-zkvm-elf/release/<name>.bin
 ```
@@ -245,6 +249,7 @@ bash /path/to/requesting/scripts/self-host.sh \
 ```
 
 The script will:
+
 1. Start a local HTTP server
 2. Start a Cloudflare Tunnel
 3. Verify the tunnel is reachable
@@ -266,12 +271,12 @@ Prints the public URLs for use in your own YAML or SDK code.
 
 **Pricing options:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--min-price` | `100000000000000` (0.0001 ETH) | Starting auction price |
-| `--max-price` | `2000000000000000` (0.002 ETH) | Maximum auction price |
-| `--timeout` | `3600` (1 hour) | Request expiry |
-| `--poll-interval` | `15` | Seconds between status checks |
+| Flag              | Default                        | Description                   |
+| ----------------- | ------------------------------ | ----------------------------- |
+| `--min-price`     | `100000000000000` (0.0001 ETH) | Starting auction price        |
+| `--max-price`     | `2000000000000000` (0.002 ETH) | Maximum auction price         |
+| `--timeout`       | `3600` (1 hour)                | Request expiry                |
+| `--poll-interval` | `15`                           | Seconds between status checks |
 
 Skip to **Phase 6** once the script is running (or if you chose serve-only and want to submit manually).
 
@@ -290,6 +295,7 @@ bash /path/to/requesting/scripts/discover-programs.sh
 This queries the Boundless indexer for recently fulfilled requests, filters for ones with accessible IPFS URLs, and outputs the 5 smallest (cheapest/fastest) verified options.
 
 **Present the results** with:
+
 - Program cycles (proxy for complexity/cost)
 - Proof cost (lock price from last fulfillment)
 - Image ID (first 16 chars)
@@ -300,6 +306,7 @@ Let the developer pick one.
 ### Build the YAML Request File
 
 Extract from the discovery script's JSON output:
+
 - `image_url` — the IPFS URL for the program
 - `image_id` — the 64-char hex image ID
 - `input_data` — the hex-encoded input (with `0x` prefix)
@@ -314,12 +321,12 @@ Or write YAML manually — see `examples/request.yaml` for the template.
 
 **YAML field gotchas:**
 
-| Field | Requirement | Error if Wrong |
-|-------|-------------|----------------|
-| `offer.rampUpStart` | Must be a **future Unix timestamp** (e.g. `$(date +%s) + 30`). Cannot be `0`. | `offer rampUpStart must be greater than 0` |
-| `requirements.predicate.data` | Must be `0x` + image ID hex (64 chars). Cannot be empty. | `malformed predicate data` |
-| `requirements.imageId` | 64-char hex **without** `0x` prefix | Image ID mismatch |
-| `input.data` | Hex-encoded input **with** `0x` prefix | Invalid input / empty journal |
+| Field                         | Requirement                                                                   | Error if Wrong                             |
+| ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------ |
+| `offer.rampUpStart`           | Must be a **future Unix timestamp** (e.g. `$(date +%s) + 30`). Cannot be `0`. | `offer rampUpStart must be greater than 0` |
+| `requirements.predicate.data` | Must be `0x` + image ID hex (64 chars). Cannot be empty.                      | `malformed predicate data`                 |
+| `requirements.imageId`        | 64-char hex **without** `0x` prefix                                           | Image ID mismatch                          |
+| `input.data`                  | Hex-encoded input **with** `0x` prefix                                        | Invalid input / empty journal              |
 
 Generate `rampUpStart`:
 
@@ -347,12 +354,12 @@ AWS_EC2_METADATA_DISABLED=true boundless requestor status <REQUEST_ID>
 
 Run every 30–60 seconds. Typical fulfillment takes 1–5 minutes after lock.
 
-| Status | Meaning |
-|--------|---------|
-| **Submitted** | Request broadcast, auction running |
-| **Locked** | A prover has committed to fulfilling |
+| Status        | Meaning                                  |
+| ------------- | ---------------------------------------- |
+| **Submitted** | Request broadcast, auction running       |
+| **Locked**    | A prover has committed to fulfilling     |
 | **Fulfilled** | Proof delivered and verified on-chain ✅ |
-| **Expired** | Request timed out before fulfillment |
+| **Expired**   | Request timed out before fulfillment     |
 
 ### View on Explorer
 
@@ -399,15 +406,15 @@ AWS_EC2_METADATA_DISABLED=true boundless requestor verify-proof <REQUEST_ID>
 
 See `references/troubleshooting.md` for a full list. Common issues:
 
-| Problem | Fix |
-|---------|-----|
-| `submit` hangs with no output | Use `submit-file --no-preflight` instead |
-| `Malformed ProgramBinary` | Use the `.bin` file (R0BF format), not the raw `.elf` |
-| AWS IMDS timeout warnings | Set `AWS_EC2_METADATA_DISABLED=true` |
-| Cloudflare `429 Too Many Requests` | Wait 10–15 min. Don't create/destroy tunnels rapidly. |
-| Tunnel URL not reachable | Check firewall. Wait a few seconds for DNS. Retry. |
-| Request expired | Increase `--max-price`. Ensure tunnel stayed alive (Path A). |
-| `rampUpStart must be greater than 0` | Use a future Unix timestamp: `echo $(( $(date +%s) + 30 ))` |
+| Problem                              | Fix                                                          |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `submit` hangs with no output        | Use `submit-file --no-preflight` instead                     |
+| `Malformed ProgramBinary`            | Use the `.bin` file (R0BF format), not the raw `.elf`        |
+| AWS IMDS timeout warnings            | Set `AWS_EC2_METADATA_DISABLED=true`                         |
+| Cloudflare `429 Too Many Requests`   | Wait 10–15 min. Don't create/destroy tunnels rapidly.        |
+| Tunnel URL not reachable             | Check firewall. Wait a few seconds for DNS. Retry.           |
+| Request expired                      | Increase `--max-price`. Ensure tunnel stayed alive (Path A). |
+| `rampUpStart must be greater than 0` | Use a future Unix timestamp: `echo $(( $(date +%s) + 30 ))`  |
 
 ## SDK Equivalent (Reference)
 

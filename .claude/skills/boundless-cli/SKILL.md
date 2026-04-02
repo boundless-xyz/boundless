@@ -74,6 +74,7 @@ Config is stored in `~/.boundless/`:
 - `secrets.toml` — private config (RPC URLs, private keys), 0600 permissions
 
 **Precedence** (highest to lowest):
+
 1. CLI flags
 2. Environment variables (e.g. `REQUESTOR_RPC_URL`)
 3. Config files (`~/.boundless/secrets.toml`, `config.toml`)
@@ -91,36 +92,36 @@ boundless rewards setup
 
 ## Key Environment Variables
 
-| Variable | Module | Description |
-|----------|--------|-------------|
-| `REQUESTOR_RPC_URL` | Requestor | RPC endpoint for requestor commands |
-| `REQUESTOR_PRIVATE_KEY` | Requestor | Private key for requestor transactions |
-| `PROVER_RPC_URL` | Prover | RPC endpoint for prover commands |
-| `PROVER_PRIVATE_KEY` | Prover | Private key for prover transactions |
-| `BENTO_API_URL` | Prover | Bento/Bonsai API URL |
-| `BENTO_API_KEY` | Prover | Bento/Bonsai API key |
-| `REWARD_RPC_URL` | Rewards | RPC endpoint for rewards (L1) |
-| `REWARD_PRIVATE_KEY` | Rewards | Private key for reward transactions |
-| `STAKING_PRIVATE_KEY` | Rewards | Private key for staking (can differ from reward key) |
-| `STAKING_ADDRESS` | Rewards | Staking address (read-only) |
-| `MINING_STATE_FILE` | Rewards | Path to mining state file |
-| `ZKC_ADDRESS` | Rewards | ZKC token contract (has default per network) |
-| `VEZKC_ADDRESS` | Rewards | Staked ZKC NFT contract (has default per network) |
-| `STAKING_REWARDS_ADDRESS` | Rewards | Rewards distribution contract (has default per network) |
-| `BEACON_API_URL` | Rewards | Beacon API URL |
-| `BOUNDLESS_MARKET_ADDRESS` | Global | Market contract address (has default per network) |
-| `SET_VERIFIER_ADDRESS` | Global | Verifier contract address (has default per network) |
-| `TX_TIMEOUT` | Global | Transaction timeout in seconds (default: 300) |
-| `LOG_LEVEL` | Global | Log verbosity: error, warn, info, debug, trace |
+| Variable                   | Module    | Description                                             |
+| -------------------------- | --------- | ------------------------------------------------------- |
+| `REQUESTOR_RPC_URL`        | Requestor | RPC endpoint for requestor commands                     |
+| `REQUESTOR_PRIVATE_KEY`    | Requestor | Private key for requestor transactions                  |
+| `PROVER_RPC_URL`           | Prover    | RPC endpoint for prover commands                        |
+| `PROVER_PRIVATE_KEY`       | Prover    | Private key for prover transactions                     |
+| `BENTO_API_URL`            | Prover    | Bento/Bonsai API URL                                    |
+| `BENTO_API_KEY`            | Prover    | Bento/Bonsai API key                                    |
+| `REWARD_RPC_URL`           | Rewards   | RPC endpoint for rewards (L1)                           |
+| `REWARD_PRIVATE_KEY`       | Rewards   | Private key for reward transactions                     |
+| `STAKING_PRIVATE_KEY`      | Rewards   | Private key for staking (can differ from reward key)    |
+| `STAKING_ADDRESS`          | Rewards   | Staking address (read-only)                             |
+| `MINING_STATE_FILE`        | Rewards   | Path to mining state file                               |
+| `ZKC_ADDRESS`              | Rewards   | ZKC token contract (has default per network)            |
+| `VEZKC_ADDRESS`            | Rewards   | Staked ZKC NFT contract (has default per network)       |
+| `STAKING_REWARDS_ADDRESS`  | Rewards   | Rewards distribution contract (has default per network) |
+| `BEACON_API_URL`           | Rewards   | Beacon API URL                                          |
+| `BOUNDLESS_MARKET_ADDRESS` | Global    | Market contract address (has default per network)       |
+| `SET_VERIFIER_ADDRESS`     | Global    | Verifier contract address (has default per network)     |
+| `TX_TIMEOUT`               | Global    | Transaction timeout in seconds (default: 300)           |
+| `LOG_LEVEL`                | Global    | Log verbosity: error, warn, info, debug, trace          |
 
 ## Networks
 
-| Network | ID | Description |
-|---------|-----|-------------|
-| Base Mainnet | `base-mainnet` | Production market |
-| Base Sepolia | `base-sepolia` | Market testnet |
-| Ethereum Mainnet | `eth-mainnet` | Rewards/staking (L1) |
-| Ethereum Sepolia | `eth-sepolia` | Rewards testnet |
+| Network          | ID             | Description          |
+| ---------------- | -------------- | -------------------- |
+| Base Mainnet     | `base-mainnet` | Production market    |
+| Base Sepolia     | `base-sepolia` | Market testnet       |
+| Ethereum Mainnet | `eth-mainnet`  | Rewards/staking (L1) |
+| Ethereum Sepolia | `eth-sepolia`  | Rewards testnet      |
 
 ## Related Skills
 
