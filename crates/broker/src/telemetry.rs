@@ -126,7 +126,7 @@ pub(crate) enum TelemetryEvent {
         /// Unix timestamp (seconds) when the broker first received this request.
         received_at_timestamp: u64,
     },
-    // Emitted by OrderMonitor when it makes its final commit/drop decision for an order.
+    // Emitted by OrderLocker when it makes its final commit/drop decision for an order.
     // For LockAndFulfill orders: emitted after the lock tx succeeds or fails.
     // For FulfillAfterLockExpire orders: emitted immediately when the order enters the pipeline.
     OrderCommitment {
