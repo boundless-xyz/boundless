@@ -291,6 +291,9 @@ jobs:
           RISC0_DEV_MODE: 1
           REPO_ROOT: ${{ github.workspace }}
 
+      - name: Fix Docker-created file permissions
+        run: sudo chown -R $(id -u):$(id -g) broadcast/ out/ cache/ 2>/dev/null || true
+
       - name: deploy script
         run: ./contracts/scripts/manage DeployBoundlessMarket --broadcast
         env:
