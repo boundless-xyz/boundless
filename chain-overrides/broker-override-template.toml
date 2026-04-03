@@ -1,0 +1,33 @@
+### [Per-chain broker config override template] ###
+# This file overrides settings from the base broker.toml for a specific chain.
+#
+# To use:
+#   1. Copy this file to broker.{chain_id}.toml (e.g. broker.167000.toml for Taiko)
+#   2. Uncomment and adjust only the settings you want to override
+#   3. Everything else inherits from the base broker.toml
+#
+# The `boundless prover generate-config` wizard generates these files
+# automatically for multichain setups.
+### [End] ###
+
+# [market]
+# Minimum price per mega-cycle. Can be specified in USD or ETH.
+# min_mcycle_price = "0.00002 USD"
+
+# Minimum price per mega-cycle in collateral token for secondary fulfillment.
+# Can be specified in USD or ZKC.
+# min_mcycle_price_collateral_token = "0.00005 ZKC"
+
+# Maximum collateral the broker will deposit on this chain.
+# max_collateral = "10 USD"
+
+# Expected probability of winning a secondary fulfillment (lock-expired order).
+# Scales the expected reward when evaluating profitability.
+# expected_probability_win_secondary_fulfillment = 50
+
+# Gas estimation tuning. Uncomment to override for chains with different gas behavior.
+# [market.gas_estimation_priority_mode.custom]
+# base_fee_multiplier_percentage = 100
+# priority_fee_multiplier_percentage = 100
+# priority_fee_percentile = 25.0
+# dynamic_multiplier_percentage = 0
