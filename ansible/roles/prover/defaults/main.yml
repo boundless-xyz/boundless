@@ -85,6 +85,24 @@ prover_broker_extra_args: ""
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
 # Local broker.toml file path. When set, copies this file instead of downloading from URL.
 prover_broker_toml_local: ""
+
+# Multichain: per-chain RPC URLs. Dict of chain_id → RPC URL.
+# When set, the broker auto-discovers chains from PROVER_RPC_URL_{chain_id} env vars.
+# Falls back to prover_rpc_url/prover_rpc_urls for single-chain mode.
+# Example:
+#   prover_chain_rpc_urls:
+#     8453: "https://base-rpc.example.com"
+#     167000: "https://taiko-rpc.example.com"
+prover_chain_rpc_urls: {}
+
+# Multichain: per-chain broker config overrides. Dict of chain_id → URL or local path.
+# Files are deployed to chain-overrides/broker.{chain_id}.toml.
+# Example:
+#   prover_chain_overrides:
+#     167000: "https://raw.githubusercontent.com/.../broker.167000.toml"
+#   or with local files:
+#     167000: "/path/to/broker.167000.toml"
+prover_chain_overrides: {}
 # MinIO input TTL: 0 disables the lifecycle rule, >0 expires inputs/ objects after N days
 prover_input_ttl_days: 1
 

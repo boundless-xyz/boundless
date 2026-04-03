@@ -1,0 +1,7 @@
+# Production Base Sepolia (84532) chain override
+[market]
+mcycle_price = "0.0000005"
+max_collateral = "7"
+deny_requestor_addresses = [
+  "0x47c76E56Ad9316A5c1ab17CBa87a1Cc134552183", # Signal contract on Base Sepolia; proofs are too large
+]
