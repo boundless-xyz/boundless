@@ -70,14 +70,15 @@ Label addresses from `network_address_labels.json`. Identify which are ours.
 
 ## Step 4: Telemetry completion summary
 
-For brokers that send telemetry, get a pivoted view with fulfilled, failures, and average timings per broker:
+For brokers that send telemetry, get a pivoted view with fulfilled, cancelled, failures, and average timings per broker. `Cancelled` is NOT a failure — it means the broker completed a proof but another prover fulfilled the order first (race loss on secondary fulfillment). Separate it from actual failures:
 
 ```sql
 SELECT
   broker_address,
   COUNT(*) AS completions,
   SUM(CASE WHEN outcome = 'Fulfilled' THEN 1 ELSE 0 END) AS fulfilled,
-  SUM(CASE WHEN outcome <> 'Fulfilled' THEN 1 ELSE 0 END) AS failures,
+  SUM(CASE WHEN outcome = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled,
+  SUM(CASE WHEN outcome NOT IN ('Fulfilled', 'Cancelled') THEN 1 ELSE 0 END) AS failures,
   ROUND(AVG(CASE WHEN outcome = 'Fulfilled' THEN total_duration_secs END), 0) AS avg_total_s,
   ROUND(AVG(CASE WHEN outcome = 'Fulfilled' THEN actual_total_proving_time_secs END), 0) AS avg_proving_s
 FROM telemetry.request_completions
@@ -106,7 +107,7 @@ ORDER BY evaluations DESC;
 
 ## Step 6: Failure breakdown
 
-Failures are orders that entered the proving pipeline but did not result in a successful fulfillment. Common failure outcomes include `ProvingFailed`, `AggregationFailed`, `TxFailed`, `ExpiredWhileProving`, and `LockFailed`. The `error_code` identifies the stage (e.g. `[B-PRO-501]` = proving, `[B-AGG-*]` = aggregation, `[B-SUB-*]` = submission) and `error_reason` gives the specific message.
+Failures are orders that entered the proving pipeline but did not result in a successful fulfillment. **Exclude `Cancelled`** — that outcome means the broker completed the proof but another prover fulfilled first (a benign race loss, not an error). Real failure outcomes include `ProvingFailed`, `AggregationFailed`, `TxFailed`, `ExpiredWhileProving`, and `LockFailed`. The `error_code` identifies the stage (e.g. `[B-PRO-501]` = proving, `[B-AGG-*]` = aggregation, `[B-SUB-*]` = submission) and `error_reason` gives the specific message.
 
 Show a per-prover table for the top 5 provers by volume plus all provers we operate:
 
@@ -117,7 +118,7 @@ SELECT
   COUNT(*) AS count
 FROM telemetry.request_completions
 WHERE completed_at > GETDATE() - INTERVAL '24 hours'
-  AND outcome <> 'Fulfilled'
+  AND outcome NOT IN ('Fulfilled', 'Cancelled')
 GROUP BY broker_address, outcome, error_code
 ORDER BY broker_address, count DESC;
 ```
@@ -181,8 +182,9 @@ SELECT
   CASE WHEN completed_at > GETDATE() - INTERVAL '24 hours' THEN 'today' ELSE 'yesterday' END AS period,
   COUNT(*) AS completions,
   SUM(CASE WHEN outcome = 'Fulfilled' THEN 1 ELSE 0 END) AS fulfilled,
-  SUM(CASE WHEN outcome <> 'Fulfilled' THEN 1 ELSE 0 END) AS failures,
-  ROUND(100.0 * SUM(CASE WHEN outcome <> 'Fulfilled' THEN 1 ELSE 0 END) / COUNT(*), 1) AS failure_pct
+  SUM(CASE WHEN outcome = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled,
+  SUM(CASE WHEN outcome NOT IN ('Fulfilled', 'Cancelled') THEN 1 ELSE 0 END) AS failures,
+  ROUND(100.0 * SUM(CASE WHEN outcome NOT IN ('Fulfilled', 'Cancelled') THEN 1 ELSE 0 END) / COUNT(*), 1) AS failure_pct
 FROM telemetry.request_completions
 WHERE completed_at > GETDATE() - INTERVAL '48 hours'
 GROUP BY 1

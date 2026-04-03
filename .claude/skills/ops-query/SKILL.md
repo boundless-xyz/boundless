@@ -88,3 +88,4 @@ After the summary table, include two separate breakdown sections:
 - **Skipped**: Order was rejected during pricing in the OrderPicker (e.g. unprofitable, wrong image, over capacity). It never reached the OrderMonitor.
 - **Committed**: Order was successfully committed to the proving pipeline (lock tx succeeded or immediate commitment for FulfillAfterLockExpire).
 - **Dropped**: Order reached the OrderMonitor but was NOT committed to the proving pipeline. Reasons include: lock tx failed, order was fulfilled/expired/locked by another prover before we could act, insufficient deadline remaining, or insufficient balance. Check `commitment_skip_code` for specifics.
+- **Cancelled**: Completion outcome meaning the broker finished proving but another prover fulfilled the order first. This is a race loss (wasted proving work), NOT an error. Do not count `Cancelled` as a failure in summary tables — show it as a separate column.
