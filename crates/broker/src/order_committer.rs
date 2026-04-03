@@ -613,6 +613,9 @@ impl RetryTask for OrderCommitter {
                     &committer_config,
                     &priority_addresses,
                 );
+
+                // Update global telemetry counter
+                crate::telemetry::set_global_committed_count(in_flight.len() as u32);
             }
 
             Ok(())

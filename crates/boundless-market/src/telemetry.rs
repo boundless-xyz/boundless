@@ -31,8 +31,10 @@ pub struct BrokerHeartbeat {
     pub broker_address: Address,
     /// Broker config serialized as opaque JSON.
     pub config: serde_json::Value,
-    /// Number of orders currently committed (in the proving pipeline).
+    /// Number of orders currently committed on this chain (in the proving pipeline).
     pub committed_orders_count: u32,
+    /// Number of orders currently committed across all chains.
+    pub global_committed_orders_count: u32,
     /// Number of orders waiting for a preflight slot.
     pub pending_preflight_count: u32,
     /// Broker software version.
