@@ -139,6 +139,9 @@ jobs:
         needs.contracts-changed.outputs.scripts == 'true' ||
         needs.contracts-changed.outputs.ci == 'true'
     steps:
+      - name: Clean stale artifacts
+        run: sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -275,12 +278,21 @@ jobs:
       - name: Add cargo build output to PATH
         run: echo "${{ github.workspace }}/target/debug" >> $GITHUB_PATH
 
-      - name: spin up local network
-        run: just localnet up
+      - name: Deploy contracts to local Anvil
+        run: |
+          [ -f .env.localnet ] || cp .env.localnet-template .env.localnet
+          docker compose -f dockerfiles/compose.localnet.yml up -d --build deployer
+          DEPLOYER_CID=$(docker compose -f dockerfiles/compose.localnet.yml ps -q deployer)
+          [ -n "$DEPLOYER_CID" ] || { docker compose -f dockerfiles/compose.localnet.yml logs; exit 1; }
+          EXIT_CODE=$(docker wait "$DEPLOYER_CID")
+          [ "$EXIT_CODE" = "0" ] || { docker compose -f dockerfiles/compose.localnet.yml logs deployer; exit 1; }
         env:
           CI: 1
           RISC0_DEV_MODE: 1
           REPO_ROOT: ${{ github.workspace }}
+
+      - name: Fix Docker-created file permissions
+        run: sudo chown -R $(id -u):$(id -g) broadcast/ out/ cache/ 2>/dev/null || true
 
       - name: deploy script
         run: ./contracts/scripts/manage DeployBoundlessMarket --broadcast
@@ -331,7 +343,9 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: just localnet down
+        run: |
+          just localnet down
+          sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
         env:
           CI: 1
 

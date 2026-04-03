@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
-use boundless_market::{Client, Deployment, StorageUploaderConfig};
+use boundless_market::{request_builder::OfferParams, Client, Deployment, StorageUploaderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use tracing_subscriber::EnvFilter;
@@ -36,6 +36,9 @@ struct Args {
 
     #[clap(flatten)]
     deployment: Option<Deployment>,
+
+    #[clap(flatten, next_help_heading = "Offer")]
+    offer_params: OfferParams,
 }
 
 #[tokio::main]
@@ -55,7 +58,11 @@ async fn main() -> Result<()> {
         .await?;
 
     // Build and submit request using the builder pattern
-    let request = client.new_request().with_program(ECHO_ELF).with_stdin(b"Hello, Boundless!");
+    let request = client
+        .new_request()
+        .with_program(ECHO_ELF)
+        .with_stdin(b"Hello, Boundless!")
+        .with_offer(args.offer_params);
 
     let (request_id, expires_at) = client.submit(request).await?;
     println!("Submitted request: {:x}", request_id);
