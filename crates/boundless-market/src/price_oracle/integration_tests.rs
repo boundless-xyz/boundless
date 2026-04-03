@@ -92,7 +92,9 @@ fn build_config(mode: AggregationMode) -> PriceOracleConfig {
         aggregation_mode: mode,
         min_sources: 1,
         max_secs_without_price_update: 600,
-        onchain: Some(OnChainConfig { chainlink: Some(ChainlinkConfig { enabled: true }) }),
+        onchain: Some(OnChainConfig {
+            chainlink: Some(ChainlinkConfig { enabled: true, rpc_url: Some(get_rpc_url()) }),
+        }),
         offchain: Some(OffChainConfig {
             coingecko: Some(CoinGeckoConfig { enabled: true, api_key: None }),
             cmc: Some(CoinMarketCapConfig { enabled: true, api_key: cmc_api_key }),
