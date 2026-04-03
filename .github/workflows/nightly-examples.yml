@@ -59,7 +59,11 @@ jobs:
 
       - name: Install Rust linker toolchain
         run: |
-          sudo apt-get update
+          for i in $(seq 1 5); do
+            sudo apt-get update && break
+            echo "apt-get update failed (attempt $i/5), waiting for lock..."
+            sleep 15
+          done
           sudo apt-get install -y build-essential binutils lld mold
 
       - name: Login to Docker Hub
