@@ -160,7 +160,7 @@ jobs:
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
           - name: prover-cli
-            dockerfile: dockerfiles/prover/bento_cli.dockerfile
+            dockerfile: dockerfiles/prover/prover_cli.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
           - name: prover-agent

@@ -9,6 +9,9 @@ RemainAfterExit=true
 User=root
 WorkingDirectory={{ prover_dir }}
 EnvironmentFile={{ prover_env_file }}
+{% if prover_stack | default('') | string | length > 0 %}
+Environment=PROVER_STACK={{ prover_stack }}
+{% endif %}
 ExecStart=/usr/local/bin/just bento up "{{ prover_env_file }}" "{{ prover_docker_compose_profile }}" "true" "{{ prover_docker_compose_invoke | default('') }}"
 ExecStop=/usr/local/bin/just bento down "{{ prover_env_file }}" "{{ prover_docker_compose_profile }}"
 TimeoutStartSec=infinity
