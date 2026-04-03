@@ -625,7 +625,6 @@ pub struct Broker {
     args: CoreArgs,
     config_watcher: ConfigWatcher,
     downloader: ConfigurableDownloader,
-    chain_id: u64,
 }
 
 impl Broker {
