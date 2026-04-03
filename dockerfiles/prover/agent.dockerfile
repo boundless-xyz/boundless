@@ -19,7 +19,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # Install rust and target version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
-    && rustup install 1.88
+    && rustup install 1.89
 
 # Install protoc
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
@@ -57,7 +57,7 @@ RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
-ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
+ARG RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
