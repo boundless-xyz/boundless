@@ -908,6 +908,9 @@ impl Broker {
             requestor_monitor::PriorityRequestors,
         > = std::collections::HashMap::new();
 
+        // Collect all chain DBs for global telemetry queries
+        let all_dbs: Vec<DbObj> = chains.iter().map(|c| c.db.clone()).collect();
+
         for chain in &chains {
             // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
             let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
@@ -940,6 +943,31 @@ impl Broker {
             )
             .await?;
         }
+        // Background task: periodically sum committed orders across all chain DBs
+        // and update the global telemetry counter.
+        {
+            let all_dbs = all_dbs.clone();
+            let cancel_token = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            let mut total = 0u32;
+                            for db in &all_dbs {
+                                if let Ok(orders) = db.get_committed_orders().await {
+                                    total += orders.len() as u32;
+                                }
+                            }
+                            telemetry::set_global_committed_count(total);
+                        }
+                        _ = cancel_token.cancelled() => break,
+                    }
+                }
+                Ok(())
+            });
+        }
+
         // Drop our clones so the unified components see channel closure when all producers exit.
         drop(evaluator_order_tx);
         drop(pricing_completion_tx);
