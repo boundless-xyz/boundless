@@ -1,3 +1,8 @@
+// Copyright 2026 Boundless Foundation, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+
 use taskdb::{INIT_TASK, JobState, Priority, TaskDbErr, redis_backend::RedisTaskDb};
 use uuid::Uuid;
 
