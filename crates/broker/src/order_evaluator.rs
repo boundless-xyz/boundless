@@ -243,6 +243,7 @@ impl OrderEvaluator {
             let count = pending_orders.iter().filter(|o| o.chain_id == chain_id).count();
             crate::telemetry::telemetry(chain_id).set_pending_preflight(count as u32);
         }
+        crate::telemetry::set_global_pending_preflight_count(pending_orders.len() as u32);
     }
 }
 

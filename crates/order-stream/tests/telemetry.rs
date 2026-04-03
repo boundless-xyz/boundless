@@ -83,6 +83,7 @@ async fn telemetry_end_to_end() {
         committed_orders_count: 3,
         global_committed_orders_count: 3,
         pending_preflight_count: 7,
+        global_pending_preflight_count: 7,
         version: format!("integration-test-{}", Utc::now().format("%Y%m%d-%H%M%S")),
         uptime_secs: 42,
         events_dropped: 0,

@@ -45,18 +45,32 @@ static CHAIN_HANDLES: LazyLock<Mutex<HashMap<u64, TelemetryHandle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
 
+
 /// Global count of orders currently committed across all chains.
-/// Updated by the unified OrderCommitter, read by per-chain TelemetryService heartbeats.
+/// Updated by a periodic background task that sums across all chain DBs.
 static GLOBAL_COMMITTED_COUNT: AtomicU32 = AtomicU32::new(0);
 
-/// Update the global committed order count (called by OrderCommitter).
+/// Update the global committed order count.
 pub(crate) fn set_global_committed_count(count: u32) {
     GLOBAL_COMMITTED_COUNT.store(count, Ordering::Relaxed);
 }
 
-/// Read the global committed order count (called by TelemetryService heartbeats).
-pub(crate) fn global_committed_count() -> u32 {
+/// Read the global committed order count.
+fn global_committed_count() -> u32 {
     GLOBAL_COMMITTED_COUNT.load(Ordering::Relaxed)
+}
+
+/// Global count of orders pending preflight across all chains.
+static GLOBAL_PENDING_PREFLIGHT_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Update the global pending preflight count (called by OrderEvaluator).
+pub(crate) fn set_global_pending_preflight_count(count: u32) {
+    GLOBAL_PENDING_PREFLIGHT_COUNT.store(count, Ordering::Relaxed);
+}
+
+/// Read the global pending preflight count.
+pub(crate) fn global_pending_preflight_count() -> u32 {
+    GLOBAL_PENDING_PREFLIGHT_COUNT.load(Ordering::Relaxed)
 }
 
 /// Initializes the telemetry handle for a specific chain. Each chain gets its own
@@ -849,6 +863,7 @@ impl TelemetryService {
             committed_orders_count,
             global_committed_orders_count: global_committed_count(),
             pending_preflight_count: self.handle.pending_preflight(),
+            global_pending_preflight_count: global_pending_preflight_count(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             uptime_secs: self.uptime_start.elapsed().as_secs(),
             events_dropped: self.handle.drop_count(),

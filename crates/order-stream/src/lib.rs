@@ -1490,6 +1490,7 @@ mod tests {
                 committed_orders_count: 2,
                 global_committed_orders_count: 2,
                 pending_preflight_count: 5,
+                global_pending_preflight_count: 5,
                 version: "0.1.0-test".to_string(),
                 uptime_secs: 3600,
                 events_dropped: 0,
