@@ -32,36 +32,32 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 # Run broker + boundless-market tests
 test-broker:
     forge build
-    RISC0_DEV_MODE=1 cargo test -p broker --lib --bin broker
-    RISC0_DEV_MODE=1 RISC0_SKIP_BUILD=1 cargo test -p boundless-market --lib -- prover_utils::config::tests
+    RISC0_DEV_MODE=1 cargo nextest run -p broker --lib --bin broker
+    RISC0_DEV_MODE=1 RISC0_SKIP_BUILD=1 cargo nextest run -p boundless-market --lib -E 'test(prover_utils::config::tests)'
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
-
-# Run broker telemetry e2e tests separately as they can not be run in parallel with other tests due to global telemetry singleton.
-test-broker-telemetry:
-    RISC0_DEV_MODE=1 cargo test -p broker tests::e2e_telemetry --features test-r0vm -- --ignored --nocapture --test-threads=1
+    RISC0_DEV_MODE=1 cargo nextest run --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
 
 # Run Cargo tests for counter example
 test-cargo-example:
     cd examples/counter && \
     forge build && \
-    RISC0_DEV_MODE=1 cargo test
+    RISC0_DEV_MODE=1 cargo nextest run
 
 # Run database tests
 test-cargo-db:
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-bench --features test-r0vm
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --features test-r0vm
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-bench --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p order-stream
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-cli --features test-r0vm
     just test-db clean
 
 # Run slasher tests (requires database)
 test-slasher:
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher --features test-r0vm
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-slasher --features test-r0vm
     just test-db clean
 
 # Run order-stream tests (requires database)
@@ -70,7 +66,7 @@ test-order-stream:
     set -e
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p order-stream
 
 # Run all indexer tests (requires both RPC URLs)
 test-indexer:
@@ -86,7 +82,7 @@ test-indexer:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --features test-r0vm,test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --features test-r0vm,test-rpc
 
 # Run indexer market integration tests (requires BASE_MAINNET_RPC_URL)
 test-indexer-market:
@@ -98,7 +94,7 @@ test-indexer-market:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test market --features test-r0vm,test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --test market --features test-r0vm,test-rpc
 
 # Run indexer rewards integration tests (requires ETH_MAINNET_RPC_URL)
 test-indexer-rewards:
@@ -110,7 +106,7 @@ test-indexer-rewards:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test rewards --features test-r0vm,test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p boundless-indexer --test rewards --features test-r0vm,test-rpc
 
 # Run indexer-api integration tests (requires both RPC URLs)
 test-indexer-api:
@@ -128,7 +124,7 @@ test-indexer-api:
     just test-db setup
     # Ensure indexer binaries are built with latest changes, API tests depend on them.
     RISC0_DEV_MODE=1 cargo build -p boundless-indexer --bin rewards-indexer --bin market-indexer
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p indexer-api --features test-rpc
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo nextest run -p indexer-api --features test-rpc
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
@@ -258,182 +254,36 @@ clean:
     cd crates/guest/util && cargo clean
     @echo "Cleanup complete."
 
-# Manage the development network (up or down, defaults to up)
-localnet action="up": check-deps
+# Manage the development network (up, down, clean, or logs)
+localnet action="up":
     #!/usr/bin/env bash
-    # Localnet-specific variables
-    ANVIL_BLOCK_TIME="2"
-    RISC0_DEV_MODE="${RISC0_DEV_MODE:-1}"
-    CHAIN_KEY="anvil"
-    RUST_LOG="info,broker=debug,boundless_market=debug,order_stream=debug"
-    # This key is a prefunded address for the anvil test configuration (index 0)
-    DEPLOYER_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-    PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-    ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-    DEPOSIT_AMOUNT="100000000000000000000"
-    CHAIN_ID="31337"
-    CI=${CI:-0}
+    set -e
+    COMPOSE="docker compose -f dockerfiles/compose.localnet.yml --profile order-stream"
+    DEV_MODE="${RISC0_DEV_MODE:-1}"
 
-    if [ "{{action}}" = "up" ]; then
-        # Find an unused port
-        get_free_port() {
-        for port in $(seq 8500 8600); do
-            if ! lsof -i:$port > /dev/null; then
-            echo "$port"
-            return
-            fi
-        done
-        echo "No free port found" >&2
-        exit 1
-        }
-
-        PORT=$(get_free_port)
-        echo "Starting anvil on port $PORT"
-        ANVIL_PORT=$PORT
-        mkdir -p {{LOGS_DIR}}
-
-        # Create .env.localnet from template if it doesn't exist
-        if [ ! -f .env.localnet ]; then
-            echo "Creating .env.localnet from template..."
-            cp .env.localnet-template .env.localnet || { echo "Error: .env.localnet-template not found"; exit 1; }
-        fi
-
-        echo "Building contracts..."
-        forge build || { echo "Failed to build contracts"; just localnet down; exit 1; }
-        echo "Building Rust project..."
-        if [ $CI -eq 1 ]; then
-            echo "Running in CI mode, skipping Rust build."
-            # In CI, we assume the Rust project is already built
-            # and the binaries are available in the target directory.
-        else
-            cargo build --locked --bin order_stream || { echo "Failed to build order-stream binary"; just localnet down; exit 1; }
-            cargo build --locked --bin boundless || { echo "Failed to build boundless CLI binary"; just localnet down; exit 1; }
-        fi
-        # Check if Anvil is already running
-        if nc -z localhost $ANVIL_PORT; then
-            echo "Anvil is already running on port $ANVIL_PORT. Reusing existing instance."
-        else
-            echo "Starting Anvil..."
-            anvil -p $ANVIL_PORT -b $ANVIL_BLOCK_TIME > {{LOGS_DIR}}/anvil.txt 2>&1 & echo $! >> {{PID_FILE}}
-            sleep 5
-        fi
-        echo "Deploying contracts..."
-        DEPLOYER_PRIVATE_KEY=$DEPLOYER_PRIVATE_KEY CHAIN_KEY=$CHAIN_KEY RISC0_DEV_MODE=$RISC0_DEV_MODE BOUNDLESS_MARKET_OWNER=$ADMIN_ADDRESS forge script contracts/scripts/Deploy.s.sol --rpc-url http://localhost:$ANVIL_PORT --broadcast -vv || { echo "Failed to deploy contracts"; just localnet down; exit 1; }
-        echo "Fetching contract addresses..."
-        VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroVerifierRouter") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
-        SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
-        BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
-        # Extract collateral token from deployment.toml or fallback to JSON
-        COLLATERAL_TOKEN_ADDRESS=$(grep -A 20 '\[deployment.anvil\]' contracts/deployment.toml | grep '^collateral-token' | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ')
-        if [ -z "$COLLATERAL_TOKEN_ADDRESS" ] || [ "$COLLATERAL_TOKEN_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
-            # Fallback to JSON if not found in TOML or is zero address
-            COLLATERAL_TOKEN_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json 2>/dev/null | head -n 1 || echo "")
-        fi
-        if [ -z "$COLLATERAL_TOKEN_ADDRESS" ] || [ "$COLLATERAL_TOKEN_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
-            echo "Warning: COLLATERAL_TOKEN_ADDRESS not found. The deposit-collateral step may fail."
-        fi
-        echo "Contract deployed at addresses:"
-        echo "VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
-        echo "SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
-        echo "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
-        echo "COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS"
-        echo "Updating .env.localnet file..."
-        # Update the environment variables in .env.localnet
-        sed -i.bak "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
-        sed -i.bak "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
-        sed -i.bak "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
-        sed -i.bak "s/^export COLLATERAL_TOKEN_ADDRESS=.*/export COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS/" .env.localnet
-        sed -i.bak "s|^export RPC_URL=.*|export RPC_URL=\"http://localhost:$ANVIL_PORT\"|" .env.localnet
-        sed -i.bak "s|^export PROVER_RPC_URL=.*|export PROVER_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" .env.localnet
-        sed -i.bak "s|^export REQUESTOR_RPC_URL=.*|export REQUESTOR_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" .env.localnet
-        sed -i.bak "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" .env.localnet
-        rm .env.localnet.bak
-        echo ".env.localnet file updated successfully."
-
-        # Mint stake to the address in the localnet template wallet
-        DEFAULT_PRIVATE_KEY="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
-        DEFAULT_ADDRESS="0x90F79bf6EB2c4f870365E785982E1f101E93b906"
-
-        echo "Minting HP for prover address."
-        cast send --private-key $DEPLOYER_PRIVATE_KEY \
-            --rpc-url http://localhost:$ANVIL_PORT \
-            $COLLATERAL_TOKEN_ADDRESS "mint(address, uint256)" $DEFAULT_ADDRESS $DEPOSIT_AMOUNT
-
-        if [ $CI -eq 1 ]; then
-            REPO_ROOT_DIR=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
-            DEPLOYMENT_SECRETS_PATH="${REPO_ROOT_DIR}/contracts/deployment_secrets.toml"
-            echo "Creating ${DEPLOYMENT_SECRETS_PATH}..."
-            echo "[chains.anvil]" > $DEPLOYMENT_SECRETS_PATH
-            echo "rpc-url = \"http://localhost:${ANVIL_PORT}\"" >> $DEPLOYMENT_SECRETS_PATH
-            echo "etherscan-api-key = \"none\"" >> $DEPLOYMENT_SECRETS_PATH
-            ls -al $DEPLOYMENT_SECRETS_PATH
-            cat $DEPLOYMENT_SECRETS_PATH
-            ASSESSOR_ID=$(r0vm --id --elf target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin)
-            ASSESSOR_ID="0x$ASSESSOR_ID"
-            ASSESSOR_GUEST_BIN_PATH=$(realpath target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin)
-            ASSESSOR_GUEST_URL="file://$ASSESSOR_GUEST_BIN_PATH"
-            echo "Running in CI mode, skipping prover setup."
-            python3 contracts/update_deployment_toml.py \
-                --verifier "$VERIFIER_ADDRESS" \
-                --application-verifier "$VERIFIER_ADDRESS" \
-                --set-verifier "$SET_VERIFIER_ADDRESS" \
-                --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
-                --collateral-token "$COLLATERAL_TOKEN_ADDRESS" \
-                --assessor-image-id "$ASSESSOR_ID" \
-                --assessor-guest-url "$ASSESSOR_GUEST_URL"
-        else
-            # Start order stream server
-            just test-db setup
-            echo "Starting order stream server..."
-            DATABASE_URL={{DATABASE_URL}} RUST_LOG=$RUST_LOG ./target/debug/order_stream \
-                --rpc-url http://localhost:$ANVIL_PORT \
-                --min-balance-raw 0 \
-                --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
-                --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
-
-            echo "Depositing collateral using boundless CLI..."
-            PROVER_RPC_URL=http://localhost:$ANVIL_PORT \
-            PROVER_PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
-            BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
-            SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
-            VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
-            COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS \
-            CHAIN_ID=$CHAIN_ID \
-            ./target/debug/boundless prover deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
-
-            echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
-            if [ ! -f broker.toml ]; then
-                echo "Creating broker.toml from template..."
-                cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
-                echo "broker.toml created successfully."
-            fi
-            echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
-            echo "To start the broker manually, run:"
-            echo "source .env.localnet && cp broker-template.toml broker.toml && cargo run --bin broker"
-        fi
-
-    elif [ "{{action}}" = "down" ]; then
-        if [ -f {{PID_FILE}} ]; then
-            while read pid; do
-                kill $pid 2>/dev/null || true
-            done < {{PID_FILE}}
-            rm {{PID_FILE}}
-        fi
-        if [ $CI -eq 1 ]; then
-            echo "Running in CI mode, skipping test-db cleanup."
-        else
-            just test-db clean
-        fi
-    elif [ "{{action}}" = "logs" ]; then
-        if [ ! -f {{PID_FILE}} ]; then
-            echo "localnet is not running" >/dev/stderr; exit 1
-        fi
-        tail -F {{LOGS_DIR}}/*
-    else
-        echo "Unknown action: {{action}}"
-        echo "Available actions: up, down"
-        exit 1
+    # Ensure broker.toml exists with localnet-compatible price oracle config
+    if [ ! -f broker.toml ]; then
+        cp broker-template.toml broker.toml
     fi
+    if ! grep -q '\[price_oracle\]' broker.toml 2>/dev/null; then
+        printf '\n# Localnet price oracle: static prices, no on-chain feeds (anvil has no chainlink).\n[price_oracle]\neth_usd = "2500.0"\nzkc_usd = "1.0"\n\n[price_oracle.onchain.chainlink]\nenabled = false\n' >> broker.toml
+    fi
+
+    # In dev mode, include the broker container
+    if [ "$DEV_MODE" = "1" ] || [ "$DEV_MODE" = "true" ]; then
+        COMPOSE="$COMPOSE --profile dev-broker"
+    fi
+
+    case "{{action}}" in
+        up)
+            [ -f .env.localnet ] || cp .env.localnet-template .env.localnet
+            $COMPOSE up -d --build --wait
+            ;;
+        down)  $COMPOSE --profile dev-broker down ;;
+        clean) $COMPOSE --profile dev-broker down -v && rm -f .env.localnet ;;
+        logs)  $COMPOSE logs -f ;;
+        *)     echo "Available actions: up, down, clean, logs"; exit 1 ;;
+    esac
 
 # Update cargo dependencies
 cargo-update:
@@ -499,20 +349,21 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         # dockerfiles to the source-build variants so Compose builds from source
         # instead of pulling pre-built images.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
-            export AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE=""
+            export AGENT_IMAGE="" CPU_AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE="" BENTO_CLI_IMAGE=""
             export CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile"
             export GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
             export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
             export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
-            export BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile"
+            export BENTO_CLI_DOCKERFILE="dockerfiles/bento_cli.dockerfile"
             docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
                 case "$svc" in
-                    exec_agent|aux_agent) export AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile" ;;
-                    gpu_prove_agent|miner) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile" BENTO_CLI_DOCKERFILE="dockerfiles/agent.dockerfile" ;;
-                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="dockerfiles/broker.dockerfile" ;;
-                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile" ;;
+                    exec_agent|aux_agent) export CPU_AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}" ;;
+                    gpu_prove_agent) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}" ;;
+                    miner) export BENTO_CLI_IMAGE="" BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/bento_cli.dockerfile}" ;;
+                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}" ;;
                     *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
                 esac
             done

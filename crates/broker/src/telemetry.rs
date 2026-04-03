@@ -36,7 +36,7 @@ use crate::config::ConfigLock;
 use crate::db::DbObj;
 use crate::errors::BrokerFailure;
 use crate::futures_retry::retry;
-use crate::order_committer::{OrderCommitmentMeta, OrderCommitterConfig};
+use crate::order_locker::{OrderCommitmentMeta, OrderLockerConfig};
 
 const HEARTBEAT_RETRY_COUNT: u64 = 2;
 const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
@@ -126,7 +126,7 @@ pub(crate) enum TelemetryEvent {
         /// Unix timestamp (seconds) when the broker first received this request.
         received_at_timestamp: u64,
     },
-    // Emitted by OrderMonitor when it makes its final commit/drop decision for an order.
+    // Emitted by OrderLocker when it makes its final commit/drop decision for an order.
     // For LockAndFulfill orders: emitted after the lock tx succeeds or fails.
     // For FulfillAfterLockExpire orders: emitted immediately when the order enters the pipeline.
     OrderCommitment {
@@ -161,7 +161,7 @@ pub(crate) enum TelemetryEvent {
         /// waiting to be committed, excluding the current order. Calculated as:
         /// (lock_and_prove_cache.entry_count() + prove_cache.entry_count()).saturating_sub(1).
         pending_commitment_count: u32,
-        /// Structured skip code (e.g. "[B-OM-001]"), set when the order is dropped.
+        /// Structured skip code (e.g. "[B-OL-001]"), set when the order is dropped.
         skip_commit_code: Option<String>,
         /// Human-readable reason the order was dropped at commitment.
         skip_commit_reason: Option<String>,
@@ -285,7 +285,7 @@ impl TelemetryHandle {
         committed: bool,
         meta: Option<&OrderCommitmentMeta>,
         monitor_wait_duration_ms: Option<u64>,
-        config: &OrderCommitterConfig,
+        config: &OrderLockerConfig,
         pending_commitment_count: u32,
         skip_code: Option<&str>,
         skip_reason: Option<&str>,
@@ -1121,7 +1121,7 @@ mod tests {
                 peak_prove_khz: None,
                 max_capacity: None,
                 pending_commitment_count: 0,
-                skip_commit_code: Some("[B-OM-001]".to_string()),
+                skip_commit_code: Some("[B-OL-001]".to_string()),
                 skip_commit_reason: Some("Lock failed".to_string()),
                 lock_submitted_at: Some(Instant::now()),
             })
@@ -1129,7 +1129,7 @@ mod tests {
 
         assert_eq!(service.eval_buffer.len(), 1);
         assert_eq!(service.eval_buffer[0].commitment_outcome, Some(CommitmentOutcome::Dropped));
-        assert_eq!(service.eval_buffer[0].commitment_skip_code, Some("[B-OM-001]".to_string()));
+        assert_eq!(service.eval_buffer[0].commitment_skip_code, Some("[B-OL-001]".to_string()));
         assert_eq!(service.eval_buffer[0].commitment_skip_reason, Some("Lock failed".to_string()));
         // Removed from in_flight, no completion expected.
         assert!(!service.in_flight.contains_key(&oid));

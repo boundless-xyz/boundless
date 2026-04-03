@@ -64,11 +64,12 @@ use tower::{Layer, ServiceBuilder};
 use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
-const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
 const TELEMETRY_CHANNEL_CAPACITY: usize = 40960;
 const PRICER_CHANNEL_CAPACITY: usize = 1000;
 const COMPLETION_CHANNEL_CAPACITY: usize = 1000;
+const COMMITMENT_CHANNEL_CAPACITY: usize = 1000;
+const COMMITMENT_COMPLETION_CHANNEL_CAPACITY: usize = 1000;
 
 pub(crate) mod aggregator;
 pub(crate) mod block_history;
@@ -83,6 +84,7 @@ pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_committer;
 pub(crate) mod order_evaluator;
+pub(crate) mod order_locker;
 pub(crate) mod order_pricer;
 mod price_oracle;
 pub(crate) mod prioritization;
@@ -178,6 +180,16 @@ pub struct CoreArgs {
     /// Use the experimental ChainMonitorV2 implementation using eth_getBlockReceipts instead of eth_getLogs.
     #[clap(long, default_value_t = false)]
     pub experimental_rpc: bool,
+
+    /// VersionRegistry contract address override. Not a CLI flag — set programmatically in tests
+    /// to exercise the version check against a locally deployed registry.
+    #[clap(skip)]
+    pub version_registry_address: Option<Address>,
+
+    /// Force the version check even when RISC0_DEV_MODE is enabled.
+    /// Useful for testing version enforcement locally.
+    #[clap(long, env, default_value_t = false)]
+    pub force_version_check: bool,
 
     /// [Deprecated: use --market-address-{chain_id} etc.] Single-chain deployment configuration.
     #[clap(flatten, next_help_heading = "Boundless Deployment (Deprecated)")]
@@ -379,13 +391,25 @@ pub use boundless_market::prover_utils::{
     ProveLimitReason,
 };
 
-/// Message sent from MarketMonitor to OrderPricer about order state changes
+/// On-chain order state change broadcast from MarketMonitor to all unified components
+/// (OrderEvaluator, OrderPricer, OrderCommitter) and the ProvingService.
+///
+/// Each variant carries `chain_id` to ensure that events on one chain don't affect
+/// pending orders for other chains that may share the same `request_id`.
 #[derive(Debug, Clone)]
 pub enum OrderStateChange {
-    /// Order has been locked by a prover
-    Locked { request_id: U256, prover: Address },
-    /// Order has been fulfilled
-    Fulfilled { request_id: U256 },
+    Locked { request_id: U256, prover: Address, chain_id: u64 },
+    Fulfilled { request_id: U256, chain_id: u64 },
+}
+
+impl OrderStateChange {
+    /// Returns the chain that produced this state change event.
+    pub fn chain_id(&self) -> u64 {
+        match self {
+            OrderStateChange::Locked { chain_id, .. } => *chain_id,
+            OrderStateChange::Fulfilled { chain_id, .. } => *chain_id,
+        }
+    }
 }
 
 /// Helper function to format an order ID consistently
@@ -845,6 +869,7 @@ impl Broker {
             tracing::warn!(
                 "LISTEN-ONLY MODE: Broker will monitor the market and evaluate orders but will NOT \
                  lock, prove, or submit. No on-chain transactions will be sent."
+
             );
         }
 
@@ -861,17 +886,41 @@ impl Broker {
 
         // All chain monitors send discovered orders here; the evaluator reads from evaluator_order_rx.
         let (evaluator_order_tx, evaluator_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-        // Pricers send preflight completions here; the evaluator reads from completion_rx to free capacity.
-        let (completion_tx, completion_rx) = mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
+        // Pricers send preflight completions here; the evaluator reads from pricing_completion_rx to free capacity.
+        let (pricing_completion_tx, pricing_completion_rx) =
+            mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
         // Lock/fulfill events broadcast to both the evaluator (removes pending) and pricers (cancels active tasks).
         let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
         let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
             std::collections::HashMap::new();
 
+        // All per-chain pricers send priced orders here; the order committer reads from priced_orders_rx.
+        let (priced_orders_tx, priced_orders_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+        // Proving pipeline components send completion signals here; the order committer reads to free capacity.
+        let (proving_completion_tx, proving_completion_rx) =
+            mpsc::channel(COMMITMENT_COMPLETION_CHANNEL_CAPACITY);
+        let mut locker_dispatchers: std::collections::HashMap<
+            u64,
+            mpsc::Sender<Box<OrderRequest>>,
+        > = std::collections::HashMap::new();
+
+        let mut priority_requestors_map: std::collections::HashMap<
+            u64,
+            requestor_monitor::PriorityRequestors,
+        > = std::collections::HashMap::new();
+
         for chain in &chains {
             // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
             let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
             chain_dispatchers.insert(chain.chain_id, pricer_tx);
+
+            // Order committer dispatches capacity-gated orders to this chain's locker.
+            let (locker_tx, locker_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+            locker_dispatchers.insert(chain.chain_id, locker_tx);
+
+            let priority_requestors =
+                requestor_monitor::PriorityRequestors::new(chain.config.clone(), chain.chain_id);
+            priority_requestors_map.insert(chain.chain_id, priority_requestors.clone());
 
             self.start_chain_pipeline(
                 chain,
@@ -879,8 +928,12 @@ impl Broker {
                 aggregation_prover.clone(),
                 evaluator_order_tx.clone(),
                 pricer_rx,
-                completion_tx.clone(),
+                pricing_completion_tx.clone(),
                 order_state_tx.clone(),
+                priced_orders_tx.clone(),
+                locker_rx,
+                proving_completion_tx.clone(),
+                priority_requestors,
                 &mut non_critical_tasks,
                 &mut critical_tasks,
                 non_critical_cancel_token.clone(),
@@ -888,12 +941,19 @@ impl Broker {
             )
             .await?;
         }
+        // Drop our clones so the unified components see channel closure when all producers exit.
+        drop(evaluator_order_tx);
+        drop(pricing_completion_tx);
+        drop(priced_orders_tx);
+        drop(proving_completion_tx);
+
         let order_evaluator = Arc::new(order_evaluator::OrderEvaluator::new(
             base_config.clone(),
             evaluator_order_rx,
             chain_dispatchers,
-            completion_rx,
-            order_state_tx,
+            pricing_completion_rx,
+            order_state_tx.clone(),
+            priority_requestors_map.clone(),
         ));
         let cloned_config = base_config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -902,6 +962,24 @@ impl Broker {
                 .spawn()
                 .await
                 .context("Failed to start order evaluator")?;
+            Ok(())
+        });
+
+        let order_committer = Arc::new(order_committer::OrderCommitter::new(
+            base_config.clone(),
+            priced_orders_rx,
+            locker_dispatchers,
+            proving_completion_rx,
+            order_state_tx,
+            priority_requestors_map,
+        ));
+        let cloned_config = base_config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(order_committer, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("Failed to start unified order committer")?;
             Ok(())
         });
 
@@ -966,8 +1044,12 @@ impl Broker {
         aggregation_prover: ProverObj,
         evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pricer_rx: mpsc::Receiver<Box<OrderRequest>>,
-        completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
+        pricing_completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
+        priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
+        locker_rx: mpsc::Receiver<Box<OrderRequest>>,
+        proving_completion_tx: mpsc::Sender<order_committer::CommitmentComplete>,
+        priority_requestors: requestor_monitor::PriorityRequestors,
         non_critical_tasks: &mut JoinSet<Result<()>>,
         critical_tasks: &mut JoinSet<Result<()>>,
         non_critical_cancel_token: CancellationToken,
@@ -990,6 +1072,26 @@ impl Broker {
         let chain_id = chain.chain_id;
         let deployment = &chain.deployment;
         let db = chain.db.clone();
+
+        {
+            let task = Arc::new(version_check::VersionCheckTask::new(
+                (*provider).clone(),
+                chain_id,
+                deployment.boundless_market_address,
+                None,
+                self.args.version_registry_address,
+                self.args.force_version_check,
+            ));
+            let config_clone = config.clone();
+            let cancel_token = non_critical_cancel_token.clone();
+            non_critical_tasks.spawn(async move {
+                Supervisor::new(task, config_clone, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Version check task failed")?;
+                Ok(())
+            });
+        }
 
         let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
             let config = config.lock_all().context("Failed to lock config")?;
@@ -1193,8 +1295,6 @@ impl Broker {
             });
         }
 
-        let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
-
         let market = Arc::new(BoundlessMarketService::new_for_broker(
             deployment.boundless_market_address,
             DynProvider::new(provider.clone()),
@@ -1225,8 +1325,6 @@ impl Broker {
             Ok(())
         });
 
-        let priority_requestors =
-            requestor_monitor::PriorityRequestors::new(config.clone(), chain_id);
         let allow_requestors = requestor_monitor::AllowRequestors::new(config.clone(), chain_id);
 
         // Shared ERC-1271 gas cache between OrderPricer and OrderCommitter so that estimates
@@ -1247,7 +1345,7 @@ impl Broker {
             provider.clone(),
             chain_monitor.clone(),
             pricer_rx,
-            pricing_tx,
+            priced_orders_tx,
             collateral_token_decimals,
             order_state_tx.clone(),
             priority_requestors.clone(),
@@ -1257,7 +1355,7 @@ impl Broker {
             erc1271_gas_cache.clone(),
             self.args.listen_only,
             chain_id,
-            completion_tx,
+            pricing_completion_tx,
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1269,9 +1367,7 @@ impl Broker {
             Ok(())
         });
 
-        // Always start the OrderCommitter so its full decision logic (caching, prioritization,
-        // capacity limits) runs. In listen-only mode it logs instead of locking/proving.
-        let order_committer = Arc::new(order_committer::OrderCommitter::new(
+        let order_locker = Arc::new(order_locker::OrderLocker::new(
             db.clone(),
             provider.clone(),
             chain_monitor.clone(),
@@ -1279,9 +1375,9 @@ impl Broker {
             block_times,
             prover_addr,
             deployment.boundless_market_address,
-            pricing_rx,
+            locker_rx,
             collateral_token_decimals,
-            order_committer::RpcRetryConfig {
+            order_locker::RpcRetryConfig {
                 retry_count: self.args.rpc_retry_max.into(),
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
@@ -1290,14 +1386,15 @@ impl Broker {
             erc1271_gas_cache,
             self.args.listen_only,
             chain_id,
+            proving_completion_tx.clone(),
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         non_critical_tasks.spawn(async move {
-            Supervisor::new(order_committer, cloned_config, cancel_token)
+            Supervisor::new(order_locker, cloned_config, cancel_token)
                 .spawn()
                 .await
-                .context("Failed to start order committer")?;
+                .context("Failed to start order locker")?;
             Ok(())
         });
 
@@ -1312,6 +1409,7 @@ impl Broker {
                 market.clone(),
                 self.downloader.clone(),
                 chain_id,
+                proving_completion_tx.clone(),
             ));
 
             let cloned_config = config.clone();
@@ -1341,6 +1439,7 @@ impl Broker {
                     prover_addr,
                     config.clone(),
                     aggregation_prover.clone(),
+                    proving_completion_tx.clone(),
                 )
                 .await
                 .context("Failed to initialize aggregator service")?,
@@ -1363,6 +1462,7 @@ impl Broker {
                 config.clone(),
                 prover.clone(),
                 chain_id,
+                proving_completion_tx.clone(),
             ));
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
@@ -1384,6 +1484,7 @@ impl Broker {
                 deployment.boundless_market_address,
                 set_builder_img_id,
                 chain_id,
+                proving_completion_tx.clone(),
             )?);
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();

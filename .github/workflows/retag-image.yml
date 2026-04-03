@@ -1,0 +1,43 @@
+name: Retag Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Image name (e.g., bento-agent, bento-agent-cpu, broker, bento-rest-api, bento-cli)'
+        required: true
+      source_tag:
+        description: 'Source tag to retag from (e.g., nightly-latest, nightly-abc1234)'
+        required: true
+        default: 'nightly-latest'
+      target_tag:
+        description: 'Target tag to apply (e.g., latest, v1.3.0)'
+        required: true
+        default: 'latest'
+
+permissions:
+  packages: write
+
+env:
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  retag:
+    name: Retag ${{ inputs.image }}:${{ inputs.source_tag }} → ${{ inputs.target_tag }}
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    steps:
+      - name: Install crane
+        run: |
+          VERSION=v0.20.2
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Retag image
+        run: |
+          SRC=${{ env.IMAGE_PREFIX }}/${{ inputs.image }}:${{ inputs.source_tag }}
+          echo "Retagging $SRC → ${{ inputs.target_tag }}"
+          crane tag "$SRC" "${{ inputs.target_tag }}"
+          echo "Done: ${{ env.IMAGE_PREFIX }}/${{ inputs.image }}:${{ inputs.target_tag }}"

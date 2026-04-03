@@ -25,6 +25,7 @@ use crate::{
     config::ConfigLock,
     errors::CodedError,
     prioritization::prioritize_orders_to_evaluate,
+    requestor_monitor::PriorityRequestors,
     task::{RetryRes, RetryTask, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
 };
@@ -83,8 +84,9 @@ pub(crate) struct OrderEvaluator {
     config: ConfigLock,
     new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
     chain_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
-    completion_rx: Arc<Mutex<mpsc::Receiver<PreflightComplete>>>,
+    pricing_completion_rx: Arc<Mutex<mpsc::Receiver<PreflightComplete>>>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
+    priority_requestors: Arc<HashMap<u64, PriorityRequestors>>,
 }
 
 impl OrderEvaluator {
@@ -92,15 +94,17 @@ impl OrderEvaluator {
         config: ConfigLock,
         new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
         chain_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
-        completion_rx: mpsc::Receiver<PreflightComplete>,
+        pricing_completion_rx: mpsc::Receiver<PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
+        priority_requestors: HashMap<u64, PriorityRequestors>,
     ) -> Self {
         Self {
             config,
             new_order_rx: Arc::new(Mutex::new(new_order_rx)),
             chain_dispatchers: Arc::new(chain_dispatchers),
-            completion_rx: Arc::new(Mutex::new(completion_rx)),
+            pricing_completion_rx: Arc::new(Mutex::new(pricing_completion_rx)),
             order_state_tx,
+            priority_requestors: Arc::new(priority_requestors),
         }
     }
 
@@ -126,6 +130,17 @@ impl OrderEvaluator {
         ))
     }
 
+    fn collect_priority_addresses(
+        &self,
+        static_addresses: Option<Vec<alloy::primitives::Address>>,
+    ) -> Vec<alloy::primitives::Address> {
+        let mut merged = static_addresses.unwrap_or_default();
+        for pr in self.priority_requestors.values() {
+            merged.extend(pr.dynamic_addresses());
+        }
+        merged
+    }
+
     #[allow(clippy::vec_box)]
     fn format_per_chain_counts(orders: &[Box<OrderRequest>]) -> String {
         let mut counts: HashMap<u64, usize> = HashMap::new();
@@ -148,17 +163,19 @@ impl OrderEvaluator {
         in_flight: &mut HashMap<String, Instant>,
         max_concurrent_preflights: usize,
         priority_mode: boundless_market::prover_utils::config::OrderPricingPriority,
-        priority_addresses: Option<&[alloy::primitives::Address]>,
+        priority_addresses: &[alloy::primitives::Address],
     ) {
         if pending_orders.is_empty() || in_flight.len() >= max_concurrent_preflights {
             return;
         }
 
         let available_capacity = max_concurrent_preflights - in_flight.len();
+        let priority_ref =
+            if priority_addresses.is_empty() { None } else { Some(priority_addresses) };
         let selected = prioritize_orders_to_evaluate(
             pending_orders,
             priority_mode,
-            priority_addresses,
+            priority_ref,
             available_capacity,
         );
 
@@ -238,11 +255,12 @@ impl RetryTask for OrderEvaluator {
         Box::pin(async move {
             tracing::info!("Starting order evaluator");
 
-            let (mut max_concurrent_preflights, mut priority_mode, mut priority_addresses) =
+            let (mut max_concurrent_preflights, mut priority_mode, static_addresses) =
                 evaluator.read_config().map_err(SupervisorErr::Fault)?;
+            let mut priority_addresses = evaluator.collect_priority_addresses(static_addresses);
 
             let mut order_rx = evaluator.new_order_rx.lock().await;
-            let mut completion_rx = evaluator.completion_rx.lock().await;
+            let mut pricing_completion_rx = evaluator.pricing_completion_rx.lock().await;
             let mut order_state_rx = evaluator.order_state_tx.subscribe();
             let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
 
@@ -264,7 +282,7 @@ impl RetryTask for OrderEvaluator {
                         );
                     }
 
-                    Some(completion) = completion_rx.recv() => {
+                    Some(completion) = pricing_completion_rx.recv() => {
                         if in_flight.remove(&completion.order_id).is_some() {
                             tracing::debug!(
                                 chain_id = completion.chain_id,
@@ -284,16 +302,18 @@ impl RetryTask for OrderEvaluator {
 
                     Ok(state_change) = order_state_rx.recv() => {
                         match state_change {
-                            OrderStateChange::Locked { request_id, prover } => {
+                            OrderStateChange::Locked { request_id, chain_id, .. } => {
                                 tracing::debug!(
-                                    "Evaluator: request 0x{:x} locked by {:x}, removing pending LockAndFulfill orders",
-                                    request_id, prover,
+                                    chain_id,
+                                    "Evaluator: request 0x{:x} locked, removing pending LockAndFulfill orders",
+                                    request_id,
                                 );
                                 let initial_len = pending_orders.len();
                                 pending_orders.retain(|order| {
                                     let same_request = U256::from(order.request.id) == request_id;
+                                    let same_chain = order.chain_id == chain_id;
                                     let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
-                                    !(same_request && is_lock_and_fulfill)
+                                    !(same_request && same_chain && is_lock_and_fulfill)
                                 });
                                 let removed = initial_len - pending_orders.len();
                                 if removed > 0 {
@@ -303,13 +323,16 @@ impl RetryTask for OrderEvaluator {
                                     );
                                 }
                             }
-                            OrderStateChange::Fulfilled { request_id } => {
+                            OrderStateChange::Fulfilled { request_id, chain_id } => {
                                 tracing::debug!(
+                                    chain_id,
                                     "Evaluator: request 0x{:x} fulfilled, removing all pending orders",
                                     request_id,
                                 );
                                 let initial_len = pending_orders.len();
-                                pending_orders.retain(|order| U256::from(order.request.id) != request_id);
+                                pending_orders.retain(|order| {
+                                    !(U256::from(order.request.id) == request_id && order.chain_id == chain_id)
+                                });
                                 let removed = initial_len - pending_orders.len();
                                 if removed > 0 {
                                     tracing::debug!(
@@ -322,7 +345,7 @@ impl RetryTask for OrderEvaluator {
                     }
 
                     _ = capacity_check_interval.tick() => {
-                        let (new_capacity, new_priority, new_addresses) =
+                        let (new_capacity, new_priority, new_static_addresses) =
                             evaluator.read_config().map_err(SupervisorErr::Fault)?;
 
                         if new_capacity != max_concurrent_preflights {
@@ -339,10 +362,8 @@ impl RetryTask for OrderEvaluator {
                             );
                             priority_mode = new_priority;
                         }
-                        if new_addresses != priority_addresses {
-                            tracing::debug!("Evaluator priority requestor addresses changed");
-                            priority_addresses = new_addresses;
-                        }
+                        priority_addresses =
+                            evaluator.collect_priority_addresses(new_static_addresses);
 
                         Self::reap_stale_capacity(
                             &mut in_flight,
@@ -363,7 +384,7 @@ impl RetryTask for OrderEvaluator {
                     &mut in_flight,
                     max_concurrent_preflights,
                     priority_mode,
-                    priority_addresses.as_deref(),
+                    &priority_addresses,
                 );
             }
 
@@ -427,7 +448,7 @@ mod tests {
         config.load_write().unwrap().market.max_concurrent_preflights = max_concurrent_preflights;
 
         let (order_tx, order_rx) = mpsc::channel(100);
-        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let (pricing_completion_tx, pricing_completion_rx) = mpsc::channel(100);
         let (state_tx, _) = broadcast::channel(100);
 
         let mut dispatchers = HashMap::new();
@@ -438,10 +459,22 @@ mod tests {
             pricer_rxs.insert(chain_id, rx);
         }
 
-        let evaluator =
-            OrderEvaluator::new(config, order_rx, dispatchers, completion_rx, state_tx.clone());
+        let mut priority_requestors_map = HashMap::new();
+        for &chain_id in chain_ids {
+            priority_requestors_map
+                .insert(chain_id, PriorityRequestors::new(config.clone(), chain_id));
+        }
 
-        (evaluator, order_tx, completion_tx, state_tx, pricer_rxs)
+        let evaluator = OrderEvaluator::new(
+            config,
+            order_rx,
+            dispatchers,
+            pricing_completion_rx,
+            state_tx.clone(),
+            priority_requestors_map,
+        );
+
+        (evaluator, order_tx, pricing_completion_tx, state_tx, pricer_rxs)
     }
 
     async fn recv_with_timeout<T>(rx: &mut mpsc::Receiver<T>) -> T {
@@ -458,7 +491,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatches_up_to_capacity() {
-        let (evaluator, order_tx, _completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, _pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(2, &[1]);
         let cancel = CancellationToken::new();
 
@@ -487,7 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_completion_frees_capacity() {
-        let (evaluator, order_tx, completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -507,7 +540,7 @@ mod tests {
         assert_no_message(pricer_rx).await;
 
         // Send completion for the first
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,
@@ -526,7 +559,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lock_event_removes_pending() {
-        let (evaluator, order_tx, completion_tx, state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, pricing_completion_tx, state_tx, mut pricer_rxs) =
             setup_evaluator(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -555,12 +588,16 @@ mod tests {
 
         // Lock request 1 -- should remove LockAndFulfill but keep FulfillAfterLockExpire
         state_tx
-            .send(OrderStateChange::Locked { request_id: queued_request_id, prover: Address::ZERO })
+            .send(OrderStateChange::Locked {
+                request_id: queued_request_id,
+                prover: Address::ZERO,
+                chain_id: 1,
+            })
             .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Complete the in-flight order 0 to free capacity
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,
@@ -580,7 +617,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fulfill_event_removes_pending() {
-        let (evaluator, order_tx, completion_tx, state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, pricing_completion_tx, state_tx, mut pricer_rxs) =
             setup_evaluator(1, &[1]);
         let cancel = CancellationToken::new();
 
@@ -604,11 +641,13 @@ mod tests {
 
         // Fulfill request 1 -- should remove ALL orders for that request
         let fulfilled_request_id: U256 = RequestId::new(Address::ZERO, 1).into();
-        state_tx.send(OrderStateChange::Fulfilled { request_id: fulfilled_request_id }).unwrap();
+        state_tx
+            .send(OrderStateChange::Fulfilled { request_id: fulfilled_request_id, chain_id: 1 })
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Free capacity
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,
@@ -627,7 +666,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_routes_to_correct_chain() {
-        let (evaluator, order_tx, _completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, _pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(10, &[1, 8453]);
         let cancel = CancellationToken::new();
 
@@ -667,7 +706,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_chain_drops_order() {
-        let (evaluator, order_tx, _completion_tx, _state_tx, mut pricer_rxs) =
+        let (evaluator, order_tx, _pricing_completion_tx, _state_tx, mut pricer_rxs) =
             setup_evaluator(10, &[1]);
         let cancel = CancellationToken::new();
 
@@ -697,15 +736,23 @@ mod tests {
         config.load_write().unwrap().market.max_concurrent_preflights = 1;
 
         let (order_tx, order_rx) = mpsc::channel(100);
-        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let (pricing_completion_tx, pricing_completion_rx) = mpsc::channel(100);
         let (state_tx, _) = broadcast::channel(100);
         let (pricer_tx, mut pricer_rx) = mpsc::channel(100);
 
         let mut dispatchers = HashMap::new();
         dispatchers.insert(1u64, pricer_tx);
 
-        let evaluator =
-            OrderEvaluator::new(config.clone(), order_rx, dispatchers, completion_rx, state_tx);
+        let mut priority_requestors_map = HashMap::new();
+        priority_requestors_map.insert(1u64, PriorityRequestors::new(config.clone(), 1));
+        let evaluator = OrderEvaluator::new(
+            config.clone(),
+            order_rx,
+            dispatchers,
+            pricing_completion_rx,
+            state_tx,
+            priority_requestors_map,
+        );
 
         let cancel = CancellationToken::new();
         let handle = tokio::spawn({
@@ -728,7 +775,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(6)).await;
 
         // Complete first to trigger re-dispatch with new capacity (3)
-        completion_tx
+        pricing_completion_tx
             .send(PreflightComplete {
                 order_id: first.id(),
                 request_id: first.request.id,

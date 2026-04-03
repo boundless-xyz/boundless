@@ -34,6 +34,8 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       // If true, we don't add the cert to the load balancer. Used during initial cert creation.
       // to avoid adding the cert to the load balancer before the cert is ready.
       disableCert: boolean;
+      // Pre-built GHCR image URI. When set, skip Docker build and use this image directly.
+      prebuiltImage?: pulumi.Output<string>;
       boundlessAlertsTopicArns?: string[];
       premiumApiKey?: pulumi.Output<string>;
       standardRateLimit: number;
@@ -68,6 +70,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       bypassAddrs,
       boundlessAlertsTopicArns,
       disableCert,
+      prebuiltImage,
       premiumApiKey,
       standardRateLimit,
       premiumRateLimit,
@@ -113,66 +116,74 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       name: `${serviceName}-repo`,
     });
 
-    const authToken = aws.ecr.getAuthorizationTokenOutput({
-      registryId: ecrRepository.repository.registryId,
-    });
+    let imageRef: pulumi.Output<string>;
 
-    // Optionally add in the gh token secret and sccache s3 creds to the build ctx
-    let buildSecrets = {};
-    if (ciCacheSecret !== undefined) {
-      buildSecrets = {
-        ci_cache_creds: ciCacheSecret,
-      };
-    }
-    if (githubTokenSecret !== undefined) {
-      buildSecrets = {
-        ...buildSecrets,
-        githubTokenSecret
+    if (prebuiltImage) {
+      imageRef = prebuiltImage;
+    } else {
+      const authToken = aws.ecr.getAuthorizationTokenOutput({
+        registryId: ecrRepository.repository.registryId,
+      });
+
+      // Optionally add in the gh token secret and sccache s3 creds to the build ctx
+      let buildSecrets = {};
+      if (ciCacheSecret !== undefined) {
+        buildSecrets = {
+          ci_cache_creds: ciCacheSecret,
+        };
       }
-    }
+      if (githubTokenSecret !== undefined) {
+        buildSecrets = {
+          ...buildSecrets,
+          githubTokenSecret
+        }
+      }
 
-    const image = new docker_build.Image(`${serviceName}-img`, {
-      tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:${dockerTag}`],
-      context: {
-        location: dockerDir,
-      },
-      builder: dockerRemoteBuilder ? {
-        name: dockerRemoteBuilder,
-      } : undefined,
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/order_stream.dockerfile`,
-      },
-      buildArgs: {
-        S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+      const image = new docker_build.Image(`${serviceName}-img`, {
+        tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:${dockerTag}`],
+        context: {
+          location: dockerDir,
+        },
+        builder: dockerRemoteBuilder ? {
+          name: dockerRemoteBuilder,
+        } : undefined,
+        platforms: ['linux/amd64'],
+        push: true,
+        dockerfile: {
+          location: `${dockerDir}/dockerfiles/order_stream.dockerfile`,
+        },
+        buildArgs: {
+          S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
+        },
+        secrets: buildSecrets,
+        cacheFrom: [
+          {
+            registry: {
+              ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+            },
           },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+        ],
+        cacheTo: [
+          {
+            registry: {
+              mode: docker_build.CacheMode.Max,
+              imageManifest: true,
+              ociMediaTypes: true,
+              ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+            },
           },
-        },
-      ],
-      registries: [
-        {
-          address: ecrRepository.repository.repositoryUrl,
-          password: authToken.apply((authToken) => authToken.password),
-          username: authToken.apply((authToken) => authToken.userName),
-        },
-      ],
-    });
+        ],
+        registries: [
+          {
+            address: ecrRepository.repository.repositoryUrl,
+            password: authToken.apply((authToken) => authToken.password),
+            username: authToken.apply((authToken) => authToken.userName),
+          },
+        ],
+      });
+
+      imageRef = image.ref;
+    }
 
     // If we have a cert and a domain, use it, and enable https.
     let listeners: awsx.types.input.lb.ListenerArgs[] = [{
@@ -587,7 +598,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         },
         container: {
           name: `${serviceName}`,
-          image: image.ref,
+          image: imageRef,
           cpu: 1024,
           memory: 512,
           essential: true,

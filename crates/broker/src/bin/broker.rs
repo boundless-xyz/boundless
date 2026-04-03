@@ -117,11 +117,11 @@ fn discover_chain_ids_from_argv() -> BTreeSet<u64> {
         }
     }
 
-    for (key, _) in std::env::vars() {
+    for (key, value) in std::env::vars() {
         let Some(suffix) = key.strip_prefix("PROVER_RPC_URL_") else {
             continue;
         };
-        if key.starts_with("PROVER_RPC_URLS_") {
+        if key.starts_with("PROVER_RPC_URLS_") || value.trim().is_empty() {
             continue;
         }
         if let Ok(chain_id) = suffix.parse::<u64>() {
@@ -524,11 +524,11 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
     }
 
     // Env vars for chains not already specified via CLI
-    for (key, _) in std::env::vars() {
+    for (key, value) in std::env::vars() {
         let Some(suffix) = key.strip_prefix("PROVER_RPC_URL_") else {
             continue;
         };
-        if key.starts_with("PROVER_RPC_URLS_") {
+        if key.starts_with("PROVER_RPC_URLS_") || value.trim().is_empty() {
             continue;
         }
         let chain_id: u64 = match suffix.parse() {
@@ -679,6 +679,8 @@ mod tests {
             log_json: false,
             listen_only: false,
             experimental_rpc: false,
+            version_registry_address: None,
+            force_version_check: false,
         }
     }
 

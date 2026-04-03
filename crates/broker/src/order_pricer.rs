@@ -186,7 +186,7 @@ pub struct OrderPricer<P> {
     price_oracle: Arc<PriceOracleManager>,
     listen_only: bool,
     chain_id: u64,
-    completion_tx: mpsc::Sender<PreflightComplete>,
+    pricing_completion_tx: mpsc::Sender<PreflightComplete>,
 }
 
 impl<P> OrderPricer<P>
@@ -212,7 +212,7 @@ where
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
         chain_id: u64,
-        completion_tx: mpsc::Sender<PreflightComplete>,
+        pricing_completion_tx: mpsc::Sender<PreflightComplete>,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -253,7 +253,7 @@ where
             price_oracle,
             listen_only,
             chain_id,
-            completion_tx,
+            pricing_completion_tx,
         }
     }
 
@@ -707,7 +707,7 @@ where
 
                         if active_preflights.contains(&request_id, &order_id) {
                             tracing::debug!("Skipping order {order_id} - already being processed");
-                            let _ = pricer.completion_tx.try_send(PreflightComplete {
+                            let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
                                 order_id,
                                 request_id,
                                 chain_id,
@@ -718,7 +718,7 @@ where
 
                         if pricer.order_cache.get(&order_id).await.is_some() {
                             tracing::debug!("Skipping duplicate order {order_id}, already being processed");
-                            let _ = pricer.completion_tx.try_send(PreflightComplete {
+                            let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
                                 order_id,
                                 request_id,
                                 chain_id,
@@ -748,12 +748,12 @@ where
                     }
                     Ok(state_change) = order_state_rx.recv() => {
                         match state_change {
-                            OrderStateChange::Locked { request_id, prover } => {
+                            OrderStateChange::Locked { request_id, prover, .. } => {
                                 tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
                                     request_id, prover);
                                 active_preflights.cancel_lock_and_fulfill(&request_id);
                             }
-                            OrderStateChange::Fulfilled { request_id } => {
+                            OrderStateChange::Fulfilled { request_id, .. } => {
                                 tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
                                     request_id);
                                 active_preflights.cancel_all(&request_id);
@@ -765,7 +765,7 @@ where
                             Ok((order_id, request_id, outcome)) => {
                                 active_preflights.remove(&request_id, &order_id);
 
-                                let _ = pricer.completion_tx.try_send(PreflightComplete {
+                                let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
                                     order_id: order_id.clone(),
                                     request_id,
                                     chain_id: pricer.chain_id,
@@ -1093,7 +1093,7 @@ pub(crate) mod tests {
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (priced_orders_tx, priced_orders_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (order_state_tx, _) = tokio::sync::broadcast::channel(TEST_CHANNEL_CAPACITY);
-            let (completion_tx, _completion_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
+            let (pricing_completion_tx, _completion_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
 
             let pricer = OrderPricer::new(
                 db.clone(),
@@ -1113,7 +1113,7 @@ pub(crate) mod tests {
                 Arc::new(Cache::builder().build()),
                 false,
                 chain_id,
-                completion_tx,
+                pricing_completion_tx,
             );
 
             PricerTestCtx {
