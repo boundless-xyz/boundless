@@ -1,5 +1,0 @@
-# Broker config files contain local settings — don't commit.
-# Use `boundless prover generate-config` to create them.
-broker.toml
-broker.*.toml
-!.gitignore

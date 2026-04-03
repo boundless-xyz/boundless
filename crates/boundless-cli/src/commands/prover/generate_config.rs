@@ -64,7 +64,7 @@ mod selection_strings {
 #[derive(Args, Clone, Debug)]
 pub struct ProverGenerateConfig {
     /// Path to output broker.toml file
-    #[clap(long, default_value = "./config/broker.toml")]
+    #[clap(long, default_value = "./broker.toml")]
     pub broker_toml_file: PathBuf,
 
     /// Path to output compose.yml file
@@ -148,7 +148,10 @@ impl ProverGenerateConfig {
                 let broker_dir = self.broker_toml_file.parent().unwrap_or(Path::new("."));
                 display.item_colored(
                     "Created",
-                    broker_dir.join(format!("broker.{}.toml", chain.chain_id)).display(),
+                    broker_dir
+                        .join("chain-overrides")
+                        .join(format!("broker.{}.toml", chain.chain_id))
+                        .display(),
                     "green",
                 );
             }
@@ -1193,7 +1196,10 @@ impl ProverGenerateConfig {
     /// Generate a per-chain override TOML file containing only per-chain fields.
     fn generate_chain_override_toml(&self, chain: &ChainConfig) -> Result<()> {
         let broker_dir = self.broker_toml_file.parent().unwrap_or(Path::new("."));
-        let override_path = broker_dir.join(format!("broker.{}.toml", chain.chain_id));
+        let overrides_dir = broker_dir.join("chain-overrides");
+        std::fs::create_dir_all(&overrides_dir)
+            .context("Failed to create chain-overrides directory")?;
+        let override_path = overrides_dir.join(format!("broker.{}.toml", chain.chain_id));
 
         let content = format!(
             "# Per-chain override for {} ({})\n\
