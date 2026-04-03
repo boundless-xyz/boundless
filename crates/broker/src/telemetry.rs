@@ -45,7 +45,6 @@ static CHAIN_HANDLES: LazyLock<Mutex<HashMap<u64, TelemetryHandle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
 
-
 /// Global count of orders currently committed across all chains.
 /// Updated by a periodic background task that sums across all chain DBs.
 static GLOBAL_COMMITTED_COUNT: AtomicU32 = AtomicU32::new(0);
