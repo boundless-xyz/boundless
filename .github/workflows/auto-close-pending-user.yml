@@ -1,0 +1,47 @@
+name: Close stale pending-user issues
+
+# Runs daily to find issues labeled "pending user" that have gone
+# unanswered, warn after 5 days of inactivity, and close after 7.
+#
+# How `days-before-stale: -1` works:
+# By default actions/stale scans every issue and auto-labels inactive
+# ones as "stale." Setting this to -1 disables that behavior entirely
+# so the action ONLY processes issues that already carry the
+# "pending user" label (applied manually by maintainers). The action
+# then treats that pre-existing label as the stale marker and starts
+# the close countdown from the last activity on the issue.
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+
+permissions:
+  issues: write
+
+jobs:
+  close-pending:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v10
+        with:
+          # Disable auto-labeling; only act on issues already labeled "pending user".
+          days-before-stale: -1
+          any-of-issue-labels: "pending user"
+          stale-issue-label: "pending user"
+
+          # After 5 days of inactivity a warning comment is posted.
+          # 2 more days (7 total) without activity triggers the close.
+          days-before-close: 2
+          close-issue-label: "closed-no-response"
+
+          stale-issue-message: >
+            This issue has had no activity for 5 days since being marked
+            as pending a user response. It will be automatically closed
+            in 2 days if no response is provided.
+          close-issue-message: >
+            Closing this issue due to no response. If you have the
+            requested information, feel free to reopen or file a new issue.
+
+          # Ignore PRs entirely.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
