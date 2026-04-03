@@ -1439,7 +1439,7 @@ impl ProverGenerateConfig {
         } else {
             display.note(&format!(
                 "2. Ensure you have a minimum of {} ZKC collateral in your prover address:",
-                config.chains.first().map(|c| c.max_collateral.as_str()).unwrap_or("30 USD")
+                config.chains.first().map(|c| c.max_collateral.as_str()).unwrap_or("10 USD")
             ));
         }
         display.note("   boundless prover balance-collateral");
