@@ -127,6 +127,8 @@ These variables enable the broker service:
 | `prover_rpc_urls`        | `""`           | RPC URL(s) for broker (preferred) |
 | `prover_povw_log_id`     | `""`           | POVW log contract address         |
 | `prover_broker_toml_url` | GitHub raw URL | URL to broker.toml template       |
+| `prover_chain_rpc_urls`  | `{}`           | Dict of chain_id → RPC URL for multichain |
+| `prover_chain_overrides` | `{}`           | Dict of chain_id → URL/path for per-chain config overrides |
 
 ## Docker Role Variables
 
@@ -242,7 +244,9 @@ prover_84532_staging_nightly:
       prover_postgres_password: "dev_password"
       prover_minio_root_pass: "dev_password"
       prover_rpc_urls: "https://..."
-      prover_broker_toml_url: "https://raw.githubusercontent.com/.../staging_84532.toml"
+      prover_broker_toml_local: "roles/prover/configs/broker/staging.toml"
+      prover_chain_overrides:
+        84532: "roles/prover/configs/broker/chain-overrides/staging/broker.84532.toml"
 ```
 
 Setting `prover_image_tag` overrides all image tags to use nightly CI builds. With `prover_wait_for_nightly_image: true`, the deploy waits until the image for the deployed commit SHA is available in the registry.

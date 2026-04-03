@@ -64,6 +64,51 @@
   when: prover_broker_toml_local | string | length == 0
   notify: Restart Bento
 
+- name: Create chain-overrides directory
+  ansible.builtin.file:
+    path: "{{ prover_dir }}/chain-overrides"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: prover_chain_overrides | default({}) | length > 0
+
+- name: Deploy per-chain config overrides (from URL)
+  ansible.builtin.get_url:
+    url: "{{ override_url }}"
+    dest: "{{ prover_dir }}/chain-overrides/broker.{{ chain_id }}.toml"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ prover_chain_overrides | default({}) | dict2items }}"
+  loop_control:
+    loop_var: chain_override
+  vars:
+    chain_id: "{{ chain_override.key }}"
+    override_url: "{{ chain_override.value }}"
+  when:
+    - prover_chain_overrides | default({}) | length > 0
+    - chain_override.value is match('^https?://')
+  notify: Restart Bento
+
+- name: Deploy per-chain config overrides (from local file)
+  ansible.builtin.copy:
+    src: "{{ override_path }}"
+    dest: "{{ prover_dir }}/chain-overrides/broker.{{ chain_id }}.toml"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ prover_chain_overrides | default({}) | dict2items }}"
+  loop_control:
+    loop_var: chain_override
+  vars:
+    chain_id: "{{ chain_override.key }}"
+    override_path: "{{ chain_override.value }}"
+  when:
+    - prover_chain_overrides | default({}) | length > 0
+    - chain_override.value is not match('^https?://')
+  notify: Restart Bento
+
 - name: Ensure just is installed
   ansible.builtin.shell: |
     if ! command -v just &> /dev/null; then

@@ -1,0 +1,34 @@
+# Production testnet base broker config (shared across testnet chains)
+[market]
+peak_prove_khz = 80
+max_concurrent_preflights = 4
+max_concurrent_proofs = 1
+order_commitment_priority = "cycle_price"
+max_file_size = 50000000
+max_mcycle_limit = 250
+max_order_expiry_secs = 86400
+lookback_blocks = 100
+min_deadline = 120
+balance_warn_threshold = "0.04"
+balance_error_threshold = "0.01"
+collateral_balance_warn_threshold = "10"
+collateral_balance_error_threshold = "5"
+expected_probability_win_secondary_fulfillment = 100
+priority_requestor_addresses = ["0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd"]
+
+[prover]
+status_poll_retry_count = 3
+status_poll_ms = 1000
+req_retry_count = 3
+req_retry_sleep_ms = 500
+proof_retry_count = 1
+proof_retry_sleep_ms = 500
+
+[batcher]
+batch_max_time = 1000
+min_batch_size = 1
+block_deadline_buffer_secs = 120
+txn_timeout = 10
+single_txn_fulfill = true
+max_submission_attempts = 2
+withdraw = true

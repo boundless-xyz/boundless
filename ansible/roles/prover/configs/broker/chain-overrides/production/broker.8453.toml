@@ -1,0 +1,5 @@
+# Production Base Mainnet (8453) chain override
+[market]
+min_mcycle_price = "0.000000025"
+min_mcycle_price_collateral_token = "0"
+max_collateral = "200"
