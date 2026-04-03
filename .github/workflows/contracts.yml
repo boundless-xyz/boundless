@@ -139,6 +139,9 @@ jobs:
         needs.contracts-changed.outputs.scripts == 'true' ||
         needs.contracts-changed.outputs.ci == 'true'
     steps:
+      - name: Clean stale artifacts
+        run: sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
+
       - name: checkout code
         uses: actions/checkout@v4
         with:
@@ -337,7 +340,9 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: just localnet down
+        run: |
+          just localnet down
+          sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
         env:
           CI: 1
 
