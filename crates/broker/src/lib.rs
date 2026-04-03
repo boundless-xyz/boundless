@@ -1304,7 +1304,7 @@ impl Broker {
             .await
             .context("Failed to get stake token decimals. Possible RPC error.")?;
 
-        let named_chain = NamedChain::try_from(self.chain_id)?;
+        let named_chain = NamedChain::try_from(chain_id)?;
         let price_oracle = Arc::new(
             config
                 .lock_all()
