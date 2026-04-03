@@ -81,6 +81,7 @@ async fn telemetry_end_to_end() {
         broker_address,
         config: serde_json::json!({"test_run_id": run_id}),
         committed_orders_count: 3,
+        global_committed_orders_count: 3,
         pending_preflight_count: 7,
         version: format!("integration-test-{}", Utc::now().format("%Y%m%d-%H%M%S")),
         uptime_secs: 42,
