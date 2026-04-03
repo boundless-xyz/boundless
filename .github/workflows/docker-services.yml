@@ -2,7 +2,7 @@ name: Docker Services
 
 on:
   push:
-    branches: [main]
+    branches: [main, next]
     tags: ["infra-v*", "bento-v*", "broker-v*"]
   workflow_dispatch:
     inputs:
@@ -152,6 +152,23 @@ jobs:
             runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
           - name: bento-agent-cpu
             dockerfile: dockerfiles/agent.cpu.dockerfile
+            submodules: false
+            runner: [self-hosted, prod, Linux, cpu]
+          # Prover (next-gen bento) services — tagged with prover- prefix
+          - name: prover-rest-api
+            dockerfile: dockerfiles/prover/rest_api.dockerfile
+            submodules: false
+            runner: [self-hosted, prod, Linux, cpu]
+          - name: prover-cli
+            dockerfile: dockerfiles/prover/bento_cli.dockerfile
+            submodules: false
+            runner: [self-hosted, prod, Linux, cpu]
+          - name: prover-agent
+            dockerfile: dockerfiles/prover/agent.dockerfile
+            submodules: false
+            runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+          - name: prover-agent-cpu
+            dockerfile: dockerfiles/prover/agent.cpu.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
     runs-on: ${{ matrix.service.runner }}

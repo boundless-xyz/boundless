@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG RUST_IMG=rust:1.88-bookworm
+ARG RUST_IMG=rust:1.89-bookworm
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${RUST_IMG} AS rust-builder
@@ -37,7 +37,7 @@ RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
-ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
+ARG RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
