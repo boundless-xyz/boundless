@@ -153,13 +153,12 @@ fn build_mainnet_provider(
 /// Public Ethereum mainnet RPC endpoints for the Chainlink mainnet fallback source.
 /// User-configured `rpc_url` is prepended to this list. Tried in order on failure.
 pub const CHAINLINK_PUBLIC_RPC_URLS: &[&str] = &[
-    "https://cloudflare-eth.com/v1/mainnet",
     "https://ethereum-rpc.publicnode.com",
-    "https://rpc.ankr.com/eth",
     "https://mainnet.gateway.tenderly.co",
-    "https://eth.llamarpc.com",
     "https://1rpc.io/eth",
     "https://eth.drpc.org",
+    "https://eth.merkle.io",
+    "https://eth.llamarpc.com",
 ];
 
 /// Chainlink ETH/USD source that reads from Ethereum mainnet with RPC fallback.
