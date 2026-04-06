@@ -673,7 +673,10 @@ impl SetupInteractive {
             network
         } else {
             // No --change-network provided - prompt user to select network
-            let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
+            let mut network_options: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
+                .iter()
+                .map(|(_, name, _)| *name)
+                .collect();
 
             for custom_market in &config.custom_markets {
                 network_options.push(&custom_market.name);
@@ -684,16 +687,13 @@ impl SetupInteractive {
                 Select::new("Select Boundless Market network:", network_options).prompt()?;
 
             let selected_network = match network {
-                "Base Mainnet" => "base-mainnet".to_string(),
-                "Base Sepolia" => "base-sepolia".to_string(),
-                "Ethereum Sepolia" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
                     let custom = custom_networks::setup_custom_market()?;
                     let name = custom.name.clone();
                     config.custom_markets.push(custom);
                     name
                 }
-                custom => custom.to_string(),
+                other => normalize_market_network(other).to_string(),
             };
 
             config.requestor = Some(RequestorConfig { network: selected_network.clone() });
@@ -1049,7 +1049,10 @@ impl SetupInteractive {
             // We already set it in Step 2, just use it
             network
         } else {
-            let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
+            let mut network_options: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
+                .iter()
+                .map(|(_, name, _)| *name)
+                .collect();
 
             for custom_market in &config.custom_markets {
                 network_options.push(&custom_market.name);
@@ -1061,16 +1064,13 @@ impl SetupInteractive {
                 Select::new("Select Boundless Market network:", network_options).prompt()?;
 
             let selected_network = match network {
-                "Base Mainnet" => "base-mainnet".to_string(),
-                "Base Sepolia" => "base-sepolia".to_string(),
-                "Ethereum Sepolia" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
                     let custom = custom_networks::setup_custom_market()?;
                     let name = custom.name.clone();
                     config.custom_markets.push(custom);
                     name
                 }
-                custom => custom.to_string(),
+                other => normalize_market_network(other).to_string(),
             };
 
             config.prover = Some(ProverConfig { network: selected_network.clone() });
@@ -1671,7 +1671,7 @@ impl SetupInteractive {
             // We already set it in Step 2, just use it
             network
         } else {
-            let mut network_options = vec!["Eth Mainnet", "Eth Testnet (Sepolia)"];
+            let mut network_options = vec!["Ethereum Mainnet", "Ethereum Sepolia"];
 
             for custom_rewards in &config.custom_rewards {
                 network_options.push(&custom_rewards.name);
@@ -1682,15 +1682,13 @@ impl SetupInteractive {
             let network = Select::new("Select rewards network:", network_options).prompt()?;
 
             let selected_network = match network {
-                "Eth Mainnet" => "eth-mainnet".to_string(),
-                "Eth Testnet (Sepolia)" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
                     let custom = custom_networks::setup_custom_rewards()?;
                     let name = custom.name.clone();
                     config.custom_rewards.push(custom);
                     name
                 }
-                custom => custom.to_string(),
+                other => normalize_rewards_network(other).to_string(),
             };
 
             config.rewards = Some(RewardsConfig { network: selected_network.clone() });

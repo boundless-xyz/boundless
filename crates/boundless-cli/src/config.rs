@@ -26,6 +26,8 @@ use url::Url;
 use boundless_market::{client::ClientBuilder, Client, Deployment, NotProvided};
 use boundless_zkc;
 
+use crate::commands::setup::network::{normalize_market_network, normalize_rewards_network};
+
 /// Parse a private key string, adding "0x" prefix if not present
 fn parse_private_key(key: &str) -> Result<PrivateKeySigner> {
     let key_with_prefix =
@@ -33,9 +35,60 @@ fn parse_private_key(key: &str) -> Result<PrivateKeySigner> {
     key_with_prefix.parse().context("Failed to parse private key")
 }
 
+/// Read the network override from `BOUNDLESS_NETWORK` env var (set by `--network` flag or directly).
+/// Normalizes display names like "Taiko Mainnet" to kebab-case keys like "taiko-mainnet".
+fn resolve_market_network_override() -> Option<String> {
+    std::env::var("BOUNDLESS_NETWORK").ok().map(|n| normalize_market_network(&n).to_string())
+}
+
+fn resolve_rewards_network_override() -> Option<String> {
+    std::env::var("BOUNDLESS_NETWORK").ok().map(|n| normalize_rewards_network(&n).to_string())
+}
+
+/// Resolve a market deployment from a network key and optional config (for custom markets).
+fn resolve_market_deployment(
+    network: &str,
+    config: Option<&crate::config_file::Config>,
+) -> Option<Deployment> {
+    match network {
+        "base-mainnet" => Some(boundless_market::deployments::BASE),
+        "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
+        "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
+        "taiko-mainnet" => Some(boundless_market::deployments::TAIKO),
+        custom => config.and_then(|c| {
+            c.custom_markets.iter().find(|m| m.name == custom).map(|m| {
+                let mut builder = boundless_market::Deployment::builder();
+                builder
+                    .market_chain_id(m.chain_id)
+                    .boundless_market_address(m.boundless_market_address)
+                    .set_verifier_address(m.set_verifier_address);
+
+                if let Some(addr) = m.verifier_router_address {
+                    builder.verifier_router_address(addr);
+                }
+                if let Some(addr) = m.collateral_token_address {
+                    builder.collateral_token_address(addr);
+                }
+                if let Some(url) = m.order_stream_url.as_ref() {
+                    builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
+                }
+
+                builder.build().expect("Failed to build custom deployment")
+            })
+        }),
+    }
+}
+
 /// Common configuration options for all commands
 #[derive(Args, Debug, Clone)]
 pub struct GlobalConfig {
+    /// Override the active network for this command invocation.
+    ///
+    /// Accepts display names (e.g. "Taiko Mainnet") or kebab-case keys (e.g. "taiko-mainnet").
+    /// Does not persist to config files.
+    #[clap(long, env = "BOUNDLESS_NETWORK", global = true)]
+    pub network: Option<String>,
+
     /// Ethereum transaction timeout in seconds.
     #[clap(long, env = "TX_TIMEOUT", global = true, value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_secs(arg.parse()?))})]
     pub tx_timeout: Option<Duration>,
@@ -109,8 +162,10 @@ impl RequestorConfig {
         let config = Config::load().ok();
         let secrets = Secrets::load().ok();
 
-        // Get network name from config
-        let network = config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| &r.network);
+        let network_override = resolve_market_network_override();
+        let network = network_override.as_deref().or_else(|| {
+            config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str())
+        });
 
         if self.requestor_rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("REQUESTOR_RPC_URL") {
@@ -137,38 +192,12 @@ impl RequestorConfig {
         }
 
         if self.deployment.is_none() {
-            if let Some(ref config) = config {
-                let network = config.requestor.as_ref().map(|r| &r.network);
+            let effective_network = network_override.as_deref().or_else(|| {
+                config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str())
+            });
 
-                if let Some(network) = network {
-                    self.deployment = match network.as_str() {
-                        "base-mainnet" => Some(boundless_market::deployments::BASE),
-                        "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
-                        "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
-                        "taiko-mainnet" => Some(boundless_market::deployments::TAIKO),
-                        custom => {
-                            config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
-                                let mut builder = boundless_market::Deployment::builder();
-                                builder
-                                    .market_chain_id(m.chain_id)
-                                    .boundless_market_address(m.boundless_market_address)
-                                    .set_verifier_address(m.set_verifier_address);
-
-                                if let Some(addr) = m.verifier_router_address {
-                                    builder.verifier_router_address(addr);
-                                }
-                                if let Some(addr) = m.collateral_token_address {
-                                    builder.collateral_token_address(addr);
-                                }
-                                if let Some(url) = m.order_stream_url.as_ref() {
-                                    builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
-                                }
-
-                                builder.build().expect("Failed to build custom deployment")
-                            })
-                        }
-                    };
-                }
+            if let Some(network) = effective_network {
+                self.deployment = resolve_market_deployment(network, config.as_ref());
             }
         }
 
@@ -217,8 +246,11 @@ impl RewardsConfig {
         let config = Config::load().ok();
         let secrets = Secrets::load().ok();
 
-        // Get network name from config
-        let network = config.as_ref().and_then(|c| c.rewards.as_ref()).map(|r| &r.network);
+        let network_override = resolve_rewards_network_override();
+        let network_owned: Option<String> = network_override.or_else(|| {
+            config.as_ref().and_then(|c| c.rewards.as_ref()).map(|r| r.network.clone())
+        });
+        let network = network_owned.as_deref();
 
         // Get config values for override detection
         let config_rpc_url = secrets
@@ -373,27 +405,23 @@ impl RewardsConfig {
         }
 
         if self.zkc_deployment.is_none() {
-            if let Some(ref config) = config {
-                if let Some(ref rewards) = config.rewards {
-                    self.zkc_deployment = match rewards.network.as_str() {
-                        "eth-mainnet" => {
-                            boundless_zkc::deployments::Deployment::from_chain_id(1u64)
-                        }
-                        "eth-sepolia" => {
-                            boundless_zkc::deployments::Deployment::from_chain_id(11155111u64)
-                        }
-                        custom => {
-                            config.custom_rewards.iter().find(|r| r.name == custom).map(|r| {
-                                boundless_zkc::deployments::Deployment::builder()
-                                    .zkc_address(r.zkc_address)
-                                    .vezkc_address(r.vezkc_address)
-                                    .staking_rewards_address(r.staking_rewards_address)
-                                    .build()
-                                    .expect("Failed to build custom ZKC deployment")
-                            })
-                        }
-                    };
-                }
+            if let Some(effective_network) = network {
+                self.zkc_deployment = match effective_network {
+                    "eth-mainnet" => boundless_zkc::deployments::Deployment::from_chain_id(1u64),
+                    "eth-sepolia" => {
+                        boundless_zkc::deployments::Deployment::from_chain_id(11155111u64)
+                    }
+                    custom => config.as_ref().and_then(|c| {
+                        c.custom_rewards.iter().find(|r| r.name == custom).map(|r| {
+                            boundless_zkc::deployments::Deployment::builder()
+                                .zkc_address(r.zkc_address)
+                                .vezkc_address(r.vezkc_address)
+                                .staking_rewards_address(r.staking_rewards_address)
+                                .build()
+                                .expect("Failed to build custom ZKC deployment")
+                        })
+                    }),
+                };
             }
         }
 
@@ -576,8 +604,10 @@ impl ProverConfig {
         let config = Config::load().ok();
         let secrets = Secrets::load().ok();
 
-        // Get network name from config
-        let network = config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| &p.network);
+        let network_override = resolve_market_network_override();
+        let network = network_override.as_deref().or_else(|| {
+            config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str())
+        });
 
         if self.prover_rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("PROVER_RPC_URL") {
@@ -617,38 +647,12 @@ impl ProverConfig {
         }
 
         if self.deployment.is_none() {
-            if let Some(ref config) = config {
-                let network = config.prover.as_ref().map(|p| &p.network);
+            let effective_network = network_override.as_deref().or_else(|| {
+                config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str())
+            });
 
-                if let Some(network) = network {
-                    self.deployment = match network.as_str() {
-                        "base-mainnet" => Some(boundless_market::deployments::BASE),
-                        "base-sepolia" => Some(boundless_market::deployments::BASE_SEPOLIA),
-                        "eth-sepolia" => Some(boundless_market::deployments::SEPOLIA),
-                        "taiko-mainnet" => Some(boundless_market::deployments::TAIKO),
-                        custom => {
-                            config.custom_markets.iter().find(|m| m.name == custom).map(|m| {
-                                let mut builder = boundless_market::Deployment::builder();
-                                builder
-                                    .market_chain_id(m.chain_id)
-                                    .boundless_market_address(m.boundless_market_address)
-                                    .set_verifier_address(m.set_verifier_address);
-
-                                if let Some(addr) = m.verifier_router_address {
-                                    builder.verifier_router_address(addr);
-                                }
-                                if let Some(addr) = m.collateral_token_address {
-                                    builder.collateral_token_address(addr);
-                                }
-                                if let Some(url) = m.order_stream_url.as_ref() {
-                                    builder.order_stream_url(std::borrow::Cow::Owned(url.clone()));
-                                }
-
-                                builder.build().expect("Failed to build custom deployment")
-                            })
-                        }
-                    };
-                }
+            if let Some(network) = effective_network {
+                self.deployment = resolve_market_deployment(network, config.as_ref());
             }
         }
 

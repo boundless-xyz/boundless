@@ -44,6 +44,9 @@ enum Command {
     #[command(subcommand)]
     Rewards(Box<RewardsCommands>),
 
+    /// List all supported and configured networks
+    Networks,
+
     #[command(hide = true)]
     Completions { shell: Shell },
 }
@@ -92,6 +95,7 @@ fn format_duration(duration: std::time::Duration) -> String {
 
 async fn show_welcome_screen() -> Result<()> {
     use boundless_cli::commands::rewards::State;
+    use boundless_cli::commands::setup::network::display_name_for_network;
     use boundless_cli::config_file::{Config, Secrets};
     use colored::Colorize;
 
@@ -123,12 +127,7 @@ async fn show_welcome_screen() -> Result<()> {
         let network = config.as_ref().unwrap().requestor.as_ref().unwrap().network.clone();
         let requestor_secrets = secrets.as_ref().and_then(|s| s.requestor_networks.get(&network));
 
-        let display_network = match network.as_str() {
-            "base-mainnet" => "Base Mainnet",
-            "base-sepolia" => "Base Sepolia",
-            "eth-sepolia" => "Ethereum Sepolia",
-            custom => custom,
-        };
+        let display_network = display_name_for_network(&network);
 
         // Check env var for requestor private key
         let env_requestor_pk = std::env::var("REQUESTOR_PRIVATE_KEY").ok();
@@ -186,12 +185,7 @@ async fn show_welcome_screen() -> Result<()> {
         let network = config.as_ref().unwrap().prover.as_ref().unwrap().network.clone();
         let prover_secrets = secrets.as_ref().and_then(|s| s.prover_networks.get(&network));
 
-        let display_network = match network.as_str() {
-            "base-mainnet" => "Base Mainnet",
-            "base-sepolia" => "Base Sepolia",
-            "eth-sepolia" => "Ethereum Sepolia",
-            custom => custom,
-        };
+        let display_network = display_name_for_network(&network);
 
         // Check env var for prover private key
         let env_prover_pk = std::env::var("PROVER_PRIVATE_KEY").ok();
@@ -248,11 +242,7 @@ async fn show_welcome_screen() -> Result<()> {
         let network = config.as_ref().unwrap().rewards.as_ref().unwrap().network.clone();
         let rewards_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(&network));
 
-        let display_network = match network.as_str() {
-            "eth-mainnet" => "Ethereum Mainnet",
-            "eth-sepolia" => "Ethereum Sepolia",
-            custom => custom,
-        };
+        let display_network = display_name_for_network(&network);
 
         // Check env vars for staking credentials
         let env_staking_pk = std::env::var("STAKING_PRIVATE_KEY").ok();
@@ -461,8 +451,44 @@ async fn show_welcome_screen() -> Result<()> {
         println!("  {} {}", "→".cyan(), "Run 'boundless rewards setup'".cyan());
     }
 
+    // Show hints for supported mainnet chains that aren't configured yet
+    let configured_networks: Vec<&str> = [
+        config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str()),
+        config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    let unconfigured_mainnets: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
+        .iter()
+        .filter(|(_, _, is_mainnet)| *is_mainnet)
+        .filter(|(_, name, _)| {
+            let key = boundless_cli::commands::setup::network::normalize_market_network(name);
+            !configured_networks.contains(&key)
+        })
+        .map(|(_, name, _)| *name)
+        .collect();
+
+    if !unconfigured_mainnets.is_empty() {
+        println!();
+        for name in &unconfigured_mainnets {
+            println!(
+                "  {} {} {}",
+                "NEW".bright_cyan().bold(),
+                format!("{name} is now supported!").bold(),
+                format!("Run 'boundless requestor setup --change-network \"{name}\"'").dimmed()
+            );
+        }
+    }
+
     println!();
-    println!("💡 {}", "Run 'boundless --help' to see all available commands".dimmed());
+    println!(
+        "{} {}",
+        "Tip:".bold(),
+        "Run 'boundless --help' or 'boundless networks' to see all available commands and networks"
+            .dimmed()
+    );
     println!();
 
     Ok(())
@@ -489,7 +515,10 @@ async fn main() -> Result<()> {
             if err.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
                 // Check if a module was specified
                 let has_module = raw_args.len() >= 2
-                    && matches!(raw_args[1].as_str(), "requestor" | "prover" | "rewards");
+                    && matches!(
+                        raw_args[1].as_str(),
+                        "requestor" | "prover" | "rewards" | "networks"
+                    );
 
                 if has_module {
                     // Module specified without subcommand - show clap's error with help suggestion
@@ -507,6 +536,12 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Propagate --network flag as env var so load_from_files() can pick it up
+    // without changing every command's call signature.
+    if let Some(ref network) = args.config.network {
+        std::env::set_var("BOUNDLESS_NETWORK", network);
+    }
+
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(
@@ -521,13 +556,140 @@ async fn main() -> Result<()> {
 
 pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
     match &args.command {
-        // New command structure
         Command::Requestor(cmd) => cmd.run(config).await,
         Command::Prover(cmd) => cmd.run(config).await,
         Command::Rewards(cmd) => cmd.run(config).await,
-
+        Command::Networks => show_networks(),
         Command::Completions { shell } => generate_shell_completions(shell),
     }
+}
+
+fn show_networks() -> Result<()> {
+    use boundless_cli::commands::setup::network::normalize_market_network;
+    use boundless_cli::config_file::Config;
+    use colored::Colorize;
+
+    let config = Config::load().ok();
+
+    let requestor_network =
+        config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str());
+    let prover_network =
+        config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str());
+    let rewards_network =
+        config.as_ref().and_then(|c| c.rewards.as_ref()).map(|r| r.network.as_str());
+
+    println!();
+    println!("{}", "Supported Market Networks".bold());
+    println!();
+
+    for (chain_id, name, is_mainnet) in boundless_market::deployments::SUPPORTED_CHAINS {
+        let key = normalize_market_network(name);
+        let tag = if *is_mainnet { "mainnet" } else { "testnet" };
+
+        let req_status = match requestor_network {
+            Some(n) if n == key => "active".green().to_string(),
+            _ => "--".dimmed().to_string(),
+        };
+        let prv_status = match prover_network {
+            Some(n) if n == key => "active".green().to_string(),
+            _ => "--".dimmed().to_string(),
+        };
+
+        println!(
+            "  {:<25} {:<10} Requestor: {:<10} Prover: {}",
+            format!("{} ({})", name, chain_id).bold(),
+            format!("[{}]", tag).dimmed(),
+            req_status,
+            prv_status,
+        );
+    }
+
+    // Show custom market networks
+    if let Some(ref config) = config {
+        for custom in &config.custom_markets {
+            let req_status = match requestor_network {
+                Some(n) if n == custom.name => "active".green().to_string(),
+                _ => "--".dimmed().to_string(),
+            };
+            let prv_status = match prover_network {
+                Some(n) if n == custom.name => "active".green().to_string(),
+                _ => "--".dimmed().to_string(),
+            };
+
+            println!(
+                "  {:<25} {:<10} Requestor: {:<10} Prover: {}",
+                format!("{} ({})", custom.name, custom.chain_id).bold(),
+                "[custom]".dimmed(),
+                req_status,
+                prv_status,
+            );
+        }
+    }
+
+    println!();
+    println!("{}", "Rewards Networks".bold());
+    println!();
+
+    for (key, label) in
+        [("eth-mainnet", "Ethereum Mainnet (1)"), ("eth-sepolia", "Ethereum Sepolia (11155111)")]
+    {
+        let status = match rewards_network {
+            Some(n) if n == key => "active".green().to_string(),
+            _ => "--".dimmed().to_string(),
+        };
+
+        println!("  {:<35} Rewards: {}", label.bold(), status,);
+    }
+
+    // Show custom rewards networks
+    if let Some(ref config) = config {
+        for custom in &config.custom_rewards {
+            let status = match rewards_network {
+                Some(n) if n == custom.name => "active".green().to_string(),
+                _ => "--".dimmed().to_string(),
+            };
+
+            println!(
+                "  {:<35} Rewards: {}",
+                format!("{} ({})", custom.name, custom.chain_id).bold(),
+                status,
+            );
+        }
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "Tip:".bold(),
+        "Use --network <name> to run a command on a specific network".dimmed()
+    );
+    println!(
+        "     {}",
+        "e.g. boundless requestor status --network \"Taiko Mainnet\" --request-id 0x...".dimmed()
+    );
+
+    // Show setup hint if any mainnet is unconfigured
+    let configured: Vec<&str> = [requestor_network, prover_network].into_iter().flatten().collect();
+
+    let has_unconfigured = boundless_market::deployments::SUPPORTED_CHAINS
+        .iter()
+        .filter(|(_, _, is_mainnet)| *is_mainnet)
+        .any(|(_, name, _)| {
+            let key = normalize_market_network(name);
+            !configured.contains(&key)
+        });
+
+    if has_unconfigured {
+        println!();
+        println!(
+            "     {}",
+            "To configure a new network: boundless requestor setup --change-network <name>"
+                .dimmed()
+        );
+    }
+    println!();
+
+    Ok(())
 }
 
 fn generate_shell_completions(shell: &Shell) -> Result<()> {
