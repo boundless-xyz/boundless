@@ -323,9 +323,10 @@ async fn main() -> Result<()> {
                 "Starting pipeline for chain"
             );
 
-            let chain_config_watcher = ConfigWatcher::new_with_override(
+            let chain_config_watcher = ConfigWatcher::new_with_chain_override(
                 &args.config_file,
                 chain_args.config_override_path.as_deref(),
+                Some(chain_args.chain_id),
             )
             .await
             .with_context(|| format!("Failed to load config for chain {}", chain_args.chain_id))?;

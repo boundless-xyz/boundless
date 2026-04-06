@@ -20,6 +20,8 @@ use derive_builder::Builder;
 
 pub use alloy_chains::NamedChain;
 
+use crate::dynamic_gas_filler::PriorityMode;
+
 pub(crate) const BASE_MAINNET_INDEXER_URL: &str = "https://d2mdvlnmyov1e1.cloudfront.net/";
 pub(crate) const BASE_SEPOLIA_INDEXER_URL: &str = "https://d3kkukmpiqlzm1.cloudfront.net/";
 pub(crate) const SEPOLIA_INDEXER_URL: &str = "https://d3jjbcwhlw21k7.cloudfront.net/";
@@ -211,4 +213,42 @@ pub const TAIKO: Deployment = Deployment {
 /// Some chain's bridged tokens do not support permit, for example Base.
 pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
     chain_id == 1 || chain_id == 11155111 || chain_id == 31337 || chain_id == 1337
+}
+
+/// Per-chain gas estimation defaults.
+///
+/// Chains with volatile gas markets (Base, Ethereum) use the generic defaults.
+/// Chains with stable low gas (Taiko) use conservative settings to avoid overestimating.
+#[derive(Debug)]
+pub struct GasConfig {
+    /// Gas estimation mode for profitability calculations (should reflect actual expected cost).
+    pub estimation_priority_mode: PriorityMode,
+    /// Gas priority mode for sending transactions (can include safety buffers).
+    pub gas_priority_mode: PriorityMode,
+}
+
+/// Returns chain-specific gas estimation defaults, if any.
+///
+/// Returns `None` for chains where the generic defaults are appropriate (Base, Ethereum, etc.).
+/// Returns tuned values for chains with different gas market characteristics (e.g. Taiko).
+pub fn gas_config_for_chain(chain_id: u64) -> Option<GasConfig> {
+    match chain_id {
+        // Taiko: very stable gas at ~0.01 gwei, essentially zero priority fee.
+        // Default estimation mode (20th percentile + 1x multiplier) overshoots.
+        167000 => Some(GasConfig {
+            estimation_priority_mode: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 100,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 5.0,
+                dynamic_multiplier_percentage: 0,
+            },
+            gas_priority_mode: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 150,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 5.0,
+                dynamic_multiplier_percentage: 0,
+            },
+        }),
+        _ => None,
+    }
 }

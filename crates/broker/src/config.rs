@@ -91,20 +91,32 @@ pub struct ConfigWatcher {
 impl ConfigWatcher {
     /// Initialize a config watcher for a single base config file (no override).
     pub async fn new(base_path: &Path) -> Result<Self> {
-        Self::new_with_override(base_path, None).await
+        Self::new_with_chain_override(base_path, None, None).await
     }
 
     /// Initialize a config watcher with an optional per-chain override file.
+    pub async fn new_with_override(base_path: &Path, override_path: Option<&Path>) -> Result<Self> {
+        Self::new_with_chain_override(base_path, override_path, None).await
+    }
+
+    /// Initialize a config watcher with an optional per-chain override file and chain ID.
     ///
     /// If `override_path` is provided, the config is the result of merging the override
     /// onto the base. Both files are watched for changes; on any modification the merge
     /// is re-applied and the `config` field updated.
-    pub async fn new_with_override(base_path: &Path, override_path: Option<&Path>) -> Result<Self> {
+    ///
+    /// If `chain_id` is provided, chain-specific gas estimation defaults are applied
+    /// after every load/reload (unless the user has explicitly overridden them).
+    pub async fn new_with_chain_override(
+        base_path: &Path,
+        override_path: Option<&Path>,
+        chain_id: Option<u64>,
+    ) -> Result<Self> {
         let base_toml = tokio::fs::read_to_string(base_path)
             .await
             .context(format!("Failed to read base config from {base_path:?}"))?;
 
-        let initial_config = match override_path {
+        let mut initial_config = match override_path {
             Some(op) => {
                 let override_toml = tokio::fs::read_to_string(op)
                     .await
@@ -116,6 +128,10 @@ impl ConfigWatcher {
                 .context(format!("Failed to parse base config from {base_path:?}"))?,
         };
         log_deprecated_config_usage(&initial_config);
+
+        if let Some(cid) = chain_id {
+            initial_config.market.apply_chain_defaults(cid);
+        }
 
         let base_config = Arc::new(RwLock::new(initial_config));
         let base_config_copy = base_config.clone();
@@ -196,6 +212,10 @@ impl ConfigWatcher {
                 match base_config_copy.write() {
                     Ok(mut config) => {
                         log_deprecated_config_usage(&new_config);
+                        let mut new_config = new_config;
+                        if let Some(cid) = chain_id {
+                            new_config.market.apply_chain_defaults(cid);
+                        }
                         *config = new_config;
                     }
                     Err(err) => {
@@ -566,5 +586,74 @@ peak_prove_khz = 999
 
         let result = ConfigWatcher::override_path_for_chain(&base_path, 8453);
         assert_eq!(result, Some(override_path));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn config_watcher_chain_defaults_applied_and_survive_reload() {
+        use boundless_market::dynamic_gas_filler::PriorityMode;
+        use boundless_market::prover_utils::config_defaults;
+        use std::io::{Seek, Write};
+
+        let dir = tempfile::tempdir().unwrap();
+        let base_path = dir.path().join("broker.toml");
+
+        // Write a minimal config with NO gas settings — they'll use generic defaults.
+        let base_content = r#"
+[market]
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
+"#;
+        std::fs::write(&base_path, base_content).unwrap();
+
+        // Create watcher with Taiko chain_id — should apply chain-specific gas defaults.
+        let watcher =
+            ConfigWatcher::new_with_chain_override(&base_path, None, Some(167000)).await.unwrap();
+
+        {
+            let config = watcher.config.lock_all().unwrap();
+            // Should NOT be the generic defaults
+            assert_ne!(
+                config.market.gas_estimation_priority_mode,
+                config_defaults::estimation_priority_mode(),
+                "Chain defaults should have been applied"
+            );
+            // Should be the Taiko-specific values (5th percentile)
+            assert!(matches!(
+                config.market.gas_estimation_priority_mode,
+                PriorityMode::Custom { priority_fee_percentile, .. }
+                if (priority_fee_percentile - 5.0).abs() < f64::EPSILON
+            ));
+        }
+
+        // Simulate a config reload by modifying the file.
+        {
+            let mut file =
+                std::fs::File::options().write(true).truncate(true).open(&base_path).unwrap();
+            file.seek(std::io::SeekFrom::Start(0)).unwrap();
+            write!(
+                file,
+                r#"
+[market]
+min_mcycle_price = "0.2 ETH"
+max_collateral = "10 USD"
+"#
+            )
+            .unwrap();
+        }
+        // Give the file watcher time to pick up the change
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        {
+            let config = watcher.config.lock_all().unwrap();
+            // Config value should be updated
+            assert_eq!(config.market.min_mcycle_price, Amount::parse("0.2 ETH", None).unwrap());
+            // Chain defaults should survive the reload
+            assert_ne!(
+                config.market.gas_estimation_priority_mode,
+                config_defaults::estimation_priority_mode(),
+                "Chain defaults should survive config reload"
+            );
+        }
     }
 }
