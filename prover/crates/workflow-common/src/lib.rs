@@ -91,15 +91,6 @@ pub struct ProveReq {
     pub index: usize,
 }
 
-/// Prove two adjoining segments, lift both, and join in one task (replaces two Prove + one Join).
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ProvePairReq {
-    /// Left segment index
-    pub left: usize,
-    /// Right segment index (must be left + 1)
-    pub right: usize,
-}
-
 /// Join Request
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct JoinReq {
@@ -172,8 +163,6 @@ pub enum TaskType {
     Executor(ExecutorReq),
     /// rv32im Prove + lift task
     Prove(ProveReq),
-    /// Prove two segments, lift both, join (single task for a pair)
-    ProvePair(ProvePairReq),
     /// Join task
     Join(JoinReq),
     /// Resolve task
@@ -195,7 +184,6 @@ impl TaskType {
         match &self {
             Self::Executor(_) => "executor".into(),
             Self::Prove(_) => "prove-lift".into(),
-            Self::ProvePair(_) => "prove-pair".into(),
             Self::Join(_) => "join".into(),
             Self::Resolve(_) => "resolve".into(),
             Self::Finalize(_) => "finalize".into(),

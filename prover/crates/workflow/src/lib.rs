@@ -21,7 +21,7 @@ use std::{
     time::Instant,
 };
 use taskdb::{ReadyTask, TaskDb, TaskStateCount};
-use tokio::{sync::oneshot, time};
+use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType, metrics::helpers};
 mod assets;
 mod redis;
@@ -32,7 +32,6 @@ pub use workflow_common::{
     SNARK_TIMEOUT_DEFAULT, storage::SharedFs,
 };
 
-type WorkPrefetchRx = oneshot::Receiver<Result<Option<ReadyTask>>>;
 const TASK_QUEUE_METRICS_REFRESH_INTERVAL_SECS: u64 = 5;
 
 fn uses_gpu_worker_api(task_stream: &str) -> bool {
@@ -194,21 +193,11 @@ pub struct Agent {
     prover: Option<Rc<dyn ProverServer>>,
     /// risc0 verifier context
     verifier_ctx: VerifierContext,
-    /// Single-slot prefetch for the next prove-stream task.
-    work_prefetch: Mutex<Option<WorkPrefetchRx>>,
     /// Last time shared task queue metrics were refreshed.
     queue_metrics_last_refresh: Mutex<Option<Instant>>,
 }
 
 impl Agent {
-    fn work_prefetch_slot(&self) -> std::sync::MutexGuard<'_, Option<WorkPrefetchRx>> {
-        self.work_prefetch.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn can_prefetch_work(&self) -> bool {
-        self.args.task_stream == PROVE_WORK_TYPE && uses_gpu_worker_api(&self.args.task_stream)
-    }
-
     /// Check if POVW is enabled for this agent instance
     pub fn is_povw_enabled(&self) -> bool {
         std::env::var("POVW_LOG_ID").is_ok()
@@ -295,34 +284,8 @@ impl Agent {
             args,
             prover,
             verifier_ctx,
-            work_prefetch: Mutex::new(None),
             queue_metrics_last_refresh: Mutex::new(None),
         })
-    }
-
-    fn start_work_prefetch(&self) {
-        if !self.can_prefetch_work() {
-            return;
-        }
-
-        let mut prefetch = self.work_prefetch_slot();
-        if prefetch.is_some() {
-            return;
-        }
-
-        let (tx, rx) = oneshot::channel();
-        let api_client = self.api_client.clone();
-        let task_stream = self.args.task_stream.clone();
-        let poll_time = self.args.poll_time;
-        tracing::debug!("Starting background work prefetch for {}", task_stream);
-        tokio::spawn(async move {
-            let result = api_client
-                .claim_gpu_work(&task_stream, poll_time)
-                .await
-                .context("[BENTO-WF-105p] Failed to prefetch GPU work from API");
-            let _ = tx.send(result);
-        });
-        *prefetch = Some(rx);
     }
 
     fn task_type_label(&self, task: &ReadyTask) -> String {
@@ -379,40 +342,6 @@ impl Agent {
         }
     }
 
-    async fn take_prefetched_work(&self) -> Result<Option<ReadyTask>> {
-        let Some(prefetch) = self.work_prefetch_slot().take() else {
-            return Ok(None);
-        };
-
-        match prefetch.await {
-            Ok(Ok(task)) => {
-                if let Some(task) = &task {
-                    tracing::debug!(
-                        "Using prefetched task {}:{} on stream {}",
-                        task.job_id,
-                        task.task_id,
-                        self.args.task_stream
-                    );
-                }
-                Ok(task)
-            }
-            Ok(Err(err)) => {
-                tracing::warn!(
-                    "Background work prefetch failed for stream {}: {err:#}",
-                    self.args.task_stream
-                );
-                Ok(None)
-            }
-            Err(_) => {
-                tracing::debug!(
-                    "Background work prefetch was dropped before completion for stream {}",
-                    self.args.task_stream
-                );
-                Ok(None)
-            }
-        }
-    }
-
     async fn request_work_direct(&self) -> Result<Option<ReadyTask>> {
         if uses_gpu_worker_api(&self.args.task_stream) {
             self.api_client
@@ -428,12 +357,6 @@ impl Agent {
     }
 
     async fn request_work(&self) -> Result<Option<ReadyTask>> {
-        if self.can_prefetch_work()
-            && let Some(task) = self.take_prefetched_work().await?
-        {
-            return Ok(Some(task));
-        }
-
         self.request_work_direct().await
     }
 
@@ -768,12 +691,6 @@ impl Agent {
                     .context("[BENTO-WF-115] Prove failed")?,
             )
             .context("[BENTO-WF-116] Failed to serialize prove response")?,
-            TaskType::ProvePair(req) => serde_json::to_value(
-                tasks::prove_pair::prover_pair(self, &task.job_id, &task.task_id, &req)
-                    .await
-                    .context("[BENTO-WF-115a] ProvePair failed")?,
-            )
-            .context("[BENTO-WF-116a] Failed to serialize ProvePair response")?,
             TaskType::Join(req) => {
                 // Route to POVW or regular join based on agent POVW setting
                 if self.is_povw_enabled() {
