@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloy::primitives::{Address, U256};
+use boundless_indexer::db::rewards::StakingPositionAggregate;
+
 use super::common;
 
 #[tokio::test]
@@ -146,4 +149,40 @@ async fn test_all_epoch_staking_summaries() {
     assert!(epochs_with_stakers.contains(&2));
     assert!(epochs_with_stakers.contains(&3));
     assert!(epochs_with_stakers.contains(&4));
+}
+
+#[tokio::test]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
+async fn test_staking_aggregate_excludes_unstaked() {
+    let db = common::setup_test_db().await;
+
+    // Insert a user with zero stake
+    let unstaked_address: Address = "0x0000000000000000000000000000000000000001".parse().unwrap();
+    db.upsert_staking_positions_aggregate(vec![StakingPositionAggregate {
+        staker_address: unstaked_address,
+        total_staked: U256::ZERO,
+        is_withdrawing: false,
+        rewards_delegated_to: None,
+        votes_delegated_to: None,
+        epochs_participated: 2,
+        total_rewards_generated: U256::ZERO,
+        total_rewards_earned: U256::ZERO,
+    }])
+    .await
+    .expect("Failed to upsert unstaked position");
+
+    // Fetch the leaderboard — the unstaked user should not appear
+    let aggregates = db
+        .get_staking_positions_aggregate(0, 1000)
+        .await
+        .expect("Failed to get staking positions aggregate");
+
+    let unstaked_found = aggregates.iter().any(|a| a.staker_address == unstaked_address);
+    assert!(!unstaked_found, "Unstaked user (total_staked=0) should be excluded from leaderboard");
+
+    // Verify that staked users still appear
+    assert!(!aggregates.is_empty(), "Leaderboard should still contain staked users");
+    for entry in &aggregates {
+        assert!(entry.total_staked > U256::ZERO, "All returned entries should have non-zero stake");
+    }
 }
