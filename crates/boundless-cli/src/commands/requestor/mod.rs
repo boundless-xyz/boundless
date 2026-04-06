@@ -36,7 +36,11 @@ pub use withdraw::RequestorWithdraw;
 
 use clap::Subcommand;
 
-use crate::{commands::setup::RequestorSetup, config::GlobalConfig};
+use crate::{
+    commands::setup::{network::normalize_market_network, RequestorSetup},
+    config::GlobalConfig,
+    config_file::Config,
+};
 
 /// Commands for requestors
 #[derive(Subcommand, Clone, Debug)]
@@ -79,6 +83,8 @@ pub enum RequestorCommands {
     VerifyProof(RequestorVerifyProof),
     /// Interactive setup wizard for requestor configuration
     Setup(RequestorSetup),
+    /// List supported networks for the requestor module
+    Networks,
 }
 
 impl RequestorCommands {
@@ -95,6 +101,66 @@ impl RequestorCommands {
             Self::GetProof(cmd) => cmd.run(global_config).await,
             Self::VerifyProof(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
+            Self::Networks => {
+                show_requestor_networks();
+                Ok(())
+            }
         }
     }
+}
+
+fn show_requestor_networks() {
+    use colored::Colorize;
+
+    let config = Config::load().ok();
+    let active_network =
+        config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str());
+
+    println!();
+    println!("{}", "Requestor Networks".bold());
+    println!();
+
+    for (chain_id, name, is_mainnet) in boundless_market::deployments::SUPPORTED_CHAINS {
+        let key = normalize_market_network(name);
+        let tag = if *is_mainnet { "mainnet" } else { "testnet" };
+        let status = match active_network {
+            Some(n) if n == key => "active".green().to_string(),
+            _ => "not configured".dimmed().to_string(),
+        };
+
+        println!(
+            "  {:<30} {:<10} {}",
+            format!("{} ({})", name, chain_id).bold(),
+            format!("[{}]", tag).dimmed(),
+            status,
+        );
+    }
+
+    if let Some(ref config) = config {
+        for custom in &config.custom_markets {
+            let status = match active_network {
+                Some(n) if n == custom.name => "active".green().to_string(),
+                _ => "not configured".dimmed().to_string(),
+            };
+
+            println!(
+                "  {:<30} {:<10} {}",
+                format!("{} ({})", custom.name, custom.chain_id).bold(),
+                "[custom]".dimmed(),
+                status,
+            );
+        }
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "Tip:".bold(),
+        "Use --network <name> to run a command on a specific network".dimmed()
+    );
+    println!(
+        "     {}",
+        "e.g. boundless requestor status --network \"Taiko Mainnet\" --request-id 0x...".dimmed()
+    );
+    println!();
 }

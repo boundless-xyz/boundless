@@ -50,7 +50,7 @@ pub use submit_mining::RewardsSubmitMining;
 
 use clap::Subcommand;
 
-use crate::{commands::setup::RewardsSetup, config::GlobalConfig};
+use crate::{commands::setup::RewardsSetup, config::GlobalConfig, config_file::Config};
 
 /// Commands for rewards management
 #[derive(Subcommand, Clone, Debug)]
@@ -113,6 +113,8 @@ pub enum RewardsCommands {
     InspectMiningState(RewardsInspectMiningState),
     /// Interactive setup wizard for rewards configuration
     Setup(RewardsSetup),
+    /// List supported networks for the rewards module
+    Networks,
 }
 
 impl RewardsCommands {
@@ -135,6 +137,60 @@ impl RewardsCommands {
             Self::Power(cmd) => cmd.run(global_config).await,
             Self::InspectMiningState(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
+            Self::Networks => {
+                show_rewards_networks();
+                Ok(())
+            }
         }
     }
+}
+
+fn show_rewards_networks() {
+    use colored::Colorize;
+
+    let config = Config::load().ok();
+    let active_network =
+        config.as_ref().and_then(|c| c.rewards.as_ref()).map(|r| r.network.as_str());
+
+    println!();
+    println!("{}", "Rewards Networks".bold());
+    println!();
+
+    for (key, label) in
+        [("eth-mainnet", "Ethereum Mainnet (1)"), ("eth-sepolia", "Ethereum Sepolia (11155111)")]
+    {
+        let status = match active_network {
+            Some(n) if n == key => "active".green().to_string(),
+            _ => "not configured".dimmed().to_string(),
+        };
+
+        println!("  {:<35} {}", label.bold(), status);
+    }
+
+    if let Some(ref config) = config {
+        for custom in &config.custom_rewards {
+            let status = match active_network {
+                Some(n) if n == custom.name => "active".green().to_string(),
+                _ => "not configured".dimmed().to_string(),
+            };
+
+            println!(
+                "  {:<35} {}",
+                format!("{} ({})", custom.name, custom.chain_id).bold(),
+                status,
+            );
+        }
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "Tip:".bold(),
+        "Use --network <name> to run a command on a specific network".dimmed()
+    );
+    println!(
+        "     {}",
+        "e.g. boundless rewards balance-zkc --network \"Ethereum Mainnet\"".dimmed()
+    );
+    println!();
 }

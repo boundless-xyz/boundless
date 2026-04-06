@@ -38,7 +38,11 @@ pub use withdraw_collateral::ProverWithdrawCollateral;
 
 use clap::Subcommand;
 
-use crate::{commands::setup::ProverSetup, config::GlobalConfig};
+use crate::{
+    commands::setup::{network::normalize_market_network, ProverSetup},
+    config::GlobalConfig,
+    config_file::Config,
+};
 
 /// Commands for provers
 #[derive(Subcommand, Clone, Debug)]
@@ -80,6 +84,8 @@ pub enum ProverCommands {
     /// Generate optimized broker and compose configuration files
     #[command(name = "generate-config")]
     GenerateConfig(ProverGenerateConfig),
+    /// List supported networks for the prover module
+    Networks,
 }
 
 impl ProverCommands {
@@ -100,6 +106,66 @@ impl ProverCommands {
             Self::Slash(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
             Self::GenerateConfig(cmd) => cmd.run(global_config).await,
+            Self::Networks => {
+                show_prover_networks();
+                Ok(())
+            }
         }
     }
+}
+
+fn show_prover_networks() {
+    use colored::Colorize;
+
+    let config = Config::load().ok();
+    let active_network =
+        config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str());
+
+    println!();
+    println!("{}", "Prover Networks".bold());
+    println!();
+
+    for (chain_id, name, is_mainnet) in boundless_market::deployments::SUPPORTED_CHAINS {
+        let key = normalize_market_network(name);
+        let tag = if *is_mainnet { "mainnet" } else { "testnet" };
+        let status = match active_network {
+            Some(n) if n == key => "active".green().to_string(),
+            _ => "not configured".dimmed().to_string(),
+        };
+
+        println!(
+            "  {:<30} {:<10} {}",
+            format!("{} ({})", name, chain_id).bold(),
+            format!("[{}]", tag).dimmed(),
+            status,
+        );
+    }
+
+    if let Some(ref config) = config {
+        for custom in &config.custom_markets {
+            let status = match active_network {
+                Some(n) if n == custom.name => "active".green().to_string(),
+                _ => "not configured".dimmed().to_string(),
+            };
+
+            println!(
+                "  {:<30} {:<10} {}",
+                format!("{} ({})", custom.name, custom.chain_id).bold(),
+                "[custom]".dimmed(),
+                status,
+            );
+        }
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "Tip:".bold(),
+        "Use --network <name> to run a command on a specific network".dimmed()
+    );
+    println!(
+        "     {}",
+        "e.g. boundless prover balance-collateral --network \"Taiko Mainnet\"".dimmed()
+    );
+    println!();
 }
