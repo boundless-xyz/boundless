@@ -306,6 +306,7 @@ update-lockfiles:
 #   BOUNDLESS_BUILD=all                - build all images from source
 #   BOUNDLESS_BUILD=broker             - build only the broker image
 #   BOUNDLESS_BUILD="broker rest_api"  - build specific services
+# Set PROVER_STACK=experimental to use the new prover stack (prover-compose.yml)
 bento action="up" env_file="" compose_flags="" detached="true" services="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
@@ -322,6 +323,12 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
     if ! docker compose version &> /dev/null; then
         echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
         exit 1
+    fi
+
+    # Select compose file based on PROVER_STACK
+    COMPOSE_FILE_FLAG=""
+    if [ "${PROVER_STACK:-}" = "experimental" ]; then
+        COMPOSE_FILE_FLAG="-f prover-compose.yml"
     fi
 
     if [ "{{action}}" = "up" ]; then
@@ -355,7 +362,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
             export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
             export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
             export BENTO_CLI_DOCKERFILE="dockerfiles/bento_cli.dockerfile"
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
                 case "$svc" in
@@ -367,17 +374,17 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
                     *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
                 esac
             done
-            docker compose {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
         else
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
         fi
         if [ "{{detached}}" != "true" ]; then
             echo "Docker Compose services have been started."
         fi
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
-        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down; then
+        if docker compose $COMPOSE_FILE_FLAG {{compose_flags}} --profile miner $ENV_FILE_ARG down; then
             echo "Docker Compose services have been stopped and removed."
         else
             echo "Error: Failed to stop Docker Compose services."
@@ -392,7 +399,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
             exit 0
         fi
         echo "Stopping and cleaning Docker Compose services"
-        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
+        if docker compose $COMPOSE_FILE_FLAG {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
         else
             echo "Error: Failed to clean Docker Compose services."
@@ -400,7 +407,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         fi
     elif [ "{{action}}" = "logs" ]; then
         echo "Docker logs"
-        docker compose {{compose_flags}} $ENV_FILE_ARG logs -f
+        docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG logs -f
     else
         echo "Unknown action: {{action}}"
         echo "Available actions: up, down, clean, logs"
@@ -409,6 +416,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
 
 # Run all components of a boundless prover (bento, broker, miner)
 # Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just prover)
+# Set PROVER_STACK=experimental to use the new prover stack (redis-only, no postgres/minio)
 prover action="up" env_file="" detached="true":
     #!/usr/bin/env bash
     BOUNDLESS_MINING="${BOUNDLESS_MINING:-true}"
@@ -421,10 +429,8 @@ prover action="up" env_file="" detached="true":
     fi
 
     if [ "{{action}}" = "logs" ]; then
-        # Ignore mining process logs by default
         PROFILE_FLAGS="--profile broker"
     elif [ "{{action}}" = "down" ] || [ "{{action}}" = "clean" ]; then
-        # Always include miner profile when shutting down to ensure no lingering mining process
         PROFILE_FLAGS="--profile broker --profile miner"
     elif [ "$BOUNDLESS_MINING" = "false" ]; then
         PROFILE_FLAGS="--profile broker"
