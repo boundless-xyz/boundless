@@ -243,7 +243,7 @@ pub fn gas_config_for_chain(chain_id: u64) -> Option<GasConfig> {
                 dynamic_multiplier_percentage: 0,
             },
             gas_priority_mode: PriorityMode::Custom {
-                base_fee_multiplier_percentage: 150,
+                base_fee_multiplier_percentage: 100,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: 5.0,
                 dynamic_multiplier_percentage: 0,
