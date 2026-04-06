@@ -14,7 +14,10 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::RequestInput, input::GuestEnv, storage::StorageUploader, util::NotProvided,
+    contracts::RequestInput,
+    input::{CompressionOptions, GuestEnv},
+    storage::StorageUploader,
+    util::NotProvided,
     StandardUploader,
 };
 use anyhow::{bail, Context};
@@ -33,6 +36,11 @@ pub struct StorageLayerConfig {
     /// to indicate that inputs should always be sent inline.
     #[builder(setter(into), default = "Some(2048)")]
     pub inline_input_max_bytes: Option<usize>,
+
+    /// Compression options for encoding inputs. When `Some`, inputs are zstd-compressed (V2).
+    /// When `None` (default), uncompressed V1 encoding is used.
+    #[builder(default)]
+    pub compression: Option<CompressionOptions>,
 }
 
 /// A layer responsible for storing programs and inputs.
@@ -60,6 +68,16 @@ impl StorageLayerConfig {
     /// the maximum size for inline inputs.
     pub fn builder() -> StorageLayerConfigBuilder {
         Default::default()
+    }
+
+    /// Encode the guest environment according to the compression config.
+    fn encode_env(&self, env: &GuestEnv) -> anyhow::Result<Vec<u8>> {
+        match &self.compression {
+            Some(opts) => env
+                .encode_compressed(opts)
+                .context("failed to compress and encode guest environment"),
+            None => env.encode().context("failed to encode guest environment"),
+        }
     }
 }
 
@@ -123,7 +141,7 @@ where
     /// Small inputs (as determined by configuration) will be included inline in the request.
     /// Larger inputs will be uploaded to external storage, requiring a configured storage uploader.
     pub async fn process_env(&self, env: &GuestEnv) -> anyhow::Result<RequestInput> {
-        let input_data = env.encode().context("failed to encode guest environment")?;
+        let input_data = self.config.encode_env(env)?;
         let request_input = match self.config.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
                 let storage_uploader = self.uploader.as_ref().with_context( || {
@@ -149,7 +167,7 @@ impl<S> StorageLayer<S> {
         &self,
         env: &GuestEnv,
     ) -> anyhow::Result<RequestInput> {
-        let input_data = env.encode().context("failed to encode guest environment")?;
+        let input_data = self.config.encode_env(env)?;
         let request_input = match self.config.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
                 bail!("cannot upload input using StorageLayer with no storage_uploader; input length of {} bytes exceeds inline limit of {limit} bytes", input_data.len());
