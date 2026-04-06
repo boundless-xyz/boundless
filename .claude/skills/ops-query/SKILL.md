@@ -62,6 +62,29 @@ Rate limit all sources:
 
 If the user's question clearly maps to one of these, read the corresponding file and follow it step by step. If it doesn't fit any pre-built investigation, fall back to the general Investigation Workflow above and build a custom investigation.
 
+## Aurora DB Instances
+
+When investigating RDS/Aurora issues (storage, CPU, connections, etc.), **never assume the DB identifier reflects the actual instance role**. Instance identifiers containing `reader` or `writer` may be mislabeled -- the name is set at creation time and does not update if Aurora promotes/demotes instances.
+
+Always determine the actual role by querying the instance metadata:
+
+```bash
+aws rds describe-db-instances \
+  --query 'DBInstances[?contains(DBInstanceIdentifier, `prod-8453-indexer`)].{id: DBInstanceIdentifier, role: DBInstanceArn}' \
+  --output table
+```
+
+Or more directly, check the cluster's member list with roles:
+
+```bash
+aws rds describe-db-clusters \
+  --db-cluster-identifier "CLUSTER_ID" \
+  --query 'DBClusters[0].DBClusterMembers[].{id: DBInstanceIdentifier, isWriter: IsClusterWriter}' \
+  --output table
+```
+
+Use `IsClusterWriter: true/false` as the source of truth. When reporting findings, always state the actual role alongside the identifier, e.g. "instance `*-reader-v19` (actual role: **writer**)".
+
 ## Presenting Results
 
 ### Addresses
