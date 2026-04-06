@@ -295,7 +295,8 @@ pub trait RewardsIndexerDb {
         aggregates: Vec<StakingPositionAggregate>,
     ) -> Result<(), DbError>;
 
-    /// Get aggregate staking positions with pagination, sorted by total staked
+    /// Get aggregate staking positions with pagination, sorted by total staked.
+    /// Excludes entries with total_staked = 0 (fully unstaked users).
     async fn get_staking_positions_aggregate(
         &self,
         offset: u64,
@@ -1008,15 +1009,21 @@ impl RewardsIndexerDb for RewardsDb {
         offset: u64,
         limit: u64,
     ) -> Result<Vec<StakingPositionAggregate>, DbError> {
+        let zero_staked = pad_u256(U256::ZERO);
         let query = r#"
             SELECT staker_address, total_staked, is_withdrawing, rewards_delegated_to, votes_delegated_to, epochs_participated, total_rewards_generated, total_rewards_earned
             FROM staking_positions_aggregate
+            WHERE total_staked != $3
             ORDER BY total_staked DESC
             LIMIT $1 OFFSET $2
         "#;
 
-        let rows =
-            sqlx::query(query).bind(limit as i64).bind(offset as i64).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(query)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .bind(&zero_staked)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut results = Vec::new();
         for row in rows {

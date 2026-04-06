@@ -145,3 +145,22 @@ async fn test_staking_pagination() {
     assert_eq!(response1.pagination.offset, 0);
     assert_eq!(response2.pagination.offset, 2);
 }
+
+#[tokio::test]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
+async fn test_staking_leaderboard_excludes_unstaked() {
+    let env = TestEnv::shared().await;
+
+    // Fetch all entries (up to 100)
+    let response: LeaderboardResponse<AggregateStakingEntry> =
+        env.get("/v1/staking/addresses?limit=100").await.unwrap();
+
+    // Verify no entry has total_staked of "0"
+    for entry in &response.entries {
+        assert_ne!(
+            entry.total_staked, "0",
+            "Unstaked user {} should not appear in leaderboard",
+            entry.staker_address
+        );
+    }
+}
