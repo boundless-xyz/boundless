@@ -1,7 +1,7 @@
 config:
   aws:region: us-west-2
   pipelines:GITHUB_TOKEN:
-    secure: v1:21fdivadihkDOzW4:fir3nmVLbMFDYKyYeAXnl2ztCpuGQ95ECUAvROhdI514H6IRVUlPhVh/P9VUEdjkFjCgBt7VrzCjw1p//uUxPUned/mpV8cdVbgvK8VIterv/GvQXVJOt5stAYNFuA8q8Ihh3DE2K2+/4rj6Fw==
+    secure: v1:7sm5+n3SWDLhTAKR:xOhHJSukijKJ5VQA/t+eI+SVhUsgXmfw0arSrKrTW1QLgWvsMhuAF6iznwh+KuKr5l1jKhNocpvCeY6j7y2gumarUohTy2qR942fT+TuuCCle7jid0lQhGd27vAs/v4+khqlrHrf3remSWHjsg==
   pipelines:DOCKER_USER: risczeroautomation
   pipelines:DOCKER_PAT:
     secure: v1:T+xEOzjeS7sQw9Nb:dY+euWAR30sMP+DYC4V9lfM3LmSCu/yiYPANKYqgw7hkdM4izqHCvUq/s+8ABEgdSUVjRw==

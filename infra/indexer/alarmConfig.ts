@@ -956,6 +956,10 @@ export const alarmConfig: ChainStageAlarms = {
       }
     }
   },
+  [ChainId.TAIKO]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
   [ChainId.ETH_SEPOLIA]: {
     [Stage.STAGING]: undefined,
     [Stage.PROD]: {

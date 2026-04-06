@@ -19,7 +19,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # Install rust and target version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
-    && rustup install 1.88
+    && rustup install 1.89
 
 # Install protoc
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
@@ -45,9 +45,10 @@ ARG NVCC_APPEND_FLAGS="\
   --generate-code arch=compute_120,code=sm_120"
 ARG CUDA_OPT_LEVEL=1
 ARG S3_CACHE_PREFIX
+ARG S3_CACHE_BUCKET="boundless-sccache"
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
-# Prevent collisions with concurrent compose builds of the CPU agent image.
+ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 ENV SCCACHE_SERVER_PORT=4229
 
 WORKDIR /src/
@@ -56,12 +57,13 @@ COPY . .
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
-# Consider using if building and running on the same CPU
-ARG RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=mold"
+ARG RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/bento/target-agent-gpu,id=agent_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \

@@ -1,29 +1,5 @@
-# Build stage
-FROM rust:1.89.0-bookworm AS init
-
-RUN apt-get -qq update && \
-    apt-get install -y -q clang
-
-SHELL ["/bin/bash", "-c"]
-
-RUN cargo install cargo-chef
-
-ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
-# The slasher doesn't need r0vm to run, but its tests do need it.
-# Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
-# to leverage chef. See https://github.com/LukeMathWalker/cargo-chef/issues/114
-# For this reason we also need to build for amd64.
-#
-# Github token can be provided as a secret with the name githubTokenSecret. Useful
-# for shared build environments where Github rate limiting is an issue.
-RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecret \
-    if [ -f /run/secrets/githubTokenSecret ]; then \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) curl -L https://risczero.com/install | bash && \
-    GITHUB_TOKEN=$(cat /run/secrets/githubTokenSecret) PATH="$PATH:/root/.risc0/bin" rzup install; \
-    else \
-    curl -L https://risczero.com/install | bash && \
-    PATH="$PATH:/root/.risc0/bin" rzup install; \
-    fi
+ARG BUILDER_BASE=ghcr.io/boundless-xyz/boundless/builder-base:latest
+FROM ${BUILDER_BASE} AS init
 
 FROM init AS planner
 
@@ -51,6 +27,7 @@ ENV RISC0_SKIP_BUILD=1
 ENV RISC0_SKIP_BUILD_KERNELS=1
 ENV CARGO_PROFILE_RELEASE_LTO=thin
 ENV CARGO_PROFILE_RELEASE_DEBUG=0
+ENV RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 
 COPY --from=planner /src/recipe.json /src/recipe.json
 
@@ -58,9 +35,13 @@ COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
 RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 
 ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_BUCKET="boundless-sccache"
+ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=distributor_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=distributor_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo chef cook --release --recipe-path recipe.json --package boundless-distributor && \
     sccache --show-stats
@@ -77,8 +58,11 @@ COPY blake3_groth16/ ./blake3_groth16/
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=distributor_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/target,id=distributor_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     cargo build --release --bin boundless-distributor && \
+    cp /src/target/release/boundless-distributor /src/boundless-distributor && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
@@ -87,6 +71,6 @@ RUN apt-get -qq update && \
     apt-get install -y -q --no-install-recommends ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /src/target/release/boundless-distributor /app/boundless-distributor
+COPY --from=builder /src/boundless-distributor /app/boundless-distributor
 
 ENTRYPOINT ["/app/boundless-distributor"]

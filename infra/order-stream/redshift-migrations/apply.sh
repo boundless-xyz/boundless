@@ -66,13 +66,25 @@ run_psql() {
     psql -h "$ENDPOINT" -p "$PORT" -U "$RS_USER" -d "$DATABASE" "$@"
 }
 
-echo "Testing connection..."
-if ! run_psql -c "SELECT 1;"; then
-    echo "ERROR: Cannot connect to Redshift at $ENDPOINT:$PORT" >&2
-    echo "Check that your IP is allowed by the security group and the endpoint is reachable." >&2
-    exit 1
-fi
-echo "Connected."
+# Redshift Serverless namespaces can remain in "modifying" state for several
+# minutes after pulumi reports success, so the endpoint may not be DNS-resolvable
+# yet. Retry with a fixed interval to wait for it to stabilize.
+MAX_RETRIES=120
+RETRY_DELAY=15
+echo "Waiting for Redshift endpoint to become available..."
+for i in $(seq 1 $MAX_RETRIES); do
+    if run_psql -c "SELECT 1;" >/dev/null 2>&1; then
+        echo "Connected to Redshift (attempt $i/$MAX_RETRIES)."
+        break
+    fi
+    if [ "$i" -eq "$MAX_RETRIES" ]; then
+        echo "ERROR: Cannot connect to Redshift at $ENDPOINT:$PORT after $MAX_RETRIES attempts (~30 min)" >&2
+        echo "Check the Redshift Serverless namespace/workgroup status in the AWS console." >&2
+        exit 1
+    fi
+    echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+    sleep "$RETRY_DELAY"
+done
 
 # Create or update the read-only user (Redshift has no IF NOT EXISTS for users)
 if run_psql -t -A -c "SELECT 1 FROM pg_user WHERE usename='readonly';" | grep -q 1; then

@@ -1,0 +1,49 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwFv35X3hoj/qr/or6Z8hBhXAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMgDTu53r513camnxqAgEQgDtlwiHN1EJHY0rrOiDyfIgL2Ddqu+K9SKr5rVkgHGMfAQY2NgIE61tQQIpXeNn2/awCEw1O3uXrumgS6A==
+config:
+  distributor:BASE_STACK: organization/bootstrap/services-prod
+  distributor:CHAINALYSIS_ORACLE_ADDRESS: "0x0000000000000000000000000000000000000000"
+  distributor:CHAIN_ID: "167000"
+  distributor:CI_CACHE_SECRET:
+    secure: v1:m0ejIbEQ+qoHgAcI:d/Yo/GESHuZCzWkOBqYbE0Aa0+WSkPwfGHZb1EzGoPwKSnCkezizP1TR3WrKLAik6afzT/UOL/v8F1zFq9fdGx2hW0mFM+6X4ME2BWojghOEdS17uW13oRztElQ64/qckkPpI3cMzn8+2N6jyDMTihEGWV3tmWE9dlFK6Ebiig==
+  distributor:DISTRIBUTOR_ADDRESS: 0xd79A4B9D713e70De8b0B820eBB7B5a18B7F07d4A
+  distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.5"
+  distributor:DISTRIBUTOR_PRIVATE_KEY:
+    secure: v1:ghDNMiyKO2f78xbp:WNq0KZ6PbKl72eWuCiig3yw9YJsOw5z7V2NhM3KjSiWepcPEg8SY6yVanKK7usNDLP8lXKGOmsZTNk6cJbjnGzzDDYgWEHN+wvyXnzWrTww=
+  distributor:DISTRIBUTOR_STAKE_ALERT_THRESHOLD: "200.0"
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:ENABLE_EXTERNAL_TOPUP: "false"
+  distributor:ETH_THRESHOLD: "0.015"
+  distributor:ETH_TOP_UP_AMOUNT: "0.04"
+  distributor:EXTERNAL_COLLATERAL_THRESHOLD: "50"
+  distributor:EXTERNAL_LIFETIME_ALLOWANCE: "100"
+  distributor:EXTERNAL_PER_TOP_UP_AMOUNT: "50"
+  distributor:GH_TOKEN_SECRET:
+    secure: v1:bsc3c78pA/YuEj9Q:yXnNxu3ljSx4t4BYZEKeT+TwuEQ0PbKnea6bljVrFi32IbF1K9lAusvv+1HfcxFpKmq3+dcGtcH8+Vyj2rfqnfqMum+N01GJDaKvsqcdHufrsruMN9rAP82TktjG2FNJS/fhSS0THuU31YH1+A==
+  distributor:INDEXER_API_URL:
+    secure: v1:IpMbmiUz7hL9ldw9:YC2+8mflh684YkK8m1IVSfkUxXmYl8zq9F2lgwCGv3rxOZPkXpKFwJyKJDxIvUAOiUVEB+k=
+  distributor:LOG_LEVEL: info,boundless_market=debug
+  distributor:MIN_BCYCLES_THRESHOLD: "100"
+  distributor:OFFCHAIN_REQUESTOR_ADDRESSES: 0xc197ebe12c7bcf1d9f3b415342bdbc795425335c,0x076aCA5883aDB08C31E9308C59cD8495A2513DA7
+  distributor:ORDER_GENERATOR_KEYS:
+    secure: v1:zBogdaLX2gKWsGFn:GqALVfh5/l56rSddPbFllFrDLpus7bVY+DWz2xk4C+RkTD6Ot6sh9RACVwPFXPVRuQqfK/7MTTbHd4k6uy0ZhYy1/EmYgi+q8a3suePAeQcvGXNqCezIvaDMCKUZKfuA9Dt0uhDkRUKt2zmgMdTx3JPItNEeMY6xnjD9NxWA4/0tfNAryGf1lLZ/pzdCTLOyudMdeZVsNaDiInd+jJMRuf0AwR3TeQq8qcYWwbf6tH/Q6kzjuKOLm5rmJF8YggcOII8umklBXC5tqkQZyLu0V7D7R2DLKDI5gROoig872nZjCLHsMrRU2tkL92/5rYdQcV7VsTB7Hs9VlgQjmeqTiaE0YF4q032flNxDoDuq9ET9RHR2hoAzfZb4LlhiiXyWDK0DpPrcNpFMS171PzfG1cFJWEgG/RS0KvadICJH4LpUdSxUrjoQUlB0J9dOoMoVxOK3nc2h0l6U4RtTc15cXWOq8IcsfmuSiaMHIxH60k7ndeVC14VUio2mnI2998prs8hmTq4UpmlfvGISl74ZnbXSEDv2
+    #  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "0.4"
+  distributor:PROVER_KEYS:
+    secure: v1:v2E7Hd67cnP+8KJi:bhTLLiK2z5esuOntUHWMcbmH8n3+cyKwQ7yBhTLKW086SWmgHKxrbrrDQQuZQrE+31n/C5O0llCixB/V7scFoLa/ILHhnU3pKmg+5pwHVzkdPCe2XqQFKAK7Mo+QV9y1J3r4s22zY0k9h4WMv80GlskWLQS+urEX1rHEOAt4hOrZQaWxvWwbmWF4Ttp9iDAoHA==
+  distributor:PROVER_STAKE_DONATE_THRESHOLD: "500.0"
+  distributor:SCHEDULE_MINUTES: "90"
+  #  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  distributor:SLASHER_KEY:
+    secure: v1:K0Af69eM3IjaBdfh:RVHWgyJGtJZ41nTwr7twWdYNwAXLvpLtbVQMmUrJcameCVxIt/IWH/uTxL/3IWaO5e/GhZoLSvqbnLXDKXyrSnGKcXU+WSnumcB/1gWxfzY=
+  distributor:STAKE_THRESHOLD: "100"
+  distributor:STAKE_TOP_UP_AMOUNT: "300"
+  distributor:BOUNDLESS_MARKET_ADDR: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
+  distributor:SET_VERIFIER_ADDR: 0x6135DC08D14EF8a44496B009e2181426628B8ebd
+  distributor:COLLATERAL_TOKEN_ADDR: 0xC284A781072442cC1882a8Db4573990B7B49DaC4
+  distributor:ETH_RPC_URL:
+    secure: v1:u+FItSVvpEIvuFme:T8xn2aQHagdfApANFSR7M7D3Cy6kWV32Hid9TO09fJ7TbfDljnBjFweNzw83
+  distributor:CHAINALYSIS_API_KEY:
+    secure: v1:lJfYcxn0Vi8uXva6:IQ35lIALLwgVafKIpvFBcW2iPczOqvCflcDGnCq2NlmVdBZElBjtG8lwMjWyx5/plCp97VibZnIwEvFTJ6SyhxgZFfT5D8OIEilAcIrK6UE=
+  distributor:USE_GHCR: true
