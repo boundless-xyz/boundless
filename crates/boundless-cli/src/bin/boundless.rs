@@ -90,6 +90,44 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
+const NEW_CHAIN_BANNER_DAYS: u64 = 15;
+
+fn should_show_new_chain_banner() -> bool {
+    let Ok(dir) = boundless_cli::config_file::config_dir() else {
+        return false;
+    };
+    let marker = dir.join(".first_run");
+
+    if !marker.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(
+            &marker,
+            format!(
+                "{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            ),
+        );
+        return true;
+    }
+
+    let Ok(contents) = std::fs::read_to_string(&marker) else {
+        return false;
+    };
+    let Ok(first_run_secs) = contents.trim().parse::<u64>() else {
+        return false;
+    };
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    now_secs.saturating_sub(first_run_secs) < NEW_CHAIN_BANNER_DAYS * 86400
+}
+
 async fn show_welcome_screen() -> Result<()> {
     use boundless_cli::commands::rewards::State;
     use boundless_cli::commands::setup::network::display_name_for_network;
@@ -110,7 +148,7 @@ async fn show_welcome_screen() -> Result<()> {
     println!("               {}", "lMM;".cyan().bold());
     println!();
 
-    println!("{}\n", "Boundless CLI - Universal ZK Protocol".bold());
+    println!("{}", "Boundless CLI - Universal ZK Protocol".bold());
 
     let config = Config::load().ok();
     let secrets = Secrets::load().ok();
@@ -118,6 +156,38 @@ async fn show_welcome_screen() -> Result<()> {
     let requestor_configured = config.as_ref().and_then(|c| c.requestor.as_ref()).is_some();
     let prover_configured = config.as_ref().and_then(|c| c.prover.as_ref()).is_some();
     let rewards_configured = config.as_ref().and_then(|c| c.rewards.as_ref()).is_some();
+
+    // Show NEW chain banners for unconfigured mainnets, within 15 days of first CLI run.
+    let configured_networks: Vec<&str> = [
+        config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str()),
+        config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    if should_show_new_chain_banner() {
+        let unconfigured_mainnets: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
+            .iter()
+            .filter(|(_, _, is_mainnet)| *is_mainnet)
+            .filter(|(_, name, _)| {
+                let key = boundless_cli::commands::setup::network::normalize_market_network(name);
+                !configured_networks.contains(&key)
+            })
+            .map(|(_, name, _)| *name)
+            .collect();
+
+        println!();
+        for name in &unconfigured_mainnets {
+            println!(
+                "  {} {} {}",
+                " NEW ".on_bright_cyan().black().bold(),
+                format!("{name} is now supported!").bright_white().bold(),
+                format!("Run 'boundless requestor networks --set \"{name}\"'").dimmed()
+            );
+        }
+    }
+    println!();
 
     // Show Requestor Module
     if requestor_configured {
@@ -446,37 +516,6 @@ async fn show_welcome_screen() -> Result<()> {
     } else {
         println!("{} Rewards Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless rewards setup'".cyan());
-    }
-
-    // Show hints for supported mainnet chains that aren't configured yet
-    let configured_networks: Vec<&str> = [
-        config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str()),
-        config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-
-    let unconfigured_mainnets: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
-        .iter()
-        .filter(|(_, _, is_mainnet)| *is_mainnet)
-        .filter(|(_, name, _)| {
-            let key = boundless_cli::commands::setup::network::normalize_market_network(name);
-            !configured_networks.contains(&key)
-        })
-        .map(|(_, name, _)| *name)
-        .collect();
-
-    if !unconfigured_mainnets.is_empty() {
-        println!();
-        for name in &unconfigured_mainnets {
-            println!(
-                "  {} {} {}",
-                "NEW".bright_cyan().bold(),
-                format!("{name} is now supported!").bold(),
-                format!("Run 'boundless requestor setup --change-network \"{name}\"'").dimmed()
-            );
-        }
     }
 
     println!();

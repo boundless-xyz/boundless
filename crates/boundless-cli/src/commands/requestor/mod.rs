@@ -34,12 +34,15 @@ pub use submit_offer::RequestorSubmitOffer;
 pub use verify_proof::RequestorVerifyProof;
 pub use withdraw::RequestorWithdraw;
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 use crate::{
-    commands::setup::{network::normalize_market_network, RequestorSetup},
+    commands::setup::{
+        network::{display_name_for_network, normalize_market_network},
+        RequestorSetup,
+    },
     config::GlobalConfig,
-    config_file::Config,
+    config_file::{Config, Secrets},
 };
 
 /// Commands for requestors
@@ -83,8 +86,16 @@ pub enum RequestorCommands {
     VerifyProof(RequestorVerifyProof),
     /// Interactive setup wizard for requestor configuration
     Setup(RequestorSetup),
-    /// List supported networks for the requestor module
-    Networks,
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
+}
+
+/// List or switch the active requestor network
+#[derive(Args, Clone, Debug)]
+pub struct NetworksCmd {
+    /// Switch the active network (accepts name, kebab-case key, or chain ID)
+    #[clap(long)]
+    pub set: Option<String>,
 }
 
 impl RequestorCommands {
@@ -101,18 +112,53 @@ impl RequestorCommands {
             Self::GetProof(cmd) => cmd.run(global_config).await,
             Self::VerifyProof(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
-            Self::Networks => {
-                show_requestor_networks();
-                Ok(())
+            Self::Networks(cmd) => {
+                if let Some(ref network) = cmd.set {
+                    set_requestor_network(network)
+                } else {
+                    show_requestor_networks();
+                    Ok(())
+                }
             }
         }
     }
+}
+
+fn set_requestor_network(input: &str) -> anyhow::Result<()> {
+    use colored::Colorize;
+
+    let key = normalize_market_network(input);
+    let display = display_name_for_network(key);
+
+    let mut config = Config::load().unwrap_or_default();
+    config.requestor = Some(crate::config_file::RequestorConfig { network: key.to_string() });
+    config.save()?;
+
+    println!();
+    println!("{} Requestor active network set to {}", "✓".green().bold(), display.bold());
+
+    let secrets = Secrets::load().ok();
+    let has_secrets = secrets.as_ref().and_then(|s| s.requestor_networks.get(key)).is_some();
+    if !has_secrets {
+        println!(
+            "  {} {}",
+            "⚠".yellow(),
+            format!(
+                "No credentials configured for {display}. Run 'boundless requestor setup' to add RPC URL and keys."
+            )
+            .yellow()
+        );
+    }
+    println!();
+
+    Ok(())
 }
 
 fn show_requestor_networks() {
     use colored::Colorize;
 
     let config = Config::load().ok();
+    let secrets = Secrets::load().ok();
     let active_network =
         config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str());
 
@@ -123,9 +169,13 @@ fn show_requestor_networks() {
     for (chain_id, name, is_mainnet) in boundless_market::deployments::SUPPORTED_CHAINS {
         let key = normalize_market_network(name);
         let tag = if *is_mainnet { "mainnet" } else { "testnet" };
-        let status = match active_network {
-            Some(n) if n == key => "active".green().to_string(),
-            _ => "not configured".dimmed().to_string(),
+        let has_secrets = secrets.as_ref().and_then(|s| s.requestor_networks.get(key)).is_some();
+        let status = if active_network == Some(key) {
+            "active".green().to_string()
+        } else if has_secrets {
+            "configured".blue().to_string()
+        } else {
+            "--".dimmed().to_string()
         };
 
         println!(
@@ -138,9 +188,14 @@ fn show_requestor_networks() {
 
     if let Some(ref config) = config {
         for custom in &config.custom_markets {
-            let status = match active_network {
-                Some(n) if n == custom.name => "active".green().to_string(),
-                _ => "not configured".dimmed().to_string(),
+            let has_secrets =
+                secrets.as_ref().and_then(|s| s.requestor_networks.get(&custom.name)).is_some();
+            let status = if active_network == Some(custom.name.as_str()) {
+                "active".green().to_string()
+            } else if has_secrets {
+                "configured".blue().to_string()
+            } else {
+                "--".dimmed().to_string()
             };
 
             println!(
@@ -156,11 +211,7 @@ fn show_requestor_networks() {
     println!(
         "{} {}",
         "Tip:".bold(),
-        "Use --network <name> to run a command on a specific network".dimmed()
-    );
-    println!(
-        "     {}",
-        "e.g. boundless requestor status --network \"Taiko Mainnet\" --request-id 0x...".dimmed()
+        "Switch active network with: boundless requestor networks --set \"Taiko Mainnet\"".dimmed()
     );
     println!();
 }

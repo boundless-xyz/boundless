@@ -40,7 +40,7 @@ use crate::display::DisplayManager;
 /// Common setup fields shared across all modules
 #[derive(Args, Clone, Debug)]
 pub struct CommonSetupFields {
-    /// Switch network and load any previously saved configuration for that network
+    /// [Deprecated: use '<module> networks --set'] Switch network and load existing config
     #[arg(long = "change-network")]
     pub network: Option<String>,
 
@@ -180,7 +180,7 @@ pub struct RewardsSetup {
 /// Interactive setup command (for `boundless setup`)
 #[derive(Args, Clone, Debug)]
 pub struct SetupInteractive {
-    /// Switch network and load any previously saved configuration for that network
+    /// [Deprecated: use '<module> networks --set'] Switch network and load existing config
     #[arg(long = "change-network")]
     pub network: Option<String>,
 
@@ -479,6 +479,9 @@ impl SetupInteractive {
 
         // Step 2: If --change-network was provided, switch to that network
         if let Some(ref network_name) = target_network {
+            display.warning(
+                "--change-network is deprecated. Use: boundless requestor networks --set <network>",
+            );
             config.requestor = Some(RequestorConfig { network: network_name.clone() });
             display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
         }
@@ -856,6 +859,9 @@ impl SetupInteractive {
 
         // Step 2: If --change-network was provided, switch to that network
         if let Some(ref network_name) = target_network {
+            display.warning(
+                "--change-network is deprecated. Use: boundless prover networks --set <network>",
+            );
             config.prover = Some(ProverConfig { network: network_name.clone() });
             display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
         }
@@ -1351,6 +1357,9 @@ impl SetupInteractive {
 
         // Step 2: If --change-network was provided, switch to that network
         if let Some(ref network_name) = target_network {
+            display.warning(
+                "--change-network is deprecated. Use: boundless rewards networks --set <network>",
+            );
             config.rewards = Some(RewardsConfig { network: network_name.clone() });
             display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
         }

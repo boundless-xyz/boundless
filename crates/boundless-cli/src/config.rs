@@ -84,8 +84,8 @@ fn resolve_market_deployment(
 pub struct GlobalConfig {
     /// Override the active network for this command invocation.
     ///
-    /// Accepts display names (e.g. "Taiko Mainnet") or kebab-case keys (e.g. "taiko-mainnet").
-    /// Does not persist to config files.
+    /// Accepts display names (e.g. "Taiko Mainnet"), kebab-case keys (e.g. "taiko-mainnet"),
+    /// or chain IDs (e.g. "167000"). Does not persist to config files.
     #[clap(long, env = "BOUNDLESS_NETWORK", global = true)]
     pub network: Option<String>,
 

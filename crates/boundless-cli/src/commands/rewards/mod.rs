@@ -48,9 +48,16 @@ pub use stake_zkc::RewardsStakeZkc;
 pub use staked_balance_zkc::RewardsStakedBalanceZkc;
 pub use submit_mining::RewardsSubmitMining;
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
-use crate::{commands::setup::RewardsSetup, config::GlobalConfig, config_file::Config};
+use crate::{
+    commands::setup::{
+        network::{display_name_for_network, normalize_rewards_network},
+        RewardsSetup,
+    },
+    config::GlobalConfig,
+    config_file::{Config, Secrets},
+};
 
 /// Commands for rewards management
 #[derive(Subcommand, Clone, Debug)]
@@ -113,8 +120,16 @@ pub enum RewardsCommands {
     InspectMiningState(RewardsInspectMiningState),
     /// Interactive setup wizard for rewards configuration
     Setup(RewardsSetup),
-    /// List supported networks for the rewards module
-    Networks,
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
+}
+
+/// List or switch the active rewards network
+#[derive(Args, Clone, Debug)]
+pub struct NetworksCmd {
+    /// Switch the active network (accepts name, kebab-case key, or chain ID)
+    #[clap(long)]
+    pub set: Option<String>,
 }
 
 impl RewardsCommands {
@@ -137,18 +152,53 @@ impl RewardsCommands {
             Self::Power(cmd) => cmd.run(global_config).await,
             Self::InspectMiningState(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
-            Self::Networks => {
-                show_rewards_networks();
-                Ok(())
+            Self::Networks(cmd) => {
+                if let Some(ref network) = cmd.set {
+                    set_rewards_network(network)
+                } else {
+                    show_rewards_networks();
+                    Ok(())
+                }
             }
         }
     }
+}
+
+fn set_rewards_network(input: &str) -> anyhow::Result<()> {
+    use colored::Colorize;
+
+    let key = normalize_rewards_network(input);
+    let display = display_name_for_network(key);
+
+    let mut config = Config::load().unwrap_or_default();
+    config.rewards = Some(crate::config_file::RewardsConfig { network: key.to_string() });
+    config.save()?;
+
+    println!();
+    println!("{} Rewards active network set to {}", "✓".green().bold(), display.bold());
+
+    let secrets = Secrets::load().ok();
+    let has_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(key)).is_some();
+    if !has_secrets {
+        println!(
+            "  {} {}",
+            "⚠".yellow(),
+            format!(
+                "No credentials configured for {display}. Run 'boundless rewards setup' to add RPC URL and keys."
+            )
+            .yellow()
+        );
+    }
+    println!();
+
+    Ok(())
 }
 
 fn show_rewards_networks() {
     use colored::Colorize;
 
     let config = Config::load().ok();
+    let secrets = Secrets::load().ok();
     let active_network =
         config.as_ref().and_then(|c| c.rewards.as_ref()).map(|r| r.network.as_str());
 
@@ -159,9 +209,13 @@ fn show_rewards_networks() {
     for (key, label) in
         [("eth-mainnet", "Ethereum Mainnet (1)"), ("eth-sepolia", "Ethereum Sepolia (11155111)")]
     {
-        let status = match active_network {
-            Some(n) if n == key => "active".green().to_string(),
-            _ => "not configured".dimmed().to_string(),
+        let has_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(key)).is_some();
+        let status = if active_network == Some(key) {
+            "active".green().to_string()
+        } else if has_secrets {
+            "configured".blue().to_string()
+        } else {
+            "--".dimmed().to_string()
         };
 
         println!("  {:<35} {}", label.bold(), status);
@@ -169,9 +223,14 @@ fn show_rewards_networks() {
 
     if let Some(ref config) = config {
         for custom in &config.custom_rewards {
-            let status = match active_network {
-                Some(n) if n == custom.name => "active".green().to_string(),
-                _ => "not configured".dimmed().to_string(),
+            let has_secrets =
+                secrets.as_ref().and_then(|s| s.rewards_networks.get(&custom.name)).is_some();
+            let status = if active_network == Some(custom.name.as_str()) {
+                "active".green().to_string()
+            } else if has_secrets {
+                "configured".blue().to_string()
+            } else {
+                "--".dimmed().to_string()
             };
 
             println!(
@@ -186,11 +245,8 @@ fn show_rewards_networks() {
     println!(
         "{} {}",
         "Tip:".bold(),
-        "Use --network <name> to run a command on a specific network".dimmed()
-    );
-    println!(
-        "     {}",
-        "e.g. boundless rewards balance-zkc --network \"Ethereum Mainnet\"".dimmed()
+        "Switch active network with: boundless rewards networks --set \"Ethereum Mainnet\""
+            .dimmed()
     );
     println!();
 }

@@ -36,12 +36,15 @@ pub use lock::ProverLock;
 pub use slash::ProverSlash;
 pub use withdraw_collateral::ProverWithdrawCollateral;
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 use crate::{
-    commands::setup::{network::normalize_market_network, ProverSetup},
+    commands::setup::{
+        network::{display_name_for_network, normalize_market_network},
+        ProverSetup,
+    },
     config::GlobalConfig,
-    config_file::Config,
+    config_file::{Config, Secrets},
 };
 
 /// Commands for provers
@@ -84,8 +87,16 @@ pub enum ProverCommands {
     /// Generate optimized broker and compose configuration files
     #[command(name = "generate-config")]
     GenerateConfig(ProverGenerateConfig),
-    /// List supported networks for the prover module
-    Networks,
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
+}
+
+/// List or switch the active prover network
+#[derive(Args, Clone, Debug)]
+pub struct NetworksCmd {
+    /// Switch the active network (accepts name, kebab-case key, or chain ID)
+    #[clap(long)]
+    pub set: Option<String>,
 }
 
 impl ProverCommands {
@@ -106,18 +117,53 @@ impl ProverCommands {
             Self::Slash(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
             Self::GenerateConfig(cmd) => cmd.run(global_config).await,
-            Self::Networks => {
-                show_prover_networks();
-                Ok(())
+            Self::Networks(cmd) => {
+                if let Some(ref network) = cmd.set {
+                    set_prover_network(network)
+                } else {
+                    show_prover_networks();
+                    Ok(())
+                }
             }
         }
     }
+}
+
+fn set_prover_network(input: &str) -> anyhow::Result<()> {
+    use colored::Colorize;
+
+    let key = normalize_market_network(input);
+    let display = display_name_for_network(key);
+
+    let mut config = Config::load().unwrap_or_default();
+    config.prover = Some(crate::config_file::ProverConfig { network: key.to_string() });
+    config.save()?;
+
+    println!();
+    println!("{} Prover active network set to {}", "✓".green().bold(), display.bold());
+
+    let secrets = Secrets::load().ok();
+    let has_secrets = secrets.as_ref().and_then(|s| s.prover_networks.get(key)).is_some();
+    if !has_secrets {
+        println!(
+            "  {} {}",
+            "⚠".yellow(),
+            format!(
+                "No credentials configured for {display}. Run 'boundless prover setup' to add RPC URL and keys."
+            )
+            .yellow()
+        );
+    }
+    println!();
+
+    Ok(())
 }
 
 fn show_prover_networks() {
     use colored::Colorize;
 
     let config = Config::load().ok();
+    let secrets = Secrets::load().ok();
     let active_network =
         config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str());
 
@@ -128,9 +174,13 @@ fn show_prover_networks() {
     for (chain_id, name, is_mainnet) in boundless_market::deployments::SUPPORTED_CHAINS {
         let key = normalize_market_network(name);
         let tag = if *is_mainnet { "mainnet" } else { "testnet" };
-        let status = match active_network {
-            Some(n) if n == key => "active".green().to_string(),
-            _ => "not configured".dimmed().to_string(),
+        let has_secrets = secrets.as_ref().and_then(|s| s.prover_networks.get(key)).is_some();
+        let status = if active_network == Some(key) {
+            "active".green().to_string()
+        } else if has_secrets {
+            "configured".blue().to_string()
+        } else {
+            "--".dimmed().to_string()
         };
 
         println!(
@@ -143,9 +193,14 @@ fn show_prover_networks() {
 
     if let Some(ref config) = config {
         for custom in &config.custom_markets {
-            let status = match active_network {
-                Some(n) if n == custom.name => "active".green().to_string(),
-                _ => "not configured".dimmed().to_string(),
+            let has_secrets =
+                secrets.as_ref().and_then(|s| s.prover_networks.get(&custom.name)).is_some();
+            let status = if active_network == Some(custom.name.as_str()) {
+                "active".green().to_string()
+            } else if has_secrets {
+                "configured".blue().to_string()
+            } else {
+                "--".dimmed().to_string()
             };
 
             println!(
@@ -161,11 +216,7 @@ fn show_prover_networks() {
     println!(
         "{} {}",
         "Tip:".bold(),
-        "Use --network <name> to run a command on a specific network".dimmed()
-    );
-    println!(
-        "     {}",
-        "e.g. boundless prover balance-collateral --network \"Taiko Mainnet\"".dimmed()
+        "Switch active network with: boundless prover networks --set \"Taiko Mainnet\"".dimmed()
     );
     println!();
 }

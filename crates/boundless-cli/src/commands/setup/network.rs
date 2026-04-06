@@ -38,13 +38,19 @@ pub enum ModuleType {
     Rewards,
 }
 
-/// Normalize a network name for market modules (requestor/prover)
+/// Normalize a network name for market modules (requestor/prover).
+/// Accepts display names ("Taiko Mainnet"), kebab-case keys ("taiko-mainnet"),
+/// or chain IDs as strings ("167000").
 pub fn normalize_market_network(network: &str) -> &str {
     match network {
         "Base Mainnet" => "base-mainnet",
         "Taiko Mainnet" => "taiko-mainnet",
         "Base Sepolia" => "base-sepolia",
         "Ethereum Sepolia" | "Eth Sepolia" => "eth-sepolia",
+        "8453" => "base-mainnet",
+        "167000" => "taiko-mainnet",
+        "84532" => "base-sepolia",
+        "11155111" => "eth-sepolia",
         custom => custom,
     }
 }
@@ -73,11 +79,14 @@ pub fn chain_id_for_network(network_key: &str) -> Option<u64> {
     }
 }
 
-/// Normalize a network name for rewards module
+/// Normalize a network name for rewards module.
+/// Accepts display names, kebab-case keys, or chain IDs as strings.
 pub fn normalize_rewards_network(network: &str) -> &str {
     match network {
         "Eth Mainnet" | "Ethereum Mainnet" => "eth-mainnet",
         "Eth Testnet (Sepolia)" | "Eth Sepolia" | "Ethereum Sepolia" => "eth-sepolia",
+        "1" => "eth-mainnet",
+        "11155111" => "eth-sepolia",
         custom => custom,
     }
 }
@@ -129,6 +138,10 @@ mod tests {
         assert_eq!(normalize_market_network("Ethereum Sepolia"), "eth-sepolia");
         assert_eq!(normalize_market_network("Eth Sepolia"), "eth-sepolia");
         assert_eq!(normalize_market_network("eth-sepolia"), "eth-sepolia");
+        assert_eq!(normalize_market_network("8453"), "base-mainnet");
+        assert_eq!(normalize_market_network("167000"), "taiko-mainnet");
+        assert_eq!(normalize_market_network("84532"), "base-sepolia");
+        assert_eq!(normalize_market_network("11155111"), "eth-sepolia");
     }
 
     #[test]
