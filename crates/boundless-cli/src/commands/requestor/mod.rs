@@ -37,12 +37,11 @@ pub use withdraw::RequestorWithdraw;
 use clap::{Args, Subcommand};
 
 use crate::{
-    commands::setup::{
-        network::{display_name_for_network, normalize_market_network},
-        RequestorSetup,
+    commands::{
+        networks::{self, NetworkModule},
+        setup::RequestorSetup,
     },
     config::GlobalConfig,
-    config_file::{Config, Secrets},
 };
 
 /// Commands for requestors
@@ -98,6 +97,18 @@ pub struct NetworksCmd {
     pub set: Option<String>,
 }
 
+impl NetworksCmd {
+    /// Run the command
+    pub async fn run(&self, _global_config: &GlobalConfig) -> anyhow::Result<()> {
+        if let Some(ref input) = self.set {
+            networks::set_active_network(NetworkModule::Requestor, input)
+        } else {
+            networks::list_networks(NetworkModule::Requestor);
+            Ok(())
+        }
+    }
+}
+
 impl RequestorCommands {
     /// Run the command
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
@@ -112,106 +123,7 @@ impl RequestorCommands {
             Self::GetProof(cmd) => cmd.run(global_config).await,
             Self::VerifyProof(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
-            Self::Networks(cmd) => {
-                if let Some(ref network) = cmd.set {
-                    set_requestor_network(network)
-                } else {
-                    show_requestor_networks();
-                    Ok(())
-                }
-            }
+            Self::Networks(cmd) => cmd.run(global_config).await,
         }
     }
-}
-
-fn set_requestor_network(input: &str) -> anyhow::Result<()> {
-    use colored::Colorize;
-
-    let key = normalize_market_network(input);
-    let display = display_name_for_network(key);
-
-    let mut config = Config::load().unwrap_or_default();
-    config.requestor = Some(crate::config_file::RequestorConfig { network: key.to_string() });
-    config.save()?;
-
-    println!();
-    println!("{} Requestor active network set to {}", "✓".green().bold(), display.bold());
-
-    let secrets = Secrets::load().ok();
-    let has_secrets = secrets.as_ref().and_then(|s| s.requestor_networks.get(key)).is_some();
-    if !has_secrets {
-        println!(
-            "  {} {}",
-            "⚠".yellow(),
-            format!(
-                "No credentials configured for {display}. Run 'boundless requestor setup' to add RPC URL and keys."
-            )
-            .yellow()
-        );
-    }
-    println!();
-
-    Ok(())
-}
-
-fn show_requestor_networks() {
-    use colored::Colorize;
-
-    let config = Config::load().ok();
-    let secrets = Secrets::load().ok();
-    let active_network =
-        config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str());
-
-    println!();
-    println!("{}", "Requestor Networks".bold());
-    println!();
-
-    for (chain_id, name, is_mainnet) in boundless_market::deployments::SUPPORTED_CHAINS {
-        let key = normalize_market_network(name);
-        let tag = if *is_mainnet { "mainnet" } else { "testnet" };
-        let has_secrets = secrets.as_ref().and_then(|s| s.requestor_networks.get(key)).is_some();
-        let status = if active_network == Some(key) {
-            "active".green().to_string()
-        } else if has_secrets {
-            "configured".blue().to_string()
-        } else {
-            "--".dimmed().to_string()
-        };
-
-        println!(
-            "  {:<30} {:<10} {}",
-            format!("{} ({})", name, chain_id).bold(),
-            format!("[{}]", tag).dimmed(),
-            status,
-        );
-    }
-
-    if let Some(ref config) = config {
-        for custom in &config.custom_markets {
-            let has_secrets =
-                secrets.as_ref().and_then(|s| s.requestor_networks.get(&custom.name)).is_some();
-            let status = if active_network == Some(custom.name.as_str()) {
-                "active".green().to_string()
-            } else if has_secrets {
-                "configured".blue().to_string()
-            } else {
-                "--".dimmed().to_string()
-            };
-
-            println!(
-                "  {:<30} {:<10} {}",
-                format!("{} ({})", custom.name, custom.chain_id).bold(),
-                "[custom]".dimmed(),
-                status,
-            );
-        }
-    }
-
-    println!();
-    println!(
-        "{} {}",
-        "Tip:".bold(),
-        "Switch active network with: boundless requestor networks --set \"Taiko Mainnet\"".dimmed()
-    );
-    println!();
 }

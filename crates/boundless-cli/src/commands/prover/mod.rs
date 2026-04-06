@@ -39,12 +39,11 @@ pub use withdraw_collateral::ProverWithdrawCollateral;
 use clap::{Args, Subcommand};
 
 use crate::{
-    commands::setup::{
-        network::{display_name_for_network, normalize_market_network},
-        ProverSetup,
+    commands::{
+        networks::{self, NetworkModule},
+        setup::ProverSetup,
     },
     config::GlobalConfig,
-    config_file::{Config, Secrets},
 };
 
 /// Commands for provers
@@ -99,6 +98,18 @@ pub struct NetworksCmd {
     pub set: Option<String>,
 }
 
+impl NetworksCmd {
+    /// Run the command
+    pub async fn run(&self, _global_config: &GlobalConfig) -> anyhow::Result<()> {
+        if let Some(ref input) = self.set {
+            networks::set_active_network(NetworkModule::Prover, input)
+        } else {
+            networks::list_networks(NetworkModule::Prover);
+            Ok(())
+        }
+    }
+}
+
 impl ProverCommands {
     /// Run the command
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
@@ -117,106 +128,7 @@ impl ProverCommands {
             Self::Slash(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
             Self::GenerateConfig(cmd) => cmd.run(global_config).await,
-            Self::Networks(cmd) => {
-                if let Some(ref network) = cmd.set {
-                    set_prover_network(network)
-                } else {
-                    show_prover_networks();
-                    Ok(())
-                }
-            }
+            Self::Networks(cmd) => cmd.run(global_config).await,
         }
     }
-}
-
-fn set_prover_network(input: &str) -> anyhow::Result<()> {
-    use colored::Colorize;
-
-    let key = normalize_market_network(input);
-    let display = display_name_for_network(key);
-
-    let mut config = Config::load().unwrap_or_default();
-    config.prover = Some(crate::config_file::ProverConfig { network: key.to_string() });
-    config.save()?;
-
-    println!();
-    println!("{} Prover active network set to {}", "✓".green().bold(), display.bold());
-
-    let secrets = Secrets::load().ok();
-    let has_secrets = secrets.as_ref().and_then(|s| s.prover_networks.get(key)).is_some();
-    if !has_secrets {
-        println!(
-            "  {} {}",
-            "⚠".yellow(),
-            format!(
-                "No credentials configured for {display}. Run 'boundless prover setup' to add RPC URL and keys."
-            )
-            .yellow()
-        );
-    }
-    println!();
-
-    Ok(())
-}
-
-fn show_prover_networks() {
-    use colored::Colorize;
-
-    let config = Config::load().ok();
-    let secrets = Secrets::load().ok();
-    let active_network =
-        config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str());
-
-    println!();
-    println!("{}", "Prover Networks".bold());
-    println!();
-
-    for (chain_id, name, is_mainnet) in boundless_market::deployments::SUPPORTED_CHAINS {
-        let key = normalize_market_network(name);
-        let tag = if *is_mainnet { "mainnet" } else { "testnet" };
-        let has_secrets = secrets.as_ref().and_then(|s| s.prover_networks.get(key)).is_some();
-        let status = if active_network == Some(key) {
-            "active".green().to_string()
-        } else if has_secrets {
-            "configured".blue().to_string()
-        } else {
-            "--".dimmed().to_string()
-        };
-
-        println!(
-            "  {:<30} {:<10} {}",
-            format!("{} ({})", name, chain_id).bold(),
-            format!("[{}]", tag).dimmed(),
-            status,
-        );
-    }
-
-    if let Some(ref config) = config {
-        for custom in &config.custom_markets {
-            let has_secrets =
-                secrets.as_ref().and_then(|s| s.prover_networks.get(&custom.name)).is_some();
-            let status = if active_network == Some(custom.name.as_str()) {
-                "active".green().to_string()
-            } else if has_secrets {
-                "configured".blue().to_string()
-            } else {
-                "--".dimmed().to_string()
-            };
-
-            println!(
-                "  {:<30} {:<10} {}",
-                format!("{} ({})", custom.name, custom.chain_id).bold(),
-                "[custom]".dimmed(),
-                status,
-            );
-        }
-    }
-
-    println!();
-    println!(
-        "{} {}",
-        "Tip:".bold(),
-        "Switch active network with: boundless prover networks --set \"Taiko Mainnet\"".dimmed()
-    );
-    println!();
 }

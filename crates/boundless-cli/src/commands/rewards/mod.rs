@@ -51,12 +51,11 @@ pub use submit_mining::RewardsSubmitMining;
 use clap::{Args, Subcommand};
 
 use crate::{
-    commands::setup::{
-        network::{display_name_for_network, normalize_rewards_network},
-        RewardsSetup,
+    commands::{
+        networks::{self, NetworkModule},
+        setup::RewardsSetup,
     },
     config::GlobalConfig,
-    config_file::{Config, Secrets},
 };
 
 /// Commands for rewards management
@@ -132,6 +131,18 @@ pub struct NetworksCmd {
     pub set: Option<String>,
 }
 
+impl NetworksCmd {
+    /// Run the command
+    pub async fn run(&self, _global_config: &GlobalConfig) -> anyhow::Result<()> {
+        if let Some(ref input) = self.set {
+            networks::set_active_network(NetworkModule::Rewards, input)
+        } else {
+            networks::list_networks(NetworkModule::Rewards);
+            Ok(())
+        }
+    }
+}
+
 impl RewardsCommands {
     /// Run the command
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
@@ -152,101 +163,7 @@ impl RewardsCommands {
             Self::Power(cmd) => cmd.run(global_config).await,
             Self::InspectMiningState(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
-            Self::Networks(cmd) => {
-                if let Some(ref network) = cmd.set {
-                    set_rewards_network(network)
-                } else {
-                    show_rewards_networks();
-                    Ok(())
-                }
-            }
+            Self::Networks(cmd) => cmd.run(global_config).await,
         }
     }
-}
-
-fn set_rewards_network(input: &str) -> anyhow::Result<()> {
-    use colored::Colorize;
-
-    let key = normalize_rewards_network(input);
-    let display = display_name_for_network(key);
-
-    let mut config = Config::load().unwrap_or_default();
-    config.rewards = Some(crate::config_file::RewardsConfig { network: key.to_string() });
-    config.save()?;
-
-    println!();
-    println!("{} Rewards active network set to {}", "✓".green().bold(), display.bold());
-
-    let secrets = Secrets::load().ok();
-    let has_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(key)).is_some();
-    if !has_secrets {
-        println!(
-            "  {} {}",
-            "⚠".yellow(),
-            format!(
-                "No credentials configured for {display}. Run 'boundless rewards setup' to add RPC URL and keys."
-            )
-            .yellow()
-        );
-    }
-    println!();
-
-    Ok(())
-}
-
-fn show_rewards_networks() {
-    use colored::Colorize;
-
-    let config = Config::load().ok();
-    let secrets = Secrets::load().ok();
-    let active_network =
-        config.as_ref().and_then(|c| c.rewards.as_ref()).map(|r| r.network.as_str());
-
-    println!();
-    println!("{}", "Rewards Networks".bold());
-    println!();
-
-    for (key, label) in
-        [("eth-mainnet", "Ethereum Mainnet (1)"), ("eth-sepolia", "Ethereum Sepolia (11155111)")]
-    {
-        let has_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(key)).is_some();
-        let status = if active_network == Some(key) {
-            "active".green().to_string()
-        } else if has_secrets {
-            "configured".blue().to_string()
-        } else {
-            "--".dimmed().to_string()
-        };
-
-        println!("  {:<35} {}", label.bold(), status);
-    }
-
-    if let Some(ref config) = config {
-        for custom in &config.custom_rewards {
-            let has_secrets =
-                secrets.as_ref().and_then(|s| s.rewards_networks.get(&custom.name)).is_some();
-            let status = if active_network == Some(custom.name.as_str()) {
-                "active".green().to_string()
-            } else if has_secrets {
-                "configured".blue().to_string()
-            } else {
-                "--".dimmed().to_string()
-            };
-
-            println!(
-                "  {:<35} {}",
-                format!("{} ({})", custom.name, custom.chain_id).bold(),
-                status,
-            );
-        }
-    }
-
-    println!();
-    println!(
-        "{} {}",
-        "Tip:".bold(),
-        "Switch active network with: boundless rewards networks --set \"Ethereum Mainnet\""
-            .dimmed()
-    );
-    println!();
 }

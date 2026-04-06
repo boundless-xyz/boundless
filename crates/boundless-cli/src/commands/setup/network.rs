@@ -43,14 +43,10 @@ pub enum ModuleType {
 /// or chain IDs as strings ("167000").
 pub fn normalize_market_network(network: &str) -> &str {
     match network {
-        "Base Mainnet" => "base-mainnet",
-        "Taiko Mainnet" => "taiko-mainnet",
-        "Base Sepolia" => "base-sepolia",
-        "Ethereum Sepolia" | "Eth Sepolia" => "eth-sepolia",
-        "8453" => "base-mainnet",
-        "167000" => "taiko-mainnet",
-        "84532" => "base-sepolia",
-        "11155111" => "eth-sepolia",
+        "Base Mainnet" | "8453" => "base-mainnet",
+        "Taiko Mainnet" | "167000" => "taiko-mainnet",
+        "Base Sepolia" | "84532" => "base-sepolia",
+        "Ethereum Sepolia" | "Eth Sepolia" | "11155111" => "eth-sepolia",
         custom => custom,
     }
 }
@@ -83,10 +79,8 @@ pub fn chain_id_for_network(network_key: &str) -> Option<u64> {
 /// Accepts display names, kebab-case keys, or chain IDs as strings.
 pub fn normalize_rewards_network(network: &str) -> &str {
     match network {
-        "Eth Mainnet" | "Ethereum Mainnet" => "eth-mainnet",
-        "Eth Testnet (Sepolia)" | "Eth Sepolia" | "Ethereum Sepolia" => "eth-sepolia",
-        "1" => "eth-mainnet",
-        "11155111" => "eth-sepolia",
+        "Eth Mainnet" | "Ethereum Mainnet" | "1" => "eth-mainnet",
+        "Eth Testnet (Sepolia)" | "Eth Sepolia" | "Ethereum Sepolia" | "11155111" => "eth-sepolia",
         custom => custom,
     }
 }
