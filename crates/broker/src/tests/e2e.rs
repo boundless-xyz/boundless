@@ -1177,6 +1177,9 @@ async fn multi_chain_e2e() {
             )
             .await
             .unwrap();
+
+        assert!(logs_contain("chain_id=31337"));
+        assert!(logs_contain("chain_id=1337"));
     })
     .await;
 }

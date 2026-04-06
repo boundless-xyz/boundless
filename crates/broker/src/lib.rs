@@ -61,6 +61,7 @@ use task::{RetryPolicy, Supervisor};
 use tokio::{sync::broadcast, sync::mpsc, sync::RwLock, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tower::{Layer, ServiceBuilder};
+use tracing::Instrument;
 use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
@@ -1072,6 +1073,8 @@ impl Broker {
         let deployment = &chain.deployment;
         let db = chain.db.clone();
 
+        let chain_span = tracing::info_span!("chain", chain_id);
+
         {
             let task = Arc::new(version_check::VersionCheckTask::new(
                 (*provider).clone(),
@@ -1083,13 +1086,16 @@ impl Broker {
             ));
             let config_clone = config.clone();
             let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(async move {
-                Supervisor::new(task, config_clone, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Version check task failed")?;
-                Ok(())
-            });
+            non_critical_tasks.spawn(
+                async move {
+                    Supervisor::new(task, config_clone, cancel_token)
+                        .spawn()
+                        .await
+                        .context("Version check task failed")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
         }
 
         let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
@@ -1130,12 +1136,16 @@ impl Broker {
                             db.clone(),
                         );
                         let cancel_token = non_critical_cancel_token.clone();
-                        non_critical_tasks.spawn(async move {
-                            telemetry::run_telemetry_service(service, cancel_token)
-                                .await
-                                .context("Telemetry service failed")?;
-                            Ok(())
-                        });
+                        let cs = chain_span.clone();
+                        non_critical_tasks.spawn(
+                            async move {
+                                telemetry::run_telemetry_service(service, cancel_token)
+                                    .await
+                                    .context("Telemetry service failed")?;
+                                Ok(())
+                            }
+                            .instrument(cs),
+                        );
                         handle
                     })
                 } else {
@@ -1156,12 +1166,16 @@ impl Broker {
                             db.clone(),
                         );
                         let cancel_token = non_critical_cancel_token.clone();
-                        non_critical_tasks.spawn(async move {
-                            telemetry::run_telemetry_service(service, cancel_token)
-                                .await
-                                .context("Telemetry service failed")?;
-                            Ok(())
-                        });
+                        let cs = chain_span.clone();
+                        non_critical_tasks.spawn(
+                            async move {
+                                telemetry::run_telemetry_service(service, cancel_token)
+                                    .await
+                                    .context("Telemetry service failed")?;
+                                Ok(())
+                            }
+                            .instrument(cs),
+                        );
                         handle
                     })
                 }
@@ -1178,12 +1192,16 @@ impl Broker {
                     db.clone(),
                 );
                 let cancel_token = non_critical_cancel_token.clone();
-                non_critical_tasks.spawn(async move {
-                    telemetry::run_telemetry_service(service, cancel_token)
-                        .await
-                        .context("Telemetry service failed")?;
-                    Ok(())
-                });
+                let cs = chain_span.clone();
+                non_critical_tasks.spawn(
+                    async move {
+                        telemetry::run_telemetry_service(service, cancel_token)
+                            .await
+                            .context("Telemetry service failed")?;
+                        Ok(())
+                    }
+                    .instrument(cs),
+                );
                 handle
             }),
         };
@@ -1214,13 +1232,16 @@ impl Broker {
             let cloned = monitor.clone();
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(cloned, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start ChainMonitorV2")?;
-                Ok(())
-            });
+            critical_tasks.spawn(
+                async move {
+                    Supervisor::new(cloned, cloned_config, cancel_token)
+                        .spawn()
+                        .await
+                        .context("Failed to start ChainMonitorV2")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
 
             let block_times = monitor.block_time();
             (monitor as chain_monitor::ChainMonitorObj, block_times)
@@ -1237,13 +1258,16 @@ impl Broker {
             let cloned_chain_monitor = chain_monitor_service.clone();
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start chain monitor")?;
-                Ok(())
-            });
+            critical_tasks.spawn(
+                async move {
+                    Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
+                        .spawn()
+                        .await
+                        .context("Failed to start chain monitor")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
 
             let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
                 lookback_blocks,
@@ -1263,13 +1287,16 @@ impl Broker {
 
             let cloned_config = config.clone();
             let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(async move {
-                Supervisor::new(market_monitor, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start market monitor")?;
-                Ok(())
-            });
+            non_critical_tasks.spawn(
+                async move {
+                    Supervisor::new(market_monitor, cloned_config, cancel_token)
+                        .spawn()
+                        .await
+                        .context("Failed to start market monitor")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
 
             (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
         };
@@ -1285,13 +1312,16 @@ impl Broker {
                 ));
             let cloned_config = config.clone();
             let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(async move {
-                Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start offchain market monitor")?;
-                Ok(())
-            });
+            non_critical_tasks.spawn(
+                async move {
+                    Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
+                        .spawn()
+                        .await
+                        .context("Failed to start offchain market monitor")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
         }
 
         let market = Arc::new(BoundlessMarketService::new_for_broker(
@@ -1316,13 +1346,16 @@ impl Broker {
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         let price_oracle_clone = price_oracle.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("price oracle failed")?;
-            Ok(())
-        });
+        non_critical_tasks.spawn(
+            async move {
+                Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("price oracle failed")?;
+                Ok(())
+            }
+            .instrument(chain_span.clone()),
+        );
 
         let allow_requestors = requestor_monitor::AllowRequestors::new(config.clone(), chain_id);
 
@@ -1358,13 +1391,16 @@ impl Broker {
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(order_pricer, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start order pricer")?;
-            Ok(())
-        });
+        non_critical_tasks.spawn(
+            async move {
+                Supervisor::new(order_pricer, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start order pricer")?;
+                Ok(())
+            }
+            .instrument(chain_span.clone()),
+        );
 
         let order_locker = Arc::new(order_locker::OrderLocker::new(
             db.clone(),
@@ -1389,13 +1425,16 @@ impl Broker {
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(order_locker, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start order locker")?;
-            Ok(())
-        });
+        non_critical_tasks.spawn(
+            async move {
+                Supervisor::new(order_locker, cloned_config, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Failed to start order locker")?;
+                Ok(())
+            }
+            .instrument(chain_span.clone()),
+        );
 
         if !self.args.listen_only {
             let proving_service = Arc::new(proving::ProvingService::new(
@@ -1413,13 +1452,16 @@ impl Broker {
 
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(proving_service, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start proving service")?;
-                Ok(())
-            });
+            critical_tasks.spawn(
+                async move {
+                    Supervisor::new(proving_service, cloned_config, cancel_token)
+                        .spawn()
+                        .await
+                        .context("Failed to start proving service")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
 
             let set_builder_img_id = self
                 .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
@@ -1446,14 +1488,17 @@ impl Broker {
 
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(aggregator, cloned_config, cancel_token)
-                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                    .spawn()
-                    .await
-                    .context("Failed to start aggregator service")?;
-                Ok(())
-            });
+            critical_tasks.spawn(
+                async move {
+                    Supervisor::new(aggregator, cloned_config, cancel_token)
+                        .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                        .spawn()
+                        .await
+                        .context("Failed to start aggregator service")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
 
             // Start the ReaperTask to check for expired committed orders
             let reaper = Arc::new(reaper::ReaperTask::new(
@@ -1466,13 +1511,16 @@ impl Broker {
             let cloned_config = config.clone();
             // Using critical cancel token to ensure no stuck expired jobs on shutdown
             let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(reaper, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start reaper service")?;
-                Ok(())
-            });
+            critical_tasks.spawn(
+                async move {
+                    Supervisor::new(reaper, cloned_config, cancel_token)
+                        .spawn()
+                        .await
+                        .context("Failed to start reaper service")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
 
             let submitter = Arc::new(submitter::Submitter::new(
                 db.clone(),
@@ -1487,14 +1535,17 @@ impl Broker {
             )?);
             let cloned_config = config.clone();
             let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(async move {
-                Supervisor::new(submitter, cloned_config, cancel_token)
-                    .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                    .spawn()
-                    .await
-                    .context("Failed to start submitter service")?;
-                Ok(())
-            });
+            critical_tasks.spawn(
+                async move {
+                    Supervisor::new(submitter, cloned_config, cancel_token)
+                        .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
+                        .spawn()
+                        .await
+                        .context("Failed to start submitter service")?;
+                    Ok(())
+                }
+                .instrument(chain_span.clone()),
+            );
         }
 
         // Start the RequestorMonitor to periodically fetch priority and allow lists
@@ -1504,13 +1555,16 @@ impl Broker {
         ));
         let config_clone = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(requestor_monitor, config_clone, cancel_token)
-                .spawn()
-                .await
-                .context("Requestor list monitor panicked")?;
-            Ok(())
-        });
+        non_critical_tasks.spawn(
+            async move {
+                Supervisor::new(requestor_monitor, config_clone, cancel_token)
+                    .spawn()
+                    .await
+                    .context("Requestor list monitor panicked")?;
+                Ok(())
+            }
+            .instrument(chain_span.clone()),
+        );
 
         Ok(())
     }
