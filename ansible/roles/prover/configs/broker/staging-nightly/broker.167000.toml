@@ -8,18 +8,3 @@
 min_mcycle_price = "0.000001 USD"
 max_collateral = "100 USD"
 expected_probability_win_secondary_fulfillment = 50
-
-# Taiko has stable low gas prices (~0.009 gwei).
-[market.gas_estimation_priority_mode.custom]
-base_fee_multiplier_percentage = 50
-priority_fee_multiplier_percentage = 50
-priority_fee_percentile = 5.0
-dynamic_multiplier_percentage = 0
-
-# Chainlink price feeds not available on Taiko.
-[price_oracle]
-eth_usd = "auto"
-zkc_usd = "auto"
-
-[price_oracle.onchain.chainlink]
-enabled = false

@@ -44,6 +44,21 @@
     mode: "0600"
   notify: Restart Bento
 
+## Broker config deployment — three modes (checked in priority order):
+## 1. prover_broker_config_dir: copy entire directory (broker.toml + broker.*.toml overrides)
+## 2. prover_broker_toml_local + prover_chain_overrides: individual file paths
+## 3. prover_broker_toml_url (default): download broker.toml from URL
+
+- name: Deploy broker config from directory
+  ansible.builtin.copy:
+    src: "{{ prover_broker_config_dir }}/"
+    dest: "{{ prover_dir }}/"
+    owner: root
+    group: root
+    mode: "0644"
+  when: prover_broker_config_dir | string | length > 0
+  notify: Restart Bento
+
 - name: Copy local broker configuration file
   ansible.builtin.copy:
     src: "{{ prover_broker_toml_local }}"
@@ -51,7 +66,9 @@
     owner: root
     group: root
     mode: "0644"
-  when: prover_broker_toml_local | string | length > 0
+  when:
+    - prover_broker_config_dir | string | length == 0
+    - prover_broker_toml_local | string | length > 0
   notify: Restart Bento
 
 - name: Download broker configuration file
@@ -61,22 +78,15 @@
     owner: root
     group: root
     mode: "0644"
-  when: prover_broker_toml_local | string | length == 0
+  when:
+    - prover_broker_config_dir | string | length == 0
+    - prover_broker_toml_local | string | length == 0
   notify: Restart Bento
-
-- name: Create chain-overrides directory
-  ansible.builtin.file:
-    path: "{{ prover_dir }}/chain-overrides"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  when: prover_chain_overrides | default({}) | length > 0
 
 - name: Deploy per-chain config overrides (from URL)
   ansible.builtin.get_url:
     url: "{{ override_url }}"
-    dest: "{{ prover_dir }}/chain-overrides/broker.{{ chain_id }}.toml"
+    dest: "{{ prover_dir }}/broker.{{ chain_id }}.toml"
     owner: root
     group: root
     mode: "0644"
@@ -87,6 +97,7 @@
     chain_id: "{{ chain_override.key }}"
     override_url: "{{ chain_override.value }}"
   when:
+    - prover_broker_config_dir | string | length == 0
     - prover_chain_overrides | default({}) | length > 0
     - chain_override.value is match('^https?://')
   notify: Restart Bento
@@ -94,7 +105,7 @@
 - name: Deploy per-chain config overrides (from local file)
   ansible.builtin.copy:
     src: "{{ override_path }}"
-    dest: "{{ prover_dir }}/chain-overrides/broker.{{ chain_id }}.toml"
+    dest: "{{ prover_dir }}/broker.{{ chain_id }}.toml"
     owner: root
     group: root
     mode: "0644"
@@ -105,6 +116,7 @@
     chain_id: "{{ chain_override.key }}"
     override_path: "{{ chain_override.value }}"
   when:
+    - prover_broker_config_dir | string | length == 0
     - prover_chain_overrides | default({}) | length > 0
     - chain_override.value is not match('^https?://')
   notify: Restart Bento

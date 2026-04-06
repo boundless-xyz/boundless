@@ -1,0 +1,5 @@
+# Nightly Taiko Mainnet (167000) chain override
+[market]
+min_mcycle_price = "0.000001 USD"
+max_collateral = "100 USD"
+expected_probability_win_secondary_fulfillment = 50
