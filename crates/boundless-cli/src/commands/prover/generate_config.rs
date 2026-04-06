@@ -34,6 +34,7 @@ use boundless_market::{
     Deployment, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, SUPPORTED_CHAINS,
     XL_REQUESTOR_LIST_THRESHOLD_KHZ,
 };
+use broker::config::CHAIN_OVERRIDES_DIR;
 use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, MultiSelect, Select, Text};
@@ -149,7 +150,7 @@ impl ProverGenerateConfig {
                 display.item_colored(
                     "Created",
                     broker_dir
-                        .join("chain-overrides")
+                        .join(CHAIN_OVERRIDES_DIR)
                         .join(format!("broker.{}.toml", chain.chain_id))
                         .display(),
                     "green",
@@ -1196,7 +1197,7 @@ impl ProverGenerateConfig {
     /// Generate a per-chain override TOML file containing only per-chain fields.
     fn generate_chain_override_toml(&self, chain: &ChainConfig) -> Result<()> {
         let broker_dir = self.broker_toml_file.parent().unwrap_or(Path::new("."));
-        let overrides_dir = broker_dir.join("chain-overrides");
+        let overrides_dir = broker_dir.join(CHAIN_OVERRIDES_DIR);
         std::fs::create_dir_all(&overrides_dir)
             .context("Failed to create chain-overrides directory")?;
         let override_path = overrides_dir.join(format!("broker.{}.toml", chain.chain_id));

@@ -32,6 +32,9 @@ pub use boundless_market::prover_utils::{
     OrderPricingPriority, ProverConfig, TelemetryMode,
 };
 
+/// Directory name for per-chain broker config overrides (e.g. `chain-overrides/broker.8453.toml`).
+pub const CHAIN_OVERRIDES_DIR: &str = "chain-overrides";
+
 #[derive(Error)]
 pub enum ConfigErr {
     #[error("Failed to lock internal config structure")]
@@ -245,7 +248,7 @@ impl ConfigWatcher {
         }
 
         // Check chain-overrides/ subdirectory (e.g. ./chain-overrides/broker.8453.toml)
-        let subdir = config_dir.join("chain-overrides").join(&filename);
+        let subdir = config_dir.join(CHAIN_OVERRIDES_DIR).join(&filename);
         subdir.exists().then_some(subdir)
     }
 }
@@ -589,7 +592,7 @@ peak_prove_khz = 999
         assert!(ConfigWatcher::override_path_for_chain(&base_path, 167000).is_none());
 
         // Create in chain-overrides/ subdirectory
-        let overrides_dir = dir.path().join("chain-overrides");
+        let overrides_dir = dir.path().join(CHAIN_OVERRIDES_DIR);
         std::fs::create_dir_all(&overrides_dir).unwrap();
         let override_path = overrides_dir.join("broker.167000.toml");
         std::fs::write(&override_path, "").unwrap();
