@@ -63,6 +63,14 @@ impl Priority {
     pub const fn bucket(self) -> i32 {
         self as i32
     }
+
+    pub const fn as_metric_label(self) -> &'static str {
+        match self {
+            Self::High => "high",
+            Self::Medium => "medium",
+            Self::Low => "low",
+        }
+    }
 }
 
 pub struct ReadyTask {
@@ -102,10 +110,19 @@ impl std::fmt::Display for TaskState {
 pub struct StuckTaskInfo {
     pub job_id: Uuid,
     pub task_id: String,
+    pub worker_type: String,
     pub waiting_on: i32,
     pub actual_deps: i32,
     pub completed_deps: i32,
     pub should_be_ready: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct TaskStateCount {
+    pub worker_type: String,
+    pub priority: Priority,
+    pub state: String,
+    pub count: u64,
 }
 
 #[derive(Clone)]
@@ -229,6 +246,10 @@ impl TaskDb {
 
     pub async fn check_stuck_pending_tasks(&self) -> Result<Vec<StuckTaskInfo>, TaskDbErr> {
         self.redis.check_stuck_pending_tasks().await
+    }
+
+    pub async fn get_task_state_counts(&self) -> Result<Vec<TaskStateCount>, TaskDbErr> {
+        self.redis.get_task_state_counts().await
     }
 
     pub async fn clear_completed_jobs(&self) -> Result<i32, TaskDbErr> {

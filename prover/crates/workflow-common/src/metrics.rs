@@ -6,7 +6,7 @@
 use lazy_static::lazy_static;
 use prometheus::core::Collector;
 use prometheus::{
-    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts,
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
 };
 
 // Prometheus metrics for workflow execution
@@ -40,6 +40,67 @@ lazy_static! {
         HistogramOpts::new("task_processing_duration_seconds", "Duration of task processing")
             .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
         &["task_type", "status"]
+    ).unwrap();
+
+    pub static ref TASK_CLAIMS: IntCounterVec = IntCounterVec::new(
+        Opts::new("task_claims_total", "Total number of task claim attempts by stream and result"),
+        &["task_stream", "result"]
+    ).unwrap();
+
+    pub static ref TASK_PROCESSING_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("task_processing_total", "Total number of task processing attempts by type and status"),
+        &["task_type", "status"]
+    ).unwrap();
+
+    pub static ref TASK_PROCESSING_END_TO_END_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new(
+            "task_processing_end_to_end_seconds",
+            "End-to-end duration of task processing in the worker loop"
+        )
+        .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0]),
+        &["task_type", "status"]
+    ).unwrap();
+
+    pub static ref TASK_REQUEUES: IntCounterVec = IntCounterVec::new(
+        Opts::new("task_requeues_total", "Total number of expired tasks requeued by stream"),
+        &["task_stream"]
+    ).unwrap();
+
+    pub static ref TASK_RETRY_ATTEMPTS: IntCounterVec = IntCounterVec::new(
+        Opts::new("task_retry_attempts_total", "Total number of task retry transitions by type"),
+        &["task_type"]
+    ).unwrap();
+
+    pub static ref TASK_MAX_RETRIES_EXHAUSTED: IntCounterVec = IntCounterVec::new(
+        Opts::new(
+            "task_max_retries_exhausted_total",
+            "Total number of tasks that stopped retrying and failed permanently"
+        ),
+        &["task_type"]
+    ).unwrap();
+
+    pub static ref TASK_STUCK_PENDING_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new(
+            "task_stuck_pending_total",
+            "Total number of stuck pending task detections by stream"
+        ),
+        &["task_stream"]
+    ).unwrap();
+
+    pub static ref TASK_STUCK_PENDING_CURRENT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "task_stuck_pending_current",
+            "Current number of stuck pending tasks by stream"
+        ),
+        &["task_stream"]
+    ).unwrap();
+
+    pub static ref TASK_QUEUE_DEPTH: IntGaugeVec = IntGaugeVec::new(
+        Opts::new(
+            "task_queue_depth",
+            "Current task counts by stream, priority, and state"
+        ),
+        &["task_stream", "priority", "state"]
     ).unwrap();
 
     // Error metrics
@@ -97,15 +158,6 @@ lazy_static! {
 
     pub static ref DB_CONNECTION_POOL_ACTIVE: IntGauge = IntGauge::new(
         "db_connection_pool_active", "Current number of active database connections"
-    ).unwrap();
-
-    // Queue metrics
-    pub static ref SEGMENT_QUEUE_SIZE: IntGauge = IntGauge::new(
-        "segment_queue_size", "Current size of segment queue"
-    ).unwrap();
-
-    pub static ref TASK_QUEUE_SIZE_GAUGE: IntGauge = IntGauge::new(
-        "task_queue_size", "Current size of task queue"
     ).unwrap();
 
     // Assumption metrics
@@ -177,6 +229,18 @@ pub mod helpers {
         register_or_log("total_cycles_total", &*TOTAL_CYCLES);
         register_or_log("tasks_created_total", &*TASKS_CREATED);
         register_or_log("task_processing_duration_seconds", &*TASK_PROCESSING_DURATION);
+        register_or_log("task_claims_total", &*TASK_CLAIMS);
+        register_or_log("task_processing_total", &*TASK_PROCESSING_TOTAL);
+        register_or_log(
+            "task_processing_end_to_end_seconds",
+            &*TASK_PROCESSING_END_TO_END_DURATION,
+        );
+        register_or_log("task_requeues_total", &*TASK_REQUEUES);
+        register_or_log("task_retry_attempts_total", &*TASK_RETRY_ATTEMPTS);
+        register_or_log("task_max_retries_exhausted_total", &*TASK_MAX_RETRIES_EXHAUSTED);
+        register_or_log("task_stuck_pending_total", &*TASK_STUCK_PENDING_TOTAL);
+        register_or_log("task_stuck_pending_current", &*TASK_STUCK_PENDING_CURRENT);
+        register_or_log("task_queue_depth", &*TASK_QUEUE_DEPTH);
         register_or_log("errors_total", &*EXECUTION_ERRORS);
         register_or_log("guest_faults_total", &*GUEST_FAULTS);
         register_or_log("s3_operations_total", &*S3_OPERATIONS);
@@ -188,8 +252,6 @@ pub mod helpers {
         register_or_log("db_connection_pool_size", &*DB_CONNECTION_POOL_SIZE);
         register_or_log("db_connection_pool_idle", &*DB_CONNECTION_POOL_IDLE);
         register_or_log("db_connection_pool_active", &*DB_CONNECTION_POOL_ACTIVE);
-        register_or_log("segment_queue_size", &*SEGMENT_QUEUE_SIZE);
-        register_or_log("task_queue_size", &*TASK_QUEUE_SIZE_GAUGE);
         register_or_log("assumptions_total", &*ASSUMPTION_COUNT);
         register_or_log("assumption_processing_duration_seconds", &*ASSUMPTION_PROCESSING_DURATION);
         register_or_log("povw_resolve_duration_seconds", &*POVW_RESOLVE_DURATION);
@@ -328,7 +390,9 @@ pub mod helpers {
 
     /// Record task operation metrics
     pub fn record_task(task_name: &str, operation_type: &str, status: &str, duration_seconds: f64) {
-        record_task_operation(task_name, operation_type, status, duration_seconds);
+        let task_type = format!("{task_name}:{operation_type}");
+        register_or_log("task_processing_duration_seconds", &*TASK_PROCESSING_DURATION);
+        TASK_PROCESSING_DURATION.with_label_values(&[&task_type, status]).observe(duration_seconds);
     }
 
     /// Record database operation metrics
@@ -364,6 +428,79 @@ pub mod helpers {
         TASK_DURATION
             .with_label_values(&[task_name, operation_type, status])
             .observe(duration_seconds);
+    }
+
+    /// Record task claim result metrics.
+    pub fn record_task_claim(task_stream: &str, result: &str) {
+        register_or_log("task_claims_total", &*TASK_CLAIMS);
+        TASK_CLAIMS.with_label_values(&[task_stream, result]).inc();
+    }
+
+    /// Record end-to-end task processing metrics from the worker loop.
+    pub fn record_task_processing(task_type: &str, status: &str, duration_seconds: f64) {
+        register_or_log("task_processing_total", &*TASK_PROCESSING_TOTAL);
+        register_or_log(
+            "task_processing_end_to_end_seconds",
+            &*TASK_PROCESSING_END_TO_END_DURATION,
+        );
+        TASK_PROCESSING_TOTAL.with_label_values(&[task_type, status]).inc();
+        TASK_PROCESSING_END_TO_END_DURATION
+            .with_label_values(&[task_type, status])
+            .observe(duration_seconds);
+    }
+
+    /// Record a successful retry transition for a task.
+    pub fn record_task_retry_attempt(task_type: &str) {
+        register_or_log("task_retry_attempts_total", &*TASK_RETRY_ATTEMPTS);
+        TASK_RETRY_ATTEMPTS.with_label_values(&[task_type]).inc();
+    }
+
+    /// Record a task exhausting retries and failing permanently.
+    pub fn record_task_max_retries_exhausted(task_type: &str) {
+        register_or_log("task_max_retries_exhausted_total", &*TASK_MAX_RETRIES_EXHAUSTED);
+        TASK_MAX_RETRIES_EXHAUSTED.with_label_values(&[task_type]).inc();
+    }
+
+    /// Record a batch of requeued expired tasks.
+    pub fn record_task_requeues(task_stream: &str, count: u64) {
+        if count == 0 {
+            return;
+        }
+        register_or_log("task_requeues_total", &*TASK_REQUEUES);
+        TASK_REQUEUES.with_label_values(&[task_stream]).inc_by(count);
+    }
+
+    /// Reset current stuck pending gauges before setting the latest values.
+    pub fn reset_task_stuck_pending_current() {
+        register_or_log("task_stuck_pending_current", &*TASK_STUCK_PENDING_CURRENT);
+        TASK_STUCK_PENDING_CURRENT.reset();
+    }
+
+    /// Set the current stuck pending task count for a stream.
+    pub fn set_task_stuck_pending_current(task_stream: &str, count: i64) {
+        register_or_log("task_stuck_pending_current", &*TASK_STUCK_PENDING_CURRENT);
+        TASK_STUCK_PENDING_CURRENT.with_label_values(&[task_stream]).set(count);
+    }
+
+    /// Record stuck pending task detections for a stream.
+    pub fn record_task_stuck_pending(task_stream: &str, count: u64) {
+        if count == 0 {
+            return;
+        }
+        register_or_log("task_stuck_pending_total", &*TASK_STUCK_PENDING_TOTAL);
+        TASK_STUCK_PENDING_TOTAL.with_label_values(&[task_stream]).inc_by(count);
+    }
+
+    /// Reset queue depth gauges before publishing a fresh snapshot.
+    pub fn reset_task_queue_depth() {
+        register_or_log("task_queue_depth", &*TASK_QUEUE_DEPTH);
+        TASK_QUEUE_DEPTH.reset();
+    }
+
+    /// Set the current queue depth for a stream, priority, and state.
+    pub fn set_task_queue_depth(task_stream: &str, priority: &str, state: &str, count: i64) {
+        register_or_log("task_queue_depth", &*TASK_QUEUE_DEPTH);
+        TASK_QUEUE_DEPTH.with_label_values(&[task_stream, priority, state]).set(count);
     }
 
     /// Record execution duration

@@ -18,10 +18,11 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    time::Instant,
 };
-use taskdb::{ReadyTask, TaskDb};
+use taskdb::{ReadyTask, TaskDb, TaskStateCount};
 use tokio::{sync::oneshot, time};
-use workflow_common::{COPROC_WORK_TYPE, TaskType};
+use workflow_common::{COPROC_WORK_TYPE, TaskType, metrics::helpers};
 mod assets;
 mod redis;
 mod tasks;
@@ -32,6 +33,7 @@ pub use workflow_common::{
 };
 
 type WorkPrefetchRx = oneshot::Receiver<Result<Option<ReadyTask>>>;
+const TASK_QUEUE_METRICS_REFRESH_INTERVAL_SECS: u64 = 5;
 
 fn uses_gpu_worker_api(task_stream: &str) -> bool {
     matches!(
@@ -194,6 +196,8 @@ pub struct Agent {
     verifier_ctx: VerifierContext,
     /// Single-slot prefetch for the next prove-stream task.
     work_prefetch: Mutex<Option<WorkPrefetchRx>>,
+    /// Last time shared task queue metrics were refreshed.
+    queue_metrics_last_refresh: Mutex<Option<Instant>>,
 }
 
 impl Agent {
@@ -292,6 +296,7 @@ impl Agent {
             prover,
             verifier_ctx,
             work_prefetch: Mutex::new(None),
+            queue_metrics_last_refresh: Mutex::new(None),
         })
     }
 
@@ -318,6 +323,60 @@ impl Agent {
             let _ = tx.send(result);
         });
         *prefetch = Some(rx);
+    }
+
+    fn task_type_label(&self, task: &ReadyTask) -> String {
+        let task_type: TaskType = match serde_json::from_value(task.task_def.clone()) {
+            Ok(task_type) => task_type,
+            Err(_) => return "invalid_task".to_string(),
+        };
+
+        match task_type {
+            TaskType::Join(_) if self.is_povw_enabled() => "join_povw".to_string(),
+            TaskType::Resolve(_) if self.is_povw_enabled() => "resolve_povw".to_string(),
+            other => other.to_job_type_str(),
+        }
+    }
+
+    fn should_refresh_queue_metrics(&self) -> bool {
+        let mut last_refresh =
+            self.queue_metrics_last_refresh.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let now = Instant::now();
+        if let Some(last) = *last_refresh
+            && now.duration_since(last).as_secs() < TASK_QUEUE_METRICS_REFRESH_INTERVAL_SECS
+        {
+            return false;
+        }
+        *last_refresh = Some(now);
+        true
+    }
+
+    async fn refresh_task_queue_metrics(&self) -> Result<()> {
+        let Some(task_db) = self.direct_task_db() else {
+            return Ok(());
+        };
+        if !self.should_refresh_queue_metrics() {
+            return Ok(());
+        }
+
+        let counts = task_db
+            .get_task_state_counts()
+            .await
+            .context("[BENTO-WF-209] Failed to fetch task state counts for metrics")?;
+        Self::publish_task_queue_metrics(&counts);
+        Ok(())
+    }
+
+    fn publish_task_queue_metrics(counts: &[TaskStateCount]) {
+        helpers::reset_task_queue_depth();
+        for count in counts {
+            helpers::set_task_queue_depth(
+                &count.worker_type,
+                count.priority.as_metric_label(),
+                &count.state,
+                count.count as i64,
+            );
+        }
     }
 
     async fn take_prefetched_work(&self) -> Result<Option<ReadyTask>> {
@@ -615,13 +674,36 @@ impl Agent {
         while !term_sig.load(Ordering::Relaxed) {
             // Update database pool metrics periodically
             self.update_db_pool_metrics();
+            if let Err(err) = self.refresh_task_queue_metrics().await {
+                tracing::warn!("Failed to refresh task queue metrics: {err:#}");
+            }
 
-            let task = self.request_work().await?;
+            let task = match self.request_work().await {
+                Ok(task) => {
+                    let result = if task.is_some() { "claimed" } else { "empty" };
+                    helpers::record_task_claim(&self.args.task_stream, result);
+                    task
+                }
+                Err(err) => {
+                    helpers::record_task_claim(&self.args.task_stream, "error");
+                    return Err(err);
+                }
+            };
             let Some(task) = task else {
                 continue;
             };
 
-            if let Err(err) = self.process_work(&task).await {
+            let task_type = self.task_type_label(&task);
+            let processing_start = Instant::now();
+            let process_result = self.process_work(&task).await;
+            let processing_status = if process_result.is_ok() { "success" } else { "error" };
+            helpers::record_task_processing(
+                &task_type,
+                processing_status,
+                processing_start.elapsed().as_secs_f64(),
+            );
+
+            if let Err(err) = process_result {
                 let mut err_str = format!("{:#}", err);
                 if !err_str.contains("stopped intentionally due to session limit")
                     && !err_str.contains("Session limit exceeded")
@@ -635,6 +717,7 @@ impl Agent {
                         self.get_task_retries_running(&task.job_id, &task.task_id).await?
                         && current_retries + 1 > task.max_retries
                     {
+                        helpers::record_task_max_retries_exhausted(&task_type);
                         // Prevent massive errors from being reported to the DB
                         err_str.truncate(1024);
                         let final_err = if err_str.is_empty() {
@@ -646,10 +729,14 @@ impl Agent {
                         continue;
                     }
 
-                    if !self.update_task_retry(&task.job_id, &task.task_id).await? {
+                    if self.update_task_retry(&task.job_id, &task.task_id).await? {
+                        helpers::record_task_retry_attempt(&task_type);
+                    } else {
+                        helpers::record_task_max_retries_exhausted(&task_type);
                         tracing::info!("update_task_retried failed: {}", task.job_id);
                     }
                 } else {
+                    helpers::record_task_max_retries_exhausted(&task_type);
                     // Prevent massive errors from being reported to the DB
                     err_str.truncate(1024);
                     self.update_task_failed(&task.job_id, &task.task_id, &err_str).await?;
@@ -767,6 +854,7 @@ impl Agent {
             tracing::debug!("Triggering a requeue job...");
             let requeued = task_db.requeue_tasks(100).await?;
             if requeued > 0 {
+                helpers::record_task_requeues("all", requeued as u64);
                 tracing::info!("Requeued {requeued} expired tasks for retry");
             }
             time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
@@ -791,6 +879,15 @@ impl Agent {
             tracing::debug!("Checking for stuck pending tasks...");
 
             let stuck_tasks = task_db.check_stuck_pending_tasks().await?;
+            let mut stuck_by_stream = std::collections::BTreeMap::<String, u64>::new();
+            for task in &stuck_tasks {
+                *stuck_by_stream.entry(task.worker_type.clone()).or_default() += 1;
+            }
+            helpers::reset_task_stuck_pending_current();
+            for (task_stream, count) in &stuck_by_stream {
+                helpers::set_task_stuck_pending_current(task_stream, *count as i64);
+                helpers::record_task_stuck_pending(task_stream, *count);
+            }
             if !stuck_tasks.is_empty() {
                 tracing::error!(
                     count = stuck_tasks.len(),
@@ -800,6 +897,7 @@ impl Agent {
                     tracing::error!(
                         job_id = %task.job_id,
                         task_id = %task.task_id,
+                        task_stream = %task.worker_type,
                         waiting_on = task.waiting_on,
                         actual_deps = task.actual_deps,
                         completed_deps = task.completed_deps,

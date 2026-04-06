@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-use crate::{JobState, Priority, ReadyTask, TaskDbErr};
+use crate::{JobState, Priority, ReadyTask, TaskDbErr, TaskStateCount};
 
 /// Redis/Valkey 7+ function library. Load with FUNCTION LOAD REPLACE; then invoke with FCALL <function> 0 <args...>.
 const TASKDB_LIBRARY: &str = r#"#!lua name=taskdb
@@ -491,10 +491,11 @@ redis.register_function('find_stuck_pending', function(keys, args)
                 if completed >= actual_deps then
                   table.insert(results, job_id)
                   table.insert(results, tid)
+                  table.insert(results, redis.call('HGET', tkey, 'worker_type') or 'unknown')
                   table.insert(results, tostring(waiting_on))
                   table.insert(results, tostring(actual_deps))
                   table.insert(results, tostring(completed))
-                  if #results / 5 >= limit then
+                  if #results / 6 >= limit then
                     return results
                   end
                 end
@@ -505,6 +506,32 @@ redis.register_function('find_stuck_pending', function(keys, args)
       end
     end
   until cursor == '0'
+  return results
+end)
+
+redis.register_function('count_task_states', function(keys, args)
+  local p = args[1]
+  local counts = {}
+  local cursor = '0'
+  repeat
+    local res = redis.call('SCAN', cursor, 'MATCH', p .. ':task:*', 'COUNT', 500)
+    cursor = res[1]
+    for _, task_key in ipairs(res[2]) do
+      local state = redis.call('HGET', task_key, 'state')
+      if state == 'ready' or state == 'running' or state == 'pending' then
+        local worker_type = redis.call('HGET', task_key, 'worker_type') or 'unknown'
+        local priority = redis.call('HGET', task_key, 'priority') or '1'
+        local compound = worker_type .. '|' .. priority .. '|' .. state
+        counts[compound] = (counts[compound] or 0) + 1
+      end
+    end
+  until cursor == '0'
+
+  local results = {}
+  for compound, count in pairs(counts) do
+    table.insert(results, compound)
+    table.insert(results, tostring(count))
+  end
   return results
 end)
 
@@ -593,7 +620,7 @@ impl RedisTaskDb {
         conn: &mut redis::aio::MultiplexedConnection,
         cmd: &mut redis::Cmd,
     ) -> Result<redis::Value, TaskDbErr> {
-        match cmd.query_async::<redis::Value>(conn).await {
+        match cmd.query_async::<_, redis::Value>(conn).await {
             Ok(val) => Ok(val),
             Err(e) if is_function_not_found(&e) => {
                 tracing::warn!(
@@ -602,7 +629,7 @@ impl RedisTaskDb {
                 self.lua_loaded.store(false, Ordering::Release);
                 load_lua_functions(conn).await?;
                 self.lua_loaded.store(true, Ordering::Release);
-                Ok(cmd.query_async::<redis::Value>(conn).await?)
+                Ok(cmd.query_async::<_, redis::Value>(conn).await?)
             }
             Err(e) => Err(e.into()),
         }
@@ -1148,25 +1175,72 @@ impl RedisTaskDb {
             let mut conn = self.conn().await?;
             self.ensure_functions_loaded(&mut conn).await?;
 
-            let raw: Vec<String> = redis::cmd("FCALL")
-                .arg("find_stuck_pending")
-                .arg(0)
-                .arg(&self.namespace)
-                .arg(100)
-                .query_async(&mut conn)
-                .await?;
+            let mut cmd = redis::cmd("FCALL");
+            cmd.arg("find_stuck_pending").arg(0).arg(&self.namespace).arg(100);
+            let raw: Vec<String> =
+                redis::from_redis_value(&self.fcall(&mut conn, &mut cmd).await?)?;
 
             let mut results = Vec::new();
             let mut i = 0;
-            while i + 4 < raw.len() {
+            while i + 5 < raw.len() {
                 results.push(crate::StuckTaskInfo {
                     job_id: parse_uuid(&raw[i], "stuck_task job_id")?,
                     task_id: raw[i + 1].clone(),
-                    waiting_on: raw[i + 2].parse().unwrap_or(0),
-                    actual_deps: raw[i + 3].parse().unwrap_or(0),
-                    completed_deps: raw[i + 4].parse().unwrap_or(0),
+                    worker_type: raw[i + 2].clone(),
+                    waiting_on: raw[i + 3].parse().unwrap_or(0),
+                    actual_deps: raw[i + 4].parse().unwrap_or(0),
+                    completed_deps: raw[i + 5].parse().unwrap_or(0),
+                    should_be_ready: true,
                 });
-                i += 5;
+                i += 6;
+            }
+
+            Ok(results)
+        })
+        .await
+    }
+
+    pub async fn get_task_state_counts(&self) -> Result<Vec<TaskStateCount>, TaskDbErr> {
+        record("redis:get_task_state_counts", async {
+            let mut conn = self.conn().await?;
+            self.ensure_functions_loaded(&mut conn).await?;
+
+            let mut cmd = redis::cmd("FCALL");
+            cmd.arg("count_task_states").arg(0).arg(&self.namespace);
+            let raw: Vec<String> =
+                redis::from_redis_value(&self.fcall(&mut conn, &mut cmd).await?)?;
+
+            let mut results = Vec::new();
+            let mut i = 0;
+            while i + 1 < raw.len() {
+                let Some((worker_type, priority_raw, state)) =
+                    raw[i].split_once('|').and_then(|(worker_type, rest)| {
+                        rest.split_once('|').map(|(priority_raw, state)| {
+                            (worker_type.to_string(), priority_raw.to_string(), state.to_string())
+                        })
+                    })
+                else {
+                    return Err(TaskDbErr::InternalErr(format!(
+                        "invalid task state count entry: {}",
+                        raw[i]
+                    )));
+                };
+
+                let count = raw[i + 1].parse::<u64>().map_err(|err| {
+                    TaskDbErr::InternalErr(format!(
+                        "invalid task state count '{}' for {}: {err}",
+                        raw[i + 1],
+                        raw[i]
+                    ))
+                })?;
+
+                results.push(TaskStateCount {
+                    worker_type,
+                    priority: parse_priority(&priority_raw)?,
+                    state,
+                    count,
+                });
+                i += 2;
             }
 
             Ok(results)
@@ -1227,6 +1301,15 @@ fn now_seconds() -> f64 {
 fn parse_uuid(raw: &str, label: &str) -> Result<Uuid, TaskDbErr> {
     Uuid::parse_str(raw)
         .map_err(|err| TaskDbErr::InternalErr(format!("failed to parse {label} '{raw}': {err}")))
+}
+
+fn parse_priority(raw: &str) -> Result<Priority, TaskDbErr> {
+    match raw {
+        "0" => Ok(Priority::High),
+        "1" => Ok(Priority::Medium),
+        "2" => Ok(Priority::Low),
+        other => Err(TaskDbErr::InternalErr(format!("invalid priority value '{other}'"))),
+    }
 }
 
 fn split_compound(compound: &str) -> Result<(Uuid, String), TaskDbErr> {
