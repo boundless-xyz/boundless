@@ -16,9 +16,10 @@ use crate::price_oracle::{
     scale_price_from_i256, ExchangeRate, PriceOracle, PriceOracleError, TradingPair,
 };
 use alloy::primitives::{address, Address};
-use alloy::providers::Provider;
+use alloy::providers::{Provider, ProviderBuilder};
 use alloy::sol;
 use alloy_chains::NamedChain;
+use core::time::Duration;
 
 sol! {
     #[sol(rpc)]
@@ -32,6 +33,10 @@ sol! {
         );
     }
 }
+
+/// Chainlink ETH/USD feed on Ethereum mainnet.
+const ETH_USD_MAINNET_FEED: Address = address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419");
+const ETH_USD_MAINNET_DECIMALS: u8 = 8;
 
 /// Chainlink feed information
 #[derive(Debug, Clone, Copy)]
@@ -49,30 +54,29 @@ impl FeedInfo {
     }
 }
 
-/// Get the Chainlink ETH/USD feed info for a named chain
-fn eth_usd_feed(chain: NamedChain) -> Result<FeedInfo, PriceOracleError> {
-    match chain {
-        NamedChain::Mainnet => {
-            Ok(FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8))
-        }
-        NamedChain::Sepolia => {
-            Ok(FeedInfo::new(address!("0x694AA1769357215DE4FAC081bf1f309aDC325306"), 8))
-        }
-        NamedChain::Base => {
-            Ok(FeedInfo::new(address!("0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70"), 8))
-        }
-        NamedChain::BaseSepolia => {
-            Ok(FeedInfo::new(address!("0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1"), 8))
-        }
-        _ => Err(PriceOracleError::Internal(format!("unsupported chain: {:?}", chain))),
-    }
-}
-
-/// Chainlink price source
+/// Chainlink price source (single provider)
 pub struct ChainlinkSource<P> {
     pair: TradingPair,
     provider: P,
     feed: FeedInfo,
+}
+
+/// Get the Chainlink ETH/USD feed info for a named chain (if available).
+/// Returns `None` for chains without a native Chainlink deployment.
+fn eth_usd_feed(chain: NamedChain) -> Option<FeedInfo> {
+    match chain {
+        NamedChain::Mainnet => Some(FeedInfo::new(ETH_USD_MAINNET_FEED, ETH_USD_MAINNET_DECIMALS)),
+        NamedChain::Sepolia => {
+            Some(FeedInfo::new(address!("0x694AA1769357215DE4FAC081bf1f309aDC325306"), 8))
+        }
+        NamedChain::Base => {
+            Some(FeedInfo::new(address!("0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70"), 8))
+        }
+        NamedChain::BaseSepolia => {
+            Some(FeedInfo::new(address!("0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1"), 8))
+        }
+        _ => None,
+    }
 }
 
 impl<P> ChainlinkSource<P> {
@@ -81,10 +85,10 @@ impl<P> ChainlinkSource<P> {
         Self { pair, provider, feed }
     }
 
-    /// Create a new Chainlink source for ETH/USD on a named chain
-    pub fn for_eth_usd(provider: P, chain: NamedChain) -> Result<Self, PriceOracleError> {
-        let feed = eth_usd_feed(chain)?;
-        Ok(Self { pair: TradingPair::EthUsd, provider, feed })
+    /// Create a Chainlink source for ETH/USD using the chain's native feed (if available).
+    /// Returns `None` for chains without a Chainlink deployment (e.g. Taiko).
+    pub fn for_eth_usd(provider: P, chain: NamedChain) -> Option<Self> {
+        eth_usd_feed(chain).map(|feed| Self { pair: TradingPair::EthUsd, provider, feed })
     }
 }
 
@@ -117,6 +121,101 @@ impl<P: Provider + Clone> PriceOracle for ChainlinkSource<P> {
 
     fn name(&self) -> String {
         format!("ChainlinkSource({})", self.pair)
+    }
+}
+
+/// Provider type used by the mainnet fallback source.
+type MainnetProvider = alloy::providers::fillers::FillProvider<
+    alloy::providers::fillers::JoinFill<
+        alloy::providers::Identity,
+        alloy::providers::fillers::ChainIdFiller,
+    >,
+    alloy::providers::RootProvider,
+>;
+
+fn build_mainnet_provider(
+    rpc_url: &str,
+    timeout: Duration,
+) -> Result<MainnetProvider, PriceOracleError> {
+    let url: url::Url = rpc_url.parse().map_err(|e| {
+        PriceOracleError::ConfigError(format!("Invalid Chainlink RPC URL '{rpc_url}': {e}"))
+    })?;
+    let client = alloy::transports::http::reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| PriceOracleError::ConfigError(format!("Failed to build HTTP client: {e}")))?;
+    Ok(ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .filler(alloy::providers::fillers::ChainIdFiller::default())
+        .connect_reqwest(client, url))
+}
+
+/// Public Ethereum mainnet RPC endpoints for the Chainlink mainnet fallback source.
+/// User-configured `rpc_url` is prepended to this list. Tried in order on failure.
+pub const CHAINLINK_PUBLIC_RPC_URLS: &[&str] = &[
+    "https://cloudflare-eth.com/v1/mainnet",
+    "https://ethereum-rpc.publicnode.com",
+    "https://rpc.ankr.com/eth",
+    "https://mainnet.gateway.tenderly.co",
+    "https://eth.llamarpc.com",
+    "https://1rpc.io/eth",
+    "https://eth.drpc.org",
+];
+
+/// Chainlink ETH/USD source that reads from Ethereum mainnet with RPC fallback.
+///
+/// Tries each configured RPC URL in order; returns the first successful response.
+pub struct ChainlinkMainnetSource {
+    sources: Vec<ChainlinkSource<MainnetProvider>>,
+}
+
+impl ChainlinkMainnetSource {
+    /// Create a Chainlink source for ETH/USD using multiple Ethereum mainnet RPC URLs.
+    pub fn eth_usd_mainnet(
+        rpc_urls: &[String],
+        timeout: Duration,
+    ) -> Result<Self, PriceOracleError> {
+        if rpc_urls.is_empty() {
+            return Err(PriceOracleError::ConfigError(
+                "At least one Chainlink RPC URL is required".to_string(),
+            ));
+        }
+        let feed = FeedInfo::new(ETH_USD_MAINNET_FEED, ETH_USD_MAINNET_DECIMALS);
+        let sources = rpc_urls
+            .iter()
+            .map(|url| {
+                let provider = build_mainnet_provider(url, timeout)?;
+                Ok(ChainlinkSource::new(TradingPair::EthUsd, provider, feed))
+            })
+            .collect::<Result<Vec<_>, PriceOracleError>>()?;
+        Ok(Self { sources })
+    }
+}
+
+#[async_trait::async_trait]
+impl PriceOracle for ChainlinkMainnetSource {
+    fn pair(&self) -> TradingPair {
+        TradingPair::EthUsd
+    }
+
+    async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
+        let mut last_err = None;
+        for source in &self.sources {
+            match source.fetch_rate().await {
+                Ok(rate) => return Ok(rate),
+                Err(e) => {
+                    tracing::debug!("Chainlink RPC failed, trying next: {e}");
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            PriceOracleError::Internal("No Chainlink RPC URLs configured".to_string())
+        }))
+    }
+
+    fn name(&self) -> String {
+        format!("ChainlinkMainnet(ETH/USD, {} RPCs)", self.sources.len())
     }
 }
 
@@ -214,18 +313,81 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // Integration test (requires RPC URL and network access)
+    #[tokio::test]
+    async fn test_mainnet_source_single_url() {
+        let server = MockServer::start();
+
+        let encoded = encode_latest_round_data(1234, 250050000000, 1706547100, 1706547200, 1234);
+
+        server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": encoded }));
+        });
+
+        let source =
+            ChainlinkMainnetSource::eth_usd_mainnet(&[server.base_url()], Duration::from_secs(5))
+                .unwrap();
+        let rate = source.get_rate().await.unwrap();
+        assert_eq!(rate.rate, U256::from(250050000000u128));
+    }
+
+    #[tokio::test]
+    async fn test_mainnet_source_fallback() {
+        let bad_server = MockServer::start();
+        let good_server = MockServer::start();
+
+        bad_server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(500);
+        });
+
+        let encoded = encode_latest_round_data(1234, 250050000000, 1706547100, 1706547200, 1234);
+        good_server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": encoded }));
+        });
+
+        let source = ChainlinkMainnetSource::eth_usd_mainnet(
+            &[bad_server.base_url(), good_server.base_url()],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        let rate = source.get_rate().await.unwrap();
+        assert_eq!(rate.rate, U256::from(250050000000u128));
+    }
+
+    #[tokio::test]
+    async fn test_mainnet_source_empty_urls() {
+        let result = ChainlinkMainnetSource::eth_usd_mainnet(&[], Duration::from_secs(5));
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_invalid_rpc_url() {
+        let result = ChainlinkMainnetSource::eth_usd_mainnet(
+            &["not a url".to_string()],
+            Duration::from_secs(5),
+        );
+        assert!(result.is_err());
+    }
+
+    // Integration test (requires network access)
     #[tokio::test]
     #[ignore]
     async fn test_mainnet_eth_usd_price() -> anyhow::Result<()> {
-        let rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL env var required");
-
-        let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
-
-        let source = ChainlinkSource::for_eth_usd(provider, NamedChain::Mainnet)?;
+        let source = ChainlinkMainnetSource::eth_usd_mainnet(
+            &[
+                "https://ethereum-rpc.publicnode.com".to_string(),
+                "https://eth.drpc.org".to_string(),
+            ],
+            Duration::from_secs(10),
+        )?;
 
         let rate = source.get_rate().await?;
-
         println!("{:?}", rate);
 
         assert!(rate.rate > U256::ZERO);

@@ -32,6 +32,9 @@ pub use boundless_market::prover_utils::{
     OrderPricingPriority, ProverConfig, TelemetryMode,
 };
 
+/// Directory name for per-chain broker config overrides (e.g. `chain-overrides/broker.8453.toml`).
+pub const CHAIN_OVERRIDES_DIR: &str = "chain-overrides";
+
 #[derive(Error)]
 pub enum ConfigErr {
     #[error("Failed to lock internal config structure")]
@@ -79,7 +82,8 @@ const FILE_MONITOR_EVENT_BUFFER: usize = 32;
 ///
 /// Each `ConfigWatcher` manages a single merged config. In single-chain mode, it watches
 /// just `broker.toml`. In multi-chain mode, create one `ConfigWatcher` per chain — each
-/// watches the base `broker.toml` plus an optional `broker.{chain_id}.toml` override file.
+/// watches the base `broker.toml` plus an optional `broker.{chain_id}.toml` override file
+/// (found next to the base config or in a `chain-overrides/` subdirectory).
 /// The exposed `config` is always the merged result.
 pub struct ConfigWatcher {
     /// Merged config (base, or base + chain override)
@@ -231,11 +235,21 @@ impl ConfigWatcher {
     }
 
     /// Resolve the override file path for a chain, if it exists.
-    /// Looks for `broker.{chain_id}.toml` in the same directory as `base_path`.
+    /// Looks for `broker.{chain_id}.toml` first next to `base_path`, then in
+    /// a `chain-overrides/` subdirectory relative to the base config.
     pub fn override_path_for_chain(base_path: &Path, chain_id: u64) -> Option<PathBuf> {
         let config_dir = base_path.parent().unwrap_or(Path::new("."));
-        let override_path = config_dir.join(format!("broker.{chain_id}.toml"));
-        override_path.exists().then_some(override_path)
+        let filename = format!("broker.{chain_id}.toml");
+
+        // Check next to base config (e.g. ./broker.8453.toml)
+        let adjacent = config_dir.join(&filename);
+        if adjacent.exists() {
+            return Some(adjacent);
+        }
+
+        // Check chain-overrides/ subdirectory (e.g. ./chain-overrides/broker.8453.toml)
+        let subdir = config_dir.join(CHAIN_OVERRIDES_DIR).join(&filename);
+        subdir.exists().then_some(subdir)
     }
 }
 
@@ -566,5 +580,31 @@ peak_prove_khz = 999
 
         let result = ConfigWatcher::override_path_for_chain(&base_path, 8453);
         assert_eq!(result, Some(override_path));
+    }
+
+    #[tokio::test]
+    async fn config_watcher_override_path_chain_overrides_subdir() {
+        let dir = tempfile::tempdir().unwrap();
+        let base_path = dir.path().join("broker.toml");
+        std::fs::write(&base_path, "").unwrap();
+
+        // No override in either location
+        assert!(ConfigWatcher::override_path_for_chain(&base_path, 167000).is_none());
+
+        // Create in chain-overrides/ subdirectory
+        let overrides_dir = dir.path().join(CHAIN_OVERRIDES_DIR);
+        std::fs::create_dir_all(&overrides_dir).unwrap();
+        let override_path = overrides_dir.join("broker.167000.toml");
+        std::fs::write(&override_path, "").unwrap();
+
+        let result = ConfigWatcher::override_path_for_chain(&base_path, 167000);
+        assert_eq!(result, Some(override_path));
+
+        // Adjacent file takes precedence over subdirectory
+        let adjacent = dir.path().join("broker.167000.toml");
+        std::fs::write(&adjacent, "").unwrap();
+
+        let result = ConfigWatcher::override_path_for_chain(&base_path, 167000);
+        assert_eq!(result, Some(adjacent));
     }
 }
