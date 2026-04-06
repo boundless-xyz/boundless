@@ -23,6 +23,7 @@ pub use alloy_chains::NamedChain;
 pub(crate) const BASE_MAINNET_INDEXER_URL: &str = "https://d2mdvlnmyov1e1.cloudfront.net/";
 pub(crate) const BASE_SEPOLIA_INDEXER_URL: &str = "https://d3kkukmpiqlzm1.cloudfront.net/";
 pub(crate) const SEPOLIA_INDEXER_URL: &str = "https://d3jjbcwhlw21k7.cloudfront.net/";
+pub(crate) const TAIKO_MAINNET_INDEXER_URL: &str = "https://d29nqt0gudcxhl.cloudfront.net/";
 
 /// Configuration for a deployment of the Boundless Market.
 // NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
@@ -169,7 +170,7 @@ pub const TAIKO: Deployment = Deployment {
     set_verifier_address: address!("0x6135DC08D14EF8a44496B009e2181426628B8ebd"),
     collateral_token_address: Some(address!("0xC284A781072442cC1882a8Db4573990B7B49DaC4")),
     order_stream_url: None,
-    indexer_url: None,
+    indexer_url: Some(Cow::Borrowed(TAIKO_MAINNET_INDEXER_URL)),
     deployment_block: Some(4819525),
 };
 
