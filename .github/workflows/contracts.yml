@@ -187,8 +187,8 @@ jobs:
 
       - name: Install Rust linker toolchain
         run: |
-          for i in $(seq 1 5); do sudo apt-get update && break; echo "apt lock busy, retrying in 15s..."; sleep 15; done
-          sudo apt-get install -y build-essential binutils lld mold
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
