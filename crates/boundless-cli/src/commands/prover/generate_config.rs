@@ -621,14 +621,17 @@ impl ProverGenerateConfig {
                 display.note(&format!(
                     "⚠  No indexer available for {chain_name} — skipping market analysis."
                 ));
-                display.note("   Enter pricing manually.");
+                display.note("   Enter pricing manually. A reasonable starting value is");
+                display.note("   0.000001 USD per Mcycle (1 cent per billion cycles).");
                 display.note("");
 
-                Text::new(&format!("Minimum price per Mcycle for {chain_name}:"))
-                    .with_default("0.00000001 ETH")
-                    .with_help_message("You can update this later in broker.toml")
-                    .prompt()
-                    .context("Failed to get price")?
+                prompt_validated_amount(
+                    &format!("Minimum price per Mcycle for {chain_name}:"),
+                    "0.000001 USD",
+                    "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
+                    &[Asset::USD, Asset::ETH],
+                    "min_mcycle_price",
+                )?
             };
 
             // Secondary fulfillment
@@ -1349,6 +1352,16 @@ impl ProverGenerateConfig {
 
         display.note("Generated files:");
         display.item_colored("  Broker config", self.broker_toml_file.display(), "green");
+        if config.chains.len() > 1 {
+            let broker_dir = self.broker_toml_file.parent().unwrap_or(Path::new("."));
+            for chain in &config.chains {
+                display.item_colored(
+                    &format!("  {} override", chain.chain_name),
+                    broker_dir.join(format!("broker.{}.toml", chain.chain_id)).display(),
+                    "green",
+                );
+            }
+        }
         display.item_colored("  Compose config", self.compose_yml_file.display(), "green");
 
         display.separator();
@@ -1358,8 +1371,6 @@ impl ProverGenerateConfig {
         // Check if env vars are set
         let private_key_set =
             std::env::var("PROVER_PRIVATE_KEY").or_else(|_| std::env::var("PRIVATE_KEY")).is_ok();
-        let prover_rpc_url_set = std::env::var("PROVER_RPC_URL").is_ok();
-        let legacy_rpc_url_set = std::env::var("RPC_URL").is_ok();
         let reward_address_set = std::env::var("REWARD_ADDRESS").is_ok();
 
         if private_key_set {
@@ -1368,20 +1379,37 @@ impl ProverGenerateConfig {
             display.note("   export PROVER_PRIVATE_KEY=<your_private_key>");
         }
 
-        match (prover_rpc_url_set, legacy_rpc_url_set) {
-            (true, _) => {
-                display.item_colored("   PROVER_RPC_URL", "✓ Already set", "green");
+        // Show per-chain RPC URL env vars for multichain, or single PROVER_RPC_URL
+        if config.chains.len() > 1 {
+            for chain in &config.chains {
+                let env_var = format!("PROVER_RPC_URL_{}", chain.chain_id);
+                if std::env::var(&env_var).is_ok() {
+                    display.item_colored(&format!("   {env_var}"), "✓ Already set", "green");
+                } else {
+                    display.note(&format!(
+                        "   export {env_var}=<{}_rpc_url>",
+                        chain.chain_name.to_lowercase().replace(' ', "_")
+                    ));
+                }
             }
-            (false, true) => {
-                display.item_colored(
-                    "   RPC_URL (legacy)",
-                    "✓ Already set (fallback in use)",
-                    "yellow",
-                );
-                display.note("   # Preferred: export PROVER_RPC_URL=<your_rpc_url>");
-            }
-            (false, false) => {
-                display.note("   export PROVER_RPC_URL=<your_rpc_url>");
+        } else {
+            let prover_rpc_url_set = std::env::var("PROVER_RPC_URL").is_ok();
+            let legacy_rpc_url_set = std::env::var("RPC_URL").is_ok();
+            match (prover_rpc_url_set, legacy_rpc_url_set) {
+                (true, _) => {
+                    display.item_colored("   PROVER_RPC_URL", "✓ Already set", "green");
+                }
+                (false, true) => {
+                    display.item_colored(
+                        "   RPC_URL (legacy)",
+                        "✓ Already set (fallback in use)",
+                        "yellow",
+                    );
+                    display.note("   # Preferred: export PROVER_RPC_URL=<your_rpc_url>");
+                }
+                (false, false) => {
+                    display.note("   export PROVER_RPC_URL=<your_rpc_url>");
+                }
             }
         }
 
@@ -1400,10 +1428,20 @@ impl ProverGenerateConfig {
         }
 
         display.note("");
-        display.note(&format!(
-            "2. Ensure you have a minimum of {} ZKC collateral in your prover address:",
-            config.chains.first().map(|c| c.max_collateral.as_str()).unwrap_or("10 USD")
-        ));
+        if config.chains.len() > 1 {
+            display.note("2. Ensure you have collateral deposited on each chain:");
+            for chain in &config.chains {
+                display.note(&format!(
+                    "   • {} ({}): min {} collateral",
+                    chain.chain_name, chain.chain_id, chain.max_collateral
+                ));
+            }
+        } else {
+            display.note(&format!(
+                "2. Ensure you have a minimum of {} ZKC collateral in your prover address:",
+                config.chains.first().map(|c| c.max_collateral.as_str()).unwrap_or("10 USD")
+            ));
+        }
         display.note("   boundless prover balance-collateral");
 
         display.note("");
