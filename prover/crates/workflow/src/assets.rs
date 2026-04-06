@@ -4,10 +4,11 @@
 // as found in the LICENSE-BSL file.
 
 use anyhow::{Context, Result, anyhow, bail};
-use reqwest::{Client, Url};
+use reqwest::{Body, Client, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use taskdb::ReadyTask;
+use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -111,6 +112,29 @@ impl ApiClient {
         Ok(format!("{}/worker/hot/{key}", self.base_url))
     }
 
+    fn worker_asset_url(&self, key: &str) -> Result<String> {
+        if key.is_empty() || key.starts_with('/') {
+            bail!("Invalid worker asset key: {key}");
+        }
+
+        Ok(format!("{}/worker/assets/{key}", self.base_url))
+    }
+
+    async fn put_asset_body(&self, key: &str, body: Body) -> Result<()> {
+        let url = self.worker_asset_url(key)?;
+        self.client
+            .put(&url)
+            .body(body)
+            .send()
+            .await
+            .with_context(|| format!("Failed to upload worker asset {key}"))?
+            .error_for_status()
+            .map_err(|err| {
+                anyhow!(err).context(format!("Worker asset upload failed for key {key}"))
+            })?;
+        Ok(())
+    }
+
     pub(crate) async fn read_asset_buf(&self, key: &str) -> Result<Vec<u8>> {
         let url = self.asset_url(key)?;
         let response = self
@@ -138,6 +162,32 @@ impl ApiClient {
         let bytes = self.read_asset_buf(key).await?;
         bincode::deserialize(&bytes)
             .with_context(|| format!("Failed to deserialize asset payload for key {key}"))
+    }
+
+    pub(crate) async fn write_asset_buf(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        self.put_asset_body(key, Body::from(value)).await
+    }
+
+    pub(crate) async fn write_asset<T>(&self, key: &str, value: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        let bytes = bincode::serialize(value)
+            .with_context(|| format!("Failed to serialize asset for {key}"))?;
+        self.write_asset_buf(key, bytes).await
+    }
+
+    pub(crate) async fn write_asset_file(
+        &self,
+        key: &str,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<()> {
+        let path = path.as_ref();
+        let file = tokio::fs::File::open(path).await.with_context(|| {
+            format!("Failed to open asset file {} for key {key}", path.display())
+        })?;
+        let stream = ReaderStream::new(file);
+        self.put_asset_body(key, Body::wrap_stream(stream)).await
     }
 
     pub(crate) async fn claim_gpu_work(

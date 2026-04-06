@@ -28,7 +28,7 @@ mod tasks;
 
 pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
-    SNARK_TIMEOUT_DEFAULT, s3::S3Client,
+    SNARK_TIMEOUT_DEFAULT, storage::SharedFs,
 };
 
 type WorkPrefetchRx = oneshot::Receiver<Result<Option<ReadyTask>>>;
@@ -182,8 +182,8 @@ pub struct Agent {
     pub segment_po2: u32,
     /// redis connection pool
     redis_pool: Option<RedisPool>,
-    /// Object storage client
-    pub s3_client: S3Client,
+    /// Shared filesystem storage client
+    pub storage: SharedFs,
     /// API-backed worker client used for assets and GPU task execution
     api_client: ApiClient,
     /// all configuration params:
@@ -269,8 +269,8 @@ impl Agent {
         };
         let api_client = ApiClient::new(&args.api_url)
             .context("[BENTO-WF-102] Failed to initialize API client")?;
-        let s3_client = S3Client::from_local_dir(&args.storage_dir)
-            .context("[BENTO-WF-103] Failed to initialize local object storage")?;
+        let storage = SharedFs::new(&args.storage_dir)
+            .context("[BENTO-WF-103] Failed to initialize shared storage")?;
 
         let verifier_ctx = VerifierContext::default();
         let prover = if needs_prover_server(&args.task_stream) {
@@ -286,7 +286,7 @@ impl Agent {
             task_db,
             segment_po2: args.segment_po2,
             redis_pool,
-            s3_client,
+            storage,
             api_client,
             args,
             prover,
@@ -490,6 +490,32 @@ impl Agent {
                 .with_context(|| format!("[BENTO-WF-205] Failed to delete redis key {key}"))?;
             Ok(())
         }
+    }
+
+    pub(crate) async fn write_asset_buf(&self, key: &str, value: Vec<u8>) -> Result<()> {
+        self.api_client
+            .write_asset_buf(key, value)
+            .await
+            .with_context(|| format!("[BENTO-WF-206] Failed to upload asset {key} through API"))
+    }
+
+    pub(crate) async fn write_asset<T>(&self, key: &str, value: &T) -> Result<()>
+    where
+        T: serde::Serialize,
+    {
+        self.api_client.write_asset(key, value).await.with_context(|| {
+            format!("[BENTO-WF-207] Failed to upload serialized asset {key} through API")
+        })
+    }
+
+    pub(crate) async fn write_asset_file(
+        &self,
+        key: &str,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<()> {
+        self.api_client.write_asset_file(key, path).await.with_context(|| {
+            format!("[BENTO-WF-208] Failed to stream asset file {key} through API")
+        })
     }
 
     /// Create a signal hook to flip a boolean if its triggered

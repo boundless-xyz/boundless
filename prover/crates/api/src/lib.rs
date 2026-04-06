@@ -20,7 +20,7 @@ use clap::Parser;
 use deadpool_redis::{Config as RedisConfig, Pool as RedisPool, Runtime, redis::AsyncCommands};
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 use taskdb::{JobState, Priority, ReadyTask, TaskDb, TaskDbErr};
 use thiserror::Error;
 use uuid::Uuid;
@@ -28,9 +28,9 @@ use workflow_common::{
     COPROC_WORK_TYPE, CompressType, ExecutorReq, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
     SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT, SNARK_WORK_TYPE, SnarkReq as WorkflowSnarkReq,
     TaskType,
-    s3::{
+    storage::{
         BLAKE3_GROTH16_BUCKET_DIR, ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR,
-        PREFLIGHT_JOURNALS_BUCKET_DIR, RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR,
+        PREFLIGHT_JOURNALS_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR, SharedFs,
         WORK_RECEIPTS_BUCKET_DIR,
     },
 };
@@ -311,7 +311,7 @@ pub struct Args {
 pub struct AppState {
     task_db: TaskDb,
     redis_pool: RedisPool,
-    s3_client: S3Client,
+    storage: SharedFs,
     exec_timeout: i32,
     exec_retries: i32,
     snark_timeout: i32,
@@ -324,8 +324,8 @@ impl AppState {
         let task_db = TaskDb::connect_redis(taskdb_redis_url, &args.taskdb_redis_namespace)
             .context("Failed to initialize redis taskdb backend")?;
 
-        let s3_client = S3Client::from_local_dir(&args.storage_dir)
-            .context("Failed to initialize local object storage")?;
+        let storage =
+            SharedFs::new(&args.storage_dir).context("Failed to initialize shared storage")?;
         let redis_pool = RedisConfig::from_url(&args.redis_url)
             .create_pool(Some(Runtime::Tokio1))
             .context("Failed to initialize redis pool")?;
@@ -333,7 +333,7 @@ impl AppState {
         Ok(Arc::new(Self {
             task_db,
             redis_pool,
-            s3_client,
+            storage,
             exec_timeout: args.exec_timeout,
             exec_retries: args.exec_retries,
             snark_timeout: args.snark_timeout,
@@ -355,7 +355,7 @@ async fn image_upload(
 ) -> Result<Json<ImgUploadRes>, AppError> {
     let new_img_key = format!("{ELF_BUCKET_DIR}/{image_id}");
     if state
-        .s3_client
+        .storage
         .object_exists(&new_img_key)
         .await
         .context("Failed to check if object exists")?
@@ -373,7 +373,7 @@ async fn image_upload_put(
 ) -> Result<(), AppError> {
     let new_img_key = format!("{ELF_BUCKET_DIR}/{image_id}");
     if state
-        .s3_client
+        .storage
         .object_exists(&new_img_key)
         .await
         .context("Failed to check if object exists")?
@@ -393,10 +393,10 @@ async fn image_upload_put(
     }
 
     state
-        .s3_client
-        .write_buf_to_s3(&new_img_key, body_bytes.to_vec())
+        .storage
+        .write_bytes(&new_img_key, body_bytes.to_vec())
         .await
-        .context("Failed to upload image to object store")?;
+        .context("Failed to upload image to shared storage")?;
 
     Ok(())
 }
@@ -410,7 +410,7 @@ async fn input_upload(
 
     let new_img_key = format!("{INPUT_BUCKET_DIR}/{input_id}");
     if state
-        .s3_client
+        .storage
         .object_exists(&new_img_key)
         .await
         .context("Failed to check if object exists")?
@@ -432,7 +432,7 @@ async fn input_upload_put(
 ) -> Result<(), AppError> {
     let new_input_key = format!("{INPUT_BUCKET_DIR}/{input_id}");
     if state
-        .s3_client
+        .storage
         .object_exists(&new_input_key)
         .await
         .context("Failed to check if object exists")?
@@ -444,10 +444,10 @@ async fn input_upload_put(
     let body_bytes =
         to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
     state
-        .s3_client
-        .write_buf_to_s3(&new_input_key, body_bytes.to_vec())
+        .storage
+        .write_bytes(&new_input_key, body_bytes.to_vec())
         .await
-        .context("Failed to upload input to object store")?;
+        .context("Failed to upload input to shared storage")?;
 
     Ok(())
 }
@@ -460,7 +460,7 @@ async fn receipt_upload(
     let receipt_id = Uuid::new_v4();
     let new_receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
     if state
-        .s3_client
+        .storage
         .object_exists(&new_receipt_key)
         .await
         .context("Failed to check if object exists")?
@@ -482,7 +482,7 @@ async fn receipt_upload_put(
 ) -> Result<(), AppError> {
     let new_receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
     if state
-        .s3_client
+        .storage
         .object_exists(&new_receipt_key)
         .await
         .context("Failed to check if object exists")?
@@ -494,10 +494,10 @@ async fn receipt_upload_put(
     let body_bytes =
         to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
     state
-        .s3_client
-        .write_buf_to_s3(&new_receipt_key, body_bytes.to_vec())
+        .storage
+        .write_bytes(&new_receipt_key, body_bytes.to_vec())
         .await
-        .context("Failed to upload receipt to object store")?;
+        .context("Failed to upload receipt to shared storage")?;
 
     Ok(())
 }
@@ -557,7 +557,7 @@ async fn stark_status(
     {
         let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
         if state
-            .s3_client
+            .storage
             .object_exists(&receipt_key)
             .await
             .context("Failed to check if receipt exists")?
@@ -623,7 +623,7 @@ async fn stark_download(
 ) -> Result<Vec<u8>, AppError> {
     let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
     if !state
-        .s3_client
+        .storage
         .object_exists(&receipt_key)
         .await
         .context("Failed to check if object exists")?
@@ -632,10 +632,10 @@ async fn stark_download(
     }
 
     let receipt = state
-        .s3_client
-        .read_buf_from_s3(&receipt_key)
+        .storage
+        .read_bytes(&receipt_key)
         .await
-        .context("Failed to read from object store")?;
+        .context("Failed to read from shared storage")?;
 
     Ok(receipt)
 }
@@ -648,7 +648,7 @@ async fn receipt_download(
 ) -> Result<Json<ReceiptDownload>, AppError> {
     let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
     if !state
-        .s3_client
+        .storage
         .object_exists(&receipt_key)
         .await
         .context("Failed to check if object exists")?
@@ -666,7 +666,7 @@ async fn preflight_journal(
 ) -> Result<Vec<u8>, AppError> {
     let journal_key = format!("{PREFLIGHT_JOURNALS_BUCKET_DIR}/{job_id}.bin");
     if !state
-        .s3_client
+        .storage
         .object_exists(&journal_key)
         .await
         .context("Failed to check if object exists")?
@@ -675,10 +675,10 @@ async fn preflight_journal(
     }
 
     let receipt = state
-        .s3_client
-        .read_buf_from_s3(&journal_key)
+        .storage
+        .read_bytes(&journal_key)
         .await
-        .context("Failed to read from object store")?;
+        .context("Failed to read from shared storage")?;
 
     Ok(receipt)
 }
@@ -793,7 +793,7 @@ async fn groth16_status(
     {
         let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
         if state
-            .s3_client
+            .storage
             .object_exists(&receipt_key)
             .await
             .context("Failed to check if receipt exists")?
@@ -835,7 +835,7 @@ async fn groth16_download(
 ) -> Result<Vec<u8>, AppError> {
     let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
     if !state
-        .s3_client
+        .storage
         .object_exists(&receipt_key)
         .await
         .context("Failed to check if object exists")?
@@ -844,10 +844,10 @@ async fn groth16_download(
     }
 
     let receipt = state
-        .s3_client
-        .read_buf_from_s3(&receipt_key)
+        .storage
+        .read_bytes(&receipt_key)
         .await
-        .context("Failed to read from object store")?;
+        .context("Failed to read from shared storage")?;
 
     Ok(receipt)
 }
@@ -859,7 +859,7 @@ async fn blake3_groth16_download(
 ) -> Result<Vec<u8>, AppError> {
     let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{BLAKE3_GROTH16_BUCKET_DIR}/{job_id}.bincode");
     if !state
-        .s3_client
+        .storage
         .object_exists(&receipt_key)
         .await
         .context("Failed to check if object exists")?
@@ -868,10 +868,10 @@ async fn blake3_groth16_download(
     }
 
     let receipt = state
-        .s3_client
-        .read_buf_from_s3(&receipt_key)
+        .storage
+        .read_bytes(&receipt_key)
         .await
-        .context("Failed to read from object store")?;
+        .context("Failed to read from shared storage")?;
 
     Ok(receipt)
 }
@@ -883,7 +883,7 @@ async fn get_work_receipt(
 ) -> Result<Vec<u8>, AppError> {
     let receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}.bincode");
     if !state
-        .s3_client
+        .storage
         .object_exists(&receipt_key)
         .await
         .context("Failed to check if object exists")?
@@ -892,10 +892,10 @@ async fn get_work_receipt(
     }
 
     let receipt = state
-        .s3_client
-        .read_buf_from_s3(&receipt_key)
+        .storage
+        .read_bytes(&receipt_key)
         .await
-        .context("Failed to read from object store")?;
+        .context("Failed to read from shared storage")?;
 
     Ok(receipt)
 }
@@ -905,22 +905,37 @@ async fn asset_download(
     State(state): State<Arc<AppState>>,
     Path(object_key): Path<String>,
 ) -> Result<Response, AppError> {
-    if !state
-        .s3_client
-        .object_exists(&object_key)
-        .await
-        .context("Failed to check if asset exists")?
-    {
+    if !state.storage.object_exists(&object_key).await.context("Failed to check if asset exists")? {
         return Err(AppError::AssetMissing(object_key));
     }
 
     let asset = state
-        .s3_client
-        .read_buf_from_s3(&object_key)
+        .storage
+        .read_bytes(&object_key)
         .await
-        .context("Failed to read asset from object store")?;
+        .context("Failed to read asset from shared storage")?;
 
     Ok(([(CONTENT_TYPE, "application/octet-stream")], asset).into_response())
+}
+
+const WORKER_ASSET_PUT_PATH: &str = "/worker/assets/*object_key";
+async fn worker_asset_put(
+    State(state): State<Arc<AppState>>,
+    Path(object_key): Path<String>,
+    body: Body,
+) -> Result<StatusCode, AppError> {
+    let start = Instant::now();
+    state
+        .storage
+        .write_stream(&object_key, body.into_data_stream())
+        .await
+        .with_context(|| format!("Failed to stream worker asset {object_key} to shared storage"))?;
+    tracing::info!(
+        object_key = %object_key,
+        elapsed_ms = start.elapsed().as_millis(),
+        "Stored worker asset upload"
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 const GPU_WORK_CLAIM_PATH: &str = "/worker/gpu/tasks/claim/:task_stream";
@@ -1049,7 +1064,7 @@ async fn list_work_receipts(
 ) -> Result<Json<WorkReceiptList>, AppError> {
     // List all objects in the work receipts bucket
     let objects = state
-        .s3_client
+        .storage
         .list_objects(Some(WORK_RECEIPTS_BUCKET_DIR))
         .await
         .context("Failed to list work receipt objects")?;
@@ -1073,7 +1088,7 @@ async fn list_work_receipts(
 
             // First check if there's a metadata file (this should exist for all receipts)
             let metadata_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_metadata.json");
-            if let Ok(metadata_bytes) = state.s3_client.read_buf_from_s3(&metadata_key).await {
+            if let Ok(metadata_bytes) = state.storage.read_bytes(&metadata_key).await {
                 if let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(&metadata_bytes) {
                     povw_log_id =
                         metadata.get("povw_log_id").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -1095,7 +1110,7 @@ async fn list_work_receipts(
 
             // Check if there's a corresponding POVW receipt
             let povw_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{receipt_id}_povw.bincode");
-            let has_povw_receipt = state.s3_client.object_exists(&povw_key).await.unwrap_or(false);
+            let has_povw_receipt = state.storage.object_exists(&povw_key).await.unwrap_or(false);
 
             if has_povw_receipt {
                 tracing::debug!("POVW receipt found for: {}", receipt_id);
@@ -1103,8 +1118,8 @@ async fn list_work_receipts(
                 // If we don't have metadata but have a POVW receipt, try to extract from the receipt
                 if povw_log_id.is_none() || povw_job_number.is_none() {
                     match state
-                            .s3_client
-                            .read_from_s3::<risc0_zkvm::GenericReceipt<
+                            .storage
+                            .read_object::<risc0_zkvm::GenericReceipt<
                                 risc0_zkvm::WorkClaim<risc0_zkvm::ReceiptClaim>,
                             >>(&povw_key)
                             .await
@@ -1182,6 +1197,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(GET_GROTH16_PATH, get(groth16_download))
         .route(GET_BLAKE3_GROTH16_PATH, get(blake3_groth16_download))
         .route(GET_ASSET_PATH, get(asset_download))
+        .route(WORKER_ASSET_PUT_PATH, put(worker_asset_put))
         .route(GPU_WORK_CLAIM_PATH, post(claim_gpu_work))
         .route(GPU_TASK_DONE_PATH, post(gpu_task_done))
         .route(GPU_TASK_FAILED_PATH, post(gpu_task_failed))
@@ -1203,8 +1219,8 @@ pub async fn run(args: &Args) -> Result<()> {
         .context("Failed to bind a TCP listener")?;
 
     if args.input_ttl_hours > 0 {
-        let inputs_dir =
-            std::path::PathBuf::from(&args.storage_dir).join(workflow_common::s3::INPUT_BUCKET_DIR);
+        let inputs_dir = std::path::PathBuf::from(&args.storage_dir)
+            .join(workflow_common::storage::INPUT_BUCKET_DIR);
         let ttl = args.input_ttl_hours;
         tokio::spawn(async move {
             loop {

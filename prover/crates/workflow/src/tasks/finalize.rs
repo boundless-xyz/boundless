@@ -11,12 +11,12 @@ use anyhow::{Context, Result, bail};
 use risc0_zkvm::{InnerReceipt, Receipt, ReceiptClaim, SuccinctReceipt};
 use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::s3::{RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR};
+use workflow_common::storage::{RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR};
 use workflow_common::{FinalizeReq, metrics::helpers};
 
 /// Run finalize tasks / cleanup
 ///
-/// Creates the final rollup receipt and uploads it to object storage.
+/// Creates the final rollup receipt and uploads it to shared storage.
 /// job path
 pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Result<()> {
     let start_time = Instant::now();
@@ -74,15 +74,15 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
     }
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
-    tracing::debug!("Uploading rollup receipt to object store: {key}");
+    tracing::debug!("Uploading rollup receipt to shared storage: {key}");
     let s3_start = Instant::now();
-    match agent.s3_client.write_to_s3(key, rollup_receipt).await {
+    match agent.write_asset(key, &rollup_receipt).await {
         Ok(()) => {
             helpers::record_s3_operation("write", "success", s3_start.elapsed().as_secs_f64());
         }
         Err(e) => {
             helpers::record_s3_operation("write", "error", s3_start.elapsed().as_secs_f64());
-            return Err(e.context("Failed to upload final receipt to obj store"));
+            return Err(e.context("Failed to upload final receipt to shared storage"));
         }
     }
 

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{
-    KECCAK_RECEIPT_PATH, ResolveReq, metrics::helpers, s3::WORK_RECEIPTS_BUCKET_DIR,
+    KECCAK_RECEIPT_PATH, ResolveReq, metrics::helpers, storage::WORK_RECEIPTS_BUCKET_DIR,
 };
 
 const ASSUMPTION_PREFETCH_CONCURRENCY: usize = 64;
@@ -235,8 +235,7 @@ pub async fn resolve_povw(
     let wrapped_povw_receipt = GenericReceipt::Succinct(povw_receipt.clone());
 
     agent
-        .s3_client
-        .write_to_s3(&work_receipt_key, &wrapped_povw_receipt)
+        .write_asset(&work_receipt_key, &wrapped_povw_receipt)
         .await
         .context("Failed to save resolved POVW receipt to work receipts bucket")?;
 
@@ -265,8 +264,7 @@ pub async fn resolve_povw(
     let povw_metadata = serde_json::Value::Object(metadata_fields);
 
     agent
-        .s3_client
-        .write_buf_to_s3(&metadata_key, serde_json::to_vec(&povw_metadata)?)
+        .write_asset_buf(&metadata_key, serde_json::to_vec(&povw_metadata)?)
         .await
         .context("Failed to save POVW metadata to work receipts bucket")?;
 

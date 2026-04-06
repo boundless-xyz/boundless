@@ -231,7 +231,6 @@ impl TaskDb {
         self.redis.check_stuck_pending_tasks().await
     }
 
-
     pub async fn clear_completed_jobs(&self) -> Result<i32, TaskDbErr> {
         self.redis.clear_completed_jobs().await
     }

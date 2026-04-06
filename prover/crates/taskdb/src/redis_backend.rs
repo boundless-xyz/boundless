@@ -510,9 +510,7 @@ end)
 
 "#;
 
-async fn load_lua_functions(
-    conn: &mut redis::aio::MultiplexedConnection,
-) -> Result<(), TaskDbErr> {
+async fn load_lua_functions(conn: &mut redis::aio::MultiplexedConnection) -> Result<(), TaskDbErr> {
     redis::cmd("FUNCTION")
         .arg("LOAD")
         .arg("REPLACE")
@@ -598,7 +596,9 @@ impl RedisTaskDb {
         match cmd.query_async::<redis::Value>(conn).await {
             Ok(val) => Ok(val),
             Err(e) if is_function_not_found(&e) => {
-                tracing::warn!("Lua function not found, reloading library after likely Redis restart");
+                tracing::warn!(
+                    "Lua function not found, reloading library after likely Redis restart"
+                );
                 self.lua_loaded.store(false, Ordering::Release);
                 load_lua_functions(conn).await?;
                 self.lua_loaded.store(true, Ordering::Release);

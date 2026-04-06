@@ -31,7 +31,7 @@ use workflow_common::{
         ASSUMPTION_COUNT, EXECUTION_ERRORS, GUEST_FAULTS, S3_OPERATIONS, SEGMENT_COUNT,
         TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES, helpers,
     },
-    s3::{
+    storage::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
     },
@@ -387,7 +387,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     "error",
                     receipt_s3_start.elapsed().as_secs_f64(),
                 );
-                return Err(e.context("Failed to download receipt from obj store"));
+                return Err(e.context("Failed to download receipt from shared storage"));
             }
         };
 
@@ -908,11 +908,10 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         session.user_cycles,
     );
 
-    // Write the guest stdout/stderr logs to object store after completing exec
+    // Write the guest stdout/stderr logs to shared storage after completing exec
     let log_upload_start = Instant::now();
     match agent
-        .s3_client
-        .write_file_to_s3(&format!("{EXEC_LOGS_BUCKET_DIR}/{job_id}.log"), &guest_log_path)
+        .write_asset_file(&format!("{EXEC_LOGS_BUCKET_DIR}/{job_id}.log"), &guest_log_path)
         .await
     {
         Ok(()) => {
@@ -928,7 +927,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 "error",
                 log_upload_start.elapsed().as_secs_f64(),
             );
-            return Err(e.context("Failed to upload guest logs to object store"));
+            return Err(e.context("Failed to upload guest logs to shared storage"));
         }
     }
 
@@ -938,8 +937,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         if exec_only {
             let journal_s3_start = Instant::now();
             match agent
-                .s3_client
-                .write_buf_to_s3(
+                .write_asset_buf(
                     &format!("{PREFLIGHT_JOURNALS_BUCKET_DIR}/{job_id}.bin"),
                     journal.bytes,
                 )
@@ -958,7 +956,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                         "error",
                         journal_s3_start.elapsed().as_secs_f64(),
                     );
-                    return Err(e.context("Failed to write journal to obj store"));
+                    return Err(e.context("Failed to write journal to shared storage"));
                 }
             }
         } else {

@@ -10,7 +10,9 @@ use std::time::Instant;
 use workflow_common::{
     CompressType, SnarkReq, SnarkResp,
     metrics::helpers,
-    s3::{BLAKE3_GROTH16_BUCKET_DIR, GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
+    storage::{
+        BLAKE3_GROTH16_BUCKET_DIR, GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
+    },
 };
 
 /// Converts a stored STARK receipt into a SNARK receipt.
@@ -27,7 +29,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         }
         Err(e) => {
             helpers::record_s3_operation("read", "error", s3_read_start.elapsed().as_secs_f64());
-            return Err(e.context("Failed to download receipt from obj store"));
+            return Err(e.context("Failed to download receipt from shared storage"));
         }
     };
 
@@ -86,10 +88,10 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .verify_integrity_with_context(&agent.verifier_ctx)
         .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
 
-    tracing::info!("Uploading snark receipt to object store: {key}");
+    tracing::info!("Uploading snark receipt to shared storage: {key}");
 
     let s3_write_start = Instant::now();
-    match agent.s3_client.write_buf_to_s3(key, snark_receipt_bytes).await {
+    match agent.write_asset_buf(key, snark_receipt_bytes).await {
         Ok(()) => {
             helpers::record_s3_operation(
                 "write",
@@ -99,7 +101,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         }
         Err(e) => {
             helpers::record_s3_operation("write", "error", s3_write_start.elapsed().as_secs_f64());
-            return Err(e.context("Failed to upload final receipt to obj store"));
+            return Err(e.context("Failed to upload final receipt to shared storage"));
         }
     }
 

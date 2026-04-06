@@ -7,7 +7,7 @@ use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
 pub mod metrics;
-pub mod s3;
+pub mod storage;
 
 /// Aux worker stream identifier
 pub const AUX_WORK_TYPE: &str = "aux";
@@ -150,7 +150,7 @@ pub struct SnarkReq {
 /// Snark task response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SnarkResp {
-    /// Snark UUID in object store snarks/{snark}
+    /// Snark UUID in shared storage at `receipts/<kind>/{snark}.bincode`
     pub snark: String,
 }
 
