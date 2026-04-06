@@ -188,8 +188,8 @@ impl RequestorMap {
     }
 
     fn count_cycles(&self, address: Address, input: RequestInput) -> Option<u64> {
-        const SIGNAL_REQUESTOR_MIN_CYCLES: u64 = 50_000_000_000;
-        const SIGNAL_REQUESTOR_MAX_CYCLES: u64 = 54_000_000_000;
+        const SIGNAL_REQUESTOR_MIN_CYCLES: u64 = 36_000_000_000;
+        const SIGNAL_REQUESTOR_MAX_CYCLES: u64 = 36_400_000_000;
 
         let requestor_type = self.requestors.get(&address);
         match requestor_type {
