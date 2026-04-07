@@ -889,7 +889,10 @@ impl Broker {
         // Pricers send preflight completions here; the evaluator reads from pricing_completion_rx to free capacity.
         let (pricing_completion_tx, pricing_completion_rx) =
             mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
-        // Lock/fulfill events broadcast to both the evaluator (removes pending) and pricers (cancels active tasks).
+        // Shared broadcast for on-chain lock/fulfill events. Each chain's MarketMonitor sends into
+        // this channel, and both global singletons (OrderEvaluator, OrderCommitter) and per-chain
+        // components (OrderPricer, ProvingService) subscribe. Per-chain subscribers must filter by
+        // chain_id since they receive events from all chains.
         let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
         let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
             std::collections::HashMap::new();

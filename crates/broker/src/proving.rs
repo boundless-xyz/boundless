@@ -36,6 +36,7 @@ use boundless_market::contracts::boundless_market::BoundlessMarketService;
 use boundless_market::telemetry::CompletionOutcome;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+use tracing::{Instrument, Span};
 
 #[derive(Error)]
 pub enum ProvingErr {
@@ -379,6 +380,7 @@ impl ProvingService {
                 // External fulfillment notification
                 recv_res = order_state_rx.recv() => {
                     match recv_res {
+                        Ok(ref sc) if sc.chain_id() != self.chain_id => continue,
                         Ok(OrderStateChange::Fulfilled { request_id: fulfilled_request_id, .. }) if fulfilled_request_id == request_id => {
                             // Determine if this makes the order not actionable based on order type
                             let is_not_actionable = match order.fulfillment_type {
@@ -611,7 +613,10 @@ impl ProvingService {
 
             // Spawn monitoring task - it will handle expiry/cancellation based on config
             let prove_serv = self.clone();
-            tokio::spawn(async move { prove_serv.prove_and_update_db(order).await });
+            let span = Span::current();
+            tokio::spawn(
+                async move { prove_serv.prove_and_update_db(order).await }.instrument(span),
+            );
         }
 
         Ok(())
@@ -654,7 +659,10 @@ impl RetryTask for ProvingService {
 
                 if let Some(order) = order_res {
                     let prov_serv = proving_service_copy.clone();
-                    tokio::spawn(async move { prov_serv.prove_and_update_db(order).await });
+                    let span = Span::current();
+                    tokio::spawn(
+                        async move { prov_serv.prove_and_update_db(order).await }.instrument(span),
+                    );
                 }
 
                 // TODO: configuration
