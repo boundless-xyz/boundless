@@ -45,6 +45,19 @@ static CHAIN_HANDLES: LazyLock<Mutex<HashMap<u64, TelemetryHandle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
 
+/// Sum a per-chain counter across all registered telemetry handles.
+fn sum_chain_handles(f: impl Fn(&TelemetryHandle) -> u32) -> u32 {
+    CHAIN_HANDLES.lock().map(|handles| handles.values().map(&f).sum()).unwrap_or(0)
+}
+
+fn global_committed_count() -> u32 {
+    sum_chain_handles(|h| h.committed_count.load(Ordering::Relaxed))
+}
+
+fn global_pending_preflight_count() -> u32 {
+    sum_chain_handles(|h| h.pending_preflight_count.load(Ordering::Relaxed))
+}
+
 /// Initializes the telemetry handle for a specific chain. Each chain gets its own
 /// handle and underlying TelemetryService that sends heartbeats to its order-stream URL.
 pub(crate) fn init_for_chain<F>(chain_id: u64, build_handle: F) -> TelemetryHandle
@@ -220,6 +233,7 @@ pub(crate) struct TelemetryHandle {
     tx: mpsc::Sender<TelemetryEvent>,
     drop_count: Arc<AtomicU64>,
     pending_preflight_count: Arc<AtomicU32>,
+    committed_count: Arc<AtomicU32>,
 }
 
 impl TelemetryHandle {
@@ -228,6 +242,7 @@ impl TelemetryHandle {
             tx,
             drop_count: Arc::new(AtomicU64::new(0)),
             pending_preflight_count: Arc::new(AtomicU32::new(0)),
+            committed_count: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -240,6 +255,10 @@ impl TelemetryHandle {
 
     pub(crate) fn set_pending_preflight(&self, count: u32) {
         self.pending_preflight_count.store(count, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_committed_count(&self, count: u32) {
+        self.committed_count.store(count, Ordering::Relaxed);
     }
 
     pub(crate) fn drop_count(&self) -> u64 {
@@ -823,6 +842,7 @@ impl TelemetryService {
                 0
             }
         };
+        self.handle.set_committed_count(committed_orders_count);
 
         let config_value = match self.config.lock_all() {
             Ok(c) => serde_json::to_value(&*c).unwrap_or(serde_json::Value::Null),
@@ -833,7 +853,9 @@ impl TelemetryService {
             broker_address: self.broker_address,
             config: config_value,
             committed_orders_count,
+            global_committed_orders_count: global_committed_count(),
             pending_preflight_count: self.handle.pending_preflight(),
+            global_pending_preflight_count: global_pending_preflight_count(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             uptime_secs: self.uptime_start.elapsed().as_secs(),
             events_dropped: self.handle.drop_count(),
