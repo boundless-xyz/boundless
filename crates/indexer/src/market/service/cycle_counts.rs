@@ -30,8 +30,8 @@ const REQUESTOR_2: Address =
 const SIGNAL_REQUESTOR: Address =
     alloy::primitives::address!("734df7809c4ef94da037449c287166d114503198");
 
-const SIGNAL_REQUESTOR_MIN_CYCLES: u64 = 50_000_000_000; // 50 billion
-const SIGNAL_REQUESTOR_MAX_CYCLES: u64 = 54_000_000_000; // 54 billion
+const SIGNAL_REQUESTOR_MIN_CYCLES: u64 = 36_000_000_000; // 36 billion
+const SIGNAL_REQUESTOR_MAX_CYCLES: u64 = 36_400_000_000; // 36.4 billion
 
 /// Try to extract program cycles from inline request input data.
 /// Returns Some(program_cycles) if extraction succeeds, None otherwise.
