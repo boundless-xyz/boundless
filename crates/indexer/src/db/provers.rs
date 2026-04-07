@@ -1538,7 +1538,7 @@ async fn get_prover_last_activity_times_impl(
 
     // Query for lock activity
     let lock_query = format!(
-        "SELECT lock_prover_address as prover_address, MAX(updated_at) as last_activity
+        "SELECT lock_prover_address as prover_address, MAX(locked_at) as last_activity
         FROM request_status
         WHERE lock_prover_address IN ({})
         GROUP BY lock_prover_address",
@@ -1547,7 +1547,7 @@ async fn get_prover_last_activity_times_impl(
 
     // Query for fulfill activity
     let fulfill_query = format!(
-        "SELECT fulfill_prover_address as prover_address, MAX(updated_at) as last_activity
+        "SELECT fulfill_prover_address as prover_address, MAX(fulfilled_at) as last_activity
         FROM request_status
         WHERE fulfill_prover_address IN ({})
         GROUP BY fulfill_prover_address",
@@ -2539,6 +2539,69 @@ mod tests {
         assert_eq!(activities.get(&prover1), Some(&(base_ts + 2000)));
         // Prover2's last activity is at base_ts + 5000
         assert_eq!(activities.get(&prover2), Some(&(base_ts + 5000)));
+    }
+
+    /// Verifies that last_activity_time uses locked_at/fulfilled_at, not updated_at.
+    /// This catches the bug where updated_at (which changes on any row modification like
+    /// expiry or re-indexing) was incorrectly used instead of the actual activity timestamps.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_last_activity_uses_locked_at_not_updated_at(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let client = Address::from([0x01; 20]);
+        let prover = Address::from([0xAA; 20]);
+        let locked_at_ts = 1700000000u64;
+        let updated_at_ts = 1700010000u64; // updated_at is 10000s later (e.g. expiry update)
+
+        let mut status = create_locked_request_status_for_prover(
+            B256::from([0x01; 32]),
+            client,
+            prover,
+            locked_at_ts,
+            U256::from(100),
+        );
+        // Simulate updated_at being bumped later (e.g. by expiry or re-indexing)
+        status.updated_at = updated_at_ts;
+
+        db.upsert_request_statuses(&[status]).await.unwrap();
+
+        let activities = db.get_prover_last_activity_times(&[prover]).await.unwrap();
+
+        // Should return locked_at, NOT updated_at
+        assert_eq!(activities.get(&prover), Some(&locked_at_ts));
+    }
+
+    /// Verifies that fulfill activity is considered and the max of locked_at/fulfilled_at is returned.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_last_activity_includes_fulfill_time(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let client = Address::from([0x01; 20]);
+        let prover = Address::from([0xAA; 20]);
+        let locked_at_ts = 1700000000u64;
+        let fulfilled_at_ts = 1700005000u64;
+
+        // Create a fulfilled request where fulfilled_at > locked_at
+        let mut status = create_locked_request_status_for_prover(
+            B256::from([0x01; 32]),
+            client,
+            prover,
+            locked_at_ts,
+            U256::from(100),
+        );
+        status.request_status = RequestStatusType::Fulfilled;
+        status.fulfill_prover_address = Some(prover);
+        status.fulfilled_at = Some(fulfilled_at_ts);
+        status.fulfill_block = Some(200);
+
+        db.upsert_request_statuses(&[status]).await.unwrap();
+
+        let activities = db.get_prover_last_activity_times(&[prover]).await.unwrap();
+
+        // fulfilled_at is more recent, so it should be the last activity time
+        assert_eq!(activities.get(&prover), Some(&fulfilled_at_ts));
     }
 
     #[sqlx::test(migrations = "./migrations")]

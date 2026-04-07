@@ -21,7 +21,7 @@ pub mod coingecko;
 /// Price source implementation for static prices
 pub mod static_source;
 
-pub use chainlink::ChainlinkSource;
+pub use chainlink::{ChainlinkMainnetSource, ChainlinkSource, CHAINLINK_PUBLIC_RPC_URLS};
 pub use cmc::CoinMarketCapSource;
 pub use coingecko::CoinGeckoSource;
 pub use static_source::StaticPriceSource;
