@@ -88,8 +88,8 @@ jobs:
 
       - name: Install Rust linker toolchain
         run: |
-          for i in $(seq 1 5); do sudo apt-get update && break; echo "apt lock busy, retrying in 15s..."; sleep 15; done
-          sudo apt-get install -y build-essential binutils lld mold
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -188,8 +188,8 @@ jobs:
 
       - name: Install Rust linker toolchain
         run: |
-          for i in $(seq 1 5); do sudo apt-get update && break; echo "apt lock busy, retrying in 15s..."; sleep 15; done
-          sudo apt-get install -y build-essential binutils lld mold
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
