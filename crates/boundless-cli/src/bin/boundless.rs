@@ -90,8 +90,47 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
+const NEW_CHAIN_BANNER_DAYS: u64 = 15;
+
+fn should_show_new_chain_banner() -> bool {
+    let Ok(dir) = boundless_cli::config_file::config_dir() else {
+        return false;
+    };
+    let marker = dir.join(".first_run");
+
+    if !marker.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(
+            &marker,
+            format!(
+                "{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            ),
+        );
+        return true;
+    }
+
+    let Ok(contents) = std::fs::read_to_string(&marker) else {
+        return false;
+    };
+    let Ok(first_run_secs) = contents.trim().parse::<u64>() else {
+        return false;
+    };
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    now_secs.saturating_sub(first_run_secs) < NEW_CHAIN_BANNER_DAYS * 86400
+}
+
 async fn show_welcome_screen() -> Result<()> {
     use boundless_cli::commands::rewards::State;
+    use boundless_cli::commands::setup::network::display_name_for_network;
     use boundless_cli::config_file::{Config, Secrets};
     use colored::Colorize;
 
@@ -109,7 +148,7 @@ async fn show_welcome_screen() -> Result<()> {
     println!("               {}", "lMM;".cyan().bold());
     println!();
 
-    println!("{}\n", "Boundless CLI - Universal ZK Protocol".bold());
+    println!("{}", "Boundless CLI - Universal ZK Protocol".bold());
 
     let config = Config::load().ok();
     let secrets = Secrets::load().ok();
@@ -118,17 +157,44 @@ async fn show_welcome_screen() -> Result<()> {
     let prover_configured = config.as_ref().and_then(|c| c.prover.as_ref()).is_some();
     let rewards_configured = config.as_ref().and_then(|c| c.rewards.as_ref()).is_some();
 
+    // Show NEW chain banners for unconfigured mainnets, within 15 days of first CLI run.
+    let configured_networks: Vec<&str> = [
+        config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| r.network.as_str()),
+        config.as_ref().and_then(|c| c.prover.as_ref()).map(|p| p.network.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    if should_show_new_chain_banner() {
+        let unconfigured_mainnets: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
+            .iter()
+            .filter(|(_, _, is_mainnet)| *is_mainnet)
+            .filter(|(_, name, _)| {
+                let key = boundless_cli::commands::setup::network::normalize_market_network(name);
+                !configured_networks.contains(&key)
+            })
+            .map(|(_, name, _)| *name)
+            .collect();
+
+        println!();
+        for name in &unconfigured_mainnets {
+            println!(
+                "  {} {} {}",
+                " NEW ".on_bright_cyan().black().bold(),
+                format!("{name} is now supported!").bright_white().bold(),
+                format!("Run 'boundless requestor networks --set \"{name}\"'").dimmed()
+            );
+        }
+    }
+    println!();
+
     // Show Requestor Module
     if requestor_configured {
         let network = config.as_ref().unwrap().requestor.as_ref().unwrap().network.clone();
         let requestor_secrets = secrets.as_ref().and_then(|s| s.requestor_networks.get(&network));
 
-        let display_network = match network.as_str() {
-            "base-mainnet" => "Base Mainnet",
-            "base-sepolia" => "Base Sepolia",
-            "eth-sepolia" => "Ethereum Sepolia",
-            custom => custom,
-        };
+        let display_network = display_name_for_network(&network);
 
         // Check env var for requestor private key
         let env_requestor_pk = std::env::var("REQUESTOR_PRIVATE_KEY").ok();
@@ -186,12 +252,7 @@ async fn show_welcome_screen() -> Result<()> {
         let network = config.as_ref().unwrap().prover.as_ref().unwrap().network.clone();
         let prover_secrets = secrets.as_ref().and_then(|s| s.prover_networks.get(&network));
 
-        let display_network = match network.as_str() {
-            "base-mainnet" => "Base Mainnet",
-            "base-sepolia" => "Base Sepolia",
-            "eth-sepolia" => "Ethereum Sepolia",
-            custom => custom,
-        };
+        let display_network = display_name_for_network(&network);
 
         // Check env var for prover private key
         let env_prover_pk = std::env::var("PROVER_PRIVATE_KEY").ok();
@@ -248,11 +309,7 @@ async fn show_welcome_screen() -> Result<()> {
         let network = config.as_ref().unwrap().rewards.as_ref().unwrap().network.clone();
         let rewards_secrets = secrets.as_ref().and_then(|s| s.rewards_networks.get(&network));
 
-        let display_network = match network.as_str() {
-            "eth-mainnet" => "Ethereum Mainnet",
-            "eth-sepolia" => "Ethereum Sepolia",
-            custom => custom,
-        };
+        let display_network = display_name_for_network(&network);
 
         // Check env vars for staking credentials
         let env_staking_pk = std::env::var("STAKING_PRIVATE_KEY").ok();
@@ -462,7 +519,12 @@ async fn show_welcome_screen() -> Result<()> {
     }
 
     println!();
-    println!("💡 {}", "Run 'boundless --help' to see all available commands".dimmed());
+    println!(
+        "{} {}",
+        "Tip:".bold(),
+        "Run 'boundless <module> networks' to see supported networks (e.g. 'boundless requestor networks')"
+            .dimmed()
+    );
     println!();
 
     Ok(())
@@ -507,6 +569,12 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Propagate --network flag as env var so load_from_files() can pick it up
+    // without changing every command's call signature.
+    if let Some(ref network) = args.config.network {
+        std::env::set_var("BOUNDLESS_NETWORK", network);
+    }
+
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(
@@ -521,11 +589,9 @@ async fn main() -> Result<()> {
 
 pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
     match &args.command {
-        // New command structure
         Command::Requestor(cmd) => cmd.run(config).await,
         Command::Prover(cmd) => cmd.run(config).await,
         Command::Rewards(cmd) => cmd.run(config).await,
-
         Command::Completions { shell } => generate_shell_completions(shell),
     }
 }

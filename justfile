@@ -419,6 +419,8 @@ prover action="up" env_file="" detached="true":
         cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
         echo "broker.toml created successfully."
     fi
+    # Ensure chain-overrides/ exists for compose bind mount
+    mkdir -p chain-overrides
 
     if [ "{{action}}" = "logs" ]; then
         # Ignore mining process logs by default

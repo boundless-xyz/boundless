@@ -17,10 +17,12 @@
 use anyhow::{Context, Result};
 
 /// Pre-built requestor networks that cannot be modified
-pub const PREBUILT_REQUESTOR_NETWORKS: &[&str] = &["base-mainnet", "base-sepolia", "eth-sepolia"];
+pub const PREBUILT_REQUESTOR_NETWORKS: &[&str] =
+    &["base-mainnet", "taiko-mainnet", "base-sepolia", "eth-sepolia"];
 
 /// Pre-built prover networks that cannot be modified
-pub const PREBUILT_PROVER_NETWORKS: &[&str] = &["base-mainnet", "base-sepolia", "eth-sepolia"];
+pub const PREBUILT_PROVER_NETWORKS: &[&str] =
+    &["base-mainnet", "taiko-mainnet", "base-sepolia", "eth-sepolia"];
 
 /// Pre-built rewards networks that cannot be modified
 pub const PREBUILT_REWARDS_NETWORKS: &[&str] = &["eth-mainnet", "eth-sepolia"];
@@ -36,21 +38,49 @@ pub enum ModuleType {
     Rewards,
 }
 
-/// Normalize a network name for market modules (requestor/prover)
+/// Normalize a network name for market modules (requestor/prover).
+/// Accepts display names ("Taiko Mainnet"), kebab-case keys ("taiko-mainnet"),
+/// or chain IDs as strings ("167000").
 pub fn normalize_market_network(network: &str) -> &str {
     match network {
-        "Base Mainnet" => "base-mainnet",
-        "Base Sepolia" => "base-sepolia",
-        "Ethereum Sepolia" | "Eth Sepolia" => "eth-sepolia",
+        "Base Mainnet" | "8453" => "base-mainnet",
+        "Taiko Mainnet" | "167000" => "taiko-mainnet",
+        "Base Sepolia" | "84532" => "base-sepolia",
+        "Ethereum Sepolia" | "Eth Sepolia" | "11155111" => "eth-sepolia",
         custom => custom,
     }
 }
 
-/// Normalize a network name for rewards module
+/// Convert a kebab-case network key to its human-readable display name.
+pub fn display_name_for_network(network_key: &str) -> &str {
+    match network_key {
+        "base-mainnet" => "Base Mainnet",
+        "taiko-mainnet" => "Taiko Mainnet",
+        "base-sepolia" => "Base Sepolia",
+        "eth-sepolia" => "Ethereum Sepolia",
+        "eth-mainnet" => "Ethereum Mainnet",
+        custom => custom,
+    }
+}
+
+/// Convert a kebab-case network key to the corresponding chain ID, if known.
+pub fn chain_id_for_network(network_key: &str) -> Option<u64> {
+    match network_key {
+        "base-mainnet" => Some(8453),
+        "taiko-mainnet" => Some(167000),
+        "base-sepolia" => Some(84532),
+        "eth-sepolia" => Some(11155111),
+        "eth-mainnet" => Some(1),
+        _ => None,
+    }
+}
+
+/// Normalize a network name for rewards module.
+/// Accepts display names, kebab-case keys, or chain IDs as strings.
 pub fn normalize_rewards_network(network: &str) -> &str {
     match network {
-        "Eth Mainnet" | "Ethereum Mainnet" => "eth-mainnet",
-        "Eth Testnet (Sepolia)" | "Eth Sepolia" | "Ethereum Sepolia" => "eth-sepolia",
+        "Eth Mainnet" | "Ethereum Mainnet" | "1" => "eth-mainnet",
+        "Eth Testnet (Sepolia)" | "Eth Sepolia" | "Ethereum Sepolia" | "11155111" => "eth-sepolia",
         custom => custom,
     }
 }
@@ -95,11 +125,17 @@ mod tests {
     fn test_normalize_market_network() {
         assert_eq!(normalize_market_network("Base Mainnet"), "base-mainnet");
         assert_eq!(normalize_market_network("base-mainnet"), "base-mainnet");
+        assert_eq!(normalize_market_network("Taiko Mainnet"), "taiko-mainnet");
+        assert_eq!(normalize_market_network("taiko-mainnet"), "taiko-mainnet");
         assert_eq!(normalize_market_network("Base Sepolia"), "base-sepolia");
         assert_eq!(normalize_market_network("base-sepolia"), "base-sepolia");
         assert_eq!(normalize_market_network("Ethereum Sepolia"), "eth-sepolia");
         assert_eq!(normalize_market_network("Eth Sepolia"), "eth-sepolia");
         assert_eq!(normalize_market_network("eth-sepolia"), "eth-sepolia");
+        assert_eq!(normalize_market_network("8453"), "base-mainnet");
+        assert_eq!(normalize_market_network("167000"), "taiko-mainnet");
+        assert_eq!(normalize_market_network("84532"), "base-sepolia");
+        assert_eq!(normalize_market_network("11155111"), "eth-sepolia");
     }
 
     #[test]
@@ -109,8 +145,29 @@ mod tests {
     }
 
     #[test]
+    fn test_display_name_for_network() {
+        assert_eq!(display_name_for_network("base-mainnet"), "Base Mainnet");
+        assert_eq!(display_name_for_network("taiko-mainnet"), "Taiko Mainnet");
+        assert_eq!(display_name_for_network("base-sepolia"), "Base Sepolia");
+        assert_eq!(display_name_for_network("eth-sepolia"), "Ethereum Sepolia");
+        assert_eq!(display_name_for_network("eth-mainnet"), "Ethereum Mainnet");
+        assert_eq!(display_name_for_network("custom-1234"), "custom-1234");
+    }
+
+    #[test]
+    fn test_chain_id_for_network() {
+        assert_eq!(chain_id_for_network("base-mainnet"), Some(8453));
+        assert_eq!(chain_id_for_network("taiko-mainnet"), Some(167000));
+        assert_eq!(chain_id_for_network("base-sepolia"), Some(84532));
+        assert_eq!(chain_id_for_network("eth-sepolia"), Some(11155111));
+        assert_eq!(chain_id_for_network("eth-mainnet"), Some(1));
+        assert_eq!(chain_id_for_network("custom-1234"), None);
+    }
+
+    #[test]
     fn test_is_prebuilt_network_requestor() {
         assert!(is_prebuilt_network(ModuleType::Requestor, "base-mainnet"));
+        assert!(is_prebuilt_network(ModuleType::Requestor, "taiko-mainnet"));
         assert!(is_prebuilt_network(ModuleType::Requestor, "base-sepolia"));
         assert!(is_prebuilt_network(ModuleType::Requestor, "eth-sepolia"));
         assert!(!is_prebuilt_network(ModuleType::Requestor, "custom-1234"));

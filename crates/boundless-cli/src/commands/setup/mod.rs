@@ -15,7 +15,7 @@
 //! Commands for CLI setup and configuration.
 
 mod custom_networks;
-mod network;
+pub mod network;
 pub mod secrets;
 #[allow(clippy::module_inception)]
 mod setup;
@@ -27,9 +27,9 @@ pub use custom_networks::{
     update_custom_rewards_addresses,
 };
 pub use network::{
-    get_prebuilt_networks, is_prebuilt_network, normalize_market_network,
-    normalize_rewards_network, query_chain_id, ModuleType, PREBUILT_PROVER_NETWORKS,
-    PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS,
+    chain_id_for_network, display_name_for_network, get_prebuilt_networks, is_prebuilt_network,
+    normalize_market_network, normalize_rewards_network, query_chain_id, ModuleType,
+    PREBUILT_PROVER_NETWORKS, PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS,
 };
 pub use secrets::{address_from_private_key, merge_optional, process_private_key};
 pub use setup::{ProverSetup, RequestorSetup, RewardsSetup, SetupInteractive};
