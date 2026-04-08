@@ -467,6 +467,48 @@ pub trait ProversDb: IndexerDb {
         padded_string_to_u256(&total_str)
     }
 
+    /// Gets the best (highest) effective prove MHz and its request_id for a prover in the given period.
+    /// Only considers fulfilled requests where prover_effective_prove_mhz is not null.
+    async fn get_period_prover_best_effective_prove_mhz(
+        &self,
+        period_start: u64,
+        period_end: u64,
+        prover_address: Address,
+    ) -> Result<(f64, Option<U256>), DbError> {
+        let rows = sqlx::query(
+            "SELECT prover_effective_prove_mhz, request_id FROM request_status
+             WHERE fulfill_prover_address = $1
+             AND request_status = 'fulfilled'
+             AND fulfilled_at IS NOT NULL
+             AND fulfilled_at >= $2 AND fulfilled_at < $3
+             AND prover_effective_prove_mhz IS NOT NULL",
+        )
+        .bind(format!("{:x}", prover_address))
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_all(self.pool())
+        .await?;
+
+        let mut best_mhz = 0.0;
+        let mut best_request_id = None;
+        for row in rows {
+            let effective_mhz: Option<f64> =
+                row.try_get::<Option<f64>, _>("prover_effective_prove_mhz").ok().flatten();
+            let request_id_str: Option<String> =
+                row.try_get::<Option<String>, _>("request_id").ok().flatten();
+
+            if let Some(effective) = effective_mhz {
+                if effective > best_mhz {
+                    best_mhz = effective;
+                    if let Some(rid) = &request_id_str {
+                        best_request_id = U256::from_str(rid).ok();
+                    }
+                }
+            }
+        }
+        Ok((best_mhz, best_request_id))
+    }
+
     async fn get_all_time_prover_unique_requestors(
         &self,
         end_ts: u64,
