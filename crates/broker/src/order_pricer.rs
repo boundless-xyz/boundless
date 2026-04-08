@@ -49,6 +49,7 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
+use tracing::{Instrument, Span};
 
 const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -744,12 +745,15 @@ where
                                 (false, false) => PreflightOutcome::Skipped,
                             };
                             (order_id, request_id, outcome)
-                        });
+                        }.instrument(Span::current()));
                     }
                     Ok(state_change) = order_state_rx.recv() => {
+                        if state_change.chain_id() != pricer.chain_id {
+                            continue;
+                        }
                         match state_change {
                             OrderStateChange::Locked { request_id, prover, .. } => {
-                                tracing::debug!("Received order state change for request 0x{:x}: Locked by prover {:x}",
+                                tracing::debug!("Received order state change for request 0x{:x}: Locked by prover 0x{:x}",
                                     request_id, prover);
                                 active_preflights.cancel_lock_and_fulfill(&request_id);
                             }

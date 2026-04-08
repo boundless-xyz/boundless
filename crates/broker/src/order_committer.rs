@@ -530,7 +530,7 @@ impl RetryTask for OrderCommitter {
                             OrderStateChange::Locked { request_id, prover, chain_id } => {
                                 tracing::debug!(
                                     chain_id,
-                                    "Order committer: request 0x{:x} on chain {chain_id} locked by {:x}, removing pending LockAndFulfill orders",
+                                    "Order committer: request 0x{:x} on chain {chain_id} locked by 0x{:x}, removing pending LockAndFulfill orders",
                                     request_id, prover,
                                 );
                                 let initial_len = pending_orders.len();

@@ -1052,7 +1052,7 @@ pub trait OrderPricingContext {
             );
 
             tracing::debug!(
-                "Order price: {} (collateral tokens) - cycles: {} - mcycle price: {} (collateral tokens), config_min_mcycle_price_collateral_tokens: {} (collateral tokens)",
+                "Order {order_id} price: {} (collateral tokens) - cycles: {} - mcycle price: {} (collateral tokens), config_min_mcycle_price_collateral_tokens: {} (collateral tokens)",
                 format_ether(price),
                 cycle_count,
                 self.format_collateral(mcycle_price_in_collateral_tokens),
