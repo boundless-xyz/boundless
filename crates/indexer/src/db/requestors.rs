@@ -768,12 +768,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM request_fulfilled_events rfe
-            JOIN request_status rs ON rfe.request_digest = rs.request_digest
-            WHERE rfe.block_timestamp >= $1 
-            AND rfe.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE fulfilled_at >= $1
+            AND fulfilled_at < $2
+            AND client_address = $3
+            AND request_status = 'fulfilled'";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -839,12 +839,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM request_submitted_events rse
-            JOIN request_status rs ON rse.request_digest = rs.request_digest
-            WHERE rse.block_timestamp >= $1 
-            AND rse.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE created_at >= $1
+            AND created_at < $2
+            AND client_address = $3
+            AND source = 'onchain'";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -863,12 +863,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM request_locked_events rle
-            JOIN request_status rs ON rle.request_digest = rs.request_digest
-            WHERE rle.block_timestamp >= $1 
-            AND rle.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE locked_at >= $1
+            AND locked_at < $2
+            AND client_address = $3
+            AND locked_at IS NOT NULL";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -887,12 +887,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM prover_slashed_events pse
-            JOIN request_status rs ON pse.request_id = rs.request_id
-            WHERE pse.block_timestamp >= $1 
-            AND pse.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE slashed_at >= $1
+            AND slashed_at < $2
+            AND client_address = $3
+            AND slashed_at IS NOT NULL";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -1246,8 +1246,9 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT program_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(program_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE request_status = 'fulfilled'
              AND program_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -1257,18 +1258,11 @@ pub trait RequestorDb: IndexerDb {
         .bind(period_start as i64)
         .bind(period_end as i64)
         .bind(format!("{:x}", requestor_address))
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let program_cycles_str: String = row.try_get("program_cycles")?;
-            let program_cycles = padded_string_to_u256(&program_cycles_str)?;
-            total = total.checked_add(program_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing program_cycles"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_requestor_total_cycles(
@@ -1277,8 +1271,9 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT total_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE request_status = 'fulfilled'
              AND total_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -1288,18 +1283,11 @@ pub trait RequestorDb: IndexerDb {
         .bind(period_start as i64)
         .bind(period_end as i64)
         .bind(format!("{:x}", requestor_address))
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let total_cycles_str: String = row.try_get("total_cycles")?;
-            let total_cycles = padded_string_to_u256(&total_cycles_str)?;
-            total = total.checked_add(total_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing total_cycles"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_all_time_requestor_unique_provers(

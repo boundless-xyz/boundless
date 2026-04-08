@@ -730,7 +730,8 @@ where
              WHERE fulfill_prover_address = $1
              AND request_status = 'fulfilled'
              AND fulfilled_at IS NOT NULL
-             AND fulfilled_at >= $2 AND fulfilled_at < $3",
+             AND fulfilled_at >= $2 AND fulfilled_at < $3
+             AND prover_effective_prove_mhz IS NOT NULL",
         )
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
