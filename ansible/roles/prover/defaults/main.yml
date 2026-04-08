@@ -112,5 +112,8 @@ prover_chain_overrides: {}
 # MinIO input TTL: 0 disables the lifecycle rule, >0 expires inputs/ objects after N days
 prover_input_ttl_days: 1
 
+# Set to "experimental" to use prover-compose.yml (new prover stack, redis-only)
+prover_stack: ""
+
 prover_docker_compose_profile: "--profile broker --profile miner"
 prover_docker_compose_invoke: ""
