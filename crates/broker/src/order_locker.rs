@@ -295,26 +295,29 @@ where
 
         // Pre-lock gas profitability check: compare gas cost against the order's current
         // reward on the pricing ramp. Retries next block on failure (e.g. gas spike).
-        if let Some(gas_estimate) = order.gas_estimate {
-            let gas_price = self
-                .chain_monitor
-                .current_gas_price()
-                .await
-                .map_err(|e| OrderLockerErr::PreLockCheckRetry(format!("gas price: {e:#}")))?;
-            let gas_cost = U256::from(gas_price) * U256::from(gas_estimate);
-            let reward = order
-                .request
-                .offer
-                .price_at(now_timestamp())
-                .map_err(|e| OrderLockerErr::PreLockCheckRetry(e.to_string()))?;
-            if gas_cost > reward {
-                let msg = format!(
-                    "gas cost {} exceeds reward {}",
-                    format_ether(gas_cost),
-                    format_ether(reward)
-                );
-                tracing::warn!("Pre-lock check failed for order {}: {msg}", order.id());
-                return Err(OrderLockerErr::PreLockCheckRetry(msg));
+        let skip_gas_check =
+            self.config.lock_all().map(|c| c.market.skip_gas_profitability_check).unwrap_or(false);
+        if !skip_gas_check {
+            if let Some(gas_estimate) = order.gas_estimate {
+                let gas_price =
+                    self.chain_monitor.current_gas_price().await.map_err(|e| {
+                        OrderLockerErr::PreLockCheckRetry(format!("gas price: {e:#}"))
+                    })?;
+                let gas_cost = U256::from(gas_price) * U256::from(gas_estimate);
+                let reward = order
+                    .request
+                    .offer
+                    .price_at(now_timestamp())
+                    .map_err(|e| OrderLockerErr::PreLockCheckRetry(e.to_string()))?;
+                if gas_cost > reward {
+                    let msg = format!(
+                        "gas cost {} exceeds reward {}",
+                        format_ether(gas_cost),
+                        format_ether(reward)
+                    );
+                    tracing::warn!("Pre-lock check failed for order {}: {msg}", order.id());
+                    return Err(OrderLockerErr::PreLockCheckRetry(msg));
+                }
             }
         }
 
@@ -1577,5 +1580,32 @@ pub(crate) mod tests {
         assert_eq!(retries.len(), 1, "Order should be in retry queue");
         assert_eq!(retries[0].id(), order_id);
         assert!(logs_contain("gas cost"), "Expected log about gas cost exceeding reward");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_gas_profitability_check_bypasses_pre_lock_check() {
+        let mut ctx = setup_oc_test_context().await;
+
+        ctx.monitor.config.load_write().unwrap().market.skip_gas_profitability_check = true;
+
+        let mut order =
+            ctx.create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200).await;
+        order.gas_estimate = Some(500_000);
+        let _ = ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+        let order_arc = Arc::new(*order);
+        let order_id = order_arc.id().clone();
+
+        let capacity_result = CapacityResult { orders: vec![order_arc], meta: HashMap::new() };
+        let retries = ctx
+            .monitor
+            .lock_and_prove_orders(&capacity_result, &OrderLockerConfig::default(), 0)
+            .await;
+
+        assert!(retries.is_empty(), "With skip_gas_profitability_check, order should not retry");
+        assert!(!logs_contain("gas cost"), "Gas check log should not appear when check is skipped");
+
+        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::PendingProving);
     }
 }

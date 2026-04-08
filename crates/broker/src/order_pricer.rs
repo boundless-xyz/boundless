@@ -598,9 +598,10 @@ where
             .await
             .map_err(|err| OrderPricerErr::RpcErr(Arc::new(err.into())))?;
 
-        if order_gas_cost > order.request.offer.maxPrice && !lock_expired {
-            // Cannot check the gas cost for lock expired orders where the reward is a fraction of the collateral
-            // TODO: This can be added once we have a price feed for the collateral token in gas tokens
+        let skip_gas_check =
+            self.config.lock_all().map(|c| c.market.skip_gas_profitability_check).unwrap_or(false);
+
+        if !skip_gas_check && order_gas_cost > order.request.offer.maxPrice && !lock_expired {
             return Ok(Some(Skip {
                 code: SKIP_GAS_EXCEEDS_MAX_PRICE,
                 reason: format!(

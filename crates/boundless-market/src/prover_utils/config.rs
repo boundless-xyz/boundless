@@ -571,6 +571,11 @@ pub struct MarketConfig {
     /// Interval in seconds between broker heartbeat sends.
     #[serde(default = "defaults::broker_heartbeat_interval_secs")]
     pub broker_heartbeat_interval_secs: u64,
+    /// Skip gas profitability checks at evaluation and lock time.
+    /// When true, the broker will not skip orders where gas cost exceeds reward.
+    /// Defaults to false.
+    #[serde(default)]
+    pub skip_gas_profitability_check: bool,
 }
 
 impl Default for MarketConfig {
@@ -624,6 +629,7 @@ impl Default for MarketConfig {
             telemetry_mode: TelemetryMode::default(),
             request_heartbeat_interval_secs: defaults::request_heartbeat_interval_secs(),
             broker_heartbeat_interval_secs: defaults::broker_heartbeat_interval_secs(),
+            skip_gas_profitability_check: false,
         }
     }
 }
