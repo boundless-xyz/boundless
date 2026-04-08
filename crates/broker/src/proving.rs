@@ -352,7 +352,8 @@ impl ProvingService {
                     break status;
                 }
 
-                // Request expiry timeout
+                // Request expiry timeout (fires at expires_at(), the full request deadline).
+                // After this point, the contract will reject any fulfillment attempt.
                 _ = &mut timeout_future => {
                     tracing::debug!("Order {order_id} expired during proving");
 
