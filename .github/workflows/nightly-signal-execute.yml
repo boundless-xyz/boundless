@@ -8,6 +8,10 @@ on:
     paths:
       - .github/workflows/nightly-signal-execute.yml
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   id-token: write
   contents: read
@@ -35,7 +39,7 @@ env:
 jobs:
   signal-execute:
     runs-on: [self-hosted, Linux, X64, prod, cpu]
-    timeout-minutes: 45
+    timeout-minutes: 60
     outputs:
       cycles: ${{ steps.parse.outputs.cycles }}
       time: ${{ steps.parse.outputs.time }}
