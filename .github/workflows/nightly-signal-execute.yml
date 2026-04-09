@@ -206,6 +206,25 @@ jobs:
     needs: [signal-execute]
     runs-on: ubuntu-latest
     steps:
+      - name: Build Slack message
+        id: msg
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          JOB_RESULT="${{ needs.signal-execute.result }}"
+          STATUS="${{ needs.signal-execute.outputs.status }}"
+          CYCLES="${{ needs.signal-execute.outputs.cycles }}"
+          TIME="${{ needs.signal-execute.outputs.time }}"
+          REQUEST="${{ needs.signal-execute.outputs.request_id }}"
+          DEVIATION="${{ needs.signal-execute.outputs.deviation }}"
+
+          if [ "$JOB_RESULT" != "success" ]; then
+            echo "text=:x: Nightly Signal Execute — JOB FAILED — ${RUN_URL}" >> $GITHUB_OUTPUT
+          elif [ "$STATUS" = "pass" ]; then
+            echo "text=:white_check_mark: Nightly Signal Execute — Cycles: ${CYCLES}, Time: ${TIME}s, Request: ${REQUEST}, Deviation: ${DEVIATION}% — Within threshold — ${RUN_URL}" >> $GITHUB_OUTPUT
+          else
+            echo "text=:warning: Nightly Signal Execute — Cycles: ${CYCLES}, Time: ${TIME}s, Request: ${REQUEST}, Deviation: ${DEVIATION}% — DRIFT DETECTED — ${RUN_URL}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Send Slack summary
         uses: slackapi/slack-github-action@v2.1.0
         with:
@@ -213,5 +232,5 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": "${{ needs.signal-execute.outputs.status == 'pass' && ':white_check_mark:' || ':warning:' }} Nightly Signal Execute — Cycles: ${{ needs.signal-execute.outputs.cycles }}, Time: ${{ needs.signal-execute.outputs.time }}s, Request: ${{ needs.signal-execute.outputs.request_id }}, Deviation: ${{ needs.signal-execute.outputs.deviation }}% — ${{ needs.signal-execute.outputs.status == 'pass' && 'Within threshold' || 'DRIFT DETECTED' }} — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "text": "${{ steps.msg.outputs.text }}"
             }
