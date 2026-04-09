@@ -4,9 +4,6 @@ on:
   schedule:
     - cron: "0 3 * * *" # 3 AM UTC daily
   workflow_dispatch:
-  pull_request:
-    paths:
-      - .github/workflows/nightly-signal-execute.yml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
