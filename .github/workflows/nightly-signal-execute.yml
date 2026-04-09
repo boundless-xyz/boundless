@@ -22,7 +22,7 @@ env:
   # Keep in sync with SIGNAL_REQUESTOR in crates/indexer/src/market/service/cycle_counts.rs
   SIGNAL_REQUESTOR: "0x734df7809c4ef94da037449c287166d114503198"
   # Base Mainnet indexer API (CloudFront)
-  INDEXER_URL: "https://d2mdvlnmyov1e1.cloudfront.net"
+  SIGNAL_INDEXER_URL: "https://d2mdvlnmyov1e1.cloudfront.net"
   # Expected cycle range for signal workload
   # Keep in sync with crates/indexer/src/market/service/cycle_counts.rs
   # NOTE: these are program_cycles from the indexer; the executor reports segment-level
@@ -91,7 +91,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          RESPONSE=$(curl -sf --retry 3 --retry-delay 5 "${INDEXER_URL}/v1/market/requestors/${SIGNAL_REQUESTOR}/requests?limit=1&sort_by=created_at")
+          RESPONSE=$(curl -sf --retry 3 --retry-delay 5 "${SIGNAL_INDEXER_URL}/v1/market/requestors/${SIGNAL_REQUESTOR}/requests?limit=1&sort_by=created_at")
 
           REQUEST_ID=$(echo "$RESPONSE" | jq -r '.data[0].request_id')
           SUBMIT_BLOCK=$(echo "$RESPONSE" | jq -r '.data[0].submit_block')
