@@ -25,20 +25,6 @@
       }
     },
     {
-      "address": "0xd60c3875952e2eEc0D04e3BC74eA9dDcdeaa902c",
-      "chainId": 11155111,
-      "name": "Signal (Eth Sepolia)",
-      "description": "ZKasper Signal - finality proofs of Ethereum Sepolia, that require substantial compute resources",
-      "tags": [],
-      "extensions": {
-        "requestEstimates": {
-          "estimatedMcycleCountMin": 50000,
-          "estimatedMcycleCountMax": 55000,
-          "estimatedMaxInputSizeMB": 1000
-        }
-      }
-    },
-    {
       "address": "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
       "chainId": 8453,
       "name": "Mango",

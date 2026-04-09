@@ -165,6 +165,20 @@
       }
     },
     {
+      "address": "0xd60c3875952e2eEc0D04e3BC74eA9dDcdeaa902c",
+      "chainId": 8453,
+      "name": "Signal (Eth Sepolia)",
+      "description": "ZKasper Signal - finality proofs of Ethereum Sepolia",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 400,
+          "estimatedMcycleCountMax": 600,
+          "estimatedMaxInputSizeMB": 1000
+        }
+      }
+    },
+    {
       "address": "0x31DEf5d13d2521ADA03c47E064204692c4e351ec",
       "chainId": 8453,
       "name": "KailuaTestFP",
