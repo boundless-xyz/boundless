@@ -165,7 +165,7 @@
       }
     },
     {
-      "address": "0xd60c3875952e2eEc0D04e3BC74eA9dDcdeaa902c",
+      "address": "0xE30260d1Dc14E70B17951e97719a9D81e768d2C1",
       "chainId": 8453,
       "name": "Signal (Eth Sepolia)",
       "description": "ZKasper Signal - finality proofs of Ethereum Sepolia",
