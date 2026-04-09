@@ -304,16 +304,30 @@ artifacts:
             name: "Source",
             actions: [
               {
-                name: "Github",
+                name: "GithubMain",
                 category: "Source",
                 owner: "AWS",
                 provider: "CodeStarSourceConnection",
                 version: "1",
-                outputArtifacts: ["source_output"],
+                outputArtifacts: ["source_output_main"],
                 configuration: {
                   ConnectionArn: connection.arn,
                   FullRepositoryId: "boundless-xyz/boundless",
                   BranchName: "main",
+                  OutputArtifactFormat: "CODEBUILD_CLONE_REF",
+                },
+              },
+              {
+                name: "GithubNext",
+                category: "Source",
+                owner: "AWS",
+                provider: "CodeStarSourceConnection",
+                version: "1",
+                outputArtifacts: ["source_output_next"],
+                configuration: {
+                  ConnectionArn: connection.arn,
+                  FullRepositoryId: "boundless-xyz/boundless",
+                  BranchName: "next",
                   OutputArtifactFormat: "CODEBUILD_CLONE_REF",
                 },
               },
@@ -329,7 +343,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output"],
+                inputArtifacts: ["source_output_next"],
                 outputArtifacts: ["staging_output"],
                 configuration: {
                   ProjectName: buildProject.name,
@@ -349,7 +363,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output"],
+                inputArtifacts: ["source_output_next"],
                 outputArtifacts: ["cw_staging_output"],
                 configuration: {
                   ProjectName: cwStagingBuild.name,
@@ -367,7 +381,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output"],
+                inputArtifacts: ["source_output_next"],
                 outputArtifacts: ["nightly_output"],
                 configuration: {
                   ProjectName: buildProject.name,
@@ -387,7 +401,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output"],
+                inputArtifacts: ["source_output_next"],
                 outputArtifacts: ["cw_nightly_production_output"],
                 configuration: {
                   ProjectName: cwProductionBuild.name,
@@ -414,7 +428,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 2,
-                inputArtifacts: ["source_output"],
+                inputArtifacts: ["source_output_main"],
                 outputArtifacts: ["production_output"],
                 configuration: {
                   ProjectName: buildProject.name,
@@ -434,7 +448,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 3,
-                inputArtifacts: ["source_output"],
+                inputArtifacts: ["source_output_main"],
                 outputArtifacts: ["cw_production_output"],
                 configuration: {
                   ProjectName: cwProductionBuild.name,
@@ -447,11 +461,24 @@ artifacts:
           {
             providerType: "CodeStarSourceConnection",
             gitConfiguration: {
-              sourceActionName: "Github",
+              sourceActionName: "GithubMain",
               pushes: [
                 {
                   branches: {
                     includes: ["main"],
+                  },
+                },
+              ],
+            },
+          },
+          {
+            providerType: "CodeStarSourceConnection",
+            gitConfiguration: {
+              sourceActionName: "GithubNext",
+              pushes: [
+                {
+                  branches: {
+                    includes: ["next"],
                   },
                 },
               ],

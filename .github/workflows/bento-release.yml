@@ -1,15 +1,16 @@
-name: Build and Release Bento Components
+name: Build and Release Components
 
 on:
   push:
     tags:
       - 'bento-v*'
+      - 'prover-v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., bento-v1.0.0)'
+        description: 'Version to release (e.g., bento-v1.0.0 or prover-v1.0.0)'
         required: true
-        default: 'bento-v1.0.0'
+        default: 'prover-v1.0.0'
       dry_run:
         description: 'Dry run (build only, no release)'
         required: false
@@ -22,17 +23,118 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
+  release-metadata:
+    name: Compute Release Metadata
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      version_unprefixed: ${{ steps.meta.outputs.version_unprefixed }}
+      minor_version: ${{ steps.meta.outputs.minor_version }}
+      minor_version_unprefixed: ${{ steps.meta.outputs.minor_version_unprefixed }}
+      latest: ${{ steps.meta.outputs.latest }}
+      is_rc: ${{ steps.meta.outputs.is_rc }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      display_name: ${{ steps.meta.outputs.display_name }}
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+      bundle_dir: ${{ steps.meta.outputs.bundle_dir }}
+      bundle_archive: ${{ steps.meta.outputs.bundle_archive }}
+      bundle_checksum: ${{ steps.meta.outputs.bundle_checksum }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      agent_image: ${{ steps.meta.outputs.agent_image }}
+      cpu_agent_image: ${{ steps.meta.outputs.cpu_agent_image }}
+      api_image: ${{ steps.meta.outputs.api_image }}
+      cli_image: ${{ steps.meta.outputs.cli_image }}
+      agent_binary_name: ${{ steps.meta.outputs.agent_binary_name }}
+      api_binary_name: ${{ steps.meta.outputs.api_binary_name }}
+      cli_binary_name: ${{ steps.meta.outputs.cli_binary_name }}
+    steps:
+      - name: Compute release metadata
+        id: meta
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+
+          case "$VERSION" in
+            bento-v*)
+              DISPLAY_NAME="Bento"
+              ARTIFACT_NAME="bento-binaries-linux-amd64"
+              BUNDLE_DIR="bento-bundle"
+              AGENT_IMAGE="bento-agent"
+              CPU_AGENT_IMAGE="bento-agent-cpu"
+              API_IMAGE="bento-rest-api"
+              CLI_IMAGE="bento-cli"
+              AGENT_BINARY_NAME="bento-agent"
+              API_BINARY_NAME="bento-rest-api"
+              CLI_BINARY_NAME="bento-cli"
+              VERSION_UNPREFIXED="${VERSION#bento-}"
+              ;;
+            prover-v*)
+              DISPLAY_NAME="Prover"
+              ARTIFACT_NAME="prover-binaries-linux-amd64"
+              BUNDLE_DIR="prover-bundle"
+              AGENT_IMAGE="prover-agent"
+              CPU_AGENT_IMAGE="prover-agent-cpu"
+              API_IMAGE="prover-rest-api"
+              CLI_IMAGE="prover-cli"
+              AGENT_BINARY_NAME="prover-agent"
+              API_BINARY_NAME="prover-rest-api"
+              CLI_BINARY_NAME="prover-cli"
+              VERSION_UNPREFIXED="${VERSION#prover-}"
+              ;;
+            *)
+              echo "Unsupported release tag: $VERSION"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$VERSION" == *"-rc."* ]]; then
+            IS_RC="true"
+            MINOR_VERSION=""
+            MINOR_VERSION_UNPREFIXED=""
+            LATEST=""
+          else
+            IS_RC="false"
+            MINOR_VERSION="$(echo "$VERSION" | sed 's/\.[0-9]*$//')"
+            MINOR_VERSION_UNPREFIXED="$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')"
+            LATEST="latest"
+          fi
+
+          BUNDLE_ARCHIVE="${BUNDLE_DIR}-linux-amd64.tar.gz"
+          BUNDLE_CHECKSUM="${BUNDLE_ARCHIVE}.sha256"
+          SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_unprefixed=$VERSION_UNPREFIXED" >> "$GITHUB_OUTPUT"
+          echo "minor_version=$MINOR_VERSION" >> "$GITHUB_OUTPUT"
+          echo "minor_version_unprefixed=$MINOR_VERSION_UNPREFIXED" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "is_rc=$IS_RC" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "display_name=$DISPLAY_NAME" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
+          echo "bundle_archive=$BUNDLE_ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "bundle_checksum=$BUNDLE_CHECKSUM" >> "$GITHUB_OUTPUT"
+          echo "release_name=$DISPLAY_NAME Release $VERSION" >> "$GITHUB_OUTPUT"
+          echo "agent_image=$AGENT_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "cpu_agent_image=$CPU_AGENT_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "api_image=$API_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "cli_image=$CLI_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "agent_binary_name=$AGENT_BINARY_NAME" >> "$GITHUB_OUTPUT"
+          echo "api_binary_name=$API_BINARY_NAME" >> "$GITHUB_OUTPUT"
+          echo "cli_binary_name=$CLI_BINARY_NAME" >> "$GITHUB_OUTPUT"
+
   extract-binaries:
+    needs: release-metadata
     name: Extract Binaries from Docker Images
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: read
       packages: read
     steps:
-      - name: Compute short SHA
-        id: sha
-        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -42,9 +144,9 @@ jobs:
 
       - name: Wait for Docker Services workflow to complete
         run: |
-          echo "Waiting for docker-services workflow to push nightly-${{ steps.sha.outputs.short_sha }} images..."
-          SHORT_SHA=${{ steps.sha.outputs.short_sha }}
-          IMAGE=${{ env.IMAGE_PREFIX }}/bento-agent:nightly-${SHORT_SHA}
+          echo "Waiting for docker-services workflow to push nightly-${{ needs.release-metadata.outputs.short_sha }} images..."
+          SHORT_SHA=${{ needs.release-metadata.outputs.short_sha }}
+          IMAGE=${{ env.IMAGE_PREFIX }}/${{ needs.release-metadata.outputs.agent_image }}:nightly-${SHORT_SHA}
           for i in $(seq 1 60); do
             if docker pull "$IMAGE" > /dev/null 2>&1; then
               echo "Image $IMAGE is available"
@@ -60,44 +162,45 @@ jobs:
 
       - name: Extract binaries from Docker images
         run: |
-          SHORT_SHA=${{ steps.sha.outputs.short_sha }}
-          mkdir -p bento-bundle
+          SHORT_SHA=${{ needs.release-metadata.outputs.short_sha }}
+          BUNDLE_DIR=${{ needs.release-metadata.outputs.bundle_dir }}
+          mkdir -p "$BUNDLE_DIR"
 
           # Extract agent binary from GPU agent image (already pulled above)
-          docker create --name tmp-agent ${{ env.IMAGE_PREFIX }}/bento-agent:nightly-${SHORT_SHA}
-          docker cp tmp-agent:/app/agent bento-bundle/bento-agent
+          docker create --name tmp-agent ${{ env.IMAGE_PREFIX }}/${{ needs.release-metadata.outputs.agent_image }}:nightly-${SHORT_SHA}
+          docker cp tmp-agent:/app/agent "$BUNDLE_DIR/${{ needs.release-metadata.outputs.agent_binary_name }}"
           docker rm tmp-agent
 
           # Extract rest_api binary
-          docker pull ${{ env.IMAGE_PREFIX }}/bento-rest-api:nightly-${SHORT_SHA}
-          docker create --name tmp-rest-api ${{ env.IMAGE_PREFIX }}/bento-rest-api:nightly-${SHORT_SHA}
-          docker cp tmp-rest-api:/app/rest_api bento-bundle/bento-rest-api
+          docker pull ${{ env.IMAGE_PREFIX }}/${{ needs.release-metadata.outputs.api_image }}:nightly-${SHORT_SHA}
+          docker create --name tmp-rest-api ${{ env.IMAGE_PREFIX }}/${{ needs.release-metadata.outputs.api_image }}:nightly-${SHORT_SHA}
+          docker cp tmp-rest-api:/app/rest_api "$BUNDLE_DIR/${{ needs.release-metadata.outputs.api_binary_name }}"
           docker rm tmp-rest-api
 
-          # Extract bento_cli binary
-          docker pull ${{ env.IMAGE_PREFIX }}/bento-cli:nightly-${SHORT_SHA}
-          docker create --name tmp-cli ${{ env.IMAGE_PREFIX }}/bento-cli:nightly-${SHORT_SHA}
-          docker cp tmp-cli:/app/bento_cli bento-bundle/bento-cli
+          # Extract CLI binary
+          docker pull ${{ env.IMAGE_PREFIX }}/${{ needs.release-metadata.outputs.cli_image }}:nightly-${SHORT_SHA}
+          docker create --name tmp-cli ${{ env.IMAGE_PREFIX }}/${{ needs.release-metadata.outputs.cli_image }}:nightly-${SHORT_SHA}
+          docker cp tmp-cli:/app/bento_cli "$BUNDLE_DIR/${{ needs.release-metadata.outputs.cli_binary_name }}"
           docker rm tmp-cli
 
           # Create bundle archive
-          tar -czf bento-bundle-linux-amd64.tar.gz bento-bundle/
-          sha256sum bento-bundle-linux-amd64.tar.gz > bento-bundle-linux-amd64.tar.gz.sha256
-          rm -rf bento-bundle/
+          tar -czf "${{ needs.release-metadata.outputs.bundle_archive }}" "$BUNDLE_DIR/"
+          sha256sum "${{ needs.release-metadata.outputs.bundle_archive }}" > "${{ needs.release-metadata.outputs.bundle_checksum }}"
+          rm -rf "$BUNDLE_DIR/"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bento-binaries-linux-amd64
+          name: ${{ needs.release-metadata.outputs.artifact_name }}
           path: |
-            bento-bundle-linux-amd64.tar.gz
-            bento-bundle-linux-amd64.tar.gz.sha256
+            ${{ needs.release-metadata.outputs.bundle_archive }}
+            ${{ needs.release-metadata.outputs.bundle_checksum }}
           retention-days: 30
 
   create-release:
     name: Create GitHub Release
-    needs: extract-binaries
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/bento-v') && github.event.inputs.dry_run != 'true'
+    needs: [release-metadata, extract-binaries]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.event.inputs.dry_run != 'true'
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: write
@@ -106,80 +209,56 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: bento-binaries-linux-amd64
+          name: ${{ needs.release-metadata.outputs.artifact_name }}
           path: release-assets
-
-      - name: Extract version from tag
-        id: get_version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "release_name=Bento Release $VERSION" >> $GITHUB_OUTPUT
-          if [[ "$VERSION" == *"-rc."* ]]; then
-            echo "is_rc=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_rc=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ steps.get_version.outputs.version }}"
+          VERSION="${{ needs.release-metadata.outputs.version }}"
           PRERELEASE_FLAG=""
-          if [[ "${{ steps.get_version.outputs.is_rc }}" == "true" ]]; then
+          if [[ "${{ needs.release-metadata.outputs.is_rc }}" == "true" ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
-          gh release create "$VERSION" \
-            $PRERELEASE_FLAG \
-            --title "${{ steps.get_version.outputs.release_name }}" \
-            --notes "## Bento Components Release
+          cat <<'EOF' > release-notes.md
+          ## ${{ needs.release-metadata.outputs.display_name }} Components Release
 
-          This release includes a complete bundle of Bento components:
-          - **Bento Agent**: Workflow execution agent (with CUDA support)
-          - **Bento REST API**: REST API server
-          - **Bento CLI**: CLI tool
+          This release includes a complete bundle of ${{ needs.release-metadata.outputs.display_name }} components:
+          - **${{ needs.release-metadata.outputs.agent_binary_name }}**: Workflow execution agent
+          - **${{ needs.release-metadata.outputs.api_binary_name }}**: REST API server
+          - **${{ needs.release-metadata.outputs.cli_binary_name }}**: CLI tool
 
           ### Supported Platforms
           - Linux AMD64
 
           ### Installation
           Download the appropriate bundle for your platform and extract:
-          \`\`\`bash
-          tar -xzf bento-bundle-linux-amd64.tar.gz
-          cd bento-bundle
-          chmod +x bento-agent bento-rest-api bento-cli
-          \`\`\`
+          ```bash
+          tar -xzf ${{ needs.release-metadata.outputs.bundle_archive }}
+          cd ${{ needs.release-metadata.outputs.bundle_dir }}
+          chmod +x ${{ needs.release-metadata.outputs.agent_binary_name }} ${{ needs.release-metadata.outputs.api_binary_name }} ${{ needs.release-metadata.outputs.cli_binary_name }}
+          ```
 
           ### Verification
-          Verify the integrity of downloaded bundles using the provided SHA256 checksums." \
+          Verify the integrity of downloaded bundles using the provided SHA256 checksums.
+          EOF
+
+          gh release create "$VERSION" \
+            $PRERELEASE_FLAG \
+            --title "${{ needs.release-metadata.outputs.release_name }}" \
+            --notes-file release-notes.md \
             ./release-assets/*
 
   retag-docker:
     name: Retag Docker Images
-    needs: create-release
+    needs: [release-metadata, create-release]
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Extract version and commit SHA
-        id: get_version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          VERSION_UNPREFIXED=${VERSION#bento-}
-          echo "version_unprefixed=$VERSION_UNPREFIXED" >> $GITHUB_OUTPUT
-          # Only compute minor versions and latest tag for non-RC tags
-          if [[ "$VERSION" != *"-rc."* ]]; then
-            echo "minor_version=$(echo "$VERSION" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
-            echo "minor_version_unprefixed=$(echo "$VERSION_UNPREFIXED" | sed 's/\.[0-9]*$//')" >> $GITHUB_OUTPUT
-            echo "latest=latest" >> $GITHUB_OUTPUT
-          fi
-          # Short SHA for matching the nightly image tag
-          echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
-
       - name: Install crane
         run: |
           VERSION=v0.20.2
@@ -189,50 +268,50 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Retag bento-agent image
+      - name: Retag agent image
         run: |
-          SRC=ghcr.io/${{ github.repository }}/bento-agent:nightly-${{ steps.get_version.outputs.short_sha }}
+          SRC=ghcr.io/${{ github.repository }}/${{ needs.release-metadata.outputs.agent_image }}:nightly-${{ needs.release-metadata.outputs.short_sha }}
           for TAG in \
-            "${{ steps.get_version.outputs.version }}" \
-            "${{ steps.get_version.outputs.version_unprefixed }}" \
-            "${{ steps.get_version.outputs.minor_version }}" \
-            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "${{ steps.get_version.outputs.latest }}"; do
+            "${{ needs.release-metadata.outputs.version }}" \
+            "${{ needs.release-metadata.outputs.version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.minor_version }}" \
+            "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
 
-      - name: Retag bento-agent-cpu image
+      - name: Retag cpu agent image
         run: |
-          SRC=ghcr.io/${{ github.repository }}/bento-agent-cpu:nightly-${{ steps.get_version.outputs.short_sha }}
+          SRC=ghcr.io/${{ github.repository }}/${{ needs.release-metadata.outputs.cpu_agent_image }}:nightly-${{ needs.release-metadata.outputs.short_sha }}
           for TAG in \
-            "${{ steps.get_version.outputs.version }}" \
-            "${{ steps.get_version.outputs.version_unprefixed }}" \
-            "${{ steps.get_version.outputs.minor_version }}" \
-            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "${{ steps.get_version.outputs.latest }}"; do
+            "${{ needs.release-metadata.outputs.version }}" \
+            "${{ needs.release-metadata.outputs.version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.minor_version }}" \
+            "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
 
-      - name: Retag bento-rest-api image
+      - name: Retag rest api image
         run: |
-          SRC=ghcr.io/${{ github.repository }}/bento-rest-api:nightly-${{ steps.get_version.outputs.short_sha }}
+          SRC=ghcr.io/${{ github.repository }}/${{ needs.release-metadata.outputs.api_image }}:nightly-${{ needs.release-metadata.outputs.short_sha }}
           for TAG in \
-            "${{ steps.get_version.outputs.version }}" \
-            "${{ steps.get_version.outputs.version_unprefixed }}" \
-            "${{ steps.get_version.outputs.minor_version }}" \
-            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "${{ steps.get_version.outputs.latest }}"; do
+            "${{ needs.release-metadata.outputs.version }}" \
+            "${{ needs.release-metadata.outputs.version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.minor_version }}" \
+            "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
 
-      - name: Retag bento-cli image
+      - name: Retag cli image
         run: |
-          SRC=ghcr.io/${{ github.repository }}/bento-cli:nightly-${{ steps.get_version.outputs.short_sha }}
+          SRC=ghcr.io/${{ github.repository }}/${{ needs.release-metadata.outputs.cli_image }}:nightly-${{ needs.release-metadata.outputs.short_sha }}
           for TAG in \
-            "${{ steps.get_version.outputs.version }}" \
-            "${{ steps.get_version.outputs.version_unprefixed }}" \
-            "${{ steps.get_version.outputs.minor_version }}" \
-            "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
-            "${{ steps.get_version.outputs.latest }}"; do
+            "${{ needs.release-metadata.outputs.version }}" \
+            "${{ needs.release-metadata.outputs.version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.minor_version }}" \
+            "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
+            "${{ needs.release-metadata.outputs.latest }}"; do
             [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
           done
