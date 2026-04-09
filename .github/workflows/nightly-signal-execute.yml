@@ -1,0 +1,217 @@
+name: Nightly Signal Execute
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 3 AM UTC daily
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/nightly-signal-execute.yml
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Keep in sync with main.yml
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "3.0.3"
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+  # Signal requestor address on Base Mainnet
+  # Keep in sync with SIGNAL_REQUESTOR in crates/indexer/src/market/service/cycle_counts.rs
+  SIGNAL_REQUESTOR: "0x734df7809c4ef94da037449c287166d114503198"
+  # Base Mainnet indexer API (CloudFront)
+  INDEXER_URL: "https://d2mdvlnmyov1e1.cloudfront.net"
+  # Expected cycle range for signal workload
+  # Keep in sync with crates/indexer/src/market/service/cycle_counts.rs
+  # NOTE: these are program_cycles from the indexer; the executor reports segment-level
+  # total cycles which are close but not identical. The ±5% tolerance covers the difference.
+  SIGNAL_REQUESTOR_MIN_CYCLES: "36000000000"
+  SIGNAL_REQUESTOR_MAX_CYCLES: "36400000000"
+  # Tolerance percentage for alerting
+  TOLERANCE_PCT: "5"
+
+jobs:
+  signal-execute:
+    runs-on: [self-hosted, Linux, X64, prod, cpu]
+    timeout-minutes: 45
+    outputs:
+      cycles: ${{ steps.parse.outputs.cycles }}
+      time: ${{ steps.parse.outputs.time }}
+      request_id: ${{ steps.fetch.outputs.request_id }}
+      status: ${{ steps.check.outputs.status }}
+      deviation: ${{ steps.check.outputs.deviation }}
+    steps:
+      - name: Remove stale submodules
+        run: rm -rf lib/
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
+      - name: Checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth=1 --jobs=8
+
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
+
+      - name: Setup sccache + S3
+        uses: ./.github/actions/sccache
+
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Build CLI
+        run: cargo build --release --locked -p boundless-cli
+
+      - name: Fetch latest signal request from indexer
+        id: fetch
+        run: |
+          set -euo pipefail
+
+          RESPONSE=$(curl -sf --retry 3 --retry-delay 5 "${INDEXER_URL}/v1/market/requestors/${SIGNAL_REQUESTOR}/requests?limit=1&sort_by=created_at")
+
+          REQUEST_ID=$(echo "$RESPONSE" | jq -r '.data[0].request_id')
+          SUBMIT_BLOCK=$(echo "$RESPONSE" | jq -r '.data[0].submit_block')
+          REQUEST_STATUS=$(echo "$RESPONSE" | jq -r '.data[0].request_status')
+
+          if [ "$REQUEST_ID" = "null" ] || [ -z "$REQUEST_ID" ]; then
+            echo "::error::No signal request found"
+            exit 1
+          fi
+
+          echo "request_id=${REQUEST_ID}" >> $GITHUB_OUTPUT
+          echo "submit_block=${SUBMIT_BLOCK}" >> $GITHUB_OUTPUT
+          echo "Found signal request: ${REQUEST_ID} (status: ${REQUEST_STATUS}, block: ${SUBMIT_BLOCK})"
+
+      - name: Execute signal request
+        id: execute
+        env:
+          PROVER_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
+          NO_COLOR: "1"
+        run: |
+          set -euo pipefail
+
+          REQUEST_ID="${{ steps.fetch.outputs.request_id }}"
+          SUBMIT_BLOCK="${{ steps.fetch.outputs.submit_block }}"
+
+          echo "Executing request ${REQUEST_ID}..."
+
+          # Use search-from-block hint to speed up event scanning
+          # Redirect only stdout to file (stderr/logs go to CI log directly)
+          ./target/release/boundless prover execute \
+            --request-id "$REQUEST_ID" \
+            --search-from-block "$SUBMIT_BLOCK" \
+            > "${RUNNER_TEMP}/execute-output.txt"
+          cat "${RUNNER_TEMP}/execute-output.txt"
+
+      - name: Parse execution results
+        id: parse
+        run: |
+          set -euo pipefail
+
+          OUTPUT=$(cat "${RUNNER_TEMP}/execute-output.txt")
+
+          # Extract cycles and time from output (format: "  Cycles:          36300989016")
+          CYCLES=$(echo "$OUTPUT" | grep -oP 'Cycles:\s+\K[0-9]+')
+          TIME=$(echo "$OUTPUT" | grep -oP 'Time:\s+\K[0-9.]+')
+
+          if [ -z "$CYCLES" ] || [ -z "$TIME" ]; then
+            echo "::error::Failed to parse execution output"
+            cat "${RUNNER_TEMP}/execute-output.txt"
+            exit 1
+          fi
+
+          echo "cycles=${CYCLES}" >> $GITHUB_OUTPUT
+          echo "time=${TIME}" >> $GITHUB_OUTPUT
+          echo "Cycles: ${CYCLES}, Time: ${TIME}s"
+
+      - name: Check cycle count threshold
+        id: check
+        run: |
+          set -euo pipefail
+
+          CYCLES="${{ steps.parse.outputs.cycles }}"
+          MIN="${{ env.SIGNAL_REQUESTOR_MIN_CYCLES }}"
+          MAX="${{ env.SIGNAL_REQUESTOR_MAX_CYCLES }}"
+          TOLERANCE="${{ env.TOLERANCE_PCT }}"
+
+          # Use midpoint of expected range as baseline for deviation calculation
+          MIDPOINT=$(echo "$MIN $MAX" | awk '{printf "%.0f", ($1 + $2) / 2}')
+
+          # Apply tolerance to the full range (expand min/max by tolerance %)
+          LOWER=$(echo "$MIN $TOLERANCE" | awk '{printf "%.0f", $1 * (1 - $2/100)}')
+          UPPER=$(echo "$MAX $TOLERANCE" | awk '{printf "%.0f", $1 * (1 + $2/100)}')
+
+          DEVIATION=$(echo "$CYCLES $MIDPOINT" | awk '{printf "%.2f", (($1 - $2) / $2) * 100}')
+
+          echo "Expected range: [${MIN}, ${MAX}] (±${TOLERANCE}% tolerance)"
+          echo "Effective range: [${LOWER}, ${UPPER}]"
+          echo "Actual:   ${CYCLES}"
+          echo "Deviation from midpoint: ${DEVIATION}%"
+
+          echo "deviation=${DEVIATION}" >> $GITHUB_OUTPUT
+
+          if [ "$CYCLES" -ge "$LOWER" ] && [ "$CYCLES" -le "$UPPER" ]; then
+            echo "status=pass" >> $GITHUB_OUTPUT
+            echo "Cycle count within expected range"
+          else
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "::warning::Cycle count ${CYCLES} outside expected range [${LOWER}, ${UPPER}] (${DEVIATION}% deviation from midpoint)"
+          fi
+
+      - name: Write job summary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## Signal Execute Results
+
+          | Metric | Value |
+          |--------|-------|
+          | Request ID | \`${{ steps.fetch.outputs.request_id }}\` |
+          | Cycles | \`${{ steps.parse.outputs.cycles }}\` |
+          | Time | \`${{ steps.parse.outputs.time }}s\` |
+          | Expected Range | \`[${{ env.SIGNAL_REQUESTOR_MIN_CYCLES }}, ${{ env.SIGNAL_REQUESTOR_MAX_CYCLES }}]\` |
+          | Deviation | \`${{ steps.check.outputs.deviation }}%\` |
+          | Status | ${{ steps.check.outputs.status == 'pass' && 'Pass' || 'Drift detected' }} |
+          EOF
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  notify:
+    if: always()
+    needs: [signal-execute]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack summary
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ needs.signal-execute.outputs.status == 'pass' && ':white_check_mark:' || ':warning:' }} Nightly Signal Execute — Cycles: ${{ needs.signal-execute.outputs.cycles }}, Time: ${{ needs.signal-execute.outputs.time }}s, Request: ${{ needs.signal-execute.outputs.request_id }}, Deviation: ${{ needs.signal-execute.outputs.deviation }}% — ${{ needs.signal-execute.outputs.status == 'pass' && 'Within threshold' || 'DRIFT DETECTED' }} — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
