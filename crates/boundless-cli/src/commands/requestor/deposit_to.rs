@@ -96,7 +96,7 @@ mod tests {
         ctx.cmd("requestor", "deposit-to")
             .arg("0.01")
             .arg("--to")
-            .arg(&format!("{:?}", account1.address))
+            .arg(&account1.address)
             .with_account(&account0)
             .assert()
             .success()
