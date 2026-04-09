@@ -174,7 +174,7 @@
         "requestEstimates": {
           "estimatedMcycleCountMin": 400,
           "estimatedMcycleCountMax": 600,
-          "estimatedMaxInputSizeMB": 1000
+          "estimatedMaxInputSizeMB": 1
         }
       }
     },
