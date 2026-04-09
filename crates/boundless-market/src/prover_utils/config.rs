@@ -82,16 +82,7 @@ pub mod defaults {
     }
 
     pub fn estimation_priority_mode() -> PriorityMode {
-        // 1× raw base fee (no multiplier) + 20th percentile priority fee.
-        // Reflects what the broker actually expects to pay, without the safety buffers
-        // used for tx sending. Overestimating here causes the broker to inflate prices, lock later
-        // and potentially skip profitable orders.
-        PriorityMode::Custom {
-            base_fee_multiplier_percentage: 100,
-            priority_fee_multiplier_percentage: 100,
-            priority_fee_percentile: 20.0,
-            dynamic_multiplier_percentage: 0,
-        }
+        PriorityMode::Medium
     }
 
     pub const fn max_submission_attempts() -> u32 {
@@ -887,25 +878,14 @@ impl Config {
 }
 
 impl MarketConfig {
-    /// Apply chain-specific gas estimation defaults for fields the user hasn't overridden.
-    ///
-    /// Compares current values against the generic defaults — if they match (i.e. the user
-    /// didn't set them in TOML), replaces them with chain-tuned values from `deployments.rs`.
+    /// Resolve Low/Medium/High gas modes to chain-specific preset values.
+    /// Each context (priority and estimation) has its own set of presets.
+    /// Custom modes are left as-is.
     pub fn apply_chain_defaults(&mut self, chain_id: u64) {
-        if let Some(gas_config) = crate::deployments::gas_config_for_chain(chain_id) {
-            if self.gas_estimation_priority_mode == defaults::estimation_priority_mode() {
-                tracing::debug!(
-                    "Applying chain-specific gas estimation defaults for chain {chain_id}"
-                );
-                self.gas_estimation_priority_mode = gas_config.estimation_priority_mode;
-            }
-            if self.gas_priority_mode == defaults::priority_mode() {
-                tracing::debug!(
-                    "Applying chain-specific gas priority defaults for chain {chain_id}"
-                );
-                self.gas_priority_mode = gas_config.gas_priority_mode;
-            }
-        }
+        let presets = crate::deployments::gas_presets_for_chain(chain_id);
+        self.gas_priority_mode = presets.priority.resolve(&self.gas_priority_mode);
+        self.gas_estimation_priority_mode =
+            presets.estimation.resolve(&self.gas_estimation_priority_mode);
     }
 }
 

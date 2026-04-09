@@ -215,40 +215,135 @@ pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
     chain_id == 1 || chain_id == 11155111 || chain_id == 31337 || chain_id == 1337
 }
 
-/// Per-chain gas estimation defaults.
-///
-/// Chains with volatile gas markets (Base, Ethereum) use the generic defaults.
-/// Chains with stable low gas (Taiko) use conservative settings to avoid overestimating.
-#[derive(Debug)]
-pub struct GasConfig {
-    /// Gas estimation mode for profitability calculations (should reflect actual expected cost).
-    pub estimation_priority_mode: PriorityMode,
-    /// Gas priority mode for sending transactions (can include safety buffers).
-    pub gas_priority_mode: PriorityMode,
+/// Low/medium/high gas presets for a single context (priority or estimation).
+#[derive(Debug, Clone)]
+pub struct TierPresets {
+    /// Low priority preset.
+    pub low: PriorityMode,
+    /// Medium priority preset.
+    pub medium: PriorityMode,
+    /// High priority preset.
+    pub high: PriorityMode,
 }
 
-/// Returns chain-specific gas estimation defaults, if any.
-///
-/// Returns `None` for chains where the generic defaults are appropriate (Base, Ethereum, etc.).
-/// Returns tuned values for chains with different gas market characteristics (e.g. Taiko).
-pub fn gas_config_for_chain(chain_id: u64) -> Option<GasConfig> {
+impl TierPresets {
+    /// Resolve a PriorityMode using these presets.
+    /// Low/Medium/High are replaced with the preset values.
+    /// Custom is returned as-is.
+    pub fn resolve(&self, mode: &PriorityMode) -> PriorityMode {
+        match mode {
+            PriorityMode::Low => self.low.clone(),
+            PriorityMode::Medium => self.medium.clone(),
+            PriorityMode::High => self.high.clone(),
+            PriorityMode::Custom { .. } => mode.clone(),
+        }
+    }
+}
+
+/// Per-chain gas presets for both sending (priority) and profitability estimation.
+#[derive(Debug, Clone)]
+pub struct ChainGasPresets {
+    /// Presets for `gas_priority_mode` (sending transactions).
+    pub priority: TierPresets,
+    /// Presets for `gas_estimation_priority_mode` (profitability calculations).
+    pub estimation: TierPresets,
+}
+
+/// Generic gas presets used by chains that don't define their own.
+fn default_presets() -> ChainGasPresets {
+    ChainGasPresets {
+        priority: TierPresets {
+            low: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 200,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 20.0,
+                dynamic_multiplier_percentage: 3,
+            },
+            medium: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 200,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 30.0,
+                dynamic_multiplier_percentage: 5,
+            },
+            high: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 250,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 50.0,
+                dynamic_multiplier_percentage: 7,
+            },
+        },
+        // Conservative settings for profitability estimation: 1x base fee, no
+        // dynamic multiplier, lower percentiles than priority. Overestimating
+        // here causes the broker to skip profitable orders.
+        estimation: TierPresets {
+            low: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 100,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 10.0,
+                dynamic_multiplier_percentage: 0,
+            },
+            medium: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 100,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 20.0,
+                dynamic_multiplier_percentage: 0,
+            },
+            high: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 100,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 30.0,
+                dynamic_multiplier_percentage: 0,
+            },
+        },
+    }
+}
+
+/// Returns gas presets for a chain. Falls back to generic defaults.
+pub fn gas_presets_for_chain(chain_id: u64) -> ChainGasPresets {
     match chain_id {
         // Taiko: very stable gas at ~0.01 gwei, essentially zero priority fee.
-        // Default estimation mode (20th percentile + 1x multiplier) overshoots.
-        167000 => Some(GasConfig {
-            estimation_priority_mode: PriorityMode::Custom {
-                base_fee_multiplier_percentage: 100,
-                priority_fee_multiplier_percentage: 100,
-                priority_fee_percentile: 5.0,
-                dynamic_multiplier_percentage: 0,
+        167000 => ChainGasPresets {
+            priority: TierPresets {
+                low: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 1.0,
+                    dynamic_multiplier_percentage: 2,
+                },
+                medium: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 5.0,
+                    dynamic_multiplier_percentage: 3,
+                },
+                high: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 150,
+                    priority_fee_multiplier_percentage: 150,
+                    priority_fee_percentile: 20.0,
+                    dynamic_multiplier_percentage: 4,
+                },
             },
-            gas_priority_mode: PriorityMode::Custom {
-                base_fee_multiplier_percentage: 100,
-                priority_fee_multiplier_percentage: 100,
-                priority_fee_percentile: 5.0,
-                dynamic_multiplier_percentage: 0,
+            estimation: TierPresets {
+                low: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 10.0,
+                    dynamic_multiplier_percentage: 2,
+                },
+                medium: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 20.0,
+                    dynamic_multiplier_percentage: 3,
+                },
+                high: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 150,
+                    priority_fee_multiplier_percentage: 150,
+                    priority_fee_percentile: 30.0,
+                    dynamic_multiplier_percentage: 4,
+                },
             },
-        }),
-        _ => None,
+        },
+        _ => default_presets(),
     }
 }
