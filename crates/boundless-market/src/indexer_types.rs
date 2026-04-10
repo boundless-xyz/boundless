@@ -309,7 +309,7 @@ pub struct RequestListParams {
     /// When true, deduplicate requests by request_id keeping only the most
     /// advanced status (default false)
     #[serde(default)]
-    pub deduplicate: Option<bool>,
+    pub deduplicate: bool,
 }
 
 // ─── Market Response Types ───────────────────────────────────────────────────

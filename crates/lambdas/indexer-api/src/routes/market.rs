@@ -1623,7 +1623,7 @@ async fn list_requests_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let deduplicate = params.deduplicate.unwrap_or(false);
+    let deduplicate = params.deduplicate;
 
     let (statuses, next_cursor) =
         state.market_db.list_requests(cursor, limit, sort_by, deduplicate).await?;
@@ -1696,7 +1696,7 @@ async fn list_requests_by_requestor_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let deduplicate = params.deduplicate.unwrap_or(false);
+    let deduplicate = params.deduplicate;
 
     let (statuses, next_cursor) = state
         .market_db
@@ -1771,7 +1771,7 @@ async fn list_requests_by_prover_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let deduplicate = params.deduplicate.unwrap_or(false);
+    let deduplicate = params.deduplicate;
 
     let (statuses, next_cursor) = state
         .market_db
