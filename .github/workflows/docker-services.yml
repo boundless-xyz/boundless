@@ -201,7 +201,8 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
           tags: |
             type=sha,prefix=nightly-
-            type=raw,value=nightly-latest
+            type=raw,value=nightly-latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=next-latest,enable=${{ github.ref == 'refs/heads/next' }}
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
             type=raw,value=${{ inputs.custom_tag }},enable=${{ inputs.custom_tag != '' }}
