@@ -4,10 +4,15 @@
 // as found in the LICENSE-BSL file.
 
 use anyhow::{Context, Result, bail};
-use bonsai_sdk::non_blocking::Client as ProvingClient;
+use bonsai_sdk::{
+    non_blocking::{Client as ProvingClient, SessionId},
+    responses::CreateSessRes,
+};
 use clap::Parser;
+use reqwest::header::HeaderValue;
 use risc0_zkvm::{Receipt, compute_image_id, serde::to_vec};
 use sample_guest_common::IterReq;
+use serde::Serialize;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -86,8 +91,16 @@ async fn main() -> Result<()> {
     };
 
     // Execute STARK workflow
-    let (_session_uuid, _receipt_id) =
-        stark_workflow(&client, image.clone(), input, vec![], args.exec_only).await?;
+    let (_session_uuid, _receipt_id) = stark_workflow(
+        &client,
+        &args.endpoint,
+        &api_key,
+        image.clone(),
+        input,
+        vec![],
+        args.exec_only,
+    )
+    .await?;
 
     // return if exec only and success
     if args.exec_only {
@@ -99,6 +112,8 @@ async fn main() -> Result<()> {
 
 async fn stark_workflow(
     client: &ProvingClient,
+    endpoint: &str,
+    api_key: &str,
     image: Vec<u8>,
     input: Vec<u8>,
     assumptions: Vec<String>,
@@ -114,10 +129,16 @@ async fn stark_workflow(
 
     tracing::info!("image_id: {image_id} | input_id: {input_id}");
 
-    let session = client
-        .create_session(image_id_str.clone(), input_id, assumptions, exec_only)
-        .await
-        .context("STARK proof failure")?;
+    let session = create_low_priority_session(
+        endpoint,
+        api_key,
+        image_id_str.clone(),
+        input_id,
+        assumptions,
+        exec_only,
+    )
+    .await
+    .context("STARK proof failure")?;
     tracing::info!("STARK job_id: {}", session.uuid);
 
     let mut receipt_id = String::new();
@@ -161,4 +182,46 @@ async fn stark_workflow(
         }
     }
     Ok((session.uuid, receipt_id))
+}
+
+#[derive(Serialize)]
+struct StarkCreateReq {
+    img: String,
+    input: String,
+    assumptions: Vec<String>,
+    execute_only: bool,
+    priority: &'static str,
+}
+
+async fn create_low_priority_session(
+    endpoint: &str,
+    api_key: &str,
+    image_id: String,
+    input_id: String,
+    assumptions: Vec<String>,
+    exec_only: bool,
+) -> Result<SessionId> {
+    let url = format!("{}/sessions/create", endpoint.trim_end_matches('/'));
+    let req = StarkCreateReq {
+        img: image_id,
+        input: input_id,
+        assumptions,
+        execute_only: exec_only,
+        priority: "low",
+    };
+
+    let mut builder = reqwest::Client::new().post(url).json(&req);
+    if !api_key.is_empty() {
+        builder = builder.header(
+            "x-api-key",
+            HeaderValue::from_str(api_key).context("Invalid x-api-key header value")?,
+        );
+    }
+
+    let response = builder.send().await.context("Failed to create low-priority session")?;
+    let response = response.error_for_status().context("Low-priority session creation failed")?;
+    let session =
+        response.json::<CreateSessRes>().await.context("Failed to decode session response")?;
+
+    Ok(SessionId::new(session.uuid))
 }
