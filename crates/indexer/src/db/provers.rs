@@ -51,13 +51,24 @@ pub trait ProversDb: IndexerDb {
                        SELECT 1 FROM request_status rs2
                        WHERE rs2.request_id = rs.request_id
                          AND rs2.request_digest != rs.request_digest
-                         AND (CASE rs2.request_status
+                         AND (
+                           (CASE rs2.request_status
                                 WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
                                 WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
-                              <
-                              CASE rs.request_status
+                            <
+                            CASE rs.request_status
                                 WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
                                 WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END)
+                           OR (CASE rs2.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                               =
+                               CASE rs.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                               AND (rs2.updated_at > rs.updated_at
+                                    OR (rs2.updated_at = rs.updated_at AND rs2.request_digest > rs.request_digest)))
+                         )
                    )";
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
