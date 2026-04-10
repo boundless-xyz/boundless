@@ -356,23 +356,43 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         # dockerfiles to the source-build variants so Compose builds from source
         # instead of pulling pre-built images.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
-            export AGENT_IMAGE="" CPU_AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE="" BENTO_CLI_IMAGE=""
-            export CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile"
-            export GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
-            export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
-            export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
-            export BENTO_CLI_DOCKERFILE="dockerfiles/bento_cli.dockerfile"
+            if [ "${PROVER_STACK:-}" = "experimental" ]; then
+                export PROVER_AGENT_IMAGE="" PROVER_CPU_AGENT_IMAGE="" BROKER_IMAGE="" PROVER_REST_API_IMAGE="" PROVER_CLI_IMAGE=""
+                export PROVER_CPU_AGENT_DOCKERFILE="dockerfiles/prover/agent.cpu.dockerfile"
+                export PROVER_AGENT_DOCKERFILE="dockerfiles/prover/agent.dockerfile"
+                export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
+                export PROVER_REST_API_DOCKERFILE="dockerfiles/prover/rest_api.dockerfile"
+                export PROVER_CLI_DOCKERFILE="dockerfiles/prover/prover_cli.dockerfile"
+            else
+                export AGENT_IMAGE="" CPU_AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE="" BENTO_CLI_IMAGE=""
+                export CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile"
+                export GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
+                export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
+                export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
+                export BENTO_CLI_DOCKERFILE="dockerfiles/bento_cli.dockerfile"
+            fi
             docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
-                case "$svc" in
-                    exec_agent|aux_agent) export CPU_AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}" ;;
-                    gpu_prove_agent) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}" ;;
-                    miner) export BENTO_CLI_IMAGE="" BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/bento_cli.dockerfile}" ;;
-                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
-                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}" ;;
-                    *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
-                esac
+                if [ "${PROVER_STACK:-}" = "experimental" ]; then
+                    case "$svc" in
+                        exec_agent|aux_agent) export PROVER_CPU_AGENT_IMAGE="" PROVER_CPU_AGENT_DOCKERFILE="${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}" ;;
+                        gpu_prove_agent) export PROVER_AGENT_IMAGE="" PROVER_AGENT_DOCKERFILE="${PROVER_AGENT_DOCKERFILE:-dockerfiles/prover/agent.dockerfile}" ;;
+                        miner) export PROVER_CLI_IMAGE="" PROVER_CLI_DOCKERFILE="${PROVER_CLI_DOCKERFILE:-dockerfiles/prover/prover_cli.dockerfile}" ;;
+                        broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                        rest_api)      export PROVER_REST_API_IMAGE="" PROVER_REST_API_DOCKERFILE="${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}" ;;
+                        *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
+                    esac
+                else
+                    case "$svc" in
+                        exec_agent|aux_agent) export CPU_AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}" ;;
+                        gpu_prove_agent) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}" ;;
+                        miner) export BENTO_CLI_IMAGE="" BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/bento_cli.dockerfile}" ;;
+                        broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                        rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}" ;;
+                        *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
+                    esac
+                fi
             done
             docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
             docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}

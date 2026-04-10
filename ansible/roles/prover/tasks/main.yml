@@ -20,9 +20,15 @@
   ansible.builtin.command:
     cmd: >-
       docker manifest inspect
-      ghcr.io/boundless-xyz/boundless/bento-agent:nightly-{{ prover_commit_sha.stdout[:7] }}
-  register: _image_check
-  until: _image_check.rc == 0
+      ghcr.io/boundless-xyz/boundless/{{ item }}:nightly-{{ prover_commit_sha.stdout[:7] }}
+  loop:
+    - prover-agent
+    - prover-agent-cpu
+    - prover-rest-api
+    - prover-cli
+    - broker
+  register: prover_image_check
+  until: prover_image_check.rc == 0
   retries: 60
   delay: 30
   when: prover_wait_for_nightly_image | default(false) | bool
@@ -123,10 +129,12 @@
 
 - name: Ensure just is installed
   ansible.builtin.shell: |
+    set -o pipefail
     if ! command -v just &> /dev/null; then
       curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
     fi
   args:
+    executable: /bin/bash
     creates: /usr/local/bin/just
 
 - name: Write the system service file
