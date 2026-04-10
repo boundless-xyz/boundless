@@ -43,14 +43,30 @@ pub trait ProversDb: IndexerDb {
             RequestSortField::CreatedAt => "created_at",
         };
 
+        // Deduplicate by request_id: when multiple digests exist for the same
+        // request_id (e.g. resubmission with modified offer), exclude rows where
+        // a digest with a more advanced status exists. Uses NOT EXISTS anti-join
+        // which preserves the original index-driven LIMIT scan.
+        let dedup_clause = "NOT EXISTS (
+                       SELECT 1 FROM request_status rs2
+                       WHERE rs2.request_id = rs.request_id
+                         AND rs2.request_digest != rs.request_digest
+                         AND (CASE rs2.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                              <
+                              CASE rs.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END)
+                   )";
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE (lock_prover_address = $1 OR fulfill_prover_address = $1)
-                   AND ({} < $2 OR ({} = $2 AND request_digest < $3))
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE (rs.lock_prover_address = $1 OR rs.fulfill_prover_address = $1)
+                   AND ({sort_field} < $2 OR ({sort_field} = $2 AND rs.request_digest < $3))
+                   AND {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $4",
-                sort_field, sort_field, sort_field
             );
             sqlx::query(&query_str)
                 .bind(&prover_str)
@@ -61,11 +77,11 @@ pub trait ProversDb: IndexerDb {
                 .await?
         } else {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE (lock_prover_address = $1 OR fulfill_prover_address = $1)
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE (rs.lock_prover_address = $1 OR rs.fulfill_prover_address = $1)
+                   AND {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $2",
-                sort_field
             );
             sqlx::query(&query_str)
                 .bind(&prover_str)

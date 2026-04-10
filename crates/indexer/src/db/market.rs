@@ -3427,13 +3427,29 @@ impl IndexerDb for MarketDb {
             RequestSortField::CreatedAt => "created_at",
         };
 
+        // Deduplicate by request_id: when multiple digests exist for the same
+        // request_id (e.g. resubmission with modified offer), exclude rows where
+        // a digest with a more advanced status exists. Uses NOT EXISTS anti-join
+        // which preserves the original index-driven LIMIT scan.
+        let dedup_clause = "NOT EXISTS (
+                       SELECT 1 FROM request_status rs2
+                       WHERE rs2.request_id = rs.request_id
+                         AND rs2.request_digest != rs.request_digest
+                         AND (CASE rs2.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                              <
+                              CASE rs.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END)
+                   )";
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE {} < $1 OR ({} = $1 AND request_digest < $2)
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE ({sort_field} < $1 OR ({sort_field} = $1 AND rs.request_digest < $2))
+                   AND {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $3",
-                sort_field, sort_field, sort_field
             );
             sqlx::query(&query_str)
                 .bind(c.timestamp as i64)
@@ -3443,10 +3459,10 @@ impl IndexerDb for MarketDb {
                 .await?
         } else {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $1",
-                sort_field
             );
             sqlx::query(&query_str).bind(limit as i64).fetch_all(&self.pool).await?
         };
