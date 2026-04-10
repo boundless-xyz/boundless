@@ -278,7 +278,9 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .build();
             match indexer.get_all_requests_by_requestor(client.caller(), params).await {
                 Ok(submitted_requests) => {
-                    let submitted_count = submitted_requests.len() as u32;
+                    let unique_ids: std::collections::HashSet<&str> =
+                        submitted_requests.iter().map(|r| r.request_id.as_str()).collect();
+                    let submitted_count = unique_ids.len() as u32;
 
                     if submitted_count >= *max {
                         tracing::info!(
