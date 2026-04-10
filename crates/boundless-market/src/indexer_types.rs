@@ -289,9 +289,10 @@ pub struct RequestorLeaderboardParams {
 }
 
 /// Parameters for listing requests.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::IntoParams, utoipa::ToSchema))]
 #[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
+#[non_exhaustive]
 pub struct RequestListParams {
     /// Base64-encoded cursor from previous response for pagination
     #[serde(default)]
@@ -304,6 +305,11 @@ pub struct RequestListParams {
     /// Sort field: "updated_at" or "created_at" (default "created_at")
     #[serde(default)]
     pub sort_by: Option<String>,
+
+    /// When true, deduplicate requests by request_id keeping only the most
+    /// advanced status (default false)
+    #[serde(default)]
+    pub deduplicate: Option<bool>,
 }
 
 // ─── Market Response Types ───────────────────────────────────────────────────

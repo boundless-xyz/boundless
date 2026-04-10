@@ -36,6 +36,7 @@ pub trait ProversDb: IndexerDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        deduplicate: bool,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
         let prover_str = format!("{:x}", prover_address);
         let sort_field = match sort_by {
@@ -43,11 +44,12 @@ pub trait ProversDb: IndexerDb {
             RequestSortField::CreatedAt => "created_at",
         };
 
-        // Deduplicate by request_id: when multiple digests exist for the same
-        // request_id (e.g. resubmission with modified offer), exclude rows where
-        // a digest with a more advanced status exists. Uses NOT EXISTS anti-join
-        // which preserves the original index-driven LIMIT scan.
-        let dedup_clause = "NOT EXISTS (
+        // When deduplicate is enabled, exclude rows where a digest with a more
+        // advanced status exists for the same request_id (e.g. resubmission with
+        // modified offer). Uses NOT EXISTS anti-join which preserves the original
+        // index-driven LIMIT scan.
+        let dedup_clause = if deduplicate {
+            "AND NOT EXISTS (
                        SELECT 1 FROM request_status rs2
                        WHERE rs2.request_id = rs.request_id
                          AND rs2.request_digest != rs.request_digest
@@ -69,13 +71,16 @@ pub trait ProversDb: IndexerDb {
                                AND (rs2.updated_at > rs.updated_at
                                     OR (rs2.updated_at = rs.updated_at AND rs2.request_digest > rs.request_digest)))
                          )
-                   )";
+                   )"
+        } else {
+            ""
+        };
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
                 "SELECT rs.* FROM request_status rs
                  WHERE (rs.lock_prover_address = $1 OR rs.fulfill_prover_address = $1)
                    AND ({sort_field} < $2 OR ({sort_field} = $2 AND rs.request_digest < $3))
-                   AND {dedup_clause}
+                   {dedup_clause}
                  ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $4",
             );
@@ -90,7 +95,7 @@ pub trait ProversDb: IndexerDb {
             let query_str = format!(
                 "SELECT rs.* FROM request_status rs
                  WHERE (rs.lock_prover_address = $1 OR rs.fulfill_prover_address = $1)
-                   AND {dedup_clause}
+                   {dedup_clause}
                  ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $2",
             );
@@ -2150,7 +2155,7 @@ mod tests {
         // This includes: 3 locked-only, 2 locked+fulfilled, 1 fulfilled-only (mixed)
         // Total: 6 requests
         let (results, _cursor) = db
-            .list_requests_by_prover(prover1, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover1, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(
@@ -2167,7 +2172,7 @@ mod tests {
 
         // List with limit
         let (results, cursor) = db
-            .list_requests_by_prover(prover1, None, 2, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover1, None, 2, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -2175,7 +2180,7 @@ mod tests {
 
         // Use cursor for pagination
         let (results2, _) = db
-            .list_requests_by_prover(prover1, cursor, 2, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover1, cursor, 2, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results2.len(), 2);
@@ -2184,7 +2189,7 @@ mod tests {
 
         // Test sorting by updated_at
         let (results_updated, _) = db
-            .list_requests_by_prover(prover1, None, 10, RequestSortField::UpdatedAt)
+            .list_requests_by_prover(prover1, None, 10, RequestSortField::UpdatedAt, false)
             .await
             .unwrap();
         assert_eq!(results_updated.len(), 6);
@@ -2198,7 +2203,7 @@ mod tests {
 
         // List for prover2 - should only get the one request where prover2 locked
         let (results, _) = db
-            .list_requests_by_prover(prover2, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover2, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -2207,7 +2212,7 @@ mod tests {
 
         // List for prover3 - should only get the one request where prover3 fulfilled
         let (results, _) = db
-            .list_requests_by_prover(prover3, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover3, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -2217,7 +2222,13 @@ mod tests {
         // List for a prover with no requests - should return empty
         let prover_no_requests = Address::from([0xFF; 20]);
         let (results, _) = db
-            .list_requests_by_prover(prover_no_requests, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(
+                prover_no_requests,
+                None,
+                10,
+                RequestSortField::CreatedAt,
+                false,
+            )
             .await
             .unwrap();
         assert_eq!(results.len(), 0);

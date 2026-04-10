@@ -869,6 +869,7 @@ pub trait IndexerDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        deduplicate: bool,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError>;
 
     async fn get_requests_by_request_id(
@@ -3421,17 +3422,19 @@ impl IndexerDb for MarketDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        deduplicate: bool,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
         let sort_field = match sort_by {
             RequestSortField::UpdatedAt => "updated_at",
             RequestSortField::CreatedAt => "created_at",
         };
 
-        // Deduplicate by request_id: when multiple digests exist for the same
-        // request_id (e.g. resubmission with modified offer), exclude rows where
-        // a digest with a more advanced status exists. Uses NOT EXISTS anti-join
-        // which preserves the original index-driven LIMIT scan.
-        let dedup_clause = "NOT EXISTS (
+        // When deduplicate is enabled, exclude rows where a digest with a more
+        // advanced status exists for the same request_id (e.g. resubmission with
+        // modified offer). Uses NOT EXISTS anti-join which preserves the original
+        // index-driven LIMIT scan.
+        let dedup_clause = if deduplicate {
+            "AND NOT EXISTS (
                        SELECT 1 FROM request_status rs2
                        WHERE rs2.request_id = rs.request_id
                          AND rs2.request_digest != rs.request_digest
@@ -3453,12 +3456,15 @@ impl IndexerDb for MarketDb {
                                AND (rs2.updated_at > rs.updated_at
                                     OR (rs2.updated_at = rs.updated_at AND rs2.request_digest > rs.request_digest)))
                          )
-                   )";
+                   )"
+        } else {
+            ""
+        };
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
                 "SELECT rs.* FROM request_status rs
                  WHERE ({sort_field} < $1 OR ({sort_field} = $1 AND rs.request_digest < $2))
-                   AND {dedup_clause}
+                   {dedup_clause}
                  ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $3",
             );
@@ -3471,7 +3477,8 @@ impl IndexerDb for MarketDb {
         } else {
             let query_str = format!(
                 "SELECT rs.* FROM request_status rs
-                 WHERE {dedup_clause}
+                 WHERE true
+                   {dedup_clause}
                  ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $1",
             );
