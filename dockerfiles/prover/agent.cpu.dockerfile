@@ -28,6 +28,8 @@ RUN curl -L https://risczero.com/install | bash && \
 FROM rust-builder AS builder
 
 ARG S3_CACHE_PREFIX
+ARG S3_CACHE_BUCKET="boundless-sccache"
+ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 # Prevent collisions with concurrent compose builds of the GPU agent image.
 ENV SCCACHE_SERVER_PORT=4228
 

@@ -45,6 +45,8 @@ ARG NVCC_APPEND_FLAGS="\
   --generate-code arch=compute_120,code=sm_120"
 ARG CUDA_OPT_LEVEL=1
 ARG S3_CACHE_PREFIX
+ARG S3_CACHE_BUCKET="boundless-sccache"
+ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 ENV NVCC_APPEND_FLAGS=${NVCC_APPEND_FLAGS}
 ENV RISC0_CUDA_OPT=${CUDA_OPT_LEVEL}
 # Prevent collisions with concurrent compose builds of the CPU agent image.
