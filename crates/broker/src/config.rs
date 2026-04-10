@@ -606,7 +606,6 @@ peak_prove_khz = 999
     #[traced_test]
     async fn config_watcher_chain_defaults_applied_and_survive_reload() {
         use boundless_market::dynamic_gas_filler::PriorityMode;
-        use boundless_market::prover_utils::config_defaults;
         use std::io::{Seek, Write};
 
         let dir = tempfile::tempdir().unwrap();
@@ -626,15 +625,15 @@ max_collateral = "10 USD"
 
         {
             let config = watcher.config.lock_all().unwrap();
-            // Should NOT be the generic defaults
-            assert_ne!(
-                config.market.gas_estimation_priority_mode,
-                config_defaults::estimation_priority_mode(),
-                "Chain defaults should have been applied"
-            );
-            // Should be the Taiko-specific values (5th percentile)
+            // Estimation resolves to Taiko's estimation medium (20th percentile)
             assert!(matches!(
                 config.market.gas_estimation_priority_mode,
+                PriorityMode::Custom { priority_fee_percentile, .. }
+                if (priority_fee_percentile - 20.0).abs() < f64::EPSILON
+            ));
+            // Priority resolves to Taiko's priority medium (5th percentile)
+            assert!(matches!(
+                config.market.gas_priority_mode,
                 PriorityMode::Custom { priority_fee_percentile, .. }
                 if (priority_fee_percentile - 5.0).abs() < f64::EPSILON
             ));
@@ -663,9 +662,12 @@ max_collateral = "10 USD"
             // Config value should be updated
             assert_eq!(config.market.min_mcycle_price, Amount::parse("0.2 ETH", None).unwrap());
             // Chain defaults should survive the reload
-            assert_ne!(
-                config.market.gas_estimation_priority_mode,
-                config_defaults::estimation_priority_mode(),
+            assert!(
+                matches!(
+                    config.market.gas_estimation_priority_mode,
+                    PriorityMode::Custom { priority_fee_percentile, .. }
+                    if (priority_fee_percentile - 20.0).abs() < f64::EPSILON
+                ),
                 "Chain defaults should survive config reload"
             );
         }
