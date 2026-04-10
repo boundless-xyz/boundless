@@ -251,14 +251,41 @@ pub trait RequestorDb: IndexerDb {
             RequestSortField::CreatedAt => "created_at",
         };
 
+        // Deduplicate by request_id: when multiple digests exist for the same
+        // request_id (e.g. resubmission with modified offer), exclude rows where
+        // a digest with a more advanced status exists. Uses NOT EXISTS anti-join
+        // which preserves the original index-driven LIMIT scan.
+        let dedup_clause = "NOT EXISTS (
+                       SELECT 1 FROM request_status rs2
+                       WHERE rs2.request_id = rs.request_id
+                         AND rs2.request_digest != rs.request_digest
+                         AND (
+                           (CASE rs2.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                            <
+                            CASE rs.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END)
+                           OR (CASE rs2.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                               =
+                               CASE rs.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                               AND (rs2.updated_at > rs.updated_at
+                                    OR (rs2.updated_at = rs.updated_at AND rs2.request_digest > rs.request_digest)))
+                         )
+                   )";
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE client_address = $1
-                   AND ({} < $2 OR ({} = $2 AND request_digest < $3))
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE rs.client_address = $1
+                   AND ({sort_field} < $2 OR ({sort_field} = $2 AND rs.request_digest < $3))
+                   AND {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $4",
-                sort_field, sort_field, sort_field
             );
             sqlx::query(&query_str)
                 .bind(&client_str)
@@ -269,11 +296,11 @@ pub trait RequestorDb: IndexerDb {
                 .await?
         } else {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE client_address = $1
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE rs.client_address = $1
+                   AND {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $2",
-                sort_field
             );
             sqlx::query(&query_str)
                 .bind(&client_str)
@@ -768,12 +795,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM request_fulfilled_events rfe
-            JOIN request_status rs ON rfe.request_digest = rs.request_digest
-            WHERE rfe.block_timestamp >= $1 
-            AND rfe.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE fulfilled_at >= $1
+            AND fulfilled_at < $2
+            AND client_address = $3
+            AND request_status = 'fulfilled'";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -839,12 +866,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM request_submitted_events rse
-            JOIN request_status rs ON rse.request_digest = rs.request_digest
-            WHERE rse.block_timestamp >= $1 
-            AND rse.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE created_at >= $1
+            AND created_at < $2
+            AND client_address = $3
+            AND source = 'onchain'";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -863,12 +890,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM request_locked_events rle
-            JOIN request_status rs ON rle.request_digest = rs.request_digest
-            WHERE rle.block_timestamp >= $1 
-            AND rle.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE locked_at >= $1
+            AND locked_at < $2
+            AND client_address = $3
+            AND locked_at IS NOT NULL";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -887,12 +914,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(*) as count 
-            FROM prover_slashed_events pse
-            JOIN request_status rs ON pse.request_id = rs.request_id
-            WHERE pse.block_timestamp >= $1 
-            AND pse.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(*) as count
+            FROM request_status
+            WHERE slashed_at >= $1
+            AND slashed_at < $2
+            AND client_address = $3
+            AND slashed_at IS NOT NULL";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -1246,8 +1273,9 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT program_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(program_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE request_status = 'fulfilled'
              AND program_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -1257,18 +1285,11 @@ pub trait RequestorDb: IndexerDb {
         .bind(period_start as i64)
         .bind(period_end as i64)
         .bind(format!("{:x}", requestor_address))
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let program_cycles_str: String = row.try_get("program_cycles")?;
-            let program_cycles = padded_string_to_u256(&program_cycles_str)?;
-            total = total.checked_add(program_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing program_cycles"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_requestor_total_cycles(
@@ -1277,8 +1298,9 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT total_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE request_status = 'fulfilled'
              AND total_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -1288,18 +1310,11 @@ pub trait RequestorDb: IndexerDb {
         .bind(period_start as i64)
         .bind(period_end as i64)
         .bind(format!("{:x}", requestor_address))
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let total_cycles_str: String = row.try_get("total_cycles")?;
-            let total_cycles = padded_string_to_u256(&total_cycles_str)?;
-            total = total.checked_add(total_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing total_cycles"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_all_time_requestor_unique_provers(
@@ -3860,6 +3875,104 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].client_address, addr2);
+    }
+
+    /// Verifies that when two digests exist for the same request_id (e.g. resubmission
+    /// with modified offer), only the one with the most advanced status is returned.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_list_requests_by_requestor_dedup(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let addr = Address::from([0xAB; 20]);
+        let base_ts = 1700000000u64;
+        let shared_request_id = U256::from(42);
+
+        // Two digests for the same request_id: one submitted, one fulfilled.
+        let submitted = RequestStatus {
+            request_digest: B256::from([0x01; 32]),
+            request_id: shared_request_id,
+            request_status: RequestStatusType::Submitted,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: addr,
+            lock_prover_address: None,
+            fulfill_prover_address: None,
+            created_at: base_ts + 200, // newer created_at
+            updated_at: base_ts + 200,
+            locked_at: None,
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(101),
+            lock_block: None,
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "0".to_string(),
+            ramp_up_start: base_ts,
+            ramp_up_period: 10,
+            expires_at: base_ts + 10000,
+            lock_end: base_ts + 10000,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: None,
+            lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: None,
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+
+        let fulfilled = RequestStatus {
+            request_digest: B256::from([0x02; 32]),
+            request_status: RequestStatusType::Fulfilled,
+            created_at: base_ts + 100, // older created_at
+            updated_at: base_ts + 300,
+            fulfilled_at: Some(base_ts + 300),
+            fulfill_prover_address: Some(Address::from([0xCC; 20])),
+            ..submitted.clone()
+        };
+
+        db.upsert_request_statuses(&[submitted, fulfilled]).await.unwrap();
+
+        // Should return exactly one row — the fulfilled variant
+        let (results, _) = db
+            .list_requests_by_requestor(addr, None, 10, RequestSortField::CreatedAt)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1, "expected dedup to 1 row, got {}", results.len());
+        assert_eq!(results[0].request_status, RequestStatusType::Fulfilled);
+        assert_eq!(results[0].request_digest, B256::from([0x02; 32]));
+
+        // Same result with UpdatedAt sort
+        let (results, _) = db
+            .list_requests_by_requestor(addr, None, 10, RequestSortField::UpdatedAt)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].request_status, RequestStatusType::Fulfilled);
     }
 
     #[sqlx::test(migrations = "./migrations")]
