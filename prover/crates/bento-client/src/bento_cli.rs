@@ -210,13 +210,10 @@ async fn create_low_priority_session(
         priority: "low",
     };
 
-    let mut builder = reqwest::Client::new().post(url).json(&req);
-    if !api_key.is_empty() {
-        builder = builder.header(
-            "x-api-key",
-            HeaderValue::from_str(api_key).context("Invalid x-api-key header value")?,
-        );
-    }
+    let builder = reqwest::Client::new().post(url).json(&req).header(
+        "x-api-key",
+        HeaderValue::from_str(api_key).context("Invalid x-api-key header value")?,
+    );
 
     let response = builder.send().await.context("Failed to create low-priority session")?;
     let response = response.error_for_status().context("Low-priority session creation failed")?;
