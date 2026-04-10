@@ -18,6 +18,7 @@ mod balance_collateral;
 mod benchmark;
 mod config;
 mod deposit_collateral;
+mod deposit_collateral_to;
 mod execute;
 mod fulfill;
 mod generate_config;
@@ -29,6 +30,7 @@ pub use balance_collateral::ProverBalanceCollateral;
 pub use benchmark::ProverBenchmark;
 pub use config::ProverConfigCmd;
 pub use deposit_collateral::ProverDepositCollateral;
+pub use deposit_collateral_to::ProverDepositCollateralTo;
 pub use execute::ProverExecute;
 pub use fulfill::ProverFulfill;
 pub use generate_config::ProverGenerateConfig;
@@ -59,6 +61,9 @@ pub enum ProverCommands {
     /// Deposit collateral funds into the market
     #[command(name = "deposit-collateral")]
     DepositCollateral(ProverDepositCollateral),
+    /// Deposit collateral funds into the market on behalf of another address
+    #[command(name = "deposit-collateral-to")]
+    DepositCollateralTo(ProverDepositCollateralTo),
     /// Withdraw collateral funds from the market
     #[command(name = "withdraw-collateral")]
     WithdrawCollateral(ProverWithdrawCollateral),
@@ -88,6 +93,7 @@ impl ProverCommands {
         match self {
             Self::Config(cmd) => cmd.run(global_config).await,
             Self::DepositCollateral(cmd) => cmd.run(global_config).await,
+            Self::DepositCollateralTo(cmd) => cmd.run(global_config).await,
             Self::WithdrawCollateral(cmd) => cmd.run(global_config).await,
             Self::BalanceCollateral(cmd) => cmd.run(global_config).await,
             Self::Lock(cmd) => cmd.run(global_config).await,
