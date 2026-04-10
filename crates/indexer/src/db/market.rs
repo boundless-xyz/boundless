@@ -3427,12 +3427,27 @@ impl IndexerDb for MarketDb {
             RequestSortField::CreatedAt => "created_at",
         };
 
+        // Deduplicate by request_id: when multiple digests exist for the same
+        // request_id, keep the one with the most advanced status
+        // (fulfilled > locked > submitted > expired), breaking ties by updated_at.
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE {} < $1 OR ({} = $1 AND request_digest < $2)
-                 ORDER BY {} DESC, request_digest DESC
-                 LIMIT $3",
+                "SELECT * FROM (
+                    SELECT DISTINCT ON (request_id) *
+                    FROM request_status
+                    ORDER BY request_id,
+                        CASE request_status
+                            WHEN 'fulfilled' THEN 1
+                            WHEN 'locked'    THEN 2
+                            WHEN 'submitted' THEN 3
+                            WHEN 'expired'   THEN 4
+                            ELSE 5
+                        END,
+                        updated_at DESC
+                ) deduped
+                WHERE ({} < $1 OR ({} = $1 AND request_digest < $2))
+                ORDER BY {} DESC, request_digest DESC
+                LIMIT $3",
                 sort_field, sort_field, sort_field
             );
             sqlx::query(&query_str)
@@ -3443,9 +3458,21 @@ impl IndexerDb for MarketDb {
                 .await?
         } else {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 ORDER BY {} DESC, request_digest DESC
-                 LIMIT $1",
+                "SELECT * FROM (
+                    SELECT DISTINCT ON (request_id) *
+                    FROM request_status
+                    ORDER BY request_id,
+                        CASE request_status
+                            WHEN 'fulfilled' THEN 1
+                            WHEN 'locked'    THEN 2
+                            WHEN 'submitted' THEN 3
+                            WHEN 'expired'   THEN 4
+                            ELSE 5
+                        END,
+                        updated_at DESC
+                ) deduped
+                ORDER BY {} DESC, request_digest DESC
+                LIMIT $1",
                 sort_field
             );
             sqlx::query(&query_str).bind(limit as i64).fetch_all(&self.pool).await?
