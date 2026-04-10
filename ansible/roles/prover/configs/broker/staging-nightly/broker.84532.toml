@@ -1,0 +1,7 @@
+# Staging Base Sepolia (84532) chain override
+[market]
+mcycle_price = "0.00000005"
+max_collateral = "5"
+deny_requestor_addresses = [
+  "0x5351280f80ffC14B7550638F1d2fa336D7e1d435", # Signal contract on Base Sepolia, connected to the staging market
+]

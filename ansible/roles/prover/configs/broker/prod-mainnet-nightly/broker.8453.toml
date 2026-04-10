@@ -1,0 +1,4 @@
+# Nightly Base Mainnet (8453) chain override
+[market]
+min_mcycle_price = "0.000000025"
+max_collateral = "200"
