@@ -29,11 +29,10 @@ use crate::market::{
     ServiceError,
 };
 use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::{Address, U256};
+use alloy::primitives::Address;
 use alloy::providers::Provider;
 use anyhow::anyhow;
 use futures_util::future::try_join_all;
-use sqlx::Row;
 use std::str::FromStr;
 
 const PROVER_CHUNK_SIZE: usize = 5;
@@ -722,38 +721,10 @@ where
         let best_peak_prove_mhz = 0.0;
         let best_peak_prove_mhz_request_id = None;
 
-        let mut best_effective_prove_mhz = 0.0;
-        let mut best_effective_prove_mhz_request_id = None;
-
-        let fulfilled_rows = sqlx::query(
-            "SELECT prover_effective_prove_mhz, request_id FROM request_status
-             WHERE fulfill_prover_address = $1
-             AND request_status = 'fulfilled'
-             AND fulfilled_at IS NOT NULL
-             AND fulfilled_at >= $2 AND fulfilled_at < $3",
-        )
-        .bind(format!("{:x}", prover_address))
-        .bind(period_start as i64)
-        .bind(period_end as i64)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(|e| ServiceError::DatabaseError(crate::db::DbError::SqlErr(e)))?;
-
-        for row in fulfilled_rows {
-            let effective_mhz: Option<f64> =
-                row.try_get::<Option<f64>, _>("prover_effective_prove_mhz").ok().flatten();
-            let request_id_str: Option<String> =
-                row.try_get::<Option<String>, _>("request_id").ok().flatten();
-
-            if let Some(effective) = effective_mhz {
-                if effective > best_effective_prove_mhz {
-                    best_effective_prove_mhz = effective;
-                    if let Some(rid) = &request_id_str {
-                        best_effective_prove_mhz_request_id = U256::from_str(rid).ok();
-                    }
-                }
-            }
-        }
+        let (best_effective_prove_mhz, best_effective_prove_mhz_request_id) = self
+            .db
+            .get_period_prover_best_effective_prove_mhz(period_start, period_end, prover_address)
+            .await?;
 
         let epoch_number_period_start =
             self.epoch_calculator.get_epoch_for_timestamp(period_start).unwrap_or(0) as i64;
