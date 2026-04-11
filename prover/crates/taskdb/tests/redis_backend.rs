@@ -19,6 +19,21 @@ async fn test_db() -> Option<RedisTaskDb> {
     Some(db)
 }
 
+fn count_for(
+    counts: &[taskdb::TaskStateCount],
+    worker_type: &str,
+    priority: Priority,
+    state: &str,
+) -> u64 {
+    counts
+        .iter()
+        .find(|count| {
+            count.worker_type == worker_type && count.priority == priority && count.state == state
+        })
+        .map(|count| count.count)
+        .unwrap_or(0)
+}
+
 #[tokio::test]
 async fn request_work_and_dependency_unblock() -> Result<(), TaskDbErr> {
     let Some(db) = test_db().await else {
@@ -114,6 +129,91 @@ async fn timeout_requeue_and_retry_cap() -> Result<(), TaskDbErr> {
 
     let state = db.get_job_state(&job_id, "user-b").await?;
     assert_eq!(state, JobState::Failed);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn task_state_counts_bootstrap_and_follow_transitions() -> Result<(), TaskDbErr> {
+    let Some(db) = test_db().await else {
+        return Ok(());
+    };
+
+    let stream_id = db.create_stream("CPU", 1, 1.0, "user-counts").await?;
+    let job_id = db
+        .create_job(&stream_id, &serde_json::json!({"init": "counts"}), 2, 30, "user-counts")
+        .await?;
+
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 1);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 0);
+
+    let init = db.request_work("CPU").await?.expect("expected init task");
+    assert_eq!(init.task_id, INIT_TASK);
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 1);
+
+    db.update_task_done(&job_id, INIT_TASK, serde_json::json!({"ok": true})).await?;
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 0);
+
+    db.create_task(
+        &job_id,
+        "a",
+        &stream_id,
+        &serde_json::json!({"task": "a"}),
+        &serde_json::json!([]),
+        2,
+        30,
+    )
+    .await?;
+    db.create_task(
+        &job_id,
+        "join",
+        &stream_id,
+        &serde_json::json!({"task": "join"}),
+        &serde_json::json!(["a"]),
+        2,
+        30,
+    )
+    .await?;
+
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 1);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 1);
+
+    let a_task = db.request_work("CPU").await?.expect("expected child task");
+    assert_eq!(a_task.task_id, "a");
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 1);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 1);
+
+    assert!(db.update_task_retry(&job_id, "a").await?);
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 1);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 1);
+
+    let a_task = db.request_work("CPU").await?.expect("expected retried child task");
+    assert_eq!(a_task.task_id, "a");
+    db.update_task_done(&job_id, "a", serde_json::json!({"done": true})).await?;
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 1);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 0);
+
+    let join = db.request_work("CPU").await?.expect("expected unblocked join task");
+    assert_eq!(join.task_id, "join");
+    db.update_task_done(&job_id, "join", serde_json::json!({"joined": true})).await?;
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 0);
 
     Ok(())
 }

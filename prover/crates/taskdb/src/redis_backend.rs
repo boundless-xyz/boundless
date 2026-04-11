@@ -38,6 +38,81 @@ local function task_ready_queue_key(p, task_key)
   return ready_queue_key(p, worker_type, priority)
 end
 
+local function task_counts_key(p)
+  return p .. ':task_counts'
+end
+
+local function task_counts_init_key(p)
+  return p .. ':task_counts_initialized'
+end
+
+local function is_counted_task_state(state)
+  return state == 'ready' or state == 'running' or state == 'pending'
+end
+
+local function task_count_compound(worker_type, priority, state)
+  return worker_type .. '|' .. priority .. '|' .. state
+end
+
+local function adjust_task_state_count(p, worker_type, priority, state, delta)
+  if redis.call('EXISTS', task_counts_init_key(p)) == 0 then
+    return
+  end
+  if not worker_type or not priority or not is_counted_task_state(state) or delta == 0 then
+    return
+  end
+  local counts_key = task_counts_key(p)
+  local field = task_count_compound(worker_type, priority, state)
+  local count = redis.call('HINCRBY', counts_key, field, delta)
+  if count <= 0 then
+    redis.call('HDEL', counts_key, field)
+  end
+end
+
+local function adjust_task_state_count_for_task(p, task_key, old_state, new_state)
+  if redis.call('EXISTS', task_counts_init_key(p)) == 0 then
+    return
+  end
+  local worker_type = redis.call('HGET', task_key, 'worker_type')
+  local priority = redis.call('HGET', task_key, 'priority')
+  if old_state and is_counted_task_state(old_state) then
+    adjust_task_state_count(p, worker_type, priority, old_state, -1)
+  end
+  if new_state and is_counted_task_state(new_state) then
+    adjust_task_state_count(p, worker_type, priority, new_state, 1)
+  end
+end
+
+local function bootstrap_task_state_counts(p)
+  local init_key = task_counts_init_key(p)
+  if redis.call('EXISTS', init_key) == 1 then
+    return
+  end
+
+  local counts = {}
+  local cursor = '0'
+  repeat
+    local res = redis.call('SCAN', cursor, 'MATCH', p .. ':task:*', 'COUNT', 500)
+    cursor = res[1]
+    for _, task_key in ipairs(res[2]) do
+      local state = redis.call('HGET', task_key, 'state')
+      if is_counted_task_state(state) then
+        local worker_type = redis.call('HGET', task_key, 'worker_type') or 'unknown'
+        local priority = redis.call('HGET', task_key, 'priority') or '1'
+        local compound = task_count_compound(worker_type, priority, state)
+        counts[compound] = (counts[compound] or 0) + 1
+      end
+    end
+  until cursor == '0'
+
+  local counts_key = task_counts_key(p)
+  redis.call('DEL', counts_key)
+  for compound, count in pairs(counts) do
+    redis.call('HSET', counts_key, compound, tostring(count))
+  end
+  redis.call('SET', init_key, '1')
+end
+
 local function enqueue_task(p, task_key, compound)
   local ready_key = task_ready_queue_key(p, task_key)
   local worker_type = redis.call('HGET', task_key, 'worker_type')
@@ -130,6 +205,7 @@ redis.register_function('create_job', function(keys, args)
     'output', '',
     'error', '')
   redis.call('SADD', p .. ':tasks:by_job:' .. job_id, 'init')
+  adjust_task_state_count_for_task(p, task_key, nil, 'ready')
   enqueue_task(p, task_key, job_id .. '|init')
   return job_id
 end)
@@ -196,6 +272,7 @@ redis.register_function('create_task', function(keys, args)
     'output', '',
     'error', '')
   redis.call('SADD', p .. ':tasks:by_job:' .. job_id, task_id)
+  adjust_task_state_count_for_task(p, task_key, nil, state)
   if state == 'ready' then
     enqueue_task(p, task_key, job_id .. '|' .. task_id)
   end
@@ -227,8 +304,10 @@ redis.register_function('request_work', function(keys, args)
       else
         local job_state = redis.call('HGET', p .. ':job:' .. job_id .. ':meta', 'state')
         if job_state == 'failed' then
+          adjust_task_state_count_for_task(p, task_key, 'ready', 'cancelled')
           redis.call('HSET', task_key, 'state', 'cancelled', 'updated_at', tostring(now))
         else
+          adjust_task_state_count_for_task(p, task_key, 'ready', 'running')
           redis.call('HSET', task_key,
             'state', 'running',
             'started_at', tostring(now),
@@ -264,6 +343,7 @@ redis.register_function('update_task_done', function(keys, args)
     return 0
   end
   local compound = job_id .. '|' .. task_id
+  adjust_task_state_count_for_task(p, task_key, state, 'done')
   redis.call('HSET', task_key,
     'state', 'done',
     'output', output,
@@ -280,6 +360,7 @@ redis.register_function('update_task_done', function(keys, args)
     if dep_state and dep_state ~= 'failed' and dep_state ~= 'done' then
       local remaining = redis.call('HINCRBY', dep_key, 'waiting_on', -1)
       if remaining <= 0 then
+        adjust_task_state_count_for_task(p, dep_key, dep_state, 'ready')
         redis.call('HSET', dep_key, 'waiting_on', '0', 'state', 'ready', 'updated_at', tostring(now))
         local dep_compound = job_id .. '|' .. dep_tid
         enqueue_task(p, dep_key, dep_compound)
@@ -317,6 +398,7 @@ redis.register_function('update_task_failed', function(keys, args)
   if state ~= 'ready' and state ~= 'running' and state ~= 'pending' then
     return 0
   end
+  adjust_task_state_count_for_task(p, task_key, state, 'failed')
   redis.call('HSET', task_key,
     'state', 'failed',
     'error', err,
@@ -345,6 +427,7 @@ redis.register_function('update_task_failed', function(keys, args)
         if sib_state == 'ready' then
           remove_task_from_ready(p, sib_key, sib_compound)
         end
+        adjust_task_state_count_for_task(p, sib_key, sib_state, 'cancelled')
         redis.call('HSET', sib_key, 'state', 'cancelled', 'updated_at', tostring(now))
       end
     end
@@ -386,6 +469,7 @@ redis.register_function('update_task_retry', function(keys, args)
   local compound = job_id .. '|' .. task_id
   redis.call('ZREM', p .. ':tasks:running', compound)
   if retries > max_retries then
+    adjust_task_state_count_for_task(p, task_key, 'running', 'failed')
     redis.call('HSET',
       task_key,
       'state', 'failed',
@@ -400,6 +484,7 @@ redis.register_function('update_task_retry', function(keys, args)
     end
     return 0
   end
+  adjust_task_state_count_for_task(p, task_key, 'running', 'ready')
   redis.call('HSET',
     task_key,
     'state', 'ready',
@@ -428,6 +513,7 @@ redis.register_function('delete_job', function(keys, args)
     elseif state == 'running' then
       redis.call('ZREM', p .. ':tasks:running', compound)
     end
+    adjust_task_state_count_for_task(p, tkey, state, nil)
     local prereqs_json = redis.call('HGET', tkey, 'prerequisites') or '[]'
     local prereqs = cjson.decode(prereqs_json)
     for _, pre in ipairs(prereqs) do
@@ -511,28 +597,8 @@ end)
 
 redis.register_function('count_task_states', function(keys, args)
   local p = args[1]
-  local counts = {}
-  local cursor = '0'
-  repeat
-    local res = redis.call('SCAN', cursor, 'MATCH', p .. ':task:*', 'COUNT', 500)
-    cursor = res[1]
-    for _, task_key in ipairs(res[2]) do
-      local state = redis.call('HGET', task_key, 'state')
-      if state == 'ready' or state == 'running' or state == 'pending' then
-        local worker_type = redis.call('HGET', task_key, 'worker_type') or 'unknown'
-        local priority = redis.call('HGET', task_key, 'priority') or '1'
-        local compound = worker_type .. '|' .. priority .. '|' .. state
-        counts[compound] = (counts[compound] or 0) + 1
-      end
-    end
-  until cursor == '0'
-
-  local results = {}
-  for compound, count in pairs(counts) do
-    table.insert(results, compound)
-    table.insert(results, tostring(count))
-  end
-  return results
+  bootstrap_task_state_counts(p)
+  return redis.call('HGETALL', task_counts_key(p))
 end)
 
 "#;
