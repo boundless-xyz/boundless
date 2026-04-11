@@ -220,7 +220,7 @@ services:
       dockerfile: ${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}
     restart: always
 
-    mem_limit: 1G
+    mem_limit: 4G
     cpus: 1
 
     environment:
