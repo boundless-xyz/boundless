@@ -219,6 +219,107 @@ async fn task_state_counts_bootstrap_and_follow_transitions() -> Result<(), Task
 }
 
 #[tokio::test]
+async fn task_state_counts_drop_when_failure_cancels_siblings() -> Result<(), TaskDbErr> {
+    let Some(db) = test_db().await else {
+        return Ok(());
+    };
+
+    let stream_id = db.create_stream("CPU", 1, 1.0, "user-cancel").await?;
+    let job_id = db
+        .create_job(&stream_id, &serde_json::json!({"init": "cancel"}), 2, 30, "user-cancel")
+        .await?;
+
+    let init = db.request_work("CPU").await?.expect("expected init task");
+    db.update_task_done(&job_id, &init.task_id, serde_json::json!({"ok": true})).await?;
+
+    db.create_task(
+        &job_id,
+        "a",
+        &stream_id,
+        &serde_json::json!({"task": "a"}),
+        &serde_json::json!([]),
+        2,
+        30,
+    )
+    .await?;
+    db.create_task(
+        &job_id,
+        "b",
+        &stream_id,
+        &serde_json::json!({"task": "b"}),
+        &serde_json::json!([]),
+        2,
+        30,
+    )
+    .await?;
+
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 2);
+
+    assert!(db.update_task_failed(&job_id, "a", "boom").await?);
+
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn task_state_counts_drop_to_zero_after_delete_job() -> Result<(), TaskDbErr> {
+    let Some(db) = test_db().await else {
+        return Ok(());
+    };
+
+    let stream_id = db.create_stream("CPU", 1, 1.0, "user-delete").await?;
+    let job_id = db
+        .create_job(&stream_id, &serde_json::json!({"init": "delete"}), 2, 30, "user-delete")
+        .await?;
+
+    let init = db.request_work("CPU").await?.expect("expected init task");
+    db.update_task_done(&job_id, &init.task_id, serde_json::json!({"ok": true})).await?;
+
+    db.create_task(
+        &job_id,
+        "a",
+        &stream_id,
+        &serde_json::json!({"task": "a"}),
+        &serde_json::json!([]),
+        2,
+        30,
+    )
+    .await?;
+    db.create_task(
+        &job_id,
+        "join",
+        &stream_id,
+        &serde_json::json!({"task": "join"}),
+        &serde_json::json!(["a"]),
+        2,
+        30,
+    )
+    .await?;
+
+    let a_task = db.request_work("CPU").await?.expect("expected child task");
+    assert_eq!(a_task.task_id, "a");
+
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 1);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 1);
+
+    db.delete_job(&job_id).await?;
+
+    let counts = db.get_task_state_counts().await?;
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 0);
+    assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn request_work_prefers_priority_over_stream_ordering() -> Result<(), TaskDbErr> {
     let Some(db) = test_db().await else {
         return Ok(());
