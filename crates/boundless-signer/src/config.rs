@@ -194,19 +194,30 @@ async fn build_http_remote(
 ) -> Result<GenericSigner, SignerError> {
     use crate::http_remote::HttpRemoteSignerBackend;
 
-    let http_cfg = cfg.http.ok_or_else(|| SignerError::Unavailable {
-        message: format!(
-            "http-remote backend for role '{role}' requires [signer.{role}.http] url to be set",
-        ),
-    })?;
+    // URL resolution priority:
+    //   1. [signer.<role>.http] url  (TOML)
+    //   2. SIGNER_<ROLE>_HTTP_URL   (e.g. SIGNER_PROVER_HTTP_URL)
+    //   3. SIGNER_HTTP_URL          (shared fallback)
+    let url = cfg
+        .http
+        .as_ref()
+        .map(|h| h.url.clone())
+        .filter(|u| !u.is_empty())
+        .or_else(|| {
+            let role_key = format!("SIGNER_{}_HTTP_URL", role.to_string().to_uppercase());
+            std::env::var(&role_key).ok().filter(|u| !u.is_empty())
+        })
+        .or_else(|| std::env::var("SIGNER_HTTP_URL").ok().filter(|u| !u.is_empty()))
+        .ok_or_else(|| SignerError::Unavailable {
+            message: format!(
+                "http-remote backend for role '{role}' requires a URL: \
+                 set [signer.{role}.http] url in config, \
+                 SIGNER_{role_upper}_HTTP_URL, or SIGNER_HTTP_URL",
+                role_upper = role.to_string().to_uppercase(),
+            ),
+        })?;
 
-    if http_cfg.url.is_empty() {
-        return Err(SignerError::Unavailable {
-            message: format!("http-remote backend for role '{role}': url is empty"),
-        });
-    }
-
-    Ok(GenericSigner::Remote(HttpRemoteSignerBackend::new(&http_cfg.url, role).await?))
+    Ok(GenericSigner::Remote(HttpRemoteSignerBackend::new(&url, role).await?))
 }
 
 #[cfg(not(feature = "http-remote"))]

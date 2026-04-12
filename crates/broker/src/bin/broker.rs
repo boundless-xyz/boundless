@@ -30,7 +30,7 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use boundless_signer::GenericSigner;
+use boundless_signer::{from_config, SignerBackend, SignerConfig, SignerRole};
 use broker::{
     config::ConfigWatcher, rpcmetrics::RpcMetricsLayer,
     sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
@@ -68,16 +68,13 @@ async fn main() -> Result<()> {
     let config_watcher =
         ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
 
-    // Handle private key fallback: PROVER_PRIVATE_KEY -> PRIVATE_KEY
-    let private_key = args
-        .private_key
-        .clone()
-        .or_else(|| std::env::var("PRIVATE_KEY").ok().and_then(|key| key.parse().ok()))
-        .context(
-            "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
-        )?;
-
-    let wallet = EthereumWallet::from(private_key.clone());
+    // Handle legacy private key fallback for Args.private_key so the PRIVATE_KEY alias still
+    // populates it (used by from_config() env-var fallback and any code that inspects Args).
+    if args.private_key.is_none() {
+        if let Some(pk) = std::env::var("PRIVATE_KEY").ok().and_then(|k| k.parse().ok()) {
+            args.private_key = Some(pk);
+        }
+    }
 
     let retry_layer = RetryBackoffLayer::new_with_policy(
         args.rpc_retry_max,
@@ -127,11 +124,33 @@ async fn main() -> Result<()> {
         RpcClient::builder().transport(transport, false)
     };
 
+    // Build the signing backend early so we can derive the signer address used by the
+    // balance-alert and gas-filler layers below.  For the local path from_config() reads
+    // PROVER_PRIVATE_KEY (or PRIVATE_KEY via args) exactly as before — zero regression.
+    // For the http-remote path it calls GET /sign/capabilities to discover the address;
+    // no private key is required on the broker host.
+    let bootstrap_provider = ProviderBuilder::new()
+        .filler(ChainIdFiller::default())
+        .connect_client(client.clone());
+    let signing_backend = Arc::new(
+        from_config(&SignerConfig::default(), SignerRole::Prover, bootstrap_provider)
+            .await
+            .context(
+                "Failed to configure signing backend.\n\
+                 For local signing: set PROVER_PRIVATE_KEY (or PRIVATE_KEY).\n\
+                 For remote signing: set SIGNER_BACKEND=http-remote and SIGNER_HTTP_URL.",
+            )?,
+    );
+    let signer_address = signing_backend.sender_address();
+    let wallet = EthereumWallet::from((*signing_backend).clone());
+    args.signer = Some(signing_backend.clone());
+    tracing::info!("Signing backend: {} (address {})", signing_backend.name(), signer_address);
+
     // Read config for balance alerts (scope the guard so we can move config_watcher later)
     let balance_alerts_config = {
         let config = config_watcher.config.lock_all().context("Failed to read config")?;
         BalanceAlertConfig {
-            watch_address: wallet.default_signer().address(),
+            watch_address: signer_address,
             warn_threshold: config
                 .market
                 .balance_warn_threshold
@@ -158,7 +177,7 @@ async fn main() -> Result<()> {
     let dynamic_gas_filler = DynamicGasFiller::new(
         20, // 20% increase of gas limit
         tx_priority_mode,
-        wallet.default_signer().address(),
+        signer_address,
     );
 
     // Clone the tx priority_mode Arc so we can pass it to the broker for runtime updates.
@@ -174,15 +193,6 @@ async fn main() -> Result<()> {
         .connect_client(client.clone());
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-
-    // Build the pluggable signing backend and store it in args.signer.
-    // For the default path (PROVER_PRIVATE_KEY only, no [signer] config) this wraps the existing
-    // private key in a LocalSignerBackend — zero regression.  When a remote backend is configured
-    // in the future, from_config() will return the appropriate implementation instead.
-    let signing_backend = std::sync::Arc::new(GenericSigner::Local(
-        boundless_signer::LocalSignerBackend::from_signer(private_key.clone(), provider.clone()),
-    ));
-    args.signer = Some(signing_backend);
 
     // Build a separate AnyNetwork provider for get_block_receipts, reusing the same transport.
     // Needed on OP Stack chains where deposit receipts don't fit the standard Ethereum type.
