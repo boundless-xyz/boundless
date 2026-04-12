@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
   create-linear-issue-pr:
+    # Only run on the canonical repo; forks don't have LINEAR_API_KEY and the
+    # action hard-errors when the secret is absent.
+    if: github.repository == 'boundless-xyz/boundless'
     runs-on: ubuntu-latest
     steps:
       - name: checkout code
