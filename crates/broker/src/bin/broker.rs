@@ -30,7 +30,7 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use boundless_signer::{ConcreteSignerBackend, SignerBackendBridge};
+use boundless_signer::GenericSigner;
 use broker::{
     config::ConfigWatcher, rpcmetrics::RpcMetricsLayer,
     sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
@@ -179,7 +179,7 @@ async fn main() -> Result<()> {
     // For the default path (PROVER_PRIVATE_KEY only, no [signer] config) this wraps the existing
     // private key in a LocalSignerBackend — zero regression.  When a remote backend is configured
     // in the future, from_config() will return the appropriate implementation instead.
-    let signing_backend = std::sync::Arc::new(ConcreteSignerBackend::Local(
+    let signing_backend = std::sync::Arc::new(GenericSigner::Local(
         boundless_signer::LocalSignerBackend::from_signer(private_key.clone(), provider.clone()),
     ));
     args.signer = Some(signing_backend);
@@ -214,11 +214,9 @@ async fn main() -> Result<()> {
             );
 
             tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
-            let deposit_bridge = SignerBackendBridge::new(
-                args.signer.as_ref().expect("signer backend must be set").clone(),
-            );
+            let signer = args.signer.as_ref().expect("signer backend must be set");
             boundless_market
-                .deposit_collateral_with_permit(*deposit_amount, &deposit_bridge)
+                .deposit_collateral_with_permit(*deposit_amount, &**signer)
                 .await
                 .context("Failed to deposit to market")?;
         }

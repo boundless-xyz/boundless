@@ -26,7 +26,6 @@ use alloy::{
     sol_types::SolEvent,
 };
 use anyhow::{bail, ensure, Context, Result};
-use boundless_signer::SignerBackendBridge;
 use boundless_povw::{
     deployments::Deployment,
     log_updater::IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
@@ -117,11 +116,10 @@ impl RewardsClaimMiningRewards {
 
         let rpc_url = rewards_config.require_rpc_url()?;
         let backend = rewards_config.require_reward_signer().await?;
-        let bridge = SignerBackendBridge::new(backend);
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(bridge.clone()))
+            .wallet(EthereumWallet::from((*backend).clone()))
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("Failed to connect provider to {rpc_url}"))?;

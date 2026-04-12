@@ -23,7 +23,7 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, ensure, Context, Result};
-use boundless_signer::{SignerBackend, SignerBackendBridge};
+use boundless_signer::SignerBackend;
 use boundless_povw::{
     deployments::Deployment,
     log_updater::{prover::LogUpdaterProver, IPovwAccounting},
@@ -109,7 +109,6 @@ impl RewardsSubmitMining {
         let rpc_url = rewards_config.require_rpc_url()?;
         let backend = rewards_config.require_reward_signer().await?;
         let signer_address = backend.sender_address();
-        let bridge = SignerBackendBridge::new(backend);
 
         // Load the state and check to make sure the signer matches
         let mut state = State::load(&state_path)
@@ -125,7 +124,7 @@ impl RewardsSubmitMining {
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(bridge.clone()))
+            .wallet(EthereumWallet::from((*backend).clone()))
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("Failed to connect provider to {rpc_url}"))?;
@@ -284,7 +283,7 @@ impl RewardsSubmitMining {
             display.note("  (This may take several minutes)");
 
             let prove_info = prover
-                .prove_update(receipt, &bridge)
+                .prove_update(receipt, &*backend)
                 .await
                 .context("Failed to prove authorized log update")?;
 

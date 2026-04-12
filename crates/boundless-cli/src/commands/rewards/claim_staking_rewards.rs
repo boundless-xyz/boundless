@@ -18,7 +18,7 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
-use boundless_signer::{SignerBackend, SignerBackendBridge};
+use boundless_signer::SignerBackend;
 use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
 
@@ -46,10 +46,9 @@ impl RewardsClaimStakingRewards {
 
         let backend = rewards_config.require_reward_signer().await?;
         let claim_address = backend.sender_address();
-        let bridge = SignerBackendBridge::new(backend);
 
         let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(bridge.clone()))
+            .wallet(EthereumWallet::from((*backend).clone()))
             .connect(&rpc_url)
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;

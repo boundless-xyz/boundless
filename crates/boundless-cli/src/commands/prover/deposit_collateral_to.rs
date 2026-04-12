@@ -14,7 +14,6 @@
 
 use alloy::primitives::{utils::parse_units, Address, U256};
 use anyhow::{anyhow, bail, Context, Result};
-use boundless_signer::SignerBackendBridge;
 use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};
@@ -42,11 +41,10 @@ impl ProverDepositCollateralTo {
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let prover_config = self.prover_config.clone().load_and_validate()?;
         let backend = prover_config.require_prover_signer().await?;
-        let bridge = SignerBackendBridge::new(backend);
 
         let client = prover_config
             .client_builder(global_config.tx_timeout)?
-            .with_signer(bridge.clone())
+            .with_signer((*backend).clone())
             .build()
             .await
             .context("Failed to build Boundless Client with signer")?;
@@ -116,7 +114,7 @@ impl ProverDepositCollateralTo {
             );
             match client
                 .boundless_market
-                .deposit_collateral_with_permit_to(self.to, parsed_amount, &bridge)
+                .deposit_collateral_with_permit_to(self.to, parsed_amount, &*backend)
                 .await
             {
                 Ok(_) => {

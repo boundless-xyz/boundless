@@ -25,7 +25,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_signer::{SignerBackend, SignerBackendBridge};
+use boundless_signer::SignerBackend;
 use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},
@@ -89,12 +89,11 @@ impl RewardsStakeZkc {
         // Actual staking implementation (migrated from zkc/stake.rs)
         let backend = rewards_config.require_staking_signer().await?;
         let signer_address = backend.sender_address();
-        let bridge = SignerBackendBridge::new(backend);
         let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(bridge.clone()))
+            .wallet(EthereumWallet::from((*backend).clone()))
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -143,7 +142,7 @@ impl RewardsStakeZkc {
                     provider.clone(),
                     deployment.clone(),
                     self.amount,
-                    &bridge,
+                    &*backend,
                     self.permit_deadline,
                     target_token_id,
                 )

@@ -71,8 +71,8 @@ pub trait SignerBackend: Send + Sync + std::fmt::Debug {
 
     /// Sign a raw 32-byte hash (EIP-191 / EIP-712).
     ///
-    /// Used by [`crate::SignerBackendBridge`] to satisfy `alloy::signers::Signer`
-    /// for callers that take `&impl Signer` (e.g. `Permit::sign`, `sign_request`,
+    /// Used by [`crate::GenericSigner`]'s `alloy::signers::Signer` impl to satisfy
+    /// callers that take `&impl Signer` (e.g. `Permit::sign`, `sign_request`,
     /// WebSocket `connect_async`).
     async fn sign_hash(&self, hash: B256) -> Result<Signature, SignerError>;
 

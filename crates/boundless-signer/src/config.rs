@@ -26,7 +26,7 @@ use alloy::{network::Ethereum, providers::Provider};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    backend::ConcreteSignerBackend,
+    backend::GenericSigner,
     local::LocalSignerBackend,
     types::{SignerError, SignerRole},
 };
@@ -86,7 +86,7 @@ impl SignerConfig {
     }
 }
 
-/// Construct a [`ConcreteSignerBackend`] for `role` using the configuration
+/// Construct a [`GenericSigner`] for `role` using the configuration
 /// priority chain.
 ///
 /// `provider` is only used for the `local` backend (for transaction
@@ -96,7 +96,7 @@ pub async fn from_config<P>(
     config: &SignerConfig,
     role: SignerRole,
     provider: P,
-) -> Result<ConcreteSignerBackend, SignerError>
+) -> Result<GenericSigner, SignerError>
 where
     P: Provider<Ethereum> + Send + Sync + 'static,
 {
@@ -140,7 +140,7 @@ where
             tracing::debug!(
                 "signer backend for role {role}: using local key from {key_env}"
             );
-            return Ok(ConcreteSignerBackend::Local(LocalSignerBackend::new(&key_hex, provider)?));
+            return Ok(GenericSigner::Local(LocalSignerBackend::new(&key_hex, provider)?));
         }
     }
 
@@ -149,7 +149,7 @@ where
         if let Ok(key_hex) = std::env::var("PRIVATE_KEY") {
             if !key_hex.is_empty() {
                 tracing::debug!("signer backend for role {role}: using local key from PRIVATE_KEY (legacy)");
-                return Ok(ConcreteSignerBackend::Local(LocalSignerBackend::new(&key_hex, provider)?));
+                return Ok(GenericSigner::Local(LocalSignerBackend::new(&key_hex, provider)?));
             }
         }
     }
@@ -167,7 +167,7 @@ async fn build_local<P>(
     cfg: RoleSignerConfig,
     role: SignerRole,
     provider: P,
-) -> Result<ConcreteSignerBackend, SignerError>
+) -> Result<GenericSigner, SignerError>
 where
     P: Provider<Ethereum> + Send + Sync + 'static,
 {
@@ -184,14 +184,14 @@ where
         message: format!("local signer for role '{role}' requires {key_env} to be set"),
     })?;
 
-    Ok(ConcreteSignerBackend::Local(LocalSignerBackend::new(&key_hex, provider)?))
+    Ok(GenericSigner::Local(LocalSignerBackend::new(&key_hex, provider)?))
 }
 
 #[cfg(feature = "http-remote")]
 async fn build_http_remote(
     cfg: RoleSignerConfig,
     role: SignerRole,
-) -> Result<ConcreteSignerBackend, SignerError> {
+) -> Result<GenericSigner, SignerError> {
     use crate::http_remote::HttpRemoteSignerBackend;
 
     let http_cfg = cfg.http.ok_or_else(|| SignerError::Unavailable {
@@ -206,14 +206,14 @@ async fn build_http_remote(
         });
     }
 
-    Ok(ConcreteSignerBackend::HttpRemote(HttpRemoteSignerBackend::new(&http_cfg.url, role).await?))
+    Ok(GenericSigner::Remote(HttpRemoteSignerBackend::new(&http_cfg.url, role).await?))
 }
 
 #[cfg(not(feature = "http-remote"))]
 async fn build_http_remote(
     _cfg: RoleSignerConfig,
     role: SignerRole,
-) -> Result<ConcreteSignerBackend, SignerError> {
+) -> Result<GenericSigner, SignerError> {
     Err(SignerError::Transport {
         message: format!(
             "http-remote backend for role '{role}' requires the 'http-remote' crate feature",
