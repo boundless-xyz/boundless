@@ -2975,6 +2975,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-signer"
+version = "1.5.0-alpha.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "hex",
+ "httpmock",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "boundless-slasher"
 version = "1.5.0-alpha.0"
 dependencies = [
