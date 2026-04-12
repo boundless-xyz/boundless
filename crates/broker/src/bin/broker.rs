@@ -30,6 +30,7 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
+use boundless_signer::{SignerBackend, SignerBackendBridge};
 use broker::{
     config::ConfigWatcher, rpcmetrics::RpcMetricsLayer,
     sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
@@ -44,7 +45,7 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     let all_rpc_urls =
         collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone(), args.experimental_rpc)?;
@@ -174,6 +175,15 @@ async fn main() -> Result<()> {
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
 
+    // Build the pluggable signing backend and store it in args.signer.
+    // For the default path (PROVER_PRIVATE_KEY only, no [signer] config) this wraps the existing
+    // private key in a LocalSignerBackend — zero regression.  When a remote backend is configured
+    // in the future, from_config() will return the appropriate implementation instead.
+    let signing_backend: std::sync::Arc<dyn SignerBackend> = std::sync::Arc::new(
+        boundless_signer::LocalSignerBackend::from_signer(private_key.clone(), provider.clone()),
+    );
+    args.signer = Some(signing_backend);
+
     // Build a separate AnyNetwork provider for get_block_receipts, reusing the same transport.
     // Needed on OP Stack chains where deposit receipts don't fit the standard Ethereum type.
     // RpcClient is Clone (Arc-backed), so both providers share the same underlying connection.
@@ -204,8 +214,11 @@ async fn main() -> Result<()> {
             );
 
             tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
+            let deposit_bridge = SignerBackendBridge::new(
+                args.signer.as_ref().expect("signer backend must be set").clone(),
+            );
             boundless_market
-                .deposit_collateral_with_permit(*deposit_amount, &private_key)
+                .deposit_collateral_with_permit(*deposit_amount, &deposit_bridge)
                 .await
                 .context("Failed to deposit to market")?;
         }

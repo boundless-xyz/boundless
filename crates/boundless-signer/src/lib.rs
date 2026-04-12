@@ -35,6 +35,7 @@
 //! section.  When no explicit config is provided, the factory falls back to the
 //! `PROVER_PRIVATE_KEY` / `REWARD_PRIVATE_KEY` env vars (existing behaviour).
 
+pub mod bridge;
 pub mod config;
 #[cfg(feature = "http-remote")]
 pub mod http_remote;
@@ -42,6 +43,7 @@ pub mod local;
 pub mod traits;
 pub mod types;
 
+pub use bridge::SignerBackendBridge;
 pub use config::{from_config, HttpSignerConfig, RoleSignerConfig, SignerConfig};
 #[cfg(feature = "http-remote")]
 pub use http_remote::HttpRemoteSignerBackend;

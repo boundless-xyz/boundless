@@ -24,6 +24,7 @@ use alloy::{
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
+use boundless_signer::SignerBackend;
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
@@ -109,6 +110,12 @@ pub struct Args {
     /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
     #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
     pub private_key: Option<PrivateKeySigner>,
+
+    /// Resolved signing backend — set programmatically after `from_config()`.
+    /// Not a CLI flag. When set, this is used instead of `private_key` for
+    /// call sites that support pluggable signing (e.g. offchain market monitor).
+    #[clap(skip)]
+    pub signer: Option<Arc<dyn SignerBackend>>,
 
     /// Boundless deployment configuration (contract addresses, etc.)
     #[clap(flatten, next_help_heading = "Boundless Deployment")]
@@ -1008,10 +1015,26 @@ where
 
         // spin up a supervisor for the offchain market monitor
         if let Some(client_clone) = client {
+            // Prefer the pluggable signer backend if one has been configured; fall back to
+            // wrapping the raw private key in a LocalSignerBackend (zero-regression).
+            let offchain_signer: Arc<dyn SignerBackend> = if let Some(ref backend) = self.args.signer
+            {
+                backend.clone()
+            } else {
+                let pk = self
+                    .args
+                    .private_key
+                    .clone()
+                    .expect("Private key must be set for offchain market monitor");
+                Arc::new(boundless_signer::LocalSignerBackend::from_signer(
+                    pk,
+                    (*self.provider).clone(),
+                ))
+            };
             let offchain_market_monitor =
                 Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
                     client_clone,
-                    self.args.private_key.clone().expect("Private key must be set"),
+                    offchain_signer,
                     new_order_tx.clone(),
                 ));
             let cloned_config = config.clone();

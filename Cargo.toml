@@ -60,7 +60,7 @@ borsh = "1.5"
 boundless-assessor = { version = "1.5.0-alpha.0", path = "crates/assessor" }
 boundless-cli = { path = "crates/boundless-cli" }
 boundless-market = { version = "1.5.0-alpha.0", path = "crates/boundless-market" }
-boundless-signer = { path = "crates/boundless-signer" }
+boundless-signer = { path = "crates/boundless-signer", features = ["http-remote"] }
 boundless-povw = { path = "crates/povw" }
 boundless-rewards = { path = "crates/rewards" }
 boundless-test-utils = { path = "crates/test-utils" }

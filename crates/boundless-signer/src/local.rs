@@ -22,7 +22,7 @@ use std::sync::Arc;
 use alloy::{
     consensus::{SignableTransaction, TypedTransaction},
     network::{Ethereum, TransactionBuilder},
-    primitives::{Address, Signature, TxHash},
+    primitives::{Address, Signature, TxHash, B256},
     providers::{DynProvider, Provider},
     rpc::types::TransactionRequest,
     signers::{local::PrivateKeySigner, Signer},
@@ -39,7 +39,7 @@ use crate::{
 /// `send_transaction` delegates to the provider's full filler pipeline
 /// (nonce, gas, chain-id) so the behaviour is byte-identical to the
 /// existing `EthereumWallet`-in-provider path.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalSignerBackend {
     wallet: PrivateKeySigner,
     address: Address,
@@ -136,6 +136,13 @@ impl SignerBackend for LocalSignerBackend {
     async fn sign_message(&self, message: &[u8]) -> Result<Signature, SignerError> {
         self.wallet
             .sign_message(message)
+            .await
+            .map_err(|e| SignerError::Transport { message: e.to_string() })
+    }
+
+    async fn sign_hash(&self, hash: B256) -> Result<Signature, SignerError> {
+        self.wallet
+            .sign_hash(&hash)
             .await
             .map_err(|e| SignerError::Transport { message: e.to_string() })
     }

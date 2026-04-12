@@ -15,7 +15,7 @@
 use crate::display::format_amount;
 use crate::display::network_name_from_chain_id;
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::{
         utils::{format_ether, parse_ether},
         Address, U256,
@@ -25,6 +25,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
+use boundless_signer::SignerBackendBridge;
 use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},
@@ -35,6 +36,7 @@ use colored::Colorize;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
     display::DisplayManager,
     indexer_client::{parse_amount, IndexerClient},
 };
@@ -85,12 +87,14 @@ impl RewardsStakeZkc {
         }
 
         // Actual staking implementation (migrated from zkc/stake.rs)
-        let tx_signer = rewards_config.require_staking_private_key()?;
+        let backend = rewards_config.require_staking_signer().await?;
+        let signer_address = backend.sender_address();
+        let bridge = SignerBackendBridge::new(backend);
         let rpc_url = rewards_config.require_rpc_url()?;
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
+            .wallet(EthereumWallet::from(bridge.clone()))
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
@@ -111,7 +115,7 @@ impl RewardsStakeZkc {
             let token_id = get_active_token_id(
                 provider.clone(),
                 deployment.vezkc_address,
-                tx_signer.address(),
+                signer_address,
             )
             .await?;
             let add = !token_id.is_zero();
@@ -139,7 +143,7 @@ impl RewardsStakeZkc {
                     provider.clone(),
                     deployment.clone(),
                     self.amount,
-                    &tx_signer,
+                    &bridge,
                     self.permit_deadline,
                     target_token_id,
                 )
@@ -177,7 +181,7 @@ impl RewardsStakeZkc {
         display.balance("Total Staked", &staked_formatted, "ZKC", "green");
 
         // Query and display final balances
-        self.display_final_status(provider, deployment, tx_signer.address()).await?;
+        self.display_final_status(provider, deployment, signer_address).await?;
 
         Ok(())
     }

@@ -19,12 +19,14 @@ use std::{
 
 use alloy::{
     contract::Event,
+    network::EthereumWallet,
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
     rpc::types::{Filter, Log},
     sol_types::SolEvent,
 };
 use anyhow::{bail, ensure, Context, Result};
+use boundless_signer::SignerBackendBridge;
 use boundless_povw::{
     deployments::Deployment,
     log_updater::IPovwAccounting::{self, EpochFinalized, IPovwAccountingInstance, WorkLogUpdated},
@@ -39,6 +41,7 @@ use url::Url;
 use crate::{
     chain::block_number_near_timestamp,
     config::{GlobalConfig, ProvingBackendConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
     display::{network_name_from_chain_id, DisplayManager},
 };
 
@@ -112,12 +115,13 @@ impl RewardsClaimMiningRewards {
         let beacon_api_url =
             self.beacon_api_url.clone().or_else(|| rewards_config.beacon_api_url.clone());
 
-        let tx_signer = rewards_config.require_reward_private_key()?;
         let rpc_url = rewards_config.require_rpc_url()?;
+        let backend = rewards_config.require_reward_signer().await?;
+        let bridge = SignerBackendBridge::new(backend);
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
+            .wallet(EthereumWallet::from(bridge.clone()))
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("Failed to connect provider to {rpc_url}"))?;

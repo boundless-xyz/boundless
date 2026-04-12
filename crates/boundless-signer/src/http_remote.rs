@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use alloy::{
     consensus::TypedTransaction,
-    primitives::{Address, Signature, TxHash},
+    primitives::{Address, Signature, TxHash, B256},
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,8 @@ struct SignRequest<'a> {
     intent: Option<TransactionIntentDto<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hash: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -52,6 +54,7 @@ struct SignRequest<'a> {
 enum SignRequestType {
     Transaction,
     Message,
+    Hash,
 }
 
 #[derive(Serialize)]
@@ -99,6 +102,7 @@ struct ErrorResponse {
 ///
 /// Construction performs a `GET /sign/capabilities` call to discover the
 /// wallet address; fail-fast if the fleet-node is unreachable at startup.
+#[derive(Debug)]
 pub struct HttpRemoteSignerBackend {
     base_url: String,
     role: SignerRole,
@@ -197,6 +201,7 @@ impl SignerBackend for HttpRemoteSignerBackend {
                 from: None,
             }),
             message: None,
+            hash: None,
         };
 
         let url = format!("{}/sign", self.base_url);
@@ -251,6 +256,7 @@ impl SignerBackend for HttpRemoteSignerBackend {
             role: &role_str,
             intent: None,
             message: Some(message_hex),
+            hash: None,
         };
 
         let url = format!("{}/sign", self.base_url);
@@ -286,6 +292,58 @@ impl SignerBackend for HttpRemoteSignerBackend {
                 let err = parse_error_body(resp).await;
                 Err(SignerError::BroadcastFailed { message: err })
             }
+            503 => {
+                let err = parse_error_body(resp).await;
+                Err(SignerError::Unavailable { message: err })
+            }
+            other => Err(SignerError::Transport {
+                message: format!("unexpected status {other} from fleet-node"),
+            }),
+        }
+    }
+
+    async fn sign_hash(&self, hash: B256) -> Result<Signature, SignerError> {
+        let role_str = self.role.to_string();
+        let hash_hex = format!("0x{}", hex::encode(hash.as_slice()));
+
+        let request_body = SignRequest {
+            request_type: SignRequestType::Hash,
+            role: &role_str,
+            intent: None,
+            message: None,
+            hash: Some(hash_hex),
+        };
+
+        let url = format!("{}/sign", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(map_reqwest_err)?;
+
+        let status = resp.status();
+        match status.as_u16() {
+            200 => {
+                let body: SignMessageResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| SignerError::Transport { message: e.to_string() })?;
+                let sig_bytes = alloy::hex::decode(body.signature.trim_start_matches("0x"))
+                    .map_err(|e| SignerError::Transport {
+                        message: format!("invalid signature hex: {e}"),
+                    })?;
+                let sig = Signature::try_from(sig_bytes.as_ref()).map_err(|e| {
+                    SignerError::Transport { message: format!("invalid signature bytes: {e}") }
+                })?;
+                Ok(sig)
+            }
+            403 => {
+                let err = parse_error_body(resp).await;
+                Err(SignerError::Rejected { reason: err })
+            }
+            408 => Err(SignerError::Timeout { elapsed_secs: 0 }),
             503 => {
                 let err = parse_error_body(resp).await;
                 Err(SignerError::Unavailable { message: err })

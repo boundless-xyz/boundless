@@ -13,10 +13,12 @@
 // limitations under the License.
 
 use alloy::{
+    network::EthereumWallet,
     primitives::Address,
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
+use boundless_signer::SignerBackendBridge;
 use boundless_zkc::contracts::IRewards;
 use clap::Args;
 
@@ -40,19 +42,21 @@ impl RewardsDelegate {
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.load_and_validate()?;
         let rpc_url = rewards_config.require_rpc_url_with_help()?;
-        let signer = rewards_config.require_staking_key_with_help()?;
+
+        let backend = rewards_config.require_staking_signer().await?;
+        let signer_address = backend.sender_address();
+        let bridge = SignerBackendBridge::new(backend);
 
         let provider = ProviderBuilder::new()
-            .wallet(signer.clone())
+            .wallet(EthereumWallet::from(bridge.clone()))
             .connect_http(rpc_url.parse().context("Invalid RPC URL")?);
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
         let vezkc_address = rewards_config.vezkc_address()?;
         let rewards = IRewards::new(vezkc_address, &provider);
-
         let current_delegate = rewards
-            .rewardDelegates(signer.address())
+            .rewardDelegates(signer_address)
             .call()
             .await
             .context("Failed to query current reward delegate")?;
@@ -62,10 +66,10 @@ impl RewardsDelegate {
 
         display.header("Delegating Reward Power");
 
-        let from_label = if Some(signer.address()) == rewards_config.staking_address {
-            format!("{:#x} (Staking Address)", signer.address())
+        let from_label = if Some(signer_address) == rewards_config.staking_address {
+            format!("{:#x} (Staking Address)", signer_address)
         } else {
-            format!("{:#x}", signer.address())
+            format!("{:#x}", signer_address)
         };
 
         display.item("From", from_label);

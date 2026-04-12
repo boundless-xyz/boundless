@@ -15,6 +15,7 @@
 use std::{io::Write, path::PathBuf};
 
 use alloy::{
+    network::EthereumWallet,
     primitives::{
         utils::{format_ether, parse_ether},
         Address, U256,
@@ -22,6 +23,7 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, ensure, Context, Result};
+use boundless_signer::SignerBackendBridge;
 use boundless_povw::{
     deployments::Deployment,
     log_updater::{prover::LogUpdaterProver, IPovwAccounting},
@@ -34,6 +36,7 @@ use risc0_zkvm::{default_prover, ProverOpts};
 use crate::{
     commands::rewards::State,
     config::{GlobalConfig, ProvingBackendConfig, RewardsConfig},
+    config_ext::RewardsConfigExt,
     display::{format_amount, DisplayManager},
     indexer_client::{parse_amount, IndexerClient},
 };
@@ -103,25 +106,26 @@ impl RewardsSubmitMining {
         display.item_colored("State file", state_path.display(), "cyan");
 
         // Get the transaction signer and work log signer (must be the reward private key)
-        let tx_signer = rewards_config.require_reward_private_key()?;
-        let work_log_signer = &tx_signer;
         let rpc_url = rewards_config.require_rpc_url()?;
+        let backend = rewards_config.require_reward_signer().await?;
+        let signer_address = backend.sender_address();
+        let bridge = SignerBackendBridge::new(backend);
 
-        // Load the state and check to make sure the private key matches
+        // Load the state and check to make sure the signer matches
         let mut state = State::load(&state_path)
             .await
             .with_context(|| format!("Failed to load state from {}", state_path.display()))?;
 
         ensure!(
-            Address::from(state.log_id) == work_log_signer.address(),
+            Address::from(state.log_id) == signer_address,
             "Signer does not match the state log ID: signer: {}, state: {:x}",
-            work_log_signer.address(),
+            signer_address,
             state.log_id,
         );
 
         // Connect to the chain
         let provider = ProviderBuilder::new()
-            .wallet(tx_signer.clone())
+            .wallet(EthereumWallet::from(bridge.clone()))
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("Failed to connect provider to {rpc_url}"))?;
@@ -280,7 +284,7 @@ impl RewardsSubmitMining {
             display.note("  (This may take several minutes)");
 
             let prove_info = prover
-                .prove_update(receipt, work_log_signer)
+                .prove_update(receipt, &bridge)
                 .await
                 .context("Failed to prove authorized log update")?;
 

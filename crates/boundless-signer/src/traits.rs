@@ -14,7 +14,7 @@
 
 //! SignerBackend trait and SignerMode enum.
 
-use alloy::primitives::{Address, Signature, TxHash};
+use alloy::primitives::{Address, Signature, TxHash, B256};
 use async_trait::async_trait;
 
 use crate::types::{SignerError, TransactionIntent};
@@ -41,7 +41,7 @@ pub enum SignerMode {
 /// All implementations must be `Send + Sync` so they can be shared across tokio tasks via
 /// `Arc<dyn SignerBackend>`.
 #[async_trait]
-pub trait SignerBackend: Send + Sync {
+pub trait SignerBackend: Send + Sync + std::fmt::Debug {
     /// The Ethereum address that corresponds to the signing key.
     fn sender_address(&self) -> Address;
 
@@ -68,6 +68,13 @@ pub trait SignerBackend: Send + Sync {
     ///
     /// Always available on every backend.
     async fn sign_message(&self, message: &[u8]) -> Result<Signature, SignerError>;
+
+    /// Sign a raw 32-byte hash (EIP-191 / EIP-712).
+    ///
+    /// Used by [`crate::SignerBackendBridge`] to satisfy `alloy::signers::Signer`
+    /// for callers that take `&impl Signer` (e.g. `Permit::sign`, `sign_request`,
+    /// WebSocket `connect_async`).
+    async fn sign_hash(&self, hash: B256) -> Result<Signature, SignerError>;
 
     /// Which signing modes this backend supports.
     fn supported_mode(&self) -> SignerMode;
