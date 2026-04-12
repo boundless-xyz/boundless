@@ -102,7 +102,7 @@ struct ErrorResponse {
 ///
 /// Construction performs a `GET /sign/capabilities` call to discover the
 /// wallet address; fail-fast if the fleet-node is unreachable at startup.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HttpRemoteSignerBackend {
     base_url: String,
     role: SignerRole,

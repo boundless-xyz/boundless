@@ -27,17 +27,17 @@ use alloy::{
     providers::ProviderBuilder,
     signers::{local::PrivateKeySigner, Signer},
 };
-use boundless_signer::{LocalSignerBackend, SignerBackend, SignerBackendBridge};
+use boundless_signer::{ConcreteSignerBackend, LocalSignerBackend, SignerBackend, SignerBackendBridge};
 
 /// Anvil account 0 — deterministic, well-known.
 const TEST_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-/// Build a `LocalSignerBackend` using an offline HTTP provider.
+/// Build a `ConcreteSignerBackend::Local` using an offline HTTP provider.
 /// Signing methods never touch the provider; the URL is never contacted.
-fn make_backend(wallet: PrivateKeySigner) -> Arc<dyn SignerBackend> {
+fn make_backend(wallet: PrivateKeySigner) -> Arc<ConcreteSignerBackend> {
     let provider =
         ProviderBuilder::new().connect_http("http://127.0.0.1:8545".parse().expect("valid url"));
-    Arc::new(LocalSignerBackend::from_signer(wallet, provider))
+    Arc::new(ConcreteSignerBackend::Local(LocalSignerBackend::from_signer(wallet, provider)))
 }
 
 // ── sign_hash ─────────────────────────────────────────────────────────────────

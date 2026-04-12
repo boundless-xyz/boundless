@@ -25,7 +25,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{bail, Context, Result};
-use boundless_signer::SignerBackendBridge;
+use boundless_signer::{SignerBackend, SignerBackendBridge};
 use boundless_market::contracts::token::{IERC20Permit, Permit, IERC20};
 use boundless_zkc::{
     contracts::{extract_tx_log, DecodeRevert, IStaking},

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use boundless_market::order_stream_client::{order_stream, OrderStreamClient};
-use boundless_signer::{SignerBackend, SignerBackendBridge};
+use boundless_signer::{ConcreteSignerBackend, SignerBackendBridge};
 use futures_util::StreamExt;
 
 use crate::{
@@ -54,14 +54,14 @@ impl CodedError for OffchainMarketMonitorErr {
 
 pub struct OffchainMarketMonitor {
     client: OrderStreamClient,
-    signer: Arc<dyn SignerBackend>,
+    signer: Arc<ConcreteSignerBackend>,
     new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
 }
 
 impl OffchainMarketMonitor {
     pub fn new(
         client: OrderStreamClient,
-        signer: Arc<dyn SignerBackend>,
+        signer: Arc<ConcreteSignerBackend>,
         new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Self {
         Self { client, signer, new_order_tx }

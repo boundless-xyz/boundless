@@ -30,7 +30,7 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use boundless_signer::{SignerBackend, SignerBackendBridge};
+use boundless_signer::{ConcreteSignerBackend, SignerBackendBridge};
 use broker::{
     config::ConfigWatcher, rpcmetrics::RpcMetricsLayer,
     sequential_fallback::SequentialFallbackLayer, Args, Broker, CustomRetryPolicy,
@@ -179,9 +179,9 @@ async fn main() -> Result<()> {
     // For the default path (PROVER_PRIVATE_KEY only, no [signer] config) this wraps the existing
     // private key in a LocalSignerBackend — zero regression.  When a remote backend is configured
     // in the future, from_config() will return the appropriate implementation instead.
-    let signing_backend: std::sync::Arc<dyn SignerBackend> = std::sync::Arc::new(
+    let signing_backend = std::sync::Arc::new(ConcreteSignerBackend::Local(
         boundless_signer::LocalSignerBackend::from_signer(private_key.clone(), provider.clone()),
-    );
+    ));
     args.signer = Some(signing_backend);
 
     // Build a separate AnyNetwork provider for get_block_receipts, reusing the same transport.

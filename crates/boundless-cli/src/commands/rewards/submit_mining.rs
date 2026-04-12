@@ -23,7 +23,7 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{bail, ensure, Context, Result};
-use boundless_signer::SignerBackendBridge;
+use boundless_signer::{SignerBackend, SignerBackendBridge};
 use boundless_povw::{
     deployments::Deployment,
     log_updater::{prover::LogUpdaterProver, IPovwAccounting},

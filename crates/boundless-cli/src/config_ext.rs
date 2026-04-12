@@ -19,7 +19,7 @@ use std::sync::Arc;
 use crate::config::{ProverConfig, RequestorConfig, RewardsConfig};
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Context, Result};
-use boundless_signer::{config::from_config, LocalSignerBackend, SignerBackend, SignerConfig, SignerError, SignerRole};
+use boundless_signer::{config::from_config, ConcreteSignerBackend, LocalSignerBackend, SignerConfig, SignerError, SignerRole};
 
 /// Common configuration validation trait
 pub trait ConfigValidation {
@@ -50,13 +50,13 @@ pub trait RewardsConfigExt {
     /// Uses [`from_config`] with [`SignerRole::Rewards`].
     /// Falls back to a `LocalSignerBackend` built from `REWARD_PRIVATE_KEY`
     /// when no explicit `[signer]` config is present — zero regression.
-    async fn require_reward_signer(&self) -> Result<Arc<dyn SignerBackend>>;
+    async fn require_reward_signer(&self) -> Result<Arc<ConcreteSignerBackend>>;
 
     /// Resolve the signing backend for staking operations.
     ///
     /// Uses [`from_config`] with [`SignerRole::Rewards`] (staking shares the rewards role key).
     /// Falls back to the staking/reward private key loaded from config.
-    async fn require_staking_signer(&self) -> Result<Arc<dyn SignerBackend>>;
+    async fn require_staking_signer(&self) -> Result<Arc<ConcreteSignerBackend>>;
 }
 
 impl RewardsConfigExt for RewardsConfig {
@@ -93,7 +93,7 @@ impl RewardsConfigExt for RewardsConfig {
         )
     }
 
-    async fn require_reward_signer(&self) -> Result<Arc<dyn SignerBackend>> {
+    async fn require_reward_signer(&self) -> Result<Arc<ConcreteSignerBackend>> {
         let rpc_url = self.require_rpc_url_with_help()?;
         // Try from_config first (handles SIGNER_BACKEND env, explicit [signer] config, key env vars).
         {
@@ -102,7 +102,7 @@ impl RewardsConfigExt for RewardsConfig {
                 .await
                 .with_context(|| format!("Failed to connect to {rpc_url}"))?;
             match from_config(&SignerConfig::default(), SignerRole::Rewards, tmp_provider).await {
-                Ok(backend) => return Ok(Arc::from(backend)),
+                Ok(backend) => return Ok(Arc::new(backend)),
                 Err(SignerError::Unavailable { .. }) => {} // fall through to YAML key fallback
                 Err(e) => return Err(anyhow::anyhow!("{e}")),
             }
@@ -113,10 +113,10 @@ impl RewardsConfigExt for RewardsConfig {
             .connect(&rpc_url)
             .await
             .with_context(|| format!("Failed to connect to {rpc_url}"))?;
-        Ok(Arc::new(LocalSignerBackend::from_signer(pk, provider)))
+        Ok(Arc::new(ConcreteSignerBackend::Local(LocalSignerBackend::from_signer(pk, provider))))
     }
 
-    async fn require_staking_signer(&self) -> Result<Arc<dyn SignerBackend>> {
+    async fn require_staking_signer(&self) -> Result<Arc<ConcreteSignerBackend>> {
         let rpc_url = self.require_rpc_url_with_help()?;
         // Try from_config first with Rewards role (staking shares the rewards role key).
         {
@@ -125,7 +125,7 @@ impl RewardsConfigExt for RewardsConfig {
                 .await
                 .with_context(|| format!("Failed to connect to {rpc_url}"))?;
             match from_config(&SignerConfig::default(), SignerRole::Rewards, tmp_provider).await {
-                Ok(backend) => return Ok(Arc::from(backend)),
+                Ok(backend) => return Ok(Arc::new(backend)),
                 Err(SignerError::Unavailable { .. }) => {} // fall through to YAML key fallback
                 Err(e) => return Err(anyhow::anyhow!("{e}")),
             }
@@ -136,7 +136,7 @@ impl RewardsConfigExt for RewardsConfig {
             .connect(&rpc_url)
             .await
             .with_context(|| format!("Failed to connect to {rpc_url}"))?;
-        Ok(Arc::new(LocalSignerBackend::from_signer(pk, provider)))
+        Ok(Arc::new(ConcreteSignerBackend::Local(LocalSignerBackend::from_signer(pk, provider))))
     }
 }
 
@@ -172,7 +172,7 @@ pub trait ProverConfigExt {
     ///
     /// Uses [`from_config`] with [`SignerRole::Prover`].
     /// Falls back to `LocalSignerBackend` from the loaded private key — zero regression.
-    async fn require_prover_signer(&self) -> Result<Arc<dyn SignerBackend>>;
+    async fn require_prover_signer(&self) -> Result<Arc<ConcreteSignerBackend>>;
 }
 
 impl ProverConfigExt for ProverConfig {
@@ -191,7 +191,7 @@ impl ProverConfigExt for ProverConfig {
         )
     }
 
-    async fn require_prover_signer(&self) -> Result<Arc<dyn SignerBackend>> {
+    async fn require_prover_signer(&self) -> Result<Arc<ConcreteSignerBackend>> {
         let rpc_url = self.require_rpc_url()?;
         // Try from_config first (handles SIGNER_BACKEND env, explicit [signer] config, key env vars).
         {
@@ -200,7 +200,7 @@ impl ProverConfigExt for ProverConfig {
                 .await
                 .with_context(|| format!("Failed to connect to {rpc_url}"))?;
             match from_config(&SignerConfig::default(), SignerRole::Prover, tmp_provider).await {
-                Ok(backend) => return Ok(Arc::from(backend)),
+                Ok(backend) => return Ok(Arc::new(backend)),
                 Err(SignerError::Unavailable { .. }) => {} // fall through to YAML key fallback
                 Err(e) => return Err(anyhow::anyhow!("{e}")),
             }
@@ -211,7 +211,7 @@ impl ProverConfigExt for ProverConfig {
             .connect(rpc_url.as_str())
             .await
             .with_context(|| format!("Failed to connect to {rpc_url}"))?;
-        Ok(Arc::new(LocalSignerBackend::from_signer(pk, provider)))
+        Ok(Arc::new(ConcreteSignerBackend::Local(LocalSignerBackend::from_signer(pk, provider))))
     }
 }
 

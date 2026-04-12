@@ -24,7 +24,7 @@ use alloy::{
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
-use boundless_signer::SignerBackend;
+use boundless_signer::ConcreteSignerBackend;
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
@@ -115,7 +115,7 @@ pub struct Args {
     /// Not a CLI flag. When set, this is used instead of `private_key` for
     /// call sites that support pluggable signing (e.g. offchain market monitor).
     #[clap(skip)]
-    pub signer: Option<Arc<dyn SignerBackend>>,
+    pub signer: Option<Arc<ConcreteSignerBackend>>,
 
     /// Boundless deployment configuration (contract addresses, etc.)
     #[clap(flatten, next_help_heading = "Boundless Deployment")]
@@ -1017,7 +1017,8 @@ where
         if let Some(client_clone) = client {
             // Prefer the pluggable signer backend if one has been configured; fall back to
             // wrapping the raw private key in a LocalSignerBackend (zero-regression).
-            let offchain_signer: Arc<dyn SignerBackend> = if let Some(ref backend) = self.args.signer
+            let offchain_signer: Arc<ConcreteSignerBackend> = if let Some(ref backend) =
+                self.args.signer
             {
                 backend.clone()
             } else {
@@ -1026,9 +1027,8 @@ where
                     .private_key
                     .clone()
                     .expect("Private key must be set for offchain market monitor");
-                Arc::new(boundless_signer::LocalSignerBackend::from_signer(
-                    pk,
-                    (*self.provider).clone(),
+                Arc::new(ConcreteSignerBackend::Local(
+                    boundless_signer::LocalSignerBackend::from_signer(pk, (*self.provider).clone()),
                 ))
             };
             let offchain_market_monitor =

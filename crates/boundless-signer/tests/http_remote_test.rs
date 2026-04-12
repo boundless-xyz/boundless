@@ -32,8 +32,8 @@ use alloy::{
     signers::{local::PrivateKeySigner, Signer},
 };
 use boundless_signer::{
-    HttpRemoteSignerBackend, LocalSignerBackend, SignerBackend, SignerBackendBridge, SignerError,
-    SignerRole,
+    ConcreteSignerBackend, HttpRemoteSignerBackend, LocalSignerBackend, SignerBackend,
+    SignerBackendBridge, SignerError, SignerRole,
 };
 use helpers::MockFleetNode;
 use httpmock::MockServer;
@@ -44,18 +44,18 @@ const TEST_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d
 /// Short timeout for test HTTP clients.
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
-fn make_local_backend(wallet: PrivateKeySigner) -> Arc<dyn SignerBackend> {
+fn make_local_backend(wallet: PrivateKeySigner) -> Arc<ConcreteSignerBackend> {
     let provider =
         ProviderBuilder::new().connect_http("http://127.0.0.1:8545".parse().expect("valid url"));
-    Arc::new(LocalSignerBackend::from_signer(wallet, provider))
+    Arc::new(ConcreteSignerBackend::Local(LocalSignerBackend::from_signer(wallet, provider)))
 }
 
-async fn make_remote_backend(base_url: &str) -> Arc<dyn SignerBackend> {
-    Arc::new(
+async fn make_remote_backend(base_url: &str) -> Arc<ConcreteSignerBackend> {
+    Arc::new(ConcreteSignerBackend::HttpRemote(
         HttpRemoteSignerBackend::new_with_timeout(base_url, SignerRole::Prover, TEST_TIMEOUT)
             .await
             .expect("connect to mock server"),
-    )
+    ))
 }
 
 // ── capabilities / address ────────────────────────────────────────────────────

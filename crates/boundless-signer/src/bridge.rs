@@ -29,9 +29,9 @@ use alloy::{
 };
 use async_trait::async_trait;
 
-use crate::traits::SignerBackend;
+use crate::{backend::ConcreteSignerBackend, traits::SignerBackend};
 
-/// Wraps an `Arc<dyn SignerBackend>` and implements `alloy::signers::Signer`.
+/// Wraps an `Arc<ConcreteSignerBackend>` and implements `alloy::signers::Signer`.
 ///
 /// # Usage
 ///
@@ -41,18 +41,18 @@ use crate::traits::SignerBackend;
 /// ```
 #[derive(Clone)]
 pub struct SignerBackendBridge {
-    inner: Arc<dyn SignerBackend>,
+    inner: Arc<ConcreteSignerBackend>,
     chain_id: Option<ChainId>,
 }
 
 impl SignerBackendBridge {
     /// Create a bridge with no chain ID set.
-    pub fn new(backend: Arc<dyn SignerBackend>) -> Self {
+    pub fn new(backend: Arc<ConcreteSignerBackend>) -> Self {
         Self { inner: backend, chain_id: None }
     }
 
     /// Create a bridge with a specific chain ID pre-set.
-    pub fn new_with_chain(backend: Arc<dyn SignerBackend>, chain_id: u64) -> Self {
+    pub fn new_with_chain(backend: Arc<ConcreteSignerBackend>, chain_id: u64) -> Self {
         Self { inner: backend, chain_id: Some(chain_id) }
     }
 }

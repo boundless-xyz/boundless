@@ -18,7 +18,7 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
-use boundless_signer::SignerBackendBridge;
+use boundless_signer::{SignerBackend, SignerBackendBridge};
 use boundless_zkc::contracts::IRewards;
 use clap::Args;
 
