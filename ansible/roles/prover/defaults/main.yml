@@ -109,6 +109,22 @@ prover_chain_rpc_urls: {}
 #   or with local files:
 #     167000: "/path/to/broker.167000.toml"
 prover_chain_overrides: {}
+
+# Multichain: per-chain deployment addresses. Dict of chain_id → dict of addresses.
+# Only needed for staging, where the prover connects to a different market contract
+# than the production default hardcoded in the broker. Production provers auto-resolve
+# addresses from the built-in deployment config and do not need this.
+# Supported keys: market_address, set_verifier_address, collateral_token_address, order_stream_url
+# Example:
+#   prover_chain_deployments:
+#     84532:
+#       market_address: "0x..."
+#       set_verifier_address: "0x..."
+#       collateral_token_address: "0x..."
+#     167000:
+#       market_address: "0x..."
+prover_chain_deployments: {}
+
 # MinIO input TTL: 0 disables the lifecycle rule, >0 expires inputs/ objects after N days
 prover_input_ttl_days: 1
 
