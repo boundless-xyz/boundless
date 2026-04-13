@@ -55,40 +55,23 @@
 ## 2. prover_broker_toml_local + prover_chain_overrides: individual file paths
 ## 3. prover_broker_toml_url (default): download broker.toml from URL
 
-- name: Deploy base broker config from directory
+- name: Deploy broker config from directory
   ansible.builtin.copy:
-    src: "{{ prover_broker_config_dir }}/broker.toml"
-    dest: "{{ prover_dir }}/broker.toml"
+    src: "{{ prover_broker_config_dir }}/"
+    dest: "{{ prover_dir }}/chain-overrides/"
     owner: root
     group: root
     mode: "0644"
   when: prover_broker_config_dir | string | length > 0
   notify: Restart Bento
 
-- name: Ensure chain-overrides directory exists
-  ansible.builtin.file:
-    path: "{{ prover_dir }}/chain-overrides"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  when: prover_broker_config_dir | string | length > 0
-
-- name: Find chain override files
-  ansible.builtin.find:
-    paths: "{{ role_path }}/{{ prover_broker_config_dir }}"
-    patterns: "broker.*.toml"
-  register: chain_override_files
-  when: prover_broker_config_dir | string | length > 0
-
-- name: Deploy chain override files
+- name: Copy base broker.toml to prover root
   ansible.builtin.copy:
-    src: "{{ item.path }}"
-    dest: "{{ prover_dir }}/chain-overrides/"
+    src: "{{ prover_broker_config_dir }}/broker.toml"
+    dest: "{{ prover_dir }}/broker.toml"
     owner: root
     group: root
     mode: "0644"
-  loop: "{{ chain_override_files.files | default([]) }}"
   when: prover_broker_config_dir | string | length > 0
   notify: Restart Bento
 
