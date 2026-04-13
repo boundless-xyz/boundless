@@ -244,6 +244,7 @@ pub trait RequestorDb: IndexerDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        deduplicate: bool,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
         let client_str = format!("{:x}", client_address);
         let sort_field = match sort_by {
@@ -251,39 +252,13 @@ pub trait RequestorDb: IndexerDb {
             RequestSortField::CreatedAt => "created_at",
         };
 
-        // Deduplicate by request_id: when multiple digests exist for the same
-        // request_id (e.g. resubmission with modified offer), exclude rows where
-        // a digest with a more advanced status exists. Uses NOT EXISTS anti-join
-        // which preserves the original index-driven LIMIT scan.
-        let dedup_clause = "NOT EXISTS (
-                       SELECT 1 FROM request_status rs2
-                       WHERE rs2.request_id = rs.request_id
-                         AND rs2.request_digest != rs.request_digest
-                         AND (
-                           (CASE rs2.request_status
-                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
-                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
-                            <
-                            CASE rs.request_status
-                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
-                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END)
-                           OR (CASE rs2.request_status
-                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
-                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
-                               =
-                               CASE rs.request_status
-                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
-                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
-                               AND (rs2.updated_at > rs.updated_at
-                                    OR (rs2.updated_at = rs.updated_at AND rs2.request_digest > rs.request_digest)))
-                         )
-                   )";
+        let dedup_clause = super::dedup_clause(deduplicate);
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
                 "SELECT rs.* FROM request_status rs
                  WHERE rs.client_address = $1
                    AND ({sort_field} < $2 OR ({sort_field} = $2 AND rs.request_digest < $3))
-                   AND {dedup_clause}
+                   {dedup_clause}
                  ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $4",
             );
@@ -298,7 +273,7 @@ pub trait RequestorDb: IndexerDb {
             let query_str = format!(
                 "SELECT rs.* FROM request_status rs
                  WHERE rs.client_address = $1
-                   AND {dedup_clause}
+                   {dedup_clause}
                  ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $2",
             );
@@ -3849,28 +3824,28 @@ mod tests {
         db.upsert_request_statuses(&[status_addr2]).await.unwrap();
 
         let (results, _cursor) = db
-            .list_requests_by_requestor(addr1, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_requestor(addr1, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 5);
         assert!(results.iter().all(|r| r.client_address == addr1));
 
         let (results, cursor) = db
-            .list_requests_by_requestor(addr1, None, 2, RequestSortField::CreatedAt)
+            .list_requests_by_requestor(addr1, None, 2, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
         assert!(cursor.is_some());
 
         let (results2, _) = db
-            .list_requests_by_requestor(addr1, cursor, 2, RequestSortField::CreatedAt)
+            .list_requests_by_requestor(addr1, cursor, 2, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results2.len(), 2);
         assert_ne!(results[0].request_id, results2[0].request_id);
 
         let (results, _) = db
-            .list_requests_by_requestor(addr2, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_requestor(addr2, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -3957,9 +3932,16 @@ mod tests {
 
         db.upsert_request_statuses(&[submitted, fulfilled]).await.unwrap();
 
-        // Should return exactly one row — the fulfilled variant
+        // Without dedup, both rows are returned
         let (results, _) = db
-            .list_requests_by_requestor(addr, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_requestor(addr, None, 10, RequestSortField::CreatedAt, false)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2, "expected 2 rows without dedup, got {}", results.len());
+
+        // With dedup, should return exactly one row — the fulfilled variant
+        let (results, _) = db
+            .list_requests_by_requestor(addr, None, 10, RequestSortField::CreatedAt, true)
             .await
             .unwrap();
         assert_eq!(results.len(), 1, "expected dedup to 1 row, got {}", results.len());
@@ -3968,7 +3950,7 @@ mod tests {
 
         // Same result with UpdatedAt sort
         let (results, _) = db
-            .list_requests_by_requestor(addr, None, 10, RequestSortField::UpdatedAt)
+            .list_requests_by_requestor(addr, None, 10, RequestSortField::UpdatedAt, true)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);

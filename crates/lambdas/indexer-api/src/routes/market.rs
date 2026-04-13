@@ -1623,7 +1623,10 @@ async fn list_requests_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let (statuses, next_cursor) = state.market_db.list_requests(cursor, limit, sort_by).await?;
+    let deduplicate = params.deduplicate;
+
+    let (statuses, next_cursor) =
+        state.market_db.list_requests(cursor, limit, sort_by, deduplicate).await?;
 
     let data =
         statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
@@ -1693,8 +1696,12 @@ async fn list_requests_by_requestor_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let (statuses, next_cursor) =
-        state.market_db.list_requests_by_requestor(client_address, cursor, limit, sort_by).await?;
+    let deduplicate = params.deduplicate;
+
+    let (statuses, next_cursor) = state
+        .market_db
+        .list_requests_by_requestor(client_address, cursor, limit, sort_by, deduplicate)
+        .await?;
 
     let data =
         statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
@@ -1764,8 +1771,12 @@ async fn list_requests_by_prover_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let (statuses, next_cursor) =
-        state.market_db.list_requests_by_prover(prover_address, cursor, limit, sort_by).await?;
+    let deduplicate = params.deduplicate;
+
+    let (statuses, next_cursor) = state
+        .market_db
+        .list_requests_by_prover(prover_address, cursor, limit, sort_by, deduplicate)
+        .await?;
 
     let data =
         statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
