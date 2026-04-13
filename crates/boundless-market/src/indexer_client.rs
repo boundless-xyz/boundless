@@ -461,16 +461,14 @@ impl IndexerClient {
             .join(&format!("v1/market/requestors/{}/requests", address))
             .context("Failed to build URL")?;
 
-        let mut query_parts = Vec::new();
-        if let Some(c) = cursor {
-            let encoded: String = url::form_urlencoded::byte_serialize(c.as_bytes()).collect();
-            query_parts.push(format!("cursor={}", encoded));
-        }
-        if deduplicate {
-            query_parts.push("deduplicate=true".to_string());
-        }
-        if !query_parts.is_empty() {
-            url.set_query(Some(&query_parts.join("&")));
+        if cursor.is_some() || deduplicate {
+            let mut pairs = url.query_pairs_mut();
+            if let Some(c) = cursor {
+                pairs.append_pair("cursor", c);
+            }
+            if deduplicate {
+                pairs.append_pair("deduplicate", "true");
+            }
         }
 
         let url_str = url.to_string();
