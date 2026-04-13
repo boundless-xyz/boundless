@@ -243,6 +243,10 @@ services:
       - type: bind
         source: ./broker.toml
         target: /app/broker.toml
+      - type: bind
+        source: ./chain-overrides
+        target: /app/chain-overrides
+        read_only: true
       - broker-data:/db/
     # Uncomment when using locally built set-builder and assessor guest programs
     # - type: bind
