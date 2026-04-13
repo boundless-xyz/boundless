@@ -163,11 +163,11 @@ pub struct Args {
     /// Completed job cleanup poll interval in seconds
     ///
     /// How often to clean up completed jobs
-    #[clap(env, long, default_value_t = 60 * 60)]
+    #[clap(env, long, default_value_t = 5 * 60)]
     cleanup_poll_interval: u64,
 
     /// Disable cron to clean up completed jobs in taskdb.
-    #[clap(long, default_value_t = true, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
+    #[clap(long, default_value_t = false, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
     disable_completed_cleanup: bool,
 
     /// Disable cron to clean up stuck tasks in taskdb.
