@@ -255,6 +255,9 @@ services:
     # - type: bind
     #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
     #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+    env_file:
+      - path: .env
+        required: false
     environment:
       <<: *broker-environment
     entrypoint:
