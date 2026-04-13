@@ -140,12 +140,14 @@ jobs:
         working-directory: ${{ matrix.workspace }}
         env:
           RISC0_DEV_MODE: ${{ matrix.dev_mode && '1' || '' }}
+          RISC0_SKIP_BUILD_KERNELS: ${{ matrix.dev_mode && '1' || '' }}
 
       - name: cargo clippy
         run: cargo clippy --locked --workspace --all-features
         working-directory: ${{ matrix.workspace }}
         env:
           RISC0_SKIP_BUILD: 1
+          RISC0_SKIP_BUILD_KERNELS: ${{ matrix.dev_mode && '1' || '' }}
 
       - name: forge fmt
         if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
