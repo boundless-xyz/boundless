@@ -1,6 +1,6 @@
 ---
 name: ops-logs-query
-description: Internal — for Boundless team members only. Query AWS CloudWatch logs for Boundless services (provers, slasher, distributor, order stream, order generator, indexer) on prod/staging environments. Use when the user asks to look at service logs, debug service behavior from log output, search logs for a request ID, or investigate errors using CloudWatch. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
+description: Internal — for Boundless team members only. Query AWS CloudWatch logs for Boundless services (provers, slasher, distributor, order stream, order generator, indexer, signal) on prod/staging environments. Use when the user asks to look at service logs, debug service behavior from log output, search logs for a request ID, or investigate errors using CloudWatch. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
 ---
 
 # Logs Query
@@ -104,6 +104,7 @@ Common service name fragments to search for:
 | Order generator | `order-generator`, `og`                                    |
 | Slasher         | `slasher`                                                  |
 | Distributor     | `distributor`                                              |
+| Signal          | `prod-8453-signal` (no `l-` prefix)                        |
 | Prover (bento)  | `/boundless/bento/prover` or `/boundless/bento/*-prover-*` |
 
 ## Querying Logs
