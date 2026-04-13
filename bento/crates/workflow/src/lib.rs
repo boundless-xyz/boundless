@@ -158,7 +158,7 @@ pub struct Args {
     /// Completed job cleanup poll interval in seconds
     ///
     /// How often to clean up completed jobs
-    #[clap(env, long, default_value_t = 30 * 60)]
+    #[clap(env, long, default_value_t = 5 * 60)]
     cleanup_poll_interval: u64,
 
     /// Stream counter refresh interval in seconds
