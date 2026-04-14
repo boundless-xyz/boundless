@@ -5,6 +5,10 @@ on:
     - cron: "0 2 * * *"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 permissions:
   id-token: write
   contents: read
@@ -20,19 +24,31 @@ env:
 
 jobs:
   examples:
-    runs-on: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        workspace:
-          - examples/blake3-groth16
-          - examples/counter
-          - examples/smart-contract-requestor
-          - examples/counter-with-callback
-          - examples/composition
-          - examples/request-stream
+        include:
+          - workspace: examples/blake3-groth16
+            runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+            dev_mode: false
+          - workspace: examples/counter
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
+          - workspace: examples/smart-contract-requestor
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
+          - workspace: examples/counter-with-callback
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
+          - workspace: examples/composition
+            runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+            dev_mode: false
+          - workspace: examples/request-stream
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
     env:
-      NVCC_APPEND_FLAGS: -arch=sm_89
+      NVCC_APPEND_FLAGS: ${{ !matrix.dev_mode && '-arch=sm_89' || '' }}
     steps:
       - name: Remove stale submodules
         run: rm -rf lib/
@@ -72,6 +88,7 @@ jobs:
         uses: ./.github/actions/sccache
 
       - uses: risc0/risc0/.github/actions/cuda@v3.0.3
+        if: ${{ !matrix.dev_mode }}
       - uses: risc0/risc0/.github/actions/protoc@v3.0.3
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
@@ -119,14 +136,17 @@ jobs:
         working-directory: contracts
 
       - name: cargo build
-        run: cargo build --all-features --locked
+        run: cargo build ${{ !matrix.dev_mode && '--all-features' || '' }} --locked
         working-directory: ${{ matrix.workspace }}
+        env:
+          RISC0_DEV_MODE: ${{ matrix.dev_mode && '1' || '' }}
 
       - name: cargo clippy
-        run: cargo clippy --locked --workspace --all-features
+        run: cargo clippy --locked --workspace ${{ !matrix.dev_mode && '--all-features' || '' }}
         working-directory: ${{ matrix.workspace }}
         env:
           RISC0_SKIP_BUILD: 1
+          RISC0_SKIP_BUILD_KERNELS: ${{ matrix.dev_mode && '1' || '' }}
 
       - name: forge fmt
         if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
@@ -157,10 +177,11 @@ jobs:
 
       - name: cargo nextest run
         # Warn every 5min, kill test after 30min (6x300s)
-        run: cargo nextest run --all-features --locked --nocapture --config-file "$GITHUB_WORKSPACE/.config/nextest.toml" --profile nightly-examples
+        run: cargo nextest run ${{ !matrix.dev_mode && '--all-features' || '' }} --locked --nocapture --config-file "$GITHUB_WORKSPACE/.config/nextest.toml" --profile nightly-examples
         working-directory: ${{ matrix.workspace }}
         env:
           RUST_LOG: "info"
+          RISC0_DEV_MODE: ${{ matrix.dev_mode && '1' || '' }}
           RISC0_INFO: 1
           BLAKE3_GROTH16_SETUP_DIR: ${{ env.BLAKE3_GROTH16_SETUP_DIR }}
           USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
@@ -168,9 +189,21 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  notify-failure:
-    if: failure()
+  retry-failed:
+    if: failure() && fromJSON(github.run_attempt) < 3
     needs: [examples]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-run failed jobs (attempt ${{ github.run_attempt }}/3)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run rerun ${{ github.run_id }} --repo ${{ github.repository }} --failed
+
+  notify-failure:
+    if: failure() && fromJSON(github.run_attempt) >= 3
+    needs: [examples, retry-failed]
     runs-on: ubuntu-latest
     steps:
       - uses: slackapi/slack-github-action@v2.1.0
@@ -179,5 +212,5 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": "Nightly examples CI failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "text": "Nightly examples CI failed after 3 attempts: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }

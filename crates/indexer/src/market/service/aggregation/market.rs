@@ -426,23 +426,8 @@ where
         let total_variable_cost =
             if total_fees > total_fixed_cost { total_fees - total_fixed_cost } else { U256::ZERO };
 
-        // Compute total collateral from all locked requests (regardless of fulfillment)
-        let mut total_collateral = U256::ZERO;
-        for collateral_str in all_lock_collaterals {
-            let lock_collateral = U256::from_str(&collateral_str).map_err(|e| {
-                ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e))
-            })?;
-            total_collateral += lock_collateral;
-        }
-
-        // Compute total collateral from locked requests that expired
-        let mut total_locked_and_expired_collateral = U256::ZERO;
-        for collateral_str in locked_and_expired_collaterals {
-            let lock_collateral = U256::from_str(&collateral_str).map_err(|e| {
-                ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e))
-            })?;
-            total_locked_and_expired_collateral += lock_collateral;
-        }
+        let total_collateral = all_lock_collaterals;
+        let total_locked_and_expired_collateral = locked_and_expired_collaterals;
 
         // Compute percentiles: p5, p10, p25, p50, p75, p90, p95, p99
         let percentiles = if !prices_per_cycle.is_empty() {

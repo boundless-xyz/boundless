@@ -78,6 +78,12 @@ Include it in requests via the `x-api-key` header. Without an API key, omit the 
 
 If `network_address_labels.json` exists at the repo root, use it to label addresses in results. The file is plain JSON (`{"0xaddr": "label", ...}`) so the user can paste directly from the canonical mapping. When displaying addresses from API responses, check if the address (case-insensitive) has a known label and show it alongside, e.g. `0xbdA9...5542 (BP1)`.
 
+Provers we operate are labeled with a **`BP` prefix** (e.g. `BP1`, `BP2`, `BPNightlyAWS`). When investigating any issue, always highlight what our BP provers are doing -- did they skip, fail, drop, or fulfill? This should be called out explicitly even when the investigation is not specifically about our provers.
+
+## Secondary Fulfillment
+
+When a prover locks an order but fails to fulfill it, the order becomes available for **secondary fulfillment** by any other prover, who earns the slash collateral as reward. In the indexer, a secondary fulfillment is visible when `fulfill_prover_address` differs from `lock_prover_address` on a request. Market aggregates include a `total_secondary_fulfillments` field. When investigating expired or slashed requests, always check whether secondary fulfillment occurred or was attempted -- especially by our BP provers.
+
 ## Rate Limiting
 
 The API is protected by AWS WAF rate limits:

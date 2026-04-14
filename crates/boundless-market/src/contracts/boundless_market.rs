@@ -482,6 +482,22 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(())
     }
 
+    /// Deposit Ether into the market credited to another address's balance.
+    pub async fn deposit_to(&self, to: Address, value: U256) -> Result<(), MarketError> {
+        tracing::trace!("Calling depositTo({:?}) value: {value}", to);
+        let call = self.instance.depositTo(to).value(value);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting depositTo tx {}", pending_tx.tx_hash());
+        let tx_hash = pending_tx
+            .with_timeout(Some(self.timeout))
+            .watch()
+            .await
+            .context("failed to confirm depositTo tx")?;
+        tracing::debug!("Submitted depositTo {}", tx_hash);
+
+        Ok(())
+    }
+
     /// Withdraw Ether from the market.
     pub async fn withdraw(&self, amount: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling withdraw({amount})");
