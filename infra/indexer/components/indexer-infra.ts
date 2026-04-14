@@ -391,7 +391,7 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     const bastion = new aws.ec2.Instance(`${serviceName}-bastion`, {
       ami: bastionAmi.id,
-      instanceType: 't4g.micro',
+      instanceType: 't4g.nano',
       subnetId: pubSubNetIds.apply(ids => ids[0]),
       vpcSecurityGroupIds: [this.indexerSecurityGroup.id],
       iamInstanceProfile: bastionProfile.name,
