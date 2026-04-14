@@ -1989,7 +1989,7 @@ pub(crate) mod tests {
         let mut ctx = setup_om_test_context().await;
 
         let balance = ctx.monitor.provider.get_balance(ctx.signer.address()).await.unwrap();
-        let gas_price = ctx.monitor.provider.get_gas_price().await.unwrap();
+        let gas_price = ctx.monitor.chain_monitor.current_gas_price().await.unwrap();
         let gas_remaining: u64 = (balance / U256::from(gas_price)).try_into().unwrap();
         ctx.config.load_write().unwrap().market.fulfill_gas_estimate = gas_remaining / 2;
         ctx.config.load_write().unwrap().market.lockin_gas_estimate = gas_remaining / 3;
