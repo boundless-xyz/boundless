@@ -95,7 +95,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       cert = new aws.acm.Certificate(`${serviceName}-cert`, {
         domainName: pulumi.interpolate`${albDomain}`,
         validationMethod: "DNS",
-      }, { protect: true });
+      }, { protect: !disableCert });
 
       certValidation = new aws.acm.CertificateValidation(`${serviceName}-cert-validation`, {
         certificateArn: cert.arn,
@@ -220,7 +220,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       },
       // This should be slightly greater than the order-steam configured ping/pong time
       idleTimeout: orderStreamPingTime + orderStreamPingTime * 0.2,
-    }, { protect: (isStaging || isDev) ? false : true });
+    }, { protect: (isStaging || isDev || disableCert) ? false : true });
 
     const orderStreamSecGroup = new aws.ec2.SecurityGroup(`${serviceName}-sg`, {
       name: `${serviceName}-sg`,
