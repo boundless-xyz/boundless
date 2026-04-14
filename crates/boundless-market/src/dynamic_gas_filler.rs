@@ -132,12 +132,7 @@ impl PriorityMode {
         provider: &P,
     ) -> TransportResult<u128> {
         let config = self.config();
-        let fee_provider = FeeEstimatorProvider::new(
-            provider,
-            config.priority_fee_percentile,
-            config.base_fee_multiplier_percentage,
-            config.priority_fee_multiplier_percentage,
-        );
+        let fee_provider = FeeEstimatorProvider::new(provider, &config);
         match fee_provider.estimate_eip1559_fees().await {
             Ok(estimation) => Ok(estimation.max_fee_per_gas),
             Err(err) => {
@@ -283,12 +278,7 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
     {
         let priority_config = self.get_priority_mode().await.config();
 
-        let fee_override_provider = FeeEstimatorProvider::new(
-            provider,
-            priority_config.priority_fee_percentile,
-            priority_config.base_fee_multiplier_percentage,
-            priority_config.priority_fee_multiplier_percentage,
-        );
+        let fee_override_provider = FeeEstimatorProvider::new(provider, &priority_config);
 
         let fillable = GasFiller.prepare(&fee_override_provider, tx).await?;
 
@@ -355,17 +345,12 @@ struct FeeEstimatorProvider<'a, P, N> {
 }
 
 impl<'a, P, N> FeeEstimatorProvider<'a, P, N> {
-    fn new(
-        inner: &'a P,
-        priority_fee_percentile: f64,
-        base_fee_multiplier_percentage: u64,
-        priority_fee_multiplier_percentage: u64,
-    ) -> Self {
+    fn new(inner: &'a P, config: &PriorityModeConfig) -> Self {
         Self {
             inner,
-            priority_fee_percentile,
-            base_fee_multiplier_percentage,
-            priority_fee_multiplier_percentage,
+            priority_fee_percentile: config.priority_fee_percentile,
+            base_fee_multiplier_percentage: config.base_fee_multiplier_percentage,
+            priority_fee_multiplier_percentage: config.priority_fee_multiplier_percentage,
             _network: std::marker::PhantomData,
         }
     }
@@ -416,7 +401,34 @@ where
                 .into(),
         };
 
-        Ok(estimator.estimate(base_fee_per_gas, &fee_history.reward.unwrap_or_default()))
+        let mut estimation =
+            estimator.estimate(base_fee_per_gas, &fee_history.reward.unwrap_or_default());
+
+        // When fee history returns near-zero priority fees (common on chains like Taiko
+        // where blocks are mostly empty), fall back to eth_maxPriorityFeePerGas which
+        // returns the node's recommended minimum for inclusion.
+        if estimation.max_priority_fee_per_gas <= 1 {
+            match self.inner.get_max_priority_fee_per_gas().await {
+                Ok(suggested) if suggested > estimation.max_priority_fee_per_gas => {
+                    tracing::debug!(
+                        "Fee history returned near-zero priority fee, using eth_maxPriorityFeePerGas: {} wei",
+                        suggested
+                    );
+                    estimation.max_priority_fee_per_gas = suggested;
+                    // Recalculate max_fee to include the updated priority fee
+                    estimation.max_fee_per_gas = std::cmp::max(
+                        estimation.max_fee_per_gas,
+                        base_fee_per_gas
+                            .saturating_mul(self.base_fee_multiplier_percentage as u128)
+                            / 100
+                            + estimation.max_priority_fee_per_gas,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        Ok(estimation)
     }
 
     async fn estimate_eip1559_fees(&self) -> TransportResult<Eip1559Estimation> {
