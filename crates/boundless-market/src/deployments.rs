@@ -204,7 +204,7 @@ pub const TAIKO: Deployment = Deployment {
     verifier_router_address: Some(address!("0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45")),
     set_verifier_address: address!("0x6135DC08D14EF8a44496B009e2181426628B8ebd"),
     collateral_token_address: Some(address!("0xC284A781072442cC1882a8Db4573990B7B49DaC4")),
-    order_stream_url: None,
+    order_stream_url: Some(Cow::Borrowed("https://taiko-mainnet.boundless.network")),
     indexer_url: Some(Cow::Borrowed(TAIKO_MAINNET_INDEXER_URL)),
     deployment_block: Some(4819525),
 };
