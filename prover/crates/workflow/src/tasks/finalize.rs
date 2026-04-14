@@ -12,13 +12,12 @@ use risc0_zkvm::{InnerReceipt, Receipt, ReceiptClaim, SuccinctReceipt};
 use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::storage::{RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR};
-use workflow_common::{FinalizeReq, metrics::helpers};
+use workflow_common::metrics::helpers;
 
 /// Run finalize tasks / cleanup
 ///
 /// Creates the final rollup receipt and uploads it to shared storage.
-/// job path
-pub async fn finalize(agent: &Agent, job_id: &Uuid, _request: &FinalizeReq) -> Result<()> {
+pub async fn finalize(agent: &Agent, job_id: &Uuid) -> Result<()> {
     let start_time = Instant::now();
 
     let job_prefix = format!("job:{job_id}");

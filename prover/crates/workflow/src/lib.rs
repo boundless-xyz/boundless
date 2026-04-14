@@ -727,8 +727,8 @@ impl Agent {
                     .context("[BENTO-WF-124] Failed to serialize resolve response")?
                 }
             }
-            TaskType::Finalize(req) => serde_json::to_value(
-                tasks::finalize::finalize(self, &task.job_id, &req)
+            TaskType::Finalize => serde_json::to_value(
+                tasks::finalize::finalize(self, &task.job_id)
                     .await
                     .context("[BENTO-WF-125] Finalize failed")?,
             )

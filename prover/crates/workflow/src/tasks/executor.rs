@@ -24,7 +24,7 @@ use taskdb::planner::{
 };
 use tempfile::NamedTempFile;
 use workflow_common::{
-    AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
+    AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp,
     JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SNARK_WORK_TYPE,
     SnarkReq, UnionReq,
     metrics::{
@@ -210,10 +210,8 @@ async fn process_task(
                     "[BENTO-EXEC-013] create_task (resolve) failure during resolve creation",
                 )?;
 
-            let task_def = serde_json::to_value(TaskType::Finalize(FinalizeReq {
-                max_idx: tree_task.depends_on[0],
-            }))
-            .context("[BENTO-EXEC-014] Failed to serialize finalize task-type")?;
+            let task_def = serde_json::to_value(TaskType::Finalize)
+                .context("[BENTO-EXEC-014] Failed to serialize finalize task-type")?;
             let prereqs = serde_json::json!([task_id]);
 
             let finalize_name = "finalize";
