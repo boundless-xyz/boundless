@@ -44,6 +44,8 @@ Export the result as `REDSHIFT_URL` before running queries.
 
 If `network_address_labels.json` exists at the repo root, use it to label addresses in results. The file is plain JSON (`{"0xaddr": "label", ...}`) so the user can paste directly from the canonical mapping. When displaying addresses from query output, check if the address (case-insensitive) has a known label and show it alongside, e.g. `0xbdA9...5542 (BP1)`.
 
+Provers we operate are labeled with a **`BP` prefix** (e.g. `BP1`, `BP2`, `BPNightlyAWS`). When investigating any issue, always highlight what our BP provers are doing -- did they skip, fail, drop, or fulfill? This should be called out explicitly even when the investigation is not specifically about our provers.
+
 ## Connecting
 
 Prefer heredocs for all queries (avoids shell escaping issues):
@@ -101,6 +103,10 @@ The Redshift views also include a `received_at` TIMESTAMPTZ column (when Kinesis
 ## Data Coverage
 
 Telemetry is **opt-in**. Brokers can operate without sending telemetry, so the data here only represents brokers that have opted in. Do not assume that the brokers visible in telemetry are the only ones active on the network.
+
+## Secondary Fulfillment
+
+When a prover locks an order but fails to fulfill it, the order becomes available for **secondary fulfillment** by any other prover, who earns the slash collateral as reward. In telemetry, secondary fulfillments are identified by `fulfillment_type = 'FulfillAfterLockExpire'` in both `request_evaluations` and `request_completions`. When investigating expired or slashed requests, filter by this fulfillment type to see which brokers evaluated the secondary opportunity and whether they skipped, committed, or failed. Always check whether our BP provers attempted secondary fulfillment.
 
 ## Query Guidelines
 

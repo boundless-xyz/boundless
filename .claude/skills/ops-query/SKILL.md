@@ -52,13 +52,14 @@ Rate limit all sources:
 
 **Before starting any work, check if the user's question matches a pre-built investigation.** These are tested playbooks with the right queries, presentation format, and step-by-step instructions. Using them produces consistent, comprehensive results. Each lives in its own file under `references/`:
 
-| Investigation              | File                                                                         | When to use                                                                                      |
-| -------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **Market Summary**         | [references/market-summary.md](references/market-summary.md)                 | "How's the market?" / "give me a summary" / overview of health, prover activity, failures, skips |
-| **Slashing Reasons**       | [references/slashing-reasons.md](references/slashing-reasons.md)             | Prover was slashed -- find out why                                                               |
-| **Fulfillment Rate Drops** | [references/fulfillment-rate-drops.md](references/fulfillment-rate-drops.md) | Market or prover fulfillment rate declined, success rate alarms                                  |
-| **Prover Performance**     | [references/prover-performance.md](references/prover-performance.md)         | Deep dive into a specific prover's operational health                                            |
-| **Request Lifecycle**      | [references/request-lifecycle.md](references/request-lifecycle.md)           | Trace a specific request end-to-end across all data sources                                      |
+| Investigation                 | File                                                                               | When to use                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **Market Summary**            | [references/market-summary.md](references/market-summary.md)                       | "How's the market?" / "give me a summary" / overview of health, prover activity, failures, skips |
+| **Slashing Reasons**          | [references/slashing-reasons.md](references/slashing-reasons.md)                   | Prover was slashed -- find out why                                                               |
+| **Fulfillment Rate Drops**    | [references/fulfillment-rate-drops.md](references/fulfillment-rate-drops.md)       | Market or prover fulfillment rate declined, success rate alarms                                  |
+| **Prover Performance**        | [references/prover-performance.md](references/prover-performance.md)               | Deep dive into a specific prover's operational health                                            |
+| **Request Lifecycle**         | [references/request-lifecycle.md](references/request-lifecycle.md)                 | Trace a specific request end-to-end across all data sources                                      |
+| **Customer Expired Requests** | [references/customer-expired-requests.md](references/customer-expired-requests.md) | Customer's requests are expiring -- investigate why provers skip or fail to fulfill them         |
 
 If the user's question clearly maps to one of these, read the corresponding file and follow it step by step. If it doesn't fit any pre-built investigation, fall back to the general Investigation Workflow above and build a custom investigation.
 
@@ -91,6 +92,10 @@ Use `IsClusterWriter: true/false` as the source of truth. When reporting finding
 
 Always show the **full address** when displaying broker/prover addresses. Do not truncate to `0x8305...04b5`. If a label exists in `network_address_labels.json`, show both: `0x83052f16a84e6f2cec4bf3beda45c40c800904b5 (BP1)`.
 
+### Our Provers
+
+Provers we operate are labeled with a **`BP` prefix** in `network_address_labels.json` (e.g. `BP1`, `BP2`, `BPNightlyAWS`). When investigating any issue, always highlight what our provers are doing -- did they skip the order, did they fail, did they drop it, what error codes are they hitting? This should be called out explicitly in every investigation, even when the issue is not specifically about our provers.
+
 ### Prover Summary Tables
 
 When showing prover activity, pivot telemetry outcomes into columns so each prover is one row. Include fulfilled, failures, and skips as separate columns. By default summary tables should cover the **top 5 provers by volume** plus **all provers we operate** (from address labels).
@@ -112,3 +117,9 @@ After the summary table, include two separate breakdown sections:
 - **Committed**: Order was successfully committed to the proving pipeline (lock tx succeeded or immediate commitment for FulfillAfterLockExpire).
 - **Dropped**: Order reached the OrderMonitor but was NOT committed to the proving pipeline. Reasons include: lock tx failed, order was fulfilled/expired/locked by another prover before we could act, insufficient deadline remaining, or insufficient balance. Check `commitment_skip_code` for specifics.
 - **Cancelled**: Completion outcome meaning the broker finished proving but another prover fulfilled the order first. This is a race loss (wasted proving work), NOT an error. Do not count `Cancelled` as a failure in summary tables — show it as a separate column.
+
+### Secondary Fulfillment
+
+When a prover locks an order but fails to fulfill it before the lock expires, the order becomes available for **secondary fulfillment** by any other prover in the network. The secondary fulfiller earns the slash collateral as a reward. In telemetry, secondary fulfillments are identified by `fulfillment_type = 'FulfillAfterLockExpire'` (in both evaluations and completions). In the indexer, a secondary fulfillment shows as `fulfill_prover_address` differing from `lock_prover_address`, and market aggregates include `total_secondary_fulfillments`.
+
+When investigating expired or slashed requests, always check whether secondary fulfillment was attempted -- especially by our BP provers. Did they see the opportunity? Did they skip it, and why? Did they attempt it but fail?
