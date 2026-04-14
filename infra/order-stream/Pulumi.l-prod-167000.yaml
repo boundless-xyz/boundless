@@ -9,7 +9,7 @@ config:
   order-stream:CHAIN_ID: "167000"
   order-stream:CI_CACHE_SECRET:
     secure: v1:wV4ZiIGW7+4Z7AHB:upLiSX2V2sLgUKrPz/DiPpNV9kM4oreA684lnX3IiYcq4vGOkfUS4hn+ySjc8OcPz5nP+f3/BB+Yer9RPPKOSC0sk17y+ElvM+d0NZNii9jWhyitCMdxnuPnFTxCfkzpzEOaLQ8DJ8DSu368XlXdClpaSVgcfRqkalSo+Oe3HA==
-  order-stream:DISABLE_CERT: "true"
+  order-stream:DISABLE_CERT: "false"
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
   order-stream:GH_TOKEN_SECRET:
