@@ -5,7 +5,7 @@
 
 use crate::{
     Agent,
-    tasks::{COPROC_CB_PATH, serialize_obj},
+    tasks::{COPROC_CB_PATH, CleanupKeys, serialize_obj},
 };
 use anyhow::{Context, Result, anyhow, bail};
 use risc0_zkvm::ProveKeccakRequest;
@@ -30,7 +30,7 @@ pub async fn keccak(
     job_id: &Uuid,
     task_id: &str,
     request: &KeccakReq,
-) -> Result<()> {
+) -> Result<CleanupKeys> {
     let start_time = Instant::now();
     let keccak_input_path =
         format!("job:{job_id}:{}:{task_id}:{}", COPROC_CB_PATH, request.claim_digest);
@@ -97,17 +97,6 @@ pub async fn keccak(
 
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
 
-    // Clean up keccak input
-    let cleanup_start = Instant::now();
-    let cleanup_result = agent.hot_delete(&keccak_input_path).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation(
-        "unlink",
-        cleanup_status,
-        cleanup_start.elapsed().as_secs_f64(),
-    );
-    cleanup_result.context("Failed to delete keccak input path key")?;
-
     // Record total task duration and success
     helpers::record_task_operation(
         "keccak",
@@ -115,5 +104,5 @@ pub async fn keccak(
         "success",
         start_time.elapsed().as_secs_f64(),
     );
-    Ok(())
+    Ok(CleanupKeys::one(keccak_input_path))
 }

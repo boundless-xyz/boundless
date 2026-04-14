@@ -34,6 +34,20 @@ pub(crate) const RECEIPT_PATH: &str = "receipts";
 /// Coprocessor callback prefix for redis
 pub(crate) const COPROC_CB_PATH: &str = "coproc";
 
+/// Keys to clean up from Redis after a task is marked done in the DB.
+/// Returned by task functions so cleanup happens only after successful completion.
+pub(crate) struct CleanupKeys(pub Vec<String>);
+
+impl CleanupKeys {
+    pub(crate) fn none() -> Self {
+        Self(Vec::new())
+    }
+
+    pub(crate) fn one(key: String) -> Self {
+        Self(vec![key])
+    }
+}
+
 /// Reads the [`IMAGE_ID_FILE`] and returns a [Digest]
 pub(crate) fn read_image_id(image_id: &str) -> Result<Digest> {
     Digest::from_hex(image_id).context("Failed to convert imageId file to digest from_hex")
