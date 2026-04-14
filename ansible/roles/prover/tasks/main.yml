@@ -163,3 +163,8 @@
     name: bento
     enabled: true
     daemon_reload: true
+
+- name: Prune unused Docker resources
+  ansible.builtin.command:
+    cmd: docker system prune -af
+  changed_when: true

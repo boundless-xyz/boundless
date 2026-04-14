@@ -1,6 +1,6 @@
 ---
 name: ops-logs-query
-description: Internal — for Boundless team members only. Query AWS CloudWatch logs for Boundless services (provers, slasher, distributor, order stream, order generator, indexer) on prod/staging environments. Use when the user asks to look at service logs, debug service behavior from log output, search logs for a request ID, or investigate errors using CloudWatch. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
+description: Internal — for Boundless team members only. Query AWS CloudWatch logs for Boundless services (provers, slasher, distributor, order stream, order generator, indexer, signal) on prod/staging environments. Use when the user asks to look at service logs, debug service behavior from log output, search logs for a request ID, or investigate errors using CloudWatch. Do NOT use for debugging local code changes, reviewing PRs, or investigating issues in the codebase itself.
 ---
 
 # Logs Query
@@ -41,6 +41,8 @@ Read the relevant Pulumi config to find current hostnames. As of now:
 If these are out of date, check the Pulumi config files for the current list.
 
 We only have prover log groups for provers we operate. External provers do not have queryable logs.
+
+Provers we operate are labeled with a **`BP` prefix** in `network_address_labels.json` (e.g. `BP1`, `BP2`, `BPNightlyAWS`). When investigating any issue, always highlight what our BP provers are doing -- did they skip, fail, drop, or fulfill? This should be called out explicitly even when the investigation is not specifically about our provers.
 
 ### Discovering log groups for other services
 
@@ -104,6 +106,7 @@ Common service name fragments to search for:
 | Order generator | `order-generator`, `og`                                    |
 | Slasher         | `slasher`                                                  |
 | Distributor     | `distributor`                                              |
+| Signal          | `prod-8453-signal` (no `l-` prefix)                        |
 | Prover (bento)  | `/boundless/bento/prover` or `/boundless/bento/*-prover-*` |
 
 ## Querying Logs
@@ -268,6 +271,22 @@ aws logs filter-log-events \
   --filter-pattern '?"unhealthy" ?"failed to start" ?"Exited" ?"Error dependency"' \
   --output json | jq '.events[] | {timestamp: (.timestamp / 1000 | todate), message: .message}'
 ```
+
+## Secondary Fulfillment in Logs
+
+When a prover locks an order but fails to fulfill it before the lock expires, the order becomes available for **secondary fulfillment** by any other prover, who earns the slash collateral as reward. In broker logs, secondary fulfillment attempts appear as `FulfillAfterLockExpire` entries. When investigating expired or slashed requests, search our BP prover logs for the request ID to see if they evaluated the secondary fulfillment opportunity:
+
+```bash
+# Search for secondary fulfillment activity on a specific request
+aws logs filter-log-events \
+  --log-group-name "$LOG_GROUP" \
+  --start-time "$START_MS" \
+  --end-time "$END_MS" \
+  --filter-pattern '"0xREQUEST_ID" "FulfillAfterLockExpire"' \
+  --output json | jq '.events[] | {timestamp: (.timestamp / 1000 | todate), message: .message}'
+```
+
+If the request ID doesn't appear at all, the prover never saw the secondary opportunity. If it appears with skip or error messages, note the reason -- common issues include the order being unprofitable at the slash collateral price, insufficient remaining deadline, or the prover being at capacity. Always check whether our BP provers attempted secondary fulfillment on orders that expired after being locked.
 
 ## Tips
 

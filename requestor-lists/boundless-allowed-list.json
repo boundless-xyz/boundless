@@ -161,6 +161,86 @@
       "description": "",
       "tags": [],
       "extensions": {}
+    },
+    {
+      "address": "0x814a4b7Eb3Cf5f7421eC08e9B2C1fEdE0f73AcE5",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0xc1Bd2872f5F7cD9A61973B7e96DC63c0e324c78E",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x3B8a767b427a3300E1661f2dd573e9Dd18AA66d7",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x9Ee10C5c964565F43A1EE8EE3be980E78C2A8B59",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x2C8248f388CBA75dDa5c1DB6053F3bA3BB992829",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x07a20DbeF3D3eB0a07D2B0402AB732e2f9d3389D",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x89033FEce00b33fDeE766C086e8fa5B6761348f3",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0xf1Ab8AB4e87d322D44C203b825a8ED9B647291FB",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x0497Dc22C036Ef4D25D2Ce4cC3087BB8992C646c",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x12eC5c4c97C08ccc45C5b30c3a0b4d066dCDf6C6",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
     }
   ]
 }

@@ -16,8 +16,8 @@ config:
   distributor:DOCKER_DIR: ../../
   distributor:DOCKER_TAG: latest
   distributor:ENABLE_EXTERNAL_TOPUP: "false"
-  distributor:ETH_THRESHOLD: "0.015"
-  distributor:ETH_TOP_UP_AMOUNT: "0.04"
+  distributor:ETH_THRESHOLD: "0.008"
+  distributor:ETH_TOP_UP_AMOUNT: "0.02"
   distributor:EXTERNAL_COLLATERAL_THRESHOLD: "50"
   distributor:EXTERNAL_LIFETIME_ALLOWANCE: "100"
   distributor:EXTERNAL_PER_TOP_UP_AMOUNT: "50"

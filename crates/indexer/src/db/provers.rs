@@ -36,6 +36,7 @@ pub trait ProversDb: IndexerDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        deduplicate: bool,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
         let prover_str = format!("{:x}", prover_address);
         let sort_field = match sort_by {
@@ -43,14 +44,15 @@ pub trait ProversDb: IndexerDb {
             RequestSortField::CreatedAt => "created_at",
         };
 
+        let dedup_clause = super::dedup_clause(deduplicate);
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE (lock_prover_address = $1 OR fulfill_prover_address = $1)
-                   AND ({} < $2 OR ({} = $2 AND request_digest < $3))
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE (rs.lock_prover_address = $1 OR rs.fulfill_prover_address = $1)
+                   AND ({sort_field} < $2 OR ({sort_field} = $2 AND rs.request_digest < $3))
+                   {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $4",
-                sort_field, sort_field, sort_field
             );
             sqlx::query(&query_str)
                 .bind(&prover_str)
@@ -61,11 +63,11 @@ pub trait ProversDb: IndexerDb {
                 .await?
         } else {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE (lock_prover_address = $1 OR fulfill_prover_address = $1)
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE (rs.lock_prover_address = $1 OR rs.fulfill_prover_address = $1)
+                   {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $2",
-                sort_field
             );
             sqlx::query(&query_str)
                 .bind(&prover_str)
@@ -217,8 +219,9 @@ pub trait ProversDb: IndexerDb {
         period_end: u64,
         prover_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT lock_price FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(lock_price AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE lock_prover_address = $1
              AND locked_at IS NOT NULL
              AND locked_at >= $2 AND locked_at < $3
@@ -228,18 +231,11 @@ pub trait ProversDb: IndexerDb {
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let lock_price_str: String = row.try_get("lock_price")?;
-            let lock_price = padded_string_to_u256(&lock_price_str)?;
-            total = total.checked_add(lock_price).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing lock_price"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_prover_total_collateral_locked(
@@ -248,8 +244,9 @@ pub trait ProversDb: IndexerDb {
         period_end: u64,
         prover_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT lock_collateral FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(lock_collateral AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE lock_prover_address = $1
              AND locked_at IS NOT NULL
              AND locked_at >= $2 AND locked_at < $3",
@@ -257,18 +254,11 @@ pub trait ProversDb: IndexerDb {
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let lock_collateral_str: String = row.try_get("lock_collateral")?;
-            let lock_collateral = padded_string_to_u256(&lock_collateral_str)?;
-            total = total.checked_add(lock_collateral).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing lock_collateral"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_prover_total_collateral_slashed(
@@ -277,8 +267,12 @@ pub trait ProversDb: IndexerDb {
         period_end: u64,
         prover_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT slash_transferred_amount, slash_burned_amount FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(
+                (COALESCE(SUM(CAST(slash_transferred_amount AS NUMERIC)), 0)
+                 + COALESCE(SUM(CAST(slash_burned_amount AS NUMERIC)), 0))::TEXT, 78, '0'),
+                LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE lock_prover_address = $1
              AND slashed_at IS NOT NULL
              AND slashed_at >= $2 AND slashed_at < $3",
@@ -286,31 +280,11 @@ pub trait ProversDb: IndexerDb {
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let transferred_str: Option<String> = row.try_get("slash_transferred_amount").ok();
-            let burned_str: Option<String> = row.try_get("slash_burned_amount").ok();
-
-            if let Some(transferred) = transferred_str {
-                let transferred_amount = padded_string_to_u256(&transferred)?;
-                total = total.checked_add(transferred_amount).ok_or_else(|| {
-                    DbError::Error(anyhow::anyhow!(
-                        "Overflow when summing slash_transferred_amount"
-                    ))
-                })?;
-            }
-
-            if let Some(burned) = burned_str {
-                let burned_amount = padded_string_to_u256(&burned)?;
-                total = total.checked_add(burned_amount).ok_or_else(|| {
-                    DbError::Error(anyhow::anyhow!("Overflow when summing slash_burned_amount"))
-                })?;
-            }
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_prover_total_collateral_earned(
@@ -319,8 +293,9 @@ pub trait ProversDb: IndexerDb {
         period_end: u64,
         prover_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT lock_collateral FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(lock_collateral AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE fulfill_prover_address = $1
              AND fulfilled_at IS NOT NULL
              AND fulfilled_at > lock_end
@@ -330,18 +305,11 @@ pub trait ProversDb: IndexerDb {
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let lock_collateral_str: String = row.try_get("lock_collateral")?;
-            let lock_collateral = padded_string_to_u256(&lock_collateral_str)?;
-            total = total.checked_add(lock_collateral).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing lock_collateral"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_prover_locked_and_expired_count(
@@ -457,8 +425,9 @@ pub trait ProversDb: IndexerDb {
         period_end: u64,
         prover_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT program_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(program_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE fulfill_prover_address = $1
              AND request_status = 'fulfilled'
              AND program_cycles IS NOT NULL
@@ -468,18 +437,11 @@ pub trait ProversDb: IndexerDb {
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(self.pool())
+        .fetch_one(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let program_cycles_str: String = row.try_get("program_cycles")?;
-            let program_cycles = padded_string_to_u256(&program_cycles_str)?;
-            total = total.checked_add(program_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing program_cycles"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_prover_total_cycles(
@@ -488,8 +450,9 @@ pub trait ProversDb: IndexerDb {
         period_end: u64,
         prover_address: Address,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT total_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE fulfill_prover_address = $1
              AND request_status = 'fulfilled'
              AND total_cycles IS NOT NULL
@@ -499,18 +462,53 @@ pub trait ProversDb: IndexerDb {
         .bind(format!("{:x}", prover_address))
         .bind(period_start as i64)
         .bind(period_end as i64)
+        .fetch_one(self.pool())
+        .await?;
+
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
+    }
+
+    /// Gets the best (highest) effective prove MHz and its request_id for a prover in the given period.
+    /// Only considers fulfilled requests where prover_effective_prove_mhz is not null.
+    async fn get_period_prover_best_effective_prove_mhz(
+        &self,
+        period_start: u64,
+        period_end: u64,
+        prover_address: Address,
+    ) -> Result<(f64, Option<U256>), DbError> {
+        let rows = sqlx::query(
+            "SELECT prover_effective_prove_mhz, request_id FROM request_status
+             WHERE fulfill_prover_address = $1
+             AND request_status = 'fulfilled'
+             AND fulfilled_at IS NOT NULL
+             AND fulfilled_at >= $2 AND fulfilled_at < $3
+             AND prover_effective_prove_mhz IS NOT NULL",
+        )
+        .bind(format!("{:x}", prover_address))
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_all(self.pool())
         .await?;
 
-        let mut total = U256::ZERO;
+        let mut best_mhz = 0.0;
+        let mut best_request_id = None;
         for row in rows {
-            let total_cycles_str: String = row.try_get("total_cycles")?;
-            let total_cycles = padded_string_to_u256(&total_cycles_str)?;
-            total = total.checked_add(total_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing total_cycles"))
-            })?;
+            let effective_mhz: Option<f64> =
+                row.try_get::<Option<f64>, _>("prover_effective_prove_mhz").ok().flatten();
+            let request_id_str: Option<String> =
+                row.try_get::<Option<String>, _>("request_id").ok().flatten();
+
+            if let Some(effective) = effective_mhz {
+                if effective > best_mhz {
+                    best_mhz = effective;
+                    if let Some(rid) = &request_id_str {
+                        best_request_id = U256::from_str(rid).ok();
+                    }
+                }
+            }
         }
-        Ok(total)
+        Ok((best_mhz, best_request_id))
     }
 
     async fn get_all_time_prover_unique_requestors(
@@ -2127,7 +2125,7 @@ mod tests {
         // This includes: 3 locked-only, 2 locked+fulfilled, 1 fulfilled-only (mixed)
         // Total: 6 requests
         let (results, _cursor) = db
-            .list_requests_by_prover(prover1, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover1, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(
@@ -2144,7 +2142,7 @@ mod tests {
 
         // List with limit
         let (results, cursor) = db
-            .list_requests_by_prover(prover1, None, 2, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover1, None, 2, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -2152,7 +2150,7 @@ mod tests {
 
         // Use cursor for pagination
         let (results2, _) = db
-            .list_requests_by_prover(prover1, cursor, 2, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover1, cursor, 2, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results2.len(), 2);
@@ -2161,7 +2159,7 @@ mod tests {
 
         // Test sorting by updated_at
         let (results_updated, _) = db
-            .list_requests_by_prover(prover1, None, 10, RequestSortField::UpdatedAt)
+            .list_requests_by_prover(prover1, None, 10, RequestSortField::UpdatedAt, false)
             .await
             .unwrap();
         assert_eq!(results_updated.len(), 6);
@@ -2175,7 +2173,7 @@ mod tests {
 
         // List for prover2 - should only get the one request where prover2 locked
         let (results, _) = db
-            .list_requests_by_prover(prover2, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover2, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -2184,7 +2182,7 @@ mod tests {
 
         // List for prover3 - should only get the one request where prover3 fulfilled
         let (results, _) = db
-            .list_requests_by_prover(prover3, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(prover3, None, 10, RequestSortField::CreatedAt, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -2194,7 +2192,13 @@ mod tests {
         // List for a prover with no requests - should return empty
         let prover_no_requests = Address::from([0xFF; 20]);
         let (results, _) = db
-            .list_requests_by_prover(prover_no_requests, None, 10, RequestSortField::CreatedAt)
+            .list_requests_by_prover(
+                prover_no_requests,
+                None,
+                10,
+                RequestSortField::CreatedAt,
+                false,
+            )
             .await
             .unwrap();
         assert_eq!(results.len(), 0);

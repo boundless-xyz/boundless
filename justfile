@@ -294,6 +294,10 @@ cargo-update:
 update-lockfiles:
     cargo fetch
     cd bento && cargo fetch
+    cd crates/guest/assessor/assessor-guest && cargo fetch
+    cd crates/guest/util/echo && cargo fetch
+    cd crates/guest/util/identity && cargo fetch
+    cd crates/guest/util/loop && cargo fetch
     cd examples/counter && cargo fetch
     cd examples/composition && cargo fetch
     cd examples/counter-with-callback && cargo fetch
