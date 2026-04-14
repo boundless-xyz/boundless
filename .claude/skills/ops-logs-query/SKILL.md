@@ -42,6 +42,8 @@ If these are out of date, check the Pulumi config files for the current list.
 
 We only have prover log groups for provers we operate. External provers do not have queryable logs.
 
+Provers we operate are labeled with a **`BP` prefix** in `network_address_labels.json` (e.g. `BP1`, `BP2`, `BPNightlyAWS`). When investigating any issue, always highlight what our BP provers are doing -- did they skip, fail, drop, or fulfill? This should be called out explicitly even when the investigation is not specifically about our provers.
+
 ### Discovering log groups for other services
 
 Other services (slasher, distributor, order stream, order generator, indexer backend, indexer API, etc.) have log groups that follow a naming convention but may change. **Discover them dynamically** rather than hardcoding.
@@ -269,6 +271,22 @@ aws logs filter-log-events \
   --filter-pattern '?"unhealthy" ?"failed to start" ?"Exited" ?"Error dependency"' \
   --output json | jq '.events[] | {timestamp: (.timestamp / 1000 | todate), message: .message}'
 ```
+
+## Secondary Fulfillment in Logs
+
+When a prover locks an order but fails to fulfill it before the lock expires, the order becomes available for **secondary fulfillment** by any other prover, who earns the slash collateral as reward. In broker logs, secondary fulfillment attempts appear as `FulfillAfterLockExpire` entries. When investigating expired or slashed requests, search our BP prover logs for the request ID to see if they evaluated the secondary fulfillment opportunity:
+
+```bash
+# Search for secondary fulfillment activity on a specific request
+aws logs filter-log-events \
+  --log-group-name "$LOG_GROUP" \
+  --start-time "$START_MS" \
+  --end-time "$END_MS" \
+  --filter-pattern '"0xREQUEST_ID" "FulfillAfterLockExpire"' \
+  --output json | jq '.events[] | {timestamp: (.timestamp / 1000 | todate), message: .message}'
+```
+
+If the request ID doesn't appear at all, the prover never saw the secondary opportunity. If it appears with skip or error messages, note the reason -- common issues include the order being unprofitable at the slash collateral price, insufficient remaining deadline, or the prover being at capacity. Always check whether our BP provers attempted secondary fulfillment on orders that expired after being locked.
 
 ## Tips
 
