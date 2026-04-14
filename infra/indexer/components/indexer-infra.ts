@@ -384,14 +384,14 @@ export class IndexerShared extends pulumi.ComponentResource {
       mostRecent: true,
       owners: ['amazon'],
       filters: [
-        { name: 'name', values: ['al2023-ami-*-arm64'] },
+        { name: 'name', values: ['al2023-ami-2023*-kernel-*-arm64'] },
         { name: 'state', values: ['available'] },
       ],
     });
 
     const bastion = new aws.ec2.Instance(`${serviceName}-bastion`, {
       ami: bastionAmi.id,
-      instanceType: 't4g.nano',
+      instanceType: 't4g.micro',
       subnetId: pubSubNetIds.apply(ids => ids[0]),
       vpcSecurityGroupIds: [this.indexerSecurityGroup.id],
       iamInstanceProfile: bastionProfile.name,
