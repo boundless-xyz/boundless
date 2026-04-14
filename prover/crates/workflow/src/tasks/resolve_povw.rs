@@ -5,7 +5,9 @@
 
 use crate::{
     Agent,
-    tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{
+        RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj, serialize_obj,
+    },
 };
 use anyhow::{Context, Result};
 use futures::{StreamExt, stream};
