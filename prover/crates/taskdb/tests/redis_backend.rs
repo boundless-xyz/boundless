@@ -709,9 +709,8 @@ async fn delete_job_with_zero_ttl_removes_init_task() -> Result<(), TaskDbErr> {
     };
 
     let stream_id = db.create_stream("CPU", 1, 1.0, "user-zero").await?;
-    let job_id = db
-        .create_job(&stream_id, &serde_json::json!({"init": "zero"}), 0, 30, "user-zero")
-        .await?;
+    let job_id =
+        db.create_job(&stream_id, &serde_json::json!({"init": "zero"}), 0, 30, "user-zero").await?;
 
     let init = db.request_work("CPU").await?.expect("expected init task");
     assert_eq!(init.task_id, INIT_TASK);
