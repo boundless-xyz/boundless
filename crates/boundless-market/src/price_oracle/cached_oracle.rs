@@ -35,21 +35,46 @@ impl CachedPriceOracle {
         *cache
     }
 
-    /// Refresh the cached rate from the underlying oracle
+    /// Refresh the cached rate from the underlying oracle.
+    /// When the cache is empty (first startup), retries up to 3 times with backoff
+    /// to handle transient errors like CoinGecko rate-limiting.
     pub async fn refresh_rate(&self) {
-        match self.oracle.get_rate().await {
-            Ok(rate) => {
-                tracing::debug!(
-                    "Refreshed rate for {}: {} (timestamp: {})",
-                    rate.pair,
-                    rate.rate,
-                    rate.timestamp
-                );
-                let mut cache = self.cache.write().await;
-                *cache = Some(rate);
-            }
-            Err(e) => {
-                tracing::error!("Failed to refresh rate: {}", e);
+        let has_cached = self.cache.read().await.is_some();
+        let max_attempts = if has_cached { 1 } else { 3 };
+
+        for attempt in 1..=max_attempts {
+            match self.oracle.get_rate().await {
+                Ok(rate) => {
+                    tracing::debug!(
+                        "Refreshed rate for {}: {} (timestamp: {})",
+                        rate.pair,
+                        rate.rate,
+                        rate.timestamp
+                    );
+                    let mut cache = self.cache.write().await;
+                    *cache = Some(rate);
+                    return;
+                }
+                Err(e) => {
+                    if attempt < max_attempts {
+                        tracing::warn!(
+                            "Failed to refresh rate (attempt {}/{}), retrying: {}",
+                            attempt,
+                            max_attempts,
+                            e
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(attempt as u64 * 2))
+                            .await;
+                    } else if has_cached {
+                        tracing::warn!(
+                            pair = %self.oracle.pair(),
+                            "Price refresh failed, using cached value"
+                        );
+                        tracing::debug!("Refresh error details: {e}");
+                    } else {
+                        tracing::error!("Failed to refresh rate: {}", e);
+                    }
+                }
             }
         }
     }
@@ -95,6 +120,8 @@ mod tests {
         rate: Mutex<U256>,
         call_count: Arc<AtomicU64>,
         should_error: AtomicBool,
+        /// When > 0, fail this many times then succeed
+        fail_count: AtomicU64,
     }
 
     impl MockOracle {
@@ -104,6 +131,7 @@ mod tests {
                 rate: Mutex::new(rate),
                 call_count: Arc::new(AtomicU64::new(0)),
                 should_error: AtomicBool::new(false),
+                fail_count: AtomicU64::new(0),
             }
         }
 
@@ -113,6 +141,11 @@ mod tests {
 
         fn set_should_error(&self, should_error: bool) {
             self.should_error.store(should_error, Ordering::SeqCst);
+        }
+
+        /// Fail the next N calls, then succeed
+        fn fail_next(&self, n: u64) {
+            self.fail_count.store(n, Ordering::SeqCst);
         }
 
         fn get_call_count(&self) -> u64 {
@@ -131,6 +164,12 @@ mod tests {
 
             if self.should_error.load(Ordering::SeqCst) {
                 return Err(PriceOracleError::Internal("Mock error".to_string()));
+            }
+
+            let remaining = self.fail_count.load(Ordering::SeqCst);
+            if remaining > 0 {
+                self.fail_count.fetch_sub(1, Ordering::SeqCst);
+                return Err(PriceOracleError::Internal("Transient error".to_string()));
             }
 
             let rate = *self.rate.lock().await;
@@ -239,5 +278,60 @@ mod tests {
         // With empty cache and oracle error, get_rate should fail
         let result = cached_oracle.get_rate().await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_refresh_retries_on_empty_cache() {
+        let oracle = Arc::new(MockOracle::new(TradingPair::EthUsd, U256::from(200000000000u128)));
+        // Fail first 2 calls, succeed on 3rd
+        oracle.fail_next(2);
+        let cached_oracle = CachedPriceOracle::new(oracle.clone());
+
+        // Cache is empty, so refresh should retry up to 3 times
+        cached_oracle.refresh_rate().await;
+
+        // Should have called oracle 3 times (2 failures + 1 success)
+        assert_eq!(oracle.get_call_count(), 3);
+
+        // Cache should be populated from the successful 3rd attempt
+        let cached = cached_oracle.get_cached_rate().await;
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().rate, U256::from(200000000000u128));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_no_retry_when_cache_exists() {
+        let oracle = Arc::new(MockOracle::new(TradingPair::EthUsd, U256::from(200000000000u128)));
+        let cached_oracle = CachedPriceOracle::new(oracle.clone());
+
+        // Pre-populate cache
+        cached_oracle.refresh_rate().await;
+        assert_eq!(oracle.get_call_count(), 1);
+
+        // Now make oracle fail
+        oracle.set_should_error(true);
+
+        // With cache populated, should only try once (no retry)
+        cached_oracle.refresh_rate().await;
+        assert_eq!(oracle.get_call_count(), 2, "Should only try once when cache exists");
+
+        // Cache should still have the old value
+        let cached = cached_oracle.get_cached_rate().await.unwrap();
+        assert_eq!(cached.rate, U256::from(200000000000u128));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_all_retries_fail_on_empty_cache() {
+        let oracle = Arc::new(MockOracle::new(TradingPair::EthUsd, U256::from(200000000000u128)));
+        oracle.set_should_error(true);
+        let cached_oracle = CachedPriceOracle::new(oracle.clone());
+
+        // Cache is empty, should retry 3 times then give up
+        cached_oracle.refresh_rate().await;
+
+        assert_eq!(oracle.get_call_count(), 3, "Should retry 3 times on empty cache");
+
+        // Cache should still be empty
+        assert!(cached_oracle.get_cached_rate().await.is_none());
     }
 }
