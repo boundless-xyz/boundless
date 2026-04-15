@@ -137,7 +137,10 @@ impl LocalExecutor {
             .await?
             .ok_or_else(|| ProverError::NotFound("journal".to_string()))?;
 
-        Ok((result.stats, journal))
+        let stats = result.stats.ok_or_else(|| {
+            ProverError::ProverInternalError("Local executor preflight missing stats".to_string())
+        })?;
+        Ok((stats, journal))
     }
 
     async fn run_execution(
@@ -197,7 +200,7 @@ impl Prover for LocalExecutor {
         if let Some(data) = self.state.executions.get(&exec_id).await {
             if let Some(stats) = data.stats.as_ref() {
                 tracing::debug!("Preflight cache hit for {}", exec_id);
-                return Ok(ProofResult { id: exec_id, stats: stats.clone(), ..Default::default() });
+                return Ok(ProofResult { id: exec_id, stats: Some(stats.clone()), ..Default::default() });
             }
         }
 
@@ -235,7 +238,7 @@ impl Prover for LocalExecutor {
                     )
                     .await;
 
-                Ok(ProofResult { id: exec_id, stats, ..Default::default() })
+                Ok(ProofResult { id: exec_id, stats: Some(stats), ..Default::default() })
             }
             Err(err) => {
                 self.state.executions.insert(exec_id, ExecutionData::default()).await;
@@ -371,7 +374,8 @@ mod tests {
         let result =
             executor.preflight(&image_id, &input_id, vec![], None, "test_order_id").await.unwrap();
         assert!(!result.id.is_empty());
-        assert!(result.stats.segments > 0 && result.stats.user_cycles > 0);
+        let stats = result.stats.expect("preflight should always return stats");
+        assert!(stats.segments > 0 && stats.user_cycles > 0);
 
         // Fetch the journal
         let journal = executor.get_preflight_journal(&result.id).await.unwrap().unwrap();
@@ -422,7 +426,7 @@ mod tests {
         // Preflight should return cached data without execution
         let result = executor.preflight(&image_id, &input_id, vec![], None, "test").await.unwrap();
 
-        assert_eq!(result.stats.total_cycles, cycles);
+        assert_eq!(result.stats.expect("preflight should always return stats").total_cycles, cycles);
 
         // Journal should also be cached
         let cached_journal = executor.get_preflight_journal(&result.id).await.unwrap();

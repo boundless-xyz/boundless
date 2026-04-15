@@ -222,10 +222,10 @@ impl AggregatorService {
                     })?;
 
                 tracing::debug!(
-                    "Set-builder proof complete with orders {:?}, proof id: {} cycles: {} time: {}",
+                    "Set-builder proof complete with orders {:?}, proof id: {} cycles: {:?} time: {}",
                     all_orders,
                     proof_res.id,
-                    proof_res.stats.total_cycles,
+                    proof_res.stats.as_ref().map(|s| s.total_cycles),
                     proof_res.elapsed_time
                 );
 
@@ -335,10 +335,10 @@ impl AggregatorService {
             .context("Failed to prove assesor stark")?;
 
         tracing::debug!(
-            "Assessor proof completed, proof id: {} count: {} cycles: {} time: {}",
+            "Assessor proof completed, proof id: {} count: {} cycles: {:?} time: {}",
             proof_res.id,
             order_count,
-            proof_res.stats.total_cycles,
+            proof_res.stats.as_ref().map(|s| s.total_cycles),
             proof_res.elapsed_time
         );
 
