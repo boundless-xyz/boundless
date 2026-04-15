@@ -769,10 +769,20 @@ impl Agent {
 
         // Best-effort cleanup of consumed Redis keys after task is marked done.
         // This must happen after update_task_done to avoid retries finding missing keys.
+        let cleanup_start = Instant::now();
+        let mut cleanup_status = "success";
         for key in &cleanup.0 {
             if let Err(e) = self.hot_delete(key).await {
                 tracing::warn!("Failed to clean up Redis key {key} after task completion: {e}");
+                cleanup_status = "error";
             }
+        }
+        if !cleanup.0.is_empty() {
+            helpers::record_redis_operation(
+                "unlink",
+                cleanup_status,
+                cleanup_start.elapsed().as_secs_f64(),
+            );
         }
 
         Ok(())
