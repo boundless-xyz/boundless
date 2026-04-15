@@ -4,6 +4,7 @@ import { BOUNDLESS_OPS_ACCOUNT_ID, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS
 import { ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS } from "../../../util";
 import { BasePipelineArgs } from "./BasePipelineArgs";
 import { LaunchBasePipeline, LaunchPipelineConfig } from "./LaunchBasePipeline";
+import { createLaunchPipelineNotificationRule, createProdStageFailureAlert } from "./pipelineNotifications";
 
 export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConfig> {
     constructor(
@@ -205,24 +206,30 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
         });
 
         // Create notification rule
-        new aws.codestarnotifications.NotificationRule(`l-${this.config.appName}-pipeline-notifications`, {
-            name: `l-${this.config.appName}-pipeline-notifications`,
-            eventTypeIds: [
+        createLaunchPipelineNotificationRule(
+            `l-${this.config.appName}-pipeline-status-notifications`,
+            pipeline.arn,
+            [
                 "codepipeline-pipeline-manual-approval-succeeded",
-                "codepipeline-pipeline-action-execution-failed",
             ],
-            resource: pipeline.arn,
-            detailType: "FULL",
-            targets: [
-                {
-                    address: slackAlertsTopicArn.apply(arn => arn),
-                },
-            ],
-            tags: {
-                Name: `l-${this.config.appName}-pipeline-notifications`,
+            slackAlertsTopicArn,
+            {
+                Name: `l-${this.config.appName}-pipeline-status-notifications`,
                 Component: `l-${this.config.appName}`,
             },
-        });
+            { parent: this }
+        );
+
+        createProdStageFailureAlert(
+            `l-${this.config.appName}-prod-stage-failure`,
+            pipeline.arn,
+            slackAlertsTopicArn,
+            {
+                Name: `l-${this.config.appName}-prod-stage-failure`,
+                Component: `l-${this.config.appName}`,
+            },
+            { parent: this }
+        );
     }
 
     protected getBuildSpec(): string {
