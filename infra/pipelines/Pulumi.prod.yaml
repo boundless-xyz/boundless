@@ -2,9 +2,9 @@ config:
   aws:region: us-west-2
   pipelines:GITHUB_TOKEN:
     secure: v1:7sm5+n3SWDLhTAKR:xOhHJSukijKJ5VQA/t+eI+SVhUsgXmfw0arSrKrTW1QLgWvsMhuAF6iznwh+KuKr5l1jKhNocpvCeY6j7y2gumarUohTy2qR942fT+TuuCCle7jid0lQhGd27vAs/v4+khqlrHrf3remSWHjsg==
-  pipelines:DOCKER_USER: risczeroautomation
+  pipelines:DOCKER_USER: boundlessautomation
   pipelines:DOCKER_PAT:
-    secure: v1:T+xEOzjeS7sQw9Nb:dY+euWAR30sMP+DYC4V9lfM3LmSCu/yiYPANKYqgw7hkdM4izqHCvUq/s+8ABEgdSUVjRw==
+    secure: v1:UMOqTsMiIFPFAx/b:4RKzSkWjewfWGwAP+xLloOBRbwCTBSh+XuzixsacmS2myqh3K/YNwk5kfl1w8Fi1QshhUg==
   pipelines:BOUNDLESS_ALERTS_SLACK_ID:
     secure: v1:ZjeLYLyEYnxYpHMl:49WYja1GPBzkH7JdKV5UJyjv/Im7qxsStUpa
   pipelines:WORKSPACE_SLACK_ID:
