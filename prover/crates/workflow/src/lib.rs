@@ -713,32 +713,30 @@ impl Agent {
                 }
             }
             TaskType::Resolve(req) => {
-                cleanup = tasks::CleanupKeys::none();
                 // Route to POVW or regular resolve based on agent POVW setting
                 if self.is_povw_enabled() {
-                    serde_json::to_value(
+                    let (result, keys) =
                         tasks::resolve_povw::resolve_povw(self, &task.job_id, &req)
                             .await
-                            .context("[BENTO-WF-121] POVW resolve failed")?,
-                    )
-                    .context("[BENTO-WF-122] Failed to serialize POVW resolve response")?
+                            .context("[BENTO-WF-121] POVW resolve failed")?;
+                    cleanup = keys;
+                    serde_json::to_value(result)
+                        .context("[BENTO-WF-122] Failed to serialize POVW resolve response")?
                 } else {
-                    serde_json::to_value(
-                        tasks::resolve::resolver(self, &task.job_id, &req)
-                            .await
-                            .context("[BENTO-WF-123] Resolve failed")?,
-                    )
-                    .context("[BENTO-WF-124] Failed to serialize resolve response")?
+                    let (result, keys) = tasks::resolve::resolver(self, &task.job_id, &req)
+                        .await
+                        .context("[BENTO-WF-123] Resolve failed")?;
+                    cleanup = keys;
+                    serde_json::to_value(result)
+                        .context("[BENTO-WF-124] Failed to serialize resolve response")?
                 }
             }
             TaskType::Finalize => {
-                cleanup = tasks::CleanupKeys::none();
-                serde_json::to_value(
-                    tasks::finalize::finalize(self, &task.job_id)
-                        .await
-                        .context("[BENTO-WF-125] Finalize failed")?,
-                )
-                .context("[BENTO-WF-126] Failed to serialize finalize response")?
+                cleanup = tasks::finalize::finalize(self, &task.job_id)
+                    .await
+                    .context("[BENTO-WF-125] Finalize failed")?;
+                serde_json::to_value(())
+                    .context("[BENTO-WF-126] Failed to serialize finalize response")?
             }
             TaskType::Snark(req) => {
                 cleanup = tasks::CleanupKeys::none();
