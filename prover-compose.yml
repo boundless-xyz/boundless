@@ -189,6 +189,7 @@ services:
     environment:
       <<: *base-environment
       CLEANUP_POLL_INTERVAL:
+      CLEANUP_STATS_TTL:
       STUCK_TASKS_POLL_INTERVAL:
       BENTO_DISABLE_COMPLETED_CLEANUP: false
       BENTO_DISABLE_STUCK_TASK_CLEANUP:
