@@ -200,7 +200,11 @@ impl Prover for LocalExecutor {
         if let Some(data) = self.state.executions.get(&exec_id).await {
             if let Some(stats) = data.stats.as_ref() {
                 tracing::debug!("Preflight cache hit for {}", exec_id);
-                return Ok(ProofResult { id: exec_id, stats: Some(stats.clone()), ..Default::default() });
+                return Ok(ProofResult {
+                    id: exec_id,
+                    stats: Some(stats.clone()),
+                    ..Default::default()
+                });
             }
         }
 
@@ -426,7 +430,10 @@ mod tests {
         // Preflight should return cached data without execution
         let result = executor.preflight(&image_id, &input_id, vec![], None, "test").await.unwrap();
 
-        assert_eq!(result.stats.expect("preflight should always return stats").total_cycles, cycles);
+        assert_eq!(
+            result.stats.expect("preflight should always return stats").total_cycles,
+            cycles
+        );
 
         // Journal should also be cached
         let cached_journal = executor.get_preflight_journal(&result.id).await.unwrap();
