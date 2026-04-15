@@ -549,46 +549,28 @@ async fn stark_status(
     Path(job_id): Path<Uuid>,
     ExtractApiKey(api_key): ExtractApiKey,
 ) -> Result<Json<SessionStatusRes>, AppError> {
-    let job_state_result = state.task_db.get_job_state(&job_id, &api_key).await;
-
-    // If job not found in taskdb, check object storage for completed receipt.
-    if let Err(err) = &job_state_result
-        && err.is_not_found()
-    {
-        let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
-        if state
-            .storage
-            .object_exists(&receipt_key)
-            .await
-            .context("Failed to check if receipt exists")?
-        {
-            // Receipt exists - job was completed and cleaned up from DB
-            return Ok(Json(SessionStatusRes {
-                state: Some("".into()),
-                receipt_url: Some(format!("http://{hostname}/receipts/stark/receipt/{job_id}")),
-                error_msg: None,
-                status: JobState::Done.to_string(),
-                elapsed_time: None,
-                stats: None,
-            }));
+    // Resolve job state: check taskdb first, fall back to object storage for cleaned-up jobs.
+    let job_state = match state.task_db.get_job_state(&job_id, &api_key).await {
+        Ok(s) => s,
+        Err(err) if err.is_not_found() => {
+            let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
+            if state.storage.object_exists(&receipt_key).await.context("Failed to check receipt")? {
+                JobState::Done
+            } else {
+                return Err(err).context("Failed to get job state")?;
+            }
         }
-    }
+        Err(err) => return Err(err).context("Failed to get job state")?,
+    };
 
-    // Job exists in DB or doesn't exist anywhere - return DB result
-    let job_state = job_state_result.context("Failed to get job state")?;
-
-    let (exec_stats, receipt_url) = if job_state == JobState::Done {
-        let exec_stats = helpers::get_exec_stats(&state.task_db, &job_id)
-            .await
-            .context("Failed to get exec stats")?;
-        (
-            Some(SessionStats {
-                cycles: exec_stats.user_cycles,
-                segments: exec_stats.segments as usize,
-                total_cycles: exec_stats.total_cycles,
-            }),
-            Some(format!("http://{hostname}/receipts/stark/receipt/{job_id}")),
-        )
+    let (stats, receipt_url) = if job_state == JobState::Done {
+        let stats =
+            helpers::get_exec_stats(&state.task_db, &job_id).await.ok().map(|s| SessionStats {
+                cycles: s.user_cycles,
+                segments: s.segments as usize,
+                total_cycles: s.total_cycles,
+            });
+        (stats, Some(format!("http://{hostname}/receipts/stark/receipt/{job_id}")))
     } else {
         (None, None)
     };
@@ -606,12 +588,12 @@ async fn stark_status(
     };
 
     Ok(Json(SessionStatusRes {
-        state: Some("".into()), // TODO
+        state: Some("".into()),
         receipt_url,
         error_msg,
         status: job_state.to_string(),
         elapsed_time: None,
-        stats: exec_stats,
+        stats,
     }))
 }
 
@@ -757,8 +739,19 @@ async fn blake3_groth16_status(
     Path(job_id): Path<Uuid>,
     Host(hostname): Host,
 ) -> Result<Json<SnarkStatusRes>, AppError> {
-    let job_state =
-        state.task_db.get_job_state(&job_id, &api_key).await.context("Failed to get job state")?;
+    let job_state = match state.task_db.get_job_state(&job_id, &api_key).await {
+        Ok(s) => s,
+        Err(err) if err.is_not_found() => {
+            let receipt_key =
+                format!("{RECEIPT_BUCKET_DIR}/{BLAKE3_GROTH16_BUCKET_DIR}/{job_id}.bincode");
+            if state.storage.object_exists(&receipt_key).await.context("Failed to check receipt")? {
+                JobState::Done
+            } else {
+                return Err(err).context("Failed to get job state")?;
+            }
+        }
+        Err(err) => return Err(err).context("Failed to get job state")?,
+    };
     let (error_msg, output) = match job_state {
         JobState::Running => (None, None),
         JobState::Done => {
@@ -785,30 +778,18 @@ async fn groth16_status(
     Path(job_id): Path<Uuid>,
     Host(hostname): Host,
 ) -> Result<Json<SnarkStatusRes>, AppError> {
-    let job_state_result = state.task_db.get_job_state(&job_id, &api_key).await;
-
-    // If job not found in taskdb, check object storage for completed receipt.
-    if let Err(err) = &job_state_result
-        && err.is_not_found()
-    {
-        let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
-        if state
-            .storage
-            .object_exists(&receipt_key)
-            .await
-            .context("Failed to check if receipt exists")?
-        {
-            // Receipt exists - job was completed and cleaned up from taskdb
-            return Ok(Json(SnarkStatusRes {
-                status: JobState::Done.to_string(),
-                error_msg: None,
-                output: Some(format!("http://{hostname}/receipts/groth16/receipt/{job_id}")),
-            }));
+    let job_state = match state.task_db.get_job_state(&job_id, &api_key).await {
+        Ok(s) => s,
+        Err(err) if err.is_not_found() => {
+            let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
+            if state.storage.object_exists(&receipt_key).await.context("Failed to check receipt")? {
+                JobState::Done
+            } else {
+                return Err(err).context("Failed to get job state")?;
+            }
         }
-    }
-
-    let job_state = job_state_result.context("Failed to get job state")?;
-
+        Err(err) => return Err(err).context("Failed to get job state")?,
+    };
     let (error_msg, output) = match job_state {
         JobState::Running => (None, None),
         JobState::Done => {
