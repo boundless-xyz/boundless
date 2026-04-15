@@ -189,21 +189,9 @@ jobs:
       - name: sccache stats
         run: sccache --show-stats
 
-  retry-failed:
-    if: failure() && fromJSON(github.run_attempt) < 3
-    needs: [examples]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Re-run failed jobs (attempt ${{ github.run_attempt }}/3)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh run rerun ${{ github.run_id }} --repo ${{ github.repository }} --failed
-
   notify-failure:
-    if: failure() && fromJSON(github.run_attempt) >= 3
-    needs: [examples, retry-failed]
+    if: failure()
+    needs: [examples]
     runs-on: ubuntu-latest
     steps:
       - uses: slackapi/slack-github-action@v2.1.0
@@ -212,5 +200,5 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": "Nightly examples CI failed after 3 attempts: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "text": "Nightly examples CI failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }

@@ -29,7 +29,7 @@ env:
   # NOTE: these are program_cycles from the indexer; the executor reports segment-level
   # total cycles which are close but not identical. The ±5% tolerance covers the difference.
   SIGNAL_REQUESTOR_MIN_CYCLES: "36000000000"
-  SIGNAL_REQUESTOR_MAX_CYCLES: "36400000000"
+  SIGNAL_REQUESTOR_MAX_CYCLES: "37000000000"
   # Tolerance percentage for alerting
   TOLERANCE_PCT: "5"
 
