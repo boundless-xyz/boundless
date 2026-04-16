@@ -18,13 +18,18 @@ SHELL ["/bin/bash", "-c"]
 # Prevent sccache collision in compose-builds
 ENV SCCACHE_SERVER_PORT=4230
 
+ARG RELEASE=true
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=prover_api_sccache \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/prover/target,id=prover_api_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
+    RELEASE_FLAG="" && PROFILE_DIR="debug" && \
+    if [ "${RELEASE}" = "true" ]; then RELEASE_FLAG="--release"; PROFILE_DIR="release"; fi && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
-    cargo build --manifest-path prover/Cargo.toml --release -p api --bin rest_api && \
-    cp prover/target/release/rest_api /src/rest_api && \
+    cargo build --manifest-path prover/Cargo.toml ${RELEASE_FLAG} -p api --bin rest_api && \
+    cp prover/target/${PROFILE_DIR}/rest_api /src/rest_api && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
