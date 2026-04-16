@@ -62,14 +62,19 @@ SHELL ["/bin/bash", "-c"]
 ARG RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
+ARG RELEASE=true
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/prover/target-agent-gpu,id=prover_agent_gpu_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
+    RELEASE_FLAG="" && PROFILE_DIR="debug" && \
+    if [ "${RELEASE}" = "true" ]; then RELEASE_FLAG="--release"; PROFILE_DIR="release"; fi && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
     export CARGO_TARGET_DIR=/src/prover/target-agent-gpu && \
-    cargo build --manifest-path prover/Cargo.toml --release -p workflow -F cuda --bin agent && \
-    cp ${CARGO_TARGET_DIR}/release/agent /src/agent && \
+    cargo build --manifest-path prover/Cargo.toml ${RELEASE_FLAG} -p workflow -F cuda --bin agent && \
+    cp ${CARGO_TARGET_DIR}/${PROFILE_DIR}/agent /src/agent && \
     sccache --show-stats
 
 FROM ${CUDA_RUNTIME_IMG} AS runtime
