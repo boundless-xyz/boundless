@@ -6,7 +6,8 @@
 use crate::{
     Agent,
     tasks::{
-        RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj, serialize_obj,
+        CleanupKeys, RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj,
+        serialize_obj,
     },
 };
 use anyhow::{Context, Result};
@@ -17,12 +18,17 @@ use uuid::Uuid;
 use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq, metrics::helpers};
 
 /// Run the resolve operation
-pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Result<Option<u64>> {
+pub async fn resolver(
+    agent: &Agent,
+    job_id: &Uuid,
+    request: &ResolveReq,
+) -> Result<(Option<u64>, CleanupKeys)> {
     let start_time = Instant::now();
     let max_idx = &request.max_idx;
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
     let root_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{max_idx}");
+    let mut keys_to_cleanup = vec![root_receipt_key.clone()];
 
     tracing::debug!("Starting resolve for job_id: {job_id}, max_idx: {max_idx}");
 
@@ -109,6 +115,7 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         continue;
                     }
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
+                    keys_to_cleanup.push(assumption_key.clone());
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
                     let assumption_bytes: Vec<u8> =
                         agent.hot_get_bytes(&assumption_key).await.context(format!(
@@ -175,5 +182,5 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     );
 
     tracing::info!("Resolve operation completed successfully");
-    Ok(assumptions_len)
+    Ok((assumptions_len, CleanupKeys(keys_to_cleanup)))
 }

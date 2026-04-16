@@ -36,6 +36,7 @@ pub(crate) const COPROC_CB_PATH: &str = "coproc";
 
 /// Keys to clean up from Redis after a task is marked done in the DB.
 /// Returned by task functions so cleanup happens only after successful completion.
+#[must_use]
 pub(crate) struct CleanupKeys(pub Vec<String>);
 
 impl CleanupKeys {
