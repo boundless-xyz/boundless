@@ -5,24 +5,23 @@
 
 use crate::{
     Agent,
-    tasks::{RECUR_RECEIPT_PATH, deserialize_obj, read_image_id},
+    tasks::{RESOLVED_RECEIPT_PATH, deserialize_obj, read_image_id},
 };
 use anyhow::{Context, Result, bail};
 use risc0_zkvm::{InnerReceipt, Receipt, ReceiptClaim, SuccinctReceipt};
 use std::time::Instant;
 use uuid::Uuid;
+use workflow_common::metrics::helpers;
 use workflow_common::storage::{RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR};
-use workflow_common::{FinalizeReq, metrics::helpers};
 
 /// Run finalize tasks / cleanup
 ///
 /// Creates the final rollup receipt and uploads it to shared storage.
-/// job path
-pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Result<()> {
+pub async fn finalize(agent: &Agent, job_id: &Uuid) -> Result<()> {
     let start_time = Instant::now();
 
     let job_prefix = format!("job:{job_id}");
-    let root_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.max_idx);
+    let root_receipt_key = format!("{job_prefix}:{RESOLVED_RECEIPT_PATH}");
 
     // Get root receipt using Redis helper
     let root_receipt: Vec<u8> = agent

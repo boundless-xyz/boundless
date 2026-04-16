@@ -22,6 +22,9 @@ pub(crate) mod union;
 /// Recursion receipts key prefix
 pub(crate) const RECUR_RECEIPT_PATH: &str = "recursion_receipts";
 
+/// Resolved receipt key prefix — written by resolve/resolve_povw, read by finalize.
+pub(crate) const RESOLVED_RECEIPT_PATH: &str = "resolved_receipt";
+
 /// Segments key prefix for redis
 pub(crate) const SEGMENTS_PATH: &str = "segments";
 

@@ -5,7 +5,9 @@
 
 use crate::{
     Agent,
-    tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{
+        RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj, serialize_obj,
+    },
 };
 use anyhow::{Context, Result};
 use futures::{StreamExt, stream};
@@ -219,12 +221,12 @@ pub async fn resolve_povw(
     let serialized_asset =
         serialize_obj(&conditional_receipt).context("Failed to serialize resolved receipt")?;
 
-    // Store resolved receipt using Redis helper
-    tracing::debug!("Writing resolved receipt to Redis key: {root_receipt_key}");
+    let resolved_key = format!("{job_prefix}:{RESOLVED_RECEIPT_PATH}");
+    tracing::debug!("Writing resolved receipt to Redis key: {resolved_key}");
     agent
-        .hot_set_bytes(&root_receipt_key, serialized_asset)
+        .hot_set_bytes(&resolved_key, serialized_asset)
         .await
-        .context("Failed to set root receipt key with expiry")?;
+        .context("Failed to set resolved receipt key with expiry")?;
 
     // Save the resolved receipt to work receipts bucket for later consumption
     let work_receipt_key = format!("{WORK_RECEIPTS_BUCKET_DIR}/{job_id}.bincode");

@@ -5,7 +5,9 @@
 
 use crate::{
     Agent,
-    tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
+    tasks::{
+        RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj, serialize_obj,
+    },
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
@@ -157,12 +159,12 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     let serialized_asset = serialize_obj(&conditional_receipt)
         .context("[BENTO-RESOLVE-011] Failed to serialize resolved receipt")?;
 
-    // Store resolved receipt using Redis helper
-    tracing::debug!("Writing resolved receipt to Redis key: {root_receipt_key}");
+    let resolved_key = format!("{job_prefix}:{RESOLVED_RECEIPT_PATH}");
+    tracing::debug!("Writing resolved receipt to Redis key: {resolved_key}");
     agent
-        .hot_set_bytes(&root_receipt_key, serialized_asset)
+        .hot_set_bytes(&resolved_key, serialized_asset)
         .await
-        .context("Failed to set root receipt key with expiry")?;
+        .context("Failed to set resolved receipt key with expiry")?;
 
     // Record total task duration and success
     helpers::record_task_operation(

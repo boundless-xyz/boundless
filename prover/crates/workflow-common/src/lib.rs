@@ -122,13 +122,6 @@ pub struct ResolveReq {
     pub union_max_idx: Option<usize>,
 }
 
-/// Input request
-#[derive(Debug, Deserialize, Serialize)]
-pub struct FinalizeReq {
-    /// Index of the final joined receipt
-    pub max_idx: usize,
-}
-
 /// Snark task definition
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SnarkReq {
@@ -168,7 +161,7 @@ pub enum TaskType {
     /// Resolve task
     Resolve(ResolveReq),
     /// Finalize task
-    Finalize(FinalizeReq),
+    Finalize,
     /// Stark 2 Snark task
     Snark(SnarkReq),
     /// Keccak coproc callback req
@@ -186,7 +179,7 @@ impl TaskType {
             Self::Prove(_) => "prove-lift".into(),
             Self::Join(_) => "join".into(),
             Self::Resolve(_) => "resolve".into(),
-            Self::Finalize(_) => "finalize".into(),
+            Self::Finalize => "finalize".into(),
             Self::Snark(_) => "snark".into(),
             Self::Keccak(_) => "keccak".into(),
             Self::Union(_) => "union".into(),
