@@ -501,7 +501,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         // Once the segments wraps up, close the task channel to signal completion to the follow up
         // task
         drop(task_tx);
-        Ok(())
+        Ok(false)
     });
 
     let task_db = agent.task_db()?;
@@ -569,11 +569,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let coproc = Coprocessor::new(task_tx_clone.clone());
     let mut coproc_redis = agent.redis_pool()?.get().await?;
     let coproc_prefix = format!("{job_prefix}:{COPROC_CB_PATH}");
-    let mut guest_fault = false;
 
     // Generate tasks
     writer_tasks.spawn(async move {
         let mut planner = Planner::default();
+        let mut guest_fault = false;
         while let Some(task_type) = task_rx.recv().await {
             if exec_only {
                 continue;
@@ -710,7 +710,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 }
             }
         }
-        Ok(())
+        Ok(guest_fault)
     });
 
     tracing::info!("Starting execution of job: {}", job_id);
@@ -882,7 +882,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // First join all tasks and collect results
     while let Some(res) = writer_tasks.join_next().await {
         match res {
-            Ok(Ok(())) => {
+            Ok(Ok(guest_fault)) => {
                 if guest_fault {
                     GUEST_FAULTS.inc();
                     EXECUTION_ERRORS.with_label_values(&["guest_fault"]).inc();
