@@ -309,7 +309,7 @@ async fn task_state_counts_drop_to_zero_after_delete_job() -> Result<(), TaskDbE
     assert_eq!(count_for(&counts, "CPU", Priority::Medium, "running"), 1);
     assert_eq!(count_for(&counts, "CPU", Priority::Medium, "pending"), 1);
 
-    db.delete_job(&job_id).await?;
+    db.delete_job(&job_id, 3600).await?;
 
     let counts = db.get_task_state_counts().await?;
     assert_eq!(count_for(&counts, "CPU", Priority::Medium, "ready"), 0);
@@ -657,6 +657,148 @@ async fn request_work_blocking_ignores_stale_notifications() -> Result<(), TaskD
     assert_eq!(task.job_id, second_job);
     assert_eq!(task.task_id, INIT_TASK);
     assert!(started.elapsed() >= tokio::time::Duration::from_millis(75));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_job_preserves_init_task_output() -> Result<(), TaskDbErr> {
+    let Some(db) = test_db().await else {
+        return Ok(());
+    };
+
+    let stream_id = db.create_stream("CPU", 1, 1.0, "user-stats").await?;
+    let job_id = db
+        .create_job(&stream_id, &serde_json::json!({"init": "stats"}), 0, 30, "user-stats")
+        .await?;
+
+    let init = db.request_work("CPU").await?.expect("expected init task");
+    assert_eq!(init.task_id, INIT_TASK);
+
+    let stats = serde_json::json!({
+        "segments": 42,
+        "user_cycles": 1000,
+        "total_cycles": 2000,
+        "assumption_count": 0
+    });
+    db.update_task_done(&job_id, INIT_TASK, stats.clone()).await?;
+
+    // Job is done and queryable before deletion.
+    assert_eq!(db.get_job_state(&job_id, "user-stats").await?, JobState::Done);
+    let output: serde_json::Value = db.get_task_output(&job_id, INIT_TASK).await?;
+    assert_eq!(output["total_cycles"], 2000);
+
+    // Delete with a TTL — init task output should survive.
+    db.delete_job(&job_id, 3600).await?;
+
+    // Job metadata is gone.
+    assert!(db.get_job_state(&job_id, "user-stats").await.is_err());
+
+    // Init task output is still readable.
+    let output: serde_json::Value = db.get_task_output(&job_id, INIT_TASK).await?;
+    assert_eq!(output["total_cycles"], 2000);
+    assert_eq!(output["segments"], 42);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_job_with_zero_ttl_removes_init_task() -> Result<(), TaskDbErr> {
+    let Some(db) = test_db().await else {
+        return Ok(());
+    };
+
+    let stream_id = db.create_stream("CPU", 1, 1.0, "user-zero").await?;
+    let job_id =
+        db.create_job(&stream_id, &serde_json::json!({"init": "zero"}), 0, 30, "user-zero").await?;
+
+    let init = db.request_work("CPU").await?.expect("expected init task");
+    assert_eq!(init.task_id, INIT_TASK);
+    db.update_task_done(&job_id, INIT_TASK, serde_json::json!({"total_cycles": 100})).await?;
+
+    // TTL of 0 means Redis expires the key immediately.
+    db.delete_job(&job_id, 0).await?;
+
+    // Allow Redis to process the expiry.
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    // Init task output should be gone.
+    assert!(db.get_task_output::<serde_json::Value>(&job_id, INIT_TASK).await.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_job_removes_non_init_tasks() -> Result<(), TaskDbErr> {
+    let Some(db) = test_db().await else {
+        return Ok(());
+    };
+
+    let stream_id = db.create_stream("CPU", 1, 1.0, "user-other").await?;
+    let job_id = db
+        .create_job(&stream_id, &serde_json::json!({"init": "other"}), 0, 30, "user-other")
+        .await?;
+
+    let init = db.request_work("CPU").await?.expect("expected init task");
+    assert_eq!(init.task_id, INIT_TASK);
+    db.update_task_done(&job_id, INIT_TASK, serde_json::json!({"total_cycles": 100})).await?;
+
+    // Create and complete a child task.
+    db.create_task(
+        &job_id,
+        "prove_0",
+        &stream_id,
+        &serde_json::json!({"task": "prove"}),
+        &serde_json::json!([]),
+        0,
+        30,
+    )
+    .await?;
+    let child = db.request_work("CPU").await?.expect("expected child task");
+    assert_eq!(child.task_id, "prove_0");
+    db.update_task_done(&job_id, "prove_0", serde_json::json!({"ok": true})).await?;
+
+    db.delete_job(&job_id, 3600).await?;
+
+    // Non-init task output is gone.
+    assert!(db.get_task_output::<serde_json::Value>(&job_id, "prove_0").await.is_err());
+
+    // Init task output is preserved.
+    let output: serde_json::Value = db.get_task_output(&job_id, INIT_TASK).await?;
+    assert_eq!(output["total_cycles"], 100);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn clear_completed_jobs_preserves_init_task_output() -> Result<(), TaskDbErr> {
+    let Some(db) = test_db().await else {
+        return Ok(());
+    };
+
+    let stream_id = db.create_stream("CPU", 1, 1.0, "user-clear").await?;
+    let job_id = db
+        .create_job(&stream_id, &serde_json::json!({"init": "clear"}), 0, 30, "user-clear")
+        .await?;
+
+    let init = db.request_work("CPU").await?.expect("expected init task");
+    assert_eq!(init.task_id, INIT_TASK);
+
+    let stats = serde_json::json!({"segments": 10, "user_cycles": 500, "total_cycles": 1000, "assumption_count": 0});
+    db.update_task_done(&job_id, INIT_TASK, stats).await?;
+
+    // Mark the job as done so clear_completed_jobs picks it up.
+    assert_eq!(db.get_job_state(&job_id, "user-clear").await?, JobState::Done);
+
+    let cleared = db.clear_completed_jobs(3600).await?;
+    assert_eq!(cleared, 1);
+
+    // Job metadata is gone.
+    assert!(db.get_job_state(&job_id, "user-clear").await.is_err());
+
+    // Init task output survives.
+    let output: serde_json::Value = db.get_task_output(&job_id, INIT_TASK).await?;
+    assert_eq!(output["total_cycles"], 1000);
 
     Ok(())
 }

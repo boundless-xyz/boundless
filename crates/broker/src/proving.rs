@@ -223,8 +223,8 @@ impl ProvingService {
         };
 
         tracing::info!(
-            "Customer Proof complete for proof_id: {stark_proof_id}, order_id: {order_id} cycles: {} time: {}",
-            proof_res.stats.total_cycles,
+            "Customer Proof complete for proof_id: {stark_proof_id}, order_id: {order_id} cycles: {:?} time: {}",
+            proof_res.stats.as_ref().map(|s| s.total_cycles),
             proof_res.elapsed_time,
         );
 

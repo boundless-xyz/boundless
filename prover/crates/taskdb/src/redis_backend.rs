@@ -504,6 +504,7 @@ end)
 redis.register_function('delete_job', function(keys, args)
   local p = args[1]
   local job_id = args[2]
+  local stats_ttl = tonumber(args[3]) or 3600
   local job_key = p .. ':job:' .. job_id .. ':meta'
   local user_id = redis.call('HGET', job_key, 'user_id')
   if user_id then
@@ -526,7 +527,13 @@ redis.register_function('delete_job', function(keys, args)
       redis.call('SREM', p .. ':deps:' .. job_id .. ':' .. pre, tid)
     end
     redis.call('DEL', p .. ':deps:' .. job_id .. ':' .. tid)
-    redis.call('DEL', tkey)
+    -- Keep the init task key with a TTL so exec stats remain available
+    -- after job cleanup (used by the status API fallback path).
+    if tid == 'init' then
+      redis.call('EXPIRE', tkey, stats_ttl)
+    else
+      redis.call('DEL', tkey)
+    end
   end
   redis.call('DEL', p .. ':tasks:by_job:' .. job_id)
   redis.call('DEL', job_key)
@@ -1225,7 +1232,7 @@ impl RedisTaskDb {
         .await
     }
 
-    pub async fn delete_job(&self, job_id: &Uuid) -> Result<(), TaskDbErr> {
+    pub async fn delete_job(&self, job_id: &Uuid, stats_ttl: u64) -> Result<(), TaskDbErr> {
         record("redis:delete_job", async {
             let mut conn = self.conn().await?;
             self.ensure_functions_loaded(&mut conn).await?;
@@ -1235,6 +1242,7 @@ impl RedisTaskDb {
                 .arg(0)
                 .arg(&self.namespace)
                 .arg(job_id.to_string())
+                .arg(stats_ttl)
                 .query_async(&mut conn)
                 .await?;
             Ok(())
@@ -1320,7 +1328,7 @@ impl RedisTaskDb {
         .await
     }
 
-    pub async fn clear_completed_jobs(&self) -> Result<i32, TaskDbErr> {
+    pub async fn clear_completed_jobs(&self, stats_ttl: u64) -> Result<i32, TaskDbErr> {
         record("redis:clear_completed_jobs", async {
             let mut conn = self.conn().await?;
             let pattern = self.prefixed("job:*:meta");
@@ -1357,7 +1365,7 @@ impl RedisTaskDb {
 
             drop(conn);
             for job_id in &to_delete {
-                self.delete_job(job_id).await?;
+                self.delete_job(job_id, stats_ttl).await?;
             }
 
             Ok(to_delete.len() as i32)

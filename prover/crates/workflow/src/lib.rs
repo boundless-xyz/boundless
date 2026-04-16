@@ -166,6 +166,14 @@ pub struct Args {
     #[clap(env, long, default_value_t = 5 * 60)]
     cleanup_poll_interval: u64,
 
+    /// TTL in seconds for exec stats after job cleanup.
+    ///
+    /// When a completed job is cleaned up, the init task output (exec stats)
+    /// is retained in Redis with this TTL so the status API can still return
+    /// cycle counts. Defaults to 1 hour.
+    #[clap(env, long, default_value_t = 3600)]
+    pub cleanup_stats_ttl: u64,
+
     /// Disable cron to clean up completed jobs in taskdb.
     #[clap(long, default_value_t = false, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
     disable_completed_cleanup: bool,
@@ -577,12 +585,14 @@ impl Agent {
                     .cloned()
                     .context("[BENTO-WF-106] AUX cleanup requires direct taskdb access")?;
                 let cleanup_interval = self.args.cleanup_poll_interval;
+                let cleanup_stats_ttl = self.args.cleanup_stats_ttl;
                 tokio::spawn(async move {
                     loop {
                         if let Err(e) = Self::poll_for_completed_job_cleanup(
                             term_sig_copy.clone(),
                             task_db_copy.clone(),
                             cleanup_interval,
+                            cleanup_stats_ttl,
                         )
                         .await
                         {
@@ -835,6 +845,7 @@ impl Agent {
         term_sig: Arc<AtomicBool>,
         task_db: TaskDb,
         poll_interval: u64,
+        stats_ttl: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
             // Sleep before each check to avoid running on startup
@@ -842,7 +853,7 @@ impl Agent {
 
             tracing::debug!("Cleaning up completed jobs...");
 
-            let cleared_count = task_db.clear_completed_jobs().await?;
+            let cleared_count = task_db.clear_completed_jobs(stats_ttl).await?;
             if cleared_count > 0 {
                 tracing::info!("Cleared {} completed jobs", cleared_count);
                 workflow_common::metrics::helpers::record_completed_jobs_garbage_collection_metrics(
