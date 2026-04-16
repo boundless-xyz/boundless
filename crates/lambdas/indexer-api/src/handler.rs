@@ -162,9 +162,10 @@ async fn not_found(uri: Uri) -> impl IntoResponse {
 }
 
 /// Global error handler that converts anyhow errors to HTTP responses
+#[track_caller]
 pub fn handle_error(err: anyhow::Error) -> impl IntoResponse {
-    // Log the full error with backtrace for debugging
-    tracing::error!(error = ?err, "Request failed");
+    let caller = std::panic::Location::caller();
+    tracing::error!(error = ?err, caller = %caller, "Request failed at {:?}", caller);
 
     // Convert error message to lowercase for case-insensitive matching
     let error_message = err.to_string().to_lowercase();

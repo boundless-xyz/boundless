@@ -289,9 +289,10 @@ pub struct RequestorLeaderboardParams {
 }
 
 /// Parameters for listing requests.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::IntoParams, utoipa::ToSchema))]
 #[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
+#[non_exhaustive]
 pub struct RequestListParams {
     /// Base64-encoded cursor from previous response for pagination
     #[serde(default)]
@@ -304,6 +305,11 @@ pub struct RequestListParams {
     /// Sort field: "updated_at" or "created_at" (default "created_at")
     #[serde(default)]
     pub sort_by: Option<String>,
+
+    /// When true, deduplicate requests by request_id keeping only the most
+    /// advanced status (default false)
+    #[serde(default)]
+    pub deduplicate: bool,
 }
 
 // ─── Market Response Types ───────────────────────────────────────────────────
@@ -559,6 +565,12 @@ pub struct RequestorAggregateEntry {
     pub total_fees_locked: String,
     /// Total fees locked (formatted for display)
     pub total_fees_locked_formatted: String,
+    /// Total fees paid for fulfilled requests (as string in wei)
+    #[serde(default)]
+    pub total_fees_paid: String,
+    /// Total fees paid for fulfilled requests (formatted for display)
+    #[serde(default)]
+    pub total_fees_paid_formatted: String,
     /// Total collateral locked (as string)
     pub total_collateral_locked: String,
     /// Total collateral locked (formatted for display)
@@ -686,6 +698,12 @@ pub struct RequestorCumulativeEntry {
     pub total_fees_locked: String,
     /// Total fees locked (formatted for display)
     pub total_fees_locked_formatted: String,
+    /// Total fees paid for fulfilled requests (cumulative, as string in wei)
+    #[serde(default)]
+    pub total_fees_paid: String,
+    /// Total fees paid for fulfilled requests (formatted for display)
+    #[serde(default)]
+    pub total_fees_paid_formatted: String,
     /// Total collateral locked (as string)
     pub total_collateral_locked: String,
     /// Total collateral locked (formatted for display)

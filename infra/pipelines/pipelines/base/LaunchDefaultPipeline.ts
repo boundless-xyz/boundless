@@ -259,6 +259,7 @@ ${postBuildCommands.map(cmd => `          - ${cmd}`).join('\n')}`
           - git submodule update --init --recursive
           - echo $DOCKER_PAT > docker_token.txt
           - cat docker_token.txt | docker login -u $DOCKER_USERNAME --password-stdin
+          - echo $GITHUB_TOKEN | docker login ghcr.io -u boundless-xyz --password-stdin
 ${additionalCommandsStr}          - ls -lt
       build:
         commands:

@@ -30,7 +30,7 @@ config:
   order-generator-evm-requestor:ERROR_BALANCE_BELOW: "0.01"
   order-generator-evm-requestor:EXEC_RATE_KHZ: "1000"
   order-generator-evm-requestor:INPUT_MAX_MCYCLES: "1000"
-  order-generator-evm-requestor:INTERVAL: "3600"
+  order-generator-evm-requestor:INTERVAL: "7200"
   order-generator-evm-requestor:LOCK_TIMEOUT: "2100"
   order-generator-evm-requestor:PRIVATE_KEY:
     secure: v1:mPdS7f/y5Hd+cmqM:ei/VZ87c4PqENiaWNgTX0rdeOwWysBcJD9aLImzhNB+MbtSSf+d9fSaAT5QPSbppemkz/1UzwQczwTQWT4wIVlEOvG03LlpXA1Kb08KBIllBrw==
@@ -45,7 +45,7 @@ config:
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:EXEC_RATE_KHZ: "500"
   order-generator-offchain:INPUT_MAX_MCYCLES: "10"
-  order-generator-offchain:INTERVAL: "900"
+  order-generator-offchain:INTERVAL: "1800"
   order-generator-offchain:LOCK_TIMEOUT: "900"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:p4IhT/U8smWcYeRL:roi/EfqIqgP1UZmtGLNaA4LMkoa1WzW8vnmCVAcsz9WD2IgBmM40Q2KryQ1VVmkyBHE4d2/AMaMq+HWh+GR3Y/vW5qxksExOTDjrBXOO6jo=
@@ -57,7 +57,7 @@ config:
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:INPUT_MAX_MCYCLES: "10"
-  order-generator-onchain:INTERVAL: "900"
+  order-generator-onchain:INTERVAL: "1800"
   order-generator-onchain:LOCK_TIMEOUT: "900"
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:pQMFkeTtuUKffOsy:uMi6cYMUnzxqi7ErlSWki49wLRhhKBAjwcHvBUqxHwiZoepNZCgZHZmPRqiZnl7ZqNhALvU6CTNH84xTEQc2CN4+SM36xzdaM40fSmH9b8A=
@@ -69,8 +69,9 @@ config:
   order-generator-random-requestor:INPUT_MAX_MCYCLES: "100"
   order-generator-random-requestor:PRIVATE_KEY:
     secure: v1:AAAVxQWIxbmfO0Z2:nVh+b/2hnSIA7txnkTva6kNNflotcqdSBBP2DyI1QPCp5Qcq0E7wmnd250ioO8BLh+TbkYzlpIoUav8i/R0cezcTUsh1qvdSvyFMev0hKRk=
-  order-generator-random-requestor:SCHEDULE_EXPRESSION: rate(2 hours)
+  order-generator-random-requestor:SCHEDULE_EXPRESSION: rate(4 hours)
   order-generator:CI_CACHE_SECRET:
     secure: v1:E8q2Dlw+CaL5J4yF:OeTsiMNliITIEykUETaxMb7iQUOmdiTi0K5TZ4s8huAcIBPtys6HN4s/ujHC039wD2K3LNq9BD6qpETRAj1z0Etz/XcRP+YkFcC/GXhs+qJJv1e60pHHS7QEiV7t+wUVtMkBm/4uydEulU7qvpOV9nLihW5iAfl9wKbp3jrchw==
   order-generator-base:ETH_RPC_URL:
     secure: v1:bLK0eADRmEZTUA15:m/73RpJTwORLS6ePURDrk6QGVMw9p44APreK1Z1BhGs2AWRH3Qz7+XNLBSM6
+  order-generator-base:USE_GHCR: true

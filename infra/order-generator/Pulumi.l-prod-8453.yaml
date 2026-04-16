@@ -38,7 +38,7 @@ config:
   order-generator-offchain:INPUT_MAX_MCYCLES: "2000"
   order-generator-offchain:LOCK_TIMEOUT: "1500"
   order-generator-offchain:RAMP_UP: "600"
-  order-generator-offchain:INTERVAL: "45"
+  order-generator-offchain:INTERVAL: "90"
   order-generator-offchain:RAMP_UP_SECONDS_PER_MCYCLE: "2"
   order-generator-offchain:SECONDS_PER_MCYCLE: "7"
   order-generator-offchain:TIMEOUT: "1500"
@@ -48,7 +48,7 @@ config:
   order-generator-onchain:AUTO_DEPOSIT: "0.015"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "1000"
-  order-generator-onchain:INTERVAL: "55"
+  order-generator-onchain:INTERVAL: "110"
   order-generator-onchain:INPUT_MIN_MCYCLES: "1000"
   order-generator-onchain:INPUT_MAX_MCYCLES: "4000"
   order-generator-onchain:LOCK_TIMEOUT: "2100"
@@ -92,3 +92,4 @@ config:
     secure: v1:5zmotA0iEUXyWxNQ:A8xd8X44V4tjVyxRR1r9PH+PhkACv6WxGdnt1B8Apk4IE/xyzm7eIS29qBKhyLiJQspuVyMYYrj7hRa3GhM0ncrHyQGk33LhOzy31O9hetxw65xd5Q9prTYj8LWh2LrIJQEf2slSzuGCkoaacEjcC0/ESWsQATyGCgJMvptEAw==
   order-generator-load-test:PRIVATE_KEY:
     secure: v1:ykqEoPMXnKtvc/JB:jE1sBGpCsdu2qGJggpdUNcgtkQRYgb5TG7neZ0nSBNmc847Z/t3Hrxtr9sEVjpkuah+h/Hu8npRb8DBIDu8pEFbnKB3aHJBoGfnT/8PsKGs=
+  order-generator-base:USE_GHCR: true

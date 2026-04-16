@@ -29,6 +29,8 @@ export interface MonitorLambdaArgs {
   serviceMetricsNamespace: string;
   /** Namespace for market metrics, e.g. order volume, order count, etc. */
   marketMetricsNamespace: string;
+  usePrebuiltLambdas?: boolean;
+  ghcrImageTag?: string;
 }
 
 export class MonitorLambda extends pulumi.ComponentResource {
@@ -114,6 +116,8 @@ export class MonitorLambda extends pulumi.ComponentResource {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-monitor',
       release: true,
+      usePrebuilt: args.usePrebuiltLambdas,
+      prebuiltTag: args.ghcrImageTag,
       role: role.arn,
       environmentVariables: {
         DB_URL: dbUrl,

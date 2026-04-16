@@ -26,3 +26,4 @@ config:
 #  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   order-stream:ETH_RPC_URL:
     secure: v1:f1BqdkYofm4y6DY0:h0BVuwZHHoVfg1TTHBS4rodxb2ULGGu6DHrGq2WyNF4j77UzH1aZD0+vGtUm
+  order-stream:USE_GHCR: true

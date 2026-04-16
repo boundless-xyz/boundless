@@ -166,7 +166,7 @@ pulumi stack output backfillLambdaName
 From AWS CLI:
 
 ```bash
-aws lambda list-functions --query 'Functions[?contains(FunctionName, `backfill-trigger`)].FunctionName'
+aws lambda list-functions --query 'Functions[?contains(FunctionName, `backfill`)].FunctionName'
 ```
 
 ### Using the Script

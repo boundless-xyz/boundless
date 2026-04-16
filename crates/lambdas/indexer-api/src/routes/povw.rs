@@ -74,7 +74,6 @@ async fn get_povw_summary(State(state): State<Arc<AppState>>) -> Response {
 async fn get_povw_summary_impl(state: Arc<AppState>) -> anyhow::Result<PoVWSummaryStats> {
     tracing::debug!("Fetching PoVW summary stats");
 
-    // Fetch summary stats
     let summary_stats = state
         .rewards_db
         .get_povw_summary_stats()
@@ -209,7 +208,6 @@ async fn get_povw_epoch_summary_impl(
 ) -> anyhow::Result<EpochPoVWSummary> {
     tracing::debug!("Fetching PoVW summary for epoch {}", epoch);
 
-    // Fetch epoch summary
     let summary = state
         .rewards_db
         .get_epoch_povw_summary(epoch)

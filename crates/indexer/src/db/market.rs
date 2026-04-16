@@ -237,6 +237,7 @@ pub struct PeriodRequestorSummary {
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
     pub total_fees_locked: U256,
+    pub total_fees_paid: U256,
     pub total_collateral_locked: U256,
     pub total_locked_and_expired_collateral: U256,
     pub p10_lock_price_per_cycle: U256,
@@ -308,6 +309,7 @@ pub struct AllTimeRequestorSummary {
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
     pub total_fees_locked: U256,
+    pub total_fees_paid: U256,
     pub total_collateral_locked: U256,
     pub total_locked_and_expired_collateral: U256,
     pub total_requests_submitted: u64,
@@ -869,6 +871,7 @@ pub trait IndexerDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        deduplicate: bool,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError>;
 
     async fn get_requests_by_request_id(
@@ -941,23 +944,23 @@ pub trait IndexerDb {
         period_end: u64,
     ) -> Result<Vec<LockPricingData>, DbError>;
 
-    /// Gets collateral amounts for all locked requests in the half-open period [period_start, period_end).
+    /// Gets total collateral for all locked requests in the half-open period [period_start, period_end).
     /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     /// Used for total_collateral_locked metric which tracks all locks regardless of fulfillment.
     async fn get_period_all_lock_collateral(
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<Vec<String>, DbError>;
+    ) -> Result<U256, DbError>;
 
-    /// Gets collateral amounts for locked requests that expired during the half-open period [period_start, period_end).
+    /// Gets total collateral for locked requests that expired during the half-open period [period_start, period_end).
     /// Filters by `request_status.expires_at` (when the request's deadline passed).
     /// Note: These requests may have been locked in an earlier period.
     async fn get_period_locked_and_expired_collateral(
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<Vec<String>, DbError>;
+    ) -> Result<U256, DbError>;
 
     /// Gets the count of requests that expired during the half-open period [period_start, period_end).
     /// Filters by `request_status.expires_at` (when the request's deadline passed).
@@ -3421,19 +3424,21 @@ impl IndexerDb for MarketDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        deduplicate: bool,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
         let sort_field = match sort_by {
             RequestSortField::UpdatedAt => "updated_at",
             RequestSortField::CreatedAt => "created_at",
         };
 
+        let dedup_clause = super::dedup_clause(deduplicate);
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE {} < $1 OR ({} = $1 AND request_digest < $2)
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE ({sort_field} < $1 OR ({sort_field} = $1 AND rs.request_digest < $2))
+                   {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $3",
-                sort_field, sort_field, sort_field
             );
             sqlx::query(&query_str)
                 .bind(c.timestamp as i64)
@@ -3443,10 +3448,11 @@ impl IndexerDb for MarketDb {
                 .await?
         } else {
             let query_str = format!(
-                "SELECT * FROM request_status
-                 ORDER BY {} DESC, request_digest DESC
+                "SELECT rs.* FROM request_status rs
+                 WHERE true
+                   {dedup_clause}
+                 ORDER BY {sort_field} DESC, rs.request_digest DESC
                  LIMIT $1",
-                sort_field
             );
             sqlx::query(&query_str).bind(limit as i64).fetch_all(&self.pool).await?
         };
@@ -3687,25 +3693,20 @@ impl IndexerDb for MarketDb {
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<Vec<String>, DbError> {
-        let rows = sqlx::query(
-            "SELECT pr.lock_collateral
+    ) -> Result<U256, DbError> {
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(pr.lock_collateral AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
              FROM request_locked_events rle
              JOIN proof_requests pr ON rle.request_digest = pr.request_digest
              WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2",
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        let mut results = Vec::new();
-        for row in rows {
-            let lock_collateral: String = row.get("lock_collateral");
-            results.push(lock_collateral);
-        }
-
-        Ok(results)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     /// Gets collateral amounts for locked requests that expired during the half-open period [period_start, period_end).
@@ -3715,9 +3716,9 @@ impl IndexerDb for MarketDb {
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<Vec<String>, DbError> {
-        let rows = sqlx::query(
-            "SELECT lock_collateral
+    ) -> Result<U256, DbError> {
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(lock_collateral AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
              FROM request_status
              WHERE request_status = 'expired'
              AND locked_at IS NOT NULL
@@ -3725,16 +3726,11 @@ impl IndexerDb for MarketDb {
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        let mut results = Vec::new();
-        for row in rows {
-            let lock_collateral: String = row.get("lock_collateral");
-            results.push(lock_collateral);
-        }
-
-        Ok(results)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     /// Gets the count of requests that expired during the half-open period [period_start, period_end).
@@ -3828,8 +3824,9 @@ impl IndexerDb for MarketDb {
         period_start: u64,
         period_end: u64,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT program_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(program_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE request_status = 'fulfilled'
              AND program_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -3837,18 +3834,11 @@ impl IndexerDb for MarketDb {
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let program_cycles_str: String = row.try_get("program_cycles")?;
-            let program_cycles = padded_string_to_u256(&program_cycles_str)?;
-            total = total.checked_add(program_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing program_cycles"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_period_total_cycles(
@@ -3856,8 +3846,9 @@ impl IndexerDb for MarketDb {
         period_start: u64,
         period_end: u64,
     ) -> Result<U256, DbError> {
-        let rows = sqlx::query(
-            "SELECT total_cycles FROM request_status
+        let row = sqlx::query(
+            "SELECT COALESCE(LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0'), LPAD('0', 78, '0')) as total
+             FROM request_status
              WHERE request_status = 'fulfilled'
              AND total_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -3865,18 +3856,11 @@ impl IndexerDb for MarketDb {
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_all(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        let mut total = U256::ZERO;
-        for row in rows {
-            let total_cycles_str: String = row.try_get("total_cycles")?;
-            let total_cycles = padded_string_to_u256(&total_cycles_str)?;
-            total = total.checked_add(total_cycles).ok_or_else(|| {
-                DbError::Error(anyhow::anyhow!("Overflow when summing total_cycles"))
-            })?;
-        }
-        Ok(total)
+        let total_str: String = row.try_get("total")?;
+        padded_string_to_u256(&total_str)
     }
 
     async fn get_request_digests_paginated(
@@ -3944,15 +3928,17 @@ impl IndexerDb for MarketDb {
         end_timestamp: u64,
         limit: i64,
     ) -> Result<Vec<(B256, u64)>, DbError> {
+        // Query proof_requests (not request_status) so that backfill can populate
+        // statuses for all known requests, including newly backfilled chain data.
         let rows = if let Some((cursor_ts, cursor_digest)) = cursor {
             // Format without 0x prefix to match how digests are stored in the database
             let cursor_digest_hex = format!("{:x}", cursor_digest);
             sqlx::query(
-                "SELECT request_digest, created_at 
-                 FROM request_status
-                 WHERE created_at <= $1
-                   AND (created_at > $2 OR (created_at = $2 AND request_digest > $3))
-                 ORDER BY created_at ASC, request_digest ASC
+                "SELECT request_digest, submission_timestamp as created_at
+                 FROM proof_requests
+                 WHERE submission_timestamp <= $1
+                   AND (submission_timestamp > $2 OR (submission_timestamp = $2 AND request_digest > $3))
+                 ORDER BY submission_timestamp ASC, request_digest ASC
                  LIMIT $4",
             )
             .bind(end_timestamp as i64)
@@ -3963,10 +3949,10 @@ impl IndexerDb for MarketDb {
             .await?
         } else {
             sqlx::query(
-                "SELECT request_digest, created_at 
-                 FROM request_status
-                 WHERE created_at <= $1
-                 ORDER BY created_at ASC, request_digest ASC
+                "SELECT request_digest, submission_timestamp as created_at
+                 FROM proof_requests
+                 WHERE submission_timestamp <= $1
+                 ORDER BY submission_timestamp ASC, request_digest ASC
                  LIMIT $2",
             )
             .bind(end_timestamp as i64)
@@ -3988,11 +3974,12 @@ impl IndexerDb for MarketDb {
     }
 
     async fn count_request_digests_by_timestamp(&self, end_timestamp: u64) -> Result<i64, DbError> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM request_status WHERE created_at <= $1")
-                .bind(end_timestamp as i64)
-                .fetch_one(&self.pool)
-                .await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM proof_requests WHERE submission_timestamp <= $1",
+        )
+        .bind(end_timestamp as i64)
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(count)
     }
@@ -6747,18 +6734,46 @@ mod tests {
         let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
-        // Create test statuses with different timestamps
-        let base_timestamp = 1000;
-        let mut statuses = Vec::new();
+        // Create test proof requests with different submission timestamps
+        let base_timestamp = 1000u64;
+        let test_addr = Address::from([100; 20]);
+        let mut requests = Vec::new();
 
-        for i in 0..10 {
+        for i in 0..10u64 {
             let digest = B256::from([i as u8; 32]);
-            let mut status = create_test_status(digest, RequestStatusType::Submitted);
-            status.created_at = base_timestamp + (i * 100);
-            statuses.push(status);
+            let request = ProofRequest::new(
+                RequestId::new(test_addr, i as u32),
+                Requirements::new(Predicate::digest_match(Digest::default(), Digest::default())),
+                format!("http://example.com/image_{}", i),
+                RequestInput::builder()
+                    .write_slice(&[0x41, 0x41, 0x41, 0x41])
+                    .build_inline()
+                    .unwrap(),
+                Offer {
+                    minPrice: U256::from(1000 + i),
+                    maxPrice: U256::from(2000 + i),
+                    lockCollateral: U256::from(500),
+                    rampUpStart: 1600000000 + i,
+                    timeout: 3600,
+                    lockTimeout: 7200,
+                    rampUpPeriod: 600,
+                },
+            );
+            let mut tx_hash_bytes = [0u8; 32];
+            tx_hash_bytes[0] = (i + 1) as u8;
+            tx_hash_bytes[3] = 0xCC;
+            let metadata = TxMetadata::new(
+                B256::from(tx_hash_bytes),
+                test_addr,
+                5000 + i,
+                base_timestamp + (i * 100),
+                i,
+            );
+            let submission_timestamp = metadata.block_timestamp;
+            requests.push((digest, request, metadata, "onchain".to_string(), submission_timestamp));
         }
 
-        db.upsert_request_statuses(&statuses).await.unwrap();
+        db.add_proof_requests(&requests).await.unwrap();
 
         let end_timestamp = base_timestamp + 2000; // Include all statuses
 
@@ -6823,18 +6838,46 @@ mod tests {
         let count = db.count_request_digests_by_timestamp(1000).await.unwrap();
         assert_eq!(count, 0, "Should return 0 when no items exist");
 
-        // Create test statuses with different timestamps
-        let base_timestamp = 1000;
-        let mut statuses = Vec::new();
+        // Create test proof requests with different submission timestamps
+        let base_timestamp = 1000u64;
+        let test_addr = Address::from([100; 20]);
+        let mut requests = Vec::new();
 
-        for i in 0..5 {
+        for i in 0..5u64 {
             let digest = B256::from([i as u8; 32]);
-            let mut status = create_test_status(digest, RequestStatusType::Submitted);
-            status.created_at = base_timestamp + (i * 100); // 1000, 1100, 1200, 1300, 1400
-            statuses.push(status);
+            let request = ProofRequest::new(
+                RequestId::new(test_addr, i as u32),
+                Requirements::new(Predicate::digest_match(Digest::default(), Digest::default())),
+                format!("http://example.com/image_{}", i),
+                RequestInput::builder()
+                    .write_slice(&[0x41, 0x41, 0x41, 0x41])
+                    .build_inline()
+                    .unwrap(),
+                Offer {
+                    minPrice: U256::from(1000 + i),
+                    maxPrice: U256::from(2000 + i),
+                    lockCollateral: U256::from(500),
+                    rampUpStart: 1600000000 + i,
+                    timeout: 3600,
+                    lockTimeout: 7200,
+                    rampUpPeriod: 600,
+                },
+            );
+            let mut tx_hash_bytes = [0u8; 32];
+            tx_hash_bytes[0] = (i + 1) as u8;
+            tx_hash_bytes[3] = 0xBB;
+            let metadata = TxMetadata::new(
+                B256::from(tx_hash_bytes),
+                test_addr,
+                5000 + i,
+                base_timestamp + (i * 100), // 1000, 1100, 1200, 1300, 1400
+                i,
+            );
+            let submission_timestamp = metadata.block_timestamp;
+            requests.push((digest, request, metadata, "onchain".to_string(), submission_timestamp));
         }
 
-        db.upsert_request_statuses(&statuses).await.unwrap();
+        db.add_proof_requests(&requests).await.unwrap();
 
         // Test: Count with end_timestamp before any items
         let count = db.count_request_digests_by_timestamp(500).await.unwrap();

@@ -49,8 +49,8 @@ jobs:
 
       - name: Install deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev binutils lld mold
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential libssl-dev binutils lld mold
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
@@ -161,6 +161,11 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "release_name=Boundless CLI Release $VERSION" >> $GITHUB_OUTPUT
+          if [[ "$VERSION" == *"-rc."* ]]; then
+            echo "is_rc=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_rc=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Release
         id: create_release
@@ -174,7 +179,7 @@ jobs:
             ## Boundless CLI Release
 
             This release includes a package of:
-            - **Boundless ClI**
+            - **Boundless CLI**
 
             ### Supported Platforms
             - Linux AMD64
@@ -200,7 +205,7 @@ jobs:
             ### Verification
             Verify the integrity of downloaded packages using the provided SHA256 checksums.
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.get_version.outputs.is_rc == 'true' }}
 
       - name: Upload Boundless CLI Package (Linux AMD64)
         uses: actions/upload-release-asset@v1

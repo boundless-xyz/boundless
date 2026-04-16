@@ -113,6 +113,7 @@ impl std::fmt::Display for RequestStatus {
 
 /// Parameters for fetching requests by requestor
 #[derive(Debug, Default, Clone)]
+#[non_exhaustive]
 pub struct GetRequestsByRequestorParams {
     /// Only return requests created after this timestamp (Unix seconds).
     /// TODO: Update to use API parameter once supported server-side.
@@ -120,6 +121,8 @@ pub struct GetRequestsByRequestorParams {
     /// Only return requests with this status.
     /// TODO: Update to use API parameter once supported server-side.
     pub status: Option<RequestStatus>,
+    /// When true, will deduplicate requests such that there is only one per request ID.
+    pub deduplicate: bool,
 }
 
 impl GetRequestsByRequestorParams {
@@ -134,6 +137,7 @@ impl GetRequestsByRequestorParams {
 pub struct GetRequestsByRequestorParamsBuilder {
     after: Option<i64>,
     status: Option<RequestStatus>,
+    deduplicate: bool,
 }
 
 impl GetRequestsByRequestorParamsBuilder {
@@ -149,9 +153,19 @@ impl GetRequestsByRequestorParamsBuilder {
         self
     }
 
+    /// When true, deduplicate requests by request_id keeping only the most advanced status
+    pub fn deduplicate(mut self, deduplicate: bool) -> Self {
+        self.deduplicate = deduplicate;
+        self
+    }
+
     /// Build the GetRequestsByRequestorParams
     pub fn build(self) -> GetRequestsByRequestorParams {
-        GetRequestsByRequestorParams { after: self.after, status: self.status }
+        GetRequestsByRequestorParams {
+            after: self.after,
+            status: self.status,
+            deduplicate: self.deduplicate,
+        }
     }
 }
 
@@ -393,7 +407,9 @@ impl IndexerClient {
         let mut cursor: Option<String> = None;
 
         loop {
-            let response = self.get_requests_by_requestor_page(address, cursor.as_deref()).await?;
+            let response = self
+                .get_requests_by_requestor_page(address, cursor.as_deref(), params.deduplicate)
+                .await?;
 
             // TODO: Update to use API-side filtering once supported
             // Check if we've gone past the 'after' timestamp (client-side filter)
@@ -438,15 +454,21 @@ impl IndexerClient {
         &self,
         address: Address,
         cursor: Option<&str>,
+        deduplicate: bool,
     ) -> Result<RequestListResponse> {
         let mut url = self
             .base_url
             .join(&format!("v1/market/requestors/{}/requests", address))
             .context("Failed to build URL")?;
 
-        if let Some(c) = cursor {
-            let encoded: String = url::form_urlencoded::byte_serialize(c.as_bytes()).collect();
-            url.set_query(Some(&format!("cursor={}", encoded)));
+        if cursor.is_some() || deduplicate {
+            let mut pairs = url.query_pairs_mut();
+            if let Some(c) = cursor {
+                pairs.append_pair("cursor", c);
+            }
+            if deduplicate {
+                pairs.append_pair("deduplicate", "true");
+            }
         }
 
         let url_str = url.to_string();
@@ -574,6 +596,35 @@ mod tests {
         assert_eq!(result.p90, price_percentiles.p90);
         assert_eq!(result.p95, price_percentiles.p95);
         assert_eq!(result.p99, price_percentiles.p99);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_requests_by_requestor_deduplicate() {
+        let (server, client) = create_test_indexer_client();
+        let address: Address = "0x1234567890abcdef1234567890abcdef12345678".parse().unwrap();
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/v1/market/requestors/{}/requests", address))
+                .query_param("deduplicate", "true");
+            then.status(200).json_body(json!({
+                "chain_id": 1,
+                "data": [{
+                    "request_status": "submitted",
+                    "created_at": 1000,
+                    "request_id": "0x01",
+                    "request_digest": "0xaa"
+                }],
+                "next_cursor": null,
+                "has_more": false
+            }));
+        });
+
+        let params = GetRequestsByRequestorParams::builder().deduplicate(true).build();
+        let result = client.get_all_requests_by_requestor(address, params).await.unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].request_status, "submitted");
+        mock.assert();
     }
 
     #[tokio::test]

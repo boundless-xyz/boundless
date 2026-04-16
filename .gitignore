@@ -21,6 +21,8 @@ build-info-reference/
 
 # Ignore the file with RPC and Etherscan API keys for deployment.
 deployment_secrets.toml
+network_secrets.toml
+network_address_labels.json
 
 # Devnet logs
 /logs
@@ -37,6 +39,8 @@ deployment_secrets.toml
 # Ignore broker config file(s)
 *broker*.toml
 ansible/inventory.yml
+# Custom ansible inventories
+ansible/inventory-*.yml
 
 # Cargo
 target/

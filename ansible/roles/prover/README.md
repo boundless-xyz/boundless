@@ -55,6 +55,33 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 | `prover_minio_root_pass`        | `password` | MinIO root password                       |
 | `prover_minio_work_expiry_days` | `7`        | Expire workflow objects older than N days |
 
+### Docker Image Configuration
+
+| Variable                        | Default | Description                                                                                    |
+| ------------------------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `prover_boundless_build`        | `""`    | Set to `"all"` to build from source; empty uses pre-built images                               |
+| `prover_image_tag`              | `""`    | Override ALL image tags (e.g. `nightly-latest`). Takes precedence over `prover_image_version`. |
+| `prover_image_version`          | `""`    | Release image version (e.g. `1.2`). Ignored when `prover_image_tag` is set.                    |
+| `prover_wait_for_nightly_image` | `false` | Wait for CI images to be available before restarting (nightly deploys)                         |
+| `prover_gpu_agent_dockerfile`   | `""`    | GPU agent Dockerfile override                                                                  |
+| `prover_agent_dockerfile`       | `""`    | CPU agent Dockerfile override (e.g. `dockerfiles/agent.cpu.dockerfile`)                        |
+| `prover_rest_api_dockerfile`    | `""`    | REST API Dockerfile override                                                                   |
+| `prover_broker_dockerfile`      | `""`    | Broker Dockerfile override                                                                     |
+
+#### Image Architecture
+
+The prover stack uses five container images:
+
+| Image             | Contents                                                         |
+| ----------------- | ---------------------------------------------------------------- |
+| `bento-agent`     | GPU proving agent (CUDA). Runs `gpu_prove_agent` in compose.     |
+| `bento-agent-cpu` | CPU agent for executor and auxiliary workers (`exec_agent`, etc) |
+| `bento-rest-api`  | REST API for task submission and status                          |
+| `bento-cli`       | CLI tools, also used as the `miner` service                      |
+| `broker`          | Broker binary for order picking and on-chain submission          |
+
+Compose defaults can be overridden with env vars: `AGENT_IMAGE`, `CPU_AGENT_IMAGE`, `REST_API_IMAGE`, `BENTO_CLI_IMAGE`, `BROKER_IMAGE`.
+
 ### Prover Configuration
 
 | Variable                  | Default                                    | Description              |
@@ -103,6 +130,25 @@ all:
       prover_povw_log_id: "0x..."
       prover_rpc_url: "https://..."
 ```
+
+### Using Nightly Images (staging)
+
+To deploy with pre-built nightly images instead of building from source:
+
+```yaml
+prover_84532_staging_nightly:
+  hosts:
+    dev-prover:
+      prover_version: main
+      prover_image_tag: "nightly-latest"
+      prover_boundless_build: ""
+      prover_wait_for_nightly_image: true
+      prover_postgres_password: "dev_password"
+      prover_minio_root_pass: "dev_password"
+      prover_rpc_urls: "https://..."
+```
+
+Setting `prover_image_tag: "nightly-latest"` tells compose to pull pre-built images tagged `nightly-latest`. Setting `prover_wait_for_nightly_image: true` makes the deploy wait until the CI-built image for the deployed commit SHA is available, preventing deploys that race ahead of the `docker-services` workflow.
 
 Or pass via command line:
 

@@ -275,6 +275,7 @@ async fn run(args: &MainArgs) -> Result<()> {
             let params = GetRequestsByRequestorParams::builder()
                 .status(RequestStatus::Submitted)
                 .after(one_day_ago)
+                .deduplicate(true)
                 .build();
             match indexer.get_all_requests_by_requestor(client.caller(), params).await {
                 Ok(submitted_requests) => {
