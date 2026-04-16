@@ -25,6 +25,7 @@ x-agent-common: &agent-common
     args:
       BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
       USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
+      RELEASE: ${BOUNDLESS_RELEASE:-true}
   restart: always
   depends_on:
     redis:
@@ -100,6 +101,8 @@ x-broker-common: &broker-common
   build:
     context: .
     dockerfile: ${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}
+    args:
+      RELEASE: ${BOUNDLESS_RELEASE:-true}
   mem_limit: 2G
   cpus: 2
   stop_grace_period: 3h
@@ -171,6 +174,8 @@ services:
     build:
       context: .
       dockerfile: ${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}
+      args:
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
     runtime: runc
     deploy:
       replicas: ${BENTO_EXECUTOR_COUNT:-4}
@@ -181,6 +186,8 @@ services:
     build:
       context: .
       dockerfile: ${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}
+      args:
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
     runtime: runc
     mem_limit: 256M
     deploy:
@@ -189,6 +196,7 @@ services:
     environment:
       <<: *base-environment
       CLEANUP_POLL_INTERVAL:
+      CLEANUP_STATS_TTL:
       STUCK_TASKS_POLL_INTERVAL:
       BENTO_DISABLE_COMPLETED_CLEANUP: false
       BENTO_DISABLE_STUCK_TASK_CLEANUP:
@@ -218,6 +226,8 @@ services:
     build:
       context: .
       dockerfile: ${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}
+      args:
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
     restart: always
 
     mem_limit: 4G
@@ -291,6 +301,7 @@ services:
         BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
         # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
         USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
     restart: always
     depends_on:
       rest_api:

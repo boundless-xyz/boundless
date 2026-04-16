@@ -614,14 +614,19 @@ pub trait OrderPricingContext {
                     .await
                 {
                     Ok(res) => {
+                        let stats = res.stats.ok_or_else(|| {
+                            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                                "Preflight execution of {order_id_clone} succeeded but stats are missing"
+                            )))
+                        })?;
                         tracing::debug!(
                             "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed",
                             res.id,
-                            res.stats.total_cycles / 1_000_000
+                            stats.total_cycles / 1_000_000
                         );
                         Ok(PreflightCacheValue::Success {
                             exec_session_id: res.id,
-                            cycle_count: res.stats.total_cycles,
+                            cycle_count: stats.total_cycles,
                             image_id,
                             input_id,
                         })

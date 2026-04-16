@@ -42,13 +42,18 @@ SHELL ["/bin/bash", "-c"]
 ARG RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
+ARG RELEASE=true
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=prover_cli_sc \
+    --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
+    --mount=type=cache,target=/src/prover/target,id=prover_cli_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
     (ulimit -n 65536 2>/dev/null || true) && \
+    RELEASE_FLAG="" && PROFILE_DIR="debug" && \
+    if [ "${RELEASE}" = "true" ]; then RELEASE_FLAG="--release"; PROFILE_DIR="release"; fi && \
     export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8} && \
-    cargo build --manifest-path prover/Cargo.toml --release -p bento-client --bin bento_cli && \
-    cp prover/target/release/bento_cli /src/bento_cli && \
+    cargo build --manifest-path prover/Cargo.toml ${RELEASE_FLAG} -p bento-client --bin bento_cli && \
+    cp prover/target/${PROFILE_DIR}/bento_cli /src/bento_cli && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime

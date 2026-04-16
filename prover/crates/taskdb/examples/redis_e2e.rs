@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
     let running = db.get_concurrent_jobs(user_id).await.context("get_concurrent_jobs failed")?;
     ensure!(running == 0, "expected no running jobs, got {running}");
 
-    db.delete_job(&job_id).await.context("delete_job failed")?;
+    db.delete_job(&job_id, 3600).await.context("delete_job failed")?;
 
     println!("redis taskdb e2e passed for job: {job_id}");
 

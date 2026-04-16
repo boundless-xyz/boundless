@@ -252,8 +252,8 @@ impl TaskDb {
         self.redis.get_task_state_counts().await
     }
 
-    pub async fn clear_completed_jobs(&self) -> Result<i32, TaskDbErr> {
-        self.redis.clear_completed_jobs().await
+    pub async fn clear_completed_jobs(&self, stats_ttl: u64) -> Result<i32, TaskDbErr> {
+        self.redis.clear_completed_jobs(stats_ttl).await
     }
 
     pub async fn get_job_state(&self, job_id: &Uuid, user_id: &str) -> Result<JobState, TaskDbErr> {
@@ -295,7 +295,7 @@ impl TaskDb {
         self.redis.get_task_retries_running(job_id, task_id).await
     }
 
-    pub async fn delete_job(&self, job_id: &Uuid) -> Result<(), TaskDbErr> {
-        self.redis.delete_job(job_id).await
+    pub async fn delete_job(&self, job_id: &Uuid, stats_ttl: u64) -> Result<(), TaskDbErr> {
+        self.redis.delete_job(job_id, stats_ttl).await
     }
 }
