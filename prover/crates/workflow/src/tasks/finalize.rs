@@ -5,7 +5,7 @@
 
 use crate::{
     Agent,
-    tasks::{RESOLVED_RECEIPT_PATH, deserialize_obj, read_image_id},
+    tasks::{CleanupKeys, RESOLVED_RECEIPT_PATH, deserialize_obj, read_image_id},
 };
 use anyhow::{Context, Result, bail};
 use risc0_zkvm::{InnerReceipt, Receipt, ReceiptClaim, SuccinctReceipt};
@@ -17,7 +17,7 @@ use workflow_common::storage::{RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR};
 /// Run finalize tasks / cleanup
 ///
 /// Creates the final rollup receipt and uploads it to shared storage.
-pub async fn finalize(agent: &Agent, job_id: &Uuid) -> Result<()> {
+pub async fn finalize(agent: &Agent, job_id: &Uuid) -> Result<CleanupKeys> {
     let start_time = Instant::now();
 
     let job_prefix = format!("job:{job_id}");
@@ -93,5 +93,5 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid) -> Result<()> {
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(())
+    Ok(CleanupKeys(vec![root_receipt_key, journal_key, image_key]))
 }

@@ -6,7 +6,8 @@
 use crate::{
     Agent,
     tasks::{
-        RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj, serialize_obj,
+        CleanupKeys, RECEIPT_PATH, RECUR_RECEIPT_PATH, RESOLVED_RECEIPT_PATH, deserialize_obj,
+        serialize_obj,
     },
 };
 use anyhow::{Context, Result};
@@ -27,12 +28,13 @@ pub async fn resolve_povw(
     agent: &Agent,
     job_id: &Uuid,
     request: &ResolveReq,
-) -> Result<Option<u64>> {
+) -> Result<(Option<u64>, CleanupKeys)> {
     let start_time = Instant::now();
     let max_idx = &request.max_idx;
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
     let root_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{max_idx}");
+    let mut keys_to_cleanup = vec![root_receipt_key.clone()];
 
     tracing::debug!("Starting POVW resolve for job_id: {job_id}, max_idx: {max_idx}");
 
@@ -181,6 +183,7 @@ pub async fn resolve_povw(
                         continue;
                     }
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
+                    keys_to_cleanup.push(assumption_key.clone());
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
                     let assumption_bytes =
                         assumption_bytes_by_claim.remove(&assumption_claim).with_context(|| {
@@ -279,5 +282,5 @@ pub async fn resolve_povw(
         start_time.elapsed().as_secs_f64(),
     );
 
-    Ok(assumptions_len)
+    Ok((assumptions_len, CleanupKeys(keys_to_cleanup)))
 }
