@@ -565,6 +565,12 @@ pub struct RequestorAggregateEntry {
     pub total_fees_locked: String,
     /// Total fees locked (formatted for display)
     pub total_fees_locked_formatted: String,
+    /// Total fees paid for fulfilled requests (as string in wei)
+    #[serde(default)]
+    pub total_fees_paid: String,
+    /// Total fees paid for fulfilled requests (formatted for display)
+    #[serde(default)]
+    pub total_fees_paid_formatted: String,
     /// Total collateral locked (as string)
     pub total_collateral_locked: String,
     /// Total collateral locked (formatted for display)
@@ -692,6 +698,12 @@ pub struct RequestorCumulativeEntry {
     pub total_fees_locked: String,
     /// Total fees locked (formatted for display)
     pub total_fees_locked_formatted: String,
+    /// Total fees paid for fulfilled requests (cumulative, as string in wei)
+    #[serde(default)]
+    pub total_fees_paid: String,
+    /// Total fees paid for fulfilled requests (formatted for display)
+    #[serde(default)]
+    pub total_fees_paid_formatted: String,
     /// Total collateral locked (as string)
     pub total_collateral_locked: String,
     /// Total collateral locked (formatted for display)
