@@ -34,6 +34,7 @@ bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
+boundless-signer = { workspace = true }
 boundless-zkc = { workspace = true }
 broker = { workspace = true }
 bytemuck = { workspace = true }

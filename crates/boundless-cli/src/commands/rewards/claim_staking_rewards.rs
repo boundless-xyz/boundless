@@ -13,10 +13,12 @@
 // limitations under the License.
 
 use alloy::{
+    network::EthereumWallet,
     primitives::Address,
     providers::{Provider, ProviderBuilder},
 };
 use anyhow::{Context, Result};
+use boundless_signer::SignerBackend;
 use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
 
@@ -41,10 +43,12 @@ impl RewardsClaimStakingRewards {
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.load_and_validate()?;
         let rpc_url = rewards_config.require_rpc_url_with_help()?;
-        let signer = rewards_config.require_reward_key_with_help()?;
+
+        let backend = rewards_config.require_reward_signer().await?;
+        let claim_address = backend.sender_address();
 
         let provider = ProviderBuilder::new()
-            .wallet(signer.clone())
+            .wallet(EthereumWallet::from((*backend).clone()))
             .connect(&rpc_url)
             .await
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
@@ -56,8 +60,6 @@ impl RewardsClaimStakingRewards {
 
         let staking_rewards_address = rewards_config.staking_rewards_address()?;
         let staking_rewards = IStakingRewards::new(staking_rewards_address, &provider);
-
-        let claim_address = signer.address();
         let recipient_address = self.recipient.unwrap_or(claim_address);
 
         display.header("Claiming Staking Rewards");

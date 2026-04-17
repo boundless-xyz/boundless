@@ -14,9 +14,12 @@
 
 //! Extension traits for config types to provide consistent validation and error handling
 
+use std::sync::Arc;
+
 use crate::config::{ProverConfig, RequestorConfig, RewardsConfig};
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Context, Result};
+use boundless_signer::{config::from_config, GenericSigner, LocalSignerBackend, SignerBackend, SignerConfig, SignerError, SignerRole};
 
 /// Common configuration validation trait
 pub trait ConfigValidation {
@@ -28,6 +31,7 @@ pub trait ConfigValidation {
 }
 
 /// Extension trait for RewardsConfig
+#[allow(async_fn_in_trait)]
 pub trait RewardsConfigExt {
     /// Load config from files and environment variables
     fn load_and_validate(&self) -> Result<RewardsConfig>;
@@ -40,6 +44,19 @@ pub trait RewardsConfigExt {
 
     /// Get staking private key or return helpful error
     fn require_staking_key_with_help(&self) -> Result<PrivateKeySigner>;
+
+    /// Resolve the signing backend for rewards operations.
+    ///
+    /// Uses [`from_config`] with [`SignerRole::Rewards`].
+    /// Falls back to a `LocalSignerBackend` built from `REWARD_PRIVATE_KEY`
+    /// when no explicit `[signer]` config is present — zero regression.
+    async fn require_reward_signer(&self) -> Result<Arc<GenericSigner>>;
+
+    /// Resolve the signing backend for staking operations.
+    ///
+    /// Uses [`from_config`] with [`SignerRole::Rewards`] (staking shares the rewards role key).
+    /// Falls back to the staking/reward private key loaded from config.
+    async fn require_staking_signer(&self) -> Result<Arc<GenericSigner>>;
 }
 
 impl RewardsConfigExt for RewardsConfig {
@@ -75,6 +92,52 @@ impl RewardsConfigExt for RewardsConfig {
             Or use --staking-private-key flag",
         )
     }
+
+    async fn require_reward_signer(&self) -> Result<Arc<GenericSigner>> {
+        let rpc_url = self.require_rpc_url_with_help()?;
+        // Try from_config first (handles SIGNER_BACKEND env, explicit [signer] config, key env vars).
+        {
+            let tmp_provider = alloy::providers::ProviderBuilder::new()
+                .connect(&rpc_url)
+                .await
+                .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+            match from_config(&SignerConfig::default(), SignerRole::Rewards, tmp_provider).await {
+                Ok(backend) => return Ok(Arc::new(backend)),
+                Err(SignerError::Unavailable { .. }) => {} // fall through to YAML key fallback
+                Err(e) => return Err(anyhow::anyhow!("{e}")),
+            }
+        }
+        // Fall back to private key loaded from YAML config file.
+        let pk = self.require_reward_key_with_help()?;
+        let provider = alloy::providers::ProviderBuilder::new()
+            .connect(&rpc_url)
+            .await
+            .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+        Ok(Arc::new(GenericSigner::Local(LocalSignerBackend::from_signer(pk, provider))))
+    }
+
+    async fn require_staking_signer(&self) -> Result<Arc<GenericSigner>> {
+        let rpc_url = self.require_rpc_url_with_help()?;
+        // Try from_config first with Rewards role (staking shares the rewards role key).
+        {
+            let tmp_provider = alloy::providers::ProviderBuilder::new()
+                .connect(&rpc_url)
+                .await
+                .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+            match from_config(&SignerConfig::default(), SignerRole::Rewards, tmp_provider).await {
+                Ok(backend) => return Ok(Arc::new(backend)),
+                Err(SignerError::Unavailable { .. }) => {} // fall through to YAML key fallback
+                Err(e) => return Err(anyhow::anyhow!("{e}")),
+            }
+        }
+        // Fall back to staking/reward private key loaded from YAML config file.
+        let pk = self.require_staking_key_with_help()?;
+        let provider = alloy::providers::ProviderBuilder::new()
+            .connect(&rpc_url)
+            .await
+            .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+        Ok(Arc::new(GenericSigner::Local(LocalSignerBackend::from_signer(pk, provider))))
+    }
 }
 
 impl ConfigValidation for RewardsConfig {
@@ -97,12 +160,19 @@ impl ConfigValidation for RewardsConfig {
 }
 
 /// Extension trait for ProverConfig
+#[allow(async_fn_in_trait)]
 pub trait ProverConfigExt {
     /// Load config from files and environment variables
     fn load_and_validate(&self) -> Result<ProverConfig>;
 
     /// Get private key or return helpful error
     fn require_private_key_with_help(&self) -> Result<PrivateKeySigner>;
+
+    /// Resolve the signing backend for prover market operations.
+    ///
+    /// Uses [`from_config`] with [`SignerRole::Prover`].
+    /// Falls back to `LocalSignerBackend` from the loaded private key — zero regression.
+    async fn require_prover_signer(&self) -> Result<Arc<GenericSigner>>;
 }
 
 impl ProverConfigExt for ProverConfig {
@@ -119,6 +189,29 @@ impl ProverConfigExt for ProverConfig {
             Or set PROVER_PRIVATE_KEY environment variable\n\
             Or use --prover-private-key flag",
         )
+    }
+
+    async fn require_prover_signer(&self) -> Result<Arc<GenericSigner>> {
+        let rpc_url = self.require_rpc_url()?;
+        // Try from_config first (handles SIGNER_BACKEND env, explicit [signer] config, key env vars).
+        {
+            let tmp_provider = alloy::providers::ProviderBuilder::new()
+                .connect(rpc_url.as_str())
+                .await
+                .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+            match from_config(&SignerConfig::default(), SignerRole::Prover, tmp_provider).await {
+                Ok(backend) => return Ok(Arc::new(backend)),
+                Err(SignerError::Unavailable { .. }) => {} // fall through to YAML key fallback
+                Err(e) => return Err(anyhow::anyhow!("{e}")),
+            }
+        }
+        // Fall back to private key loaded from YAML config file.
+        let pk = self.require_private_key_with_help()?;
+        let provider = alloy::providers::ProviderBuilder::new()
+            .connect(rpc_url.as_str())
+            .await
+            .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+        Ok(Arc::new(GenericSigner::Local(LocalSignerBackend::from_signer(pk, provider))))
     }
 }
 

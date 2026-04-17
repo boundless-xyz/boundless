@@ -2737,6 +2737,7 @@ dependencies = [
  "boundless-assessor",
  "boundless-market",
  "boundless-povw",
+ "boundless-signer",
  "boundless-test-utils",
  "boundless-zkc",
  "broker",
@@ -2975,6 +2976,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-signer"
+version = "1.5.0-alpha.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "axum 0.8.6",
+ "hex",
+ "httpmock",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "boundless-slasher"
 version = "1.5.0-alpha.0"
 dependencies = [
@@ -3062,6 +3081,7 @@ dependencies = [
  "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
+ "boundless-signer",
  "boundless-test-utils",
  "broker",
  "bytemuck",
