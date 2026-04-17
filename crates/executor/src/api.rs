@@ -161,13 +161,32 @@ async fn get_image_upload_url(
 }
 
 /// `PUT /images/upload/{image_id}` — body is the raw ELF/program bytes.
+///
+/// When the `risc0` feature is enabled, we validate that
+/// `compute_image_id(body) == image_id` before storing, matching Bonsai's
+/// (and the in-tree `prover/crates/api`) behaviour. A mismatch means the
+/// client would later compute a different image id from the same ELF and
+/// hit `unknown image id` at session creation; rejecting at upload time
+/// surfaces the error where it happened.
 async fn put_image(
     State(state): State<AppState>,
     Path(image_id): Path<String>,
     body: Bytes,
-) -> StatusCode {
+) -> Result<StatusCode, ApiError> {
+    #[cfg(feature = "risc0")]
+    {
+        let computed = risc0_zkvm::compute_image_id(&body)
+            .ok()
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "<invalid-risc0-image>".to_string());
+        if computed != image_id {
+            return Err(ApiError::bad_request(format!(
+                "image id mismatch: path={image_id} computed={computed}"
+            )));
+        }
+    }
     state.storage.put_image(image_id, body);
-    StatusCode::OK
+    Ok(StatusCode::OK)
 }
 
 async fn delete_image(State(state): State<AppState>, Path(image_id): Path<String>) -> StatusCode {

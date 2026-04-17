@@ -29,9 +29,12 @@
 #[cfg(feature = "risc0")]
 pub mod risc0;
 
+#[cfg(feature = "risc0")]
 use std::sync::Arc;
 
-use crate::backend::{Executor, Registry};
+#[cfg(feature = "risc0")]
+use crate::backend::Executor;
+use crate::backend::Registry;
 
 /// Build a [`Registry`] containing every backend enabled at compile time.
 ///
