@@ -30,13 +30,17 @@ Prover log groups follow the pattern `/boundless/bento/<hostname>`. The hostname
 
 Read the relevant Pulumi config to find current hostnames. As of now:
 
-| Log Group                                       | Environment | Chain ID               | Description                                                                      |
-| ----------------------------------------------- | ----------- | ---------------------- | -------------------------------------------------------------------------------- |
-| `/boundless/bento/prover-84532-staging-nightly` | staging     | 84532 (Base Sepolia)   | Staging nightly prover                                                           |
-| `/boundless/bento/prover-8453-prod-release`     | prod        | 8453 (Base)            | Prod release prover. Legacy name: `/boundless/bento/base-mainnet-prover-release` |
-| `/boundless/bento/prover-8453-prod-nightly`     | prod        | 8453 (Base)            | Prod nightly prover. Legacy name: `/boundless/bento/base-mainnet-prover-nightly` |
-| `/boundless/bento/prover-84532-prod-nightly`    | prod        | 84532 (Base Sepolia)   | Prod Base Sepolia nightly prover                                                 |
-| `/boundless/bento/prover-11155111-prod-nightly` | prod        | 11155111 (Eth Sepolia) | Prod Eth Sepolia nightly prover                                                  |
+| Log Group                                       | Environment | Chain ID               | Label (approx, in `network_address_labels`) | Description                                                                      |
+| ----------------------------------------------- | ----------- | ---------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `/boundless/bento/prover-84532-staging-nightly` | staging     | 84532 (Base Sepolia)   |                                             | Staging nightly prover                                                           |
+| `/boundless/bento/prover-8453-prod-release`     | prod        | 8453 (Base)            | `BPLatitudeRelease`                         | Prod release prover. Legacy name: `/boundless/bento/base-mainnet-prover-release` |
+| `/boundless/bento/prover-8453-prod-nightly`     | prod        | 8453 (Base)            | `BPLatitudeNightly`                         | Prod nightly prover. Legacy name: `/boundless/bento/base-mainnet-prover-nightly` |
+| `/boundless/bento/prover-84532-prod-nightly`    | prod        | 84532 (Base Sepolia)   |                                             | Prod Base Sepolia nightly prover                                                 |
+| `/boundless/bento/prover-11155111-prod-nightly` | prod        | 11155111 (Eth Sepolia) |                                             | Prod Eth Sepolia nightly prover                                                  |
+| `/boundless/bento/prover-01`                    | prod        | 8453 (Base)            | `BPProver01DC`                              | Prod datacenter prover 01                                                        |
+| `/boundless/bento/prover-02`                    | prod        | 8453 (Base)            | `BPProver02DC`                              | Prod datacenter prover 02                                                        |
+
+The label column lists the `network_address_labels.json` label that the log group is believed to correspond to. Names may not match exactly -- always confirm against `network_address_labels.json` and Pulumi config before relying on the mapping.
 
 If these are out of date, check the Pulumi config files for the current list.
 
