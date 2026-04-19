@@ -2,7 +2,7 @@
 min_mcycle_price = "0.000000025"
 min_mcycle_price_collateral_token = "0"
 lookback_blocks = 300
-peak_prove_khz = 8000
+peak_prove_khz = 11000
 priority_requestor_lists = [
     "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
 ]
@@ -20,3 +20,4 @@ max_journal_bytes = 20000
 max_file_size = 500000000000
 max_mcycle_limit = 500000000000
 max_order_expiry_secs = 86400
+order_commitment_priority = "tightest_deadline"

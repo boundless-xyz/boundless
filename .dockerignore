@@ -13,6 +13,7 @@ broadcast
 cache
 .github
 scripts
+!scripts/localnet-*.sh
 examples
 crates/**/target
 crates/**/cache_market_x2

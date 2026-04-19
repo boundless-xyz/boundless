@@ -11,7 +11,7 @@ config:
     secure: v1:v0CqkVuF6OQo6w3I:Ie40GUu+YUdbHL/SdIJeEIjvJs0wY+kkVX379/uaqcbTLHFpaTVeTdR0wglkUt2D3k2mXZ/1yXjV9DzpJxhjDZ8ezWiL3iZKnUu4xgllKllOC+t6znOMyWSjH1djCDAw5sAUKgrRhC/k9OfeDg==
   order-generator-base:INDEXER_URL:
     secure: v1:TU3/Yju/3FP9d/fY:ccwXwEIySoHl0Gnzf4g49Cvd2aSylHhvxwFjk1eytjBJo2KueszIhrAUJM+jOUXqwl2wIjk=
-  order-generator-base:INTERVAL: "900"
+  order-generator-base:INTERVAL: "1800"
   order-generator-base:IPFS_GATEWAY_URL: https://gateway.beboundless.cloud
   order-generator-base:LOCK_COLLATERAL_RAW: "15000000000000000000"
   order-generator-base:LOCK_TIMEOUT: "900"
@@ -31,8 +31,8 @@ config:
   order-generator-evm-requestor:INPUT_MAX_MCYCLES: "3000"
   order-generator-evm-requestor:INTERVAL: "600"
   order-generator-evm-requestor:LOCK_TIMEOUT: "2100"
-  order-generator-evm-requestor:MAX_OUTSTANDING_REQUESTS: "30"
-  order-generator-evm-requestor:MAX_PRICE_CAP: "0.01"
+  order-generator-evm-requestor:MAX_OUTSTANDING_REQUESTS: "15"
+  order-generator-evm-requestor:MAX_PRICE_CAP: "0.0075"
   order-generator-evm-requestor:PRIVATE_KEY:
     secure: v1:UUCFZ16SpRnEHGqY:F5Mwja/OuOUCzSv5E6rkQvHz3SDNQ2f6UWdZpxH1I1+8dO993ucbxqucRsJA+qDuS0fZpj6jiOd6lin1Bbmmr4fnkNE6w16MnK2FeWgW1yQtUQ==
   order-generator-evm-requestor:RAMP_UP: "900"
@@ -47,9 +47,9 @@ config:
   order-generator-offchain:EXEC_RATE_KHZ: "1000"
   order-generator-offchain:INPUT_MAX_MCYCLES: "2000"
   order-generator-offchain:INPUT_MIN_MCYCLES: "1000"
-  order-generator-offchain:INTERVAL: "900"
+  order-generator-offchain:INTERVAL: "1800"
   order-generator-offchain:LOCK_TIMEOUT: "1500"
-  order-generator-offchain:MAX_OUTSTANDING_REQUESTS: "30"
+  order-generator-offchain:MAX_OUTSTANDING_REQUESTS: "15"
   order-generator-offchain:MAX_PRICE_CAP: "0.0001"
   order-generator-offchain:PRIVATE_KEY:
     secure: v1:C85e3ABgTk030Eup:+LMVZDHLUea4fPhn42jIsQnGIFhZpTnwlv6eyOVik+NqgCUPY78wVTlNaIBQazwDgK0MigKQ+UAoj6klFCygto5+0gM3RFmzMQUuW10ATmc=
@@ -63,9 +63,9 @@ config:
   order-generator-onchain:EXEC_RATE_KHZ: "1000"
   order-generator-onchain:INPUT_MAX_MCYCLES: "4000"
   order-generator-onchain:INPUT_MIN_MCYCLES: "1000"
-  order-generator-onchain:INTERVAL: "900"
+  order-generator-onchain:INTERVAL: "1800"
   order-generator-onchain:LOCK_TIMEOUT: "2100"
-  order-generator-onchain:MAX_OUTSTANDING_REQUESTS: "30"
+  order-generator-onchain:MAX_OUTSTANDING_REQUESTS: "15"
   order-generator-onchain:MAX_PRICE_CAP: "0.0001"
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:Wfonliegz8oHLnNJ:VSCTMdfxEzzufPw4NWLsQOfRSE5VDR6MQ+9Byo39aOP9B6r7zVazzNyTWbhttjyD6y0vbF12vsl+4iX8w8HTOewJftwOCoSPsrct3+YLE5w=
@@ -74,13 +74,13 @@ config:
   order-generator-onchain:SECONDS_PER_MCYCLE: "7"
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
-  order-generator-random-requestor:COUNT: "10"
+  order-generator-random-requestor:COUNT: "5"
   order-generator-random-requestor:ERROR_BALANCE_BELOW: "0.005"
   order-generator-random-requestor:INPUT_MAX_MCYCLES: "200"
   order-generator-random-requestor:INTERVAL: "600"
   order-generator-random-requestor:LOCK_TIMEOUT: "1800"
-  order-generator-random-requestor:MAX_OUTSTANDING_REQUESTS: "30"
-  order-generator-random-requestor:MAX_PRICE_CAP: "0.01"
+  order-generator-random-requestor:MAX_OUTSTANDING_REQUESTS: "15"
+  order-generator-random-requestor:MAX_PRICE_CAP: "0.0075"
   order-generator-random-requestor:PRIVATE_KEY:
     secure: v1:L6X2rqDXhNLyGChG:RADX+x5yqxbM4835BuSyslAHqs7s2Sx2JNJU50FKliMqJgnzNBKrE/Byodp2LuI+XTLoF8AIjBvCyeIF+Qj0pvGSTN6u0PtGPTqckXmDHnk=
   order-generator-random-requestor:RAMP_UP_SECONDS_PER_MCYCLE: "2"

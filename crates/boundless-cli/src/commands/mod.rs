@@ -19,4 +19,3 @@ pub mod prover;
 pub mod requestor;
 pub mod rewards;
 pub mod setup;
-pub mod skill;

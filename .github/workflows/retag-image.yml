@@ -15,6 +15,10 @@ on:
         required: true
         default: 'latest'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.image }}
+  cancel-in-progress: false
+
 permissions:
   packages: write
 

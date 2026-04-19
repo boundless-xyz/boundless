@@ -38,6 +38,39 @@ pub use market::{
 pub use provers::{MarketCollateralStats, ProversDb};
 pub use requestors::RequestorDb;
 
+/// Returns a SQL fragment that, when appended to a WHERE clause, filters out
+/// duplicate request_id rows keeping only the one with the most advanced status.
+/// Returns an empty string when deduplication is disabled.
+pub(crate) fn dedup_clause(enabled: bool) -> &'static str {
+    if enabled {
+        "AND NOT EXISTS (
+                       SELECT 1 FROM request_status rs2
+                       WHERE rs2.request_id = rs.request_id
+                         AND rs2.request_digest != rs.request_digest
+                         AND (
+                           (CASE rs2.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                            <
+                            CASE rs.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END)
+                           OR (CASE rs2.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                               =
+                               CASE rs.request_status
+                                WHEN 'fulfilled' THEN 1 WHEN 'locked' THEN 2
+                                WHEN 'submitted' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END
+                               AND (rs2.updated_at > rs.updated_at
+                                    OR (rs2.updated_at = rs.updated_at AND rs2.request_digest > rs.request_digest)))
+                         )
+                   )"
+    } else {
+        ""
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("SQL error {0:?}")]
