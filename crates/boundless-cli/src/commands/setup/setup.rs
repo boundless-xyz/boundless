@@ -276,8 +276,8 @@ pub struct SetupInteractive {
 /// Validate a private key and return the cleaned key and derived address.
 /// Provides a clear error message if the key is invalid (e.g., from bad paste).
 fn validated_pk(pk: &str) -> Result<(String, Option<alloy::primitives::Address>)> {
-    let clean = validate_private_key(pk)
-        .map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
+    let clean =
+        validate_private_key(pk).map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
     let addr = address_from_private_key(&clean);
     Ok((clean, addr))
 }

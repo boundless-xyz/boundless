@@ -46,7 +46,8 @@ pub fn validate_private_key(pk: &str) -> Result<String, String> {
     let cleaned: String = pk.chars().filter(|c| c.is_ascii_graphic()).collect();
 
     // Strip optional 0x prefix
-    let hex_str = cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X")).unwrap_or(&cleaned);
+    let hex_str =
+        cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X")).unwrap_or(&cleaned);
 
     if hex_str.is_empty() {
         return Err("Private key is empty".to_string());
