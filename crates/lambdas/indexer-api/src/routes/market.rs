@@ -848,6 +848,7 @@ async fn get_requestor_aggregates_impl(
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
 
             let total_fees_locked = summary.total_fees_locked.to_string();
+            let total_fees_paid = summary.total_fees_paid.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
                 summary.total_locked_and_expired_collateral.to_string();
@@ -877,6 +878,8 @@ async fn get_requestor_aggregates_impl(
                 unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
                 total_fees_locked: total_fees_locked.clone(),
                 total_fees_locked_formatted: format_eth(&total_fees_locked),
+                total_fees_paid: total_fees_paid.clone(),
+                total_fees_paid_formatted: format_eth(&total_fees_paid),
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
                 total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
@@ -1050,6 +1053,7 @@ async fn get_requestor_cumulatives_impl(
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
 
             let total_fees_locked = summary.total_fees_locked.to_string();
+            let total_fees_paid = summary.total_fees_paid.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
                 summary.total_locked_and_expired_collateral.to_string();
@@ -1063,6 +1067,8 @@ async fn get_requestor_cumulatives_impl(
                 unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
                 total_fees_locked: total_fees_locked.clone(),
                 total_fees_locked_formatted: format_eth(&total_fees_locked),
+                total_fees_paid: total_fees_paid.clone(),
+                total_fees_paid_formatted: format_eth(&total_fees_paid),
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
                 total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),

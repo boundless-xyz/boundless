@@ -384,7 +384,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       mostRecent: true,
       owners: ['amazon'],
       filters: [
-        { name: 'name', values: ['al2023-ami-*-arm64'] },
+        { name: 'name', values: ['al2023-ami-2023*-kernel-*-arm64'] },
         { name: 'state', values: ['available'] },
       ],
     });
