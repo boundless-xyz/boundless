@@ -265,6 +265,9 @@ proptest! {
                                                     proof_id: format!("proof_{id}"),
                                                     expiration: 1000,
                                                     fee: U256::from(10),
+                                                    fulfillment_type: FulfillmentType::LockAndFulfill,
+                                                    request_id: U256::ZERO,
+                                                    lock_expiration: 1000,
                                                 });
                                             }
 
