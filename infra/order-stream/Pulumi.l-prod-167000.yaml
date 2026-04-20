@@ -1,0 +1,31 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwHVWUK4D9or54F7xbo6NzEDAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM2KyMAdsoRtiQyHnBAgEQgDu0ZXxE0xK0OWsYJ7AJaYEFENUdi5P/d+iSho1N0QDXxCVaJNo9k9L8hmnPCBN3N+irjEJak6Rf03Rjvg==
+config:
+  aws:region: us-west-2
+  order-stream:ALB_DOMAIN: taiko-mainnet.boundless.network
+  order-stream:BASE_STACK: organization/bootstrap/services-prod
+  order-stream:BOUNDLESS_ADDRESS: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
+  order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136
+  order-stream:CHAIN_ID: "167000"
+  order-stream:CI_CACHE_SECRET:
+    secure: v1:wV4ZiIGW7+4Z7AHB:upLiSX2V2sLgUKrPz/DiPpNV9kM4oreA684lnX3IiYcq4vGOkfUS4hn+ySjc8OcPz5nP+f3/BB+Yer9RPPKOSC0sk17y+ElvM+d0NZNii9jWhyitCMdxnuPnFTxCfkzpzEOaLQ8DJ8DSu368XlXdClpaSVgcfRqkalSo+Oe3HA==
+  order-stream:DISABLE_CERT: "false"
+  order-stream:DOCKER_DIR: ../../
+  order-stream:DOCKER_TAG: latest
+  order-stream:GH_TOKEN_SECRET:
+    secure: v1:ZeO3S48SQkFZHvN8:jOZMm+SLAX5vG1be/cKzbjotY2Rm9HxiVLSB81h8ZS7dMPVanCDcMHsdtsWv1lvX14VkWgMZVATAqOJHO3d04p0b2B/WwCc+FzjevMmvo9IoHdbQRpCAoAK+Y2WtJWqd3Wb2Y7YrvPwNHg95Fg==
+  order-stream:MIN_BALANCE_RAW: "5000000000000000000"
+  order-stream:ORDER_STREAM_PING_TIME: "100"
+#  order-stream:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  order-stream:PREMIUM_API_KEY:
+    secure: v1:iX7m9D5ydjZcFKt0:s71WAhchrK+wAhTd6nrGGQLiXQL92A9Y0sEmVPBI
+  order-stream:RDS_PASSWORD:
+    secure: v1:6dgSYEn8zy4H2aow:f7bb0qcg5SlRhhWXt63NsueMRIIVbtN9HTQGhAgbhEy1Mw==
+  order-stream:REDSHIFT_ADMIN_PASSWORD:
+    secure: v1:79I+DgIWJGlMS/hw:EVFuQkT27bXkxtRy93JlWL5I0FlZm46F5XiflA==
+  order-stream:REDSHIFT_READONLY_PASSWORD:
+    secure: v1:aMOgq5NjcVCacDtw:FWh6oh4shBfqsMAA9B9LOVPQiF03FMxnkTs07Q==
+#  order-stream:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  order-stream:ETH_RPC_URL:
+    secure: v1:+y+/MbljoYcpu9nM:VyFomiB90y1gw3H+YyB1xsJvpKNMjaSESETOA3rMvnOYMN/3mYrZq1wSJaTz
+  order-stream:USE_GHCR: true

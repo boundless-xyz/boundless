@@ -17,6 +17,7 @@
 mod balance;
 mod config;
 mod deposit;
+mod deposit_to;
 mod get_proof;
 mod status;
 mod submit;
@@ -27,6 +28,7 @@ mod withdraw;
 pub use balance::RequestorBalance;
 pub use config::RequestorConfigCmd;
 pub use deposit::RequestorDeposit;
+pub use deposit_to::RequestorDepositTo;
 pub use get_proof::RequestorGetProof;
 pub use status::RequestorStatus;
 pub use submit::RequestorSubmit;
@@ -56,6 +58,9 @@ pub enum RequestorCommands {
     Config(RequestorConfigCmd),
     /// Deposit funds into the market
     Deposit(RequestorDeposit),
+    /// Deposit funds into the market on behalf of another address
+    #[command(name = "deposit-to")]
+    DepositTo(RequestorDepositTo),
     /// Withdraw funds from the market
     Withdraw(RequestorWithdraw),
     /// Check the balance of an account in the market
@@ -87,6 +92,7 @@ impl RequestorCommands {
         match self {
             Self::Config(cmd) => cmd.run(global_config).await,
             Self::Deposit(cmd) => cmd.run(global_config).await,
+            Self::DepositTo(cmd) => cmd.run(global_config).await,
             Self::Withdraw(cmd) => cmd.run(global_config).await,
             Self::DepositedBalance(cmd) | Self::Balance(cmd) => cmd.run(global_config).await,
             Self::Submit(cmd) => cmd.run(global_config).await,

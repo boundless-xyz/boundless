@@ -15,7 +15,8 @@
 use crate::price_oracle::cached_oracle::CachedPriceOracle;
 use crate::price_oracle::manager::PriceOracleManager;
 use crate::price_oracle::sources::{
-    ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource,
+    ChainlinkMainnetSource, ChainlinkSource, CoinGeckoSource, CoinMarketCapSource,
+    StaticPriceSource, CHAINLINK_PUBLIC_RPC_URLS,
 };
 use crate::price_oracle::{
     AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, TradingPair,
@@ -106,12 +107,14 @@ impl Default for PriceOracleConfig {
             eth_usd: PriceValue::Auto,
             zkc_usd: PriceValue::Auto,
             max_secs_without_price_update: 43200, // 12h
-            refresh_interval_secs: 60,
+            refresh_interval_secs: 120,
             timeout_secs: 10,
             aggregation_mode: AggregationMode::Median,
             min_sources: 1,
             // Enable both Chainlink and CoinGecko by default
-            onchain: Some(OnChainConfig { chainlink: Some(ChainlinkConfig { enabled: true }) }),
+            onchain: Some(OnChainConfig {
+                chainlink: Some(ChainlinkConfig { enabled: true, rpc_url: None }),
+            }),
             offchain: Some(OffChainConfig {
                 coingecko: Some(CoinGeckoConfig { enabled: true, api_key: None }),
                 cmc: None,
@@ -127,11 +130,23 @@ pub struct OnChainConfig {
     pub chainlink: Option<ChainlinkConfig>,
 }
 
-/// Chainlink price feed configuration
+/// Chainlink price feed configuration.
+///
+/// When enabled, up to two Chainlink sources are used for ETH/USD:
+/// - **Chain-local feed**: if the broker's chain has a native Chainlink deployment
+///   (e.g. Base, Ethereum), the local feed is queried via the broker's own RPC.
+/// - **Mainnet fallback**: the canonical Ethereum mainnet ETH/USD feed is always
+///   queried via built-in public RPC endpoints. This ensures Chainlink coverage
+///   on chains without a native deployment (e.g. Taiko).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChainlinkConfig {
     /// Whether Chainlink is enabled
     pub enabled: bool,
+    /// Optional Ethereum mainnet RPC URL for the mainnet fallback source
+    /// (e.g. your own Alchemy/Infura endpoint).
+    /// Tried first, before the built-in public fallback endpoints.
+    #[serde(default)]
+    pub rpc_url: Option<String>,
 }
 
 /// Off-chain price source configuration
@@ -162,7 +177,11 @@ pub struct CoinMarketCapConfig {
 }
 
 impl PriceOracleConfig {
-    /// Build price oracle manager from this configuration
+    /// Build price oracle manager from this configuration.
+    ///
+    /// When Chainlink is enabled, two on-chain sources are created for ETH/USD:
+    /// 1. Chain-local Chainlink feed (if the chain has one, e.g. Base, Ethereum)
+    /// 2. Ethereum mainnet Chainlink feed via public RPCs (works on any chain)
     pub fn build<P>(
         &self,
         named_chain: NamedChain,
@@ -215,14 +234,37 @@ impl PriceOracleConfig {
                 // Dynamic pricing: build sources and wrap in CompositeOracle
                 let mut sources: Vec<Arc<dyn PriceOracle>> = Vec::new();
 
-                // On-chain sources
+                // On-chain Chainlink sources
                 if let Some(ref onchain) = self.onchain {
                     if let Some(ref chainlink_config) = onchain.chainlink {
                         if chainlink_config.enabled && pair == TradingPair::EthUsd {
-                            // Chainlink only supports ETH/USD
-                            let chainlink =
-                                ChainlinkSource::for_eth_usd(provider.clone(), named_chain)?;
-                            sources.push(Arc::new(chainlink));
+                            // 1. Chain-local Chainlink feed (if available)
+                            if let Some(local) =
+                                ChainlinkSource::for_eth_usd(provider.clone(), named_chain)
+                            {
+                                tracing::debug!(
+                                    "Using chain-local Chainlink ETH/USD feed for {:?}",
+                                    named_chain
+                                );
+                                sources.push(Arc::new(local));
+                            }
+
+                            // 2. Ethereum mainnet Chainlink feed via public RPCs
+                            //    (skip if we're already on mainnet — the local source covers it)
+                            if named_chain != NamedChain::Mainnet {
+                                let mut rpc_urls: Vec<String> = Vec::new();
+                                if let Some(ref url) = chainlink_config.rpc_url {
+                                    rpc_urls.push(url.clone());
+                                }
+                                rpc_urls.extend(
+                                    CHAINLINK_PUBLIC_RPC_URLS.iter().map(|s| s.to_string()),
+                                );
+                                let mainnet = ChainlinkMainnetSource::eth_usd_mainnet(
+                                    &rpc_urls,
+                                    Duration::from_secs(self.timeout_secs),
+                                )?;
+                                sources.push(Arc::new(mainnet));
+                            }
                         }
                     }
                 }

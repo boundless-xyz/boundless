@@ -17,7 +17,7 @@ config:
   indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "35060420"
-  indexer:BLOCK_DELAY: "10"
+  indexer:BLOCK_DELAY: "25"
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100000"
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:ETH_RPC_URL:
@@ -39,3 +39,4 @@ config:
     secure: v1:PLVsOX5g1KnQ1cne:TT3NO63iJE7HAfSt6ib1tzdz16h10zsndG8hY+hf9I+bc3nPl85mwA4Ryj+4hVnLHlnae7r7ZMpaWNv9LssCgaa7ZdLJ2BKNWCLhTV4xTrTmC3YES+808bVFskn7xBiVqLu6w/dSKSp8phet75phZH+yzV/EN149tCoBBeiPmw==
   indexer:PREMIUM_API_KEY:
     secure: v1:DayfBza07lGx59Ea:dwYVBM9W86XG3yLjkEv+SPKvSJFj+dRoR7d6zw==
+  indexer:USE_GHCR: true

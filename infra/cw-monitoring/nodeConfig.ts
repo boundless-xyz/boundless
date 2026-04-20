@@ -110,11 +110,11 @@ export interface MonitoredNode {
 const PROD_BENTO_DOWN: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "bento service down for 2 consecutive 5-min periods (10 min)",
-        metricConfig: { period: 300 },
+        description: "bento service down for 4 consecutive 15-min periods (1 hour)",
+        metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 2,
-            datapointsToAlarm: 2,
+            evaluationPeriods: 4,
+            datapointsToAlarm: 4,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
@@ -122,11 +122,11 @@ const PROD_BENTO_DOWN: AlarmConfig[] = [
     },
     {
         severity: Severity.SEV2,
-        description: "bento service down for 6 consecutive 5-min periods (30 min)",
-        metricConfig: { period: 300 },
+        description: "bento service down for 12 consecutive 15-min periods (3 hours)",
+        metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 6,
-            datapointsToAlarm: 6,
+            evaluationPeriods: 12,
+            datapointsToAlarm: 12,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
@@ -138,11 +138,11 @@ const PROD_BENTO_DOWN: AlarmConfig[] = [
 const STAGING_BENTO_DOWN: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "bento service down for 6 consecutive 5-min periods (30 min)",
-        metricConfig: { period: 300 },
+        description: "bento service down for 4 consecutive 15-min periods (1 hour)",
+        metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 6,
-            datapointsToAlarm: 6,
+            evaluationPeriods: 4,
+            datapointsToAlarm: 4,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
@@ -157,11 +157,11 @@ const STAGING_BENTO_DOWN: AlarmConfig[] = [
 const PROD_NO_CONTAINERS: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "no containers running for 2 consecutive 5-min periods (10 min)",
-        metricConfig: { period: 300 },
+        description: "no containers running for 4 consecutive 15-min periods (1 hour)",
+        metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 2,
-            datapointsToAlarm: 2,
+            evaluationPeriods: 4,
+            datapointsToAlarm: 4,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
@@ -169,11 +169,11 @@ const PROD_NO_CONTAINERS: AlarmConfig[] = [
     },
     {
         severity: Severity.SEV2,
-        description: "no containers running for 6 consecutive 5-min periods (30 min)",
-        metricConfig: { period: 300 },
+        description: "no containers running for 12 consecutive 15-min periods (3 hours)",
+        metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 6,
-            datapointsToAlarm: 6,
+            evaluationPeriods: 12,
+            datapointsToAlarm: 12,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
@@ -297,8 +297,6 @@ const ALARM_PROFILES: Record<string, SystemAlarms> = {
         memoryHigh: STAGING_MEMORY_HIGH,
         diskHigh: STAGING_DISK_HIGH,
     },
-    // Nightly builds break more often. Relax error/fatal thresholds but still
-    // alert on infra issues (service down, disk full, OOM).
     nightly: {
         bentoDown: PROD_BENTO_DOWN,
         noContainers: PROD_NO_CONTAINERS,

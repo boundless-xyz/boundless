@@ -21,25 +21,26 @@ env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "3.0.3"
+  RISC0_CPP_VERSION: "2024.1.5"
+  RISC0_GROTH16_VERSION: "0.1.0"
   FOUNDRY_VERSION: v1.5.0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
-  # see: https://github.com/orgs/community/discussions/26822
   main-status-check:
+    name: main-status-check
     if: always()
+    timeout-minutes: 5
     needs:
-      - rust
+      - rust-lint
+      - rust-test
       - link-check
-      - format
+      - fmt
       - foundry
-      - examples
-      - docker
       - infra
-      - rust-pkg-check
-      - docs-rs
       - scaler-tests
       - validate-requestor-lists
-
     runs-on: ubuntu-latest
     steps:
       - name: Check all job status
@@ -48,17 +49,94 @@ jobs:
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         run: exit 1
 
-  rust:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.main == 'true' || needs.files-changed.outputs.docs == 'true'
+  rust-lint:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 20
+    needs: [files-changed]
+    if: needs.files-changed.outputs.main == 'true'
+    env:
+      RUSTFLAGS: "-Dwarnings"
+      RISC0_SKIP_BUILD: 1
+      RISC0_SKIP_BUILD_KERNELS: 1
+      RISC0_DEV_MODE: true
+    steps:
+      - name: Clean stale artifacts
+        run: |
+          rm -rf lib/
+          sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
+
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
+      - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth=1 --jobs=8
+
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+          components: clippy
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Cache forge build
+        uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-build-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-
+
+      - name: forge build
+        run: forge build
+
+      - name: cargo clippy
+        run: cargo clippy --locked --all-targets --features test-r0vm,test-rpc
+
+      - name: cargo doc
+        run: cargo doc --locked --no-deps --features test-r0vm,test-rpc
+
+      - name: cargo test (doctests)
+        run: cargo test --locked --doc --features test-r0vm,test-rpc
+
+        # build script for boundless-market copies Solidity build artifacts.
+        # check that these are not modified, which would indicate they need to be updated.
+      - name: check for changes to files in git index
+        run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  rust-test:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 40
+    needs: [files-changed]
+    if: needs.files-changed.outputs.main == 'true'
     services:
       postgres:
         image: postgres:latest
@@ -73,13 +151,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          # Full history is required by license-check.py
-          fetch-depth: 0
-          submodules: recursive
-
       - name: Configure PostgreSQL max_connections
         run: |
           POSTGRES_CONTAINER=$(docker ps --filter "ancestor=postgres:latest" --format "{{.ID}}")
@@ -89,72 +160,76 @@ jobs:
             sleep 1
           done
 
-      - name: install python
-        uses: actions/setup-python@v4
+      - name: Clean stale artifacts
+        run: |
+          rm -rf lib/
+          sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
+
+      - name: checkout code
+        uses: actions/checkout@v4
         with:
-          python-version: "3.10"
+          submodules: false
+
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
+      - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
       - name: Install Rust linker toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
 
       - name: setup sccache + s3
         uses: ./.github/actions/sccache
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
       - uses: risc0/risc0/.github/actions/protoc@v3.0.3
+
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+          cpp-version: ${{ env.RISC0_CPP_VERSION }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
 
-      - name: Install cargo-sort
-        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
+      - name: Cache forge build
+        uses: actions/cache@v4
         with:
-          crate: cargo-sort
-          version: "1.0"
-
-      - name: cargo Sort
-        run: cargo sort --workspace --check
-
-      - name: cargo format
-        run: cargo fmt --all -- --check
-
-      - name: license check
-        run: python license-check.py
+          path: |
+            out
+            cache
+          key: forge-build-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-
 
       - name: forge build
         run: forge build
 
-      - name: cargo check
-        run: cargo check --locked --all-targets
+      - name: install cargo-binstall
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-binstall
 
-      - name: cargo doc
-        env:
-          RUSTFLAGS: "-Dwarnings"
-          RISC0_SKIP_BUILD: 1
-        run: cargo doc --locked
+      - name: install nextest
+        run: cargo binstall -y cargo-nextest@0.9.128
 
-      - name: cargo clippy
-        env:
-          RUSTFLAGS: "-Dwarnings"
-          RISC0_SKIP_BUILD: 1
-        run: cargo clippy --locked --all-targets
-
-        # build script for boundless-market copies Solidity build artifacts.
-        # check that these are not modified, which would indicate they need to be updated.
-      - name: check for changes to files in git index
-        run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
-
-      - name: cargo test
-        run: cargo test --locked --workspace --all-targets --features test-r0vm,test-rpc
+      - name: cargo nextest run
+        run: cargo nextest run --locked --workspace --all-targets --features test-r0vm,test-rpc
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
@@ -162,67 +237,15 @@ jobs:
           ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
           BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
 
-      - name: cargo test telemetry
-        run: cargo test -p broker tests::e2e_telemetry --features test-r0vm -- --ignored --nocapture --test-threads=1
-        env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
-          RISC0_DEV_MODE: true
-          ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
-          BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
-
       - name: sccache stats
         run: sccache --show-stats
 
-  rust-pkg-check:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
+  link-check:
+    name: Link Check (GH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install Rust linker toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-      - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: check order-stream
-        run: cargo check --locked -p order-stream --bin order_stream
-
-      - name: check broker
-        run: cargo check --locked -p broker --bin broker
-
-  link-check:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.docs == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -235,16 +258,13 @@ jobs:
           restore-keys: |
             lychee-${{ runner.os }}-
 
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-
       - name: install cargo-binstall
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
-          version: "=1.15.1"
-          locked: true
 
-      - run: cargo binstall -y --force lychee@0.15.1
+      - name: install lychee
+        run: cargo binstall -y lychee@0.15.1
 
       - name: run lychee
         # lychee does not respect the .gitignore natively
@@ -269,294 +289,128 @@ jobs:
           path: ~/.cache/lychee
           key: lychee-${{ runner.os }}-v1
 
-  format:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
+  fmt:
+    name: fmt (GH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required by license-check.py
+          fetch-depth: 0
 
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-registry-
+
+      - name: install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: stable
+          components: rustfmt
 
       - name: install cargo-binstall
-        uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
-          version: "=1.15.1"
-          locked: true
 
-      - run: cargo binstall -y --force dprint@0.47.2
+      - name: install dprint
+        run: cargo binstall -y dprint@0.47.2
 
-      - run: dprint check
+      - name: install cargo-sort
+        run: cargo binstall -y cargo-sort@2
+
+      - name: cargo sort
+        run: cargo sort --workspace --check
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: license check
+        run: python license-check.py
+
+      - name: dprint check
+        run: dprint check
+
+      - name: Check Cargo.lock files are up to date
+        run: |
+          cargo fetch
+          cd bento && cargo fetch && cd ..
+          for dir in examples/*/; do
+            if [ -f "$dir/Cargo.toml" ]; then
+              (cd "$dir" && cargo fetch)
+            fi
+          done
+          CHANGED=$(git diff --name-only -- '**/Cargo.lock')
+          if [ -n "$CHANGED" ]; then
+            echo "::error::The following Cargo.lock files are out of date. Run 'just update-lockfiles' and commit the changes."
+            echo "$CHANGED"
+            git diff --stat -- '**/Cargo.lock'
+            exit 1
+          fi
 
   foundry:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: forge fmt
-        run: forge fmt --check
-        working-directory: contracts
-
-      - name: forge test
-        run: forge test -vvv
-        working-directory: contracts
-
-  # Run as a separate job because we need to install a different set of tools.
-  # In particular, it uses nightly Rust and _does not_ install Forge or cargo risczero.
-  docs-rs:
-    # TODO: Revert this change when CC on self-hosted runners in fixed.
+    name: Foundry (GH)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: files-changed
     if: needs.files-changed.outputs.main == 'true'
-    steps:
-      # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
-      - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install Rust linker toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-        with:
-          # Building with docs.rs config requires the nightly toolchain.
-          toolchain: nightly-2025-05-09
-      - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
-        env:
-          RUSTDOCFLAGS: "--cfg docsrs -D warnings"
-
-  # Check that cargo publish can package the boundless-market crate
-  check-publish:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.main == 'true'
-    steps:
-      # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
-      - run: "git checkout -f $(git -c user.name=x -c user.email=x@x commit-tree $(git hash-object -t tree /dev/null) < /dev/null) || :"
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install Rust linker toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-        with:
-          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-
-      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
-      - run: cargo publish -p boundless-market --dry-run
-
-  examples:
-    runs-on: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
-    strategy:
-      fail-fast: false
-      matrix:
-        workspace:
-          - examples/blake3-groth16
-          - examples/counter
-          - examples/smart-contract-requestor
-          - examples/counter-with-callback
-          - examples/composition
-          - examples/request-stream
-    needs: files-changed
-    if: needs.files-changed.outputs.examples == 'true'
-    env:
-      NVCC_APPEND_FLAGS: -arch=sm_89
     steps:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
 
-      - name: Login to Docker Hub
-        if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
-        uses: docker/login-action@v3
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
         with:
-          username: ${{ secrets.DOCKERHUB_CI_USER }}
-          password: ${{ secrets.DOCKERHUB_CI_PAT }}
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
 
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
+      - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth=1 --jobs=8
 
-      - name: Install Rust linker toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential binutils lld mold
-
-      - uses: risc0/risc0/.github/actions/cuda@v3.0.3
-      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
-      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-
-      - name: install cargo risczero
-        uses: ./.github/actions/bininstall-risc0
-        with:
-          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
-          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
-          install-groth16: true
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
 
-      - name: Install cargo-sort
-        uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
-        with:
-          crate: cargo-sort
-          version: "1.0"
-
-      - name: cargo Sort
-        run: cargo sort --workspace --check
-        working-directory: ${{ matrix.workspace }}
-
-      - name: cargo format
-        run: cargo fmt --all -- --check
-        working-directory: ${{ matrix.workspace }}
-
-      - name: forge build
-        run: forge build
+      - name: forge fmt
+        run: forge fmt --check
         working-directory: contracts
 
-      - name: cargo build
-        run: cargo build --all-features --locked
-        working-directory: ${{ matrix.workspace }}
-
-      - name: cargo clippy
-        run: cargo clippy --locked --workspace
-        working-directory: ${{ matrix.workspace }}
-        env:
-          RISC0_SKIP_BUILD: 1
-
-      - name: forge fmt
-        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
-        run: forge fmt --check
-        working-directory: ${{ matrix.workspace }}/contracts
+      - name: Cache forge build
+        uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-test-${{ hashFiles('contracts/src/**', 'contracts/test/**', 'foundry.toml') }}
+          restore-keys: forge-test-
 
       - name: forge test
-        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
         run: forge test -vvv
-        working-directory: ${{ matrix.workspace }}/contracts
-
-      - name: install blake3 groth16 artifacts
-        if: matrix.workspace == 'examples/blake3-groth16'
-        run: |
-          set -euxo pipefail
-          export BLAKE3_GROTH16_SETUP_DIR="$HOME/.risc0/blake3_groth16"
-          echo "BLAKE3_GROTH16_SETUP_DIR=$HOME/.risc0/blake3_groth16" >> "$GITHUB_ENV"
-
-          mkdir -p "$BLAKE3_GROTH16_SETUP_DIR"
-          curl -L -o /tmp/blake3_groth16_artifacts.tar.xz \
-            "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
-          tar -xJf /tmp/blake3_groth16_artifacts.tar.xz \
-            -C "$BLAKE3_GROTH16_SETUP_DIR" --strip-components=1
-          rm -f /tmp/blake3_groth16_artifacts.tar.xz
-
-          echo "Contents of setup dir:"
-          ls -R "$BLAKE3_GROTH16_SETUP_DIR"
-
-      - name: RUST_LOG="debug" cargo test
-        run: cargo test --all-features --locked -- --nocapture
-        working-directory: ${{ matrix.workspace }}
-        env:
-          RUST_LOG: "info"
-          RISC0_INFO: 1
-          BLAKE3_GROTH16_SETUP_DIR: ${{ env.BLAKE3_GROTH16_SETUP_DIR }}
-          USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
-
-      - name: sccache stats
-        run: sccache --show-stats
-  docker:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
-    needs: files-changed
-    if: needs.files-changed.outputs.docker == 'true'
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Login to Docker Hub
-        if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_CI_USER }}
-          password: ${{ secrets.DOCKERHUB_CI_PAT }}
-
-      - name: docker-compose lint
-        run: docker compose --profile broker --env-file ./.env.broker-template config
-
-      - name: Fetch CI AWS Creds
-        id: aws-creds
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: "us-west-2"
-          role-duration-seconds: 14400
-          role-to-assume: "arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access"
-          output-credentials: true
-
-      - name: create ci creds file
-        run: |
-          echo "[default]" > ./dockerfiles/ci-cache-creds.txt
-          echo "aws_access_key_id=${{ steps.aws-creds.outputs.aws-access-key-id }}" >> ./dockerfiles/ci-cache-creds.txt && \
-          echo "aws_secret_access_key=${{ steps.aws-creds.outputs.aws-secret-access-key }}" >> ./dockerfiles/ci-cache-creds.txt && \
-          echo "aws_session_token=${{ steps.aws-creds.outputs.aws-session-token }}" >> ./dockerfiles/ci-cache-creds.txt
-
-      - name: Setup docker builder
-        run: docker buildx create --driver docker-container --use
-
-      - name: docker compose build
-        run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
+        working-directory: contracts
 
   infra:
-    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
-    strategy:
-      # Run only on Linux with CPU.
-      matrix:
-        include:
-          - os: Linux
-            feature: default
-            device: cpu
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 5
     needs: files-changed
     if: needs.files-changed.outputs.infra == 'true'
     steps:
@@ -588,7 +442,9 @@ jobs:
           done
 
   scaler-tests:
+    name: Scaler Tests (GH)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: files-changed
     if: needs.files-changed.outputs.scaler == 'true'
     steps:
@@ -611,7 +467,9 @@ jobs:
           pytest -v
 
   validate-requestor-lists:
+    name: Validate Requestor Lists (GH)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: files-changed
     if: needs.files-changed.outputs.requestor_lists == 'true'
     steps:
@@ -632,14 +490,12 @@ jobs:
           done
 
   files-changed:
+    name: Files Changed (GH)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
-      docker: ${{ steps.changes.outputs.docker }}
       main: ${{ steps.changes.outputs.main }}
-      examples: ${{ steps.changes.outputs.examples }}
-      docs: ${{ steps.changes.outputs.docs }}
       infra: ${{ steps.changes.outputs.infra }}
-      deployments: ${{ steps.changes.outputs.deployments }}
       scaler: ${{ steps.changes.outputs.scaler }}
       requestor_lists: ${{ steps.changes.outputs.requestor_lists }}
     steps:
@@ -650,12 +506,6 @@ jobs:
         id: changes
         with:
           filters: |
-            # Changes to the Docker files. Docker jobs are slow.
-            docker:
-              - 'dockerfiles/**'
-              - 'compose.yml'
-              - '.env.broker-template'
-              - '.github/workflows/main.yml'
             # Changes affect the main codebase (rust + contracts).
             main:
               - 'Cargo.toml'
@@ -669,35 +519,9 @@ jobs:
               - 'blake3_groth16/**'
               - 'lib/**'
               - '.github/workflows/main.yml'
-            # Changes that could effect the examples.
-            examples:
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - 'foundry.toml'
-              - 'remappings.txt'
-              - 'crates/**'
-              - 'contracts/**'
-              - 'blake3_groth16/**'
-              - 'lib/**'
-              - 'examples/**'
-              - '.github/workflows/main.yml'
-            docs:
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - 'crates/**'
-              - 'contracts/**'
-              - 'documentation/**'
-              - '.github/workflows/main.yml'
             # Changes to infrastructure code
             infra:
               - 'infra/**'
-              - '.github/workflows/main.yml'
-            # Changes to deployment configuration files
-            deployments:
-              - 'contracts/deployment.toml'
-              - 'crates/boundless-market/src/deployments.rs'
               - '.github/workflows/main.yml'
             # Changes to scaler lambda function
             scaler:

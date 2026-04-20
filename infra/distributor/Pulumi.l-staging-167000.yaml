@@ -1,0 +1,48 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwG3r3CmRK2cMq6A9qM8hB0aAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMOAMYiuht5p38WoqHAgEQgDsXsHUbHmmYzT+s/Z6DFvfLAuBs3IBgv82pwBOVzQpKGu1idIYS3FAlc9VgTjRE0R7aQ9nvoAw4KSidxg==
+config:
+  distributor:BASE_STACK: organization/bootstrap/services-staging
+  distributor:BOUNDLESS_MARKET_ADDR: 0x60d11ef5d4608bab18a663fd486d3b9f162172cf
+  distributor:CHAINALYSIS_ORACLE_ADDRESS: "0x0000000000000000000000000000000000000000"
+  distributor:CHAIN_ID: "167000"
+  distributor:CI_CACHE_SECRET:
+    secure: v1:8BTs0xpu016Gn0dn:JqqxlgmdxwYiuqLp6OQdPV3OyCywFBgEfbuwwTp0FUhw/wK5X1YjVzSaYWvQXr9HDoynfXp9MWfIL1imGRus2r+0UFMasHch/obxvuXnFswmuPtVXZIV9j+1JTzgMtPUnUqrqSYQvuAzuMhFa7l8Pe/kMSKMDSLVnKBtOqg4dA==
+  distributor:COLLATERAL_TOKEN_ADDR: 0xC284A781072442cC1882a8Db4573990B7B49DaC4
+  distributor:DISTRIBUTOR_ADDRESS: 0x59Ad086d983014858a87487af3B1f90A7A31BBf1
+  distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.5"
+  distributor:DISTRIBUTOR_PRIVATE_KEY:
+    secure: v1:IQDZawyZgXm/p3Gt:weaUrEWHJ7L2VG/ZkYj8crtdN5Bs9yQvcJvjYntxYNiSK5cEooWmPA4N82svWht6cwDVAYGj/wrJ5zzM/o0G3lzvRw0KjTxaZZtPfog1OwE=
+  distributor:DISTRIBUTOR_STAKE_ALERT_THRESHOLD: "200.0"
+  distributor:DOCKER_DIR: ../../
+  distributor:DOCKER_TAG: latest
+  distributor:ENABLE_EXTERNAL_TOPUP: "false"
+  distributor:ETH_THRESHOLD: "0.008"
+  distributor:ETH_TOP_UP_AMOUNT: "0.02"
+  distributor:EXTERNAL_COLLATERAL_THRESHOLD: "50"
+  distributor:EXTERNAL_LIFETIME_ALLOWANCE: "100"
+  distributor:EXTERNAL_PER_TOP_UP_AMOUNT: "50"
+  distributor:GH_TOKEN_SECRET:
+    secure: v1:nJLwP56lVOhvNzBl:G/LVIXN1NLmk+cswfgziiKLXCjB+nPPB5PJ4NszV+EHc0g9/r6Sfql4qbax3grATAt2Tg0QPLdntAKDB34/BErXSRa1QxXgmfSpQ3mKbhSSOVcuI4OejHy9m3Z9W/2nmxVJRI1vTDqIkwctnwg==
+  distributor:INDEXER_API_URL:
+    secure: v1:es9q9QKxhpB7aWdQ:LX862fHL5Eo/PqkZdGmCHXzo0GT8TpcM7CZ1aycptoGHwAtgkcknQB7a+q9AYyFTJO0i7Ow=
+  distributor:LOG_LEVEL: info,boundless_market=debug
+  distributor:MIN_BCYCLES_THRESHOLD: "100"
+  distributor:ORDER_GENERATOR_KEYS:
+    secure: v1:cgFbnETQoySqs0jo:x17dGakW/ymvvbVtP3NrhzCOWfKYkkLdoz6Yw8+d2iGfeELfZMtJtaKPlTfI0ComWiS1WLILzY37hCGKBRp5LF/igEiXpThlBDow1FDPEko/zg8HcAAiN9iKD9NE+9xyWrcuCdqUVV+qcVjXWmiABDSzrVTUHnOS1eiDaqwVm9jJwLQWOhSQUGcoG6jsBAOfE8scqhUO7Lr1HdLhvg+tATH51lRmHKIKPZ6NqHnjk0tGDiKSLB7aBK/DlCvOTagF+i3N8afsWVlfdP6CmJ04idfyuXrSYsFLdrofJ1ICGf7Bi9e6Am653VM5UXYtR2hZJj8Ez3roRCt2rFVLI2fgtlks8OT+B1hAhaktr928JOykeouiUxA2CZbDabdWPzFnh2Sos0Do8UMAD8pEzCi7oJgAATclaPTB7fAKYUUXTAjQgftCoVtMwdKpW6BjtK1h3+X6wDBFyP7Pcce0Aj4g77sNyXXpz7YPTRpU9ptgfuD6CzjCkXQQ/aGyD37d/id7NQvRCXDPyVK9W/qoAEnxtYThei3Rv5FKVY2WZSnvPAdhRnLzT7k1AgN0Vu8nSFeC1klfFSMIB3Gymp7Gn8sF4uiqiHGoJcQ+k2f5NWKGLyeeTTSZr9tudQM7R54xJNFJwVMfv5lfzqX2lYVfSqUYxaaOx8qdPyJIZdyu2tI4YLBh0fvfLZqEXP2LJ04EmN3qR83Ht2Zr0w==
+#  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  distributor:PROVER_ETH_DONATE_THRESHOLD: "0.2"
+  distributor:PROVER_KEYS:
+    secure: v1:Sz42CYl6pldA0wRa:KfALsOi/YJHf+b7QlMEu4720p+cKfijmide77Vf1fWsgxR1kBO5LtR+dko9aqJt2Ay2gdM6qhlBD8rPnsmqtUlyfjOqbut5eot/i7ecZlfo=
+  distributor:PROVER_STAKE_DONATE_THRESHOLD: "500.0"
+  distributor:SCHEDULE_MINUTES: "90"
+  distributor:SET_VERIFIER_ADDR: 0x6135DC08D14EF8a44496B009e2181426628B8ebd
+#  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
+  distributor:SLASHER_KEY:
+    secure: v1:qLo7sKRsnZ6Z6n9X:SUA3LvOqdWVi6CXAvQp1A0bkq0Ai4vXBwZd2dMGi7Y/2sESHxrPVn6c7SkhfVw2ukto9K+T/hdfCYrbdJnF2XzJfTykZd3Zq2KwoT+9XhiU=
+  distributor:STAKE_THRESHOLD: "100"
+  distributor:STAKE_TOP_UP_AMOUNT: "300"
+  distributor:ETH_RPC_URL:
+    secure: v1:aEd+iCjLWIJt5/cD:F3Ilj+X1vTUH88QaW6uUZXTz8TxSmBy/jfyGdnLoT1IXAQGUOaIRTHY7Em0/
+  distributor:CHAINALYSIS_API_KEY:
+    secure: v1:EwnWzq+sLC1goQEA:goaoWUUx3rNoKBr7nrlcQdZlqwSiYFSymnOr0StAd/9KiQaMQeJUP3F3mGdHcjjO5X3FZEe3q9BN/3cDPIs4TFaLHUWlj3Ao6OjRbOQcZk0=
+  distributor:USE_GHCR: true

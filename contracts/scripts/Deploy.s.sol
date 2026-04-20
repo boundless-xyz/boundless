@@ -84,8 +84,11 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             // in-sync with the configured image ID.
             string memory setBuilderPath =
                 "/target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin";
-            string memory cwd = vm.envString("PWD");
-            string memory setBuilderGuestUrl = string.concat("file://", cwd, setBuilderPath);
+            string memory setBuilderGuestUrl = vm.envOr("SET_BUILDER_GUEST_URL", string(""));
+            if (bytes(setBuilderGuestUrl).length == 0) {
+                string memory cwd = vm.envString("PWD");
+                setBuilderGuestUrl = string.concat("file://", cwd, setBuilderPath);
+            }
             console2.log("Set builder URI", setBuilderGuestUrl);
 
             string[] memory argv = new string[](4);
@@ -97,7 +100,13 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
 
             string memory assessorPath =
                 "/target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin";
-            assessorGuestUrl = string.concat("file://", cwd, assessorPath);
+            string memory assessorGuestUrlOverride = vm.envOr("ASSESSOR_GUEST_URL", string(""));
+            if (bytes(assessorGuestUrlOverride).length > 0) {
+                assessorGuestUrl = assessorGuestUrlOverride;
+            } else {
+                string memory cwd = vm.envOr("PWD", string("/src"));
+                assessorGuestUrl = string.concat("file://", cwd, assessorPath);
+            }
             console2.log("Assessor URI", assessorGuestUrl);
 
             argv[3] = string.concat(".", assessorPath);

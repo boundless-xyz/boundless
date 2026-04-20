@@ -1,0 +1,204 @@
+name: Nightly Examples
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Keep in sync with main.yml
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "3.0.3"
+  FOUNDRY_VERSION: v1.5.0
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  examples:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workspace: examples/blake3-groth16
+            runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+            dev_mode: false
+          - workspace: examples/counter
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
+          - workspace: examples/smart-contract-requestor
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
+          - workspace: examples/counter-with-callback
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
+          - workspace: examples/composition
+            runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+            dev_mode: false
+          - workspace: examples/request-stream
+            runner: [self-hosted, prod, "Linux", "cpu"]
+            dev_mode: true
+    env:
+      NVCC_APPEND_FLAGS: ${{ !matrix.dev_mode && '-arch=sm_89' || '' }}
+    steps:
+      - name: Remove stale submodules
+        run: rm -rf lib/
+
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Get submodule cache key
+        id: submodule-key
+        run: echo "hash=$(git ls-tree HEAD -- lib/ | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        id: submodule-cache
+        uses: actions/cache@v4
+        with:
+          path: lib/
+          key: submodules-${{ steps.submodule-key.outputs.hash }}
+
+      - name: checkout submodules
+        if: steps.submodule-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --recursive --depth=1 --jobs=8
+
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_CI_USER }}
+          password: ${{ secrets.DOCKERHUB_CI_PAT }}
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - uses: risc0/risc0/.github/actions/cuda@v3.0.3
+        if: ${{ !matrix.dev_mode }}
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+          install-groth16: true
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: install cargo-binstall
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-binstall
+
+      - name: install cargo-sort
+        run: cargo binstall -y cargo-sort@2
+
+      - name: install nextest
+        run: cargo binstall -y cargo-nextest@0.9.128
+
+      - name: cargo sort
+        run: cargo sort --workspace --check
+        working-directory: ${{ matrix.workspace }}
+
+      - name: cargo format
+        run: cargo fmt --all -- --check
+        working-directory: ${{ matrix.workspace }}
+
+      - name: Cache forge build
+        uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-build-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          restore-keys: forge-build-
+
+      - name: forge build
+        run: forge build
+        working-directory: contracts
+
+      - name: cargo build
+        run: cargo build ${{ !matrix.dev_mode && '--all-features' || '' }} --locked
+        working-directory: ${{ matrix.workspace }}
+        env:
+          RISC0_DEV_MODE: ${{ matrix.dev_mode && '1' || '' }}
+
+      - name: cargo clippy
+        run: cargo clippy --locked --workspace ${{ !matrix.dev_mode && '--all-features' || '' }}
+        working-directory: ${{ matrix.workspace }}
+        env:
+          RISC0_SKIP_BUILD: 1
+          RISC0_SKIP_BUILD_KERNELS: ${{ matrix.dev_mode && '1' || '' }}
+
+      - name: forge fmt
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
+        run: forge fmt --check
+        working-directory: ${{ matrix.workspace }}/contracts
+
+      - name: forge test
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
+        run: forge test -vvv
+        working-directory: ${{ matrix.workspace }}/contracts
+
+      - name: install blake3 groth16 artifacts
+        if: matrix.workspace == 'examples/blake3-groth16'
+        run: |
+          set -euxo pipefail
+          export BLAKE3_GROTH16_SETUP_DIR="$HOME/.risc0/blake3_groth16"
+          echo "BLAKE3_GROTH16_SETUP_DIR=$HOME/.risc0/blake3_groth16" >> "$GITHUB_ENV"
+
+          mkdir -p "$BLAKE3_GROTH16_SETUP_DIR"
+          curl -L -o /tmp/blake3_groth16_artifacts.tar.xz \
+            "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
+          tar -xJf /tmp/blake3_groth16_artifacts.tar.xz \
+            -C "$BLAKE3_GROTH16_SETUP_DIR" --strip-components=1
+          rm -f /tmp/blake3_groth16_artifacts.tar.xz
+
+          echo "Contents of setup dir:"
+          ls -R "$BLAKE3_GROTH16_SETUP_DIR"
+
+      - name: cargo nextest run
+        # Warn every 5min, kill test after 30min (6x300s)
+        run: cargo nextest run ${{ !matrix.dev_mode && '--all-features' || '' }} --locked --nocapture --config-file "$GITHUB_WORKSPACE/.config/nextest.toml" --profile nightly-examples
+        working-directory: ${{ matrix.workspace }}
+        env:
+          RUST_LOG: "info"
+          RISC0_DEV_MODE: ${{ matrix.dev_mode && '1' || '' }}
+          RISC0_INFO: 1
+          BLAKE3_GROTH16_SETUP_DIR: ${{ env.BLAKE3_GROTH16_SETUP_DIR }}
+          USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  notify-failure:
+    if: failure()
+    needs: [examples]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Nightly examples CI failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }

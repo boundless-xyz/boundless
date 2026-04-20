@@ -7,6 +7,7 @@ cache/
 *.db
 
 out/
+out-shanghai/
 build-info-reference/
 **/node_modules/
 
@@ -20,6 +21,8 @@ build-info-reference/
 
 # Ignore the file with RPC and Etherscan API keys for deployment.
 deployment_secrets.toml
+network_secrets.toml
+network_address_labels.json
 
 # Devnet logs
 /logs
@@ -36,6 +39,8 @@ deployment_secrets.toml
 # Ignore broker config file(s)
 *broker*.toml
 ansible/inventory.yml
+# Custom ansible inventories
+ansible/inventory-*.yml
 
 # Cargo
 target/
@@ -47,6 +52,7 @@ target/
 **/CLAUDE.md
 **/AGENTS.md
 .codex
+scripts/internal
 
 infra/**/build
 
@@ -64,6 +70,19 @@ contracts/test/PovwElf.sol
 contracts/test/ResolveElf.sol
 contracts/test/SetBuilderElf.sol
 contracts/test/UtilElf.sol
+
+contracts/shanghai/src/EchoImageID.sol
+contracts/shanghai/src/ResolveImageID.sol
+contracts/shanghai/src/SetBuilderImageID.sol
+contracts/shanghai/src/libraries/AssessorImageID.sol
+contracts/shanghai/src/libraries/PovwImageID.sol
+contracts/shanghai/src/libraries/UtilImageID.sol
+contracts/shanghai/test/AssessorElf.sol
+contracts/shanghai/test/EchoElf.sol
+contracts/shanghai/test/PovwElf.sol
+contracts/shanghai/test/ResolveElf.sol
+contracts/shanghai/test/SetBuilderElf.sol
+contracts/shanghai/test/UtilElf.sol
 
 # Lints & Format Caches
 .lycheecache

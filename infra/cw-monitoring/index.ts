@@ -114,16 +114,22 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     const { metricsNamespace, alarmNamespace, logGroupPrefix, retentionDays, alarmActions, stackName } = opts;
     const logGroupName = `${logGroupPrefix}/${node.hostname}`;
     const prefix = `cw-${stackName}-${node.name}`;
+    const stage = stackName.includes("prod") ? "prod" : "staging";
+
+    const alarmTags = {
+        StackName: stage,
+        ChainId: node.chainId,
+        ServiceName: "Prover",
+        LogGroupName: logGroupName,
+    };
 
     // ── Log Group ────────────────────────────────────────────────────────
-    // Vector creates the log group on first write. We adopt it into Pulumi
-    // state so we can enforce retention and manage it as infra. The import
-    // option tells Pulumi to import the existing resource rather than fail
-    // with ResourceAlreadyExistsException.
+    // Pulumi creates the log group if it doesn't exist, or manages it if
+    // already in state. Vector will write to it on first log delivery.
     const logGroup = new aws.cloudwatch.LogGroup(`${prefix}-logs`, {
         name: logGroupName,
         retentionInDays: retentionDays,
-    }, { import: logGroupName });
+    });
 
     // ── Alarms (data-driven from nodeConfig) ─────────────────────────────
 
@@ -142,6 +148,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "bento-down"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -160,6 +167,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "no-containers"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -204,6 +212,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "memory-high"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -248,6 +257,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "disk-high"),
             actionsEnabled: true,
             alarmActions,
+            tags: alarmTags,
         });
     }
 
@@ -306,6 +316,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                 })(),
                 actionsEnabled: true,
                 alarmActions,
+                tags: alarmTags,
             });
         }
     }

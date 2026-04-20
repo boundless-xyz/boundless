@@ -1,0 +1,78 @@
+name: Post-merge checks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  FOUNDRY_VERSION: v1.5.0
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  # Check that cargo publish can package the boundless-market crate.
+  # Does not install Forge or cargo-risczero — only needs Rust sources and contracts/src/.
+  check-publish:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      # TODO: Add dry-run publish checks for other crates; difficulty is they all depend on boundless-market being published
+      - run: cargo publish -p boundless-market --dry-run
+      - name: sccache stats
+        run: sccache --show-stats
+
+  # Run as a separate job because it needs the nightly toolchain and does not install Forge or cargo-risczero.
+  docs-rs:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          # Building with docs.rs config requires the nightly toolchain.
+          toolchain: nightly-2025-05-09
+      - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+      - name: sccache stats
+        run: sccache --show-stats
+
+  notify-failure:
+    if: failure()
+    needs: [check-publish, docs-rs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Post-merge checks failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }

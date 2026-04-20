@@ -87,7 +87,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-market-${infra.databaseVersion}`,
-          image: infra.image.ref,
+          image: infra.imageRef,
           entryPoint: ['/app/market-indexer'],
           cpu: 2048,
           memory: 2048,
@@ -189,7 +189,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       taskRole: { roleArn: infra.taskRole.arn },
       container: {
         name: backfillContainerName,
-        image: infra.image.ref,
+        image: infra.imageRef,
         entryPoint: ['/app/market-indexer-backfill'],
         cpu: 2048,
         memory: 2048,
@@ -344,11 +344,15 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     // Market efficiency indexer: run once daily with 2-day lookback
     const efficiencyLogGroupName = `${serviceName}-market-efficiency`;
-    const efficiencyLogGroup = new aws.cloudwatch.LogGroup(efficiencyLogGroupName, {
+    const efficiencyLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
       name: efficiencyLogGroupName,
-      retentionInDays: 0,
-      skipDestroy: true,
-    }, { parent: this, import: efficiencyLogGroupName });
+    }, { async: true }).catch(() => {
+      return new aws.cloudwatch.LogGroup(efficiencyLogGroupName, {
+        name: efficiencyLogGroupName,
+        retentionInDays: 0,
+        skipDestroy: true,
+      }, { parent: this });
+    }));
 
     const efficiencyLogGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${efficiencyLogGroupName}:*`;
     new aws.iam.RolePolicy(`${serviceName}-efficiency-logs-policy`, {
@@ -371,7 +375,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       taskRole: { roleArn: infra.taskRole.arn },
       container: {
         name: efficiencyContainerName,
-        image: infra.image.ref,
+        image: infra.imageRef,
         entryPoint: ['/app/market-efficiency-indexer'],
         cpu: 1024,
         memory: 2048,

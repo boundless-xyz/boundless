@@ -15,26 +15,41 @@
 //! HTTP/HTTPS download handler.
 //!
 //! This module provides download functionality for HTTP and HTTPS URLs with support for:
-//! - Retry policies
+//! - Retry loop with exponential backoff for all failure modes
+//! - Resumable downloads via HTTP Range headers
+//! - Stream timeout to detect stalled connections
 //! - Size limits
 //! - IPFS gateway fallback
+
+use std::time::Duration;
 
 use crate::storage::{config::StorageDownloaderConfig, StorageDownloader, StorageError};
 use async_trait::async_trait;
 use futures::StreamExt;
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use url::Url;
 
-/// HTTP/HTTPS downloader with retry support.
+/// Per-chunk stream timeout: if no data arrives for this long, the stream is
+/// considered stalled and eligible for a range-based resume.
+const STREAM_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Base delay for exponential backoff between retry attempts.
+const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
+
+/// Maximum delay cap for exponential backoff.
+const RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+
+/// HTTP/HTTPS downloader with retry and resume support.
 ///
 /// This downloader handles `http://` and `https://` URLs. It supports:
-/// - Configurable retry policies with exponential backoff
+/// - Unified retry with exponential backoff for all failure modes
+/// - Automatic range-based resume on mid-stream failures
+/// - Stream timeout to detect stalled connections
 /// - Size limits to prevent downloading excessively large files
 /// - Optional IPFS gateway fallback for URLs containing `/ipfs/`
 #[derive(Clone, Debug)]
 pub struct HttpDownloader {
-    client: ClientWithMiddleware,
+    client: reqwest::Client,
+    max_retries: u8,
     ipfs_gateway: Option<Url>,
 }
 
@@ -48,19 +63,20 @@ impl Default for HttpDownloader {
 impl HttpDownloader {
     /// Creates a new HTTP downloader with optional retry configuration.
     ///
+    /// When `max_retries` is set, a single retry loop handles both connection-level
+    /// failures (transient HTTP errors, retryable status codes) and mid-stream
+    /// failures (using HTTP `Range` headers for resumable downloads). Retries use
+    /// exponential backoff with a base delay of 500ms capped at 30s.
+    ///
     /// # Panics
     ///
     /// Panics if `ipfs_gateway` uses a scheme other than `http` or `https`.
     pub fn new(max_retries: Option<u8>, ipfs_gateway: Option<Url>) -> Self {
-        let mut builder = ClientBuilder::new(reqwest::Client::new());
-
-        if let Some(max_retries) = max_retries {
-            let retry_policy =
-                ExponentialBackoff::builder().build_with_max_retries(max_retries as u32);
-            builder = builder.with(RetryTransientMiddleware::new_with_policy(retry_policy));
+        Self {
+            client: reqwest::Client::new(),
+            max_retries: max_retries.unwrap_or(0),
+            ipfs_gateway: ipfs_gateway.map(normalize_gateway_url),
         }
-
-        Self { client: builder.build(), ipfs_gateway: ipfs_gateway.map(normalize_gateway_url) }
     }
 
     /// Attempts to rewrite an IPFS gateway URL to use the configured fallback gateway.
@@ -86,6 +102,12 @@ impl HttpDownloader {
     }
 
     /// Internal download implementation without IPFS fallback.
+    ///
+    /// Uses a single retry loop for both connection-level and mid-stream failures.
+    /// On mid-stream failures, retries with a `Range: bytes=<offset>-` header so
+    /// only the remaining bytes are re-fetched. Falls back to a full restart if
+    /// the server doesn't support Range (responds 200 instead of 206).
+    /// Non-success HTTP status codes are retried with backoff.
     async fn download_impl(&self, url: Url, limit: usize) -> Result<Vec<u8>, StorageError> {
         if !is_http_url(&url) {
             return Err(StorageError::UnsupportedScheme(url.scheme().to_string()));
@@ -93,38 +115,110 @@ impl HttpDownloader {
 
         tracing::debug!(%url, "downloading from HTTP");
 
-        let resp = self.client.get(url.clone()).send().await.map_err(StorageError::http)?;
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut attempts = 0u8;
 
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(StorageError::HttpStatus(status.as_u16()));
-        }
-
-        // Check content length if available for early rejection
-        let content_length = resp.content_length().unwrap_or(0) as usize;
-        if content_length > limit {
-            return Err(StorageError::SizeLimitExceeded { size: content_length, limit });
-        }
-
-        // Stream the response body with size checking
-        let mut buffer = Vec::with_capacity(content_length.min(limit));
-        let mut stream = resp.bytes_stream();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(StorageError::http)?;
-            if buffer.len() + chunk.len() > limit {
-                return Err(StorageError::SizeLimitExceeded {
-                    size: buffer.len() + chunk.len(),
-                    limit,
-                });
+        loop {
+            let mut request = self.client.get(url.clone());
+            if !buffer.is_empty() {
+                request =
+                    request.header(reqwest::header::RANGE, format!("bytes={}-", buffer.len()));
             }
-            buffer.extend_from_slice(&chunk);
+
+            let resp = match request.send().await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    let Some(delay) = next_retry(&mut attempts, self.max_retries) else {
+                        return Err(StorageError::http(e));
+                    };
+                    tracing::warn!(error = %e, ?delay, %url, "request failed, retrying");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+            };
+            let status = resp.status();
+
+            if status == reqwest::StatusCode::OK {
+                // Server ignored Range header — restart from scratch
+                buffer.clear();
+                let content_length = resp.content_length().unwrap_or(0) as usize;
+                if content_length > limit {
+                    return Err(StorageError::SizeLimitExceeded { size: content_length, limit });
+                }
+                buffer.reserve(content_length.min(limit));
+            } else if status == reqwest::StatusCode::PARTIAL_CONTENT {
+                // 206 — server supports Range, append to existing buffer
+            } else {
+                let Some(delay) = next_retry(&mut attempts, self.max_retries) else {
+                    return Err(StorageError::HttpStatus(status.as_u16()));
+                };
+                tracing::warn!(status = status.as_u16(), ?delay, %url, "HTTP error, retrying");
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+
+            match stream_body(resp, &mut buffer, limit).await {
+                Ok(()) => {
+                    tracing::trace!(size = buffer.len(), %url, "downloaded from HTTP");
+                    return Ok(buffer);
+                }
+                Err(StorageError::SizeLimitExceeded { .. }) => {
+                    return Err(StorageError::SizeLimitExceeded { size: buffer.len(), limit });
+                }
+                Err(e) => {
+                    let Some(delay) = next_retry(&mut attempts, self.max_retries) else {
+                        return Err(e);
+                    };
+                    tracing::warn!(
+                        bytes_received = buffer.len(), error = %e, ?delay, %url,
+                        "stream interrupted, retrying"
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+            }
         }
-
-        tracing::trace!(size = buffer.len(), %url, "downloaded from HTTP");
-
-        Ok(buffer)
     }
+}
+
+/// Stream the response body into `buffer`, enforcing `limit` and [`STREAM_TIMEOUT`].
+async fn stream_body(
+    resp: reqwest::Response,
+    buffer: &mut Vec<u8>,
+    limit: usize,
+) -> Result<(), StorageError> {
+    let mut stream = resp.bytes_stream();
+
+    loop {
+        match tokio::time::timeout(STREAM_TIMEOUT, stream.next()).await {
+            Ok(Some(Ok(chunk))) => {
+                if buffer.len() + chunk.len() > limit {
+                    return Err(StorageError::SizeLimitExceeded {
+                        size: buffer.len() + chunk.len(),
+                        limit,
+                    });
+                }
+                buffer.extend_from_slice(&chunk);
+            }
+            Ok(Some(Err(e))) => return Err(StorageError::http(e)),
+            Ok(None) => return Ok(()),
+            Err(_elapsed) => {
+                return Err(StorageError::http(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("download stalled: no data received for {}s", STREAM_TIMEOUT.as_secs()),
+                )));
+            }
+        }
+    }
+}
+
+/// Increment `attempts` and return the backoff delay, or `None` if retries are exhausted.
+fn next_retry(attempts: &mut u8, max_retries: u8) -> Option<Duration> {
+    *attempts += 1;
+    if *attempts >= max_retries {
+        return None;
+    }
+    let exponent = attempts.saturating_sub(1).min(5) as u32;
+    Some(RETRY_BASE_DELAY.saturating_mul(1u32 << exponent).min(RETRY_MAX_DELAY))
 }
 
 fn is_http_url(url: &Url) -> bool {
@@ -285,5 +379,96 @@ mod tests {
     #[should_panic(expected = "IPFS gateway URL must use http or https scheme")]
     fn rejects_non_http_gateway_scheme() {
         let _ = HttpDownloader::new(None, Some(Url::parse("ftp://gateway.example.com").unwrap()));
+    }
+
+    /// Simulates a server that drops the connection mid-stream, then serves the
+    /// remainder via a 206 response on the Range retry.
+    #[tokio::test]
+    async fn resumes_download_after_mid_stream_disconnect() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let data: Vec<u8> = (0..8192u16).flat_map(|i| i.to_le_bytes()).collect();
+        let data_for_server = data.clone();
+        let split_point = data.len() / 2;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let rc = request_count.clone();
+
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let n = rc.fetch_add(1, Ordering::SeqCst);
+                let data = data_for_server.clone();
+
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let bytes_read = stream.read(&mut buf).await.unwrap();
+                    let request = String::from_utf8_lossy(&buf[..bytes_read]);
+
+                    let has_range = request.lines().any(|l| l.to_lowercase().starts_with("range:"));
+
+                    if n == 0 && !has_range {
+                        // First request: send headers + half the data, then drop
+                        let header =
+                            format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", data.len());
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.write_all(&data[..split_point]).await;
+                        let _ = stream.flush().await;
+                        drop(stream);
+                    } else if has_range {
+                        let range_line = request
+                            .lines()
+                            .find(|l| l.to_lowercase().starts_with("range:"))
+                            .unwrap();
+                        let offset: usize = range_line
+                            .split("bytes=")
+                            .nth(1)
+                            .unwrap()
+                            .split('-')
+                            .next()
+                            .unwrap()
+                            .trim()
+                            .parse()
+                            .unwrap();
+
+                        let remaining = &data[offset..];
+                        let header = format!(
+                            "HTTP/1.1 206 Partial Content\r\n\
+                             Content-Length: {}\r\n\
+                             Content-Range: bytes {}-{}/{}\r\n\r\n",
+                            remaining.len(),
+                            offset,
+                            data.len() - 1,
+                            data.len()
+                        );
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.write_all(remaining).await;
+                    } else {
+                        let header =
+                            format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", data.len());
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.write_all(&data).await;
+                    }
+                });
+            }
+        });
+
+        let url = Url::parse(&format!("http://127.0.0.1:{}/test", addr.port())).unwrap();
+        let downloader = HttpDownloader::new(Some(3), None);
+        let result = downloader.download_url(url).await.unwrap();
+
+        assert_eq!(result.len(), data.len());
+        assert_eq!(result, data);
+        assert!(
+            request_count.load(Ordering::SeqCst) >= 2,
+            "expected at least 2 requests (initial + range resume)"
+        );
+
+        server.abort();
     }
 }

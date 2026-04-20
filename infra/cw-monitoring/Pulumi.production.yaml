@@ -8,30 +8,30 @@ config:
   # cw-monitoring:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-pagerduty-alerts"
   cw-monitoring:nodes:
     - name: execution-8453-prod-release
-      hostname: prod-explorer-exec
+      hostname: execution-8453-prod-release
       role: explorer
       chainId: "8453"
       alarmProfile: prod
     - name: prover-8453-prod-release
-      hostname: base-mainnet-prover-release
+      hostname: prover-8453-prod-release
       role: prover
       chainId: "8453"
       alarmProfile: prod
       proverType: bento
     - name: prover-8453-prod-nightly
-      hostname: base-mainnet-prover-nightly
+      hostname: prover-8453-prod-nightly
       role: prover
       chainId: "8453"
       alarmProfile: nightly
       proverType: bento
     - name: prover-84532-prod-nightly
-      hostname: base-sepolia-prover-nightly
+      hostname: prover-84532-prod-nightly
       role: prover
       chainId: "84532"
       alarmProfile: nightly
       proverType: bento
     - name: prover-11155111-prod-nightly
-      hostname: eth-sepolia-prover-nightly
+      hostname: prover-11155111-prod-nightly
       role: prover
       chainId: "11155111"
       alarmProfile: nightly
