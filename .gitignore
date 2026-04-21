@@ -53,7 +53,6 @@ target/
 .aider*
 **/CLAUDE.md
 **/AGENTS.md
-.codex
 scripts/internal
 
 infra/**/build
