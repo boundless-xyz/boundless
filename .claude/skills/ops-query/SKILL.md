@@ -110,6 +110,10 @@ After the summary table, include two separate breakdown sections:
 
 **Drop breakdown**: Same structure — per-prover table of `commitment_skip_code`, reason, and count, sorted by count descending.
 
+### Alerts and Error Codes
+
+Alerts always match on **error codes** (e.g. `[B-PRO-501]`), not on string patterns. Seeing a string like `ProvingFailed` in a log message does NOT mean it counts toward the `proving-failed` metric or alert. Only entries with the corresponding error code (e.g. `[B-PRO-501]`) are counted. When investigating alert triggers or counting occurrences for a specific alert, always filter by the error code, not by keyword/string matching.
+
 ### Telemetry Terminology
 
 - **Locked**: Order was priced and the broker decided to try locking it on-chain.

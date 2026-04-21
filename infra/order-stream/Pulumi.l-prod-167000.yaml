@@ -2,7 +2,7 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwHVWUK4D9or54F7xbo6NzEDAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM2KyMAdsoRtiQyHnBAgEQgDu0ZXxE0xK0OWsYJ7AJaYEFENUdi5P/d+iSho1N0QDXxCVaJNo9k9L8hmnPCBN3N+irjEJak6Rf03Rjvg==
 config:
   aws:region: us-west-2
-  order-stream:ALB_DOMAIN: base-mainnet.boundless.network
+  order-stream:ALB_DOMAIN: taiko-mainnet.boundless.network
   order-stream:BASE_STACK: organization/bootstrap/services-prod
   order-stream:BOUNDLESS_ADDRESS: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
   order-stream:BYPASS_ADDRS: 0x821Abe5Dfa67c08af9a67C344C3b2651F7960136

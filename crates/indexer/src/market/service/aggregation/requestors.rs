@@ -527,6 +527,7 @@ where
                                     total_fulfilled: 0,
                                     unique_provers_locking_requests: 0,
                                     total_fees_locked: alloy::primitives::U256::ZERO,
+                                    total_fees_paid: alloy::primitives::U256::ZERO,
                                     total_collateral_locked: alloy::primitives::U256::ZERO,
                                     total_locked_and_expired_collateral: alloy::primitives::U256::ZERO,
                                     total_requests_submitted: 0,
@@ -572,6 +573,7 @@ where
                                 cumulative_summary.total_program_cycles += summary.total_program_cycles;
                                 cumulative_summary.total_cycles += summary.total_cycles;
                                 cumulative_summary.total_fees_locked += summary.total_fees_locked;
+                                cumulative_summary.total_fees_paid += summary.total_fees_paid;
                                 cumulative_summary.total_collateral_locked += summary.total_collateral_locked;
                                 cumulative_summary.total_locked_and_expired_collateral += summary.total_locked_and_expired_collateral;
                                 cumulative_summary.total_fixed_cost += summary.total_fixed_cost;
@@ -931,6 +933,7 @@ where
             total_fulfilled,
             unique_provers_locking_requests: unique_provers,
             total_fees_locked: total_fees,
+            total_fees_paid: total_fees,
             total_collateral_locked: total_collateral,
             total_locked_and_expired_collateral,
             p10_lock_price_per_cycle: percentiles[0],

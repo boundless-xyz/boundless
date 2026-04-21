@@ -82,6 +82,11 @@ fn parse_period_requestor_summary_row(row: &PgRow) -> Result<PeriodRequestorSumm
         total_fulfilled: total_fulfilled as u64,
         unique_provers_locking_requests: unique_provers as u64,
         total_fees_locked: padded_string_to_u256(&total_fees_locked_str)?,
+        total_fees_paid: row
+            .try_get::<String, _>("total_fees_paid")
+            .ok()
+            .and_then(|s| padded_string_to_u256(&s).ok())
+            .unwrap_or(U256::ZERO),
         total_collateral_locked: padded_string_to_u256(&total_collateral_locked_str)?,
         total_locked_and_expired_collateral: padded_string_to_u256(
             &total_locked_and_expired_collateral_str,
@@ -194,6 +199,11 @@ fn parse_all_time_requestor_summary_row(row: &PgRow) -> Result<AllTimeRequestorS
         total_fulfilled: total_fulfilled as u64,
         unique_provers_locking_requests: unique_provers as u64,
         total_fees_locked: padded_string_to_u256(&total_fees_locked_str)?,
+        total_fees_paid: row
+            .try_get::<String, _>("total_fees_paid")
+            .ok()
+            .and_then(|s| padded_string_to_u256(&s).ok())
+            .unwrap_or(U256::ZERO),
         total_collateral_locked: padded_string_to_u256(&total_collateral_locked_str)?,
         total_locked_and_expired_collateral: padded_string_to_u256(
             &total_locked_and_expired_collateral_str,
@@ -352,6 +362,7 @@ pub trait RequestorDb: IndexerDb {
                 total_fulfilled,
                 unique_provers_locking_requests,
                 total_fees_locked,
+                total_fees_paid,
                 total_collateral_locked,
                 total_locked_and_expired_collateral,
                 total_requests_submitted,
@@ -376,12 +387,13 @@ pub trait RequestorDb: IndexerDb {
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, CAST($28 AS DOUBLE PRECISION), CAST($29 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, CAST($29 AS DOUBLE PRECISION), CAST($30 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
                 epoch_number_period_start = EXCLUDED.epoch_number_period_start,
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
                 total_fees_locked = EXCLUDED.total_fees_locked,
+                total_fees_paid = EXCLUDED.total_fees_paid,
                 total_collateral_locked = EXCLUDED.total_collateral_locked,
                 total_locked_and_expired_collateral = EXCLUDED.total_locked_and_expired_collateral,
                 total_requests_submitted = EXCLUDED.total_requests_submitted,
@@ -414,6 +426,7 @@ pub trait RequestorDb: IndexerDb {
             .bind(summary.total_fulfilled as i64)
             .bind(summary.unique_provers_locking_requests as i64)
             .bind(u256_to_padded_string(summary.total_fees_locked))
+            .bind(u256_to_padded_string(summary.total_fees_paid))
             .bind(u256_to_padded_string(summary.total_collateral_locked))
             .bind(u256_to_padded_string(summary.total_locked_and_expired_collateral))
             .bind(summary.total_requests_submitted as i64)
@@ -622,7 +635,7 @@ pub trait RequestorDb: IndexerDb {
     ) -> Result<Option<AllTimeRequestorSummary>, DbError> {
         let query_str = "SELECT
                 period_timestamp, requestor_address, total_fulfilled, unique_provers_locking_requests,
-                total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
+                total_fees_locked, total_fees_paid, total_collateral_locked, total_locked_and_expired_collateral,
                 total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
                 total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
@@ -654,7 +667,7 @@ pub trait RequestorDb: IndexerDb {
     ) -> Result<Option<AllTimeRequestorSummary>, DbError> {
         let query_str = "SELECT
                 period_timestamp, requestor_address, total_fulfilled, unique_provers_locking_requests,
-                total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
+                total_fees_locked, total_fees_paid, total_collateral_locked, total_locked_and_expired_collateral,
                 total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
                 total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
@@ -1438,6 +1451,7 @@ async fn upsert_requestor_summary_generic(
             total_fulfilled,
             unique_provers_locking_requests,
             total_fees_locked,
+            total_fees_paid,
             total_collateral_locked,
             total_locked_and_expired_collateral,
             p10_lock_price_per_cycle,
@@ -1473,12 +1487,13 @@ async fn upsert_requestor_summary_generic(
             p50_time_to_fulfill_seconds,
             p90_time_to_fulfill_seconds,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, CAST($35 AS DOUBLE PRECISION), CAST($36 AS DOUBLE PRECISION), $37, $38, $39, $40, CURRENT_TIMESTAMP)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, CAST($36 AS DOUBLE PRECISION), CAST($37 AS DOUBLE PRECISION), $38, $39, $40, $41, CURRENT_TIMESTAMP)
         ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
             epoch_number_period_start = EXCLUDED.epoch_number_period_start,
             total_fulfilled = EXCLUDED.total_fulfilled,
             unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
             total_fees_locked = EXCLUDED.total_fees_locked,
+            total_fees_paid = EXCLUDED.total_fees_paid,
             total_collateral_locked = EXCLUDED.total_collateral_locked,
             total_locked_and_expired_collateral = EXCLUDED.total_locked_and_expired_collateral,
             p10_lock_price_per_cycle = EXCLUDED.p10_lock_price_per_cycle,
@@ -1524,6 +1539,7 @@ async fn upsert_requestor_summary_generic(
         .bind(summary.total_fulfilled as i64)
         .bind(summary.unique_provers_locking_requests as i64)
         .bind(u256_to_padded_string(summary.total_fees_locked))
+        .bind(u256_to_padded_string(summary.total_fees_paid))
         .bind(u256_to_padded_string(summary.total_collateral_locked))
         .bind(u256_to_padded_string(summary.total_locked_and_expired_collateral))
         .bind(u256_to_padded_string(summary.p10_lock_price_per_cycle))
@@ -1574,7 +1590,7 @@ async fn get_requestor_summaries_by_range_generic(
     let query_str = format!(
         "SELECT 
             period_timestamp, requestor_address, total_fulfilled, unique_provers_locking_requests,
-            total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
+            total_fees_locked, total_fees_paid, total_collateral_locked, total_locked_and_expired_collateral,
             p10_lock_price_per_cycle, p25_lock_price_per_cycle, p50_lock_price_per_cycle,
             p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle, p99_lock_price_per_cycle,
             total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
@@ -1664,7 +1680,7 @@ async fn get_requestor_summaries_generic(
     let query_str = format!(
         "SELECT
             period_timestamp, epoch_number_period_start, requestor_address, total_fulfilled, unique_provers_locking_requests,
-            total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
+            total_fees_locked, total_fees_paid, total_collateral_locked, total_locked_and_expired_collateral,
             p10_lock_price_per_cycle, p25_lock_price_per_cycle, p50_lock_price_per_cycle,
             p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle, p99_lock_price_per_cycle,
             total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
@@ -1773,6 +1789,7 @@ async fn get_all_time_requestor_summaries_generic(
             total_fulfilled,
             unique_provers_locking_requests,
             total_fees_locked,
+            total_fees_paid,
             total_collateral_locked,
             total_locked_and_expired_collateral,
             total_requests_submitted,
@@ -2486,6 +2503,7 @@ mod tests {
             total_fulfilled: 5,
             unique_provers_locking_requests: 2,
             total_fees_locked: U256::from(1000),
+            total_fees_paid: U256::from(1000),
             total_collateral_locked: U256::from(2000),
             total_locked_and_expired_collateral: U256::ZERO,
             p10_lock_price_per_cycle: U256::from(10),
@@ -2532,6 +2550,7 @@ mod tests {
         assert_eq!(results[0].period_timestamp, period_ts);
         assert_eq!(results[0].requestor_address, requestor);
         assert_eq!(results[0].total_fulfilled, 5);
+        assert_eq!(results[0].total_fees_paid, U256::from(1000));
         assert_eq!(results[0].total_program_cycles, U256::from(50_000_000_000u64));
         assert_eq!(results[0].total_fixed_cost, U256::from(5000));
         assert_eq!(results[0].total_variable_cost, U256::from(3000));
@@ -2567,6 +2586,7 @@ mod tests {
             total_fulfilled: 100,
             unique_provers_locking_requests: 10,
             total_fees_locked: U256::from(50000),
+            total_fees_paid: U256::from(50000),
             total_collateral_locked: U256::from(100000),
             total_locked_and_expired_collateral: U256::from(5000),
             total_requests_submitted: 150,
@@ -2600,6 +2620,7 @@ mod tests {
         assert_eq!(result.period_timestamp, period_ts);
         assert_eq!(result.requestor_address, requestor);
         assert_eq!(result.total_fulfilled, 100);
+        assert_eq!(result.total_fees_paid, U256::from(50000));
         assert_eq!(
             result.total_secondary_fulfillments, 20,
             "Should have 20 secondary fulfillments"
@@ -2636,6 +2657,147 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn test_total_fees_paid_roundtrip(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x44; 20]);
+        let period_ts = 1700000000u64;
+
+        // Test period (hourly) summary with distinct fees_locked vs fees_paid
+        let hourly = PeriodRequestorSummary {
+            period_timestamp: period_ts,
+            epoch_number_period_start: 0,
+            requestor_address: requestor,
+            total_fulfilled: 5,
+            unique_provers_locking_requests: 2,
+            total_fees_locked: U256::from(10000),
+            total_fees_paid: U256::from(8000),
+            total_collateral_locked: U256::from(2000),
+            total_locked_and_expired_collateral: U256::ZERO,
+            p10_lock_price_per_cycle: U256::ZERO,
+            p25_lock_price_per_cycle: U256::ZERO,
+            p50_lock_price_per_cycle: U256::ZERO,
+            p75_lock_price_per_cycle: U256::ZERO,
+            p90_lock_price_per_cycle: U256::ZERO,
+            p95_lock_price_per_cycle: U256::ZERO,
+            p99_lock_price_per_cycle: U256::ZERO,
+            total_requests_submitted: 10,
+            total_requests_submitted_onchain: 7,
+            total_requests_submitted_offchain: 3,
+            total_requests_locked: 8,
+            total_requests_slashed: 0,
+            total_expired: 0,
+            total_locked_and_expired: 0,
+            total_locked_and_fulfilled: 5,
+            total_secondary_fulfillments: 0,
+            locked_orders_fulfillment_rate: 1.0,
+            locked_orders_fulfillment_rate_adjusted: 1.0,
+            total_program_cycles: U256::ZERO,
+            total_cycles: U256::ZERO,
+            total_fixed_cost: U256::ZERO,
+            total_variable_cost: U256::ZERO,
+            best_peak_prove_mhz: 0.0,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 0.0,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+            p50_time_to_lock_seconds: None,
+            p90_time_to_lock_seconds: None,
+            p50_time_to_fulfill_seconds: None,
+            p90_time_to_fulfill_seconds: None,
+        };
+
+        db.upsert_hourly_requestor_summary(hourly.clone()).await.unwrap();
+
+        let results = db
+            .get_hourly_requestor_summaries_by_range(requestor, period_ts, period_ts + 1)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].total_fees_locked,
+            U256::from(10000),
+            "total_fees_locked should round-trip through upsert"
+        );
+        assert_eq!(
+            results[0].total_fees_paid,
+            U256::from(8000),
+            "total_fees_paid should round-trip through upsert"
+        );
+
+        // Test ON CONFLICT updates total_fees_paid
+        let mut updated = hourly.clone();
+        updated.total_fees_paid = U256::from(9500);
+        db.upsert_hourly_requestor_summary(updated).await.unwrap();
+
+        let results = db
+            .get_hourly_requestor_summaries_by_range(requestor, period_ts, period_ts + 1)
+            .await
+            .unwrap();
+        assert_eq!(
+            results[0].total_fees_paid,
+            U256::from(9500),
+            "ON CONFLICT should update total_fees_paid"
+        );
+
+        // Test all-time summary with total_fees_paid
+        let all_time = AllTimeRequestorSummary {
+            period_timestamp: period_ts,
+            epoch_number_period_start: 0,
+            requestor_address: requestor,
+            total_fulfilled: 5,
+            unique_provers_locking_requests: 2,
+            total_fees_locked: U256::from(10000),
+            total_fees_paid: U256::from(8000),
+            total_collateral_locked: U256::from(2000),
+            total_locked_and_expired_collateral: U256::ZERO,
+            total_requests_submitted: 10,
+            total_requests_submitted_onchain: 7,
+            total_requests_submitted_offchain: 3,
+            total_requests_locked: 8,
+            total_requests_slashed: 0,
+            total_expired: 0,
+            total_locked_and_expired: 0,
+            total_locked_and_fulfilled: 5,
+            total_secondary_fulfillments: 0,
+            locked_orders_fulfillment_rate: 1.0,
+            locked_orders_fulfillment_rate_adjusted: 1.0,
+            total_program_cycles: U256::ZERO,
+            total_cycles: U256::ZERO,
+            total_fixed_cost: U256::ZERO,
+            total_variable_cost: U256::ZERO,
+            best_peak_prove_mhz: 0.0,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 0.0,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        db.upsert_all_time_requestor_summary(all_time.clone()).await.unwrap();
+
+        let result = db.get_latest_all_time_requestor_summary(requestor).await.unwrap().unwrap();
+        assert_eq!(
+            result.total_fees_paid,
+            U256::from(8000),
+            "all-time total_fees_paid should round-trip"
+        );
+
+        let result = db
+            .get_all_time_requestor_summary_by_timestamp(requestor, period_ts)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            result.total_fees_paid,
+            U256::from(8000),
+            "all-time total_fees_paid should be retrievable by timestamp"
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn test_upsert_and_get_daily_requestor_summary(pool: sqlx::PgPool) {
         let test_db = test_db(pool).await;
         let db = &test_db.db;
@@ -2652,6 +2814,7 @@ mod tests {
                 total_fulfilled: 10 * (i + 1),
                 unique_provers_locking_requests: 2 * (i + 1),
                 total_fees_locked: U256::from(1000 * (i + 1)),
+                total_fees_paid: U256::from(1000 * (i + 1)),
                 total_collateral_locked: U256::from(2000 * (i + 1)),
                 total_locked_and_expired_collateral: U256::ZERO,
                 p10_lock_price_per_cycle: U256::from(10),
@@ -2716,6 +2879,7 @@ mod tests {
             total_fulfilled: 50,
             unique_provers_locking_requests: 5,
             total_fees_locked: U256::from(10000),
+            total_fees_paid: U256::from(10000),
             total_collateral_locked: U256::from(20000),
             total_locked_and_expired_collateral: U256::from(500),
             p10_lock_price_per_cycle: U256::from(10),
@@ -2778,6 +2942,7 @@ mod tests {
             total_fulfilled: 200,
             unique_provers_locking_requests: 15,
             total_fees_locked: U256::from(50000),
+            total_fees_paid: U256::from(50000),
             total_collateral_locked: U256::from(100000),
             total_locked_and_expired_collateral: U256::from(5000),
             p10_lock_price_per_cycle: U256::from(10),
@@ -2840,6 +3005,7 @@ mod tests {
             total_fulfilled: 100,
             unique_provers_locking_requests: 10,
             total_fees_locked: U256::from(10000),
+            total_fees_paid: U256::from(10000),
             total_collateral_locked: U256::from(20000),
             total_locked_and_expired_collateral: U256::ZERO,
             total_requests_submitted: 150,
@@ -4854,6 +5020,7 @@ mod tests {
                 total_fulfilled: 10 * (i + 1),
                 unique_provers_locking_requests: 1,
                 total_fees_locked: U256::from(1000),
+                total_fees_paid: U256::from(1000),
                 total_collateral_locked: U256::from(2000),
                 total_locked_and_expired_collateral: U256::ZERO,
                 p10_lock_price_per_cycle: U256::from(10),
@@ -5009,6 +5176,7 @@ mod tests {
                 total_fulfilled: 10 * (i + 1),
                 unique_provers_locking_requests: 1,
                 total_fees_locked: U256::from(1000),
+                total_fees_paid: U256::from(1000),
                 total_collateral_locked: U256::from(2000),
                 total_locked_and_expired_collateral: U256::ZERO,
                 p10_lock_price_per_cycle: U256::from(10),
@@ -5114,6 +5282,7 @@ mod tests {
                 total_fulfilled: 50 * (i + 1),
                 unique_provers_locking_requests: 5,
                 total_fees_locked: U256::from(10000),
+                total_fees_paid: U256::from(10000),
                 total_collateral_locked: U256::from(20000),
                 total_locked_and_expired_collateral: U256::ZERO,
                 p10_lock_price_per_cycle: U256::from(10),
@@ -5209,6 +5378,7 @@ mod tests {
                 total_fulfilled: 100 * (i + 1),
                 unique_provers_locking_requests: 10,
                 total_fees_locked: U256::from(50000),
+                total_fees_paid: U256::from(50000),
                 total_collateral_locked: U256::from(100000),
                 total_locked_and_expired_collateral: U256::ZERO,
                 total_requests_submitted: 150,
@@ -5347,6 +5517,7 @@ mod tests {
             total_fulfilled: 5,
             unique_provers_locking_requests: 2,
             total_fees_locked: U256::from(1000),
+            total_fees_paid: U256::from(1000),
             total_collateral_locked: U256::from(5000),
             total_locked_and_expired_collateral: U256::ZERO,
             p10_lock_price_per_cycle: U256::from(10),
@@ -5462,6 +5633,7 @@ mod tests {
             total_fulfilled: 5,
             unique_provers_locking_requests: 2,
             total_fees_locked: U256::from(1000),
+            total_fees_paid: U256::from(1000),
             total_collateral_locked: U256::from(5000),
             total_locked_and_expired_collateral: U256::ZERO,
             p10_lock_price_per_cycle: U256::from(10),
