@@ -37,12 +37,15 @@ ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 ARG S3_CACHE_BUCKET="boundless-sccache"
 ENV SCCACHE_BUCKET=${S3_CACHE_BUCKET}
 
+ARG RELEASE=true
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=broker_sc \
     --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
     --mount=type=cache,target=/src/target,id=broker_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo chef cook --release --recipe-path recipe.json --package broker && \
+    RELEASE_FLAG="" && \
+    if [ "${RELEASE}" = "true" ]; then RELEASE_FLAG="--release"; fi && \
+    cargo chef cook ${RELEASE_FLAG} --recipe-path recipe.json --package broker && \
     sccache --show-stats
 
 COPY Cargo.toml .
@@ -60,8 +63,10 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/usr/local/cargo/registry,id=cargo_registry \
     --mount=type=cache,target=/src/target,id=broker_target \
     source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
-    cargo build --release --bin broker && \
-    cp /src/target/release/broker /src/broker && \
+    RELEASE_FLAG="" && PROFILE_DIR="debug" && \
+    if [ "${RELEASE}" = "true" ]; then RELEASE_FLAG="--release"; PROFILE_DIR="release"; fi && \
+    cargo build ${RELEASE_FLAG} --bin broker && \
+    cp /src/target/${PROFILE_DIR}/broker /src/broker && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime

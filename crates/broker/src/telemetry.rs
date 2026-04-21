@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, FixedBytes, U256};
@@ -36,47 +36,52 @@ use crate::config::ConfigLock;
 use crate::db::DbObj;
 use crate::errors::BrokerFailure;
 use crate::futures_retry::retry;
-use crate::order_monitor::{OrderCommitmentMeta, OrderMonitorConfig};
+use crate::order_locker::{OrderCommitmentMeta, OrderLockerConfig};
 
 const HEARTBEAT_RETRY_COUNT: u64 = 2;
 const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 
-static GLOBAL: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
+static CHAIN_HANDLES: LazyLock<Mutex<HashMap<u64, TelemetryHandle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
-static NOOP_HANDLE_WARNED: Once = Once::new();
 
-/// Initializes the process-global telemetry singleton on first use and returns its handle.
-///
-/// The closure is only run for the first caller, so it is expected to create both the
-/// `TelemetryHandle` and any underlying telemetry service/runtime that consumes it.
-/// Later callers reuse the existing singleton handle without rebuilding the service.
-pub(crate) fn init_with<F>(build_handle: F) -> TelemetryHandle
+/// Sum a per-chain counter across all registered telemetry handles.
+fn sum_chain_handles(f: impl Fn(&TelemetryHandle) -> u32) -> u32 {
+    CHAIN_HANDLES.lock().map(|handles| handles.values().map(&f).sum()).unwrap_or(0)
+}
+
+fn global_committed_count() -> u32 {
+    sum_chain_handles(|h| h.committed_count.load(Ordering::Relaxed))
+}
+
+fn global_pending_preflight_count() -> u32 {
+    sum_chain_handles(|h| h.pending_preflight_count.load(Ordering::Relaxed))
+}
+
+/// Initializes the telemetry handle for a specific chain. Each chain gets its own
+/// handle and underlying TelemetryService that sends heartbeats to its order-stream URL.
+pub(crate) fn init_for_chain<F>(chain_id: u64, build_handle: F) -> TelemetryHandle
 where
     F: FnOnce() -> TelemetryHandle,
 {
-    let mut global = GLOBAL.lock().unwrap();
-    if let Some(handle) = global.clone() {
-        tracing::warn!("Telemetry handle already initialized; refusing to replace existing handle");
-        return handle;
+    let mut map = CHAIN_HANDLES.lock().unwrap();
+    if let Some(handle) = map.get(&chain_id) {
+        tracing::warn!(chain_id, "Telemetry handle already initialized for chain");
+        return handle.clone();
     }
 
     let handle = build_handle();
-    tracing::debug!("Telemetry handle initialized");
-    *global = Some(handle.clone());
+    tracing::debug!(chain_id, "Telemetry handle initialized");
+    map.insert(chain_id, handle.clone());
     handle
 }
 
-pub(crate) fn telemetry() -> TelemetryHandle {
-    GLOBAL.lock().unwrap().clone().unwrap_or_else(noop_handle)
+/// Returns the telemetry handle for the given chain, or a noop fallback if none was registered.
+pub(crate) fn telemetry(chain_id: u64) -> TelemetryHandle {
+    CHAIN_HANDLES.lock().unwrap().get(&chain_id).cloned().unwrap_or_else(noop_handle)
 }
 
 fn noop_handle() -> TelemetryHandle {
-    NOOP_HANDLE_WARNED.call_once(|| {
-        tracing::warn!(
-            "Telemetry handle used before initialization; falling back to internal drop handle"
-        );
-    });
-
     NOOP_HANDLE
         .get_or_init(|| {
             let (tx, rx) = mpsc::channel(1);
@@ -134,7 +139,7 @@ pub(crate) enum TelemetryEvent {
         /// Unix timestamp (seconds) when the broker first received this request.
         received_at_timestamp: u64,
     },
-    // Emitted by OrderMonitor when it makes its final commit/drop decision for an order.
+    // Emitted by OrderLocker when it makes its final commit/drop decision for an order.
     // For LockAndFulfill orders: emitted after the lock tx succeeds or fails.
     // For FulfillAfterLockExpire orders: emitted immediately when the order enters the pipeline.
     OrderCommitment {
@@ -169,7 +174,7 @@ pub(crate) enum TelemetryEvent {
         /// waiting to be committed, excluding the current order. Calculated as:
         /// (lock_and_prove_cache.entry_count() + prove_cache.entry_count()).saturating_sub(1).
         pending_commitment_count: u32,
-        /// Structured skip code (e.g. "[B-OM-001]"), set when the order is dropped.
+        /// Structured skip code (e.g. "[B-OL-001]"), set when the order is dropped.
         skip_commit_code: Option<String>,
         /// Human-readable reason the order was dropped at commitment.
         skip_commit_reason: Option<String>,
@@ -228,6 +233,7 @@ pub(crate) struct TelemetryHandle {
     tx: mpsc::Sender<TelemetryEvent>,
     drop_count: Arc<AtomicU64>,
     pending_preflight_count: Arc<AtomicU32>,
+    committed_count: Arc<AtomicU32>,
 }
 
 impl TelemetryHandle {
@@ -236,6 +242,7 @@ impl TelemetryHandle {
             tx,
             drop_count: Arc::new(AtomicU64::new(0)),
             pending_preflight_count: Arc::new(AtomicU32::new(0)),
+            committed_count: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -248,6 +255,10 @@ impl TelemetryHandle {
 
     pub(crate) fn set_pending_preflight(&self, count: u32) {
         self.pending_preflight_count.store(count, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_committed_count(&self, count: u32) {
+        self.committed_count.store(count, Ordering::Relaxed);
     }
 
     pub(crate) fn drop_count(&self) -> u64 {
@@ -293,7 +304,7 @@ impl TelemetryHandle {
         committed: bool,
         meta: Option<&OrderCommitmentMeta>,
         monitor_wait_duration_ms: Option<u64>,
-        config: &OrderMonitorConfig,
+        config: &OrderLockerConfig,
         pending_commitment_count: u32,
         skip_code: Option<&str>,
         skip_reason: Option<&str>,
@@ -831,6 +842,7 @@ impl TelemetryService {
                 0
             }
         };
+        self.handle.set_committed_count(committed_orders_count);
 
         let config_value = match self.config.lock_all() {
             Ok(c) => serde_json::to_value(&*c).unwrap_or(serde_json::Value::Null),
@@ -841,7 +853,9 @@ impl TelemetryService {
             broker_address: self.broker_address,
             config: config_value,
             committed_orders_count,
+            global_committed_orders_count: global_committed_count(),
             pending_preflight_count: self.handle.pending_preflight(),
+            global_pending_preflight_count: global_pending_preflight_count(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             uptime_secs: self.uptime_start.elapsed().as_secs(),
             events_dropped: self.handle.drop_count(),
@@ -1129,7 +1143,7 @@ mod tests {
                 peak_prove_khz: None,
                 max_capacity: None,
                 pending_commitment_count: 0,
-                skip_commit_code: Some("[B-OM-001]".to_string()),
+                skip_commit_code: Some("[B-OL-001]".to_string()),
                 skip_commit_reason: Some("Lock failed".to_string()),
                 lock_submitted_at: Some(Instant::now()),
             })
@@ -1137,7 +1151,7 @@ mod tests {
 
         assert_eq!(service.eval_buffer.len(), 1);
         assert_eq!(service.eval_buffer[0].commitment_outcome, Some(CommitmentOutcome::Dropped));
-        assert_eq!(service.eval_buffer[0].commitment_skip_code, Some("[B-OM-001]".to_string()));
+        assert_eq!(service.eval_buffer[0].commitment_skip_code, Some("[B-OL-001]".to_string()));
         assert_eq!(service.eval_buffer[0].commitment_skip_reason, Some("Lock failed".to_string()));
         // Removed from in_flight, no completion expected.
         assert!(!service.in_flight.contains_key(&oid));

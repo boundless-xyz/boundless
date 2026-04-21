@@ -1,0 +1,12 @@
+# Staging Taiko Mainnet (167000) chain override
+#
+# NOTE: Staging uses Taiko mainnet (chain ID 167000) but connects to a
+# separate staging market contract, not the production one. The staging
+# market address is configured via BOUNDLESS_MARKET_ADDRESS in the
+# inventory (prover_boundless_market_address), not in this file.
+[market]
+min_mcycle_price = "0.000001 USD"
+max_collateral = "100 USD"
+expected_probability_win_secondary_fulfillment = 50
+balance_warn_threshold = "0.005"
+balance_error_threshold = "0.002"

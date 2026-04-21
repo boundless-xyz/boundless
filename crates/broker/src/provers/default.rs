@@ -195,7 +195,7 @@ impl Prover for DefaultProver {
                 proof.stats = Some(stats.clone());
                 proof.preflight_journal = Some(info.journal.bytes);
 
-                Ok(ProofResult { id: proof_id, stats, ..Default::default() })
+                Ok(ProofResult { id: proof_id, stats: Some(stats), ..Default::default() })
             }
             Err(err) => {
                 proof.status = Status::Failed;
@@ -287,12 +287,12 @@ impl Prover for DefaultProver {
                         let stats = proof_data.stats.as_ref().unwrap();
                         return Ok(ProofResult {
                             id: proof_id.to_string(),
-                            stats: ExecutorResp {
+                            stats: Some(ExecutorResp {
                                 segments: stats.segments,
                                 user_cycles: stats.user_cycles,
                                 total_cycles: stats.total_cycles,
                                 ..Default::default()
-                            },
+                            }),
                             ..Default::default()
                         });
                     }
@@ -504,7 +504,8 @@ mod tests {
         let result =
             prover.preflight(&image_id, &input_id, vec![], None, "test_order_id").await.unwrap();
         assert!(!result.id.is_empty());
-        assert!(result.stats.segments > 0 && result.stats.user_cycles > 0);
+        let stats = result.stats.expect("preflight should always return stats");
+        assert!(stats.segments > 0 && stats.user_cycles > 0);
 
         // Fetch the journal
         let journal = prover.get_preflight_journal(&result.id).await.unwrap().unwrap();
@@ -525,11 +526,8 @@ mod tests {
         let result =
             prover.prove_and_monitor_stark(&image_id.to_string(), &input_id, vec![]).await.unwrap();
         assert!(!result.id.is_empty());
-        assert!(
-            result.stats.segments > 0
-                && result.stats.total_cycles > 0
-                && result.stats.user_cycles > 0
-        );
+        let stats = result.stats.expect("DefaultProver should always return stats");
+        assert!(stats.segments > 0 && stats.total_cycles > 0 && stats.user_cycles > 0);
 
         // Fetch the journal
         let journal = prover.get_journal(&result.id).await.unwrap().unwrap();

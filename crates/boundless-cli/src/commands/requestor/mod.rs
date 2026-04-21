@@ -36,9 +36,15 @@ pub use submit_offer::RequestorSubmitOffer;
 pub use verify_proof::RequestorVerifyProof;
 pub use withdraw::RequestorWithdraw;
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
-use crate::{commands::setup::RequestorSetup, config::GlobalConfig};
+use crate::{
+    commands::{
+        networks::{self, NetworkModule},
+        setup::RequestorSetup,
+    },
+    config::GlobalConfig,
+};
 
 /// Commands for requestors
 #[derive(Subcommand, Clone, Debug)]
@@ -84,6 +90,28 @@ pub enum RequestorCommands {
     VerifyProof(RequestorVerifyProof),
     /// Interactive setup wizard for requestor configuration
     Setup(RequestorSetup),
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
+}
+
+/// List or switch the active requestor network
+#[derive(Args, Clone, Debug)]
+pub struct NetworksCmd {
+    /// Switch the active network (accepts name, kebab-case key, or chain ID)
+    #[clap(long)]
+    pub set: Option<String>,
+}
+
+impl NetworksCmd {
+    /// Run the command
+    pub async fn run(&self, _global_config: &GlobalConfig) -> anyhow::Result<()> {
+        if let Some(ref input) = self.set {
+            networks::set_active_network(NetworkModule::Requestor, input)
+        } else {
+            networks::list_networks(NetworkModule::Requestor);
+            Ok(())
+        }
+    }
 }
 
 impl RequestorCommands {
@@ -101,6 +129,7 @@ impl RequestorCommands {
             Self::GetProof(cmd) => cmd.run(global_config).await,
             Self::VerifyProof(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
+            Self::Networks(cmd) => cmd.run(global_config).await,
         }
     }
 }

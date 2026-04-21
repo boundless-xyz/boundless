@@ -82,6 +82,20 @@ You can find the documentation in the [boundless-xyz/docs](https://github.com/bo
 
 See https://github.com/boundless-xyz/boundless-security
 
+## Migrating to Broker 2.0
+
+The following `broker.toml` config field names have been removed. Update your config to use the new names:
+
+| Old name                             | New name                             |
+| ------------------------------------ | ------------------------------------ |
+| `mcycle_price`                       | `min_mcycle_price`                   |
+| `max_stake`                          | `max_collateral`                     |
+| `stake_balance_warn_threshold`       | `collateral_balance_warn_threshold`  |
+| `stake_balance_error_threshold`      | `collateral_balance_error_threshold` |
+| `max_concurrent_locks`               | `max_concurrent_proofs`              |
+| `batch_size`                         | `min_batch_size`                     |
+| `expired_order_fulfillment_priority` | `order_commitment_priority`          |
+
 ## License
 
 The [Boundless Contracts](./contracts), Boundless Assessor Library (./crates/assessor) and Boundless Assessor Guest (./crates/guest/assessor) in this repository are licensed under the Business Source License, with conversion to Apache-2.0 at a future date. See [LICENSE-BSL](./LICENSE-BSL) for a copy of the license.

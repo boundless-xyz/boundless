@@ -15,11 +15,12 @@
 use std::{future::Future, path::PathBuf, sync::Arc};
 
 use crate::{
-    config::{Config, ConfigWatcher, TelemetryMode},
-    now_timestamp, Args, Broker,
+    broker_sqlite_url_for_chain,
+    config::{Config, ConfigWatcher},
+    now_timestamp, Broker, ChainPipeline, CoreArgs, DbObj, SqliteDb,
 };
 use alloy::{
-    network::{AnyNetwork, EthereumWallet},
+    network::{AnyNetwork, Ethereum, EthereumWallet},
     node_bindings::Anvil,
     primitives::{
         aliases::U96,
@@ -30,7 +31,6 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use boundless_market::price_oracle::config::PriceValue;
-use boundless_market::price_oracle::Amount;
 use boundless_market::{
     contracts::{
         bytecode::VersionRegistry, hit_points::default_allowance, Callback, FulfillmentData, Offer,
@@ -50,8 +50,7 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 use tempfile::NamedTempFile;
-use tokio::sync::RwLock;
-use tokio::{task::JoinSet, time::Duration};
+use tokio::{sync::RwLock, task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
 
@@ -61,16 +60,6 @@ pub(super) fn is_dev_mode() -> bool {
         .map(|x| x.to_lowercase())
         .filter(|x| x == "1" || x == "true" || x == "yes")
         .is_some()
-}
-
-pub(super) fn make_any_provider(args: &Args) -> DynProvider<AnyNetwork> {
-    let url: url::Url = args.rpc_url.as_deref().unwrap().parse().unwrap();
-    DynProvider::new(
-        ProviderBuilder::new()
-            .network::<AnyNetwork>()
-            .filler(ChainIdFiller::default())
-            .connect_http(url),
-    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -120,34 +109,68 @@ pub(super) fn generate_request(
     )
 }
 
-pub(super) async fn new_config(min_batch_size: u32) -> NamedTempFile {
-    new_config_with_options(min_batch_size, 100, TelemetryMode::LogsOnly).await
+pub(super) struct TestConfig {
+    pub(super) base: NamedTempFile,
+    pub(super) override_file: Option<NamedTempFile>,
 }
 
-pub(super) async fn new_config_with_options(
+impl TestConfig {
+    pub(super) fn base_path(&self) -> PathBuf {
+        self.base.path().to_path_buf()
+    }
+
+    pub(super) async fn watcher(&self) -> ConfigWatcher {
+        ConfigWatcher::new_with_override(
+            self.base.path(),
+            self.override_file.as_ref().map(|f| f.path()),
+        )
+        .await
+        .unwrap()
+    }
+}
+
+async fn new_config(min_batch_size: u32) -> TestConfig {
+    new_config_with_min_deadline(min_batch_size, 100).await
+}
+
+// We put some config into an override file so that we can test the per-chain overrides feature e2e.
+pub(super) async fn new_config_with_min_deadline(
     min_batch_size: u32,
     min_deadline: u64,
-    telemetry_mode: TelemetryMode,
-) -> NamedTempFile {
-    let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
-    let mut config = Config::default();
-    config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
-    config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+) -> TestConfig {
+    let base_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+    let override_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+
+    // Base config: prover settings and price oracle (shared across chains)
+    let mut base_config = Config::default();
+    base_config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
+    base_config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
     if !is_dev_mode() {
-        config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
+        base_config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
     }
-    config.prover.status_poll_ms = 1000;
-    config.prover.req_retry_count = 3;
-    config.market.min_mcycle_price = Amount::parse("0.00001 ETH", None).unwrap();
-    config.market.expected_probability_win_secondary_fulfillment = 50;
-    config.market.min_deadline = min_deadline;
-    config.market.telemetry_mode = telemetry_mode;
-    config.batcher.min_batch_size = min_batch_size;
-    // Use static prices for tests to avoid needing real price sources
-    config.price_oracle.eth_usd = PriceValue::Static(2500.0);
-    config.price_oracle.zkc_usd = PriceValue::Static(1.0);
-    config.write(config_file.path()).await.unwrap();
-    config_file
+    base_config.prover.status_poll_ms = 1000;
+    base_config.prover.req_retry_count = 3;
+    base_config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+    base_config.price_oracle.zkc_usd = PriceValue::Static(1.0);
+    base_config.write(base_file.path()).await.unwrap();
+
+    // Override config: only the per-chain market and batcher fields we want to override.
+    // Written as raw TOML to avoid serializing a full Config::default() which would
+    // clobber base values (e.g. price_oracle static prices) with unwanted defaults.
+    let override_toml = format!(
+        r#"
+[market]
+min_mcycle_price = "0.00001 ETH"
+expected_probability_win_secondary_fulfillment = 50
+min_deadline = {min_deadline}
+
+[batcher]
+min_batch_size = {min_batch_size}
+"#
+    );
+    tokio::fs::write(override_file.path(), override_toml).await.unwrap();
+
+    TestConfig { base: base_file, override_file: Some(override_file) }
 }
 
 pub(super) fn broker_args(
@@ -156,7 +179,7 @@ pub(super) fn broker_args(
     rpc_url: Url,
     private_key: PrivateKeySigner,
     version_registry_address: Option<Address>,
-) -> Args {
+) -> CoreArgs {
     let (bonsai_api_url, bonsai_api_key) = match is_dev_mode() {
         true => (None, None),
         false => (
@@ -168,7 +191,7 @@ pub(super) fn broker_args(
         ),
     };
 
-    Args {
+    CoreArgs {
         db_url: "sqlite::memory:".into(),
         config_file,
         deployment: Some(deployment),
@@ -191,15 +214,55 @@ pub(super) fn broker_args(
     }
 }
 
-pub(super) async fn run_with_broker<P, F, T>(broker: Broker<P>, f: F) -> T
+fn make_any_provider(rpc_url: Url) -> DynProvider<AnyNetwork> {
+    DynProvider::new(
+        ProviderBuilder::new()
+            .network::<AnyNetwork>()
+            .filler(ChainIdFiller::default())
+            .connect_http(rpc_url),
+    )
+}
+
+pub(super) async fn build_test_chain<P>(
+    prover_provider: &P,
+    prover_signer: &PrivateKeySigner,
+    deployment: &Deployment,
+    rpc_url: Url,
+    config: &crate::ConfigLock,
+    db_dir: &std::path::Path,
+) -> ChainPipeline<P>
 where
-    P: Provider + WalletProvider + Clone + 'static,
+    P: Provider<Ethereum> + WalletProvider + Clone + 'static,
+{
+    let chain_id = prover_provider.get_chain_id().await.unwrap();
+    let base_url = format!("sqlite://{}", db_dir.join("broker.sqlite").display());
+    let db_url = broker_sqlite_url_for_chain(&base_url, chain_id).unwrap();
+    let db: DbObj = Arc::new(SqliteDb::new(&db_url).await.unwrap());
+    ChainPipeline {
+        provider: Arc::new(prover_provider.clone()),
+        any_provider: make_any_provider(rpc_url),
+        config: config.clone(),
+        gas_priority_mode: Arc::new(RwLock::new(PriorityMode::Medium)),
+        private_key: prover_signer.clone(),
+        chain_id,
+        deployment: deployment.clone(),
+        db,
+    }
+}
+
+pub(super) async fn run_with_broker<P, F, T>(
+    broker: Broker,
+    chains: Vec<ChainPipeline<P>>,
+    f: F,
+) -> T
+where
+    P: Provider<Ethereum> + WalletProvider + Clone + Send + Sync + 'static,
     F: Future<Output = T>,
 {
     // A JoinSet automatically aborts all its tasks when dropped
     let mut tasks = JoinSet::new();
     // Spawn the broker
-    tasks.spawn(async move { broker.start_service().await });
+    tasks.spawn(async move { broker.start_service(chains).await });
 
     tokio::select! {
         result = f => result,
@@ -227,24 +290,25 @@ async fn simple_e2e() {
 
     // Start broker
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -262,7 +326,7 @@ async fn simple_e2e() {
         None,
     );
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         // Submit the request
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
@@ -297,25 +361,26 @@ async fn simple_e2e_experimental_rpc() {
 
     // Start broker with experimental RPC path enabled
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let mut args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    args.experimental_rpc = true;
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    args.experimental_rpc = true;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -333,7 +398,7 @@ async fn simple_e2e_experimental_rpc() {
         None,
     );
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         // Submit the request
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
@@ -381,24 +446,25 @@ async fn simple_e2e_with_callback() {
 
     // Start broker
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider.clone(),
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -416,7 +482,7 @@ async fn simple_e2e_with_callback() {
         None,
     );
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         // Submit the request
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
@@ -471,25 +537,26 @@ async fn e2e_fulfill_after_lock_expiry() {
         .unwrap();
     locker_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    let config = new_config_with_options(1, 0, TelemetryMode::LogsOnly).await;
+    let config = new_config_with_min_deadline(1, 0).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -515,7 +582,7 @@ async fn e2e_fulfill_after_lock_expiry() {
         None,
     );
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         let request_id = locker_market.submit_request(&request, &locker_signer).await.unwrap();
         let (_, client_sig) =
             locker_market.get_submitted_request(request_id, None, None, None).await.unwrap();
@@ -552,24 +619,25 @@ async fn e2e_with_selector() {
 
     // Start broker
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -587,7 +655,7 @@ async fn e2e_with_selector() {
         None,
     );
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         // Submit the request
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
@@ -626,24 +694,25 @@ async fn e2e_with_blake3_groth16_selector() {
 
     // Start broker
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
@@ -660,7 +729,7 @@ async fn e2e_with_blake3_groth16_selector() {
         None,
     );
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         // Submit the request
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
@@ -703,24 +772,25 @@ async fn e2e_with_multiple_requests() {
 
     // Start broker
     let config = new_config(2).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -738,7 +808,7 @@ async fn e2e_with_multiple_requests() {
         None,
     );
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         // Submit the first order
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
@@ -803,24 +873,25 @@ async fn e2e_with_claim_digest_match() {
 
     // Start broker
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
@@ -833,7 +904,7 @@ async fn e2e_with_claim_digest_match() {
 
     let predicate = Predicate::claim_digest_match(correct_claim_digest);
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         // Request 1: Regular valid request
         let good_request = generate_request(
             ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -883,24 +954,25 @@ async fn gas_estimation_matches_actual_tx_cost() {
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider.clone(),
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
@@ -918,7 +990,7 @@ async fn gas_estimation_matches_actual_tx_cost() {
 
     let request_id = U256::from(request.id);
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         ctx.customer_market
@@ -981,16 +1053,133 @@ async fn gas_estimation_matches_actual_tx_cost() {
         assert!(estimated_lock_gas_cost >= lock_actual_cost, "estimated lock gas cost ({estimated_lock_gas_cost}) should be >= lock actual cost ({lock_actual_cost})");
         assert!(estimated_fulfill_gas_cost >= fulfill_actual_cost, "estimated fulfill gas cost ({estimated_fulfill_gas_cost}) should be >= fulfill actual cost ({fulfill_actual_cost})");
 
+        // The DynamicGasFiller in the test provider may bid slightly above the base-fee estimate.
+        // Allow up to 2x headroom.
         assert!(
-            estimated_gas_price >= lock_effective_gas_price,
-            "estimated gas price ({estimated_gas_price}) should be >= \
+            estimated_gas_price * 2 >= lock_effective_gas_price,
+            "estimated gas price ({estimated_gas_price}) * 2 should be >= \
              lock effective_gas_price ({lock_effective_gas_price})"
         );
         assert!(
-            estimated_gas_price >= fulfill_effective_gas_price,
-            "estimated gas price ({estimated_gas_price}) should be >= \
+            estimated_gas_price * 2 >= fulfill_effective_gas_price,
+            "estimated gas price ({estimated_gas_price}) * 2 should be >= \
              fulfill effective_gas_price ({fulfill_effective_gas_price})"
         );
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn multi_chain_e2e() {
+    let anvil1 = Anvil::new().chain_id(31337).spawn();
+    let anvil2 = Anvil::new().chain_id(1337).spawn();
+
+    let ctx1 = create_test_ctx(&anvil1).await.unwrap();
+    let ctx2 = create_test_ctx(&anvil2).await.unwrap();
+
+    ctx1.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx1.prover_signer)
+        .await
+        .unwrap();
+    ctx1.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    ctx2.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx2.prover_signer)
+        .await
+        .unwrap();
+    ctx2.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
+
+    let args = broker_args(
+        config.base_path(),
+        ctx1.deployment.clone(),
+        anvil1.endpoint_url(),
+        ctx1.prover_signer.clone(),
+        Some(ctx1.version_registry_address),
+    );
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain1 = build_test_chain(
+        &ctx1.prover_provider,
+        &ctx1.prover_signer,
+        &ctx1.deployment,
+        anvil1.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
+    )
+    .await;
+    let chain2 = build_test_chain(
+        &ctx2.prover_provider,
+        &ctx2.prover_signer,
+        &ctx2.deployment,
+        anvil2.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
+    )
+    .await;
+
+    let broker = Broker::new(args, config_watcher).await.unwrap();
+
+    let storage = MockStorageUploader::new();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    let multi_chain_offer = Offer {
+        minPrice: parse_ether("0.02").unwrap(),
+        maxPrice: parse_ether("0.04").unwrap(),
+        rampUpStart: now_timestamp(),
+        timeout: 300,
+        lockTimeout: 300,
+        rampUpPeriod: 1,
+        lockCollateral: U256::from(10),
+    };
+
+    let req1 = generate_request(
+        ctx1.customer_market.index_from_nonce().await.unwrap(),
+        &ctx1.customer_signer.address(),
+        ProofType::Any,
+        image_url.clone(),
+        None,
+        Some(multi_chain_offer.clone()),
+        None,
+        None,
+    );
+    let req2 = generate_request(
+        ctx2.customer_market.index_from_nonce().await.unwrap(),
+        &ctx2.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        Some(multi_chain_offer),
+        None,
+        None,
+    );
+
+    run_with_broker(broker, vec![chain1, chain2], async move {
+        ctx1.customer_market.submit_request(&req1, &ctx1.customer_signer).await.unwrap();
+        ctx2.customer_market.submit_request(&req2, &ctx2.customer_signer).await.unwrap();
+
+        ctx1.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(req1.id),
+                Duration::from_secs(1),
+                req1.expires_at(),
+            )
+            .await
+            .unwrap();
+
+        ctx2.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(req2.id),
+                Duration::from_secs(1),
+                req2.expires_at(),
+            )
+            .await
+            .unwrap();
+
+        assert!(logs_contain("chain_id=31337"));
+        assert!(logs_contain("chain_id=1337"));
     })
     .await;
 }
@@ -1019,27 +1208,29 @@ async fn version_check_below_minimum_shuts_down_broker() {
         .unwrap();
 
     let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
 
-    let result =
-        tokio::time::timeout(Duration::from_secs(30), broker.start_service()).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(30), broker.start_service(vec![chain]))
+        .await
+        .unwrap();
     let err = result.expect_err("broker should exit with error when version check fails");
     assert!(format!("{err:?}").contains("Version check task failed"), "unexpected error: {err:?}");
 }

@@ -390,6 +390,7 @@ where
                                     if let Err(err) = process_request_fulfilled(
                                         event,
                                         log.block_number.unwrap(),
+                                        chain_id,
                                         &db,
                                         &order_state_tx,
                                     ).await {
@@ -533,23 +534,23 @@ pub(crate) async fn process_order_submitted<P: Provider<Ethereum>>(
     if let Err(error) = new_order_tx.try_send(new_order.clone()) {
         match error {
             TrySendError::Full(_) => {
-                tracing::warn!("Failed to send new on-chain order {} to OrderPicker: channel is full, blocking until space is available.", order_id);
+                tracing::warn!("Failed to send new on-chain order {} to OrderPricer: channel is full, blocking until space is available.", order_id);
                 if let Err(e) = new_order_tx.send(new_order).await {
                     tracing::error!(
-                        "Failed to send new on-chain order {} to OrderPicker: {e:?}",
+                        "Failed to send new on-chain order {} to OrderPricer: {e:?}",
                         order_id
                     );
                 }
             }
             _ => {
                 tracing::error!(
-                    "Failed to send new on-chain order {} to OrderPicker: {error:?}",
+                    "Failed to send new on-chain order {} to OrderPricer: {error:?}",
                     order_id
                 );
             }
         }
     } else {
-        tracing::debug!("Sent new on-chain order {} to OrderPicker via channel.", order_id);
+        tracing::debug!("Sent new on-chain order {} to OrderPricer via channel.", order_id);
     }
     Ok(())
 }
@@ -584,8 +585,11 @@ pub(crate) async fn process_request_locked(
     }
 
     // Send order state change message for any active preflight of this order
-    let state_change =
-        OrderStateChange::Locked { request_id: U256::from(event.requestId), prover: event.prover };
+    let state_change = OrderStateChange::Locked {
+        request_id: U256::from(event.requestId),
+        prover: event.prover,
+        chain_id,
+    };
     if let Err(e) = order_state_tx.send(state_change) {
         tracing::warn!(
             "Failed to send order state change message for request {:x}: {e:?}",
@@ -616,6 +620,7 @@ pub(crate) async fn process_request_locked(
 pub(crate) async fn process_request_fulfilled(
     event: IBoundlessMarket::RequestFulfilled,
     block_number: u64,
+    chain_id: u64,
     db: &DbObj,
     order_state_tx: &broadcast::Sender<OrderStateChange>,
 ) -> Result<()> {
@@ -634,7 +639,8 @@ pub(crate) async fn process_request_fulfilled(
         }
     }
 
-    let state_change = OrderStateChange::Fulfilled { request_id: U256::from(event.requestId) };
+    let state_change =
+        OrderStateChange::Fulfilled { request_id: U256::from(event.requestId), chain_id };
     if let Err(e) = order_state_tx.send(state_change) {
         tracing::warn!(
             "Failed to send order state change message for fulfilled request {:x}: {e:?}",

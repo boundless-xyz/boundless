@@ -115,6 +115,11 @@ impl PriorityRequestors {
         self.get_requestor_entry(address).is_some()
     }
 
+    /// Returns all dynamically-registered priority addresses (from remote lists).
+    pub fn dynamic_addresses(&self) -> Vec<Address> {
+        self.requestors.read().map(|r| r.keys().copied().collect()).unwrap_or_default()
+    }
+
     /// Update the priority requestors from a list
     fn update_from_list(&self, list: &RequestorList, source_url: &str) {
         let mut requestors = match self.requestors.write() {

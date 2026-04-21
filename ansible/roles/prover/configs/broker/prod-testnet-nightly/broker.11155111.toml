@@ -1,0 +1,4 @@
+# Production Ethereum Sepolia (11155111) chain override
+[market]
+min_mcycle_price = "0.0000005"
+max_collateral = "7"
