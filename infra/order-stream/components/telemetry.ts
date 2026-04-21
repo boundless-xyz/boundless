@@ -11,9 +11,10 @@ export interface TelemetryInfraArgs {
   redshiftAdminPassword: pulumi.Output<string>;
 }
 
-// Kinesis Data Streams, Redshift Serverless, and IAM wiring for broker telemetry.
-// Redshift consumes from Kinesis via streaming ingestion (materialized views).
-// The DDL for the external schema + MVs + views is in redshift-migrations/.
+// Kinesis Data Streams, Redshift provisioned (ra3.large single-node), and IAM
+// wiring for broker telemetry. Redshift consumes from Kinesis via streaming
+// ingestion (materialized views). The DDL for the external schema + MVs +
+// views is in redshift-migrations/.
 export class TelemetryInfra extends pulumi.ComponentResource {
   public heartbeatStreamName: pulumi.Output<string>;
   public evaluationsStreamName: pulumi.Output<string>;
@@ -35,9 +36,9 @@ export class TelemetryInfra extends pulumi.ComponentResource {
     const { serviceName, chainId, stage, vpcId, pubSubNetIds, redshiftAdminPassword } = args;
     const retentionHours = 72;
 
-    // Version is used for recreating from scratch the Redshift Serverless namespace/workgroup.
-    // Typically should not need to be changed, unless you want to wipe the Redshift Serverless 
-    // namespace/workgroup and start over.
+    // Version is used for recreating the Redshift cluster from scratch.
+    // Typically should not need to be changed, unless you want to wipe the
+    // cluster and start over.
     const versionByStageAndChain: Record<string, Partial<Record<ChainId, string>>> = {
       staging: {
         [ChainId.TAIKO]: 'v5',
@@ -143,7 +144,7 @@ export class TelemetryInfra extends pulumi.ComponentResource {
       { parent: this }
     );
 
-    // Redshift Serverless
+    // Redshift provisioned cluster (ra3.large single-node)
 
     const redshiftSg = new aws.ec2.SecurityGroup(
       `${serviceName}-rs-sg`,
@@ -171,30 +172,37 @@ export class TelemetryInfra extends pulumi.ComponentResource {
       { parent: this }
     );
 
-    const namespace = new aws.redshiftserverless.Namespace(
-      `${serviceName}-rs-ns-${version}`,
+    // Public subnet group: cluster gets a public DNS endpoint resolvable
+    // from the internet when publiclyAccessible is true.
+    const subnetGroup = new aws.redshift.SubnetGroup(
+      `${serviceName}-rs-subnets`,
       {
-        namespaceName: `${serviceName}-telem-${version}`,
-        adminUsername: 'admin',
-        adminUserPassword: redshiftAdminPassword,
-        dbName: 'telemetry',
-        iamRoles: [redshiftKinesisRole.arn],
-        defaultIamRoleArn: redshiftKinesisRole.arn,
-      },
-      { parent: this, deleteBeforeReplace: true }
-    );
-
-    const workgroup = new aws.redshiftserverless.Workgroup(
-      `${serviceName}-rs-wg-${version}`,
-      {
-        workgroupName: `${serviceName}-telem-${version}`,
-        namespaceName: namespace.namespaceName,
-        baseCapacity: 8,
-        publiclyAccessible: true,
-        securityGroupIds: [redshiftSg.id],
+        name: `${serviceName}-telem-subnets-${version}`,
         subnetIds: pubSubNetIds,
       },
-      { parent: this, deleteBeforeReplace: true, dependsOn: [namespace] }
+      { parent: this }
+    );
+
+    const cluster = new aws.redshift.Cluster(
+      `${serviceName}-rs-${version}`,
+      {
+        clusterIdentifier: `${serviceName}-telem-${version}`,
+        databaseName: 'telemetry',
+        masterUsername: 'admin',
+        masterPassword: redshiftAdminPassword,
+        nodeType: 'ra3.large',
+        clusterType: 'single-node',
+        encrypted: true,
+        publiclyAccessible: true,
+        clusterSubnetGroupName: subnetGroup.name,
+        vpcSecurityGroupIds: [redshiftSg.id],
+        iamRoles: [redshiftKinesisRole.arn],
+        defaultIamRoleArn: redshiftKinesisRole.arn,
+        port: 5439,
+        skipFinalSnapshot: false,
+        finalSnapshotIdentifier: `${serviceName}-telem-${version}-final`,
+      },
+      { parent: this, deleteBeforeReplace: true }
     );
 
     // Outputs
@@ -205,12 +213,8 @@ export class TelemetryInfra extends pulumi.ComponentResource {
     this.heartbeatStreamArn = heartbeatStream.arn;
     this.evaluationsStreamArn = evaluationsStream.arn;
     this.completionsStreamArn = completionsStream.arn;
-    this.redshiftEndpoint = workgroup.endpoints.apply(
-      (eps) => eps?.[0]?.address ?? ''
-    );
-    this.redshiftPort = workgroup.endpoints.apply(
-      (eps) => eps?.[0]?.port ?? 5439
-    );
+    this.redshiftEndpoint = cluster.dnsName;
+    this.redshiftPort = cluster.port.apply((p) => p ?? 5439);
     this.redshiftIamRoleArn = redshiftKinesisRole.arn;
 
     this.registerOutputs({

@@ -19,12 +19,17 @@ if ! command -v psql &>/dev/null || ! command -v envsubst &>/dev/null; then
     apt-get update -qq && apt-get install -y -qq postgresql-client gettext-base
 fi
 
-# Extract passwords from Pulumi config (already authenticated + stack selected)
+# Prefer env vars (dev stacks set them at deploy time); fall back to
+# pulumi config (staging/prod store them as pulumi secrets).
 export REDSHIFT_ADMIN_PASSWORD
-REDSHIFT_ADMIN_PASSWORD=$(pulumi config get REDSHIFT_ADMIN_PASSWORD --stack "$STACK" --cwd "$SCRIPT_DIR")
+if [ -z "${REDSHIFT_ADMIN_PASSWORD:-}" ]; then
+    REDSHIFT_ADMIN_PASSWORD=$(pulumi config get REDSHIFT_ADMIN_PASSWORD --stack "$STACK" --cwd "$SCRIPT_DIR")
+fi
 
 export REDSHIFT_READONLY_PASSWORD
-REDSHIFT_READONLY_PASSWORD=$(pulumi config get REDSHIFT_READONLY_PASSWORD --stack "$STACK" --cwd "$SCRIPT_DIR")
+if [ -z "${REDSHIFT_READONLY_PASSWORD:-}" ]; then
+    REDSHIFT_READONLY_PASSWORD=$(pulumi config get REDSHIFT_READONLY_PASSWORD --stack "$STACK" --cwd "$SCRIPT_DIR")
+fi
 
 # Run migrations
 "$SCRIPT_DIR/redshift-migrations/apply.sh" "$STACK"
