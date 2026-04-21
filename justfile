@@ -261,13 +261,8 @@ localnet action="up":
     COMPOSE="docker compose -f dockerfiles/compose.localnet.yml --profile order-stream"
     DEV_MODE="${RISC0_DEV_MODE:-1}"
 
-    # Ensure broker.toml exists with localnet-compatible price oracle config
-    if [ ! -f broker.toml ]; then
-        cp broker-template.toml broker.toml
-    fi
-    if ! grep -q '\[price_oracle\]' broker.toml 2>/dev/null; then
-        printf '\n# Localnet price oracle: static prices, no on-chain feeds (anvil has no chainlink).\n[price_oracle]\neth_usd = "2500.0"\nzkc_usd = "1.0"\n\n[price_oracle.onchain.chainlink]\nenabled = false\n' >> broker.toml
-    fi
+    # The dev-broker container mounts broker.localnet.toml (committed), which
+    # is tuned for fast localnet runs and independent of the user's broker.toml.
 
     # In dev mode, include the broker container
     if [ "$DEV_MODE" = "1" ] || [ "$DEV_MODE" = "true" ]; then
@@ -482,3 +477,64 @@ bento-setup:
 job-status job_id:
     #!/usr/bin/env bash
     ./scripts/job_status.sh {{job_id}}
+
+# Run the end-to-end release smoke test: localnet up + submit_echo (on-chain and off-chain) + teardown.
+# Intended to be run before cutting a release, and from CI via .github/workflows/release-e2e.yml.
+test-e2e-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Guarantee teardown on any exit path.
+    trap 'just _e2e-teardown "$?" || true' EXIT
+    just localnet up
+    # Source the deployer-written contract addresses (and RISC0_DEV_MODE,
+    # which localnet-deploy.sh patches in before writing .env.localnet).
+    set -a
+    source .env.localnet
+    set +a
+    just _e2e-run-submit-echo onchain
+    just _e2e-run-submit-echo offchain
+
+# Private: on failure, dump docker logs to stdout (visible inline in CI),
+# then tear down localnet regardless of state. Safe to call even if no containers
+# are running.
+_e2e-teardown status:
+    #!/usr/bin/env bash
+    set +e
+    if [ "{{status}}" != "0" ]; then
+        for svc in anvil deployer order-stream broker; do
+            echo "${svc} logs:"
+            docker compose -f dockerfiles/compose.localnet.yml \
+                --profile order-stream --profile dev-broker logs "$svc" \
+                2>&1 || true
+            echo "::end::"
+        done
+    fi
+    just localnet down || true
+
+# Private: run the submit_echo example in either on-chain or off-chain mode.
+# Arg `mode` must be "onchain" or "offchain".
+E2E_SUBMIT_ECHO_TIMEOUT := "180"
+_e2e-run-submit-echo mode:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "[test-e2e-release] submit_echo ({{mode}}) (timeout {{E2E_SUBMIT_ECHO_TIMEOUT}}s)"
+    case "{{mode}}" in
+        onchain)
+            timeout --foreground {{E2E_SUBMIT_ECHO_TIMEOUT}} \
+                env -u ORDER_STREAM_URL cargo run --quiet --example submit_echo -p boundless-market
+            rc=$?
+            ;;
+        offchain)
+            timeout --foreground {{E2E_SUBMIT_ECHO_TIMEOUT}} \
+                cargo run --quiet --example submit_echo -p boundless-market
+            rc=$?
+            ;;
+        *)
+            echo "unknown mode: {{mode}}" >&2
+            exit 2
+            ;;
+    esac
+    if [ "$rc" = "124" ]; then
+        echo "[test-e2e-release] submit_echo ({{mode}}) timed out after {{E2E_SUBMIT_ECHO_TIMEOUT}}s" >&2
+    fi
+    exit "$rc"

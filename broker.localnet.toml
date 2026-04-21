@@ -1,0 +1,34 @@
+# Broker configuration used by the localnet dev-broker container.
+# Mounted read-only into /app/broker.toml inside the broker container by
+# dockerfiles/compose.localnet.yml.
+#
+# These values are tuned to make localnet testing fast:
+#   - min_mcycle_price = "0 ETH" and min_mcycle_price_collateral_token = "0 ZKC"
+#     put orders on the "lock ASAP" path, so the broker locks as soon as it
+#     sees a request rather than waiting for the offer's ramp to cover its
+#     gas-cost floor.
+#   - skip_gas_profitability_check = true bypasses the pre-lock check that
+#     would otherwise make the broker retry each block until the offer's
+#     ramp lifts the reward above gas cost.
+#   - priority_requestor_lists is empty to avoid fetching a remote list during
+#     startup (no internet dependency for CI).
+#   - The price_oracle uses static prices because anvil has no chainlink feeds.
+#
+# This config is NOT suitable for any real network.
+
+[market]
+min_mcycle_price = "0 ETH"
+min_mcycle_price_collateral_token = "0 ZKC"
+skip_gas_profitability_check = true
+peak_prove_khz = 1000
+max_collateral = "20 ZKC"
+max_concurrent_preflights = 8
+max_concurrent_proofs = 1
+priority_requestor_lists = []
+
+[price_oracle]
+eth_usd = "2500.0"
+zkc_usd = "1.0"
+
+[price_oracle.onchain.chainlink]
+enabled = false

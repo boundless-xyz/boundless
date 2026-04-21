@@ -1,0 +1,67 @@
+name: Release E2E
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Keep in sync with main.yml / nightly-examples.yml
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "3.0.3"
+  FOUNDRY_VERSION: v1.5.0
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  release-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Remove stale submodules
+        run: rm -rf lib/
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Checkout submodules
+        run: git submodule update --init --recursive --depth=1 --jobs=8
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Install Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@v3.0.3
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run release e2e
+        env:
+          RISC0_DEV_MODE: "1"
+          RUST_LOG: "info,broker=debug,boundless_market=debug"
+        run: just test-e2e-release
+
+      - name: Tear down localnet (safety net)
+        if: always()
+        run: just localnet down || true
