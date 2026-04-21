@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::signers::{local::PrivateKeySigner, Signer};
+use std::sync::Arc;
+
 use anyhow::Result;
 use boundless_market::order_stream_client::{order_stream, OrderStreamClient};
+use boundless_signer::{GenericSigner, SignerBackend};
 use futures_util::StreamExt;
 
 use crate::{
@@ -52,14 +54,14 @@ impl CodedError for OffchainMarketMonitorErr {
 
 pub struct OffchainMarketMonitor {
     client: OrderStreamClient,
-    signer: PrivateKeySigner,
+    signer: Arc<GenericSigner>,
     new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
 }
 
 impl OffchainMarketMonitor {
     pub fn new(
         client: OrderStreamClient,
-        signer: PrivateKeySigner,
+        signer: Arc<GenericSigner>,
         new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
     ) -> Self {
         Self { client, signer, new_order_tx }
@@ -67,7 +69,7 @@ impl OffchainMarketMonitor {
 
     async fn monitor_orders(
         client: OrderStreamClient,
-        signer: &impl Signer,
+        signer: &GenericSigner,
         new_order_tx: tokio::sync::mpsc::Sender<Box<OrderRequest>>,
         cancel_token: CancellationToken,
     ) -> Result<(), OffchainMarketMonitorErr> {
@@ -132,7 +134,7 @@ impl RetryTask for OffchainMarketMonitor {
 
         Box::pin(async move {
             tracing::info!("Starting up offchain market monitor");
-            Self::monitor_orders(client, &signer, new_order_tx, cancel_token)
+            Self::monitor_orders(client, &*signer, new_order_tx, cancel_token)
                 .await
                 .map_err(SupervisorErr::Recover)?;
             Ok(())
