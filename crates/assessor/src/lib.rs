@@ -45,7 +45,7 @@ pub enum Error {
     #[error("invalid signature: not normalized s-value")]
     SignatureNonCanonicalError,
 
-    /// Predicate evaluation failure from [ProofRequest] [Requirements]
+    /// Predicate evaluation failure from [`ProofRequest`] [`boundless_market::contracts::Requirements`]
     #[error("fulfillment requirements evaluation failed")]
     RequirementsEvaluationError,
 

@@ -213,7 +213,7 @@ mod host {
     };
 
     impl<P: Provider> IPovwAccountingInstance<P> {
-        /// Create a call to the [IPovwAccounting::updateWorkLog] function to be sent in a tx.
+        /// Create a call to the [IPovwAccountingInstance::updateWorkLog] function to be sent in a tx.
         pub fn update_work_log(
             &self,
             receipt: &Receipt,
