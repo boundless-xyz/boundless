@@ -29,6 +29,12 @@ test-foundry:
 # Run all Cargo tests
 test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
+# Run broker + boundless-market tests
+test-broker:
+    forge build
+    RISC0_DEV_MODE=1 cargo nextest run -p broker --lib --bin broker
+    RISC0_DEV_MODE=1 RISC0_SKIP_BUILD=1 cargo nextest run -p boundless-market --lib -E 'test(prover_utils::config::tests)'
+
 # Run Cargo tests for root workspace
 test-cargo-root:
     RISC0_DEV_MODE=1 cargo nextest run --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude indexer-monitor --exclude boundless-indexer --exclude boundless-slasher --exclude boundless-bench --features test-r0vm
@@ -304,6 +310,7 @@ update-lockfiles:
 #   BOUNDLESS_BUILD=all                - build all images from source
 #   BOUNDLESS_BUILD=broker             - build only the broker image
 #   BOUNDLESS_BUILD="broker rest_api"  - build specific services
+# Set PROVER_STACK=experimental to use the new prover stack (prover-compose.yml)
 bento action="up" env_file="" compose_flags="" detached="true" services="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
@@ -320,6 +327,12 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
     if ! docker compose version &> /dev/null; then
         echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
         exit 1
+    fi
+
+    # Select compose file based on PROVER_STACK
+    COMPOSE_FILE_FLAG=""
+    if [ "${PROVER_STACK:-}" = "experimental" ]; then
+        COMPOSE_FILE_FLAG="-f prover-compose.yml"
     fi
 
     if [ "{{action}}" = "up" ]; then
@@ -347,35 +360,55 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         # dockerfiles to the source-build variants so Compose builds from source
         # instead of pulling pre-built images.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
-            export AGENT_IMAGE="" CPU_AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE="" BENTO_CLI_IMAGE=""
-            export CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile"
-            export GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
-            export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
-            export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
-            export BENTO_CLI_DOCKERFILE="dockerfiles/bento_cli.dockerfile"
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
+            if [ "${PROVER_STACK:-}" = "experimental" ]; then
+                export PROVER_AGENT_IMAGE="" PROVER_CPU_AGENT_IMAGE="" BROKER_IMAGE="" PROVER_REST_API_IMAGE="" PROVER_CLI_IMAGE=""
+                export PROVER_CPU_AGENT_DOCKERFILE="dockerfiles/prover/agent.cpu.dockerfile"
+                export PROVER_AGENT_DOCKERFILE="dockerfiles/prover/agent.dockerfile"
+                export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
+                export PROVER_REST_API_DOCKERFILE="dockerfiles/prover/rest_api.dockerfile"
+                export PROVER_CLI_DOCKERFILE="dockerfiles/prover/prover_cli.dockerfile"
+            else
+                export AGENT_IMAGE="" CPU_AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE="" BENTO_CLI_IMAGE=""
+                export CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile"
+                export GPU_AGENT_DOCKERFILE="dockerfiles/agent.dockerfile"
+                export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
+                export REST_API_DOCKERFILE="dockerfiles/rest_api.dockerfile"
+                export BENTO_CLI_DOCKERFILE="dockerfiles/bento_cli.dockerfile"
+            fi
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
-                case "$svc" in
-                    exec_agent|aux_agent) export CPU_AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}" ;;
-                    gpu_prove_agent) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}" ;;
-                    miner) export BENTO_CLI_IMAGE="" BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/bento_cli.dockerfile}" ;;
-                    broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
-                    rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}" ;;
-                    *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
-                esac
+                if [ "${PROVER_STACK:-}" = "experimental" ]; then
+                    case "$svc" in
+                        exec_agent|aux_agent) export PROVER_CPU_AGENT_IMAGE="" PROVER_CPU_AGENT_DOCKERFILE="${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}" ;;
+                        gpu_prove_agent) export PROVER_AGENT_IMAGE="" PROVER_AGENT_DOCKERFILE="${PROVER_AGENT_DOCKERFILE:-dockerfiles/prover/agent.dockerfile}" ;;
+                        miner) export PROVER_CLI_IMAGE="" PROVER_CLI_DOCKERFILE="${PROVER_CLI_DOCKERFILE:-dockerfiles/prover/prover_cli.dockerfile}" ;;
+                        broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                        rest_api)      export PROVER_REST_API_IMAGE="" PROVER_REST_API_DOCKERFILE="${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}" ;;
+                        *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
+                    esac
+                else
+                    case "$svc" in
+                        exec_agent|aux_agent) export CPU_AGENT_IMAGE="" CPU_AGENT_DOCKERFILE="${CPU_AGENT_DOCKERFILE:-dockerfiles/agent.cpu.dockerfile}" ;;
+                        gpu_prove_agent) export AGENT_IMAGE="" GPU_AGENT_DOCKERFILE="${GPU_AGENT_DOCKERFILE:-dockerfiles/agent.dockerfile}" ;;
+                        miner) export BENTO_CLI_IMAGE="" BENTO_CLI_DOCKERFILE="${BENTO_CLI_DOCKERFILE:-dockerfiles/bento_cli.dockerfile}" ;;
+                        broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                        rest_api)      export REST_API_IMAGE="" REST_API_DOCKERFILE="${REST_API_DOCKERFILE:-dockerfiles/rest_api.dockerfile}" ;;
+                        *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
+                    esac
+                fi
             done
-            docker compose {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG build $BOUNDLESS_BUILD
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
         else
-            docker compose {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
+            docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --pull always $DETACHED_FLAG {{services}}
         fi
         if [ "{{detached}}" != "true" ]; then
             echo "Docker Compose services have been started."
         fi
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
-        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down; then
+        if docker compose $COMPOSE_FILE_FLAG {{compose_flags}} --profile miner $ENV_FILE_ARG down; then
             echo "Docker Compose services have been stopped and removed."
         else
             echo "Error: Failed to stop Docker Compose services."
@@ -390,7 +423,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
             exit 0
         fi
         echo "Stopping and cleaning Docker Compose services"
-        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
+        if docker compose $COMPOSE_FILE_FLAG {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
         else
             echo "Error: Failed to clean Docker Compose services."
@@ -398,7 +431,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         fi
     elif [ "{{action}}" = "logs" ]; then
         echo "Docker logs"
-        docker compose {{compose_flags}} $ENV_FILE_ARG logs -f
+        docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG logs -f
     else
         echo "Unknown action: {{action}}"
         echo "Available actions: up, down, clean, logs"
@@ -407,6 +440,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
 
 # Run all components of a boundless prover (bento, broker, miner)
 # Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just prover)
+# Set PROVER_STACK=experimental to use the new prover stack (redis-only, no postgres/minio)
 prover action="up" env_file="" detached="true":
     #!/usr/bin/env bash
     BOUNDLESS_MINING="${BOUNDLESS_MINING:-true}"
@@ -417,12 +451,12 @@ prover action="up" env_file="" detached="true":
         cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
         echo "broker.toml created successfully."
     fi
+    # Ensure chain-overrides/ exists for compose bind mount
+    mkdir -p chain-overrides
 
     if [ "{{action}}" = "logs" ]; then
-        # Ignore mining process logs by default
         PROFILE_FLAGS="--profile broker"
     elif [ "{{action}}" = "down" ] || [ "{{action}}" = "clean" ]; then
-        # Always include miner profile when shutting down to ensure no lingering mining process
         PROFILE_FLAGS="--profile broker --profile miner"
     elif [ "$BOUNDLESS_MINING" = "false" ]; then
         PROFILE_FLAGS="--profile broker"

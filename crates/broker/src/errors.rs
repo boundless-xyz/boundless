@@ -46,8 +46,11 @@ pub use impl_coded_debug;
 
 use boundless_market::telemetry::CompletionOutcome;
 
+use tokio::sync::mpsc;
+
 use crate::config::ConfigLock;
 use crate::db::DbObj;
+use crate::order_committer::{CommitmentComplete, CommitmentOutcome};
 use crate::{Order, OrderStatus};
 
 // Structured broker failure combining an error code with a human-readable reason.
@@ -73,22 +76,37 @@ impl std::fmt::Display for BrokerFailure {
     }
 }
 
-// Sets DB failure status AND emits a telemetry Failed event.
-pub(crate) async fn handle_order_failure(db: &DbObj, order_id: &str, failure: &BrokerFailure) {
+/// Sets DB failure status, emits a telemetry Failed event, and sends
+/// [`CommitmentOutcome::ProvingFailed`] to the OrderCommitter to free the capacity slot.
+pub(crate) async fn handle_order_failure(
+    db: &DbObj,
+    order_id: &str,
+    failure: &BrokerFailure,
+    chain_id: u64,
+    proving_completion_tx: &mpsc::Sender<CommitmentComplete>,
+) {
     let db_error_str = failure.to_string();
     if let Err(e) = db.set_order_failure(order_id, &db_error_str).await {
         tracing::error!("Failed to set order {order_id} failure: {e:?}");
     }
-    crate::telemetry::telemetry().record_failed(order_id, failure);
+    crate::telemetry::telemetry(chain_id).record_failed(order_id, failure);
+    let _ = proving_completion_tx.try_send(CommitmentComplete {
+        order_id: order_id.to_string(),
+        chain_id,
+        outcome: CommitmentOutcome::ProvingFailed,
+    });
 }
 
-// Cancels a proof (if configured) and marks the order as failed with telemetry.
+/// Cancels an in-progress proof (if configured) then delegates to [`handle_order_failure`]
+/// to set DB status, emit telemetry, and free the OrderCommitter capacity slot.
 pub(crate) async fn cancel_proof_and_fail(
     prover: &crate::provers::ProverObj,
     db: &DbObj,
     config: &ConfigLock,
     order: &Order,
     failure: &BrokerFailure,
+    chain_id: u64,
+    proving_completion_tx: &mpsc::Sender<CommitmentComplete>,
 ) {
     let order_id = order.id();
 
@@ -116,5 +134,5 @@ pub(crate) async fn cancel_proof_and_fail(
         }
     }
 
-    handle_order_failure(db, &order_id, failure).await;
+    handle_order_failure(db, &order_id, failure, chain_id, proving_completion_tx).await;
 }

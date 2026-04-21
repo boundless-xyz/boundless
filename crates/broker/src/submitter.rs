@@ -41,10 +41,13 @@ use risc0_zkvm::{
     MaybePruned, Receipt, ReceiptClaim,
 };
 
+use tokio::sync::mpsc;
+
 use crate::{
     config::ConfigLock,
     db::DbObj,
     impl_coded_debug, is_dev_mode, now_timestamp,
+    order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType, Order,
@@ -105,6 +108,9 @@ pub struct Submitter<P> {
     set_builder_img_id: Digest,
     prover_address: Address,
     config: ConfigLock,
+    chain_id: u64,
+    /// Sends ProvingCompleted or ProvingFailed to the OrderCommitter to free the capacity slot.
+    proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl<P> Submitter<P>
@@ -120,6 +126,8 @@ where
         set_verifier_addr: Address,
         market_addr: Address,
         set_builder_img_id: Digest,
+        chain_id: u64,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -153,6 +161,8 @@ where
             set_builder_img_id,
             prover_address,
             config,
+            chain_id,
+            proving_completion_tx,
         })
     }
 
@@ -404,6 +414,11 @@ where
                 if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
                     tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }
+                let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                    order_id: order_id.to_string(),
+                    chain_id: self.chain_id,
+                    outcome: CommitmentOutcome::ProvingFailed,
+                });
             }
         }
 
@@ -505,8 +520,13 @@ where
                 );
                 continue;
             }
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                order_id: order_id.to_string(),
+                chain_id: self.chain_id,
+                outcome: CommitmentOutcome::ProvingCompleted,
+            });
 
-            crate::telemetry::telemetry().record_fulfilled(order_id);
+            crate::telemetry::telemetry(self.chain_id).record_fulfilled(order_id);
             let order_price = order_prices
                 .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, collateral_reward: U256::ZERO });
@@ -556,6 +576,11 @@ where
                     order.id()
                 );
             }
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                order_id: order.id(),
+                chain_id: self.chain_id,
+                outcome: CommitmentOutcome::ProvingFailed,
+            });
         }
         Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(
             orders.iter().map(|order| format!("{order}")).collect(),
@@ -945,6 +970,7 @@ mod tests {
 
         market.lock_request(&order.request, client_sig.to_vec()).await.unwrap();
 
+        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let submitter = Submitter::new(
             db.clone(),
             config,
@@ -953,6 +979,8 @@ mod tests {
             set_verifier,
             market_address,
             set_builder_id,
+            anvil.chain_id(),
+            commitment_tx,
         )
         .unwrap();
 

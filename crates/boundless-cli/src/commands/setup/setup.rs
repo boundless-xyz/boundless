@@ -27,7 +27,7 @@ use super::network::{
     normalize_market_network, normalize_rewards_network, query_chain_id, PREBUILT_PROVER_NETWORKS,
     PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS,
 };
-use super::secrets::address_from_private_key;
+use super::secrets::{address_from_private_key, validate_private_key};
 use crate::commands::rewards::State;
 use crate::config::GlobalConfig;
 use crate::config_file::{
@@ -40,7 +40,7 @@ use crate::display::DisplayManager;
 /// Common setup fields shared across all modules
 #[derive(Args, Clone, Debug)]
 pub struct CommonSetupFields {
-    /// Switch network and load any previously saved configuration for that network
+    /// [Deprecated: use '<module> networks --set'] Switch network and load existing config
     #[arg(long = "change-network")]
     pub network: Option<String>,
 
@@ -180,7 +180,7 @@ pub struct RewardsSetup {
 /// Interactive setup command (for `boundless setup`)
 #[derive(Args, Clone, Debug)]
 pub struct SetupInteractive {
-    /// Switch network and load any previously saved configuration for that network
+    /// [Deprecated: use '<module> networks --set'] Switch network and load existing config
     #[arg(long = "change-network")]
     pub network: Option<String>,
 
@@ -271,6 +271,15 @@ pub struct SetupInteractive {
     /// Reset all configuration and secrets for this module across all networks
     #[arg(long = "reset-all")]
     pub reset_all: bool,
+}
+
+/// Validate a private key and return the cleaned key and derived address.
+/// Provides a clear error message if the key is invalid (e.g., from bad paste).
+fn validated_pk(pk: &str) -> Result<(String, Option<alloy::primitives::Address>)> {
+    let clean =
+        validate_private_key(pk).map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
+    let addr = address_from_private_key(&clean);
+    Ok((clean, addr))
 }
 
 impl RequestorSetup {
@@ -479,6 +488,9 @@ impl SetupInteractive {
 
         // Step 2: If --change-network was provided, switch to that network
         if let Some(ref network_name) = target_network {
+            display.warning(
+                "--change-network is deprecated. Use: boundless requestor networks --set <network>",
+            );
             config.requestor = Some(RequestorConfig { network: network_name.clone() });
             display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
         }
@@ -547,8 +559,7 @@ impl SetupInteractive {
                 };
 
                 let (private_key, address) = if let Some(ref pk) = self.private_key {
-                    let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                    let addr = address_from_private_key(&pk);
+                    let (pk, addr) = validated_pk(pk)?;
                     display.success("Updated private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
                 } else if let Some(ref addr) = self.address {
@@ -596,8 +607,7 @@ impl SetupInteractive {
 
                     // Extract address from private key if provided, or use explicit address
                     let (private_key, address) = if let Some(ref pk) = self.private_key {
-                        let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                        let addr = address_from_private_key(&pk);
+                        let (pk, addr) = validated_pk(pk)?;
                         (Some(pk), addr.map(|a| format!("{:#x}", a)))
                     } else if let Some(ref addr) = self.address {
                         (None, Some(addr.clone()))
@@ -673,7 +683,10 @@ impl SetupInteractive {
             network
         } else {
             // No --change-network provided - prompt user to select network
-            let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
+            let mut network_options: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
+                .iter()
+                .map(|(_, name, _)| *name)
+                .collect();
 
             for custom_market in &config.custom_markets {
                 network_options.push(&custom_market.name);
@@ -684,16 +697,13 @@ impl SetupInteractive {
                 Select::new("Select Boundless Market network:", network_options).prompt()?;
 
             let selected_network = match network {
-                "Base Mainnet" => "base-mainnet".to_string(),
-                "Base Sepolia" => "base-sepolia".to_string(),
-                "Ethereum Sepolia" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
                     let custom = custom_networks::setup_custom_market()?;
                     let name = custom.name.clone();
                     config.custom_markets.push(custom);
                     name
                 }
-                custom => custom.to_string(),
+                other => normalize_market_network(other).to_string(),
             };
 
             config.requestor = Some(RequestorConfig { network: selected_network.clone() });
@@ -732,7 +742,7 @@ impl SetupInteractive {
         };
 
         let (private_key, address) = if let Some(ref pk) = self.private_key {
-            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+            let (pk, _addr) = validated_pk(pk)?;
             display.success("Using provided private key");
             (Some(pk), None)
         } else {
@@ -757,7 +767,7 @@ impl SetupInteractive {
                     let prev_key = existing.as_ref().and_then(|e| e.private_key.clone()).unwrap();
                     (Some(prev_key), None)
                 } else {
-                    let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                    let (pk, _addr) = validated_pk(&pk)?;
                     (Some(pk), None)
                 }
             } else {
@@ -856,6 +866,9 @@ impl SetupInteractive {
 
         // Step 2: If --change-network was provided, switch to that network
         if let Some(ref network_name) = target_network {
+            display.warning(
+                "--change-network is deprecated. Use: boundless prover networks --set <network>",
+            );
             config.prover = Some(ProverConfig { network: network_name.clone() });
             display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
         }
@@ -925,8 +938,7 @@ impl SetupInteractive {
                 };
 
                 let (private_key, address) = if let Some(ref pk) = self.private_key {
-                    let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                    let addr = address_from_private_key(&pk);
+                    let (pk, addr) = validated_pk(pk)?;
                     display.success("Updated private key");
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
                 } else if let Some(ref addr) = self.address {
@@ -973,8 +985,7 @@ impl SetupInteractive {
 
                     // Extract address from private key if provided, or use explicit address
                     let (private_key, address) = if let Some(ref pk) = self.private_key {
-                        let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                        let addr = address_from_private_key(&pk);
+                        let (pk, addr) = validated_pk(pk)?;
                         (Some(pk), addr.map(|a| format!("{:#x}", a)))
                     } else if let Some(ref addr) = self.address {
                         (None, Some(addr.clone()))
@@ -1049,7 +1060,10 @@ impl SetupInteractive {
             // We already set it in Step 2, just use it
             network
         } else {
-            let mut network_options = vec!["Base Mainnet", "Base Sepolia", "Ethereum Sepolia"];
+            let mut network_options: Vec<&str> = boundless_market::deployments::SUPPORTED_CHAINS
+                .iter()
+                .map(|(_, name, _)| *name)
+                .collect();
 
             for custom_market in &config.custom_markets {
                 network_options.push(&custom_market.name);
@@ -1061,16 +1075,13 @@ impl SetupInteractive {
                 Select::new("Select Boundless Market network:", network_options).prompt()?;
 
             let selected_network = match network {
-                "Base Mainnet" => "base-mainnet".to_string(),
-                "Base Sepolia" => "base-sepolia".to_string(),
-                "Ethereum Sepolia" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
                     let custom = custom_networks::setup_custom_market()?;
                     let name = custom.name.clone();
                     config.custom_markets.push(custom);
                     name
                 }
-                custom => custom.to_string(),
+                other => normalize_market_network(other).to_string(),
             };
 
             config.prover = Some(ProverConfig { network: selected_network.clone() });
@@ -1109,7 +1120,7 @@ impl SetupInteractive {
         };
 
         let (private_key, address) = if let Some(ref pk) = self.private_key {
-            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+            let (pk, _addr) = validated_pk(pk)?;
             display.success("Using provided private key");
             (Some(pk), None)
         } else {
@@ -1134,7 +1145,7 @@ impl SetupInteractive {
                     let prev_key = existing.as_ref().and_then(|e| e.private_key.clone()).unwrap();
                     (Some(prev_key), None)
                 } else {
-                    let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                    let (pk, _addr) = validated_pk(&pk)?;
                     (Some(pk), None)
                 }
             } else {
@@ -1351,6 +1362,9 @@ impl SetupInteractive {
 
         // Step 2: If --change-network was provided, switch to that network
         if let Some(ref network_name) = target_network {
+            display.warning(
+                "--change-network is deprecated. Use: boundless rewards networks --set <network>",
+            );
             config.rewards = Some(RewardsConfig { network: network_name.clone() });
             display.success(&format!("Switched to network: {}", network_name.cyan().bold()));
         }
@@ -1467,8 +1481,7 @@ impl SetupInteractive {
 
                 let (staking_private_key, staking_address) =
                     if let Some(ref pk) = self.staking_private_key {
-                        let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                        let addr = address_from_private_key(&pk);
+                        let (pk, addr) = validated_pk(pk)?;
                         display.success("Updated staking private key");
                         (Some(pk), addr.map(|a| format!("{:#x}", a)))
                     } else if let Some(ref addr) = self.staking_address {
@@ -1480,8 +1493,7 @@ impl SetupInteractive {
 
                 let (reward_private_key, reward_address) =
                     if let Some(ref pk) = self.reward_private_key {
-                        let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                        let addr = address_from_private_key(&pk);
+                        let (pk, addr) = validated_pk(pk)?;
                         display.success("Updated reward private key");
                         (Some(pk), addr.map(|a| format!("{:#x}", a)))
                     } else if let Some(ref addr) = self.reward_address {
@@ -1571,8 +1583,7 @@ impl SetupInteractive {
                     // Extract addresses from private keys if provided, or use explicit addresses
                     let (staking_private_key, staking_address) =
                         if let Some(ref pk) = self.staking_private_key {
-                            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                            let addr = address_from_private_key(&pk);
+                            let (pk, addr) = validated_pk(pk)?;
                             (Some(pk), addr.map(|a| format!("{:#x}", a)))
                         } else if let Some(ref addr) = self.staking_address {
                             (None, Some(addr.clone()))
@@ -1582,8 +1593,7 @@ impl SetupInteractive {
 
                     let (reward_private_key, reward_address) =
                         if let Some(ref pk) = self.reward_private_key {
-                            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
-                            let addr = address_from_private_key(&pk);
+                            let (pk, addr) = validated_pk(pk)?;
                             (Some(pk), addr.map(|a| format!("{:#x}", a)))
                         } else if let Some(ref addr) = self.reward_address {
                             (None, Some(addr.clone()))
@@ -1671,7 +1681,7 @@ impl SetupInteractive {
             // We already set it in Step 2, just use it
             network
         } else {
-            let mut network_options = vec!["Eth Mainnet", "Eth Testnet (Sepolia)"];
+            let mut network_options = vec!["Ethereum Mainnet", "Ethereum Sepolia"];
 
             for custom_rewards in &config.custom_rewards {
                 network_options.push(&custom_rewards.name);
@@ -1682,15 +1692,13 @@ impl SetupInteractive {
             let network = Select::new("Select rewards network:", network_options).prompt()?;
 
             let selected_network = match network {
-                "Eth Mainnet" => "eth-mainnet".to_string(),
-                "Eth Testnet (Sepolia)" => "eth-sepolia".to_string(),
                 "Custom (add new)" => {
                     let custom = custom_networks::setup_custom_rewards()?;
                     let name = custom.name.clone();
                     config.custom_rewards.push(custom);
                     name
                 }
-                custom => custom.to_string(),
+                other => normalize_rewards_network(other).to_string(),
             };
 
             config.rewards = Some(RewardsConfig { network: selected_network.clone() });
@@ -1766,9 +1774,8 @@ impl SetupInteractive {
         display.note("The staking address is the wallet used to stake ZKC tokens");
 
         let (staking_private_key, staking_address) = if let Some(ref pk) = self.private_key {
-            let pk = pk.strip_prefix("0x").unwrap_or(pk).to_string();
+            let (pk, addr) = validated_pk(pk)?;
             display.success("Using provided private key for staking address");
-            let addr = address_from_private_key(&pk);
             (Some(pk), addr.map(|a| format!("{:#x}", a)))
         } else {
             let has_previous_staking_key =
@@ -1798,8 +1805,7 @@ impl SetupInteractive {
                     let addr = address_from_private_key(&prev_key);
                     (Some(prev_key), addr.map(|a| format!("{:#x}", a)))
                 } else {
-                    let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
-                    let addr = address_from_private_key(&pk);
+                    let (pk, addr) = validated_pk(&pk)?;
                     (Some(pk), addr.map(|a| format!("{:#x}", a)))
                 }
             } else {
@@ -1866,7 +1872,7 @@ impl SetupInteractive {
                                 let prev_key = prev_reward_key.cloned().unwrap();
                                 (Some(prev_key), Some(delegated.clone()))
                             } else {
-                                let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
+                                let (pk, _addr) = validated_pk(&pk)?;
                                 (Some(pk), Some(delegated.clone()))
                             }
                         } else {
@@ -2180,8 +2186,7 @@ impl SetupInteractive {
                     let addr = address_from_private_key(&prev_key);
                     Ok((Some(prev_key), addr.map(|a| format!("{:#x}", a))))
                 } else {
-                    let pk = pk.strip_prefix("0x").unwrap_or(&pk).to_string();
-                    let addr = address_from_private_key(&pk);
+                    let (pk, addr) = validated_pk(&pk)?;
                     Ok((Some(pk), addr.map(|a| format!("{:#x}", a))))
                 }
             } else {

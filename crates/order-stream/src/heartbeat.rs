@@ -27,7 +27,7 @@ use axum::{
 use boundless_market::contracts::IBoundlessMarket;
 use moka::future::Cache;
 
-const BALANCE_CACHE_TTL_SECS: u64 = 6000;
+const BALANCE_CACHE_TTL_SECS: u64 = 1200;
 const BALANCE_CACHE_MAX_ENTRIES: u64 = 10_000;
 
 // Per-record size limits (2x the largest reasonable payload).

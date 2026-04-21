@@ -41,10 +41,6 @@ pub enum ProverError {
     #[error("Not found: {0}")]
     NotFound(String),
 
-    /// Stark job missing stats data.
-    #[error("Stark job missing stats data")]
-    MissingStatus,
-
     /// Prover failure.
     #[error("Prover failure: {0}")]
     ProvingFailed(String),
@@ -74,8 +70,8 @@ impl From<bincode::Error> for ProverError {
 pub struct ProofResult {
     /// Unique identifier for this proof.
     pub id: String,
-    /// Execution statistics.
-    pub stats: ExecutorResp,
+    /// Execution statistics, if available from the prover backend.
+    pub stats: Option<ExecutorResp>,
     /// Time elapsed during proving.
     #[allow(unused)]
     pub elapsed_time: f64,

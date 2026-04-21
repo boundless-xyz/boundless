@@ -107,7 +107,7 @@ impl Default for PriceOracleConfig {
             eth_usd: PriceValue::Auto,
             zkc_usd: PriceValue::Auto,
             max_secs_without_price_update: 43200, // 12h
-            refresh_interval_secs: 120,
+            refresh_interval_secs: 900,
             timeout_secs: 10,
             aggregation_mode: AggregationMode::Median,
             min_sources: 1,

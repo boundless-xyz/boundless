@@ -1,0 +1,22 @@
+# Production base broker config (shared across all chains)
+# Per-chain fields (min_mcycle_price, max_collateral) are in broker.{chain_id}.toml
+[market]
+lookback_blocks = 300
+peak_prove_khz = 11000
+priority_requestor_lists = [
+    "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+]
+allow_requestor_lists = [
+    "https://requestors.boundless.network/boundless-allowed-list.json"
+]
+balance_warn_threshold = "0.02"
+balance_error_threshold = "0.005"
+collateral_balance_warn_threshold = "100"
+collateral_balance_error_threshold = "50"
+max_concurrent_preflights = 10
+max_concurrent_proofs = 2
+max_journal_bytes = 20000
+max_file_size = 500000000000
+max_mcycle_limit = 500000000000
+max_order_expiry_secs = 86400
+order_commitment_priority = "tightest_deadline"

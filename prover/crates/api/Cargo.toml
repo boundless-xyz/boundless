@@ -1,0 +1,31 @@
+[package]
+name = "api"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+anyhow = { workspace = true }
+axum = "0.7"
+bonsai-sdk = { workspace = true }
+clap = { workspace = true, features = ["env", "derive"] }
+deadpool-redis = { workspace = true }
+hex = { workspace = true }
+risc0-zkvm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+taskdb = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower-http = { version = "0.6", features = ["compression-gzip", "compression-deflate", "compression-br", "compression-zstd"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+uuid = { workspace = true, features = ["serde"] }
+workflow-common = { workspace = true }

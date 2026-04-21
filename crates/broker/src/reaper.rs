@@ -21,10 +21,13 @@ use tracing::{debug, error, info, warn};
 
 use boundless_market::telemetry::CompletionOutcome;
 
+use tokio::sync::mpsc;
+
 use crate::{
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
     errors::{cancel_proof_and_fail, BrokerFailure, CodedError},
+    order_committer::CommitmentComplete,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
 };
@@ -52,11 +55,20 @@ pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
+    chain_id: u64,
+    /// Sends ProvingFailed to the OrderCommitter to free the capacity slot for expired orders.
+    proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl ReaperTask {
-    pub fn new(db: DbObj, config: ConfigLock, prover: ProverObj) -> Self {
-        Self { db, config, prover }
+    pub fn new(
+        db: DbObj,
+        config: ConfigLock,
+        prover: ProverObj,
+        chain_id: u64,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
+    ) -> Self {
+        Self { db, config, prover, chain_id, proving_completion_tx }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -84,6 +96,8 @@ impl ReaperTask {
                         "Order expired in reaper",
                         CompletionOutcome::ExpiredWhileProving,
                     ),
+                    self.chain_id,
+                    &self.proving_completion_tx,
                 )
                 .await;
             }
@@ -191,7 +205,8 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -227,7 +242,8 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -284,7 +300,8 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let reaper = ReaperTask::new(db.clone(), config, prover);
+        let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
