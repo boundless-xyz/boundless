@@ -12,39 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
 use alloy::node_bindings::Anvil;
 use alloy::primitives::{utils, U256};
 use boundless_market::contracts::hit_points::default_allowance;
-use boundless_market::dynamic_gas_filler::PriorityMode;
 use boundless_market::selector::ProofType;
 use boundless_market::storage::{MockStorageUploader, StorageUploader};
 use boundless_test_utils::guests::ECHO_ELF;
 use boundless_test_utils::market::create_test_ctx;
-use tempfile::NamedTempFile;
-use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tracing_test::traced_test;
 
 use crate::config::TelemetryMode;
-use crate::{Broker, Config, ConfigWatcher};
+use crate::Config;
 
 use super::e2e::{
-    broker_args, generate_request, make_any_provider, new_config_with_options, run_with_broker,
+    broker_args, build_test_chain, generate_request, new_config_with_min_deadline, run_with_broker,
+    TestConfig,
 };
 
 async fn new_config_with_telemetry(
     min_batch_size: u32,
     mode: TelemetryMode,
     heartbeat_interval_secs: u64,
-) -> NamedTempFile {
-    let config_file = new_config_with_options(min_batch_size, 100, mode).await;
-    let mut config = Config::load(config_file.path()).await.unwrap();
+) -> TestConfig {
+    let test_config = new_config_with_min_deadline(min_batch_size, 100).await;
+    let mut config = Config::load(test_config.base.path()).await.unwrap();
     config.market.request_heartbeat_interval_secs = heartbeat_interval_secs;
     config.market.broker_heartbeat_interval_secs = heartbeat_interval_secs;
-    config.write(config_file.path()).await.unwrap();
-    config_file
+    config.market.telemetry_mode = mode;
+    config.write(test_config.base.path()).await.unwrap();
+    test_config
 }
 
 #[tokio::test]
@@ -60,25 +57,25 @@ async fn e2e_telemetry_events() {
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
     let config = new_config_with_telemetry(1, TelemetryMode::LogsOnly, 2).await;
+    let config_watcher = config.watcher().await;
     let args = broker_args(
-        config.path().to_path_buf(),
+        config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
-        ctx.prover_signer,
+        ctx.prover_signer.clone(),
         Some(ctx.version_registry_address),
     );
-
-    let any_provider = make_any_provider(&args);
-    let broker = Broker::new(
-        args,
-        ctx.prover_provider,
-        any_provider,
-        ConfigWatcher::new(config.path()).await.unwrap(),
-        Arc::new(RwLock::new(PriorityMode::default())),
-        Arc::new(RwLock::new(PriorityMode::default())),
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
     )
-    .await
-    .unwrap();
+    .await;
+    let broker = crate::Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
@@ -95,7 +92,7 @@ async fn e2e_telemetry_events() {
     );
     let expected_request_id_log = format!("\"request_id\":\"0x{:x}\"", request.id);
 
-    run_with_broker(broker, async move {
+    run_with_broker(broker, vec![chain], async move {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
 
         ctx.customer_market

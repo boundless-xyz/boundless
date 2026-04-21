@@ -48,9 +48,15 @@ pub use stake_zkc::RewardsStakeZkc;
 pub use staked_balance_zkc::RewardsStakedBalanceZkc;
 pub use submit_mining::RewardsSubmitMining;
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
-use crate::{commands::setup::RewardsSetup, config::GlobalConfig};
+use crate::{
+    commands::{
+        networks::{self, NetworkModule},
+        setup::RewardsSetup,
+    },
+    config::GlobalConfig,
+};
 
 /// Commands for rewards management
 #[derive(Subcommand, Clone, Debug)]
@@ -113,6 +119,28 @@ pub enum RewardsCommands {
     InspectMiningState(RewardsInspectMiningState),
     /// Interactive setup wizard for rewards configuration
     Setup(RewardsSetup),
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
+}
+
+/// List or switch the active rewards network
+#[derive(Args, Clone, Debug)]
+pub struct NetworksCmd {
+    /// Switch the active network (accepts name, kebab-case key, or chain ID)
+    #[clap(long)]
+    pub set: Option<String>,
+}
+
+impl NetworksCmd {
+    /// Run the command
+    pub async fn run(&self, _global_config: &GlobalConfig) -> anyhow::Result<()> {
+        if let Some(ref input) = self.set {
+            networks::set_active_network(NetworkModule::Rewards, input)
+        } else {
+            networks::list_networks(NetworkModule::Rewards);
+            Ok(())
+        }
+    }
 }
 
 impl RewardsCommands {
@@ -135,6 +163,7 @@ impl RewardsCommands {
             Self::Power(cmd) => cmd.run(global_config).await,
             Self::InspectMiningState(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
+            Self::Networks(cmd) => cmd.run(global_config).await,
         }
     }
 }

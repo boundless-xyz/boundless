@@ -1273,7 +1273,7 @@ mod tests {
         let preflight_result =
             executor.preflight(&image_id.to_string(), &input_id, vec![], None, "test").await?;
 
-        assert_eq!(preflight_result.stats.total_cycles, cycles);
+        assert_eq!(preflight_result.stats.unwrap().total_cycles, cycles);
 
         Ok(())
     }

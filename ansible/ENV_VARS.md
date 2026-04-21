@@ -120,13 +120,15 @@ Explorer hosts also use Caddy variables: `caddy_domain`, `caddy_acme_email`, `ca
 
 These variables enable the broker service:
 
-| Variable                 | Default        | Description                       |
-| ------------------------ | -------------- | --------------------------------- |
-| `prover_private_key`     | `""`           | Prover wallet private key         |
-| `prover_rpc_url`         | `""`           | Single RPC URL (legacy)           |
-| `prover_rpc_urls`        | `""`           | RPC URL(s) for broker (preferred) |
-| `prover_povw_log_id`     | `""`           | POVW log contract address         |
-| `prover_broker_toml_url` | GitHub raw URL | URL to broker.toml template       |
+| Variable                 | Default        | Description                                                |
+| ------------------------ | -------------- | ---------------------------------------------------------- |
+| `prover_private_key`     | `""`           | Prover wallet private key                                  |
+| `prover_rpc_url`         | `""`           | Single RPC URL (legacy)                                    |
+| `prover_rpc_urls`        | `""`           | RPC URL(s) for broker (preferred)                          |
+| `prover_povw_log_id`     | `""`           | POVW log contract address                                  |
+| `prover_broker_toml_url` | GitHub raw URL | URL to broker.toml template                                |
+| `prover_chain_rpc_urls`  | `{}`           | Dict of chain_id → RPC URL for multichain                  |
+| `prover_chain_overrides` | `{}`           | Dict of chain_id → URL/path for per-chain config overrides |
 
 ## Docker Role Variables
 
@@ -242,7 +244,7 @@ prover_84532_staging_nightly:
       prover_postgres_password: "dev_password"
       prover_minio_root_pass: "dev_password"
       prover_rpc_urls: "https://..."
-      prover_broker_toml_url: "https://raw.githubusercontent.com/.../staging_84532.toml"
+      prover_broker_config_dir: "roles/prover/configs/broker/staging-nightly"
 ```
 
 Setting `prover_image_tag` overrides all image tags to use nightly CI builds. With `prover_wait_for_nightly_image: true`, the deploy waits until the image for the deployed commit SHA is available in the registry.

@@ -81,12 +81,55 @@ prover_broker_experimental_rpc: false
 # Optional extra CLI args for the broker (e.g. "--other-flag"). Ignored when prover_broker_experimental_rpc is true.
 prover_broker_extra_args: ""
 
-# Broker configuration URL (used when prover_broker_toml_local is not set)
+# Broker configuration directory. When set, copies broker.toml and all broker.*.toml
+# chain overrides from this directory. Preferred over prover_broker_toml_local/url.
+# Example: "configs/broker/prod-mainnet-nightly"
+prover_broker_config_dir: ""
+
+# Broker configuration URL (used when prover_broker_config_dir and prover_broker_toml_local are not set)
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
 # Local broker.toml file path. When set, copies this file instead of downloading from URL.
 prover_broker_toml_local: ""
+
+# Multichain: per-chain RPC URLs. Dict of chain_id → RPC URL.
+# When set, the broker auto-discovers chains from PROVER_RPC_URL_{chain_id} env vars.
+# Falls back to prover_rpc_url/prover_rpc_urls for single-chain mode.
+# Example:
+#   prover_chain_rpc_urls:
+#     8453: "https://base-rpc.example.com"
+#     167000: "https://taiko-rpc.example.com"
+prover_chain_rpc_urls: {}
+
+# Multichain: per-chain broker config overrides. Dict of chain_id → URL or local path.
+# Files are deployed to chain-overrides/broker.{chain_id}.toml.
+# Only used when prover_broker_config_dir is not set.
+# Example:
+#   prover_chain_overrides:
+#     167000: "https://raw.githubusercontent.com/.../broker.167000.toml"
+#   or with local files:
+#     167000: "/path/to/broker.167000.toml"
+prover_chain_overrides: {}
+
+# Multichain: per-chain deployment addresses. Dict of chain_id → dict of addresses.
+# Only needed for staging, where the prover connects to a different market contract
+# than the production default hardcoded in the broker. Production provers auto-resolve
+# addresses from the built-in deployment config and do not need this.
+# Supported keys: market_address, set_verifier_address, collateral_token_address, order_stream_url
+# Example:
+#   prover_chain_deployments:
+#     84532:
+#       market_address: "0x..."
+#       set_verifier_address: "0x..."
+#       collateral_token_address: "0x..."
+#     167000:
+#       market_address: "0x..."
+prover_chain_deployments: {}
+
 # MinIO input TTL: 0 disables the lifecycle rule, >0 expires inputs/ objects after N days
 prover_input_ttl_days: 1
+
+# Set to "experimental" to use prover-compose.yml (new prover stack, redis-only)
+prover_stack: ""
 
 prover_docker_compose_profile: "--profile broker --profile miner"
 prover_docker_compose_invoke: ""

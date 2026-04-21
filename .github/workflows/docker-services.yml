@@ -2,8 +2,8 @@ name: Docker Services
 
 on:
   push:
-    branches: [main]
-    tags: ["infra-v*", "bento-v*", "broker-v*"]
+    branches: [main, next]
+    tags: ["infra-v*", "bento-v*", "prover-v*", "broker-v*"]
   workflow_dispatch:
     inputs:
       custom_tag:
@@ -154,6 +154,23 @@ jobs:
             dockerfile: dockerfiles/agent.cpu.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
+          # Prover (next-gen bento) services — tagged with prover- prefix
+          - name: prover-rest-api
+            dockerfile: dockerfiles/prover/rest_api.dockerfile
+            submodules: false
+            runner: [self-hosted, prod, Linux, cpu]
+          - name: prover-cli
+            dockerfile: dockerfiles/prover/prover_cli.dockerfile
+            submodules: false
+            runner: [self-hosted, prod, Linux, cpu]
+          - name: prover-agent
+            dockerfile: dockerfiles/prover/agent.dockerfile
+            submodules: false
+            runner: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
+          - name: prover-agent-cpu
+            dockerfile: dockerfiles/prover/agent.cpu.dockerfile
+            submodules: false
+            runner: [self-hosted, prod, Linux, cpu]
     runs-on: ${{ matrix.service.runner }}
     steps:
       - name: Checkout code
@@ -184,7 +201,8 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
           tags: |
             type=sha,prefix=nightly-
-            type=raw,value=nightly-latest
+            type=raw,value=nightly-latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=next-latest,enable=${{ github.ref == 'refs/heads/next' }}
             type=match,pattern=infra-v(.*),group=1
             type=ref,event=pr
             type=raw,value=${{ inputs.custom_tag }},enable=${{ inputs.custom_tag != '' }}

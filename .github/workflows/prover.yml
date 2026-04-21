@@ -1,19 +1,22 @@
-name: Bento Testing
+name: Prover Testing
 
 on:
   pull_request:
     branches:
       - main
-      - 'release-*'
+      - next
+      - "release-*"
     paths:
-      - 'bento/**'
-      - '.github/workflows/bento.yml'
+      - "prover/**"
+      - ".github/workflows/prover.yml"
   push:
     branches:
       - main
-      - 'release-*'
+      - next
+      - "release-*"
     paths:
-      - 'bento/**'
+      - "prover/**"
+      - ".github/workflows/prover.yml"
   workflow_dispatch:
 
 concurrency:
@@ -29,25 +32,12 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "3.0.3"
-  FOUNDRY_VERSION: v1.5.0
 
 jobs:
-  bento-test:
+  prover-test:
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     timeout-minutes: 30
     services:
-      postgres:
-        image: postgres:latest
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: bento_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       redis:
         image: redis:latest
         ports:
@@ -84,11 +74,6 @@ jobs:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_VERSION }}
-
       - name: Install cargo-binstall
         uses: baptiste0928/cargo-install@v3
         with:
@@ -99,54 +84,27 @@ jobs:
 
       - name: Cargo sort check
         run: |
-          cd bento
+          cd prover
           cargo sort --workspace --check
 
       - name: Cargo format check
         run: |
-          cd bento
+          cd prover
           cargo fmt --all -- --check
 
       - name: Cargo check
         run: |
-          cd bento
-          cargo check
+          cd prover
+          cargo check --workspace --locked
 
-      - name: Run database migrations
+      - name: Run prover tests
         run: |
-          # Install sqlx-cli if not present
-          if ! command -v sqlx &> /dev/null; then
-            cargo install sqlx-cli --no-default-features --features postgres
-          fi
-
-          # Create database and run migrations for taskdb
-          cd bento/crates/taskdb
-          sqlx database create --database-url "postgres://postgres:password@localhost:5432/bento_test"
-          sqlx migrate run --database-url "postgres://postgres:password@localhost:5432/bento_test"
+          cd prover
+          cargo test --workspace --locked
         env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
-
-      - name: Run bento tests
-        run: |
-          cd bento
-          cargo test --locked
-        env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
           REDIS_URL: redis://localhost:6379
           RISC0_DEV_MODE: true
-          POVW_ENABLED: false
-
-      - name: Test with POVW enabled
-        run: |
-          cd bento
-          cargo test --locked
-        env:
-          DATABASE_URL: postgres://postgres:password@localhost:5432/bento_test
-          REDIS_URL: redis://localhost:6379
-          RISC0_DEV_MODE: true
-          POVW_ENABLED: true
-          POVW_LOG_ID: "0000000000000000000000000000000000000000"
-          POVW_JOB_NUMBER: "1"
 
       - name: sccache stats
         run: sccache --show-stats
+

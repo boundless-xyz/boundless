@@ -19,6 +19,7 @@ use anyhow::{Context, Result as AnyhowRes};
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use tracing::{Instrument, Span};
 
 #[derive(Error, Debug)]
 pub enum SupervisorErr<E: CodedError> {
@@ -121,10 +122,11 @@ where
         let mut retry_count = 0;
         let mut current_delay = self.retry_policy.delay;
         let mut last_spawn_time = std::time::Instant::now();
+        let parent_span = Span::current();
 
         // Spawn initial task
         tracing::debug!("Spawning task");
-        tasks.spawn(self.task.spawn(self.cancel_token.clone()));
+        tasks.spawn(self.task.spawn(self.cancel_token.clone()).instrument(parent_span.clone()));
 
         while let Some(res) = tasks.join_next().await {
             // Check if we should reset the retry counter based on how long the task ran
@@ -176,11 +178,14 @@ where
                             // Instead of sleeping here, wrap the task spawn with a delay
                             let task_clone = self.task.clone();
                             let t = task_clone.spawn(self.cancel_token.clone());
-                            tasks.spawn(async move {
-                                // Apply calculated retry delay before spawning the task
-                                tokio::time::sleep(current_delay).await;
-                                t.await
-                            });
+                            tasks.spawn(
+                                async move {
+                                    // Apply calculated retry delay before spawning the task
+                                    tokio::time::sleep(current_delay).await;
+                                    t.await
+                                }
+                                .instrument(parent_span.clone()),
+                            );
 
                             retry_count += 1;
                             last_spawn_time = std::time::Instant::now() + current_delay;

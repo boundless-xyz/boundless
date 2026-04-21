@@ -1,23 +1,21 @@
+# Nightly base broker config (shared across all chains)
+# Per-chain fields (min_mcycle_price, max_collateral) are in broker.{chain_id}.toml
 [market]
-min_mcycle_price = "0.000000025"
-min_mcycle_price_collateral_token = "0"
+min_mcycle_price = "0.000000018 ETH"
+max_collateral = "200"
 lookback_blocks = 300
-peak_prove_khz = 11000
+peak_prove_khz = 8000
 priority_requestor_lists = [
     "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+    "https://requestors.boundless.network/boundless-recommended-priority-list.large.json",
 ]
-allow_requestor_lists = [
-    "https://requestors.boundless.network/boundless-allowed-list.json"
-]
-max_collateral = "200"
 balance_warn_threshold = "0.02"
 balance_error_threshold = "0.005"
 collateral_balance_warn_threshold = "100"
 collateral_balance_error_threshold = "50"
-max_concurrent_preflights = 10
+max_concurrent_preflights = 8
 max_concurrent_proofs = 2
 max_journal_bytes = 20000
 max_file_size = 500000000000
 max_mcycle_limit = 500000000000
 max_order_expiry_secs = 86400
-order_commitment_priority = "tightest_deadline"
