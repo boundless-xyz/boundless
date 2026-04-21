@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
-import { LaunchDefaultPipeline, LaunchPipelineConfig, BasePipelineArgs } from "./l-base";
+import { LaunchDefaultPipeline, LaunchPipelineConfig, BasePipelineArgs, createLaunchPipelineNotificationRule, createProdStageFailureAlert } from "./l-base";
 
 interface LIndexerPipelineArgs extends BasePipelineArgs {
 }
@@ -251,23 +251,29 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
         });
 
         // Create notification rule
-        new aws.codestarnotifications.NotificationRule(`l-${this.config.appName}-pipeline-notifications`, {
-            name: `l-${this.config.appName}-pipeline-notifications`,
-            eventTypeIds: [
+        createLaunchPipelineNotificationRule(
+            `l-${this.config.appName}-pipeline-status-notifications`,
+            pipeline.arn,
+            [
                 "codepipeline-pipeline-manual-approval-succeeded",
-                "codepipeline-pipeline-action-execution-failed",
             ],
-            resource: pipeline.arn,
-            detailType: "FULL",
-            targets: [
-                {
-                    address: slackAlertsTopicArn.apply((arn: string) => arn),
-                },
-            ],
-            tags: {
-                Name: `l-${this.config.appName}-pipeline-notifications`,
+            slackAlertsTopicArn,
+            {
+                Name: `l-${this.config.appName}-pipeline-status-notifications`,
                 Component: `l-${this.config.appName}`,
             },
-        });
+            { parent: this }
+        );
+
+        createProdStageFailureAlert(
+            `l-${this.config.appName}-prod-stage-failure`,
+            pipeline.arn,
+            slackAlertsTopicArn,
+            {
+                Name: `l-${this.config.appName}-prod-stage-failure`,
+                Component: `l-${this.config.appName}`,
+            },
+            { parent: this }
+        );
     }
 }
