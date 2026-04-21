@@ -215,10 +215,10 @@ export const alarmConfig: ChainStageAlarms = {
           }
         }],
         submittedRequests: [{
-          description: "less than 2 submitted orders in 30 minutes",
+          description: "less than 2 submitted orders in 1 hour",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 2,
