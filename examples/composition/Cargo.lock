@@ -2129,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2185,7 +2185,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2205,7 +2205,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2223,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3935,7 +3935,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3953,7 +3953,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "hex",
  "risc0-build",
