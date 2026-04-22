@@ -73,8 +73,12 @@ fn rewrite_solidity_interface_files() {
 
     let mut combined_sol_contents = String::new();
 
-    for entry in fs::read_dir(sol_iface_dir).unwrap() {
-        let entry = entry.unwrap();
+    // Sort directory entries by path so the generated file is deterministic across
+    // filesystems and environments (fs::read_dir order is platform-dependent).
+    let mut entries: Vec<_> = fs::read_dir(sol_iface_dir).unwrap().map(|e| e.unwrap()).collect();
+    entries.sort_by_key(|e| e.path());
+
+    for entry in entries {
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("sol") {
             // Skip if the file is in EXCLUDE_CONTRACTS
