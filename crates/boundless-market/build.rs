@@ -78,8 +78,7 @@ fn rewrite_solidity_interface_files() {
 
     // Sort directory entries by path so the generated file is deterministic across
     // filesystems and environments (fs::read_dir order is platform-dependent).
-    let mut entries: Vec<_> =
-        fs::read_dir(sol_iface_dir).unwrap().map(|e| e.unwrap()).collect();
+    let mut entries: Vec<_> = fs::read_dir(sol_iface_dir).unwrap().map(|e| e.unwrap()).collect();
     entries.sort_by_key(|e| e.path());
 
     for entry in entries {
