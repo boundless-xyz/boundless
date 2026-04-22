@@ -264,7 +264,7 @@ pub mod host {
         /// subsequence of a single chain.
         ///
         /// The verify call within the guest occurs atomically with
-        /// [MutltiblockEthEvmInput::into_env]. If this method is not called by the host, the
+        /// [MultiblockEthEvmInput::into_env]. If this method is not called by the host, the
         /// conversion of the input into an env will fail in the guest, as the required Merkle
         /// proofs will not be available.
         pub async fn preflight_verify_continuity(&mut self) -> anyhow::Result<()> {
@@ -639,7 +639,7 @@ pub mod host {
     }
 
     impl<P: Provider> IPovwMintInstance<P> {
-        /// Create a call to the [IPovwMint::mint] function to be sent in a tx.
+        /// Create a call to the [`IPovwMint::mintCall`] function to be sent in a tx.
         pub fn mint_with_receipt(
             &self,
             receipt: &Receipt,
