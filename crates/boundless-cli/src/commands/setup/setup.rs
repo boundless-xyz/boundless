@@ -40,7 +40,7 @@ use crate::display::DisplayManager;
 /// Common setup fields shared across all modules
 #[derive(Args, Clone, Debug)]
 pub struct CommonSetupFields {
-    /// [Deprecated: use '<module> networks --set'] Switch network and load existing config
+    /// [Deprecated: use `<module> networks --set`] Switch network and load existing config
     #[arg(long = "change-network")]
     pub network: Option<String>,
 
@@ -180,7 +180,7 @@ pub struct RewardsSetup {
 /// Interactive setup command (for `boundless setup`)
 #[derive(Args, Clone, Debug)]
 pub struct SetupInteractive {
-    /// [Deprecated: use '<module> networks --set'] Switch network and load existing config
+    /// [Deprecated: use `<module> networks --set`] Switch network and load existing config
     #[arg(long = "change-network")]
     pub network: Option<String>,
 

@@ -187,6 +187,20 @@ export class Notifications extends pulumi.ComponentResource {
           resources: [arn],
           sid: "Grant publish to codestar for deployment notifications",
         },
+        {
+          actions: ["SNS:Publish"],
+          principals: [{
+            type: "Service",
+            identifiers: ["events.amazonaws.com"],
+          }],
+          resources: [arn],
+          conditions: [{
+            test: "ArnLike",
+            variable: "aws:SourceArn",
+            values: [`arn:aws:events:us-west-2:${args.opsAccountId}:rule/*`],
+          }],
+          sid: "Grant publish to EventBridge for deployment notifications",
+        },
       ],
     }));
 

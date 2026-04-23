@@ -1,6 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { BasePipelineArgs } from "./base";
+import { BasePipelineArgs, createLaunchPipelineNotificationRule, createProdStageFailureAlert } from "./base";
 import {
   BOUNDLESS_OPS_ACCOUNT_ID,
   BOUNDLESS_STAGING_ACCOUNT_ID,
@@ -304,30 +304,16 @@ artifacts:
             name: "Source",
             actions: [
               {
-                name: "GithubMain",
+                name: "Github",
                 category: "Source",
                 owner: "AWS",
                 provider: "CodeStarSourceConnection",
                 version: "1",
-                outputArtifacts: ["source_output_main"],
+                outputArtifacts: ["source_output"],
                 configuration: {
                   ConnectionArn: connection.arn,
                   FullRepositoryId: "boundless-xyz/boundless",
                   BranchName: "main",
-                  OutputArtifactFormat: "CODEBUILD_CLONE_REF",
-                },
-              },
-              {
-                name: "GithubNext",
-                category: "Source",
-                owner: "AWS",
-                provider: "CodeStarSourceConnection",
-                version: "1",
-                outputArtifacts: ["source_output_next"],
-                configuration: {
-                  ConnectionArn: connection.arn,
-                  FullRepositoryId: "boundless-xyz/boundless",
-                  BranchName: "next",
                   OutputArtifactFormat: "CODEBUILD_CLONE_REF",
                 },
               },
@@ -343,7 +329,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output_next"],
+                inputArtifacts: ["source_output"],
                 outputArtifacts: ["staging_output"],
                 configuration: {
                   ProjectName: buildProject.name,
@@ -363,7 +349,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output_next"],
+                inputArtifacts: ["source_output"],
                 outputArtifacts: ["cw_staging_output"],
                 configuration: {
                   ProjectName: cwStagingBuild.name,
@@ -381,7 +367,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output_next"],
+                inputArtifacts: ["source_output"],
                 outputArtifacts: ["nightly_output"],
                 configuration: {
                   ProjectName: buildProject.name,
@@ -401,7 +387,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 1,
-                inputArtifacts: ["source_output_next"],
+                inputArtifacts: ["source_output"],
                 outputArtifacts: ["cw_nightly_production_output"],
                 configuration: {
                   ProjectName: cwProductionBuild.name,
@@ -428,7 +414,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 2,
-                inputArtifacts: ["source_output_main"],
+                inputArtifacts: ["source_output"],
                 outputArtifacts: ["production_output"],
                 configuration: {
                   ProjectName: buildProject.name,
@@ -448,7 +434,7 @@ artifacts:
                 provider: "CodeBuild",
                 version: "1",
                 runOrder: 3,
-                inputArtifacts: ["source_output_main"],
+                inputArtifacts: ["source_output"],
                 outputArtifacts: ["cw_production_output"],
                 configuration: {
                   ProjectName: cwProductionBuild.name,
@@ -461,24 +447,11 @@ artifacts:
           {
             providerType: "CodeStarSourceConnection",
             gitConfiguration: {
-              sourceActionName: "GithubMain",
+              sourceActionName: "Github",
               pushes: [
                 {
                   branches: {
                     includes: ["main"],
-                  },
-                },
-              ],
-            },
-          },
-          {
-            providerType: "CodeStarSourceConnection",
-            gitConfiguration: {
-              sourceActionName: "GithubNext",
-              pushes: [
-                {
-                  branches: {
-                    includes: ["next"],
                   },
                 },
               ],
@@ -493,27 +466,28 @@ artifacts:
       { parent: this }
     );
 
-    new aws.codestarnotifications.NotificationRule(
-      `l-${APP_NAME}-pipeline-notifications`,
+    createLaunchPipelineNotificationRule(
+      `l-${APP_NAME}-pipeline-status-notifications`,
+      pipeline.arn,
+      [
+        "codepipeline-pipeline-pipeline-execution-succeeded",
+        "codepipeline-pipeline-manual-approval-needed",
+      ],
+      slackAlertsTopicArn,
       {
-        name: `l-${APP_NAME}-pipeline-notifications`,
-        eventTypeIds: [
-          "codepipeline-pipeline-pipeline-execution-failed",
-          "codepipeline-pipeline-action-execution-failed",
-          "codepipeline-pipeline-pipeline-execution-succeeded",
-          "codepipeline-pipeline-manual-approval-needed",
-        ],
-        resource: pipeline.arn,
-        detailType: "FULL",
-        targets: [
-          {
-            address: slackAlertsTopicArn,
-          },
-        ],
-        tags: {
-          Name: `l-${APP_NAME}-pipeline-notifications`,
-          Component: `l-${APP_NAME}`,
-        },
+        Name: `l-${APP_NAME}-pipeline-status-notifications`,
+        Component: `l-${APP_NAME}`,
+      },
+      { parent: this }
+    );
+
+    createProdStageFailureAlert(
+      `l-${APP_NAME}-prod-stage-failure`,
+      pipeline.arn,
+      slackAlertsTopicArn,
+      {
+        Name: `l-${APP_NAME}-prod-stage-failure`,
+        Component: `l-${APP_NAME}`,
       },
       { parent: this }
     );
