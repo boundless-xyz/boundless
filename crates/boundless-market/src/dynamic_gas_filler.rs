@@ -457,9 +457,7 @@ where
             estimation.max_priority_fee_per_gas = self.min_priority_fee_wei;
             estimation.max_fee_per_gas = std::cmp::max(
                 estimation.max_fee_per_gas,
-                base_fee_per_gas
-                    .saturating_mul(self.base_fee_multiplier_percentage as u128)
-                    / 100
+                base_fee_per_gas.saturating_mul(self.base_fee_multiplier_percentage as u128) / 100
                     + self.min_priority_fee_wei,
             );
         }
