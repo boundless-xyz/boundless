@@ -421,6 +421,7 @@ error = ?"#;
                 priority_fee_multiplier_percentage: 150,
                 priority_fee_percentile: 15.0,
                 dynamic_multiplier_percentage: 9,
+                min_priority_fee_wei: 0,
             }
         );
     }

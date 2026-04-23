@@ -67,6 +67,9 @@ pub enum PriorityMode {
         /// The incremental percentage applied per pending tx when scaling the final estimate.
         #[serde(default = "default_custom_dynamic_multiplier_percentage")]
         dynamic_multiplier_percentage: u64,
+        /// Minimum priority fee in wei.
+        #[serde(default = "default_custom_min_priority_fee_wei")]
+        min_priority_fee_wei: u128,
     },
 }
 
@@ -86,6 +89,10 @@ const fn default_custom_dynamic_multiplier_percentage() -> u64 {
     5
 }
 
+const fn default_custom_min_priority_fee_wei() -> u128 {
+    0
+}
+
 impl PriorityMode {
     /// Returns the configuration for this priority mode.
     pub fn config(&self) -> PriorityModeConfig {
@@ -95,29 +102,34 @@ impl PriorityMode {
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: LOW_PRIORITY_PERCENTILE,
                 dynamic_multiplier_percentage: 3,
+                min_priority_fee_wei: 0,
             },
             PriorityMode::Medium => PriorityModeConfig {
                 base_fee_multiplier_percentage: DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: MEDIUM_PRIORITY_PERCENTILE,
                 dynamic_multiplier_percentage: 5,
+                min_priority_fee_wei: 0,
             },
             PriorityMode::High => PriorityModeConfig {
                 base_fee_multiplier_percentage: 250,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: HIGH_PRIORITY_PERCENTILE,
                 dynamic_multiplier_percentage: 7,
+                min_priority_fee_wei: 0,
             },
             PriorityMode::Custom {
                 base_fee_multiplier_percentage,
                 priority_fee_multiplier_percentage,
                 priority_fee_percentile,
                 dynamic_multiplier_percentage,
+                min_priority_fee_wei,
             } => PriorityModeConfig {
                 base_fee_multiplier_percentage: *base_fee_multiplier_percentage,
                 priority_fee_multiplier_percentage: *priority_fee_multiplier_percentage,
                 priority_fee_percentile: *priority_fee_percentile,
                 dynamic_multiplier_percentage: *dynamic_multiplier_percentage,
+                min_priority_fee_wei: *min_priority_fee_wei,
             },
         }
     }
@@ -156,6 +168,9 @@ pub struct PriorityModeConfig {
     pub priority_fee_percentile: f64,
     /// The incremental percentage applied to the base fee and priority fee per pending transaction (e.g., 0 = no change, 5 = +5% per pending tx).
     pub dynamic_multiplier_percentage: u64,
+    /// Minimum priority fee floor in wei. If the computed priority fee is below this value, this
+    /// value is used instead.
+    pub min_priority_fee_wei: u128,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -341,6 +356,7 @@ struct FeeEstimatorProvider<'a, P, N> {
     priority_fee_percentile: f64,
     base_fee_multiplier_percentage: u64,
     priority_fee_multiplier_percentage: u64,
+    min_priority_fee_wei: u128,
     _network: std::marker::PhantomData<N>,
 }
 
@@ -351,6 +367,7 @@ impl<'a, P, N> FeeEstimatorProvider<'a, P, N> {
             priority_fee_percentile: config.priority_fee_percentile,
             base_fee_multiplier_percentage: config.base_fee_multiplier_percentage,
             priority_fee_multiplier_percentage: config.priority_fee_multiplier_percentage,
+            min_priority_fee_wei: config.min_priority_fee_wei,
             _network: std::marker::PhantomData,
         }
     }
@@ -426,6 +443,25 @@ where
                 }
                 _ => {}
             }
+        }
+
+        // Apply the configured minimum priority fee floor.
+        if self.min_priority_fee_wei > 0
+            && estimation.max_priority_fee_per_gas < self.min_priority_fee_wei
+        {
+            tracing::debug!(
+                "Priority fee {} wei is below configured floor {} wei, applying floor",
+                estimation.max_priority_fee_per_gas,
+                self.min_priority_fee_wei
+            );
+            estimation.max_priority_fee_per_gas = self.min_priority_fee_wei;
+            estimation.max_fee_per_gas = std::cmp::max(
+                estimation.max_fee_per_gas,
+                base_fee_per_gas
+                    .saturating_mul(self.base_fee_multiplier_percentage as u128)
+                    / 100
+                    + self.min_priority_fee_wei,
+            );
         }
 
         Ok(estimation)

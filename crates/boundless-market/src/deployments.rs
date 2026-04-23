@@ -258,18 +258,21 @@ fn default_presets() -> ChainGasPresets {
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: 20.0,
                 dynamic_multiplier_percentage: 3,
+                min_priority_fee_wei: 0,
             },
             medium: PriorityMode::Custom {
                 base_fee_multiplier_percentage: 200,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: 30.0,
                 dynamic_multiplier_percentage: 5,
+                min_priority_fee_wei: 0,
             },
             high: PriorityMode::Custom {
                 base_fee_multiplier_percentage: 250,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: 50.0,
                 dynamic_multiplier_percentage: 7,
+                min_priority_fee_wei: 0,
             },
         },
         // Conservative settings for profitability estimation: 1x base fee, no
@@ -281,18 +284,21 @@ fn default_presets() -> ChainGasPresets {
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: 10.0,
                 dynamic_multiplier_percentage: 0,
+                min_priority_fee_wei: 0,
             },
             medium: PriorityMode::Custom {
                 base_fee_multiplier_percentage: 100,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: 20.0,
                 dynamic_multiplier_percentage: 0,
+                min_priority_fee_wei: 0,
             },
             high: PriorityMode::Custom {
                 base_fee_multiplier_percentage: 100,
                 priority_fee_multiplier_percentage: 100,
                 priority_fee_percentile: 30.0,
                 dynamic_multiplier_percentage: 0,
+                min_priority_fee_wei: 0,
             },
         },
     }
@@ -301,7 +307,10 @@ fn default_presets() -> ChainGasPresets {
 /// Returns gas presets for a chain. Falls back to generic defaults.
 pub fn gas_presets_for_chain(chain_id: u64) -> ChainGasPresets {
     match chain_id {
-        // Taiko: very stable gas at ~0.01 gwei, essentially zero priority fee.
+        // Taiko: very stable gas at ~0.01 gwei, essentially zero priority fee from fee history.
+        // A min_priority_fee_wei floor of 0.01 gwei for Taiko is necessary as with periods of low
+        // gas fees, these txs will be rejected, and the sequencer will not look at future tx's
+        // priority fee for inclusion.
         167000 => ChainGasPresets {
             priority: TierPresets {
                 low: PriorityMode::Custom {
@@ -309,18 +318,21 @@ pub fn gas_presets_for_chain(chain_id: u64) -> ChainGasPresets {
                     priority_fee_multiplier_percentage: 100,
                     priority_fee_percentile: 1.0,
                     dynamic_multiplier_percentage: 2,
+                    min_priority_fee_wei: 10_000_000,
                 },
                 medium: PriorityMode::Custom {
                     base_fee_multiplier_percentage: 100,
                     priority_fee_multiplier_percentage: 100,
                     priority_fee_percentile: 5.0,
                     dynamic_multiplier_percentage: 3,
+                    min_priority_fee_wei: 10_000_000,
                 },
                 high: PriorityMode::Custom {
                     base_fee_multiplier_percentage: 150,
                     priority_fee_multiplier_percentage: 150,
                     priority_fee_percentile: 20.0,
                     dynamic_multiplier_percentage: 4,
+                    min_priority_fee_wei: 10_000_000,
                 },
             },
             estimation: TierPresets {
@@ -329,18 +341,21 @@ pub fn gas_presets_for_chain(chain_id: u64) -> ChainGasPresets {
                     priority_fee_multiplier_percentage: 100,
                     priority_fee_percentile: 10.0,
                     dynamic_multiplier_percentage: 2,
+                    min_priority_fee_wei: 10_000_000,
                 },
                 medium: PriorityMode::Custom {
                     base_fee_multiplier_percentage: 100,
                     priority_fee_multiplier_percentage: 100,
                     priority_fee_percentile: 20.0,
                     dynamic_multiplier_percentage: 3,
+                    min_priority_fee_wei: 10_000_000,
                 },
                 high: PriorityMode::Custom {
                     base_fee_multiplier_percentage: 150,
                     priority_fee_multiplier_percentage: 150,
                     priority_fee_percentile: 30.0,
                     dynamic_multiplier_percentage: 4,
+                    min_priority_fee_wei: 10_000_000,
                 },
             },
         },
