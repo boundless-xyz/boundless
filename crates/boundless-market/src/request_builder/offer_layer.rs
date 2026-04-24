@@ -638,6 +638,7 @@ where
             priority_fee_multiplier_percentage: 100,
             priority_fee_percentile: 75.0,
             dynamic_multiplier_percentage: 7,
+            min_priority_fee_wei: 0,
         }
         .estimate_max_fee_per_gas(&self.provider)
         .await
