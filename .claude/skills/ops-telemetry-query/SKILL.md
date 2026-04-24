@@ -51,12 +51,12 @@ Telemetry was cut over from Redshift Serverless to Redshift provisioned during *
 
 Pick a backend based on the user's time filter (`evaluated_at`, `completed_at`, `timestamp`):
 
-| Window | Backend |
-| ------ | ------- |
-| `end < 2026-04-25T00:00:00Z` | Archive only — DuckDB + S3 Parquet (see [Archive Backend](#archive-backend-duckdb--s3-parquet)) |
-| `start >= 2026-04-25T00:00:00Z` | Live only — existing `psql` + Redshift path |
-| Crosses `2026-04-25T00:00:00Z` | **Two separate queries**: run the archive query for everything through `2026-04-24 23:59:59Z` and the live query for everything from `2026-04-25 00:00:00Z` onwards. Present both result sets to the user and note that the window crossed the cutover. Do not try to auto-UNION. |
-| No time window given | Default to live only and call that out in the response, so the user can widen the range if they wanted history. |
+| Window                          | Backend                                                                                                                                                                                                                                                                           |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `end < 2026-04-25T00:00:00Z`    | Archive only — DuckDB + S3 Parquet (see [Archive Backend](#archive-backend-duckdb--s3-parquet))                                                                                                                                                                                   |
+| `start >= 2026-04-25T00:00:00Z` | Live only — existing `psql` + Redshift path                                                                                                                                                                                                                                       |
+| Crosses `2026-04-25T00:00:00Z`  | **Two separate queries**: run the archive query for everything through `2026-04-24 23:59:59Z` and the live query for everything from `2026-04-25 00:00:00Z` onwards. Present both result sets to the user and note that the window crossed the cutover. Do not try to auto-UNION. |
+| No time window given            | Default to live only and call that out in the response, so the user can widen the range if they wanted history.                                                                                                                                                                   |
 
 ## Archive Backend (DuckDB + S3 Parquet)
 
@@ -64,13 +64,13 @@ Pick a backend based on the user's time filter (`evaluated_at`, `completed_at`, 
 
 All buckets live in `us-west-2`. Layout inside every bucket: `s3://<bucket>/<stack>/<view>/NNNN_part_00.parquet`, where `<view>` ∈ `broker_heartbeats | request_evaluations | request_completions`. Each bucket contains one stack prefix — use the glob `s3://<bucket>/*/<view>/*.parquet`.
 
-| env (skill name)       | chain id | bucket                                         |
-| ---------------------- | -------- | ---------------------------------------------- |
-| `prod_taiko`           | 167000   | `telemetry-snapshot-prod-167000-04-24-26`      |
-| `prod_base`            | 8453     | `telemetry-snapshot-prod-8453-04-24-26`        |
-| `prod_base_sepolia`    | 84532    | `telemetry-snapshot-prod-84532-04-24-26`       |
-| `staging_taiko`        | 167000   | `telemetry-snapshot-staging-167000-04-24-26`   |
-| `staging_base_sepolia` | 84532    | `telemetry-snapshot-staging-84532-04-24-26`    |
+| env (skill name)       | chain id | bucket                                       |
+| ---------------------- | -------- | -------------------------------------------- |
+| `prod_taiko`           | 167000   | `telemetry-snapshot-prod-167000-04-24-26`    |
+| `prod_base`            | 8453     | `telemetry-snapshot-prod-8453-04-24-26`      |
+| `prod_base_sepolia`    | 84532    | `telemetry-snapshot-prod-84532-04-24-26`     |
+| `staging_taiko`        | 167000   | `telemetry-snapshot-staging-167000-04-24-26` |
+| `staging_base_sepolia` | 84532    | `telemetry-snapshot-staging-84532-04-24-26`  |
 
 ### Schema
 
