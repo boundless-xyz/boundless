@@ -307,7 +307,7 @@ mod tests {
         // The task should remain alive after state timeout, but should log the UpdateTimeout error
         // code.
         assert!(!handle.is_finished());
-        assert!(logs_contain("[B-PO-009] Price oracle could not be updated for too long."));
+        assert!(logs_contain("[B-PO-009] Price oracle has not refreshed"));
         cancel_token.cancel();
         handle.await??;
 
