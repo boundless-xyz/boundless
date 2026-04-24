@@ -60,11 +60,13 @@ Ensure the inventory file is in `.gitignore` (`ansible/inventory-*.yml` pattern)
 
 ### 2. Set environment variables
 
-The user must export secrets before running ansible:
+The inventory uses `{{ lookup('env', 'VAR') }}` for secrets. These resolve on the machine running `ansible-playbook`, not on the remote server. They must be exported in the same shell that runs the playbook.
 
 ```bash
 export PROVER_PRIVATE_KEY="<broker private key>"
-export PROVER_RPC_URLS="<RPC URL>"
+export PROVER_RPC_URL_8453="<Base RPC URL>"
+export PROVER_RPC_URL_167000="<Taiko RPC URL>"
+ansible-playbook -i inventory-<name>.yml prover.yml  # must be in the same shell
 ```
 
 ### 3. Test connectivity
@@ -102,27 +104,65 @@ ssh <user>@<host> "sudo docker compose -f /opt/bento/compose.yml --env-file /opt
 
 ## Image modes
 
-| Mode                   | Config                                | Description                                                                                       |
-| ---------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Pre-built nightly**  | `prover_image_tag: "nightly-latest"`  | Pull latest CI images from GHCR (recommended)                                                     |
-| **Pinned nightly SHA** | `prover_image_tag: "nightly-abc1234"` | Pin to a specific CI build by commit SHA                                                          |
-| **Custom tag**         | `prover_image_tag: "my-custom-tag"`   | Any tag from GHCR (e.g. from `gh workflow run docker-services.yml -f custom_tag="my-custom-tag"`) |
-| **Pinned release**     | `prover_image_version: "1.3"`         | Use release-tagged images (e.g. `bento-v1.3`, `broker-v1.3`)                                      |
-| **Build from source**  | `prover_boundless_build: "all"`       | Build Docker images on the server (slow, not recommended)                                         |
+Before generating the inventory, ask the user which image mode they want. This matters because building from source is slow (Rust compilation) but required when deploying code from a feature branch that doesn't have CI-built images.
+
+Ask: **"Do you want to use pre-built images or build from source? If building from source, which components?"**
+
+| Mode                      | Config                                | Description                                                                                       |
+| ------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Pre-built nightly**     | `prover_image_tag: "nightly-latest"`  | Pull latest CI images from GHCR (recommended for `main` branch)                                   |
+| **Pinned nightly SHA**    | `prover_image_tag: "nightly-abc1234"` | Pin to a specific CI build by commit SHA                                                          |
+| **Custom tag**            | `prover_image_tag: "my-custom-tag"`   | Any tag from GHCR (e.g. from `gh workflow run docker-services.yml -f custom_tag="my-custom-tag"`) |
+| **Pinned release**        | `prover_image_version: "1.3"`         | Use release-tagged images (e.g. `bento-v1.3`, `broker-v1.3`)                                      |
+| **Build all from source** | `prover_boundless_build: "all"`       | Build all Docker images on the server (slow, not recommended unless needed)                       |
+| **Selective build**       | `prover_boundless_build: "broker"`    | Build specific service(s) from source, pull pre-built images for the rest                         |
 
 `prover_image_tag` takes precedence over `prover_image_version`. When set, ALL images use the exact same tag.
 
-## Broker configuration
+### Selective build + pre-built (hybrid mode)
 
-By default, broker.toml is downloaded from `prover_broker_toml_url`. To use a custom local file instead, set `prover_broker_toml_local` in the inventory:
+You can combine `prover_image_tag` with `prover_boundless_build` to build only specific services from source while pulling pre-built images for everything else. The justfile handles this by clearing the image tag for the built service at runtime (`export BROKER_IMAGE=""`) so docker compose builds it from the local Dockerfile instead of pulling.
+
+Example: deploy a feature branch that only changes the broker:
 
 ```yaml
-# Use a local broker.toml (recommended for custom configs)
-prover_broker_toml_local: "/path/to/my/broker.toml"
-
-# Or download from a URL (default)
-prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
+prover_image_tag: "nightly-latest"       # pre-built images for agents, rest_api, etc.
+prover_boundless_build: "broker"          # build only the broker from the branch source
 ```
+
+Valid `prover_boundless_build` values: `"all"`, `"broker"`, `"rest_api"`, `"exec_agent"`, `"aux_agent"`, `"gpu_prove_agent"`, `"miner"`, or space-separated combinations (e.g. `"broker rest_api"`).
+
+## Broker configuration
+
+Ask the user: **"Do you want to use an existing broker config from the repo, or specify your own config directory?"**
+
+**Option A: Use an existing config.** List the directories in `ansible/roles/prover/configs/broker/` and let the user pick:
+
+```yaml
+prover_broker_config_dir: "roles/prover/configs/broker/<chosen-config>"
+```
+
+**Option B: Specify a custom directory.** The user provides a path to a directory containing their own config files:
+
+```yaml
+prover_broker_config_dir: "/path/to/my/broker-config"
+```
+
+Ansible copies the entire directory contents to `/opt/bento/` on the remote server.
+
+The config directory should contain:
+
+- `broker.toml` — base config shared across all chains
+- `broker.{chain_id}.toml` — per-chain overrides (e.g. `broker.8453.toml`, `broker.167000.toml`)
+
+Per-chain override files must go in a `chain-overrides/` subdirectory (e.g. `chain-overrides/broker.8453.toml`). This is the directory mounted into the Docker container.
+
+IMPORTANT: `broker.toml` must include `min_mcycle_price` and `max_collateral` even if per-chain overrides replace them. These are required fields — the broker fails to parse the base config without them.
+
+Fallback options (when `prover_broker_config_dir` is not set):
+
+- `prover_broker_toml_local` — copies a single local file to `/opt/bento/broker.toml`
+- `prover_broker_toml_url` — downloads from a URL (default: `broker-template.toml` from main branch)
 
 ### Auto-generating config with the CLI wizard
 
@@ -158,7 +198,7 @@ ansible-playbook -i inventory-<name>.yml prover.yml --skip-tags nvidia
 ansible-playbook -i inventory-<name>.yml prover.yml --skip-tags nvidia,docker
 ```
 
-Note: `--tags prover` does NOT work as expected — the individual tasks inside the role are not tagged. Use `--skip-tags` instead. The NVIDIA/Docker roles are idempotent so running the full playbook on an already-configured host is safe and fast.
+Note: `--tags prover` does NOT work as expected — the individual tasks inside the role are not tagged. Use `--skip-tags` instead. IMPORTANT: `--skip-tags nvidia,docker` will ALSO skip the prover role because it is tagged with both `prover` and `docker`. To skip only the NVIDIA and Docker install roles, use `--skip-tags nvidia-install,docker-install`. The NVIDIA/Docker roles are idempotent so running the full playbook on an already-configured host is safe and fast.
 
 ## Tear down
 

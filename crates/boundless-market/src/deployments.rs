@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
 use alloy::primitives::{address, Address};
 use clap::Args;
 use derive_builder::Builder;
 
 pub use alloy_chains::NamedChain;
+
+use crate::dynamic_gas_filler::PriorityMode;
 
 pub(crate) const BASE_MAINNET_INDEXER_URL: &str = "https://d2mdvlnmyov1e1.cloudfront.net/";
 pub(crate) const BASE_SEPOLIA_INDEXER_URL: &str = "https://d3kkukmpiqlzm1.cloudfront.net/";
@@ -95,6 +97,26 @@ pub struct Deployment {
     pub indexer_url: Option<Cow<'static, str>>,
 }
 
+impl fmt::Display for Deployment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "market={}", self.boundless_market_address)?;
+        write!(f, " set_verifier={}", self.set_verifier_address)?;
+        if let Some(addr) = self.verifier_router_address {
+            write!(f, " verifier_router={addr}")?;
+        }
+        if let Some(addr) = self.collateral_token_address {
+            write!(f, " collateral_token={addr}")?;
+        }
+        if let Some(chain_id) = self.market_chain_id {
+            write!(f, " chain_id={chain_id}")?;
+        }
+        if let Some(ref url) = self.order_stream_url {
+            write!(f, " order_stream={url}")?;
+        }
+        Ok(())
+    }
+}
+
 impl Deployment {
     /// Create a new [DeploymentBuilder].
     pub fn builder() -> DeploymentBuilder {
@@ -123,7 +145,20 @@ impl Deployment {
     pub fn collateral_token_supports_permit(&self) -> bool {
         self.market_chain_id.map(collateral_token_supports_permit).unwrap_or(false)
     }
+
+    /// Check if this deployment has an indexer URL configured.
+    pub fn has_indexer(&self) -> bool {
+        self.indexer_url.is_some()
+    }
 }
+
+/// All supported chains: (chain_id, display_name, is_mainnet).
+pub const SUPPORTED_CHAINS: &[(u64, &str, bool)] = &[
+    (8453, "Base Mainnet", true),
+    (167000, "Taiko Mainnet", true),
+    (11155111, "Ethereum Sepolia", false),
+    (84532, "Base Sepolia", false),
+];
 
 // TODO(#654): Ensure consistency with deployment.toml and with docs
 /// [Deployment] for the Sepolia testnet.
@@ -169,7 +204,7 @@ pub const TAIKO: Deployment = Deployment {
     verifier_router_address: Some(address!("0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45")),
     set_verifier_address: address!("0x6135DC08D14EF8a44496B009e2181426628B8ebd"),
     collateral_token_address: Some(address!("0xC284A781072442cC1882a8Db4573990B7B49DaC4")),
-    order_stream_url: None,
+    order_stream_url: Some(Cow::Borrowed("https://taiko-mainnet.boundless.network")),
     indexer_url: Some(Cow::Borrowed(TAIKO_MAINNET_INDEXER_URL)),
     deployment_block: Some(4819525),
 };
@@ -177,5 +212,153 @@ pub const TAIKO: Deployment = Deployment {
 /// Check if the collateral token supports permit.
 /// Some chain's bridged tokens do not support permit, for example Base.
 pub fn collateral_token_supports_permit(chain_id: u64) -> bool {
-    chain_id == 1 || chain_id == 11155111 || chain_id == 31337
+    chain_id == 1 || chain_id == 11155111 || chain_id == 31337 || chain_id == 1337
+}
+
+/// Low/medium/high gas presets for a single context (priority or estimation).
+#[derive(Debug, Clone)]
+pub struct TierPresets {
+    /// Low priority preset.
+    pub low: PriorityMode,
+    /// Medium priority preset.
+    pub medium: PriorityMode,
+    /// High priority preset.
+    pub high: PriorityMode,
+}
+
+impl TierPresets {
+    /// Resolve a PriorityMode using these presets.
+    /// Low/Medium/High are replaced with the preset values.
+    /// Custom is returned as-is.
+    pub fn resolve(&self, mode: &PriorityMode) -> PriorityMode {
+        match mode {
+            PriorityMode::Low => self.low.clone(),
+            PriorityMode::Medium => self.medium.clone(),
+            PriorityMode::High => self.high.clone(),
+            PriorityMode::Custom { .. } => mode.clone(),
+        }
+    }
+}
+
+/// Per-chain gas presets for both sending (priority) and profitability estimation.
+#[derive(Debug, Clone)]
+pub struct ChainGasPresets {
+    /// Presets for `gas_priority_mode` (sending transactions).
+    pub priority: TierPresets,
+    /// Presets for `gas_estimation_priority_mode` (profitability calculations).
+    pub estimation: TierPresets,
+}
+
+/// Generic gas presets used by chains that don't define their own.
+fn default_presets() -> ChainGasPresets {
+    ChainGasPresets {
+        priority: TierPresets {
+            low: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 200,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 20.0,
+                dynamic_multiplier_percentage: 3,
+                min_priority_fee_wei: 0,
+            },
+            medium: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 200,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 30.0,
+                dynamic_multiplier_percentage: 5,
+                min_priority_fee_wei: 0,
+            },
+            high: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 250,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 50.0,
+                dynamic_multiplier_percentage: 7,
+                min_priority_fee_wei: 0,
+            },
+        },
+        // Conservative settings for profitability estimation: 1x base fee, no
+        // dynamic multiplier, lower percentiles than priority. Overestimating
+        // here causes the broker to skip profitable orders.
+        estimation: TierPresets {
+            low: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 100,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 10.0,
+                dynamic_multiplier_percentage: 0,
+                min_priority_fee_wei: 0,
+            },
+            medium: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 100,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 20.0,
+                dynamic_multiplier_percentage: 0,
+                min_priority_fee_wei: 0,
+            },
+            high: PriorityMode::Custom {
+                base_fee_multiplier_percentage: 100,
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: 30.0,
+                dynamic_multiplier_percentage: 0,
+                min_priority_fee_wei: 0,
+            },
+        },
+    }
+}
+
+/// Returns gas presets for a chain. Falls back to generic defaults.
+pub fn gas_presets_for_chain(chain_id: u64) -> ChainGasPresets {
+    match chain_id {
+        // Taiko: very stable gas at ~0.01 gwei, essentially zero priority fee from fee history.
+        // A min_priority_fee_wei floor of 0.01 gwei for Taiko is necessary as with periods of low
+        // gas fees, these txs will be rejected, and the sequencer will not look at future tx's
+        // priority fee for inclusion.
+        167000 => ChainGasPresets {
+            priority: TierPresets {
+                low: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 1.0,
+                    dynamic_multiplier_percentage: 2,
+                    min_priority_fee_wei: 10_000_000,
+                },
+                medium: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 5.0,
+                    dynamic_multiplier_percentage: 3,
+                    min_priority_fee_wei: 10_000_000,
+                },
+                high: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 150,
+                    priority_fee_multiplier_percentage: 150,
+                    priority_fee_percentile: 20.0,
+                    dynamic_multiplier_percentage: 4,
+                    min_priority_fee_wei: 10_000_000,
+                },
+            },
+            estimation: TierPresets {
+                low: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 10.0,
+                    dynamic_multiplier_percentage: 2,
+                    min_priority_fee_wei: 10_000_000,
+                },
+                medium: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 100,
+                    priority_fee_multiplier_percentage: 100,
+                    priority_fee_percentile: 20.0,
+                    dynamic_multiplier_percentage: 3,
+                    min_priority_fee_wei: 10_000_000,
+                },
+                high: PriorityMode::Custom {
+                    base_fee_multiplier_percentage: 150,
+                    priority_fee_multiplier_percentage: 150,
+                    priority_fee_percentile: 30.0,
+                    dynamic_multiplier_percentage: 4,
+                    min_priority_fee_wei: 10_000_000,
+                },
+            },
+        },
+        _ => default_presets(),
+    }
 }

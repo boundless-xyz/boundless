@@ -231,6 +231,7 @@ pub struct OrderRequest {
     /// High-precision instant when the order was created locally. Used for sub-second
     /// queue and preflight duration calculations. Not serialized.
     #[serde(skip)]
+    #[allow(dead_code)]
     pub created_at: Option<std::time::Instant>,
     /// Unix timestamp (seconds since epoch) of when the order was priced.
     pub priced_at_timestamp: Option<u64>,
@@ -613,14 +614,19 @@ pub trait OrderPricingContext {
                     .await
                 {
                     Ok(res) => {
+                        let stats = res.stats.ok_or_else(|| {
+                            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                                "Preflight execution of {order_id_clone} succeeded but stats are missing"
+                            )))
+                        })?;
                         tracing::debug!(
                             "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed",
                             res.id,
-                            res.stats.total_cycles / 1_000_000
+                            stats.total_cycles / 1_000_000
                         );
                         Ok(PreflightCacheValue::Success {
                             exec_session_id: res.id,
-                            cycle_count: res.stats.total_cycles,
+                            cycle_count: stats.total_cycles,
                             image_id,
                             input_id,
                         })
@@ -1051,7 +1057,7 @@ pub trait OrderPricingContext {
             );
 
             tracing::debug!(
-                "Order price: {} (collateral tokens) - cycles: {} - mcycle price: {} (collateral tokens), config_min_mcycle_price_collateral_tokens: {} (collateral tokens)",
+                "Order {order_id} price: {} (collateral tokens) - cycles: {} - mcycle price: {} (collateral tokens), config_min_mcycle_price_collateral_tokens: {} (collateral tokens)",
                 format_ether(price),
                 cycle_count,
                 self.format_collateral(mcycle_price_in_collateral_tokens),

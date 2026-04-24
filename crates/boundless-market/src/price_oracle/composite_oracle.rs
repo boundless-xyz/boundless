@@ -91,18 +91,16 @@ impl CompositeOracle {
     ) -> Result<ExchangeRate, PriceOracleError> {
         // Collect successful results
         let mut successful: Vec<ExchangeRate> = Vec::new();
+        let mut source_summaries: Vec<String> = Vec::new();
         for (i, result) in results.into_iter() {
             match result {
                 Ok(rate) => {
-                    tracing::debug!(
-                        "Source {} returned rate for {}: {} => {}. Timestamp: {} => {}",
+                    source_summaries.push(format!(
+                        "({}/{}/{})",
                         self.sources[i].name(),
-                        self.pair,
-                        rate.rate,
                         rate.rate_to_f64(),
-                        rate.timestamp,
                         rate.timestamp_to_human_readable()
-                    );
+                    ));
                     successful.push(rate);
                 }
                 Err(e) => {
@@ -144,13 +142,14 @@ impl CompositeOracle {
         };
 
         tracing::debug!(
-            "Aggregated rate for {} using {:?}: {} => {}. Timestamp: {} => {}",
+            "Aggregated rate for {} using {:?}: {} => {}. Timestamp: {} => {}. Sources: {}",
             self.pair,
             self.aggregation_mode,
             aggregated_rate.rate,
             aggregated_rate.rate_to_f64(),
             aggregated_rate.timestamp,
-            aggregated_rate.timestamp_to_human_readable()
+            aggregated_rate.timestamp_to_human_readable(),
+            source_summaries.join(", ")
         );
         Ok(aggregated_rate)
     }

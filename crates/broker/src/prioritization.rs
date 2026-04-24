@@ -14,15 +14,12 @@
 
 use crate::{
     config::{OrderCommitmentPriority, OrderPricingPriority},
-    order_monitor::OrderMonitor,
-    order_picker::OrderPicker,
     FulfillmentType, OrderRequest,
 };
 
 use alloy::primitives::{utils::format_ether, U256};
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::sync::Arc;
 
 /// Unified priority mode for both pricing and commitment
 #[derive(Debug, Clone, Copy)]
@@ -214,60 +211,69 @@ where
     }
 }
 
-impl<P> OrderPicker<P> {
-    #[allow(clippy::vec_box)]
-    pub(crate) fn select_pricing_orders(
-        &self,
-        orders: &mut Vec<Box<OrderRequest>>,
-        priority_mode: OrderPricingPriority,
-        priority_addresses: Option<&[alloy::primitives::Address]>,
-        capacity: usize,
-    ) -> Vec<Box<OrderRequest>> {
-        if orders.is_empty() || capacity == 0 {
-            return Vec::new();
-        }
-
-        sort_orders_by_priority_and_mode(orders, priority_addresses, priority_mode.into());
-
-        let take_count = std::cmp::min(capacity, orders.len());
-        orders.drain(..take_count).collect()
+#[allow(clippy::vec_box)]
+pub(crate) fn prioritize_orders_to_evaluate(
+    orders: &mut Vec<Box<OrderRequest>>,
+    priority_mode: OrderPricingPriority,
+    priority_addresses: Option<&[alloy::primitives::Address]>,
+    capacity: usize,
+) -> Vec<Box<OrderRequest>> {
+    if orders.is_empty() || capacity == 0 {
+        return Vec::new();
     }
+
+    sort_orders_by_priority_and_mode(orders, priority_addresses, priority_mode.into());
+
+    let take_count = std::cmp::min(capacity, orders.len());
+    orders.drain(..take_count).collect()
 }
 
-impl<P> OrderMonitor<P> {
-    /// Default implementation of order prioritization logic for choosing which order to commit to
-    /// prove.
-    pub(crate) fn prioritize_orders(
-        &self,
+/// Selects and prioritizes orders for commitment by the OrderCommitter.
+/// Mirrors [`prioritize_orders_to_evaluate`] but uses [`OrderCommitmentPriority`]
+/// and operates on `Box<OrderRequest>` (owned by the committer's pending queue).
+/// Returns up to `capacity` orders drained from the input, sorted by priority mode.
+#[allow(clippy::vec_box)]
+pub(crate) fn prioritize_orders_to_commit(
+    orders: &mut Vec<Box<OrderRequest>>,
+    priority_mode: OrderCommitmentPriority,
+    priority_addresses: Option<&[alloy::primitives::Address]>,
+    capacity: usize,
+    peak_prove_khz: Option<u64>,
+) -> Vec<Box<OrderRequest>> {
+    if orders.is_empty() || capacity == 0 {
+        return Vec::new();
+    }
+
+    let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
+    sort_orders_by_priority_and_mode(orders, priority_addresses, mode);
+
+    let take_count = std::cmp::min(capacity, orders.len());
+    orders.drain(..take_count).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        now_timestamp,
+        order_locker::tests::setup_oc_test_context,
+        order_pricer::tests::{OrderParams, PricerTestCtxBuilder},
+        FulfillmentType,
+    };
+
+    fn prioritize_commitment_orders(
         mut orders: Vec<Arc<OrderRequest>>,
         priority_mode: OrderCommitmentPriority,
         priority_addresses: Option<&[alloy::primitives::Address]>,
         peak_prove_khz: Option<u64>,
     ) -> Vec<Arc<OrderRequest>> {
         let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
-
         sort_orders_by_priority_and_mode(&mut orders, priority_addresses, mode);
-
-        tracing::debug!(
-            "Orders ready for proving, prioritized. Before applying capacity limits: {}",
-            orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
-        );
-
         orders
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use super::*;
-    use crate::{
-        now_timestamp,
-        order_monitor::tests::setup_om_test_context,
-        order_picker::tests::{OrderParams, PickerTestCtxBuilder},
-        FulfillmentType,
-    };
     use alloy::primitives::U256;
     use tracing_test::traced_test;
 
@@ -281,7 +287,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_order_pricing_priority_observation_time() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
 
         let mut orders = Vec::new();
         for i in 0..5 {
@@ -297,7 +303,7 @@ mod tests {
 
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            let selected_orders = ctx.picker.select_pricing_orders(
+            let selected_orders = prioritize_orders_to_evaluate(
                 &mut orders,
                 OrderPricingPriority::ObservationTime,
                 None,
@@ -318,7 +324,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_order_pricing_priority_shortest_expiry() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
 
         let base_time = now_timestamp();
 
@@ -341,7 +347,7 @@ mod tests {
         // Test that shortest_expiry mode returns orders by earliest expiry
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            let selected_orders = ctx.picker.select_pricing_orders(
+            let selected_orders = prioritize_orders_to_evaluate(
                 &mut orders,
                 OrderPricingPriority::ShortestExpiry,
                 None,
@@ -362,7 +368,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_order_pricing_priority_shortest_expiry_with_lock_expired() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
 
         let base_time = now_timestamp();
 
@@ -411,7 +417,7 @@ mod tests {
         // Test selection order
         let mut selected_order_indices = Vec::new();
         while !orders.is_empty() {
-            let selected_orders = ctx.picker.select_pricing_orders(
+            let selected_orders = prioritize_orders_to_evaluate(
                 &mut orders,
                 OrderPricingPriority::ShortestExpiry,
                 None,
@@ -436,7 +442,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_order_pricing_priority_random() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
 
         // Run the test multiple times to verify randomness
         let mut all_orderings = HashSet::new();
@@ -453,7 +459,7 @@ mod tests {
 
             let mut selected_order_indices = Vec::new();
             while !orders.is_empty() {
-                let selected_orders = ctx.picker.select_pricing_orders(
+                let selected_orders = prioritize_orders_to_evaluate(
                     &mut orders,
                     OrderPricingPriority::Random,
                     None,
@@ -483,7 +489,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_prioritize_orders() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create orders with different expiration times
@@ -513,7 +519,7 @@ mod tests {
 
         let orders =
             vec![Arc::from(order1), Arc::from(order2), Arc::from(order3), Arc::from(order4)];
-        let orders = ctx.monitor.prioritize_orders(
+        let orders = prioritize_commitment_orders(
             orders,
             OrderCommitmentPriority::ShortestExpiry,
             None,
@@ -529,7 +535,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_expired_order_fulfillment_priority_random() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create mixed orders: some lock-and-fulfill, some expired
@@ -566,7 +572,7 @@ mod tests {
 
         for _ in 0..10 {
             let test_orders = orders.clone();
-            let test_orders = ctx.monitor.prioritize_orders(
+            let test_orders = prioritize_commitment_orders(
                 test_orders,
                 OrderCommitmentPriority::Random,
                 None,
@@ -583,7 +589,7 @@ mod tests {
 
         // Test that random mode produces different orderings
         let prioritized =
-            ctx.monitor.prioritize_orders(orders, OrderCommitmentPriority::Random, None, None);
+            prioritize_commitment_orders(orders, OrderCommitmentPriority::Random, None, None);
 
         // We should have 3 LockAndFulfill and 3 FulfillAfterLockExpire orders in total
         let lock_and_fulfill_count = prioritized
@@ -602,7 +608,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_high_value_secondary_order_ranks_above_low_value_primary_price_mode() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp().saturating_sub(1_000); // ensure price_at(now) == maxPrice
 
         // Low-value primary order: price_at(now) == maxPrice == 200
@@ -655,7 +661,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_high_value_secondary_order_ranks_above_low_value_primary_cycle_price_mode() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp().saturating_sub(1_000); // ensure price_at(now) == maxPrice
 
         // Low-value primary: price_at(now) == maxPrice == 200, cycles 100 -> per-cycle = 2
@@ -711,7 +717,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_expired_order_fulfillment_priority_shortest_expiry() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create mixed orders with different expiry times
@@ -740,7 +746,7 @@ mod tests {
             orders.push(Arc::from(order));
         }
 
-        let prioritized = ctx.monitor.prioritize_orders(
+        let prioritized = prioritize_commitment_orders(
             orders,
             OrderCommitmentPriority::ShortestExpiry,
             None,
@@ -778,7 +784,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_expired_order_fulfillment_priority_configuration_change() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Start with random mode
@@ -801,7 +807,7 @@ mod tests {
 
         // Test random mode (no need to capture result since it's random)
         let _prioritized_random = orders.clone();
-        let _prioritized_random = ctx.monitor.prioritize_orders(
+        let _prioritized_random = prioritize_commitment_orders(
             _prioritized_random,
             OrderCommitmentPriority::Random,
             None,
@@ -809,7 +815,7 @@ mod tests {
         );
 
         // Test shortest expiry mode
-        let prioritized_shortest = ctx.monitor.prioritize_orders(
+        let prioritized_shortest = prioritize_commitment_orders(
             orders,
             OrderCommitmentPriority::ShortestExpiry,
             None,
@@ -834,7 +840,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_priority_requestor_addresses_pricing() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp();
 
         let regular_addr = alloy::primitives::Address::from([0x42; 20]);
@@ -865,7 +871,7 @@ mod tests {
             boundless_market::contracts::RequestId::new(priority_addr, 1).into();
 
         let mut test_orders = vec![regular_order_1, priority_order_1];
-        let selected_orders = ctx.picker.select_pricing_orders(
+        let selected_orders = prioritize_orders_to_evaluate(
             &mut test_orders,
             OrderPricingPriority::ShortestExpiry,
             None,
@@ -898,7 +904,7 @@ mod tests {
             boundless_market::contracts::RequestId::new(priority_addr, 1).into();
 
         let mut test_orders = vec![regular_order_2, priority_order_2];
-        let selected_orders = ctx.picker.select_pricing_orders(
+        let selected_orders = prioritize_orders_to_evaluate(
             &mut test_orders,
             OrderPricingPriority::ShortestExpiry,
             Some(&priority_addresses),
@@ -911,7 +917,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_priority_requestor_addresses_commitment() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Create orders with different priorities and timeouts
@@ -938,7 +944,7 @@ mod tests {
 
         // Test shortest expiry mode without priority addresses
         let test_orders = orders.clone();
-        let prioritized_orders = ctx.monitor.prioritize_orders(
+        let prioritized_orders = prioritize_commitment_orders(
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             None,
@@ -948,7 +954,7 @@ mod tests {
 
         // Test shortest expiry mode with priority addresses
         let test_orders = orders.clone();
-        let prioritized_orders = ctx.monitor.prioritize_orders(
+        let prioritized_orders = prioritize_commitment_orders(
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
             Some(&priority_addresses),
@@ -964,7 +970,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_commitment_priority_lock_price_ordering_and_expired_shuffled() {
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp().saturating_sub(1_000); // ensure price_at(now) == maxPrice
 
         // Lock-capable orders with max prices 30_000, 10_000, 20_000 (descending should be 30_000, 20_000, 10_000).
@@ -1108,7 +1114,7 @@ mod tests {
     #[traced_test]
     async fn test_commitment_priority_lock_cycle_price_ordering_and_expired_shuffled() {
         // Build orders with same absolute price behavior but different cycles; sort by per-cycle desc.
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp().saturating_sub(1_000);
 
         // B: max 900, cycles 30 -> per-cycle 30 (first)
@@ -1256,7 +1262,7 @@ mod tests {
     async fn test_secondary_orders_randomized_by_price_mode() {
         // Verify that secondary orders with identical expected_reward_eth produce different
         // orderings across runs, testing the random factor spreads provers across orders.
-        let ctx = PickerTestCtxBuilder::default().build().await;
+        let ctx = PricerTestCtxBuilder::default().build().await;
         let base_time = now_timestamp().saturating_sub(1_000);
 
         let mut sec_1 = *ctx
@@ -1318,8 +1324,93 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_cross_chain_sorting_is_chain_agnostic() {
+        let ctx = PricerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp();
+
+        let mut orders = Vec::new();
+        let chain_ids = [1u64, 8453, 1, 8453, 42161];
+        let lock_timeouts = [300u32, 100, 500, 200, 400];
+
+        for (i, (&chain_id, &timeout)) in chain_ids.iter().zip(lock_timeouts.iter()).enumerate() {
+            let mut order = *ctx
+                .generate_next_order(OrderParams {
+                    order_index: i as u32,
+                    bidding_start: base_time,
+                    lock_timeout: timeout,
+                    ..Default::default()
+                })
+                .await;
+            order.chain_id = chain_id;
+            orders.push(Box::new(order));
+        }
+
+        let selected = prioritize_orders_to_evaluate(
+            &mut orders,
+            OrderPricingPriority::ShortestExpiry,
+            None,
+            5,
+        );
+
+        let result_timeouts: Vec<u32> =
+            selected.iter().map(|o| o.request.offer.lockTimeout).collect();
+        assert_eq!(result_timeouts, vec![100, 200, 300, 400, 500]);
+
+        let result_chains: Vec<u64> = selected.iter().map(|o| o.chain_id).collect();
+        assert_eq!(result_chains, vec![8453, 8453, 1, 42161, 1]);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_cross_chain_priority_addresses() {
+        let ctx = PricerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp();
+
+        let priority_addr = alloy::primitives::Address::from([0x99; 20]);
+        let regular_addr = alloy::primitives::Address::from([0x42; 20]);
+        let priority_addresses = vec![priority_addr];
+
+        let mut regular_chain1 = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 0,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                ..Default::default()
+            })
+            .await;
+        regular_chain1.chain_id = 1;
+        regular_chain1.request.id =
+            boundless_market::contracts::RequestId::new(regular_addr, 0).into();
+
+        let mut priority_chain2 = *ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                lock_timeout: 500,
+                ..Default::default()
+            })
+            .await;
+        priority_chain2.chain_id = 8453;
+        priority_chain2.request.id =
+            boundless_market::contracts::RequestId::new(priority_addr, 1).into();
+
+        let mut orders = vec![Box::new(regular_chain1), Box::new(priority_chain2)];
+        let selected = prioritize_orders_to_evaluate(
+            &mut orders,
+            OrderPricingPriority::ShortestExpiry,
+            Some(&priority_addresses),
+            2,
+        );
+
+        assert_eq!(selected[0].chain_id, 8453);
+        assert_eq!(selected[0].request.client_address(), priority_addr);
+        assert_eq!(selected[1].chain_id, 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_prioritize_orders_closest_timeout() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Order A: expires in 100s, needs 80s to prove → margin = 20s
@@ -1349,11 +1440,11 @@ mod tests {
         // Order A: margin = 100 - 80 = 20s (tightest)
         // Order C: margin = 50 - 20 = 30s
         // Order B: margin = 60 - 10 = 50s (most slack)
-        let result = ctx.monitor.prioritize_orders(
+        let result = prioritize_commitment_orders(
             orders,
             OrderCommitmentPriority::TightestDeadline,
             None,
-            Some(1000), // 1000 kHz = 1M cycles/sec
+            Some(1000),
         );
 
         assert_eq!(result[0].id(), id_a, "Order A (margin=20s) should be first");
@@ -1364,7 +1455,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_prioritize_orders_closest_timeout_no_peak_prove_khz() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Order A: lock expires at current + 100
@@ -1384,11 +1475,11 @@ mod tests {
         let orders = vec![Arc::from(order_a), Arc::from(order_b)];
 
         // No peak_prove_khz → falls back to ShortestExpiry (by raw expiry)
-        let result = ctx.monitor.prioritize_orders(
+        let result = prioritize_commitment_orders(
             orders,
             OrderCommitmentPriority::TightestDeadline,
             None,
-            None, // no peak_prove_khz
+            None,
         );
 
         // ShortestExpiry: order_b expires sooner (current+60 < current+100)
@@ -1402,7 +1493,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_prioritize_orders_closest_timeout_no_cycles() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Order A: has cycles, expires in 100s, 80s to prove → margin = 20s
@@ -1421,7 +1512,7 @@ mod tests {
 
         let orders = vec![Arc::from(order_b), Arc::from(order_a)];
 
-        let result = ctx.monitor.prioritize_orders(
+        let result = prioritize_commitment_orders(
             orders,
             OrderCommitmentPriority::TightestDeadline,
             None,
@@ -1440,7 +1531,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_prioritize_orders_closest_timeout_zero_margin() {
-        let mut ctx = setup_om_test_context().await;
+        let mut ctx = setup_oc_test_context().await;
         let current_timestamp = now_timestamp();
 
         // Order A: expires in 30s, needs 50s to prove → margin clamps to 0
@@ -1459,7 +1550,7 @@ mod tests {
 
         let orders = vec![Arc::from(order_b), Arc::from(order_a)];
 
-        let result = ctx.monitor.prioritize_orders(
+        let result = prioritize_commitment_orders(
             orders,
             OrderCommitmentPriority::TightestDeadline,
             None,

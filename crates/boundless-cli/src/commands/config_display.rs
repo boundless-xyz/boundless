@@ -88,13 +88,9 @@ impl ModuleType {
 /// Normalize network name for display
 pub fn normalize_network_name(network: &str) -> &str {
     match network {
-        "base-mainnet" => "Base Mainnet",
-        "base-sepolia" => "Base Sepolia",
-        "eth-mainnet" => "Ethereum Mainnet",
-        "eth-sepolia" => "Ethereum Sepolia",
         "mainnet" => "Ethereum Mainnet",
         "sepolia" => "Ethereum Sepolia",
-        custom => custom,
+        other => crate::commands::setup::network::display_name_for_network(other),
     }
 }
 

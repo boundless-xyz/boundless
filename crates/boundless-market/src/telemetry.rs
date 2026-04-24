@@ -31,10 +31,14 @@ pub struct BrokerHeartbeat {
     pub broker_address: Address,
     /// Broker config serialized as opaque JSON.
     pub config: serde_json::Value,
-    /// Number of orders currently committed (in the proving pipeline).
+    /// Number of orders currently committed on this chain (queried from per-chain SQLite DB).
     pub committed_orders_count: u32,
-    /// Number of orders waiting for a preflight slot.
+    /// Number of orders currently committed across all chains (summed from all per-chain DBs).
+    pub global_committed_orders_count: u32,
+    /// Number of orders waiting for a preflight slot on this chain.
     pub pending_preflight_count: u32,
+    /// Number of orders waiting for a preflight slot across all chains.
+    pub global_pending_preflight_count: u32,
     /// Broker software version.
     pub version: String,
     /// Seconds since the broker process started.
@@ -60,7 +64,7 @@ pub struct RequestHeartbeat {
     pub timestamp: DateTime<Utc>,
 }
 
-/// Outcome of order pricing in the OrderPicker.
+/// Outcome of order evaluation in the OrderPricer.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalOutcome {
     /// Order was locked for proving.
@@ -80,8 +84,8 @@ pub enum CommitmentOutcome {
     Dropped,
 }
 
-/// Produced by the TelemetryService by merging an OrderPricing event (from the OrderPicker)
-/// with an OrderCommitment event (from the OrderMonitor). For orders skipped during pricing,
+/// Produced by the TelemetryService by merging an OrderPricing event (from the OrderPricer)
+/// with an OrderCommitment event (from the OrderCommitter). For orders skipped during pricing,
 /// only the pricing fields are populated; commitment fields remain None.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RequestEvaluated {
@@ -116,24 +120,24 @@ pub struct RequestEvaluated {
     /// When the TelemetryService produced this evaluation record.
     pub evaluated_at: DateTime<Utc>,
     /// Outcome of the commitment phase (Committed or Dropped). None for orders skipped
-    /// during pricing (they never reach the OrderMonitor).
+    /// during pricing (they never reach the OrderLocker).
     pub commitment_outcome: Option<CommitmentOutcome>,
-    /// Structured skip code from the commitment phase (e.g. "[B-OM-001]").
+    /// Structured skip code from the commitment phase (e.g. "[B-OL-001]").
     /// Set when the order is dropped at commitment.
     pub commitment_skip_code: Option<String>,
     /// Human-readable reason the order was dropped at commitment.
     pub commitment_skip_reason: Option<String>,
     /// Estimated proving time in seconds with current load factored in. Accounts for all
-    /// currently committed orders ahead in the queue. Recorded at the moment the OrderMonitor
+    /// currently committed orders ahead in the queue. Recorded at the moment the OrderLocker
     /// makes its final commit/drop decision. None when peak_prove_khz is not configured.
     pub estimated_proving_time_secs: Option<u64>,
     /// Estimated proving time in seconds ignoring current load (as if no other orders were
     /// queued). Calculated as:
     /// (total_cycles + additional_proof_cycles).div_ceil(1000).div_ceil(peak_prove_khz).
-    /// Recorded at the moment the OrderMonitor makes its final commit/drop decision.
+    /// Recorded at the moment the OrderLocker makes its final commit/drop decision.
     /// None when peak_prove_khz is not configured or total_cycles is unavailable.
     pub estimated_proving_time_no_load_secs: Option<u64>,
-    /// Time from when the order was priced (entered monitor cache) to when the OrderMonitor
+    /// Time from when the order was priced to when the OrderLocker
     /// made its final commit/drop decision, in milliseconds. Calculated as:
     /// (now_timestamp() - order.priced_at_timestamp) * 1000.
     pub monitor_wait_duration_ms: Option<u64>,
