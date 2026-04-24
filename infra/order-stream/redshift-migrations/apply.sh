@@ -66,9 +66,9 @@ run_psql() {
     psql -h "$ENDPOINT" -p "$PORT" -U "$RS_USER" -d "$DATABASE" "$@"
 }
 
-# Redshift Serverless namespaces can remain in "modifying" state for several
-# minutes after pulumi reports success, so the endpoint may not be DNS-resolvable
-# yet. Retry with a fixed interval to wait for it to stabilize.
+# Redshift clusters can take several minutes to become available after pulumi
+# reports success, so the endpoint may not be DNS-resolvable yet. Retry with a
+# fixed interval to wait for it to stabilize.
 MAX_RETRIES=120
 RETRY_DELAY=15
 echo "Waiting for Redshift endpoint to become available..."
@@ -79,7 +79,7 @@ for i in $(seq 1 $MAX_RETRIES); do
     fi
     if [ "$i" -eq "$MAX_RETRIES" ]; then
         echo "ERROR: Cannot connect to Redshift at $ENDPOINT:$PORT after $MAX_RETRIES attempts (~30 min)" >&2
-        echo "Check the Redshift Serverless namespace/workgroup status in the AWS console." >&2
+        echo "Check the Redshift cluster status in the AWS console." >&2
         exit 1
     fi
     echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
