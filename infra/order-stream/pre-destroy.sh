@@ -10,6 +10,22 @@ set -euo pipefail
 #
 # Optional env vars:
 #   AWS_REGION                 - Defaults to us-west-2
+#   REDSHIFT_ENDPOINT          - Overrides `pulumi stack output REDSHIFT_ENDPOINT`
+#   REDSHIFT_IAM_ROLE_ARN      - Overrides `pulumi stack output REDSHIFT_IAM_ROLE_ARN`
+#   REDSHIFT_ADMIN_PASSWORD    - Overrides `pulumi config get REDSHIFT_ADMIN_PASSWORD`
+#
+# The overrides let you run when the Pulumi backend and the target AWS account
+# require different credentials. Read the outputs first with the Pulumi-state
+# creds, export them, switch to the target-account creds, then run this script.
+#
+# Example split-credential flow:
+#   # with Pulumi-state creds:
+#   export REDSHIFT_ENDPOINT=$(pulumi stack output REDSHIFT_ENDPOINT --stack l-prod-8453)
+#   export REDSHIFT_IAM_ROLE_ARN=$(pulumi stack output REDSHIFT_IAM_ROLE_ARN --stack l-prod-8453)
+#   export REDSHIFT_ADMIN_PASSWORD=$(pulumi config get REDSHIFT_ADMIN_PASSWORD --stack l-prod-8453)
+#   # swap to target-account creds:
+#   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+#   ./pre-destroy.sh l-prod-8453
 #
 # If you also want a Redshift snapshot as a belt-and-suspenders backup
 # (restoreable, but not directly queryable), run separately after this:
@@ -32,20 +48,28 @@ if ! command -v psql &>/dev/null; then
     apt-get update -qq && apt-get install -y -qq postgresql-client
 fi
 
-echo "Fetching stack outputs from pulumi stack '$STACK'..."
-
+# Stack outputs can come from env vars (for split-credential flows) or from
+# `pulumi stack output` (requires the Pulumi-state creds to be active).
 get_output() {
     local val
     val=$(pulumi stack output "$1" --stack "$STACK" --cwd "$SCRIPT_DIR" 2>/dev/null || true)
     if [ -z "$val" ]; then
         echo "ERROR: Pulumi stack output '$1' is empty or not set." >&2
+        echo "       Set it via env var (e.g. export $1=...) if you are using split credentials." >&2
         exit 1
     fi
     echo "$val"
 }
 
-ENDPOINT=$(get_output "REDSHIFT_ENDPOINT")
-IAM_ROLE_ARN=$(get_output "REDSHIFT_IAM_ROLE_ARN")
+if [ -n "${REDSHIFT_ENDPOINT:-}" ] && [ -n "${REDSHIFT_IAM_ROLE_ARN:-}" ]; then
+    echo "Using REDSHIFT_ENDPOINT + REDSHIFT_IAM_ROLE_ARN from env (skipping pulumi stack output)."
+    ENDPOINT="$REDSHIFT_ENDPOINT"
+    IAM_ROLE_ARN="$REDSHIFT_IAM_ROLE_ARN"
+else
+    echo "Fetching stack outputs from pulumi stack '$STACK'..."
+    ENDPOINT=$(get_output "REDSHIFT_ENDPOINT")
+    IAM_ROLE_ARN=$(get_output "REDSHIFT_IAM_ROLE_ARN")
+fi
 ROLE_NAME="${IAM_ROLE_ARN##*/}"
 S3_PREFIX="s3://$BUCKET/$STACK"
 
