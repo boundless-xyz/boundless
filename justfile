@@ -482,7 +482,9 @@ job-status job_id:
 # Intended to be run before cutting a release, and from CI via .github/workflows/release-e2e.yml.
 test-e2e-release:
     #!/usr/bin/env bash
-    set -euo pipefail
+    set -uo pipefail
+    mkdir -p target/e2e-logs
+    rm -f target/e2e-logs/*.log
     # Guarantee teardown on any exit path.
     trap 'just _e2e-teardown "$?" || true' EXIT
     just localnet up
@@ -491,8 +493,52 @@ test-e2e-release:
     set -a
     source .env.localnet
     set +a
-    just _e2e-run-submit-echo onchain
-    just _e2e-run-submit-echo offchain
+
+    # Launch all examples in parallel. Each runs in a separate bash job with its own
+    # private key and log file. pids maps PID -> example name.
+    declare -A pids=()
+
+    just _e2e-run-submit-echo onchain target/e2e-logs/submit-echo-onchain.log &
+    pids[$!]=submit-echo-onchain
+    just _e2e-run-submit-echo offchain target/e2e-logs/submit-echo-offchain.log &
+    pids[$!]=submit-echo-offchain
+    just _e2e-run-counter {{E2E_KEY_COUNTER}} target/e2e-logs/counter.log &
+    pids[$!]=counter
+    just _e2e-run-counter-with-callback {{E2E_KEY_COUNTER_CALLBACK}} target/e2e-logs/counter-with-callback.log &
+    pids[$!]=counter-with-callback
+    just _e2e-run-composition {{E2E_KEY_COMPOSITION}} target/e2e-logs/composition.log &
+    pids[$!]=composition
+    just _e2e-run-smart-contract-requestor {{E2E_KEY_SCR}} target/e2e-logs/smart-contract-requestor.log &
+    pids[$!]=smart-contract-requestor
+    just _e2e-run-blake3-groth16 {{E2E_KEY_BLAKE3}} target/e2e-logs/blake3-groth16.log &
+    pids[$!]=blake3-groth16
+    just _e2e-run-echo-unpinned {{E2E_KEY_UNPINNED}} target/e2e-logs/echo-unpinned.log &
+    pids[$!]=echo-unpinned
+
+    echo "[test-e2e-release] launched ${#pids[@]} parallel examples"
+
+    failures=()
+    for pid in "${!pids[@]}"; do
+        name="${pids[$pid]}"
+        if wait "$pid"; then
+            echo "[test-e2e-release] PASS: $name"
+        else
+            rc=$?
+            echo "[test-e2e-release] FAIL ($rc): $name"
+            failures+=("$name")
+        fi
+    done
+
+    if [ "${#failures[@]}" -gt 0 ]; then
+        for name in "${failures[@]}"; do
+            echo "::group::${name} log"
+            cat "target/e2e-logs/${name}.log" 2>&1 || true
+            echo "::endgroup::"
+        done
+        echo "[test-e2e-release] ${#failures[@]} example(s) failed: ${failures[*]}"
+        exit 1
+    fi
+    echo "[test-e2e-release] all examples passed"
 
 # Private: on failure, dump docker logs to stdout (visible inline in CI),
 # then tear down localnet regardless of state. Safe to call even if no containers
@@ -514,19 +560,35 @@ _e2e-teardown status:
 # Private: run the submit_echo example in either on-chain or off-chain mode.
 # Arg `mode` must be "onchain" or "offchain".
 E2E_SUBMIT_ECHO_TIMEOUT := "180"
-_e2e-run-submit-echo mode:
+# Per-example wall-clock timeouts (seconds). Tuned for dev-mode proving + cargo cold build.
+E2E_EXAMPLE_TIMEOUT := "600"
+# Anvil default-mnemonic keys. Slot 0 = deployer, slot 3 = prover — both reserved.
+# See docs/superpowers/plans/2026-04-23-release-e2e-phase-2-3.md for the full allocation.
+E2E_KEY_SUBMIT_ECHO_ONCHAIN := "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+E2E_KEY_SUBMIT_ECHO_OFFCHAIN := "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
+E2E_KEY_COUNTER := "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a"
+E2E_KEY_COUNTER_CALLBACK := "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"
+E2E_KEY_COMPOSITION := "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
+E2E_KEY_SCR := "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
+E2E_KEY_BLAKE3 := "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
+E2E_KEY_UNPINNED := "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
+_e2e-run-submit-echo mode log_path:
     #!/usr/bin/env bash
     set -uo pipefail
-    echo "[test-e2e-release] submit_echo ({{mode}}) (timeout {{E2E_SUBMIT_ECHO_TIMEOUT}}s)"
+    echo "[test-e2e-release] submit_echo ({{mode}}) -> {{log_path}}"
     case "{{mode}}" in
         onchain)
             timeout --foreground {{E2E_SUBMIT_ECHO_TIMEOUT}} \
-                env -u ORDER_STREAM_URL cargo run --quiet --example submit_echo -p boundless-market
+                env -u ORDER_STREAM_URL REQUESTOR_KEY={{E2E_KEY_SUBMIT_ECHO_ONCHAIN}} \
+                cargo run --quiet --example submit_echo -p boundless-market \
+                > "{{log_path}}" 2>&1
             rc=$?
             ;;
         offchain)
             timeout --foreground {{E2E_SUBMIT_ECHO_TIMEOUT}} \
-                cargo run --quiet --example submit_echo -p boundless-market
+                env REQUESTOR_KEY={{E2E_KEY_SUBMIT_ECHO_OFFCHAIN}} \
+                cargo run --quiet --example submit_echo -p boundless-market \
+                > "{{log_path}}" 2>&1
             rc=$?
             ;;
         *)
@@ -536,5 +598,183 @@ _e2e-run-submit-echo mode:
     esac
     if [ "$rc" = "124" ]; then
         echo "[test-e2e-release] submit_echo ({{mode}}) timed out after {{E2E_SUBMIT_ECHO_TIMEOUT}}s" >&2
+    fi
+    exit "$rc"
+
+# Private: run the blake3-groth16 example. Takes a private key (for request submission)
+# and a log path. Redirects all cargo stdout/stderr to the log.
+_e2e-run-blake3-groth16 private_key log_path:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "[test-e2e-release] blake3-groth16 -> {{log_path}}"
+    timeout --foreground {{E2E_EXAMPLE_TIMEOUT}} \
+        env PRIVATE_KEY={{private_key}} \
+        cargo run --quiet --release \
+            --manifest-path examples/blake3-groth16/Cargo.toml \
+            -p example-blake3-groth16 \
+        > "{{log_path}}" 2>&1
+    rc=$?
+    if [ "$rc" = "124" ]; then
+        echo "[test-e2e-release] blake3-groth16 timed out after {{E2E_EXAMPLE_TIMEOUT}}s" >&2
+    fi
+    exit "$rc"
+
+_e2e-deploy-via-forge example_dir contract_name log_path private_key extra_env="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {
+        echo "=== deploy {{contract_name}} ({{example_dir}}) ==="
+        (cd {{example_dir}} && \
+            env PRIVATE_KEY="{{private_key}}" {{extra_env}} \
+            forge script contracts/scripts/Deploy.s.sol --rpc-url "$RPC_URL" --broadcast -vv) \
+            || { echo "forge deploy failed"; exit 1; }
+    } >> "{{log_path}}" 2>&1
+    jq -re \
+        '.transactions[] | select(.contractName == "{{contract_name}}") | .contractAddress' \
+        "{{example_dir}}/broadcast/Deploy.s.sol/31337/run-latest.json"
+
+# Private: run the counter example. Deploys its own Counter.sol instance using the passed key.
+_e2e-run-counter private_key log_path:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "[test-e2e-release] counter -> {{log_path}}"
+    log="{{log_path}}"
+    key="{{private_key}}"
+    : > "$log"
+    counter_addr=$(just _e2e-deploy-via-forge examples/counter Counter "$log" "$key" "VERIFIER_ADDRESS=$VERIFIER_ADDRESS") \
+        || { echo "[test-e2e-release] counter: deploy failed; see $log" >&2; exit 1; }
+    {
+        echo "Counter deployed at: $counter_addr"
+        echo "=== run counter example ==="
+        timeout --foreground {{E2E_EXAMPLE_TIMEOUT}} \
+            env PRIVATE_KEY="$key" COUNTER_ADDRESS="$counter_addr" \
+            cargo run --quiet --release \
+                --manifest-path examples/counter/Cargo.toml \
+                -p example-counter
+    } >> "$log" 2>&1
+    rc=$?
+    if [ "$rc" = "124" ]; then
+        echo "[test-e2e-release] counter timed out after {{E2E_EXAMPLE_TIMEOUT}}s" >&2
+    fi
+    exit "$rc"
+
+# Private: run the composition example. Deploys its own Counter.sol instance.
+_e2e-run-composition private_key log_path:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # The IDENTITY guest enables risc0-zkvm/disable-dev-mode (see
+    # crates/guest/util/identity/Cargo.toml), so it rejects FakeReceipts even
+    # when RISC0_DEV_MODE=1. Composition is exercised in nightly-examples.yml
+    # with real Groth16 proving.
+    if [ "${RISC0_DEV_MODE:-}" = "1" ]; then
+        echo "[test-e2e-release] composition: SKIPPED (incompatible with RISC0_DEV_MODE=1)"
+        echo "SKIPPED: composition requires real proofs (identity guest sets risc0-zkvm/disable-dev-mode)" > "{{log_path}}"
+        exit 0
+    fi
+    echo "[test-e2e-release] composition -> {{log_path}}"
+    log="{{log_path}}"
+    key="{{private_key}}"
+    : > "$log"
+    counter_addr=$(just _e2e-deploy-via-forge examples/composition Counter "$log" "$key" "VERIFIER_ADDRESS=$VERIFIER_ADDRESS") \
+        || { echo "[test-e2e-release] composition: deploy failed; see $log" >&2; exit 1; }
+    {
+        echo "Counter deployed at: $counter_addr"
+        echo "=== run composition example ==="
+        timeout --foreground {{E2E_EXAMPLE_TIMEOUT}} \
+            env PRIVATE_KEY="$key" COUNTER_ADDRESS="$counter_addr" \
+            cargo run --quiet --release \
+                --manifest-path examples/composition/Cargo.toml \
+                -p example-composition
+    } >> "$log" 2>&1
+    rc=$?
+    if [ "$rc" = "124" ]; then
+        echo "[test-e2e-release] composition timed out after {{E2E_EXAMPLE_TIMEOUT}}s" >&2
+    fi
+    exit "$rc"
+
+# Private: run the counter-with-callback example. Deploys its own callback-variant Counter.sol.
+_e2e-run-counter-with-callback private_key log_path:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "[test-e2e-release] counter-with-callback -> {{log_path}}"
+    log="{{log_path}}"
+    key="{{private_key}}"
+    : > "$log"
+    counter_addr=$(just _e2e-deploy-via-forge examples/counter-with-callback Counter "$log" "$key" "VERIFIER_ADDRESS=$VERIFIER_ADDRESS BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS") \
+        || { echo "[test-e2e-release] counter-with-callback: deploy failed; see $log" >&2; exit 1; }
+    {
+        echo "Counter deployed at: $counter_addr"
+        echo "=== run counter-with-callback example ==="
+        timeout --foreground {{E2E_EXAMPLE_TIMEOUT}} \
+            env PRIVATE_KEY="$key" COUNTER_ADDRESS="$counter_addr" \
+            cargo run --quiet --release \
+                --manifest-path examples/counter-with-callback/Cargo.toml \
+                -p example-counter-with-callback
+    } >> "$log" 2>&1
+    rc=$?
+    if [ "$rc" = "124" ]; then
+        echo "[test-e2e-release] counter-with-callback timed out after {{E2E_EXAMPLE_TIMEOUT}}s" >&2
+    fi
+    exit "$rc"
+
+# Private: run the smart-contract-requestor example. Deploys its own SCR contract.
+_e2e-run-smart-contract-requestor private_key log_path:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "[test-e2e-release] smart-contract-requestor -> {{log_path}}"
+    log="{{log_path}}"
+    key="{{private_key}}"
+    : > "$log"
+    scr_addr=$(just _e2e-deploy-via-forge examples/smart-contract-requestor SmartContractRequestor "$log" "$key" "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS") \
+        || { echo "[test-e2e-release] smart-contract-requestor: deploy failed; see $log" >&2; exit 1; }
+    {
+        echo "SmartContractRequestor deployed at: $scr_addr"
+        echo "=== fund SmartContractRequestor via execute(deposit) ==="
+        # Send ETH to the SCR contract, then have it call BoundlessMarket.deposit() with that ETH.
+        # deposit() selector is 0xd0e30db0; value 0.01 ETH is sufficient for a single ECHO request.
+        cast send --private-key "$key" --rpc-url "$RPC_URL" \
+            --value 0.01ether "$scr_addr" \
+            || { echo "send ETH to SCR failed"; exit 1; }
+        cast send --private-key "$key" --rpc-url "$RPC_URL" \
+            "$scr_addr" "execute(address,bytes,uint256)" \
+            "$BOUNDLESS_MARKET_ADDRESS" "0xd0e30db0" "10000000000000000" \
+            || { echo "SCR deposit to market failed"; exit 1; }
+        echo "=== run smart-contract-requestor example ==="
+        timeout --foreground {{E2E_EXAMPLE_TIMEOUT}} \
+            env PRIVATE_KEY="$key" SMART_CONTRACT_REQUESTOR_ADDRESS="$scr_addr" \
+            cargo run --quiet --release \
+                --manifest-path examples/smart-contract-requestor/Cargo.toml \
+                -p example-smart-contract-requestor
+    } >> "$log" 2>&1
+    rc=$?
+    if [ "$rc" = "124" ]; then
+        echo "[test-e2e-release] smart-contract-requestor timed out after {{E2E_EXAMPLE_TIMEOUT}}s" >&2
+    fi
+    exit "$rc"
+
+# Private: run the out-of-workspace echo-unpinned example. Regenerates Cargo.lock each run
+# to exercise fresh transitive dependency resolution.
+_e2e-run-echo-unpinned private_key log_path:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "[test-e2e-release] echo-unpinned -> {{log_path}}"
+    log="{{log_path}}"
+    key="{{private_key}}"
+    : > "$log"
+    {
+        echo "=== cargo generate-lockfile (fresh resolution) ==="
+        (cd examples/echo-unpinned && cargo generate-lockfile) \
+            || { echo "generate-lockfile failed"; exit 1; }
+        echo "=== cargo update (latest compatible deps) ==="
+        (cd examples/echo-unpinned && cargo update) \
+            || { echo "cargo update failed"; exit 1; }
+        echo "=== run echo-unpinned ==="
+        timeout --foreground {{E2E_EXAMPLE_TIMEOUT}} \
+            env -u ORDER_STREAM_URL REQUESTOR_KEY="$key" \
+            cargo run --quiet --release --manifest-path examples/echo-unpinned/Cargo.toml
+    } >> "$log" 2>&1
+    rc=$?
+    if [ "$rc" = "124" ]; then
+        echo "[test-e2e-release] echo-unpinned timed out after {{E2E_EXAMPLE_TIMEOUT}}s" >&2
     fi
     exit "$rc"
