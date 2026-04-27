@@ -74,14 +74,13 @@ x-gpu-prove-agent: &gpu-prove-agent
       "-c",
       "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
     ]
-  # When USE_LOCAL_BLAKE3_GROTH16_SETUP=1 the image has no artifacts; set BLAKE3_GROTH16_SETUP_DIR
-  # to the host path containing verify_for_guest_final.zkey and verify_for_guest_graph.bin.
-  # When using Ansible, BLAKE3_GROTH16_SETUP_DIR is set in .env and this dir is populated.
-  volumes:
-    - type: bind
-      source: ${BLAKE3_GROTH16_SETUP_DIR}
-      target: /.blake3_groth16_artifacts/
-      read_only: true
+  # By default, the prebuilt agent image ships with the BLAKE3 Groth16 setup
+  # artifacts baked in at /.blake3_groth16_artifacts/. To swap in host-provided
+  # artifacts (e.g., images built with USE_LOCAL_BLAKE3_GROTH16_SETUP=1, or
+  # Ansible-managed deployments), opt in by passing the override file:
+  #   docker compose -f prover-compose.yml -f compose.blake3-local.yml up
+  # `just bento up` / `just prover up` auto-include it whenever
+  # BLAKE3_GROTH16_SETUP_DIR is set in the environment.
 
 x-broker-common: &broker-common
   image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:latest}

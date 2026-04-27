@@ -1,0 +1,25 @@
+# Optional Compose override that bind-mounts host-provided BLAKE3 Groth16 setup
+# artifacts over the baked-in artifacts in the agent image.
+#
+# Use this when:
+#   - The agent image was built with USE_LOCAL_BLAKE3_GROTH16_SETUP=1 (no baked artifacts), or
+#   - You want to swap in different artifacts than what the prebuilt image ships with.
+#
+# Required env: BLAKE3_GROTH16_SETUP_DIR — host path containing
+# verify_for_guest_final.zkey and verify_for_guest_graph.bin.
+#
+# Usage (raw compose):
+#   docker compose -f compose.yml -f compose.blake3-local.yml up
+#   docker compose -f prover-compose.yml -f compose.blake3-local.yml up
+#
+# `just bento up` / `just prover up` auto-include this file whenever
+# BLAKE3_GROTH16_SETUP_DIR is set in the environment.
+
+name: bento
+services:
+  gpu_prove_agent:
+    volumes:
+      - type: bind
+        source: ${BLAKE3_GROTH16_SETUP_DIR:?BLAKE3_GROTH16_SETUP_DIR must be set when using compose.blake3-local.yml}
+        target: /.blake3_groth16_artifacts/
+        read_only: true

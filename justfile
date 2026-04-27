@@ -329,6 +329,12 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
     if [ "${PROVER_STACK:-}" = "experimental" ]; then
         COMPOSE_FILE_FLAG="-f prover-compose.yml"
     fi
+    # Bind-mount host-provided BLAKE3 Groth16 setup artifacts only when the user
+    # explicitly opts in via BLAKE3_GROTH16_SETUP_DIR. Default uses the artifacts
+    # baked into the prebuilt agent image at /.blake3_groth16_artifacts/.
+    if [ -n "${BLAKE3_GROTH16_SETUP_DIR:-}" ]; then
+        COMPOSE_FILE_FLAG="$COMPOSE_FILE_FLAG -f compose.blake3-local.yml"
+    fi
 
     if [ "{{action}}" = "up" ]; then
         if [ -n "{{env_file}}" ] && [ ! -f "{{env_file}}" ]; then
