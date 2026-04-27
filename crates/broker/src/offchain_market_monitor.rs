@@ -50,6 +50,7 @@ impl CodedError for OffchainMarketMonitorErr {
     }
 }
 
+#[derive(Clone)]
 pub struct OffchainMarketMonitor {
     client: OrderStreamClient,
     signer: PrivateKeySigner,
