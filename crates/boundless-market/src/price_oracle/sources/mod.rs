@@ -16,6 +16,8 @@
 pub mod chainlink;
 /// Price source implementation for coinmarketcap
 pub mod cmc;
+/// Price source implementation for Coinbase public spot price
+pub mod coinbase;
 /// Price source implementation for coingecko
 pub mod coingecko;
 /// Price source implementation for static prices
@@ -23,5 +25,6 @@ pub mod static_source;
 
 pub use chainlink::{ChainlinkMainnetSource, ChainlinkSource, CHAINLINK_PUBLIC_RPC_URLS};
 pub use cmc::CoinMarketCapSource;
+pub use coinbase::CoinbaseSource;
 pub use coingecko::CoinGeckoSource;
 pub use static_source::StaticPriceSource;

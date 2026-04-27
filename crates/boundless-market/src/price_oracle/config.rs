@@ -15,7 +15,7 @@
 use crate::price_oracle::cached_oracle::CachedPriceOracle;
 use crate::price_oracle::manager::PriceOracleManager;
 use crate::price_oracle::sources::{
-    ChainlinkMainnetSource, ChainlinkSource, CoinGeckoSource, CoinMarketCapSource,
+    ChainlinkMainnetSource, ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, CoinbaseSource,
     StaticPriceSource, CHAINLINK_PUBLIC_RPC_URLS,
 };
 use crate::price_oracle::{
@@ -118,6 +118,7 @@ impl Default for PriceOracleConfig {
             offchain: Some(OffChainConfig {
                 coingecko: Some(CoinGeckoConfig { enabled: true, api_key: None }),
                 cmc: None,
+                coinbase: Some(CoinbaseConfig { enabled: true }),
             }),
         }
     }
@@ -156,6 +157,8 @@ pub struct OffChainConfig {
     pub coingecko: Option<CoinGeckoConfig>,
     /// CoinMarketCap configuration
     pub cmc: Option<CoinMarketCapConfig>,
+    /// Coinbase public ticker configuration
+    pub coinbase: Option<CoinbaseConfig>,
 }
 
 /// CoinGecko API configuration
@@ -174,6 +177,13 @@ pub struct CoinMarketCapConfig {
     pub enabled: bool,
     /// API key (required)
     pub api_key: String,
+}
+
+/// Coinbase public ticker configuration (no API key required)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CoinbaseConfig {
+    /// Whether Coinbase is enabled
+    pub enabled: bool,
 }
 
 impl PriceOracleConfig {
@@ -289,6 +299,15 @@ impl PriceOracleConfig {
                                 Duration::from_secs(self.timeout_secs),
                             )?;
                             sources.push(Arc::new(cmc));
+                        }
+                    }
+
+                    // Coinbase public spot price
+                    if let Some(ref coinbase_config) = offchain.coinbase {
+                        if coinbase_config.enabled {
+                            let coinbase =
+                                CoinbaseSource::new(pair, Duration::from_secs(self.timeout_secs))?;
+                            sources.push(Arc::new(coinbase));
                         }
                     }
                 }
