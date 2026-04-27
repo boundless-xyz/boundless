@@ -610,7 +610,7 @@ export const alarmConfig: ChainStageAlarms = {
           ],
           successRate: [],
           expiredRequests: [{
-            description: "greater than or equal to 1 expired orders across 2 hours from signal_requestor",
+            description: "greater than or equal to 1 expired orders across 2 hours from signal_sepolia_requestor",
             severity: Severity.SEV2,
             metricConfig: {
               period: 3600,
