@@ -123,7 +123,9 @@ impl PriceOracleManager {
                         self.zkc_usd.refresh_rate(),
                     );
 
-                    // After refresh, check if we've gone too long without a successful update (if enabled)
+                    // After refresh, check if we've gone too long without a successful update (if enabled).
+                    // Avoid restarting the oracle service because during rate limit errors,
+                    // we do not want to send more requests than the interval.
                     if self.max_time_without_update > 0 {
                         let eth_rate = self.eth_usd.get_cached_rate().await;
                         let zkc_rate = self.zkc_usd.get_cached_rate().await;
@@ -131,12 +133,12 @@ impl PriceOracleManager {
                         if eth_rate.is_none_or(|r| r.is_stale(self.max_time_without_update))
                         || zkc_rate.is_none_or(|r| r.is_stale(self.max_time_without_update)) {
                             tracing::error!(
-                                "Rates haven't been updated for too long (ETH: {}, ZKC: {}), returning UpdateTimeout error",
+                                "{} Price oracle has not refreshed within {}s (ETH: {}, ZKC: {}). Orders will be skipped until prices recover; consider setting static `eth_usd`/`zkc_usd` in the config if this persists.",
+                                PriceOracleError::UpdateTimeout().code(),
+                                self.max_time_without_update,
                                 eth_rate.map_or("stale".to_string(), |r| format!("{} @ {}", r.rate, r.timestamp_to_human_readable())),
                                 zkc_rate.map_or("stale".to_string(), |r| format!("{} @ {}", r.rate, r.timestamp_to_human_readable())),
                             );
-
-                            return Err(PriceOracleError::UpdateTimeout());
                         }
                     }
                 }
@@ -154,6 +156,7 @@ mod tests {
     use alloy::primitives::U256;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use tokio::sync::Mutex;
+    use tracing_test::traced_test;
 
     /// Mock oracle with configurable behavior for testing
     struct MockOracle {
@@ -273,7 +276,8 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn test_refresh_task_returns_error_on_stale_cache() -> anyhow::Result<()> {
+    #[traced_test]
+    async fn test_refresh_task_stays_alive_on_stale_cache() -> anyhow::Result<()> {
         let eth_oracle =
             Arc::new(MockOracle::new(TradingPair::EthUsd, U256::from(200000000000u128)));
         let zkc_oracle = Arc::new(MockOracle::new(TradingPair::ZkcUsd, U256::from(100000000u128)));
@@ -295,14 +299,17 @@ mod tests {
         let cancel_token = CancellationToken::new();
         let handle = tokio::spawn(manager.start_oracle(cancel_token.clone()));
 
-        // Advance time past the max_time_without_update threshold
-        // Need to advance enough for staleness check to trigger
-        tokio::time::advance(Duration::from_secs(3)).await;
+        // Advance time well past the max_time_without_update threshold so several
+        // ticks fire with stale prices.
+        tokio::time::advance(Duration::from_secs(10)).await;
         tokio::task::yield_now().await;
 
-        // The task should have exited with an error
-        let result = handle.await?;
-        assert!(result.is_err(), "Task should have exited due to stale rates");
+        // The task should remain alive after state timeout, but should log the UpdateTimeout error
+        // code.
+        assert!(!handle.is_finished());
+        assert!(logs_contain("[B-PO-009] Price oracle has not refreshed"));
+        cancel_token.cancel();
+        handle.await??;
 
         Ok(())
     }

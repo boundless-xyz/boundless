@@ -191,3 +191,89 @@ SELECT * FROM (
 )
 ORDER BY ts;
 ```
+
+## Archive (Through 2026-04-24) Queries
+
+Use these when the user's time window ends before `2026-04-25T00:00:00Z`. They run via DuckDB against S3 Parquet — not psql. See the Archive Backend section in SKILL.md for bucket mapping, credentials, and routing rules.
+
+Dialect reminders vs the Redshift queries above:
+
+- `NOW()` replaces `GETDATE()`.
+- `MEDIAN()` / `PERCENTILE_CONT()` have no single-aggregate restriction — you can compute all phase percentiles in one SELECT.
+- `DISTINCT ON` and `LATERAL` joins work.
+- Use explicit timestamp literals: `TIMESTAMP '2026-04-25 00:00:00+00'`.
+
+### Top skip reasons, last 7 days of archive (staging_base_sepolia)
+
+```bash
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... duckdb <<SQL
+INSTALL httpfs; LOAD httpfs;
+SET s3_region='us-west-2';
+SET s3_access_key_id='${AWS_ACCESS_KEY_ID}';
+SET s3_secret_access_key='${AWS_SECRET_ACCESS_KEY}';
+
+SELECT skip_code, COUNT(*) AS count,
+       ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct
+FROM read_parquet('s3://telemetry-snapshot-staging-84532-04-24-26/*/request_evaluations/*.parquet')
+WHERE outcome = 'Skipped'
+  AND evaluated_at BETWEEN TIMESTAMP '2026-04-18 00:00:00+00'
+                       AND TIMESTAMP '2026-04-25 00:00:00+00'
+GROUP BY skip_code
+ORDER BY count DESC;
+SQL
+```
+
+### Hourly completion volume for a broker, last 14 days of archive (prod_base)
+
+```bash
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... duckdb <<SQL
+INSTALL httpfs; LOAD httpfs;
+SET s3_region='us-west-2';
+SET s3_access_key_id='${AWS_ACCESS_KEY_ID}';
+SET s3_secret_access_key='${AWS_SECRET_ACCESS_KEY}';
+
+SELECT DATE_TRUNC('hour', completed_at) AS hour,
+       SUM(CASE WHEN outcome = 'Fulfilled' THEN 1 ELSE 0 END) AS successes,
+       SUM(CASE WHEN outcome <> 'Fulfilled' THEN 1 ELSE 0 END) AS failures
+FROM read_parquet('s3://telemetry-snapshot-prod-8453-04-24-26/*/request_completions/*.parquet')
+WHERE broker_address = '0xabc...'
+  AND completed_at BETWEEN TIMESTAMP '2026-04-11 00:00:00+00'
+                       AND TIMESTAMP '2026-04-25 00:00:00+00'
+GROUP BY 1
+ORDER BY 1;
+```
+
+### Cross-cutover: run archive + live as two queries
+
+When the user asks for a window that spans `2026-04-25T00:00:00Z`, run both sides separately. Do **not** try to UNION them. Example for "completions by outcome, 2026-04-22 through 2026-04-28":
+
+```bash
+# Side 1: archive (through end of 2026-04-24)
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... duckdb <<SQL
+INSTALL httpfs; LOAD httpfs;
+SET s3_region='us-west-2';
+SET s3_access_key_id='${AWS_ACCESS_KEY_ID}';
+SET s3_secret_access_key='${AWS_SECRET_ACCESS_KEY}';
+
+SELECT outcome, COUNT(*) AS count
+FROM read_parquet('s3://telemetry-snapshot-staging-84532-04-24-26/*/request_completions/*.parquet')
+WHERE completed_at BETWEEN TIMESTAMP '2026-04-22 00:00:00+00'
+                       AND TIMESTAMP '2026-04-25 00:00:00+00'
+GROUP BY outcome
+ORDER BY count DESC;
+SQL
+```
+
+```bash
+# Side 2: live (from 2026-04-25 onwards)
+psql "$REDSHIFT_URL" <<'SQL'
+SELECT outcome, COUNT(*) AS count
+FROM telemetry.request_completions
+WHERE completed_at >= TIMESTAMPTZ '2026-04-25 00:00:00+00'
+  AND completed_at <  TIMESTAMPTZ '2026-04-29 00:00:00+00'
+GROUP BY outcome
+ORDER BY count DESC;
+SQL
+```
+
+Present both result sets to the user with a note that the window crossed the 2026-04-25 cutover.
