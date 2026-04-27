@@ -576,6 +576,54 @@ export const alarmConfig: ChainStageAlarms = {
           }],
         },
         {
+          name: "signal_sepolia_requestor",
+          address: "0xe30260d1dc14e70b17951e97719a9d81e768d2c1",
+          submissionRate: [
+            {
+              description: "no submitted orders in 6 hours from signal_sepolia_requestor",
+              severity: Severity.SEV1,
+              metricConfig: {
+                period: 21600
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            },
+            {
+              description: "no submitted orders in 3 hours from signal_sepolia_requestor",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 10800
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            }
+          ],
+          successRate: [],
+          expiredRequests: [{
+            description: "greater than or equal to 1 expired orders across 2 hours from signal_requestor",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 1,
+              evaluationPeriods: 2,
+              datapointsToAlarm: 2,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
+        },
+        {
           name: "kailua_og_offchain_2",
           address: "0x89f12aba0bcda3e708b1129eb2557b96f57b0de6",
           submissionRate: [
