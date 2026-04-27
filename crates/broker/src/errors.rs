@@ -44,6 +44,38 @@ macro_rules! impl_coded_debug {
 
 pub use impl_coded_debug;
 
+/// Generates `impl CodedError` and `impl_coded_debug!` for a broker error enum.
+///
+/// Each generated code follows the pattern `[B-<svc>-<code>]`. Tuple variants
+/// must be written as `Variant(..)`; unit variants are written without parens.
+///
+/// # Example
+///
+/// ```ignore
+/// coded_error_impl!(MyErr, "ME",
+///     DbError(..) => "001",
+///     ConfigErr(..) => "002",
+///     NoData      => "003",
+/// );
+/// ```
+///
+/// expands to an `impl CodedError` whose `code()` returns `"[B-ME-001]"` for
+/// `DbError`, `"[B-ME-002]"` for `ConfigErr`, and `"[B-ME-003]"` for `NoData`,
+/// plus an `impl_coded_debug!` invocation.
+#[macro_export]
+macro_rules! coded_error_impl {
+    ($ty:ident, $svc:literal, $($variant:ident $(( $($_inner:tt)* ))? => $code:literal),+ $(,)?) => {
+        impl $crate::errors::CodedError for $ty {
+            fn code(&self) -> &str {
+                match self {
+                    $( Self::$variant $(( $($_inner)* ))? => concat!("[B-", $svc, "-", $code, "]") ),+
+                }
+            }
+        }
+        $crate::impl_coded_debug!($ty);
+    };
+}
+
 use boundless_market::telemetry::CompletionOutcome;
 
 use tokio::sync::mpsc;
@@ -135,4 +167,57 @@ pub(crate) async fn cancel_proof_and_fail(
     }
 
     handle_order_failure(db, &order_id, failure, chain_id, proving_completion_tx).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CodedError;
+    use thiserror::Error;
+
+    #[derive(Error)]
+    enum SampleErr {
+        #[error("{code} db: {0}", code = self.code())]
+        DbError(String),
+        #[error("{code} config: {0}", code = self.code())]
+        ConfigErr(anyhow::Error),
+        #[error("{code} no data variant", code = self.code())]
+        NoData,
+    }
+
+    crate::coded_error_impl!(SampleErr, "TST",
+        DbError(..)    => "001",
+        ConfigErr(..)  => "002",
+        NoData         => "500",
+    );
+
+    #[test]
+    fn coded_error_impl_emits_expected_codes() {
+        let db = SampleErr::DbError("boom".to_string());
+        let cfg = SampleErr::ConfigErr(anyhow::anyhow!("nope"));
+        let unit = SampleErr::NoData;
+
+        assert_eq!(db.code(), "[B-TST-001]");
+        assert_eq!(cfg.code(), "[B-TST-002]");
+        assert_eq!(unit.code(), "[B-TST-500]");
+    }
+
+    #[test]
+    fn coded_error_impl_provides_debug_with_code() {
+        let err = SampleErr::DbError("boom".to_string());
+        let dbg = format!("{:?}", err);
+        assert!(dbg.contains("[B-TST-001]"), "debug output missing code: {dbg}");
+    }
+
+    #[test]
+    fn coded_error_impl_display_includes_code_via_self_code() {
+        // Variant attributes use `{code}` bound to `self.code()` — the macro must
+        // produce a CodedError impl that returns the right code so Display works.
+        let db = SampleErr::DbError("boom".to_string());
+        let cfg = SampleErr::ConfigErr(anyhow::anyhow!("nope"));
+        let unit = SampleErr::NoData;
+
+        assert_eq!(format!("{}", db), "[B-TST-001] db: boom");
+        assert_eq!(format!("{}", cfg), "[B-TST-002] config: nope");
+        assert_eq!(format!("{}", unit), "[B-TST-500] no data variant");
+    }
 }
