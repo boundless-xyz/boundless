@@ -24,13 +24,7 @@ impl RetryTask for PriceOracleManager {
         let manager = self.clone();
         Box::pin(async move {
             tracing::info!("Starting price oracle refresh task");
-            manager.start_oracle(cancel_token).await.map_err(|err| match err {
-                PriceOracleError::UpdateTimeout() => {
-                    tracing::error!("Price oracle could not refresh prices for too long, if this continues consider setting static prices in the config for `eth_usd` and `zkc_usd`: {}", err);
-                    SupervisorErr::Recover(err)
-                },
-                _ => SupervisorErr::Recover(err),
-            })?;
+            manager.start_oracle(cancel_token).await.map_err(SupervisorErr::Recover)?;
             Ok(())
         })
     }
