@@ -20,9 +20,10 @@
 //! be read (RPC error, not deployed, etc.), it logs a warning and continues.
 
 use crate::{
-    errors::{impl_coded_debug, CodedError},
+    coded_error_impl,
+    errors::CodedError,
     is_dev_mode,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
 };
 use alloy::primitives::{address, Address};
 use alloy::providers::Provider;
@@ -116,15 +117,11 @@ pub(crate) enum VersionCheckError {
     BelowMinimum { broker_version: String, min_version: String, chain_id: u64 },
 }
 
-impl_coded_debug!(VersionCheckError);
-impl CodedError for VersionCheckError {
-    fn code(&self) -> &str {
-        match self {
-            VersionCheckError::BelowMinimum { .. } => "[B-VER-001]",
-        }
-    }
-}
+coded_error_impl!(VersionCheckError, "VER",
+    BelowMinimum { .. } => "001",
+);
 
+#[derive(Clone)]
 pub(crate) struct VersionCheckTask<P> {
     /// RPC provider for reading the VersionRegistry contract.
     provider: P,
@@ -213,58 +210,49 @@ async fn check_version<P: Provider>(
     Ok(())
 }
 
-impl<P: Provider + Clone + Send + Sync + 'static> RetryTask for VersionCheckTask<P> {
+impl<P: Provider + Clone + Send + Sync + 'static> BrokerService for VersionCheckTask<P> {
     type Error = VersionCheckError;
 
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let provider = self.provider.clone();
-        let chain_id = self.chain_id;
-        let broker_version = self.broker_version;
-        let registry_address = self.registry_address;
-        let poll_interval = self.poll_interval;
-        let force_check = self.force_check;
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        // Skipping the version check in dev mode is safe because RISC0_DEV_MODE
+        // disables real proof generation entirely — the broker produces fake receipts
+        // that are rejected by on-chain verifiers. A prover cannot use this flag to
+        // bypass only the version check while remaining operational in production.
+        // force_check is set when registry_address is explicitly provided (i.e., in tests)
+        // so that e2e tests can exercise the check even under RISC0_DEV_MODE.
+        if is_dev_mode() && !self.force_check {
+            tracing::info!(
+                "Skipping version check (RISC0_DEV_MODE enabled). Broker version: {}",
+                format_version(self.broker_version)
+            );
+            cancel_token.cancelled().await;
+            return Ok(());
+        }
 
-        Box::pin(async move {
-            // Skipping the version check in dev mode is safe because RISC0_DEV_MODE
-            // disables real proof generation entirely — the broker produces fake receipts
-            // that are rejected by on-chain verifiers. A prover cannot use this flag to
-            // bypass only the version check while remaining operational in production.
-            // force_check is set when registry_address is explicitly provided (i.e., in tests)
-            // so that e2e tests can exercise the check even under RISC0_DEV_MODE.
-            if is_dev_mode() && !force_check {
+        let registry_addr = match self.registry_address {
+            Some(addr) => addr,
+            None => {
                 tracing::info!(
-                    "Skipping version check (RISC0_DEV_MODE enabled). Broker version: {}",
-                    format_version(broker_version)
+                    chain_id = self.chain_id,
+                    "VersionRegistry address not configured for chain. Skipping version check."
                 );
                 cancel_token.cancelled().await;
                 return Ok(());
             }
+        };
 
-            let registry_addr = match registry_address {
-                Some(addr) => addr,
-                None => {
-                    tracing::info!(
-                        chain_id,
-                        "VersionRegistry address not configured for chain. Skipping version check."
-                    );
-                    cancel_token.cancelled().await;
-                    return Ok(());
+        // Because first tick completes immediately, we effectively do a version check on startup.
+        let mut interval = tokio::time::interval(self.poll_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    check_version(&self.provider, registry_addr, self.chain_id, self.broker_version).await?;
                 }
-            };
-
-            // Because first tick completes immediately, we effectively do a version check on startup.
-            let mut interval = tokio::time::interval(poll_interval);
-            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        check_version(&provider, registry_addr, chain_id, broker_version).await?;
-                    }
-                    _ = cancel_token.cancelled() => break,
-                }
+                _ = cancel_token.cancelled() => break,
             }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 }
 
