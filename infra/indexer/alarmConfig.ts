@@ -581,7 +581,7 @@ export const alarmConfig: ChainStageAlarms = {
           submissionRate: [
             {
               description: "no submitted orders in 6 hours from signal_sepolia_requestor",
-              severity: Severity.SEV1,
+              severity: Severity.SEV2,
               metricConfig: {
                 period: 21600
               },
