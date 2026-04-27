@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Experimental ChainMonitorV2 implementation.
+//! ChainMonitorV2 — the default chain-monitor implementation.
 //!
-//! Replaces both `ChainMonitorService` and `MarketMonitor` with a single struct when
-//! `--experimental-rpc` is set. A single polling loop fetches block receipts per block,
-//! extracts market events, and updates the chain-head atomics read by `ChainMonitorApi`.
+//! Replaces both `ChainMonitorService` and `MarketMonitor` with a single struct: one
+//! polling loop fetches block receipts per block, extracts market events, and updates
+//! the chain-head atomics read by `ChainMonitorApi`. Pass `--legacy-rpc` to fall back
+//! to the older `ChainMonitorService` + `MarketMonitor` pair.
 
 use std::{
     sync::{
