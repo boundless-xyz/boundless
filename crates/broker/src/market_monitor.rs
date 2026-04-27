@@ -76,6 +76,7 @@ impl CodedError for MarketMonitorErr {
 
 impl_coded_debug!(MarketMonitorErr);
 
+#[derive(Clone)]
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
     events_poll_blocks: u64,
