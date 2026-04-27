@@ -23,7 +23,7 @@ skip_gas_profitability_check = true
 peak_prove_khz = 1000
 max_collateral = "20 ZKC"
 max_concurrent_preflights = 8
-max_concurrent_proofs = 1
+max_concurrent_proofs = 4
 priority_requestor_lists = []
 
 [price_oracle]
