@@ -97,6 +97,7 @@ pub(crate) mod requestor_monitor;
 pub(crate) mod rpc_retry_policy;
 pub mod rpcmetrics;
 pub mod sequential_fallback;
+pub(crate) mod service_runner;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
