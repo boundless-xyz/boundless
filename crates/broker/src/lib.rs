@@ -76,6 +76,7 @@ pub(crate) mod aggregator;
 pub(crate) mod block_history;
 pub(crate) mod chain_monitor;
 pub(crate) mod chain_monitor_v2;
+pub(crate) mod channels;
 pub mod config;
 mod db;
 pub use db::{broker_sqlite_url_for_chain, DbObj, SqliteDb};
