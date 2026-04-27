@@ -487,12 +487,23 @@ test-e2e-release:
     rm -f target/e2e-logs/*.log
     # Guarantee teardown on any exit path.
     trap 'just _e2e-teardown "$?" || true' EXIT
+    # Ensure a clean slate so each run gets a fresh anvil + redeployed contracts.
+    just localnet down || true
     just localnet up
     # Source the deployer-written contract addresses (and RISC0_DEV_MODE,
     # which localnet-deploy.sh patches in before writing .env.localnet).
     set -a
     source .env.localnet
     set +a
+
+    # Non-dev mode: bring up our own bento+broker cluster, but refuse if one is
+    # already running so we don't clobber the user's stack.
+    if [ "${RISC0_DEV_MODE:-1}" != "1" ]; then
+        n=$(docker compose ps --services --filter status=running 2>/dev/null | grep -cE '^(rest_api|broker)$')
+        [ "$n" = 0 ] || { echo "[test-e2e-release] bento/broker already running; stop them first" >&2; exit 1; }
+        trap 'rc=$?; just prover down || true; just _e2e-teardown "$rc" || true' EXIT
+        BOUNDLESS_MINING=false just prover
+    fi
 
     # Launch all examples in parallel. Each runs in a separate bash job with its own
     # private key and log file. pids maps PID -> example name.
@@ -559,9 +570,10 @@ _e2e-teardown status:
 
 # Private: run the submit_echo example in either on-chain or off-chain mode.
 # Arg `mode` must be "onchain" or "offchain".
-E2E_SUBMIT_ECHO_TIMEOUT := "180"
-# Per-example wall-clock timeouts (seconds). Tuned for dev-mode proving + cargo cold build.
-E2E_EXAMPLE_TIMEOUT := "600"
+# Per-example wall-clock timeouts (seconds). Dev mode uses fake proofs; real
+# proving via Bento is dramatically slower (Groth16 + recursion), so we scale up.
+E2E_SUBMIT_ECHO_TIMEOUT := if env_var_or_default("RISC0_DEV_MODE", "1") == "1" { "180" } else { "1800" }
+E2E_EXAMPLE_TIMEOUT := if env_var_or_default("RISC0_DEV_MODE", "1") == "1" { "600" } else { "3600" }
 # Anvil default-mnemonic keys. Slot 0 = deployer, slot 3 = prover — both reserved.
 # See docs/superpowers/plans/2026-04-23-release-e2e-phase-2-3.md for the full allocation.
 E2E_KEY_SUBMIT_ECHO_ONCHAIN := "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
