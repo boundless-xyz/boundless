@@ -46,29 +46,45 @@ pub use impl_coded_debug;
 
 /// Generates `impl CodedError` and `impl_coded_debug!` for a broker error enum.
 ///
-/// Each generated code follows the pattern `[B-<svc>-<code>]`. Tuple variants
-/// must be written as `Variant(..)`; unit variants are written without parens.
+/// Each generated code follows the pattern `[B-<svc>-<code>]`. Variant patterns
+/// are written exactly as they appear in the `match` arm:
+/// - tuple variants as `Variant(..)`
+/// - struct variants as `Variant { .. }`
+/// - unit variants without anything
 ///
 /// # Example
 ///
 /// ```ignore
 /// coded_error_impl!(MyErr, "ME",
-///     DbError(..) => "001",
-///     ConfigErr(..) => "002",
-///     NoData      => "003",
+///     DbError(..)            => "001",
+///     ConfigErr(..)          => "002",
+///     BelowMinimum { .. }    => "003",
+///     NoData                 => "500",
 /// );
 /// ```
 ///
-/// expands to an `impl CodedError` whose `code()` returns `"[B-ME-001]"` for
-/// `DbError`, `"[B-ME-002]"` for `ConfigErr`, and `"[B-ME-003]"` for `NoData`,
-/// plus an `impl_coded_debug!` invocation.
+/// expands to an `impl CodedError` whose `code()` returns the matching
+/// `"[B-ME-NNN]"` string per variant, plus an `impl_coded_debug!` invocation.
 #[macro_export]
 macro_rules! coded_error_impl {
-    ($ty:ident, $svc:literal, $($variant:ident $(( $($_inner:tt)* ))? => $code:literal),+ $(,)?) => {
+    (
+        $ty:ident, $svc:literal,
+        $(
+            $variant:ident
+            $(( $($_args:tt)* ))?
+            $({ $($_fields:tt)* })?
+            => $code:literal
+        ),+ $(,)?
+    ) => {
         impl $crate::errors::CodedError for $ty {
             fn code(&self) -> &str {
                 match self {
-                    $( Self::$variant $(( $($_inner)* ))? => concat!("[B-", $svc, "-", $code, "]") ),+
+                    $(
+                        Self::$variant
+                            $(( $($_args)* ))?
+                            $({ $($_fields)* })?
+                        => concat!("[B-", $svc, "-", $code, "]")
+                    ),+
                 }
             }
         }
@@ -180,24 +196,32 @@ mod tests {
         DbError(String),
         #[error("{code} config: {0}", code = self.code())]
         ConfigErr(anyhow::Error),
+        #[error(
+            "{code} below minimum: have {actual}, need {required}",
+            code = self.code()
+        )]
+        BelowMinimum { actual: u64, required: u64 },
         #[error("{code} no data variant", code = self.code())]
         NoData,
     }
 
     crate::coded_error_impl!(SampleErr, "TST",
-        DbError(..)    => "001",
-        ConfigErr(..)  => "002",
-        NoData         => "500",
+        DbError(..)        => "001",
+        ConfigErr(..)      => "002",
+        BelowMinimum { .. } => "003",
+        NoData             => "500",
     );
 
     #[test]
     fn coded_error_impl_emits_expected_codes() {
         let db = SampleErr::DbError("boom".to_string());
         let cfg = SampleErr::ConfigErr(anyhow::anyhow!("nope"));
+        let strct = SampleErr::BelowMinimum { actual: 1, required: 2 };
         let unit = SampleErr::NoData;
 
         assert_eq!(db.code(), "[B-TST-001]");
         assert_eq!(cfg.code(), "[B-TST-002]");
+        assert_eq!(strct.code(), "[B-TST-003]");
         assert_eq!(unit.code(), "[B-TST-500]");
     }
 
@@ -214,10 +238,12 @@ mod tests {
         // produce a CodedError impl that returns the right code so Display works.
         let db = SampleErr::DbError("boom".to_string());
         let cfg = SampleErr::ConfigErr(anyhow::anyhow!("nope"));
+        let strct = SampleErr::BelowMinimum { actual: 1, required: 2 };
         let unit = SampleErr::NoData;
 
         assert_eq!(format!("{}", db), "[B-TST-001] db: boom");
         assert_eq!(format!("{}", cfg), "[B-TST-002] config: nope");
+        assert_eq!(format!("{}", strct), "[B-TST-003] below minimum: have 1, need 2");
         assert_eq!(format!("{}", unit), "[B-TST-500] no data variant");
     }
 }
