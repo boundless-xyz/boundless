@@ -133,7 +133,11 @@ prover_chain_deployments: {}
 # MinIO input TTL: 0 disables the lifecycle rule, >0 expires inputs/ objects after N days
 prover_input_ttl_days: 1
 
-# Set to "experimental" to use prover-compose.yml (new prover stack, redis-only)
+# Stack selection (forwarded to PROVER_STACK env var):
+#   ""        - default; uses prover-compose.yml (redis-only)
+#   "legacy"  - falls back to compose.yml (postgres + minio + redis).
+#               Use this on hosts not yet migrated off the bento stack —
+#               state from the legacy stack does not carry over to the new one.
 prover_stack: ""
 
 prover_docker_compose_profile: "--profile broker --profile miner"

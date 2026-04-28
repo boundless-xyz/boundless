@@ -310,7 +310,9 @@ update-lockfiles:
 #   BOUNDLESS_BUILD=all                - build all images from source
 #   BOUNDLESS_BUILD=broker             - build only the broker image
 #   BOUNDLESS_BUILD="broker rest_api"  - build specific services
-# Set PROVER_STACK=experimental to use the new prover stack (prover-compose.yml)
+# Stack selection (PROVER_STACK env var):
+#   unset / ""  - use prover-compose.yml (default; redis-only)
+#   "legacy"    - fall back to compose.yml (postgres + minio + redis)
 bento action="up" env_file="" compose_flags="" detached="true" services="":
     #!/usr/bin/env bash
     if [ -n "{{env_file}}" ]; then
@@ -329,10 +331,16 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         exit 1
     fi
 
-    # Select compose file based on PROVER_STACK
+    # Select compose file based on PROVER_STACK.
+    # Default (unset / "" / "experimental") = prover-compose.yml.
+    # PROVER_STACK=legacy falls back to compose.yml.
     COMPOSE_FILE_FLAG=""
-    if [ "${PROVER_STACK:-}" = "experimental" ]; then
+    if [ "${PROVER_STACK:-}" != "legacy" ]; then
         COMPOSE_FILE_FLAG="-f prover-compose.yml"
+    fi
+    if [ -z "${PROVER_STACK:-}" ]; then
+        echo "Note: PROVER_STACK is unset; defaulting to prover-compose.yml." \
+             "Set PROVER_STACK=legacy to use the bento stack (postgres + minio)." >&2
     fi
 
     if [ "{{action}}" = "up" ]; then
@@ -360,7 +368,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         # dockerfiles to the source-build variants so Compose builds from source
         # instead of pulling pre-built images.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
-            if [ "${PROVER_STACK:-}" = "experimental" ]; then
+            if [ "${PROVER_STACK:-}" != "legacy" ]; then
                 export PROVER_AGENT_IMAGE="" PROVER_CPU_AGENT_IMAGE="" BROKER_IMAGE="" PROVER_REST_API_IMAGE="" PROVER_CLI_IMAGE=""
                 export PROVER_CPU_AGENT_DOCKERFILE="dockerfiles/prover/agent.cpu.dockerfile"
                 export PROVER_AGENT_DOCKERFILE="dockerfiles/prover/agent.dockerfile"
@@ -378,7 +386,7 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
             docker compose $COMPOSE_FILE_FLAG {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG {{services}}
         elif [ -n "$BOUNDLESS_BUILD" ]; then
             for svc in $BOUNDLESS_BUILD; do
-                if [ "${PROVER_STACK:-}" = "experimental" ]; then
+                if [ "${PROVER_STACK:-}" != "legacy" ]; then
                     case "$svc" in
                         exec_agent|aux_agent) export PROVER_CPU_AGENT_IMAGE="" PROVER_CPU_AGENT_DOCKERFILE="${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}" ;;
                         gpu_prove_agent) export PROVER_AGENT_IMAGE="" PROVER_AGENT_DOCKERFILE="${PROVER_AGENT_DOCKERFILE:-dockerfiles/prover/agent.dockerfile}" ;;
@@ -440,7 +448,8 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
 
 # Run all components of a boundless prover (bento, broker, miner)
 # Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just prover)
-# Set PROVER_STACK=experimental to use the new prover stack (redis-only, no postgres/minio)
+# Stack selection: defaults to prover-compose.yml (redis-only).
+# Set PROVER_STACK=legacy to fall back to compose.yml (postgres + minio).
 prover action="up" env_file="" detached="true":
     #!/usr/bin/env bash
     BOUNDLESS_MINING="${BOUNDLESS_MINING:-true}"
