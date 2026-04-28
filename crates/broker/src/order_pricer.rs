@@ -19,6 +19,7 @@ use std::time::Duration;
 use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 use crate::{
     chain_monitor::ChainMonitorObj,
+    channels::SharedReceiver,
     config::{ConfigLock, MarketConfig},
     db::DbObj,
     errors::CodedError,
@@ -26,7 +27,7 @@ use crate::{
     order_evaluator::{PreflightComplete, PreflightOutcome},
     provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
-    task::{RetryRes, RetryTask},
+    task::{BrokerService, SupervisorErr},
     utils, ConfigurableDownloader, Erc1271GasCache, FulfillmentType, OrderPricingContext,
     OrderPricingError, OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
 };
@@ -45,7 +46,7 @@ use boundless_market::{
 };
 use moka::{future::Cache, policy::EvictionPolicy};
 use tokio::{
-    sync::{broadcast, mpsc, Mutex},
+    sync::{broadcast, mpsc},
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
@@ -151,6 +152,9 @@ const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
 
 type OrderPricerErr = OrderPricingError;
 
+// `coded_error_impl!` doesn't fit here: OrderPricingError is a foreign type
+// (defined in boundless_market::prover_utils) and is `#[non_exhaustive]`, so
+// the match needs a wildcard arm. Keep the manual impl.
 impl CodedError for OrderPricingError {
     fn code(&self) -> &str {
         match self {
@@ -173,8 +177,7 @@ pub struct OrderPricer<P> {
     chain_monitor: ChainMonitorObj,
     market: BoundlessMarketService<Arc<P>>,
     supported_selectors: SupportedSelectors,
-    // TODO ideal not to wrap in mutex, but otherwise would require supervisor refactor, try to find alternative
-    new_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
+    new_order_rx: SharedReceiver<Box<OrderRequest>>,
     priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     collateral_token_decimals: u8,
     order_cache: OrderCache,
@@ -202,7 +205,7 @@ where
         market_addr: Address,
         provider: Arc<P>,
         chain_monitor: ChainMonitorObj,
-        new_order_rx: mpsc::Receiver<Box<OrderRequest>>,
+        new_order_rx: SharedReceiver<Box<OrderRequest>>,
         order_result_tx: mpsc::Sender<Box<OrderRequest>>,
         collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
@@ -229,7 +232,7 @@ where
             chain_monitor,
             market,
             supported_selectors: SupportedSelectors::default(),
-            new_order_rx: Arc::new(Mutex::new(new_order_rx)),
+            new_order_rx,
             priced_orders_tx: order_result_tx,
             collateral_token_decimals,
             order_cache: Arc::new(
@@ -684,125 +687,122 @@ where
     }
 }
 
-impl<P> RetryTask for OrderPricer<P>
+impl<P> BrokerService for OrderPricer<P>
 where
-    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+    P: Provider<Ethereum> + WalletProvider + Clone + Send + Sync + 'static,
 {
     type Error = OrderPricerErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let pricer = self.clone();
 
-        Box::pin(async move {
-            tracing::info!("Starting order pricer");
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting order pricer");
 
-            let mut tasks: JoinSet<(String, U256, PreflightOutcome)> = JoinSet::new();
-            let mut rx = pricer.new_order_rx.lock().await;
-            let mut order_state_rx = pricer.order_state_tx.subscribe();
-            let mut active_preflights = ActivePreflights::default();
-            let mut last_preflights_log: String = String::new();
-            let mut log_interval = tokio::time::interval(LOG_INTERVAL);
+        let mut tasks: JoinSet<(String, U256, PreflightOutcome)> = JoinSet::new();
+        let mut rx = self.new_order_rx.lock().await;
+        let mut order_state_rx = self.order_state_tx.subscribe();
+        let mut active_preflights = ActivePreflights::default();
+        let mut last_preflights_log: String = String::new();
+        let mut log_interval = tokio::time::interval(LOG_INTERVAL);
 
-            loop {
-                tokio::select! {
-                    Some(order) = rx.recv() => {
-                        let order_id = order.id();
-                        let request_id = U256::from(order.request.id);
-                        let chain_id = order.chain_id;
+        loop {
+            tokio::select! {
+                Some(order) = rx.recv() => {
+                    let order_id = order.id();
+                    let request_id = U256::from(order.request.id);
+                    let chain_id = order.chain_id;
 
-                        if active_preflights.contains(&request_id, &order_id) {
-                            tracing::debug!("Skipping order {order_id} - already being processed");
-                            let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
-                                order_id,
-                                request_id,
-                                chain_id,
-                                outcome: PreflightOutcome::Skipped,
-                            });
-                            continue;
-                        }
-
-                        if pricer.order_cache.get(&order_id).await.is_some() {
-                            tracing::debug!("Skipping duplicate order {order_id}, already being processed");
-                            let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
-                                order_id,
-                                request_id,
-                                chain_id,
-                                outcome: PreflightOutcome::Skipped,
-                            });
-                            continue;
-                        }
-
-                        pricer.order_cache.insert(order_id.clone(), ()).await;
-
-                        let pricer_clone = pricer.clone();
-                        let task_cancel_token = cancel_token.child_token();
-
-                        active_preflights.insert(&order, task_cancel_token.clone());
-
-                        tasks.spawn(async move {
-                            let accepted = pricer_clone
-                                .price_order_and_update_state(order, task_cancel_token.clone())
-                                .await;
-                            let outcome = match (accepted, task_cancel_token.is_cancelled()) {
-                                (true, _) => PreflightOutcome::Priced,
-                                (false, true) => PreflightOutcome::Cancelled,
-                                (false, false) => PreflightOutcome::Skipped,
-                            };
-                            (order_id, request_id, outcome)
-                        }.instrument(Span::current()));
+                    if active_preflights.contains(&request_id, &order_id) {
+                        tracing::debug!("Skipping order {order_id} - already being processed");
+                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                            order_id,
+                            request_id,
+                            chain_id,
+                            outcome: PreflightOutcome::Skipped,
+                        });
+                        continue;
                     }
-                    Ok(state_change) = order_state_rx.recv() => {
-                        if state_change.chain_id() != pricer.chain_id {
-                            continue;
-                        }
-                        match state_change {
-                            OrderStateChange::Locked { request_id, prover, .. } => {
-                                tracing::debug!("Received order state change for request 0x{:x}: Locked by prover 0x{:x}",
-                                    request_id, prover);
-                                active_preflights.cancel_lock_and_fulfill(&request_id);
-                            }
-                            OrderStateChange::Fulfilled { request_id, .. } => {
-                                tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
-                                    request_id);
-                                active_preflights.cancel_all(&request_id);
-                            }
-                        }
-                    }
-                    Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                        match result {
-                            Ok((order_id, request_id, outcome)) => {
-                                active_preflights.remove(&request_id, &order_id);
 
-                                let _ = pricer.pricing_completion_tx.try_send(PreflightComplete {
-                                    order_id: order_id.clone(),
-                                    request_id,
-                                    chain_id: pricer.chain_id,
-                                    outcome,
-                                });
+                    if self.order_cache.get(&order_id).await.is_some() {
+                        tracing::debug!("Skipping duplicate order {order_id}, already being processed");
+                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                            order_id,
+                            request_id,
+                            chain_id,
+                            outcome: PreflightOutcome::Skipped,
+                        });
+                        continue;
+                    }
 
-                                tracing::trace!("Priced task for order {} (request 0x{:x}) completed with {outcome} ({} remaining)",
-                                    order_id, request_id, tasks.len());
-                            }
-                            Err(e) => {
-                                tracing::error!("Pricing task panicked: {e}");
-                            }
-                        }
+                    self.order_cache.insert(order_id.clone(), ()).await;
+
+                    let pricer_clone = self.clone();
+                    let task_cancel_token = cancel_token.child_token();
+
+                    active_preflights.insert(&order, task_cancel_token.clone());
+
+                    tasks.spawn(async move {
+                        let accepted = pricer_clone
+                            .price_order_and_update_state(order, task_cancel_token.clone())
+                            .await;
+                        let outcome = match (accepted, task_cancel_token.is_cancelled()) {
+                            (true, _) => PreflightOutcome::Priced,
+                            (false, true) => PreflightOutcome::Cancelled,
+                            (false, false) => PreflightOutcome::Skipped,
+                        };
+                        (order_id, request_id, outcome)
+                    }.instrument(Span::current()));
+                }
+                Ok(state_change) = order_state_rx.recv() => {
+                    if state_change.chain_id() != self.chain_id {
+                        continue;
                     }
-                    _ = log_interval.tick() => {
-                        let current_log = active_preflights.format();
-                        if last_preflights_log != current_log {
-                            tracing::debug!("Active preflights: [{}]", current_log);
-                            last_preflights_log = current_log;
+                    match state_change {
+                        OrderStateChange::Locked { request_id, prover, .. } => {
+                            tracing::debug!("Received order state change for request 0x{:x}: Locked by prover 0x{:x}",
+                                request_id, prover);
+                            active_preflights.cancel_lock_and_fulfill(&request_id);
                         }
-                    }
-                    _ = cancel_token.cancelled() => {
-                        tracing::debug!("Order pricer received cancellation, shutting down gracefully");
-                        while tasks.join_next().await.is_some() {}
-                        break;
+                        OrderStateChange::Fulfilled { request_id, .. } => {
+                            tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
+                                request_id);
+                            active_preflights.cancel_all(&request_id);
+                        }
                     }
                 }
+                Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                    match result {
+                        Ok((order_id, request_id, outcome)) => {
+                            active_preflights.remove(&request_id, &order_id);
+
+                            let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                                order_id: order_id.clone(),
+                                request_id,
+                                chain_id: self.chain_id,
+                                outcome,
+                            });
+
+                            tracing::trace!("Priced task for order {} (request 0x{:x}) completed with {outcome} ({} remaining)",
+                                order_id, request_id, tasks.len());
+                        }
+                        Err(e) => {
+                            tracing::error!("Pricing task panicked: {e}");
+                        }
+                    }
+                }
+                _ = log_interval.tick() => {
+                    let current_log = active_preflights.format();
+                    if last_preflights_log != current_log {
+                        tracing::debug!("Active preflights: [{}]", current_log);
+                        last_preflights_log = current_log;
+                    }
+                }
+                _ = cancel_token.cancelled() => {
+                    tracing::debug!("Order pricer received cancellation, shutting down gracefully");
+                    while tasks.join_next().await.is_some() {}
+                    break;
+                }
             }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 }
 
@@ -1088,7 +1088,7 @@ pub(crate) mod tests {
             let chain_monitor_service = Arc::new(
                 ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
             );
-            tokio::spawn(chain_monitor_service.spawn(Default::default()));
+            tokio::spawn((*chain_monitor_service).clone().run(Default::default()));
             let chain_monitor: ChainMonitorObj = chain_monitor_service;
 
             let chain_id = provider.get_chain_id().await.unwrap();
@@ -1097,7 +1097,8 @@ pub(crate) mod tests {
             let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
-            let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
+            let (_new_order_tx, new_order_rx) =
+                crate::channels::shared_channel(TEST_CHANNEL_CAPACITY);
             let (priced_orders_tx, priced_orders_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
             let (order_state_tx, _) = tokio::sync::broadcast::channel(TEST_CHANNEL_CAPACITY);
             let (pricing_completion_tx, _completion_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1609,7 +1610,7 @@ pub(crate) mod tests {
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
-        let pricing_task = tokio::spawn(ctx.pricer.spawn(Default::default()));
+        let pricing_task = tokio::spawn(ctx.pricer.clone().run(Default::default()));
 
         ctx.new_order_tx.send(order).await.unwrap();
 
@@ -1630,7 +1631,7 @@ pub(crate) mod tests {
 
         assert!(ctx.priced_orders_rx.is_empty());
 
-        tokio::spawn(ctx.pricer.spawn(Default::default()));
+        tokio::spawn(ctx.pricer.clone().run(Default::default()));
 
         let priced_order =
             tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
@@ -2082,7 +2083,7 @@ pub(crate) mod tests {
 
         assert_eq!(order1.id(), order2.id(), "Both orders should have the same ID");
 
-        tokio::spawn(ctx.pricer.spawn(CancellationToken::new()));
+        tokio::spawn(ctx.pricer.clone().run(CancellationToken::new()));
 
         ctx.new_order_tx.send(order1).await?;
         ctx.new_order_tx.send(order2).await?;
@@ -2139,7 +2140,7 @@ pub(crate) mod tests {
         let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
 
         // Start the order pricer task
-        let pricer_task = tokio::spawn(ctx.pricer.spawn(Default::default()));
+        let pricer_task = tokio::spawn(ctx.pricer.clone().run(Default::default()));
 
         // Send an order to trigger the logging
         let order1 =

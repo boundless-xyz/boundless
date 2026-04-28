@@ -918,7 +918,7 @@ impl Broker {
 
         for chain in &chains {
             // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
-            let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
+            let (pricer_tx, pricer_rx) = channels::shared_channel(PRICER_CHANNEL_CAPACITY);
             chain_dispatchers.insert(chain.chain_id, pricer_tx);
 
             // Order committer dispatches capacity-gated orders to this chain's locker.
@@ -1050,7 +1050,7 @@ impl Broker {
         prover: ProverObj,
         aggregation_prover: ProverObj,
         evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
-        pricer_rx: mpsc::Receiver<Box<OrderRequest>>,
+        pricer_rx: channels::SharedReceiver<Box<OrderRequest>>,
         pricing_completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
