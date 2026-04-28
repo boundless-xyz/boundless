@@ -270,7 +270,7 @@ async fn main() -> Result<()> {
             )?;
 
         let rpc_urls =
-            collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone(), args.experimental_rpc)?;
+            collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone(), args.legacy_rpc)?;
 
         let config = base_config_watcher.config.clone();
         let (provider, any_provider, gas_priority_mode) =
@@ -399,7 +399,7 @@ async fn main() -> Result<()> {
 fn collect_rpc_urls(
     rpc_url: Option<String>,
     rpc_urls: Vec<String>,
-    experimental_rpc: bool,
+    legacy_rpc: bool,
 ) -> Result<Vec<Url>> {
     // Use Vec to preserve insertion order: PROVER_RPC_URL is always inserted first,
     let mut all_rpc_urls: Vec<Url> = Vec::new();
@@ -439,7 +439,7 @@ fn collect_rpc_urls(
         }
     }
 
-    if all_rpc_urls.is_empty() && experimental_rpc {
+    if all_rpc_urls.is_empty() && !legacy_rpc {
         all_rpc_urls.push(
             Url::parse("https://base.gateway.tenderly.co")
                 .expect("hardcoded Tenderly URL is valid"),
@@ -655,7 +655,9 @@ mod tests {
 
     #[test]
     fn errors_on_empty() {
-        let result = collect_rpc_urls(None, vec![], false);
+        // legacy_rpc=true disables the Tenderly fallback that the default (V2) path injects,
+        // so an empty input correctly surfaces the "no RPC URLs" error.
+        let result = collect_rpc_urls(None, vec![], true);
         assert!(result.is_err());
     }
 
@@ -679,7 +681,8 @@ mod tests {
             rpc_request_timeout: 15,
             log_json: false,
             listen_only: false,
-            experimental_rpc: false,
+            experimental_rpc: true,
+            legacy_rpc: false,
             version_registry_address: None,
             force_version_check: false,
         }

@@ -208,7 +208,8 @@ pub(super) fn broker_args(
         rpc_request_timeout: 30,
         log_json: false,
         listen_only: false,
-        experimental_rpc: false,
+        experimental_rpc: true,
+        legacy_rpc: false,
         version_registry_address,
         force_version_check: false,
     }
@@ -359,7 +360,8 @@ async fn simple_e2e_experimental_rpc() {
         .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    // Start broker with experimental RPC path enabled
+    // Regression test: the deprecated `--experimental-rpc` flag must still parse and behave
+    // identically to the (now-default) V2 path. Setting it explicitly is a no-op.
     let config = new_config(1).await;
     let config_watcher = config.watcher().await;
     let mut args = broker_args(
@@ -380,6 +382,78 @@ async fn simple_e2e_experimental_rpc() {
     )
     .await;
     args.experimental_rpc = true;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
+
+    // Provide URL for ECHO program
+    let storage = MockStorageUploader::new();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    // Submit an order
+    let request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    run_with_broker(broker, vec![chain], async move {
+        // Submit the request
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        // Wait for fulfillment
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn simple_e2e_legacy_rpc() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    // Setup signers / providers
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Deposit prover / customer balances
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    // Start broker with the legacy ChainMonitorService + MarketMonitor pair (--legacy-rpc).
+    let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
+    let mut args = broker_args(
+        config.base_path(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer.clone(),
+        Some(ctx.version_registry_address),
+    );
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
+    )
+    .await;
+    args.legacy_rpc = true;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program

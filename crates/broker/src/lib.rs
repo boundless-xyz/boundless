@@ -178,9 +178,16 @@ pub struct CoreArgs {
     #[clap(long, default_value_t = false)]
     pub listen_only: bool,
 
-    /// Use the experimental ChainMonitorV2 implementation using eth_getBlockReceipts instead of eth_getLogs.
-    #[clap(long, default_value_t = false)]
+    /// Deprecated and ignored: ChainMonitorV2 (eth_getBlockReceipts) is now the default.
+    /// Pass `--legacy-rpc` to opt back into the legacy ChainMonitorService + MarketMonitor pair.
+    /// Kept for backwards compatibility with existing scripts and inventories.
+    #[clap(long, default_value_t = true, hide = true)]
     pub experimental_rpc: bool,
+
+    /// Use the legacy ChainMonitorService + MarketMonitor pair (eth_getLogs based).
+    /// The default is ChainMonitorV2, which uses eth_getBlockReceipts in a single polling loop.
+    #[clap(long, default_value_t = false)]
+    pub legacy_rpc: bool,
 
     /// VersionRegistry contract address override. Not a CLI flag — set programmatically in tests
     /// to exercise the version check against a locally deployed registry.
@@ -1211,10 +1218,10 @@ impl Broker {
 
         let prover_addr = provider.default_signer_address();
 
-        // Set up chain + market monitoring. Either use the standard ChainMonitorService +
-        // MarketMonitor pair, or the experimental ChainMonitorV2 (--experimental-rpc) which
-        // replaces both with a single implementation.
-        let (chain_monitor, block_times) = if self.args.experimental_rpc {
+        // Set up chain + market monitoring. Default is ChainMonitorV2, a single polling loop
+        // built on eth_getBlockReceipts. Pass `--legacy-rpc` to fall back to the older
+        // ChainMonitorService + MarketMonitor pair (eth_getLogs).
+        let (chain_monitor, block_times) = if !self.args.legacy_rpc {
             let monitor = Arc::new(
                 chain_monitor_v2::ChainMonitorV2::new(
                     db.clone(),
@@ -1809,7 +1816,8 @@ pub mod test_utils {
                 rpc_request_timeout: 30,
                 log_json: false,
                 listen_only: false,
-                experimental_rpc: false,
+                experimental_rpc: true,
+                legacy_rpc: false,
                 version_registry_address: Some(ctx.version_registry_address),
                 force_version_check: false,
             };
