@@ -901,10 +901,11 @@ impl Broker {
             std::collections::HashMap::new();
 
         // All per-chain pricers send priced orders here; the order committer reads from priced_orders_rx.
-        let (priced_orders_tx, priced_orders_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+        let (priced_orders_tx, priced_orders_rx) =
+            channels::shared_channel(COMMITMENT_CHANNEL_CAPACITY);
         // Proving pipeline components send completion signals here; the order committer reads to free capacity.
         let (proving_completion_tx, proving_completion_rx) =
-            mpsc::channel(COMMITMENT_COMPLETION_CHANNEL_CAPACITY);
+            channels::shared_channel(COMMITMENT_COMPLETION_CHANNEL_CAPACITY);
         let mut locker_dispatchers: std::collections::HashMap<
             u64,
             mpsc::Sender<Box<OrderRequest>>,
