@@ -485,24 +485,13 @@ where
                         .collect();
                     tracing::warn!("Failed to submit app merkle root for orders: {order_ids:?}");
 
-                    // Map the error from the R0 Contracts crate crate to an error type from BoundlessMarket
-                    if err.to_string().contains("failed to confirm tx") {
-                        self.handle_fulfillment_error(
-                            MarketError::TxnConfirmationError(err),
-                            batch_id,
-                            &fulfillments,
-                            &order_ids,
-                        )
-                        .await?;
+                    // Map the error from the R0 Contracts crate to an error type from BoundlessMarket
+                    let market_err = if err.to_string().contains("failed to confirm tx") {
+                        MarketError::TxnConfirmationError(err)
                     } else {
-                        self.handle_fulfillment_error(
-                            MarketError::Error(err),
-                            batch_id,
-                            &fulfillments,
-                            &order_ids,
-                        )
-                        .await?;
-                    }
+                        MarketError::Error(err)
+                    };
+                    return Err(Self::classify_fulfillment_error(market_err, batch_id));
                 }
             } else {
                 tracing::info!("Contract already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
@@ -513,7 +502,7 @@ where
             let order_ids: Vec<&str> =
                 fulfillments.iter().map(|f| *fulfillment_to_order_id.get(&f.id).unwrap()).collect();
             tracing::warn!("Failed to fulfill batch for orders {order_ids:?}: {err:?}");
-            self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
+            return Err(Self::classify_fulfillment_error(err, batch_id));
         }
 
         for fulfillment in fulfillments.iter() {
@@ -593,34 +582,13 @@ where
         ))
     }
 
-    async fn handle_fulfillment_error(
-        &self,
-        err: MarketError,
-        batch_id: usize,
-        fulfillments: &[Fulfillment],
-        order_ids: &[&str],
-    ) -> Result<(), SubmitterErr> {
-        tracing::warn!("Failed to submit proofs for batch {batch_id}: {err:?} ");
-        for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
-            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
-            {
-                tracing::error!(
-                    "Failed to set order failure during proof submission: {:x} {db_err:?}",
-                    fulfillment.id
-                );
-            }
-            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
-                order_id: order_id.to_string(),
-                chain_id: self.chain_id,
-                outcome: CommitmentOutcome::ProvingFailed,
-            });
-        }
-
+    fn classify_fulfillment_error(err: MarketError, batch_id: usize) -> SubmitterErr {
+        tracing::warn!("Failed to submit proofs for batch {batch_id}: {err:?}");
         if let MarketError::TxnConfirmationError(_) = &err {
-            return Err(SubmitterErr::TxnConfirmationError(err));
+            SubmitterErr::TxnConfirmationError(err)
+        } else {
+            SubmitterErr::MarketError(err)
         }
-
-        Err(SubmitterErr::MarketError(err))
     }
 
     pub async fn process_next_batch(&self) -> Result<(), SubmitterErr> {
@@ -681,6 +649,17 @@ where
             }
         }
         tracing::warn!("Batch {batch_id} has reached max submission attempts. Errors: {errors:?}");
+
+        // Now that retries are exhausted, mark every order in the batch as Failed.
+        for order_id in batch.orders.iter() {
+            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
+            {
+                tracing::error!(
+                    "Failed to set order failure after retries exhausted: {order_id} {db_err:?}"
+                );
+            }
+        }
+
         if let Err(err) = self.db.set_batch_failure(batch_id, format!("{errors:?}")).await {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Failed to set batch failure in db: {batch_id} - {err:?}"
@@ -1030,7 +1009,11 @@ mod tests {
     #[traced_test]
     async fn submit_batch_retry_max_attempts() {
         let config = ConfigLock::default();
-        let (anvil, submitter, _db, _batch_id) = build_submitter_and_batch(config).await;
+        let (anvil, submitter, db, batch_id) = build_submitter_and_batch(config).await;
+
+        let batch = db.get_batch(batch_id).await.unwrap();
+        let order_ids = batch.orders.clone();
+        assert!(!order_ids.is_empty(), "test batch should have at least one order");
 
         drop(anvil); // drop anvil to simluate an RPC fault
 
@@ -1038,5 +1021,19 @@ mod tests {
         assert!(logs_contain("Batch submission attempt 1/2 failed"));
         assert!(logs_contain("reached max submission attempts"));
         assert!(matches!(res, Err(SubmitterErr::BatchSubmissionFailed(_))));
+
+        // After exhaustion, every order in the batch must be marked Failed and the
+        // batch itself marked as failed.
+        for order_id in &order_ids {
+            let order = db.get_order(order_id).await.unwrap().expect("order exists");
+            assert_eq!(
+                order.status,
+                OrderStatus::Failed,
+                "order {order_id} should be Failed after retries exhausted"
+            );
+        }
+
+        let final_batch = db.get_batch(batch_id).await.unwrap();
+        assert_eq!(final_batch.status, BatchStatus::Failed);
     }
 }

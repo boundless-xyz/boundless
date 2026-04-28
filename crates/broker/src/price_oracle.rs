@@ -22,15 +22,9 @@ impl BrokerService for PriceOracleManager {
 
     async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
         tracing::info!("Starting price oracle refresh task");
-        self.start_oracle(cancel_token).await.map_err(|err| {
-            if matches!(err, PriceOracleError::UpdateTimeout()) {
-                tracing::error!(
-                    "Price oracle could not refresh prices for too long, if this continues consider setting static prices in the config for `eth_usd` and `zkc_usd`: {}",
-                    err
-                );
-            }
-            SupervisorErr::Recover(err)
-        })
+        self.start_oracle(cancel_token).await.map_err(SupervisorErr::Recover)?;
+        Ok(())
+        }
     }
 }
 

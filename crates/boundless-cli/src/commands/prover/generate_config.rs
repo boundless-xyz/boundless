@@ -158,12 +158,17 @@ impl ProverGenerateConfig {
             }
         }
 
-        // Backup and generate compose.yml
+        // Backup and generate compose.yml + prover-compose.yml
         if let Some(backup_path) = self.backup_file(&self.compose_yml_file)? {
+            display.item_colored("Backup saved", backup_path.display(), "cyan");
+        }
+        let prover_compose_path = self.prover_compose_path();
+        if let Some(backup_path) = self.backup_file(&prover_compose_path)? {
             display.item_colored("Backup saved", backup_path.display(), "cyan");
         }
         self.generate_compose_yml(&config, compose_strategy)?;
         display.item_colored("Created", self.compose_yml_file.display(), "green");
+        display.item_colored("Created", prover_compose_path.display(), "green");
 
         display.separator();
         self.show_success_message(&config, &display)?;
@@ -1232,6 +1237,13 @@ impl ProverGenerateConfig {
         Ok(())
     }
 
+    /// Apply wizard-derived settings (exec_agent replicas, segment size) to a compose template.
+    fn apply_compose_settings(&self, content: String, config: &WizardConfig) -> Result<String> {
+        let content = self.update_exec_agent_replicas(content, config.max_exec_agents)?;
+        let content = self.update_segment_size(content, config.segment_size)?;
+        Ok(content)
+    }
+
     fn generate_compose_yml(
         &self,
         config: &WizardConfig,
@@ -1242,28 +1254,35 @@ impl ProverGenerateConfig {
         // not preserved by most Rust YAML libraries (serde_yaml, etc.).
         // This ensures all comments, formatting, and anchor definitions remain intact.
 
-        // Load source (template or existing file)
-        let mut content = match strategy {
+        // Generate compose.yml (default stack)
+        let content = match strategy {
             FileHandlingStrategy::ModifyExisting => std::fs::read_to_string(&self.compose_yml_file)
                 .context("Failed to read existing compose.yml")?,
             FileHandlingStrategy::GenerateNew => {
                 include_str!("../../../../../compose.yml").to_string()
             }
         };
-
-        // Update exec_agent replicas
-        content = self.update_exec_agent_replicas(content, config.max_exec_agents)?;
-
-        // Update segment size
-        content = self.update_segment_size(content, config.segment_size)?;
-
-        // Note: compose.yml has a single gpu_prove_agent service that auto-detects all GPUs
-        // via nvidia-smi and spawns one agent process per GPU. No need to add/remove sections.
-
-        // Write to file
+        let content = self.apply_compose_settings(content, config)?;
         std::fs::write(&self.compose_yml_file, content).context("Failed to write compose.yml")?;
 
+        // Generate prover-compose.yml (prover stack) alongside compose.yml
+        let prover_compose_path = self.prover_compose_path();
+        let prover_content = match prover_compose_path.exists() {
+            true => std::fs::read_to_string(&prover_compose_path)
+                .context("Failed to read existing prover-compose.yml")?,
+            false => include_str!("../../../../../prover-compose.yml").to_string(),
+        };
+        let prover_content = self.apply_compose_settings(prover_content, config)?;
+        std::fs::write(&prover_compose_path, prover_content)
+            .context("Failed to write prover-compose.yml")?;
+
         Ok(())
+    }
+
+    /// Path to prover-compose.yml, derived from the compose_yml_file directory.
+    fn prover_compose_path(&self) -> PathBuf {
+        let dir = self.compose_yml_file.parent().unwrap_or(Path::new("."));
+        dir.join("prover-compose.yml")
     }
 
     fn update_exec_agent_replicas(&self, content: String, replicas: usize) -> Result<String> {
@@ -1370,6 +1389,11 @@ impl ProverGenerateConfig {
             }
         }
         display.item_colored("  Compose config", self.compose_yml_file.display(), "green");
+        display.item_colored(
+            "  Prover compose config",
+            self.prover_compose_path().display(),
+            "green",
+        );
 
         display.separator();
         display.note("Next steps:");
