@@ -1079,9 +1079,7 @@ impl ProverGenerateConfig {
                 }
                 for (key, msg) in REMOVED_MARKET_KEYS {
                     if market.contains_key(key) {
-                        display.warning(&format!(
-                            "[market].{key} {msg}; please remove this entry"
-                        ));
+                        display.warning(&format!("[market].{key} {msg}; please remove this entry"));
                     }
                 }
             }
@@ -1238,8 +1236,7 @@ impl ProverGenerateConfig {
                 let probability_value = toml_edit::value(
                     first_chain.expected_probability_win_secondary_fulfillment as i64,
                 );
-                if let Some(item) =
-                    market.get_mut("expected_probability_win_secondary_fulfillment")
+                if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment")
                 {
                     *item = probability_value;
                 } else {
