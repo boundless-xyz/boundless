@@ -31,14 +31,14 @@ use crate::market_monitor::process_new_logs;
 use crate::{
     block_history::{BlockHistory, BlockHistoryEntry},
     chain_monitor::{ChainHead, ChainMonitorApi},
+    coded_error_impl,
     db::DbObj,
     errors::CodedError,
-    impl_coded_debug,
     market_monitor::{
         process_log, process_order_submitted, process_request_fulfilled, process_request_locked,
         MarketEvent,
     },
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     OrderRequest, OrderStateChange,
 };
 use alloy::{
@@ -82,19 +82,13 @@ pub enum ChainMonitorV2Err {
     ReceiverDropped,
 }
 
-impl_coded_debug!(ChainMonitorV2Err);
-
-impl CodedError for ChainMonitorV2Err {
-    fn code(&self) -> &str {
-        match self {
-            ChainMonitorV2Err::RpcErr(_) => "[B-CMV2-400]",
-            ChainMonitorV2Err::ReceiptsMismatch(_) => "[B-CMV2-401]",
-            ChainMonitorV2Err::LogProcessingFailed(_) => "[B-CMV2-501]",
-            ChainMonitorV2Err::UnexpectedErr(_) => "[B-CMV2-500]",
-            ChainMonitorV2Err::ReceiverDropped => "[B-CMV2-502]",
-        }
-    }
-}
+coded_error_impl!(ChainMonitorV2Err, "CMV2",
+    RpcErr(..)              => "400",
+    ReceiptsMismatch(..)    => "401",
+    LogProcessingFailed(..) => "501",
+    UnexpectedErr(..)       => "500",
+    ReceiverDropped         => "502",
+);
 
 /// Experimental replacement for `ChainMonitorService` + `MarketMonitor`.
 ///
@@ -652,28 +646,22 @@ where
     }
 }
 
-impl<P, ANP> RetryTask for ChainMonitorV2<P, ANP>
+impl<P, ANP> BrokerService for ChainMonitorV2<P, ANP>
 where
-    P: Provider<Ethereum> + Send + Sync + Clone + 'static,
-    ANP: Provider<AnyNetwork> + Send + Sync + Clone + 'static,
+    P: Provider<Ethereum> + Clone + Send + Sync + 'static,
+    ANP: Provider<AnyNetwork> + Clone + Send + Sync + 'static,
 {
     type Error = ChainMonitorV2Err;
 
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let self_clone = self.clone();
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting ChainMonitorV2");
 
-        Box::pin(async move {
-            tracing::info!("Starting ChainMonitorV2");
+        if !self.open_orders_found.load(Ordering::Relaxed) {
+            self.find_open_orders().await.map_err(SupervisorErr::Recover)?;
+            self.open_orders_found.store(true, Ordering::Relaxed);
+        }
 
-            if !self_clone.open_orders_found.load(Ordering::Relaxed) {
-                self_clone.find_open_orders().await.map_err(SupervisorErr::Recover)?;
-                self_clone.open_orders_found.store(true, Ordering::Relaxed);
-            }
-
-            self_clone.monitor_chain(cancel_token).await.map_err(SupervisorErr::Recover)?;
-
-            Ok(())
-        })
+        self.monitor_chain(cancel_token).await.map_err(SupervisorErr::Recover)
     }
 }
 
