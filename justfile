@@ -581,7 +581,6 @@ _e2e-teardown status:
 E2E_SUBMIT_ECHO_TIMEOUT := if env_var_or_default("RISC0_DEV_MODE", "1") == "1" { "180" } else { "1800" }
 E2E_EXAMPLE_TIMEOUT := if env_var_or_default("RISC0_DEV_MODE", "1") == "1" { "600" } else { "3600" }
 # Anvil default-mnemonic keys. Slot 0 = deployer, slot 3 = prover — both reserved.
-# See docs/superpowers/plans/2026-04-23-release-e2e-phase-2-3.md for the full allocation.
 E2E_KEY_SUBMIT_ECHO_ONCHAIN := "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 E2E_KEY_SUBMIT_ECHO_OFFCHAIN := "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
 E2E_KEY_COUNTER := "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a"
