@@ -23,8 +23,8 @@
 
 use crate::price_oracle::{
     config::{
-        ChainlinkConfig, CoinGeckoConfig, CoinMarketCapConfig, OffChainConfig, OnChainConfig,
-        PriceOracleConfig, PriceValue,
+        ChainlinkConfig, CoinGeckoConfig, CoinMarketCapConfig, CoinbaseConfig, OffChainConfig,
+        OnChainConfig, PriceOracleConfig, PriceValue,
     },
     AggregationMode, ExchangeRate, TradingPair,
 };
@@ -98,6 +98,7 @@ fn build_config(mode: AggregationMode) -> PriceOracleConfig {
         offchain: Some(OffChainConfig {
             coingecko: Some(CoinGeckoConfig { enabled: true, api_key: None }),
             cmc: Some(CoinMarketCapConfig { enabled: true, api_key: cmc_api_key }),
+            coinbase: Some(CoinbaseConfig { enabled: true }),
         }),
     }
 }
