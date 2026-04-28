@@ -44,12 +44,13 @@ use risc0_zkvm::{
 use tokio::sync::mpsc;
 
 use crate::{
+    coded_error_impl,
     config::ConfigLock,
     db::DbObj,
-    impl_coded_debug, is_dev_mode, now_timestamp,
+    is_dev_mode, now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::ProverObj,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     Batch, FulfillmentType, Order,
 };
 use thiserror::Error;
@@ -82,21 +83,15 @@ pub enum SubmitterErr {
     UnexpectedErr(#[from] anyhow::Error),
 }
 
-impl_coded_debug!(SubmitterErr);
-
-impl CodedError for SubmitterErr {
-    fn code(&self) -> &str {
-        match self {
-            SubmitterErr::UnexpectedErr(_) => "[B-SUB-500]",
-            SubmitterErr::AllRequestsExpiredBeforeSubmission(_) => "[B-SUB-001]",
-            SubmitterErr::SomeRequestsExpiredBeforeSubmission(_) => "[B-SUB-005]",
-            SubmitterErr::MarketError(_) => "[B-SUB-002]",
-            SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-004]",
-            SubmitterErr::BatchSubmissionFailedTimeouts(_) => "[B-SUB-003]",
-            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-006]",
-        }
-    }
-}
+coded_error_impl!(SubmitterErr, "SUB",
+    UnexpectedErr(..)                       => "500",
+    AllRequestsExpiredBeforeSubmission(..)  => "001",
+    SomeRequestsExpiredBeforeSubmission(..) => "005",
+    MarketError(..)                         => "002",
+    BatchSubmissionFailed(..)               => "004",
+    BatchSubmissionFailedTimeouts(..)       => "003",
+    TxnConfirmationError(..)                => "006",
+);
 
 #[derive(Clone)]
 pub struct Submitter<P> {
@@ -699,43 +694,40 @@ where
     }
 }
 
-impl<P> RetryTask for Submitter<P>
+impl<P> BrokerService for Submitter<P>
 where
-    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + Clone + Send + Sync + 'static,
 {
     type Error = SubmitterErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let obj_clone = self.clone();
 
-        Box::pin(async move {
-            tracing::info!("Starting Submitter service");
-            loop {
-                if cancel_token.is_cancelled() {
-                    tracing::debug!("Submitter service received cancellation");
-                    break;
-                }
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting Submitter service");
+        loop {
+            if cancel_token.is_cancelled() {
+                tracing::debug!("Submitter service received cancellation");
+                break;
+            }
 
-                // Process batch without interruption
-                let result = obj_clone.process_next_batch().await;
-                if let Err(err) = result {
-                    // Only restart the service on unexpected errors.
-                    match err {
-                        SubmitterErr::BatchSubmissionFailed(_)
-                        | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
-                            tracing::error!("Batch submission failed: {err:?}");
-                        }
-                        _ => {
-                            tracing::error!("Submitter service failed: {err:?}");
-                            return Err(SupervisorErr::Recover(err));
-                        }
+            // Process batch without interruption
+            let result = self.process_next_batch().await;
+            if let Err(err) = result {
+                // Only restart the service on unexpected errors.
+                match err {
+                    SubmitterErr::BatchSubmissionFailed(_)
+                    | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
+                        tracing::error!("Batch submission failed: {err:?}");
+                    }
+                    _ => {
+                        tracing::error!("Submitter service failed: {err:?}");
+                        return Err(SupervisorErr::Recover(err));
                     }
                 }
-
-                // TODO: configuration
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
-            Ok(())
-        })
+
+            // TODO: configuration
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+        Ok(())
     }
 }
 
