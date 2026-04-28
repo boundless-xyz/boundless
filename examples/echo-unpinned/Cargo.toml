@@ -1,0 +1,26 @@
+# Intentionally out-of-workspace. This crate exercises unpinned transitive dep
+# resolution for boundless-market. Its Cargo.lock is gitignored (see .gitignore).
+
+[package]
+name = "echo-unpinned"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+# Match the workspace toolchain pin (rust-toolchain.toml = "1.89") and use
+# the MSRV-aware resolver so transitive deps are picked compatibly with 1.89.
+rust-version = "1.89"
+resolver = "3"
+
+[dependencies]
+# Path dep — does NOT test published boundless-market. Tests the dep graph our
+# local boundless-market declares when resolved independently of the workspace.
+boundless-market = { path = "../../crates/boundless-market" }
+
+alloy = { version = "1.0", features = ["signer-local"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+guest-util = { path = "../../crates/guest/util" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"

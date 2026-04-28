@@ -15,23 +15,21 @@
 pragma solidity ^0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import {Counter} from "../src/Counter.sol";
-import {ImageID} from "boundless-market/libraries/UtilImageID.sol";
+import {SmartContractRequestor} from "../src/SmartContractRequestor.sol";
 
 contract Deploy is Script {
     function run() external payable {
-        // load ENV variables first
         uint256 key = vm.envUint("PRIVATE_KEY");
-        address verifierAddress = vm.envAddress("VERIFIER_ADDRESS");
+        address owner = vm.addr(key);
         address boundlessMarketAddress = vm.envAddress("BOUNDLESS_MARKET_ADDRESS");
+        // Valid for any day since epoch — the example uses today's day-since-epoch as the request id.
+        uint32 startDay = 0;
+        uint32 endDay = type(uint32).max;
+
         vm.startBroadcast(key);
-
-        IRiscZeroVerifier verifier = IRiscZeroVerifier(verifierAddress);
-        Counter counter = new Counter(verifier, boundlessMarketAddress, ImageID.ECHO_ID);
-        address counterAddress = address(counter);
-        console2.log("Deployed Counter to", counterAddress);
-
+        SmartContractRequestor scr = new SmartContractRequestor(owner, boundlessMarketAddress, startDay, endDay);
+        address scrAddress = address(scr);
+        console2.log("Deployed SmartContractRequestor to", scrAddress);
         vm.stopBroadcast();
     }
 }
