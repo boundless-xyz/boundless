@@ -922,7 +922,7 @@ impl Broker {
             chain_dispatchers.insert(chain.chain_id, pricer_tx);
 
             // Order committer dispatches capacity-gated orders to this chain's locker.
-            let (locker_tx, locker_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+            let (locker_tx, locker_rx) = channels::shared_channel(COMMITMENT_CHANNEL_CAPACITY);
             locker_dispatchers.insert(chain.chain_id, locker_tx);
 
             let priority_requestors =
@@ -1054,7 +1054,7 @@ impl Broker {
         pricing_completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
-        locker_rx: mpsc::Receiver<Box<OrderRequest>>,
+        locker_rx: channels::SharedReceiver<Box<OrderRequest>>,
         proving_completion_tx: mpsc::Sender<order_committer::CommitmentComplete>,
         priority_requestors: requestor_monitor::PriorityRequestors,
         non_critical_tasks: &mut JoinSet<Result<()>>,
