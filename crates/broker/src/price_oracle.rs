@@ -22,9 +22,7 @@ impl BrokerService for PriceOracleManager {
 
     async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
         tracing::info!("Starting price oracle refresh task");
-        self.start_oracle(cancel_token).await.map_err(SupervisorErr::Recover)?;
-        Ok(())
-        }
+        self.start_oracle(cancel_token).await.map_err(SupervisorErr::Recover)
     }
 }
 
