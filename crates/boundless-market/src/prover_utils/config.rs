@@ -86,7 +86,11 @@ pub mod defaults {
     }
 
     pub const fn max_submission_attempts() -> u32 {
-        2
+        3
+    }
+
+    pub const fn submit_retry_delay_ms() -> u64 {
+        1500
     }
 
     pub const fn reaper_interval_secs() -> u32 {
@@ -744,6 +748,13 @@ pub struct BatcherConfig {
     /// Number of attempts to make to submit a batch before abandoning
     #[serde(default = "defaults::max_submission_attempts")]
     pub max_submission_attempts: u32,
+    /// Delay (in milliseconds) between batch submission retry attempts.
+    ///
+    /// Inserted between attempts to give the chain and the public RPC's pending-tx view
+    /// time to converge after a transient nonce-state inconsistency (e.g. a concurrent
+    /// lock and fulfill from the same wallet hitting `replacement transaction underpriced`).
+    #[serde(default = "defaults::submit_retry_delay_ms")]
+    pub submit_retry_delay_ms: u64,
 }
 
 impl Default for BatcherConfig {
@@ -759,6 +770,7 @@ impl Default for BatcherConfig {
             single_txn_fulfill: defaults::single_txn_fulfill(),
             withdraw: defaults::withdraw(),
             max_submission_attempts: defaults::max_submission_attempts(),
+            submit_retry_delay_ms: defaults::submit_retry_delay_ms(),
         }
     }
 }
@@ -1142,6 +1154,7 @@ min_mcycle_price = "0.05 ETH"
 
 [batcher]
 min_batch_size = 4
+submit_retry_delay_ms = 250
 "#;
         let config = Config::merge(base, override_toml).unwrap();
         assert_eq!(config.market.min_mcycle_price, Amount::parse("0.05 ETH", None).unwrap());
@@ -1149,6 +1162,7 @@ min_batch_size = 4
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.batcher.min_batch_size, 4);
         assert_eq!(config.batcher.batch_max_time, 300);
+        assert_eq!(config.batcher.submit_retry_delay_ms, 250);
     }
 
     #[test]
@@ -1212,5 +1226,12 @@ min_batch_size = 4
         let config = Config::merge(base, override_toml).unwrap();
         assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
         assert_eq!(config.batcher.min_batch_size, 4);
+    }
+
+    #[test]
+    fn test_batcher_config_defaults() {
+        let config = BatcherConfig::default();
+        assert_eq!(config.max_submission_attempts, 3);
+        assert_eq!(config.submit_retry_delay_ms, 1000);
     }
 }
