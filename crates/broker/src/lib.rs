@@ -887,10 +887,11 @@ impl Broker {
         let chain_dbs: Vec<DbObj> = chains.iter().map(|c| c.db.clone()).collect();
 
         // All chain monitors send discovered orders here; the evaluator reads from evaluator_order_rx.
-        let (evaluator_order_tx, evaluator_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+        let (evaluator_order_tx, evaluator_order_rx) =
+            channels::shared_channel(NEW_ORDER_CHANNEL_CAPACITY);
         // Pricers send preflight completions here; the evaluator reads from pricing_completion_rx to free capacity.
         let (pricing_completion_tx, pricing_completion_rx) =
-            mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
+            channels::shared_channel(COMPLETION_CHANNEL_CAPACITY);
         // Shared broadcast for on-chain lock/fulfill events. Each chain's MarketMonitor sends into
         // this channel, and both global singletons (OrderEvaluator, OrderCommitter) and per-chain
         // components (OrderPricer, ProvingService) subscribe. Per-chain subscribers must filter by
