@@ -1232,6 +1232,6 @@ min_batch_size = 4
     fn test_batcher_config_defaults() {
         let config = BatcherConfig::default();
         assert_eq!(config.max_submission_attempts, 3);
-        assert_eq!(config.submit_retry_delay_ms, 1000);
+        assert_eq!(config.submit_retry_delay_ms, 1500);
     }
 }
