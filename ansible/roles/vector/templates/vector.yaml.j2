@@ -62,7 +62,7 @@ sources:
     mode: scheduled
     scheduled:
       exec_interval_secs: {{ vector_bento_process_interval_secs | default(60) }}
-    command: ["/bin/sh", "-c", "PATH=/usr/bin:/bin docker ps -q --filter label=com.docker.compose.project=bento 2>/dev/null | wc -l"]
+    command: ["/bin/sh", "-c", "PATH=/usr/bin:/bin; b=$(docker ps -q --filter label=com.docker.compose.project=bento 2>/dev/null | wc -l); p=$(docker ps -q --filter label=com.docker.compose.project=prover 2>/dev/null | wc -l); echo $((b + p))"]
 {% endif %}
 
 {% if vector_track_kailua_process | default(false) | bool %}
