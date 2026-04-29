@@ -1072,7 +1072,7 @@ impl ProverGenerateConfig {
                 for (old_key, new_key) in RENAMED_MARKET_KEYS {
                     if market.contains_key(old_key) {
                         display.warning(&format!(
-                            "[market].{old_key} is no longer accepted; rename to [market].{new_key}"
+                            "[market].{old_key} is no longer used; rename to [market].{new_key}"
                         ));
                     }
                 }
