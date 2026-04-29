@@ -52,6 +52,41 @@ pub trait RetryTask {
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error>;
 }
 
+/// Simplified service trait for broker components.
+///
+/// Implement this instead of [`RetryTask`] directly. The blanket impl below
+/// turns any `BrokerService` into a `RetryTask` automatically, so service
+/// authors only have to write the actual loop body — no `Box::pin`, no
+/// `self.clone()` ceremony at the trait boundary.
+///
+/// # Ownership
+///
+/// `run` takes `self` by value. The blanket impl clones the service once per
+/// supervisor restart, so implementations are free to consume `self` in the
+/// loop without juggling clones internally.
+///
+/// # Send / 'static
+///
+/// The returned future must be `Send + 'static` so it can be polled across
+/// threads in tokio's multi-thread runtime and outlive the supervisor frame.
+pub trait BrokerService: Clone + Send + Sync + 'static {
+    type Error: CodedError + Send + Sync + 'static;
+
+    fn run(
+        self,
+        cancel_token: CancellationToken,
+    ) -> impl Future<Output = Result<(), SupervisorErr<Self::Error>>> + Send + 'static;
+}
+
+impl<T: BrokerService> RetryTask for T {
+    type Error = T::Error;
+
+    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
+        let this = self.clone();
+        Box::pin(this.run(cancel_token))
+    }
+}
+
 /// Configuration for retry behavior in the supervisor
 #[derive(Debug, Clone)]
 pub(crate) struct RetryPolicy {
@@ -382,6 +417,60 @@ mod tests {
 
         let res = supervisor_task.await;
         assert!(res.unwrap_err().to_string().contains("Exceeded maximum retries for task"));
+    }
+
+    #[derive(Clone)]
+    struct BrokerServiceTask {
+        // Channel the test uses to drive the service. Wrapped in Arc so the
+        // service can be Clone (the supervisor clones on retry).
+        rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<u32>>>,
+    }
+
+    impl BrokerService for BrokerServiceTask {
+        type Error = TestErr;
+
+        async fn run(
+            self,
+            cancel_token: CancellationToken,
+        ) -> Result<(), SupervisorErr<Self::Error>> {
+            let mut rx = self.rx.lock().await;
+            loop {
+                tokio::select! {
+                    msg = rx.recv() => {
+                        match msg {
+                            Some(0) => continue,
+                            Some(2) => return Err(SupervisorErr::Recover(TestErr::SampleErr(
+                                anyhow::anyhow!("recoverable"),
+                            ))),
+                            Some(_) | None => break,
+                        }
+                    }
+                    _ = cancel_token.cancelled() => break,
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn broker_service_blanket_impl_works_with_supervisor() {
+        // A type implementing BrokerService gets RetryTask via the blanket impl,
+        // so it can be supervised without writing any Box::pin / self.clone() code.
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        let task = Arc::new(BrokerServiceTask { rx: Arc::new(tokio::sync::Mutex::new(rx)) });
+
+        let supervisor_task =
+            Supervisor::new(task, ConfigLock::default(), CancellationToken::new()).spawn();
+
+        tx.send(0).await.unwrap();
+        // Trigger one recoverable error -> supervisor should restart the service.
+        tx.send(2).await.unwrap();
+        tx.send(0).await.unwrap();
+        // Closing the channel ends the loop cleanly.
+        drop(tx);
+
+        supervisor_task.await.unwrap();
     }
 
     #[tokio::test]

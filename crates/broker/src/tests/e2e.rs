@@ -1306,5 +1306,8 @@ async fn version_check_below_minimum_shuts_down_broker() {
         .await
         .unwrap();
     let err = result.expect_err("broker should exit with error when version check fails");
-    assert!(format!("{err:?}").contains("Version check task failed"), "unexpected error: {err:?}");
+    assert!(
+        format!("{err:?}").contains("Failed to run version check"),
+        "unexpected error: {err:?}"
+    );
 }

@@ -17,17 +17,18 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
+    coded_error_impl,
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
     errors::{cancel_proof_and_fail, handle_order_failure, BrokerFailure},
     futures_retry::retry_with_context,
-    impl_coded_debug, now_timestamp,
+    now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
@@ -65,20 +66,14 @@ pub enum ProvingErr {
     UnexpectedError(#[from] anyhow::Error),
 }
 
-impl_coded_debug!(ProvingErr);
-
-impl CodedError for ProvingErr {
-    fn code(&self) -> &str {
-        match self {
-            ProvingErr::ProvingFailed(_) => "[B-PRO-501]",
-            ProvingErr::CancelFulfilledByAnother => "[B-PRO-502]",
-            ProvingErr::CancelExpired => "[B-PRO-503]",
-            ProvingErr::CompletedFulfilledByAnother => "[B-PRO-505]",
-            ProvingErr::CompletedExpired => "[B-PRO-506]",
-            ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
-        }
-    }
-}
+coded_error_impl!(ProvingErr, "PRO",
+    ProvingFailed(..)            => "501",
+    CancelFulfilledByAnother     => "502",
+    CancelExpired                => "503",
+    CompletedFulfilledByAnother  => "505",
+    CompletedExpired             => "506",
+    UnexpectedError(..)          => "500",
+);
 
 impl ProvingErr {
     fn completion_outcome(&self) -> CompletionOutcome {
@@ -623,54 +618,52 @@ impl ProvingService {
     }
 }
 
-impl RetryTask for ProvingService {
+impl BrokerService for ProvingService {
     type Error = ProvingErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let proving_service_copy = self.clone();
-        Box::pin(async move {
-            tracing::info!("Starting proving service");
 
-            // First search the DB for any existing dangling proofs and kick off their concurrent
-            // monitors
-            proving_service_copy.find_and_monitor_proofs().await.map_err(SupervisorErr::Fault)?;
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting proving service");
 
-            // Start monitoring for new proofs
-            let mut proving_interval = tokio::time::interval(Duration::from_millis(500));
-            proving_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                if cancel_token.is_cancelled() {
-                    tracing::debug!("Proving service received cancellation");
-                    break;
-                }
+        // First search the DB for any existing dangling proofs and kick off their concurrent
+        // monitors
+        self.find_and_monitor_proofs().await.map_err(SupervisorErr::Fault)?;
 
-                // TODO: parallel_proofs management
-                // we need to query the Bento/Bonsai backend and constrain the number of running
-                // parallel proofs currently bonsai does not have this feature but
-                // we could add it to both to support it. Alternatively we could
-                // track it in our local DB but that could de-sync from the proving-backend so
-                // its not ideal
-                let order_res = proving_service_copy
-                    .db
-                    .get_proving_order()
-                    .await
-                    .context("Failed to get proving order")
-                    .map_err(ProvingErr::UnexpectedError)
-                    .map_err(SupervisorErr::Recover)?;
-
-                if let Some(order) = order_res {
-                    let prov_serv = proving_service_copy.clone();
-                    let span = Span::current();
-                    tokio::spawn(
-                        async move { prov_serv.prove_and_update_db(order).await }.instrument(span),
-                    );
-                }
-
-                // TODO: configuration
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // Start monitoring for new proofs
+        let mut proving_interval = tokio::time::interval(Duration::from_millis(500));
+        proving_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            if cancel_token.is_cancelled() {
+                tracing::debug!("Proving service received cancellation");
+                break;
             }
 
-            Ok(())
-        })
+            // TODO: parallel_proofs management
+            // we need to query the Bento/Bonsai backend and constrain the number of running
+            // parallel proofs currently bonsai does not have this feature but
+            // we could add it to both to support it. Alternatively we could
+            // track it in our local DB but that could de-sync from the proving-backend so
+            // its not ideal
+            let order_res = self
+                .db
+                .get_proving_order()
+                .await
+                .context("Failed to get proving order")
+                .map_err(ProvingErr::UnexpectedError)
+                .map_err(SupervisorErr::Recover)?;
+
+            if let Some(order) = order_res {
+                let prov_serv = self.clone();
+                let span = Span::current();
+                tokio::spawn(
+                    async move { prov_serv.prove_and_update_db(order).await }.instrument(span),
+                );
+            }
+
+            // TODO: configuration
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        Ok(())
     }
 }
 

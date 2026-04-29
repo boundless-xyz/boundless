@@ -24,6 +24,7 @@ members = [
     "crates/test-utils",
     "crates/zkc",
 ]
+exclude = ["examples/echo-unpinned"]
 
 [workspace.package]
 version = "1.5.0-alpha.0"
