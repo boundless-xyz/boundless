@@ -48,7 +48,7 @@ pub use shared::config;
 pub(crate) use shared::{errors, prioritization, task};
 pub(crate) mod submitter;
 pub(crate) mod telemetry;
-pub(crate) mod utils;
+pub mod utils;
 pub(crate) use utils::{
     format_expiries, is_dev_mode, now_timestamp, reaper, rpc_retry_policy, storage,
 };

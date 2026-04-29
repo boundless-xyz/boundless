@@ -18,11 +18,11 @@
 
 pub mod futures_retry;
 mod helpers;
-pub mod reaper;
-pub mod rpc_retry_policy;
+pub(crate) mod reaper;
+pub(crate) mod rpc_retry_policy;
 pub mod rpcmetrics;
 pub mod sequential_fallback;
-pub mod storage;
+pub(crate) mod storage;
 // Re-export the standalone helpers (claim pruning, gas estimation, the
 // tiny dev-mode / timestamp / expiry-formatting helpers) at the
 // `crate::utils` root so callers keep using `utils::prune_receipt_claim_journal`
