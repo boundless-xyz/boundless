@@ -126,14 +126,3 @@ max_concurrent_preflights = 8
 #
 # Used to limit proof tasks spawned to prevent overwhelming the system.
 max_concurrent_proofs = 1
-
-# Chain-monitor implementation:
-#  - "auto" (default): chain-specific default. Most chains use ChainMonitorV2;
-#    chains with known incompatibilities (e.g. Taiko) fall back to "legacy".
-#  - "legacy": legacy ChainMonitorService + MarketMonitor pair (eth_getLogs).
-#    Fallback for chains where "v2" is unreliable; may be removed in a future release.
-#  - "v2": ChainMonitorV2, a single polling loop using eth_getBlockReceipts.
-#
-# In multichain setups, set this in a per-chain `broker.{chain_id}.toml` override
-# to pick a different monitor for that chain only.
-# rpc_mode = "auto"

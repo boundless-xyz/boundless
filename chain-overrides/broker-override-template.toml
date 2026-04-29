@@ -25,11 +25,6 @@
 # Scales the expected reward when evaluating profitability.
 # expected_probability_win_secondary_fulfillment = 50
 
-# Chain-monitor implementation: "auto" (default; chain-specific), "legacy"
-# (ChainMonitorService + MarketMonitor, eth_getLogs; may be removed in a future
-# release), or "v2" (ChainMonitorV2, eth_getBlockReceipts in a single polling loop).
-# rpc_mode = "legacy"
-
 # Gas estimation tuning. Uncomment to override for chains with different gas behavior.
 # [market.gas_estimation_priority_mode.custom]
 # base_fee_multiplier_percentage = 100

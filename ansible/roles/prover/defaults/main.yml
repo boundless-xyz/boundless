@@ -77,8 +77,6 @@ prover_rpc_url: ""
 prover_rpc_urls: ""
 prover_povw_log_id: ""
 # Optional extra CLI args for the broker (e.g. "--other-flag").
-# To choose the chain-monitor implementation, set `[market] rpc_mode = "auto" | "v1" | "v2"`
-# in the broker's TOML config (or in a per-chain `broker.{chain_id}.toml` override).
 prover_broker_extra_args: ""
 
 # Broker configuration directory. When set, copies broker.toml and all broker.*.toml

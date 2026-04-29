@@ -104,7 +104,7 @@ Compose defaults can be overridden with env vars: `AGENT_IMAGE`, `CPU_AGENT_IMAG
 | `prover_broker_config_dir` | `""`         | Config directory (e.g. `configs/broker/prod-mainnet-nightly`). Copies all files. Preferred.     |
 | `prover_broker_toml_local` | `""`         | Local broker.toml file path. Used when config_dir is not set.                                   |
 | `prover_broker_toml_url`   | (GitHub URL) | URL to broker.toml template (used when config_dir and toml_local are not set)                   |
-| `prover_broker_extra_args` | `""`         | Extra CLI args for the broker. Set `[market] rpc_mode` in `broker.toml` to pick the monitor.    |
+| `prover_broker_extra_args` | `""`         | Extra CLI args for the broker.                                                                  |
 | `prover_chain_rpc_urls`    | `{}`         | Dict of chain_id → RPC URL for multichain (e.g. `{8453: "https://...", 167000: "https://..."}`) |
 | `prover_chain_overrides`   | `{}`         | Dict of chain_id → URL or local path for per-chain broker config overrides                      |
 
