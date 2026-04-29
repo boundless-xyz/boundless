@@ -1145,9 +1145,13 @@ impl Broker {
                             config.clone(),
                             db.clone(),
                         );
-                        let cancel_token = non_critical_cancel_token.clone();
+                        // Bind telemetry to the critical cancel token so it keeps emitting
+                        // broker heartbeats during the Phase 2 drain (in-flight committed
+                        // orders). Otherwise monitoring sees the broker as offline within
+                        // seconds of SIGTERM, while it is in fact still actively proving.
+                        let cancel_token = critical_cancel_token.clone();
                         let cs = chain_span.clone();
-                        non_critical_tasks.spawn(
+                        critical_tasks.spawn(
                             async move {
                                 telemetry::run_telemetry_service(service, cancel_token)
                                     .await
@@ -1175,9 +1179,9 @@ impl Broker {
                             config.clone(),
                             db.clone(),
                         );
-                        let cancel_token = non_critical_cancel_token.clone();
+                        let cancel_token = critical_cancel_token.clone();
                         let cs = chain_span.clone();
-                        non_critical_tasks.spawn(
+                        critical_tasks.spawn(
                             async move {
                                 telemetry::run_telemetry_service(service, cancel_token)
                                     .await
@@ -1201,9 +1205,9 @@ impl Broker {
                     config.clone(),
                     db.clone(),
                 );
-                let cancel_token = non_critical_cancel_token.clone();
+                let cancel_token = critical_cancel_token.clone();
                 let cs = chain_span.clone();
-                non_critical_tasks.spawn(
+                critical_tasks.spawn(
                     async move {
                         telemetry::run_telemetry_service(service, cancel_token)
                             .await
