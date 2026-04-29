@@ -19,10 +19,6 @@
 //! `start_chain_pipeline`. Each registration is now a single
 //! `runner.spawn(service, Criticality::X, "label")` call.
 
-// Additive infrastructure: not consumed until `start_service` and
-// `start_chain_pipeline` are migrated to use `ServiceRunner` (C22).
-#![allow(dead_code)]
-
 use std::{future::Future, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -84,15 +80,10 @@ impl ServiceRunner {
     }
 
     /// Cancellation token for non-critical tasks. Useful when a caller needs
-    /// to spawn a raw future via [`Self::spawn_future`] that consumes the token.
+    /// to spawn a raw future via [`Self::spawn_future_in_span`] that consumes
+    /// the token.
     pub fn non_critical_cancel_token(&self) -> CancellationToken {
         self.non_critical_cancel_token.clone()
-    }
-
-    /// Cancellation token for critical tasks. Symmetric counterpart to
-    /// [`Self::non_critical_cancel_token`].
-    pub fn critical_cancel_token(&self) -> CancellationToken {
-        self.critical_cancel_token.clone()
     }
 
     /// Registers a supervised service. Equivalent to the legacy
@@ -130,14 +121,9 @@ impl ServiceRunner {
 
     /// Registers a raw future that performs its own cancellation handling
     /// (e.g. the telemetry service, which doesn't go through `Supervisor`).
-    pub fn spawn_future<F>(&mut self, criticality: Criticality, label: &'static str, fut: F)
-    where
-        F: Future<Output = Result<()>> + Send + 'static,
-    {
-        self.spawn_future_in_span(criticality, label, Span::current(), fut);
-    }
-
-    /// Same as [`Self::spawn_future`] but with an explicit instrumentation span.
+    /// Instruments the future with the given span — used in
+    /// `start_chain_pipeline` where each chain's services run inside a
+    /// per-chain `info_span!`.
     pub fn spawn_future_in_span<F>(
         &mut self,
         criticality: Criticality,
@@ -234,12 +220,15 @@ mod tests {
     #[tokio::test]
     async fn cancel_tokens_are_independent() {
         let runner = ServiceRunner::new(ConfigLock::default());
-        let crit = runner.critical_cancel_token();
         let non_crit = runner.non_critical_cancel_token();
+        let parts = runner.into_parts();
 
         non_crit.cancel();
         assert!(non_crit.is_cancelled());
-        assert!(!crit.is_cancelled(), "non-critical cancel must not affect critical");
+        assert!(
+            !parts.critical_cancel_token.is_cancelled(),
+            "non-critical cancel must not affect critical"
+        );
     }
 
     #[tokio::test]
@@ -249,7 +238,6 @@ mod tests {
         let svc = Arc::new(CountingService { counter: counter.clone() });
 
         runner.spawn(svc, Criticality::Critical, "Counter");
-        let crit_token = runner.critical_cancel_token();
         let mut parts = runner.into_parts();
 
         // Wait until the service has actually started running.
@@ -258,7 +246,7 @@ mod tests {
         }
         assert!(parts.non_critical_tasks.is_empty(), "should be in critical joinset");
 
-        crit_token.cancel();
+        parts.critical_cancel_token.cancel();
         let res = parts.critical_tasks.join_next().await.unwrap().unwrap();
         assert!(res.is_ok(), "service should exit cleanly on cancel: {res:?}");
     }
@@ -268,10 +256,15 @@ mod tests {
         let mut runner = ServiceRunner::new(ConfigLock::default());
         let cancel = runner.non_critical_cancel_token();
 
-        runner.spawn_future(Criticality::NonCritical, "Echo", async move {
-            cancel.cancelled().await;
-            Ok(())
-        });
+        runner.spawn_future_in_span(
+            Criticality::NonCritical,
+            "Echo",
+            tracing::Span::current(),
+            async move {
+                cancel.cancelled().await;
+                Ok(())
+            },
+        );
 
         let non_crit_cancel = runner.non_critical_cancel_token();
         let mut parts = runner.into_parts();
