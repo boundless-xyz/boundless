@@ -76,14 +76,9 @@ prover_private_key: ""
 prover_rpc_url: ""
 prover_rpc_urls: ""
 prover_povw_log_id: ""
-# Deprecated: ChainMonitorV2 (eth_getBlockReceipts) is now the broker default. Setting this
-# to true still passes --experimental-rpc, which is now a no-op flag kept for backwards
-# compatibility. Use prover_broker_legacy_rpc to opt back into the old eth_getLogs path.
-prover_broker_experimental_rpc: false
-# Set to true to pass --legacy-rpc to the broker, opting back into the legacy
-# ChainMonitorService + MarketMonitor pair (eth_getLogs based).
-prover_broker_legacy_rpc: false
 # Optional extra CLI args for the broker (e.g. "--other-flag").
+# To choose the chain-monitor implementation, set `[market] rpc_mode = "auto" | "v1" | "v2"`
+# in the broker's TOML config (or in a per-chain `broker.{chain_id}.toml` override).
 prover_broker_extra_args: ""
 
 # Broker configuration directory. When set, copies broker.toml and all broker.*.toml

@@ -284,6 +284,31 @@ impl Default for OrderCommitmentPriority {
     }
 }
 
+/// Selects which chain-monitor implementation the broker uses on a given chain.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RpcMode {
+    /// Resolve to a chain-specific default at config load time.
+    #[default]
+    Auto,
+    /// Legacy `ChainMonitorService` + `MarketMonitor` pair, backed by `eth_getLogs`.
+    /// Kept as a fallback for chains where `V2` is unreliable; may be removed in a future release.
+    Legacy,
+    /// `ChainMonitorV2`: a single polling loop backed by `eth_getBlockReceipts`.
+    V2,
+}
+
+impl RpcMode {
+    /// Resolve `Auto` to the chain-specific default. Concrete variants pass through.
+    pub fn resolve(&self, chain_id: u64) -> RpcMode {
+        match self {
+            RpcMode::Auto => crate::deployments::default_rpc_mode_for_chain(chain_id),
+            other => other.clone(),
+        }
+    }
+}
+
 /// Deserialize Amount with validation that asset is USD or ETH.
 /// Plain numbers without asset suffix default to ETH for backward compatibility.
 fn deserialize_mcycle_price<'de, D>(deserializer: D) -> Result<Amount, D::Error>
@@ -418,6 +443,17 @@ pub struct MarketConfig {
     /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
+
+    /// Selects which chain-monitor implementation the broker uses on this chain.
+    ///
+    /// - `"auto"` (default): chain-specific default from `default_rpc_mode_for_chain`.
+    /// - `"legacy"`: legacy `ChainMonitorService` + `MarketMonitor` pair (`eth_getLogs`).
+    ///   Fallback for chains where `v2` is unreliable; may be removed in a future release.
+    /// - `"v2"`: `ChainMonitorV2`, a single polling loop using `eth_getBlockReceipts`.
+    ///
+    /// Resolved at config load via `MarketConfig::apply_chain_defaults`.
+    #[serde(default)]
+    pub rpc_mode: RpcMode,
 
     /// Gas estimation priority mode (low, medium, high, or custom)
     ///
@@ -594,6 +630,7 @@ impl Default for MarketConfig {
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
             gas_estimation_priority_mode: defaults::estimation_priority_mode(),
+            rpc_mode: RpcMode::default(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
             max_fetch_retries: defaults::max_fetch_retries(),
@@ -880,12 +917,14 @@ impl Config {
 impl MarketConfig {
     /// Resolve Low/Medium/High gas modes to chain-specific preset values.
     /// Each context (priority and estimation) has its own set of presets.
-    /// Custom modes are left as-is.
+    /// Custom modes are left as-is. Also resolves `RpcMode::Auto` to the
+    /// chain-specific monitor default.
     pub fn apply_chain_defaults(&mut self, chain_id: u64) {
         let presets = crate::deployments::gas_presets_for_chain(chain_id);
         self.gas_priority_mode = presets.priority.resolve(&self.gas_priority_mode);
         self.gas_estimation_priority_mode =
             presets.estimation.resolve(&self.gas_estimation_priority_mode);
+        self.rpc_mode = self.rpc_mode.resolve(chain_id);
     }
 }
 

@@ -269,8 +269,7 @@ async fn main() -> Result<()> {
                 "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
             )?;
 
-        let rpc_urls =
-            collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone(), args.legacy_rpc)?;
+        let rpc_urls = collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone())?;
 
         let config = base_config_watcher.config.clone();
         let (provider, any_provider, gas_priority_mode) =
@@ -396,15 +395,9 @@ async fn main() -> Result<()> {
 
 /// Collect and deduplicate RPC URLs from the single-chain args.
 /// Returns a list with the primary URL first, followed by any additional failover URLs.
-fn collect_rpc_urls(
-    rpc_url: Option<String>,
-    rpc_urls: Vec<String>,
-    legacy_rpc: bool,
-) -> Result<Vec<Url>> {
-    // Use Vec to preserve insertion order: PROVER_RPC_URL is always inserted first,
+fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Vec<Url>> {
     let mut all_rpc_urls: Vec<Url> = Vec::new();
 
-    // Parse PROVER_RPC_URL (ignore if empty)
     if let Some(url_str) = rpc_url {
         if !url_str.is_empty() {
             let url =
@@ -415,7 +408,6 @@ fn collect_rpc_urls(
         }
     }
 
-    // Parse PROVER_RPC_URLS (ignore empty strings, split by comma)
     for url_str in rpc_urls {
         let url_str = url_str.trim();
         if !url_str.is_empty() {
@@ -427,26 +419,24 @@ fn collect_rpc_urls(
         }
     }
 
-    // Backward compatibility: check RPC_URL if no URLs collected yet
     if all_rpc_urls.is_empty() {
-        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
-            if !legacy_rpc_url.is_empty() {
+        if let Ok(rpc_url_env) = std::env::var("RPC_URL") {
+            if !rpc_url_env.is_empty() {
                 let url =
-                    Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
+                    Url::parse(&rpc_url_env).context("Invalid RPC_URL environment variable")?;
                 all_rpc_urls.push(url);
                 tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
             }
         }
     }
 
-    if all_rpc_urls.is_empty() && !legacy_rpc {
+    if all_rpc_urls.is_empty() {
         all_rpc_urls.push(
             Url::parse("https://base.gateway.tenderly.co")
                 .expect("hardcoded Tenderly URL is valid"),
         );
     }
 
-    // Error early if no RPC URLs provided
     if all_rpc_urls.is_empty() {
         anyhow::bail!(
             "No RPC URLs provided. Please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables"
@@ -636,7 +626,6 @@ mod tests {
                 "http://secondary.example.com".to_string(),
                 "http://tertiary.example.com".to_string(),
             ],
-            false,
         )
         .unwrap();
         assert_eq!(result[0].as_str(), "http://primary.example.com/");
@@ -647,18 +636,19 @@ mod tests {
         let result = collect_rpc_urls(
             Some("http://node.example.com".to_string()),
             vec!["http://node.example.com".to_string()],
-            false,
         )
         .unwrap();
         assert_eq!(result.len(), 1);
     }
 
     #[test]
-    fn errors_on_empty() {
-        // legacy_rpc=true disables the Tenderly fallback that the default (V2) path injects,
-        // so an empty input correctly surfaces the "no RPC URLs" error.
-        let result = collect_rpc_urls(None, vec![], true);
-        assert!(result.is_err());
+    fn falls_back_to_tenderly_when_empty() {
+        // No URLs supplied via args or RPC_URL env: the Tenderly Base fallback is injected.
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("RPC_URL");
+        let result = collect_rpc_urls(None, vec![]).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].as_str(), "https://base.gateway.tenderly.co/");
     }
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -681,8 +671,6 @@ mod tests {
             rpc_request_timeout: 15,
             log_json: false,
             listen_only: false,
-            experimental_rpc: true,
-            legacy_rpc: false,
             version_registry_address: None,
             force_version_check: false,
         }

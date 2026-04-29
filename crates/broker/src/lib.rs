@@ -48,7 +48,7 @@ use chrono::{serde::ts_seconds, DateTime, Utc};
 use clap::Parser;
 pub use config::Config;
 pub use config::ConfigLock;
-use config::{ConfigWatcher, TelemetryMode};
+use config::{ConfigWatcher, RpcMode, TelemetryMode};
 use provers::ProverObj;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
@@ -177,17 +177,6 @@ pub struct CoreArgs {
     /// No transactions will be sent. Balance and collateral checks are skipped.
     #[clap(long, default_value_t = false)]
     pub listen_only: bool,
-
-    /// Deprecated and ignored: ChainMonitorV2 (eth_getBlockReceipts) is now the default.
-    /// Pass `--legacy-rpc` to opt back into the legacy ChainMonitorService + MarketMonitor pair.
-    /// Kept for backwards compatibility with existing scripts and inventories.
-    #[clap(long, default_value_t = true, hide = true)]
-    pub experimental_rpc: bool,
-
-    /// Use the legacy ChainMonitorService + MarketMonitor pair (eth_getLogs based).
-    /// The default is ChainMonitorV2, which uses eth_getBlockReceipts in a single polling loop.
-    #[clap(long, default_value_t = false)]
-    pub legacy_rpc: bool,
 
     /// VersionRegistry contract address override. Not a CLI flag — set programmatically in tests
     /// to exercise the version check against a locally deployed registry.
@@ -1193,77 +1182,89 @@ impl Broker {
 
         let prover_addr = provider.default_signer_address();
 
-        // Set up chain + market monitoring. Default is ChainMonitorV2, a single polling loop
-        // built on eth_getBlockReceipts. Pass `--legacy-rpc` to fall back to the older
-        // ChainMonitorService + MarketMonitor pair (eth_getLogs).
-        let (chain_monitor, block_times) = if !self.args.legacy_rpc {
-            let monitor = Arc::new(
-                chain_monitor_v2::ChainMonitorV2::new(
-                    db.clone(),
-                    provider.clone(),
-                    Arc::new(chain.any_provider.clone()),
-                    deployment.boundless_market_address,
-                    private_key.address(),
+        // Pick the chain-monitor implementation from per-chain config. `Auto` resolves at
+        // config load via `MarketConfig::apply_chain_defaults`; we resolve again here
+        // defensively so the match below is exhaustive on concrete variants.
+        let rpc_mode = config
+            .lock_all()
+            .map(|c| c.market.rpc_mode.clone())
+            .unwrap_or_default()
+            .resolve(chain_id);
+
+        let (chain_monitor, block_times) = match rpc_mode {
+            RpcMode::V2 => {
+                let monitor = Arc::new(
+                    chain_monitor_v2::ChainMonitorV2::new(
+                        db.clone(),
+                        provider.clone(),
+                        Arc::new(chain.any_provider.clone()),
+                        deployment.boundless_market_address,
+                        private_key.address(),
+                        lookback_blocks,
+                        chain_id,
+                        gas_priority_mode.clone(),
+                        evaluator_order_tx.clone(),
+                        order_state_tx.clone(),
+                    )
+                    .await
+                    .context("Failed to initialize ChainMonitorV2")?,
+                );
+
+                runner.spawn_in_span(
+                    monitor.clone(),
+                    service_runner::Criticality::Critical,
+                    "ChainMonitorV2",
+                    chain_span.clone(),
+                );
+
+                let block_times = monitor.block_time();
+                (monitor as chain_monitor::ChainMonitorObj, block_times)
+            }
+            RpcMode::Legacy => {
+                let chain_monitor_service = Arc::new(
+                    chain_monitor::ChainMonitorService::new(
+                        provider.clone(),
+                        gas_priority_mode.clone(),
+                    )
+                    .await
+                    .context("Failed to initialize chain monitor")?,
+                );
+
+                runner.spawn_in_span(
+                    chain_monitor_service.clone(),
+                    service_runner::Criticality::Critical,
+                    "chain monitor",
+                    chain_span.clone(),
+                );
+
+                let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
                     lookback_blocks,
-                    chain_id,
-                    gas_priority_mode.clone(),
+                    events_poll_blocks,
+                    events_poll_ms,
+                    deployment.boundless_market_address,
+                    provider.clone(),
+                    db.clone(),
+                    chain_monitor_service.clone(),
+                    private_key.address(),
                     evaluator_order_tx.clone(),
                     order_state_tx.clone(),
-                )
-                .await
-                .context("Failed to initialize ChainMonitorV2")?,
-            );
+                ));
 
-            runner.spawn_in_span(
-                monitor.clone(),
-                service_runner::Criticality::Critical,
-                "ChainMonitorV2",
-                chain_span.clone(),
-            );
+                let block_times = market_monitor
+                    .get_block_time()
+                    .await
+                    .context("Failed to sample block times")?;
 
-            let block_times = monitor.block_time();
-            (monitor as chain_monitor::ChainMonitorObj, block_times)
-        } else {
-            let chain_monitor_service = Arc::new(
-                chain_monitor::ChainMonitorService::new(
-                    provider.clone(),
-                    gas_priority_mode.clone(),
-                )
-                .await
-                .context("Failed to initialize chain monitor")?,
-            );
+                runner.spawn_in_span(
+                    market_monitor,
+                    service_runner::Criticality::NonCritical,
+                    "market monitor",
+                    chain_span.clone(),
+                );
 
-            runner.spawn_in_span(
-                chain_monitor_service.clone(),
-                service_runner::Criticality::Critical,
-                "chain monitor",
-                chain_span.clone(),
-            );
-
-            let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
-                lookback_blocks,
-                events_poll_blocks,
-                events_poll_ms,
-                deployment.boundless_market_address,
-                provider.clone(),
-                db.clone(),
-                chain_monitor_service.clone(),
-                private_key.address(),
-                evaluator_order_tx.clone(),
-                order_state_tx.clone(),
-            ));
-
-            let block_times =
-                market_monitor.get_block_time().await.context("Failed to sample block times")?;
-
-            runner.spawn_in_span(
-                market_monitor,
-                service_runner::Criticality::NonCritical,
-                "market monitor",
-                chain_span.clone(),
-            );
-
-            (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
+                (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
+            }
+            other => anyhow::bail!("Unsupported rpc_mode after resolution: {:?}", other),
         };
 
         tracing::debug!(chain_id, "Estimated block time: {block_times}");
@@ -1714,8 +1715,6 @@ pub mod test_utils {
                 rpc_request_timeout: 30,
                 log_json: false,
                 listen_only: false,
-                experimental_rpc: true,
-                legacy_rpc: false,
                 version_registry_address: Some(ctx.version_registry_address),
                 force_version_check: false,
             };

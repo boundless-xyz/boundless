@@ -23,7 +23,7 @@ pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
-    OrderPricingPriority, PricingOverrides, ProverConfig, TelemetryMode,
+    OrderPricingPriority, PricingOverrides, ProverConfig, RpcMode, TelemetryMode,
 };
 
 use crate::{

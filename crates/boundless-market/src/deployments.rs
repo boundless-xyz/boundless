@@ -21,6 +21,7 @@ use derive_builder::Builder;
 pub use alloy_chains::NamedChain;
 
 use crate::dynamic_gas_filler::PriorityMode;
+use crate::prover_utils::config::RpcMode;
 
 pub(crate) const BASE_MAINNET_INDEXER_URL: &str = "https://d2mdvlnmyov1e1.cloudfront.net/";
 pub(crate) const BASE_SEPOLIA_INDEXER_URL: &str = "https://d3kkukmpiqlzm1.cloudfront.net/";
@@ -360,5 +361,18 @@ pub fn gas_presets_for_chain(chain_id: u64) -> ChainGasPresets {
             },
         },
         _ => default_presets(),
+    }
+}
+
+/// Returns the default chain-monitor implementation for a given chain.
+///
+/// Used to resolve `RpcMode::Auto` at config load. Add chain-specific entries
+/// here whenever a chain needs a non-default monitor. Note: `RpcMode::Legacy`
+/// is a fallback that may be removed in a future release.
+pub fn default_rpc_mode_for_chain(chain_id: u64) -> RpcMode {
+    match chain_id {
+        // Taiko: ChainMonitorV2 (eth_getBlockReceipts) is unreliable here, default to legacy.
+        167000 => RpcMode::Legacy,
+        _ => RpcMode::V2,
     }
 }

@@ -29,7 +29,7 @@ use tokio::{
 // Re-export all configuration types from boundless-market
 pub use boundless_market::prover_utils::{
     config_defaults as defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
-    OrderPricingPriority, ProverConfig, TelemetryMode,
+    OrderPricingPriority, ProverConfig, RpcMode, TelemetryMode,
 };
 
 /// Directory name for per-chain broker config overrides (e.g. `chain-overrides/broker.8453.toml`).
