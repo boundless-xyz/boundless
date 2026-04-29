@@ -519,12 +519,18 @@ async fn show_welcome_screen() -> Result<()> {
     }
 
     println!();
+    println!("{}", "Tips:".bold());
+    println!("  {} {}", "•".cyan().bold(), "List supported networks for a module:".white());
+    println!("      {}", "boundless <module> networks".dimmed());
+    println!("          {}", "e.g. boundless requestor networks".dimmed());
     println!(
-        "{} {}",
-        "Tip:".bold(),
-        "Run 'boundless <module> networks' to see supported networks (e.g. 'boundless requestor networks')"
-            .dimmed()
+        "  {} {}",
+        "•".cyan().bold(),
+        "Switch the active network for a module (accepts display name or chain ID):".white()
     );
+    println!("      {}", "boundless <module> networks --set <name|chain-id>".dimmed());
+    println!("          {}", "e.g. boundless requestor networks --set \"Base Mainnet\"".dimmed());
+    println!("          {}", "e.g. boundless requestor networks --set 8453".dimmed());
     println!();
 
     Ok(())

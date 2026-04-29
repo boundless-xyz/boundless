@@ -62,6 +62,8 @@ use crate::{
 pub enum RequestorCommands {
     /// Show requestor configuration status
     Config(RequestorConfigCmd),
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
     /// Deposit funds into the market
     Deposit(RequestorDeposit),
     /// Deposit funds into the market on behalf of another address
@@ -90,8 +92,6 @@ pub enum RequestorCommands {
     VerifyProof(RequestorVerifyProof),
     /// Interactive setup wizard for requestor configuration
     Setup(RequestorSetup),
-    /// List supported networks or switch the active network
-    Networks(NetworksCmd),
 }
 
 /// List or switch the active requestor network
