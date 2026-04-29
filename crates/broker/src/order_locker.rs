@@ -30,12 +30,14 @@
 
 use crate::{
     chain_monitor::{ChainHead, ChainMonitorObj},
+    channels::SharedReceiver,
+    coded_error_impl,
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
-    impl_coded_debug, now_timestamp,
+    now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     utils, Erc1271GasCache, FulfillmentType, OrderRequest,
 };
 use alloy::{
@@ -58,7 +60,7 @@ use boundless_market::{
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 fn estimate_proving_time_no_load(
@@ -108,21 +110,15 @@ pub enum OrderLockerErr {
     PreLockCheckRetry(String),
 }
 
-impl_coded_debug!(OrderLockerErr);
-
-impl CodedError for OrderLockerErr {
-    fn code(&self) -> &str {
-        match self {
-            OrderLockerErr::LockTxNotConfirmed(_) => "[B-OL-006]",
-            OrderLockerErr::LockTxFailed(_) => "[B-OL-007]",
-            OrderLockerErr::AlreadyLocked => "[B-OL-009]",
-            OrderLockerErr::InsufficientBalance => "[B-OL-010]",
-            OrderLockerErr::RpcErr(_) => "[B-OL-011]",
-            OrderLockerErr::PreLockCheckRetry(_) => "[B-OL-012]",
-            OrderLockerErr::UnexpectedError(_) => "[B-OL-500]",
-        }
-    }
-}
+coded_error_impl!(OrderLockerErr, "OL",
+    LockTxNotConfirmed(..)  => "006",
+    LockTxFailed(..)        => "007",
+    AlreadyLocked           => "009",
+    InsufficientBalance     => "010",
+    RpcErr(..)              => "011",
+    PreLockCheckRetry(..)   => "012",
+    UnexpectedError(..)     => "500",
+);
 
 #[derive(Default)]
 pub(crate) struct OrderLockerConfig {
@@ -152,7 +148,7 @@ pub struct OrderLocker<P> {
     market: BoundlessMarketService<Arc<P>>,
     provider: Arc<P>,
     prover_addr: Address,
-    priced_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
+    priced_order_rx: SharedReceiver<Box<OrderRequest>>,
     supported_selectors: SupportedSelectors,
     erc1271_gas_cache: Erc1271GasCache,
     rpc_retry_config: RpcRetryConfig,
@@ -176,7 +172,7 @@ where
         block_time: u64,
         prover_addr: Address,
         market_addr: Address,
-        priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
+        priced_orders_rx: SharedReceiver<Box<OrderRequest>>,
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
@@ -221,7 +217,7 @@ where
             market,
             provider,
             prover_addr,
-            priced_order_rx: Arc::new(Mutex::new(priced_orders_rx)),
+            priced_order_rx: priced_orders_rx,
             supported_selectors: SupportedSelectors::default(),
             erc1271_gas_cache,
             rpc_retry_config,
@@ -994,18 +990,15 @@ where
     }
 }
 
-impl<P> RetryTask for OrderLocker<P>
+impl<P> BrokerService for OrderLocker<P>
 where
-    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + Clone + Send + Sync + 'static,
 {
     type Error = OrderLockerErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let monitor_clone = self.clone();
-        Box::pin(async move {
-            tracing::info!("Starting order locker");
-            monitor_clone.start_monitor(cancel_token).await.map_err(SupervisorErr::Recover)?;
-            Ok(())
-        })
+
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting order locker");
+        self.start_monitor(cancel_token).await.map_err(SupervisorErr::Recover)
     }
 }
 
@@ -1163,10 +1156,10 @@ pub(crate) mod tests {
         let chain_monitor_service = Arc::new(
             ChainMonitorService::new(provider.clone(), gas_estimation_priority_mode).await.unwrap(),
         );
-        tokio::spawn(chain_monitor_service.spawn(Default::default()));
+        tokio::spawn((*chain_monitor_service).clone().run(Default::default()));
         let chain_monitor: ChainMonitorObj = chain_monitor_service;
 
-        let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
+        let (priced_order_tx, priced_order_rx) = crate::channels::shared_channel(16);
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
         let gas_estimation_priority_mode =

@@ -57,11 +57,9 @@ use rpcmetrics::RpcMetricsLayer;
 use sequential_fallback::SequentialFallbackLayer;
 use serde::{Deserialize, Serialize};
 use storage::ConfigurableDownloader;
-use task::{RetryPolicy, Supervisor};
-use tokio::{sync::broadcast, sync::mpsc, sync::RwLock, task::JoinSet};
+use tokio::{sync::broadcast, sync::mpsc, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use tower::{Layer, ServiceBuilder};
-use tracing::Instrument;
 use url::Url;
 
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
@@ -76,6 +74,7 @@ pub(crate) mod aggregator;
 pub(crate) mod block_history;
 pub(crate) mod chain_monitor;
 pub(crate) mod chain_monitor_v2;
+pub(crate) mod channels;
 pub mod config;
 mod db;
 pub use db::{broker_sqlite_url_for_chain, DbObj, SqliteDb};
@@ -96,6 +95,7 @@ pub(crate) mod requestor_monitor;
 pub(crate) mod rpc_retry_policy;
 pub mod rpcmetrics;
 pub mod sequential_fallback;
+pub(crate) mod service_runner;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
@@ -398,6 +398,7 @@ pub use boundless_market::prover_utils::{
     OrderPricingOutcome, OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue,
     ProveLimitReason,
 };
+use service_runner::ServiceRunner;
 
 /// On-chain order state change broadcast from MarketMonitor to all unified components
 /// (OrderEvaluator, OrderPricer, OrderCommitter) and the ProvingService.
@@ -883,19 +884,16 @@ impl Broker {
         let base_config = self.config_watcher.config.clone();
         let (prover, aggregation_prover) = self.build_provers(&base_config)?;
 
-        let mut non_critical_tasks: JoinSet<Result<()>> = JoinSet::new();
-        let mut critical_tasks: JoinSet<Result<()>> = JoinSet::new();
-
-        let non_critical_cancel_token = CancellationToken::new();
-        let critical_cancel_token = CancellationToken::new();
+        let mut runner = ServiceRunner::new(base_config.clone());
 
         let chain_dbs: Vec<DbObj> = chains.iter().map(|c| c.db.clone()).collect();
 
         // All chain monitors send discovered orders here; the evaluator reads from evaluator_order_rx.
-        let (evaluator_order_tx, evaluator_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
+        let (evaluator_order_tx, evaluator_order_rx) =
+            channels::shared_channel(NEW_ORDER_CHANNEL_CAPACITY);
         // Pricers send preflight completions here; the evaluator reads from pricing_completion_rx to free capacity.
         let (pricing_completion_tx, pricing_completion_rx) =
-            mpsc::channel(COMPLETION_CHANNEL_CAPACITY);
+            channels::shared_channel(COMPLETION_CHANNEL_CAPACITY);
         // Shared broadcast for on-chain lock/fulfill events. Each chain's MarketMonitor sends into
         // this channel, and both global singletons (OrderEvaluator, OrderCommitter) and per-chain
         // components (OrderPricer, ProvingService) subscribe. Per-chain subscribers must filter by
@@ -905,10 +903,11 @@ impl Broker {
             std::collections::HashMap::new();
 
         // All per-chain pricers send priced orders here; the order committer reads from priced_orders_rx.
-        let (priced_orders_tx, priced_orders_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+        let (priced_orders_tx, priced_orders_rx) =
+            channels::shared_channel(COMMITMENT_CHANNEL_CAPACITY);
         // Proving pipeline components send completion signals here; the order committer reads to free capacity.
         let (proving_completion_tx, proving_completion_rx) =
-            mpsc::channel(COMMITMENT_COMPLETION_CHANNEL_CAPACITY);
+            channels::shared_channel(COMMITMENT_COMPLETION_CHANNEL_CAPACITY);
         let mut locker_dispatchers: std::collections::HashMap<
             u64,
             mpsc::Sender<Box<OrderRequest>>,
@@ -921,11 +920,11 @@ impl Broker {
 
         for chain in &chains {
             // Evaluator dispatches capacity-gated orders to this chain's pricer via pricer_tx.
-            let (pricer_tx, pricer_rx) = mpsc::channel(PRICER_CHANNEL_CAPACITY);
+            let (pricer_tx, pricer_rx) = channels::shared_channel(PRICER_CHANNEL_CAPACITY);
             chain_dispatchers.insert(chain.chain_id, pricer_tx);
 
             // Order committer dispatches capacity-gated orders to this chain's locker.
-            let (locker_tx, locker_rx) = mpsc::channel(COMMITMENT_CHANNEL_CAPACITY);
+            let (locker_tx, locker_rx) = channels::shared_channel(COMMITMENT_CHANNEL_CAPACITY);
             locker_dispatchers.insert(chain.chain_id, locker_tx);
 
             let priority_requestors =
@@ -944,10 +943,7 @@ impl Broker {
                 locker_rx,
                 proving_completion_tx.clone(),
                 priority_requestors,
-                &mut non_critical_tasks,
-                &mut critical_tasks,
-                non_critical_cancel_token.clone(),
-                critical_cancel_token.clone(),
+                &mut runner,
             )
             .await?;
         }
@@ -965,15 +961,7 @@ impl Broker {
             order_state_tx.clone(),
             priority_requestors_map.clone(),
         ));
-        let cloned_config = base_config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(order_evaluator, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start order evaluator")?;
-            Ok(())
-        });
+        runner.spawn(order_evaluator, service_runner::Criticality::NonCritical, "order evaluator");
 
         let order_committer = Arc::new(order_committer::OrderCommitter::new(
             base_config.clone(),
@@ -983,15 +971,19 @@ impl Broker {
             order_state_tx,
             priority_requestors_map,
         ));
-        let cloned_config = base_config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(async move {
-            Supervisor::new(order_committer, cloned_config, cancel_token)
-                .spawn()
-                .await
-                .context("Failed to start unified order committer")?;
-            Ok(())
-        });
+        runner.spawn(
+            order_committer,
+            service_runner::Criticality::NonCritical,
+            "unified order committer",
+        );
+
+        // Decompose the runner to feed the shutdown loop and cancel-token machinery below.
+        let service_runner::ServiceRunnerParts {
+            mut non_critical_tasks,
+            mut critical_tasks,
+            non_critical_cancel_token,
+            critical_cancel_token,
+        } = runner.into_parts();
 
         // Monitor supervisor tasks and handle shutdown
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -1053,17 +1045,14 @@ impl Broker {
         prover: ProverObj,
         aggregation_prover: ProverObj,
         evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
-        pricer_rx: mpsc::Receiver<Box<OrderRequest>>,
+        pricer_rx: channels::SharedReceiver<Box<OrderRequest>>,
         pricing_completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
-        locker_rx: mpsc::Receiver<Box<OrderRequest>>,
+        locker_rx: channels::SharedReceiver<Box<OrderRequest>>,
         proving_completion_tx: mpsc::Sender<order_committer::CommitmentComplete>,
         priority_requestors: requestor_monitor::PriorityRequestors,
-        non_critical_tasks: &mut JoinSet<Result<()>>,
-        critical_tasks: &mut JoinSet<Result<()>>,
-        non_critical_cancel_token: CancellationToken,
-        critical_cancel_token: CancellationToken,
+        runner: &mut ServiceRunner,
     ) -> Result<()>
     where
         P: Provider<Ethereum> + WalletProvider + Clone + 'static,
@@ -1094,17 +1083,11 @@ impl Broker {
                 self.args.version_registry_address,
                 self.args.force_version_check,
             ));
-            let config_clone = config.clone();
-            let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(
-                async move {
-                    Supervisor::new(task, config_clone, cancel_token)
-                        .spawn()
-                        .await
-                        .context("Version check task failed")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                task,
+                service_runner::Criticality::NonCritical,
+                "version check",
+                chain_span.clone(),
             );
         }
 
@@ -1145,16 +1128,14 @@ impl Broker {
                             config.clone(),
                             db.clone(),
                         );
-                        let cancel_token = non_critical_cancel_token.clone();
-                        let cs = chain_span.clone();
-                        non_critical_tasks.spawn(
+                        let cancel_token = runner.non_critical_cancel_token();
+                        runner.spawn_future_in_span(
+                            service_runner::Criticality::NonCritical,
+                            "telemetry service",
+                            chain_span.clone(),
                             async move {
-                                telemetry::run_telemetry_service(service, cancel_token)
-                                    .await
-                                    .context("Telemetry service failed")?;
-                                Ok(())
-                            }
-                            .instrument(cs),
+                                telemetry::run_telemetry_service(service, cancel_token).await
+                            },
                         );
                         handle
                     })
@@ -1175,16 +1156,14 @@ impl Broker {
                             config.clone(),
                             db.clone(),
                         );
-                        let cancel_token = non_critical_cancel_token.clone();
-                        let cs = chain_span.clone();
-                        non_critical_tasks.spawn(
+                        let cancel_token = runner.non_critical_cancel_token();
+                        runner.spawn_future_in_span(
+                            service_runner::Criticality::NonCritical,
+                            "telemetry service",
+                            chain_span.clone(),
                             async move {
-                                telemetry::run_telemetry_service(service, cancel_token)
-                                    .await
-                                    .context("Telemetry service failed")?;
-                                Ok(())
-                            }
-                            .instrument(cs),
+                                telemetry::run_telemetry_service(service, cancel_token).await
+                            },
                         );
                         handle
                     })
@@ -1201,16 +1180,12 @@ impl Broker {
                     config.clone(),
                     db.clone(),
                 );
-                let cancel_token = non_critical_cancel_token.clone();
-                let cs = chain_span.clone();
-                non_critical_tasks.spawn(
-                    async move {
-                        telemetry::run_telemetry_service(service, cancel_token)
-                            .await
-                            .context("Telemetry service failed")?;
-                        Ok(())
-                    }
-                    .instrument(cs),
+                let cancel_token = runner.non_critical_cancel_token();
+                runner.spawn_future_in_span(
+                    service_runner::Criticality::NonCritical,
+                    "telemetry service",
+                    chain_span.clone(),
+                    async move { telemetry::run_telemetry_service(service, cancel_token).await },
                 );
                 handle
             }),
@@ -1239,18 +1214,11 @@ impl Broker {
                 .context("Failed to initialize ChainMonitorV2")?,
             );
 
-            let cloned = monitor.clone();
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(
-                async move {
-                    Supervisor::new(cloned, cloned_config, cancel_token)
-                        .spawn()
-                        .await
-                        .context("Failed to start ChainMonitorV2")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                monitor.clone(),
+                service_runner::Criticality::Critical,
+                "ChainMonitorV2",
+                chain_span.clone(),
             );
 
             let block_times = monitor.block_time();
@@ -1265,18 +1233,11 @@ impl Broker {
                 .context("Failed to initialize chain monitor")?,
             );
 
-            let cloned_chain_monitor = chain_monitor_service.clone();
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(
-                async move {
-                    Supervisor::new(cloned_chain_monitor, cloned_config, cancel_token)
-                        .spawn()
-                        .await
-                        .context("Failed to start chain monitor")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                chain_monitor_service.clone(),
+                service_runner::Criticality::Critical,
+                "chain monitor",
+                chain_span.clone(),
             );
 
             let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
@@ -1295,17 +1256,11 @@ impl Broker {
             let block_times =
                 market_monitor.get_block_time().await.context("Failed to sample block times")?;
 
-            let cloned_config = config.clone();
-            let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(
-                async move {
-                    Supervisor::new(market_monitor, cloned_config, cancel_token)
-                        .spawn()
-                        .await
-                        .context("Failed to start market monitor")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                market_monitor,
+                service_runner::Criticality::NonCritical,
+                "market monitor",
+                chain_span.clone(),
             );
 
             (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
@@ -1320,17 +1275,11 @@ impl Broker {
                     private_key.clone(),
                     evaluator_order_tx.clone(),
                 ));
-            let cloned_config = config.clone();
-            let cancel_token = non_critical_cancel_token.clone();
-            non_critical_tasks.spawn(
-                async move {
-                    Supervisor::new(offchain_market_monitor, cloned_config, cancel_token)
-                        .spawn()
-                        .await
-                        .context("Failed to start offchain market monitor")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                offchain_market_monitor,
+                service_runner::Criticality::NonCritical,
+                "offchain market monitor",
+                chain_span.clone(),
             );
         }
 
@@ -1353,18 +1302,11 @@ impl Broker {
                 .build(named_chain, provider.clone())
                 .context("Failed to build price oracle")?,
         );
-        let cloned_config = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        let price_oracle_clone = price_oracle.clone();
-        non_critical_tasks.spawn(
-            async move {
-                Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("price oracle failed")?;
-                Ok(())
-            }
-            .instrument(chain_span.clone()),
+        runner.spawn_in_span(
+            price_oracle.clone(),
+            service_runner::Criticality::NonCritical,
+            "price oracle",
+            chain_span.clone(),
         );
 
         let allow_requestors = requestor_monitor::AllowRequestors::new(config.clone(), chain_id);
@@ -1399,17 +1341,11 @@ impl Broker {
             chain_id,
             pricing_completion_tx,
         ));
-        let cloned_config = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(
-            async move {
-                Supervisor::new(order_pricer, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start order pricer")?;
-                Ok(())
-            }
-            .instrument(chain_span.clone()),
+        runner.spawn_in_span(
+            order_pricer,
+            service_runner::Criticality::NonCritical,
+            "order pricer",
+            chain_span.clone(),
         );
 
         let order_locker = Arc::new(order_locker::OrderLocker::new(
@@ -1433,17 +1369,11 @@ impl Broker {
             chain_id,
             proving_completion_tx.clone(),
         )?);
-        let cloned_config = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(
-            async move {
-                Supervisor::new(order_locker, cloned_config, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Failed to start order locker")?;
-                Ok(())
-            }
-            .instrument(chain_span.clone()),
+        runner.spawn_in_span(
+            order_locker,
+            service_runner::Criticality::NonCritical,
+            "order locker",
+            chain_span.clone(),
         );
 
         if !self.args.listen_only {
@@ -1460,17 +1390,11 @@ impl Broker {
                 proving_completion_tx.clone(),
             ));
 
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(
-                async move {
-                    Supervisor::new(proving_service, cloned_config, cancel_token)
-                        .spawn()
-                        .await
-                        .context("Failed to start proving service")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                proving_service,
+                service_runner::Criticality::Critical,
+                "proving service",
+                chain_span.clone(),
             );
 
             let set_builder_img_id = self
@@ -1496,21 +1420,15 @@ impl Broker {
                 .context("Failed to initialize aggregator service")?,
             );
 
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(
-                async move {
-                    Supervisor::new(aggregator, cloned_config, cancel_token)
-                        .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                        .spawn()
-                        .await
-                        .context("Failed to start aggregator service")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                aggregator,
+                service_runner::Criticality::CriticalWithFastRetry,
+                "aggregator service",
+                chain_span.clone(),
             );
 
-            // Start the ReaperTask to check for expired committed orders
+            // Start the ReaperTask to check for expired committed orders.
+            // Using critical cancel token to ensure no stuck expired jobs on shutdown.
             let reaper = Arc::new(reaper::ReaperTask::new(
                 db.clone(),
                 config.clone(),
@@ -1518,18 +1436,11 @@ impl Broker {
                 chain_id,
                 proving_completion_tx.clone(),
             ));
-            let cloned_config = config.clone();
-            // Using critical cancel token to ensure no stuck expired jobs on shutdown
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(
-                async move {
-                    Supervisor::new(reaper, cloned_config, cancel_token)
-                        .spawn()
-                        .await
-                        .context("Failed to start reaper service")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                reaper,
+                service_runner::Criticality::Critical,
+                "reaper service",
+                chain_span.clone(),
             );
 
             let submitter = Arc::new(submitter::Submitter::new(
@@ -1543,18 +1454,11 @@ impl Broker {
                 chain_id,
                 proving_completion_tx.clone(),
             )?);
-            let cloned_config = config.clone();
-            let cancel_token = critical_cancel_token.clone();
-            critical_tasks.spawn(
-                async move {
-                    Supervisor::new(submitter, cloned_config, cancel_token)
-                        .with_retry_policy(RetryPolicy::CRITICAL_SERVICE)
-                        .spawn()
-                        .await
-                        .context("Failed to start submitter service")?;
-                    Ok(())
-                }
-                .instrument(chain_span.clone()),
+            runner.spawn_in_span(
+                submitter,
+                service_runner::Criticality::CriticalWithFastRetry,
+                "submitter service",
+                chain_span.clone(),
             );
         }
 
@@ -1563,17 +1467,11 @@ impl Broker {
             priority_requestors,
             allow_requestors,
         ));
-        let config_clone = config.clone();
-        let cancel_token = non_critical_cancel_token.clone();
-        non_critical_tasks.spawn(
-            async move {
-                Supervisor::new(requestor_monitor, config_clone, cancel_token)
-                    .spawn()
-                    .await
-                    .context("Requestor list monitor panicked")?;
-                Ok(())
-            }
-            .instrument(chain_span.clone()),
+        runner.spawn_in_span(
+            requestor_monitor,
+            service_runner::Criticality::NonCritical,
+            "requestor list monitor",
+            chain_span.clone(),
         );
 
         Ok(())

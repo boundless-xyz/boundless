@@ -18,9 +18,9 @@ use boundless_market::order_stream_client::{order_stream, OrderStreamClient};
 use futures_util::StreamExt;
 
 use crate::{
+    coded_error_impl,
     errors::CodedError,
-    impl_coded_debug,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest,
 };
 use thiserror::Error;
@@ -38,18 +38,13 @@ pub enum OffchainMarketMonitorErr {
     UnexpectedErr(#[from] anyhow::Error),
 }
 
-impl_coded_debug!(OffchainMarketMonitorErr);
+coded_error_impl!(OffchainMarketMonitorErr, "OMM",
+    WebSocketErr(..)  => "001",
+    ReceiverDropped   => "002",
+    UnexpectedErr(..) => "500",
+);
 
-impl CodedError for OffchainMarketMonitorErr {
-    fn code(&self) -> &str {
-        match self {
-            OffchainMarketMonitorErr::WebSocketErr(_) => "[B-OMM-001]",
-            OffchainMarketMonitorErr::ReceiverDropped => "[B-OMM-002]",
-            OffchainMarketMonitorErr::UnexpectedErr(_) => "[B-OMM-500]",
-        }
-    }
-}
-
+#[derive(Clone)]
 pub struct OffchainMarketMonitor {
     client: OrderStreamClient,
     signer: PrivateKeySigner,
@@ -123,19 +118,13 @@ impl OffchainMarketMonitor {
     }
 }
 
-impl RetryTask for OffchainMarketMonitor {
+impl BrokerService for OffchainMarketMonitor {
     type Error = OffchainMarketMonitorErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let client = self.client.clone();
-        let signer = self.signer.clone();
-        let new_order_tx = self.new_order_tx.clone();
 
-        Box::pin(async move {
-            tracing::info!("Starting up offchain market monitor");
-            Self::monitor_orders(client, &signer, new_order_tx, cancel_token)
-                .await
-                .map_err(SupervisorErr::Recover)?;
-            Ok(())
-        })
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting up offchain market monitor");
+        Self::monitor_orders(self.client, &self.signer, self.new_order_tx, cancel_token)
+            .await
+            .map_err(SupervisorErr::Recover)
     }
 }

@@ -14,7 +14,6 @@
 
 use std::time::Duration;
 
-use async_trait::async_trait;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -24,15 +23,16 @@ use boundless_market::telemetry::CompletionOutcome;
 use tokio::sync::mpsc;
 
 use crate::{
+    coded_error_impl,
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
     errors::{cancel_proof_and_fail, BrokerFailure, CodedError},
     order_committer::CommitmentComplete,
     provers::ProverObj,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
 };
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ReaperError {
     #[error("{code} DB error: {0}", code = self.code())]
     DbError(#[from] DbError),
@@ -41,14 +41,10 @@ pub enum ReaperError {
     ConfigReadErr(#[from] ConfigErr),
 }
 
-impl CodedError for ReaperError {
-    fn code(&self) -> &str {
-        match self {
-            ReaperError::DbError(_) => "[B-REAP-001]",
-            ReaperError::ConfigReadErr(_) => "[B-REAP-002]",
-        }
-    }
-}
+coded_error_impl!(ReaperError, "REAP",
+    DbError(..)       => "001",
+    ConfigReadErr(..) => "002",
+);
 
 #[derive(Clone)]
 pub struct ReaperTask {
@@ -129,16 +125,11 @@ impl ReaperTask {
     }
 }
 
-#[async_trait]
-impl RetryTask for ReaperTask {
+impl BrokerService for ReaperTask {
     type Error = ReaperError;
 
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let this = self.clone();
-        Box::pin(async move {
-            this.run_reaper_loop(cancel_token).await.map_err(SupervisorErr::Recover)?;
-            Ok(())
-        })
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        self.run_reaper_loop(cancel_token).await.map_err(SupervisorErr::Recover)
     }
 }
 
