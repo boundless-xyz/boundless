@@ -142,8 +142,8 @@ impl Broker {
             path,
             default_url,
         )
-            .await
-            .context("uploading set builder image")?;
+        .await
+        .context("uploading set builder image")?;
         Ok(image_id)
     }
 
@@ -405,7 +405,7 @@ impl Broker {
                 priority_requestors,
                 &mut runner,
             )
-                .await?;
+            .await?;
         }
         // Drop our clones so the unified components see channel closure when all producers exit.
         drop(evaluator_order_tx);
@@ -670,8 +670,8 @@ impl Broker {
                     evaluator_order_tx.clone(),
                     order_state_tx.clone(),
                 )
-                    .await
-                    .context("Failed to initialize ChainMonitorV2")?,
+                .await
+                .context("Failed to initialize ChainMonitorV2")?,
             );
 
             runner.spawn_in_span(
@@ -689,8 +689,8 @@ impl Broker {
                     provider.clone(),
                     gas_priority_mode.clone(),
                 )
-                    .await
-                    .context("Failed to initialize chain monitor")?,
+                .await
+                .context("Failed to initialize chain monitor")?,
             );
 
             runner.spawn_in_span(
@@ -876,8 +876,8 @@ impl Broker {
                     aggregation_prover.clone(),
                     proving_completion_tx.clone(),
                 )
-                    .await
-                    .context("Failed to initialize aggregator service")?,
+                .await
+                .context("Failed to initialize aggregator service")?,
             );
 
             runner.spawn_in_span(
