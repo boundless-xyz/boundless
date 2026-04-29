@@ -454,10 +454,6 @@ pub(crate) fn order_from_request(order_request: &OrderRequest, status: OrderStat
     }
 }
 
-pub(crate) fn skipped_order_from_request(order_request: &OrderRequest) -> Order {
-    order_from_request(order_request, OrderStatus::Skipped)
-}
-
 pub(crate) fn proving_order_from_request(order_request: &OrderRequest, lock_price: U256) -> Order {
     let mut order = order_from_request(order_request, OrderStatus::PendingProving);
     order.lock_price = Some(lock_price);

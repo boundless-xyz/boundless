@@ -30,8 +30,8 @@ use thiserror::Error;
 
 use crate::{
     errors::{impl_coded_debug, CodedError},
-    proving_order_from_request, skipped_order_from_request, AggregationState, Batch, BatchStatus,
-    FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
+    proving_order_from_request, AggregationState, Batch, BatchStatus, FulfillmentType, Order,
+    OrderRequest, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
 use url::Url;
@@ -130,7 +130,6 @@ pub struct AggregationOrder {
 
 #[async_trait]
 pub trait BrokerDb {
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
     async fn insert_accepted_request(
         &self,
         order_request: &OrderRequest,
@@ -318,36 +317,16 @@ impl SqliteDb {
         Ok(res as usize)
     }
 
-    /// Insert an order into the database using ON CONFLICT to handle duplicates safely.
-    /// Always ignores duplicates - used for skipped requests.
-    async fn insert_order_ignore_duplicates(&self, order: &Order) -> Result<(), DbError> {
+    /// Insert an accepted order. Errors with [`DbError::DuplicateOrderId`] if a row already
+    /// exists for the same order id (any status), so duplicate accepts surface loudly to the
+    /// caller. We never persist Skipped rows, so there is no Skipped → Accepted upgrade path.
+    async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
         let result =
             sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2) ON CONFLICT(id) DO NOTHING")
                 .bind(order.id())
                 .bind(sqlx::types::Json(&order))
                 .execute(&self.pool)
                 .await?;
-
-        if result.rows_affected() == 0 {
-            tracing::debug!("Order {} already exists in the database", order.id());
-        }
-
-        Ok(())
-    }
-
-    /// Insert an accepted order, overwriting only if the existing order is skipped.
-    /// Returns true if inserted/updated, false if ignored due to existing non-skipped order.
-    async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
-        let result = sqlx::query(
-            r#"INSERT INTO orders (id, data) VALUES ($1, $2) 
-               ON CONFLICT(id) DO UPDATE SET 
-                   data = excluded.data 
-               WHERE orders.data->>'status' = 'Skipped'"#,
-        )
-        .bind(order.id())
-        .bind(sqlx::types::Json(&order))
-        .execute(&self.pool)
-        .await?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::DuplicateOrderId(order.id()));
@@ -384,12 +363,12 @@ impl BrokerDb for SqliteDb {
     #[cfg(test)]
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order.id())))]
     async fn add_order(&self, order: &Order) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(order).await
-    }
-
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(&skipped_order_from_request(order_request)).await
+        sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2) ON CONFLICT(id) DO NOTHING")
+            .bind(order.id())
+            .bind(sqlx::types::Json(&order))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
@@ -1137,7 +1116,6 @@ mod tests {
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
-    use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
         let mut request = OrderRequest::new(
@@ -1257,16 +1235,6 @@ mod tests {
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Done);
-    }
-
-    #[sqlx::test]
-    async fn skip_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let order = create_order_request();
-
-        db.insert_skipped_request(&order).await.unwrap();
-        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
     }
 
     #[sqlx::test]
@@ -1707,22 +1675,11 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[traced_test]
     async fn insert_duplicate_orders_conflict_handling(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        // Skipped request ignores duplicates
+        // First accept of a fresh order succeeds.
         let order_request = create_order_request();
-        db.insert_skipped_request(&order_request).await.unwrap();
-
-        let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
-        assert_eq!(stored_order.status, OrderStatus::Skipped);
-
-        // Try to insert the same skipped request again - should be ignored
-        db.insert_skipped_request(&order_request).await.unwrap();
-        assert!(logs_contain("already exists"));
-
-        // Accepted request can overwrite skipped order
         let accepted_order =
             db.insert_accepted_request(&order_request, U256::from(100)).await.unwrap();
         assert_eq!(accepted_order.status, OrderStatus::PendingProving);
@@ -1732,10 +1689,9 @@ mod tests {
         assert_eq!(stored_order.status, OrderStatus::PendingProving);
         assert_eq!(stored_order.lock_price, Some(U256::from(100)));
 
-        // Accepted request errors on non-skipped duplicate
+        // Second accept of the same order errors and leaves the row untouched.
         assert!(db.insert_accepted_request(&order_request, U256::from(200)).await.is_err());
 
-        // Verify the stored order still has the original lock price (wasn't updated)
         let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
         assert_eq!(
             stored_order.lock_price,
@@ -1743,7 +1699,7 @@ mod tests {
             "Lock price should not be updated"
         );
 
-        // New order (different ID) should work normally
+        // A different order id is accepted normally.
         let mut different_request = create_order_request();
         different_request.request.id = U256::from(999);
 
