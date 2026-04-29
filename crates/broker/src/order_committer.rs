@@ -40,17 +40,19 @@ use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, U256};
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    channels::SharedReceiver,
+    coded_error_impl,
     config::{ConfigLock, OrderCommitmentPriority},
     errors::CodedError,
     now_timestamp,
     order_locker::OrderCommitmentMeta,
     prioritization::prioritize_orders_to_commit,
     requestor_monitor::PriorityRequestors,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
 };
 
@@ -97,7 +99,7 @@ struct InFlightOrder {
     proving_started_at: Option<u64>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub(crate) enum OrderCommitterErr {
     #[error("{code} Config read error: {0}", code = self.code())]
     ConfigReadErr(Arc<anyhow::Error>),
@@ -106,14 +108,10 @@ pub(crate) enum OrderCommitterErr {
     StaleCapacity { order_id: String, elapsed_secs: u64 },
 }
 
-impl CodedError for OrderCommitterErr {
-    fn code(&self) -> &str {
-        match self {
-            OrderCommitterErr::ConfigReadErr(_) => "[B-OC-001]",
-            OrderCommitterErr::StaleCapacity { .. } => "[B-OC-004]",
-        }
-    }
-}
+coded_error_impl!(OrderCommitterErr, "OC",
+    ConfigReadErr(..)   => "001",
+    StaleCapacity { .. } => "004",
+);
 
 struct CommitterConfig {
     max_concurrent_proofs: usize,
@@ -133,9 +131,9 @@ struct CommitterConfig {
 #[derive(Clone)]
 pub(crate) struct OrderCommitter {
     config: ConfigLock,
-    priced_order_rx: Arc<Mutex<mpsc::Receiver<Box<OrderRequest>>>>,
+    priced_order_rx: SharedReceiver<Box<OrderRequest>>,
     locker_dispatchers: Arc<HashMap<u64, mpsc::Sender<Box<OrderRequest>>>>,
-    proving_completion_rx: Arc<Mutex<mpsc::Receiver<CommitmentComplete>>>,
+    proving_completion_rx: SharedReceiver<CommitmentComplete>,
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: Arc<HashMap<u64, PriorityRequestors>>,
 }
@@ -174,17 +172,17 @@ fn record_skip_telemetry(
 impl OrderCommitter {
     pub fn new(
         config: ConfigLock,
-        priced_order_rx: mpsc::Receiver<Box<OrderRequest>>,
+        priced_order_rx: SharedReceiver<Box<OrderRequest>>,
         locker_dispatchers: HashMap<u64, mpsc::Sender<Box<OrderRequest>>>,
-        proving_completion_rx: mpsc::Receiver<CommitmentComplete>,
+        proving_completion_rx: SharedReceiver<CommitmentComplete>,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: HashMap<u64, PriorityRequestors>,
     ) -> Self {
         Self {
             config,
-            priced_order_rx: Arc::new(Mutex::new(priced_order_rx)),
+            priced_order_rx,
             locker_dispatchers: Arc::new(locker_dispatchers),
-            proving_completion_rx: Arc::new(Mutex::new(proving_completion_rx)),
+            proving_completion_rx,
             order_state_tx,
             priority_requestors: Arc::new(priority_requestors),
         }
@@ -471,152 +469,148 @@ impl OrderCommitter {
     }
 }
 
-impl RetryTask for OrderCommitter {
+impl BrokerService for OrderCommitter {
     type Error = OrderCommitterErr;
 
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let committer = self.clone();
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting order committer");
 
-        Box::pin(async move {
-            tracing::info!("Starting order committer");
+        let mut committer_config = self.read_config().map_err(SupervisorErr::Fault)?;
+        let mut priority_addresses =
+            self.collect_priority_addresses(committer_config.priority_addresses.take());
 
-            let mut committer_config = committer.read_config().map_err(SupervisorErr::Fault)?;
-            let mut priority_addresses =
-                committer.collect_priority_addresses(committer_config.priority_addresses.take());
+        let mut priced_order_rx = self.priced_order_rx.lock().await;
+        let mut proving_completion_rx = self.proving_completion_rx.lock().await;
+        let mut order_state_rx = self.order_state_tx.subscribe();
+        let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
 
-            let mut priced_order_rx = committer.priced_order_rx.lock().await;
-            let mut proving_completion_rx = committer.proving_completion_rx.lock().await;
-            let mut order_state_rx = committer.order_state_tx.subscribe();
-            let mut capacity_check_interval = tokio::time::interval(MIN_CAPACITY_CHECK_INTERVAL);
+        let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
+        let mut in_flight: HashMap<String, InFlightOrder> = HashMap::new();
 
-            let mut pending_orders: Vec<Box<OrderRequest>> = Vec::new();
-            let mut in_flight: HashMap<String, InFlightOrder> = HashMap::new();
+        loop {
+            tokio::select! {
+                Some(order) = priced_order_rx.recv() => {
+                    let order_id = order.id();
+                    let chain_id = order.chain_id;
+                    pending_orders.push(order);
+                    tracing::debug!(
+                        chain_id,
+                        "Order committer queued order {order_id} ({} pending [{}], {} in-flight)",
+                        pending_orders.len(),
+                        Self::format_per_chain_counts(&pending_orders),
+                        in_flight.len(),
+                    );
+                }
 
-            loop {
-                tokio::select! {
-                    Some(order) = priced_order_rx.recv() => {
-                        let order_id = order.id();
-                        let chain_id = order.chain_id;
-                        pending_orders.push(order);
+                Some(completion) = proving_completion_rx.recv() => {
+                    if in_flight.remove(&completion.order_id).is_some() {
                         tracing::debug!(
-                            chain_id,
-                            "Order committer queued order {order_id} ({} pending [{}], {} in-flight)",
-                            pending_orders.len(),
-                            Self::format_per_chain_counts(&pending_orders),
+                            chain_id = completion.chain_id,
+                            "Commitment complete for order {} ({}), {} in-flight remaining",
+                            completion.order_id,
+                            completion.outcome,
                             in_flight.len(),
                         );
-                    }
-
-                    Some(completion) = proving_completion_rx.recv() => {
-                        if in_flight.remove(&completion.order_id).is_some() {
-                            tracing::debug!(
-                                chain_id = completion.chain_id,
-                                "Commitment complete for order {} ({}), {} in-flight remaining",
-                                completion.order_id,
-                                completion.outcome,
-                                in_flight.len(),
-                            );
-                        } else {
-                            tracing::trace!(
-                                chain_id = completion.chain_id,
-                                "Received commitment completion for order {} not in in-flight map (possibly reaped)",
-                                completion.order_id,
-                            );
-                        }
-                    }
-
-                    Ok(state_change) = order_state_rx.recv() => {
-                        match state_change {
-                            OrderStateChange::Locked { request_id, prover, chain_id } => {
-                                tracing::debug!(
-                                    chain_id,
-                                    "Order committer: request 0x{:x} on chain {chain_id} locked by 0x{:x}, removing pending LockAndFulfill orders",
-                                    request_id, prover,
-                                );
-                                let initial_len = pending_orders.len();
-                                pending_orders.retain(|order| {
-                                    let same_request = U256::from(order.request.id) == request_id;
-                                    let same_chain = order.chain_id == chain_id;
-                                    let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
-                                    !(same_request && same_chain && is_lock_and_fulfill)
-                                });
-                                let removed = initial_len - pending_orders.len();
-                                if removed > 0 {
-                                    tracing::debug!(
-                                        "Removed {removed} LockAndFulfill orders from commitment queue for locked request 0x{:x}",
-                                        request_id,
-                                    );
-                                }
-                            }
-                            OrderStateChange::Fulfilled { request_id, chain_id } => {
-                                tracing::debug!(
-                                    chain_id,
-                                    "Order committer: request 0x{:x} on chain {chain_id} fulfilled, removing all pending orders",
-                                    request_id,
-                                );
-                                let initial_len = pending_orders.len();
-                                pending_orders.retain(|order| {
-                                    !(U256::from(order.request.id) == request_id && order.chain_id == chain_id)
-                                });
-                                let removed = initial_len - pending_orders.len();
-                                if removed > 0 {
-                                    tracing::debug!(
-                                        "Removed {removed} orders from commitment queue for fulfilled request 0x{:x}",
-                                        request_id,
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    _ = capacity_check_interval.tick() => {
-                        let new_config = committer.read_config().map_err(SupervisorErr::Fault)?;
-
-                        if new_config.max_concurrent_proofs != committer_config.max_concurrent_proofs {
-                            tracing::debug!(
-                                "Order committer proving capacity changed from {} to {}",
-                                committer_config.max_concurrent_proofs, new_config.max_concurrent_proofs,
-                            );
-                        }
-                        if new_config.peak_prove_khz != committer_config.peak_prove_khz {
-                            tracing::debug!(
-                                "Order committer peak_prove_khz changed from {:?} to {:?}",
-                                committer_config.peak_prove_khz, new_config.peak_prove_khz,
-                            );
-                        }
-                        if new_config.order_commitment_priority != committer_config.order_commitment_priority {
-                            tracing::debug!(
-                                "Order committer commitment priority changed from {:?} to {:?}",
-                                committer_config.order_commitment_priority, new_config.order_commitment_priority,
-                            );
-                        }
-
-                        committer_config = new_config;
-                        priority_addresses = committer
-                            .collect_priority_addresses(committer_config.priority_addresses.take());
-
-                        Self::reap_stale_capacity(
-                            &mut in_flight,
-                            DEFAULT_MAX_COMMITMENT_DURATION_SECS,
+                    } else {
+                        tracing::trace!(
+                            chain_id = completion.chain_id,
+                            "Received commitment completion for order {} not in in-flight map (possibly reaped)",
+                            completion.order_id,
                         );
-                    }
-
-                    _ = cancel_token.cancelled() => {
-                        tracing::info!("Order committer received cancellation, shutting down");
-                        break;
                     }
                 }
 
-                committer.commit_orders(
-                    &mut pending_orders,
-                    &mut in_flight,
-                    &committer_config,
-                    &priority_addresses,
-                );
+                Ok(state_change) = order_state_rx.recv() => {
+                    match state_change {
+                        OrderStateChange::Locked { request_id, prover, chain_id } => {
+                            tracing::debug!(
+                                chain_id,
+                                "Order committer: request 0x{:x} on chain {chain_id} locked by 0x{:x}, removing pending LockAndFulfill orders",
+                                request_id, prover,
+                            );
+                            let initial_len = pending_orders.len();
+                            pending_orders.retain(|order| {
+                                let same_request = U256::from(order.request.id) == request_id;
+                                let same_chain = order.chain_id == chain_id;
+                                let is_lock_and_fulfill = order.fulfillment_type == FulfillmentType::LockAndFulfill;
+                                !(same_request && same_chain && is_lock_and_fulfill)
+                            });
+                            let removed = initial_len - pending_orders.len();
+                            if removed > 0 {
+                                tracing::debug!(
+                                    "Removed {removed} LockAndFulfill orders from commitment queue for locked request 0x{:x}",
+                                    request_id,
+                                );
+                            }
+                        }
+                        OrderStateChange::Fulfilled { request_id, chain_id } => {
+                            tracing::debug!(
+                                chain_id,
+                                "Order committer: request 0x{:x} on chain {chain_id} fulfilled, removing all pending orders",
+                                request_id,
+                            );
+                            let initial_len = pending_orders.len();
+                            pending_orders.retain(|order| {
+                                !(U256::from(order.request.id) == request_id && order.chain_id == chain_id)
+                            });
+                            let removed = initial_len - pending_orders.len();
+                            if removed > 0 {
+                                tracing::debug!(
+                                    "Removed {removed} orders from commitment queue for fulfilled request 0x{:x}",
+                                    request_id,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                _ = capacity_check_interval.tick() => {
+                    let new_config = self.read_config().map_err(SupervisorErr::Fault)?;
+
+                    if new_config.max_concurrent_proofs != committer_config.max_concurrent_proofs {
+                        tracing::debug!(
+                            "Order committer proving capacity changed from {} to {}",
+                            committer_config.max_concurrent_proofs, new_config.max_concurrent_proofs,
+                        );
+                    }
+                    if new_config.peak_prove_khz != committer_config.peak_prove_khz {
+                        tracing::debug!(
+                            "Order committer peak_prove_khz changed from {:?} to {:?}",
+                            committer_config.peak_prove_khz, new_config.peak_prove_khz,
+                        );
+                    }
+                    if new_config.order_commitment_priority != committer_config.order_commitment_priority {
+                        tracing::debug!(
+                            "Order committer commitment priority changed from {:?} to {:?}",
+                            committer_config.order_commitment_priority, new_config.order_commitment_priority,
+                        );
+                    }
+
+                    committer_config = new_config;
+                    priority_addresses = self
+                        .collect_priority_addresses(committer_config.priority_addresses.take());
+
+                    Self::reap_stale_capacity(
+                        &mut in_flight,
+                        DEFAULT_MAX_COMMITMENT_DURATION_SECS,
+                    );
+                }
+
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Order committer received cancellation, shutting down");
+                    break;
+                }
             }
 
-            Ok(())
-        })
+            self.commit_orders(
+                &mut pending_orders,
+                &mut in_flight,
+                &committer_config,
+                &priority_addresses,
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -676,8 +670,8 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().market.max_concurrent_proofs = max_concurrent_proofs;
 
-        let (order_tx, order_rx) = mpsc::channel(100);
-        let (proving_completion_tx, proving_completion_rx) = mpsc::channel(100);
+        let (order_tx, order_rx) = crate::channels::shared_channel(100);
+        let (proving_completion_tx, proving_completion_rx) = crate::channels::shared_channel(100);
         let (state_tx, _) = broadcast::channel(100);
 
         let mut dispatchers = HashMap::new();
@@ -726,7 +720,7 @@ mod tests {
 
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         let locker_rx = locker_rxs.get_mut(&1).unwrap();
@@ -752,7 +746,7 @@ mod tests {
 
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         let locker_rx = locker_rxs.get_mut(&1).unwrap();
@@ -786,7 +780,7 @@ mod tests {
 
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         let locker_rx = locker_rxs.get_mut(&1).unwrap();
@@ -837,7 +831,7 @@ mod tests {
 
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         let locker_rx = locker_rxs.get_mut(&1).unwrap();
@@ -880,7 +874,7 @@ mod tests {
 
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         let chain_1_rx = locker_rxs.get_mut(&1).unwrap();
@@ -926,7 +920,7 @@ mod tests {
 
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         order_tx.send(make_order(1, 0, FulfillmentType::LockAndFulfill)).await.unwrap();
@@ -963,7 +957,7 @@ mod tests {
 
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         let chain_1_rx = locker_rxs.get_mut(&1).unwrap();
@@ -983,8 +977,8 @@ mod tests {
         let config = ConfigLock::default();
         config.load_write().unwrap().market.max_concurrent_proofs = 1;
 
-        let (order_tx, order_rx) = mpsc::channel(100);
-        let (proving_completion_tx, proving_completion_rx) = mpsc::channel(100);
+        let (order_tx, order_rx) = crate::channels::shared_channel(100);
+        let (proving_completion_tx, proving_completion_rx) = crate::channels::shared_channel(100);
         let (state_tx, _) = broadcast::channel(100);
         let (locker_tx, mut locker_rx) = mpsc::channel(100);
 
@@ -1005,7 +999,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let handle = tokio::spawn({
             let cancel = cancel.clone();
-            async move { committer.spawn(cancel).await }
+            async move { committer.run(cancel).await }
         });
 
         for i in 0..3 {

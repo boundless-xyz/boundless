@@ -37,9 +37,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     chain_monitor::ChainMonitorService,
+    coded_error_impl,
     db::{DbError, DbObj},
-    errors::{impl_coded_debug, CodedError},
-    task::{RetryRes, RetryTask, SupervisorErr},
+    errors::CodedError,
+    task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
 };
 use thiserror::Error;
@@ -63,19 +64,14 @@ pub enum MarketMonitorErr {
     ReceiverDropped,
 }
 
-impl CodedError for MarketMonitorErr {
-    fn code(&self) -> &str {
-        match self {
-            MarketMonitorErr::EventPollingErr(_) => "[B-MM-501]",
-            MarketMonitorErr::LogProcessingFailed(_) => "[B-MM-502]",
-            MarketMonitorErr::UnexpectedErr(_) => "[B-MM-500]",
-            MarketMonitorErr::ReceiverDropped => "[B-MM-502]",
-        }
-    }
-}
+coded_error_impl!(MarketMonitorErr, "MM",
+    EventPollingErr(..)     => "501",
+    LogProcessingFailed(..) => "502",
+    UnexpectedErr(..)       => "500",
+    ReceiverDropped         => "502",
+);
 
-impl_coded_debug!(MarketMonitorErr);
-
+#[derive(Clone)]
 pub struct MarketMonitor<P> {
     lookback_blocks: u64,
     events_poll_blocks: u64,
@@ -650,57 +646,43 @@ pub(crate) async fn process_request_fulfilled(
     Ok(())
 }
 
-impl<P> RetryTask for MarketMonitor<P>
+impl<P> BrokerService for MarketMonitor<P>
 where
-    P: Provider<Ethereum> + 'static + Clone,
+    P: Provider<Ethereum> + Clone + Send + Sync + 'static,
 {
     type Error = MarketMonitorErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let lookback_blocks = self.lookback_blocks;
-        let events_poll_blocks = self.events_poll_blocks;
-        let poll_interval_ms = self.poll_interval_ms;
-        let market_addr = self.market_addr;
-        let provider = self.provider.clone();
-        let prover_addr = self.prover_addr;
-        let chain_monitor = self.chain_monitor.clone();
-        let new_order_tx = self.new_order_tx.clone();
-        let db = self.db.clone();
-        let order_state_tx = self.order_state_tx.clone();
 
-        Box::pin(async move {
-            tracing::info!("Starting up market monitor");
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting up market monitor");
 
-            Self::find_open_orders(
-                lookback_blocks,
-                market_addr,
-                provider.clone(),
-                chain_monitor.clone(),
-                &new_order_tx,
-            )
-            .await
-            .map_err(|err| {
-                tracing::error!("Monitor failed to find open orders on startup.");
-                SupervisorErr::Recover(err)
-            })?;
+        Self::find_open_orders(
+            self.lookback_blocks,
+            self.market_addr,
+            self.provider.clone(),
+            self.chain_monitor.clone(),
+            &self.new_order_tx,
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!("Monitor failed to find open orders on startup.");
+            SupervisorErr::Recover(err)
+        })?;
 
-            Self::monitor_market(
-                market_addr,
-                prover_addr,
-                provider.clone(),
-                chain_monitor,
-                db,
-                lookback_blocks,
-                events_poll_blocks,
-                poll_interval_ms,
-                new_order_tx,
-                order_state_tx,
-                cancel_token,
-            )
-            .await
-            .map_err(SupervisorErr::Recover)?;
-
-            Ok(())
-        })
+        Self::monitor_market(
+            self.market_addr,
+            self.prover_addr,
+            self.provider,
+            self.chain_monitor,
+            self.db,
+            self.lookback_blocks,
+            self.events_poll_blocks,
+            self.poll_interval_ms,
+            self.new_order_tx,
+            self.order_state_tx,
+            cancel_token,
+        )
+        .await
+        .map_err(SupervisorErr::Recover)
     }
 }
 
@@ -792,7 +774,7 @@ mod tests {
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
         let chain_monitor =
             Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+        tokio::spawn((*chain_monitor).clone().run(Default::default()));
 
         let (order_tx, mut order_rx) = mpsc::channel(16);
         let orders =
@@ -822,7 +804,7 @@ mod tests {
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
         let chain_monitor =
             Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+        tokio::spawn((*chain_monitor).clone().run(Default::default()));
         let (order_tx, _order_rx) = mpsc::channel(16);
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let (order_state_tx, _) = broadcast::channel(16);
@@ -943,7 +925,7 @@ mod tests {
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
         let chain_monitor =
             Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
-        tokio::spawn(chain_monitor.spawn(Default::default()));
+        tokio::spawn((*chain_monitor).clone().run(Default::default()));
         // Ensure chain_monitor has its first cached value.
         let _ = chain_monitor.current_block_number().await.unwrap();
 
