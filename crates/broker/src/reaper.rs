@@ -67,21 +67,24 @@ impl ReaperTask {
         Self { db, config, prover, chain_id, proving_completion_tx }
     }
 
-    async fn check_expired_orders(&self) -> Result<(), ReaperError> {
-        let grace_period = {
-            let config = self.config.lock_all()?;
-            config.prover.reaper_grace_period_secs
+    async fn reap_expired(&self) -> Result<(), ReaperError> {
+        let (committed_grace, skipped_grace, batch_size, max_batches) = {
+            let cfg = self.config.lock_all()?;
+            (
+                cfg.prover.reaper_grace_period_secs,
+                cfg.prover.skipped_retention_grace_secs,
+                cfg.prover.skipped_cleanup_batch_size,
+                cfg.prover.skipped_cleanup_max_batches_per_pass,
+            )
         };
 
-        let expired_orders = self.db.get_expired_committed_orders(grace_period.into()).await?;
+        let expired_orders = self.db.get_expired_committed_orders(committed_grace.into()).await?;
 
         if !expired_orders.is_empty() {
             info!("[B-REAP-100] Found {} expired committed orders", expired_orders.len());
-
             for order in expired_orders {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
-
                 cancel_proof_and_fail(
                     &self.prover,
                     &self.db,
@@ -97,6 +100,29 @@ impl ReaperTask {
                 )
                 .await;
             }
+        }
+
+        if batch_size == 0 {
+            tracing::debug!("batch_size is 0, skipping expired orders cleanup");
+            return Ok(());
+        }
+
+        let mut total_deleted: u64 = 0;
+        for _ in 0..max_batches {
+            let n = self.db.cleanup_expired_skipped(skipped_grace, batch_size).await?;
+            total_deleted += n;
+            if n < batch_size as u64 {
+                break;
+            }
+            // Yield so other queries can acquire the single-writer connection
+            // between batches.
+            tokio::task::yield_now().await;
+        }
+        if total_deleted > 0 {
+            info!(
+                "[B-REAP-101] Deleted {} expired Skipped orders (max_batches={}, batch_size={})",
+                total_deleted, max_batches, batch_size
+            );
         }
 
         Ok(())
@@ -118,8 +144,8 @@ impl ReaperTask {
                 }
             }
 
-            if let Err(err) = self.check_expired_orders().await {
-                warn!("Error checking expired orders: {}", err);
+            if let Err(err) = self.reap_expired().await {
+                warn!("Error in reaper pass: {}", err);
             }
         }
     }
@@ -137,7 +163,10 @@ impl BrokerService for ReaperTask {
 mod tests {
     use super::*;
     use crate::{
-        db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus,
+        db::{BrokerDb, SqliteDb},
+        now_timestamp,
+        provers::DefaultProver,
+        FulfillmentType, Order, OrderStatus,
     };
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
@@ -215,7 +244,7 @@ mod tests {
         db.add_order(&order2).await.unwrap();
 
         // Should not fail and should not mark any orders as failed
-        reaper.check_expired_orders().await.unwrap();
+        reaper.reap_expired().await.unwrap();
 
         let stored_order1 = db.get_order(&order1.id()).await.unwrap().unwrap();
         let stored_order2 = db.get_order(&order2.id()).await.unwrap().unwrap();
@@ -257,7 +286,7 @@ mod tests {
         db.add_order(&active_order).await.unwrap();
         db.add_order(&done_order).await.unwrap();
 
-        reaper.check_expired_orders().await.unwrap();
+        reaper.reap_expired().await.unwrap();
 
         // Check expired orders are marked as failed
         let stored_expired1 = db.get_order(&expired_order1.id()).await.unwrap().unwrap();
@@ -282,6 +311,131 @@ mod tests {
         assert!(stored_active.error_msg.is_none());
         assert_eq!(stored_done.status, OrderStatus::Done);
         assert!(stored_done.error_msg.is_none());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_reaper_pass_b_deletes_expired_skipped() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut w = config.load_write().unwrap();
+            w.prover.reaper_grace_period_secs = 30;
+            w.prover.skipped_retention_grace_secs = 0;
+            w.prover.skipped_cleanup_batch_size = 1000;
+            w.prover.skipped_cleanup_max_batches_per_pass = 100;
+        }
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let (tx, _rx) = mpsc::channel(100);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1, tx);
+
+        let now = now_timestamp();
+        let past = now - 1000;
+        let future = now + 1000;
+
+        // Pass A target: committed + expired → marked Failed (existing behavior)
+        let committed_expired =
+            create_order_with_status_and_expiration(1, OrderStatus::PendingProving, Some(past));
+        db.add_order(&committed_expired).await.unwrap();
+
+        // Pass B targets: skipped + expired → deleted
+        let skipped_expired_a =
+            create_order_with_status_and_expiration(2, OrderStatus::Skipped, Some(past));
+        let skipped_expired_b =
+            create_order_with_status_and_expiration(3, OrderStatus::Skipped, Some(past));
+        db.add_order(&skipped_expired_a).await.unwrap();
+        db.add_order(&skipped_expired_b).await.unwrap();
+
+        // Should remain
+        let skipped_live =
+            create_order_with_status_and_expiration(4, OrderStatus::Skipped, Some(future));
+        db.add_order(&skipped_live).await.unwrap();
+
+        // Pass A + Pass B in a single reaper invocation
+        reaper.reap_expired().await.unwrap();
+
+        // Pass A effect
+        let after_committed = db.get_order(&committed_expired.id()).await.unwrap().unwrap();
+        assert_eq!(after_committed.status, OrderStatus::Failed);
+
+        // Pass B effects
+        assert!(db.get_order(&skipped_expired_a.id()).await.unwrap().is_none());
+        assert!(db.get_order(&skipped_expired_b.id()).await.unwrap().is_none());
+        assert!(db.get_order(&skipped_live.id()).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_reaper_pass_b_respects_max_batches_per_pass() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut w = config.load_write().unwrap();
+            w.prover.skipped_retention_grace_secs = 0;
+            w.prover.skipped_cleanup_batch_size = 5;
+            w.prover.skipped_cleanup_max_batches_per_pass = 2;
+        }
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let (tx, _rx) = mpsc::channel(100);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1, tx);
+
+        let now = now_timestamp();
+        let past = now - 1000;
+        for i in 0..25u64 {
+            let o =
+                create_order_with_status_and_expiration(100 + i, OrderStatus::Skipped, Some(past));
+            db.add_order(&o).await.unwrap();
+        }
+
+        // First pass: batch 5 × max 2 = 10 deleted, 15 remain
+        reaper.reap_expired().await.unwrap();
+        let remaining = count_skipped(&*db).await;
+        assert_eq!(remaining, 15);
+
+        // Second pass: 10 more
+        reaper.reap_expired().await.unwrap();
+        assert_eq!(count_skipped(&*db).await, 5);
+
+        // Third pass: last 5
+        reaper.reap_expired().await.unwrap();
+        assert_eq!(count_skipped(&*db).await, 0);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_reaper_pass_b_skipped_when_batch_size_zero() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut w = config.load_write().unwrap();
+            w.prover.skipped_retention_grace_secs = 0;
+            w.prover.skipped_cleanup_batch_size = 0;
+            w.prover.skipped_cleanup_max_batches_per_pass = 100;
+        }
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let (tx, _rx) = mpsc::channel(100);
+        let reaper = ReaperTask::new(db.clone(), config, prover, 1, tx);
+
+        let past = now_timestamp() - 1000;
+        let o = create_order_with_status_and_expiration(200, OrderStatus::Skipped, Some(past));
+        db.add_order(&o).await.unwrap();
+
+        reaper.reap_expired().await.unwrap();
+
+        // Row must remain — cleanup is disabled.
+        assert!(db.get_order(&o.id()).await.unwrap().is_some());
+    }
+
+    async fn count_skipped(db: &dyn BrokerDb) -> usize {
+        // We control IDs 100..125 above. Iterate and count those that exist.
+        let mut n = 0;
+        for i in 100..125u64 {
+            let order = create_order_with_status_and_expiration(i, OrderStatus::Skipped, Some(0));
+            if db.get_order(&order.id()).await.unwrap().is_some() {
+                n += 1;
+            }
+        }
+        n
     }
 
     #[tokio::test]
@@ -313,7 +467,7 @@ mod tests {
             orders.push(order);
         }
 
-        reaper.check_expired_orders().await.unwrap();
+        reaper.reap_expired().await.unwrap();
 
         // All orders should be marked as failed
         for order in orders {

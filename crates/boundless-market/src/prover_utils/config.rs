@@ -97,6 +97,18 @@ pub mod defaults {
         10800
     }
 
+    pub const fn skipped_retention_grace_secs() -> u32 {
+        300
+    }
+
+    pub const fn skipped_cleanup_batch_size() -> u32 {
+        1000
+    }
+
+    pub const fn skipped_cleanup_max_batches_per_pass() -> u32 {
+        100
+    }
+
     pub const fn max_concurrent_preflights() -> u32 {
         8
     }
@@ -683,6 +695,26 @@ pub struct ProverConfig {
     /// If not set, it defaults to 30 seconds.
     #[serde(default = "defaults::reaper_grace_period_secs")]
     pub reaper_grace_period_secs: u32,
+    /// Grace period after a `Skipped` order's `expire_timestamp` before it is
+    /// deleted by the reaper. The skipped row exists primarily as a durable
+    /// dedup guard during the order's live window. Once the order can no longer
+    /// be locked on chain, the row has no further purpose.
+    /// If not set, defaults to 300 seconds (5 minutes).
+    #[serde(default = "defaults::skipped_retention_grace_secs")]
+    pub skipped_retention_grace_secs: u32,
+    /// Number of `Skipped` rows the reaper deletes per batch. Bounded so that
+    /// a large backlog cannot starve other queries on the single-writer SQLite
+    /// connection.
+    /// If not set, defaults to 1000.
+    #[serde(default = "defaults::skipped_cleanup_batch_size")]
+    pub skipped_cleanup_batch_size: u32,
+    /// Maximum number of cleanup batches to run within a single reaper interval.
+    /// `batch_size * max_batches_per_pass` is the upper bound on rows deleted
+    /// per interval. Remaining rows are picked up on the next interval.
+    /// If not set, defaults to 100 (i.e. up to 100k rows per interval at
+    /// the default batch size).
+    #[serde(default = "defaults::skipped_cleanup_max_batches_per_pass")]
+    pub skipped_cleanup_max_batches_per_pass: u32,
 }
 
 impl Default for ProverConfig {
@@ -700,6 +732,9 @@ impl Default for ProverConfig {
             max_critical_task_retries: defaults::max_critical_task_retries(),
             reaper_interval_secs: defaults::reaper_interval_secs(),
             reaper_grace_period_secs: defaults::reaper_grace_period_secs(),
+            skipped_retention_grace_secs: defaults::skipped_retention_grace_secs(),
+            skipped_cleanup_batch_size: defaults::skipped_cleanup_batch_size(),
+            skipped_cleanup_max_batches_per_pass: defaults::skipped_cleanup_max_batches_per_pass(),
         }
     }
 }

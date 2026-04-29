@@ -131,6 +131,14 @@ pub struct AggregationOrder {
 #[async_trait]
 pub trait BrokerDb {
     async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
+    /// Delete `Skipped` orders whose `expire_timestamp` is older than
+    /// `now - grace_secs`. Returns the number of rows deleted, capped at
+    /// `batch_size`. Repeated calls drain the backlog batch-by-batch.
+    async fn cleanup_expired_skipped(
+        &self,
+        grace_secs: u32,
+        batch_size: u32,
+    ) -> Result<u64, DbError>;
     async fn insert_accepted_request(
         &self,
         order_request: &OrderRequest,
@@ -390,6 +398,36 @@ impl BrokerDb for SqliteDb {
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
     async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError> {
         self.insert_order_ignore_duplicates(&skipped_order_from_request(order_request)).await
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    async fn cleanup_expired_skipped(
+        &self,
+        grace_secs: u32,
+        batch_size: u32,
+    ) -> Result<u64, DbError> {
+        let cutoff = Utc::now().timestamp().saturating_sub(grace_secs as i64);
+        // SQLite (as built by sqlx) does not support `DELETE … LIMIT`; use the
+        // subquery pattern to bound batch size. The composite expression index
+        // on (data->>'status', data->>'expire_timestamp') services both the
+        // inner SELECT predicate and the outer DELETE's PK lookup.
+        let result = sqlx::query(
+            r#"
+            DELETE FROM orders WHERE id IN (
+                SELECT id FROM orders
+                WHERE data->>'status' = $1
+                  AND data->>'expire_timestamp' IS NOT NULL
+                  AND data->>'expire_timestamp' < $2
+                LIMIT $3
+            )"#,
+        )
+        .bind(OrderStatus::Skipped)
+        .bind(cutoff)
+        .bind(batch_size as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
@@ -1139,6 +1177,49 @@ mod tests {
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
+    fn make_order(id: u64, status: OrderStatus, expire: Option<u64>) -> Order {
+        use alloy::primitives::{Address, Bytes};
+        use boundless_market::contracts::{
+            Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+        };
+        use risc0_zkvm::sha::Digest;
+        Order {
+            status,
+            updated_at: chrono::Utc::now(),
+            target_timestamp: None,
+            request: ProofRequest::new(
+                RequestId::new(Address::ZERO, id as u32),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                "http://risczero.com",
+                RequestInput { inputType: RequestInputType::Inline, data: "".into() },
+                Offer {
+                    minPrice: U256::from(1),
+                    maxPrice: U256::from(2),
+                    rampUpStart: 0,
+                    timeout: 100,
+                    lockTimeout: 100,
+                    rampUpPeriod: 1,
+                    lockCollateral: U256::from(0),
+                },
+            ),
+            image_id: None,
+            input_id: None,
+            proof_id: None,
+            compressed_proof_id: None,
+            expire_timestamp: expire,
+            client_sig: Bytes::new(),
+            lock_price: Some(U256::from(1)),
+            fulfillment_type: crate::FulfillmentType::LockAndFulfill,
+            error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            total_cycles: None,
+            journal_bytes: None,
+            proving_started_at: None,
+            cached_id: Default::default(),
+        }
+    }
+
     fn create_order_request() -> OrderRequest {
         let mut request = OrderRequest::new(
             ProofRequest::new(
@@ -1751,6 +1832,67 @@ mod tests {
             db.insert_accepted_request(&different_request, U256::from(300)).await.unwrap();
         assert_eq!(new_order.status, OrderStatus::PendingProving);
         assert_eq!(new_order.lock_price, Some(U256::from(300)));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_skipped_deletes_only_expired_past_grace() {
+        let db = SqliteDb::new("sqlite::memory:").await.unwrap();
+        let now = Utc::now().timestamp() as u64;
+
+        // Past expire AND past grace → should be deleted
+        let stale = make_order(1, OrderStatus::Skipped, Some(now - 1000));
+        // Past expire but inside grace → should remain
+        let inside_grace = make_order(2, OrderStatus::Skipped, Some(now - 60));
+        // Not expired → should remain
+        let live = make_order(3, OrderStatus::Skipped, Some(now + 1000));
+        // Wrong status, expired → should remain (Q2 scope: Skipped only)
+        let done_expired = make_order(4, OrderStatus::Done, Some(now - 1000));
+        let failed_expired = make_order(5, OrderStatus::Failed, Some(now - 1000));
+
+        db.add_order(&stale).await.unwrap();
+        db.add_order(&inside_grace).await.unwrap();
+        db.add_order(&live).await.unwrap();
+        db.add_order(&done_expired).await.unwrap();
+        db.add_order(&failed_expired).await.unwrap();
+
+        // grace = 300s
+        let deleted = db.cleanup_expired_skipped(300, 1000).await.unwrap();
+        assert_eq!(deleted, 1);
+
+        assert!(db.get_order(&stale.id()).await.unwrap().is_none());
+        assert!(db.get_order(&inside_grace.id()).await.unwrap().is_some());
+        assert!(db.get_order(&live.id()).await.unwrap().is_some());
+        assert!(db.get_order(&done_expired.id()).await.unwrap().is_some());
+        assert!(db.get_order(&failed_expired.id()).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_skipped_respects_batch_size() {
+        let db = SqliteDb::new("sqlite::memory:").await.unwrap();
+        let now = Utc::now().timestamp() as u64;
+        let cutoff = now.saturating_sub(1000);
+
+        // Insert 25 expired skipped rows
+        for i in 0..25u64 {
+            let o = make_order(100 + i, OrderStatus::Skipped, Some(cutoff));
+            db.add_order(&o).await.unwrap();
+        }
+
+        // First pass: batch 10 → 10 deleted
+        let n1 = db.cleanup_expired_skipped(0, 10).await.unwrap();
+        assert_eq!(n1, 10);
+
+        // Second pass: batch 10 → 10 deleted
+        let n2 = db.cleanup_expired_skipped(0, 10).await.unwrap();
+        assert_eq!(n2, 10);
+
+        // Third pass: batch 10 → 5 remaining
+        let n3 = db.cleanup_expired_skipped(0, 10).await.unwrap();
+        assert_eq!(n3, 5);
+
+        // Fourth pass: nothing left
+        let n4 = db.cleanup_expired_skipped(0, 10).await.unwrap();
+        assert_eq!(n4, 0);
     }
 }
 
