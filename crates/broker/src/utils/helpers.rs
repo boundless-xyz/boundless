@@ -20,6 +20,7 @@ use boundless_market::{
     selector::{ProofType, SupportedSelectors},
 };
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use risc0_zkvm::{
     sha::{Impl as ShaImpl, Sha256},
@@ -27,6 +28,44 @@ use risc0_zkvm::{
 };
 
 use crate::{config::ConfigLock, OrderRequest};
+
+/// A very small utility function to get the current unix timestamp in seconds.
+// TODO(#379): Avoid drift relative to the chain's timestamps.
+pub(crate) fn now_timestamp() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+}
+
+/// Format the lock and final expiries of a request in a human-readable form
+/// (used by `Order::Display`).
+pub(crate) fn format_expiries(request: &ProofRequest) -> String {
+    let now: i64 = now_timestamp().try_into().unwrap();
+    let lock_expires_at: i64 = request.lock_expires_at().try_into().unwrap();
+    let lock_expires_delta = lock_expires_at - now;
+    let lock_expires_delta_str = if lock_expires_delta > 0 {
+        format!("{lock_expires_delta} seconds from now")
+    } else {
+        format!("{} seconds ago", lock_expires_delta.abs())
+    };
+    let expires_at: i64 = request.expires_at().try_into().unwrap();
+    let expires_at_delta = expires_at - now;
+    let expires_at_delta_str = if expires_at_delta > 0 {
+        format!("{expires_at_delta} seconds from now")
+    } else {
+        format!("{} seconds ago", expires_at_delta.abs())
+    };
+    format!(
+        "lock expires at {lock_expires_at} ({lock_expires_delta_str}), expires at {expires_at} ({expires_at_delta_str})"
+    )
+}
+
+/// Returns `true` if the dev mode environment variable is enabled.
+pub(crate) fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
 
 /// Replace the journal bytes in a [`ReceiptClaim`] with their digest to keep claims compact while
 /// preserving the existing `ReceiptClaim::digest` output.

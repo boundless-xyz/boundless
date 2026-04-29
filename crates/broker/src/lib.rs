@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::SystemTime;
-
 use alloy::primitives::U256;
 use boundless_market::contracts::ProofRequest;
 use chrono::{DateTime, Utc};
@@ -51,8 +49,10 @@ pub(crate) use shared::{errors, prioritization, task};
 pub(crate) mod submitter;
 pub(crate) mod telemetry;
 pub(crate) mod utils;
+pub(crate) use utils::{
+    format_expiries, is_dev_mode, now_timestamp, reaper, rpc_retry_policy, storage,
+};
 pub use utils::{futures_retry, rpcmetrics, sequential_fallback};
-pub(crate) use utils::{reaper, rpc_retry_policy, storage};
 pub mod version_check;
 
 pub use args::{build_chain_provider, ChainArgs, ChainPipeline, CoreArgs};
@@ -110,43 +110,6 @@ pub struct Batch {
     pub fees: U256,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_msg: Option<String>,
-}
-
-/// A very small utility function to get the current unix timestamp in seconds.
-// TODO(#379): Avoid drift relative to the chain's timestamps.
-pub(crate) fn now_timestamp() -> u64 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
-}
-
-// Utility function to format the expiries of a request in a human readable format
-pub(crate) fn format_expiries(request: &ProofRequest) -> String {
-    let now: i64 = now_timestamp().try_into().unwrap();
-    let lock_expires_at: i64 = request.lock_expires_at().try_into().unwrap();
-    let lock_expires_delta = lock_expires_at - now;
-    let lock_expires_delta_str = if lock_expires_delta > 0 {
-        format!("{lock_expires_delta} seconds from now")
-    } else {
-        format!("{} seconds ago", lock_expires_delta.abs())
-    };
-    let expires_at: i64 = request.expires_at().try_into().unwrap();
-    let expires_at_delta = expires_at - now;
-    let expires_at_delta_str = if expires_at_delta > 0 {
-        format!("{expires_at_delta} seconds from now")
-    } else {
-        format!("{} seconds ago", expires_at_delta.abs())
-    };
-    format!(
-        "lock expires at {lock_expires_at} ({lock_expires_delta_str}), expires at {expires_at} ({expires_at_delta_str})"
-    )
-}
-
-/// Returns `true` if the dev mode environment variable is enabled.
-pub(crate) fn is_dev_mode() -> bool {
-    std::env::var("RISC0_DEV_MODE")
-        .ok()
-        .map(|x| x.to_lowercase())
-        .filter(|x| x == "1" || x == "true" || x == "yes")
-        .is_some()
 }
 
 #[cfg(feature = "test-utils")]

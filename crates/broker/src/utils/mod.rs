@@ -23,8 +23,11 @@ pub mod rpc_retry_policy;
 pub mod rpcmetrics;
 pub mod sequential_fallback;
 pub mod storage;
-// Re-export the standalone helpers (claim pruning + gas estimation) at the
+// Re-export the standalone helpers (claim pruning, gas estimation, the
+// tiny dev-mode / timestamp / expiry-formatting helpers) at the
 // `crate::utils` root so callers keep using `utils::prune_receipt_claim_journal`
 // etc. without a redundant intermediate path component.
 pub use helpers::prune_receipt_claim_journal;
-pub(crate) use helpers::{estimate_gas_to_fulfill, estimate_gas_to_lock};
+pub(crate) use helpers::{
+    estimate_gas_to_fulfill, estimate_gas_to_lock, format_expiries, is_dev_mode, now_timestamp,
+};
