@@ -1128,9 +1128,13 @@ impl Broker {
                             config.clone(),
                             db.clone(),
                         );
-                        let cancel_token = runner.non_critical_cancel_token();
+                        // Telemetry rides on the critical cancel token so it keeps emitting
+                        // broker heartbeats during the Phase 2 drain (in-flight committed
+                        // orders). Otherwise monitoring sees the broker as offline within
+                        // seconds of SIGTERM, while it is in fact still actively proving.
+                        let cancel_token = runner.critical_cancel_token();
                         runner.spawn_future_in_span(
-                            service_runner::Criticality::NonCritical,
+                            service_runner::Criticality::Critical,
                             "telemetry service",
                             chain_span.clone(),
                             async move {
@@ -1156,9 +1160,11 @@ impl Broker {
                             config.clone(),
                             db.clone(),
                         );
-                        let cancel_token = runner.non_critical_cancel_token();
+                        // See note above: telemetry on the critical token to survive
+                        // the Phase 2 drain.
+                        let cancel_token = runner.critical_cancel_token();
                         runner.spawn_future_in_span(
-                            service_runner::Criticality::NonCritical,
+                            service_runner::Criticality::Critical,
                             "telemetry service",
                             chain_span.clone(),
                             async move {
@@ -1180,9 +1186,11 @@ impl Broker {
                     config.clone(),
                     db.clone(),
                 );
-                let cancel_token = runner.non_critical_cancel_token();
+                // See note above: telemetry on the critical token to survive
+                // the Phase 2 drain.
+                let cancel_token = runner.critical_cancel_token();
                 runner.spawn_future_in_span(
-                    service_runner::Criticality::NonCritical,
+                    service_runner::Criticality::Critical,
                     "telemetry service",
                     chain_span.clone(),
                     async move { telemetry::run_telemetry_service(service, cancel_token).await },

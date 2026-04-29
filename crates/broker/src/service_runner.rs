@@ -81,9 +81,22 @@ impl ServiceRunner {
 
     /// Cancellation token for non-critical tasks. Useful when a caller needs
     /// to spawn a raw future via [`Self::spawn_future_in_span`] that consumes
-    /// the token.
+    /// the token. Currently only used in tests after telemetry moved to the
+    /// critical token (see [`Self::critical_cancel_token`]); kept as a public
+    /// method for API symmetry and so future non-critical raw-future spawners
+    /// have a getter that mirrors the critical one.
+    #[allow(dead_code)]
     pub fn non_critical_cancel_token(&self) -> CancellationToken {
         self.non_critical_cancel_token.clone()
+    }
+
+    /// Cancellation token for critical tasks. Useful when a caller spawns a
+    /// raw future via [`Self::spawn_future_in_span`] under `Criticality::Critical`
+    /// (or `CriticalWithFastRetry`) and needs to consume the token directly —
+    /// e.g. the telemetry service, which keeps emitting heartbeats during the
+    /// Phase 2 in-flight-order drain and only exits on the critical token.
+    pub fn critical_cancel_token(&self) -> CancellationToken {
+        self.critical_cancel_token.clone()
     }
 
     /// Registers a supervised service. Equivalent to the legacy
