@@ -277,11 +277,6 @@ where
                 result = self.price_order(&mut order) => result,
                 _ = cancel_token.cancelled() => {
                     tracing::info!("Order pricing cancelled during pricing for order {order_id}");
-
-                    // Add the cancelled order to the database as skipped
-                    if let Err(e) = self.db.insert_skipped_request(&order).await {
-                        tracing::error!("Failed to add cancelled order to database: {e}");
-                    }
                     return Ok(false);
                 }
             };
@@ -406,10 +401,6 @@ where
                     .context("Failed to send to order_result_tx")?;
                 Ok::<_, OrderPricerErr>(true)
             } else {
-                self.db
-                    .insert_skipped_request(&order)
-                    .await
-                    .context("Failed to add skipped order to database")?;
                 Ok(false)
             }
         };
@@ -832,7 +823,7 @@ pub(crate) mod tests {
         chain_monitor::ChainMonitorService,
         db::SqliteDb,
         provers::{DefaultProver, ProofResult, Prover, ProverError},
-        FulfillmentType, OrderStatus,
+        FulfillmentType,
     };
     use alloy::{
         network::EthereumWallet,
@@ -1181,8 +1172,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("predicate check failed"));
     }
@@ -1209,8 +1199,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("unsupported selector requirement"));
     }
@@ -1240,8 +1229,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
     }
@@ -1335,8 +1323,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
     }
@@ -1402,8 +1389,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
     }
@@ -1467,8 +1453,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
     }
@@ -1529,8 +1514,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(
             logs_contain("after accounting for journal costs")
@@ -1559,8 +1543,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("is not in allow requestors"));
     }
@@ -1587,8 +1570,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
 
         assert!(logs_contain("is in deny_requestor_addresses"));
     }
@@ -1685,10 +1667,7 @@ pub(crate) mod tests {
         let order_id = order.id();
         assert!(!ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await);
 
-        assert_eq!(
-            ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
-            OrderStatus::Skipped
-        );
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
         assert!(logs_contain("collateral requirement exceeds max_collateral config"));
     }
 
@@ -1758,10 +1737,7 @@ pub(crate) mod tests {
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
 
-        assert_eq!(
-            ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
-            OrderStatus::Skipped
-        );
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
         assert!(logs_contain("journal larger than set limit"));
     }
 
@@ -1843,8 +1819,7 @@ pub(crate) mod tests {
             "Skipping order {order_id} due to intentional execution limit of"
         )));
 
-        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
     }
 
     #[tokio::test]
