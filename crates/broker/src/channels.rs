@@ -29,9 +29,6 @@ use tokio::sync::{mpsc, Mutex};
 ///
 /// Use together with [`shared_channel`] when the receiver needs to be owned
 /// by a service that the supervisor may clone on restart.
-// Unused until services are migrated to consume `SharedReceiver` directly
-// (Phase 3 of the broker restructure). Kept here as additive infrastructure.
-#[allow(dead_code)]
 pub type SharedReceiver<T> = Arc<Mutex<mpsc::Receiver<T>>>;
 
 /// Creates an [`mpsc`] channel whose receiver is wrapped as a [`SharedReceiver`].
@@ -39,7 +36,6 @@ pub type SharedReceiver<T> = Arc<Mutex<mpsc::Receiver<T>>>;
 /// Equivalent to `mpsc::channel(capacity)` followed by manually wrapping the
 /// receiver in `Arc<Mutex<…>>` — bundled here so service constructors don't
 /// have to repeat the wrapping.
-#[allow(dead_code)]
 pub fn shared_channel<T>(capacity: usize) -> (mpsc::Sender<T>, SharedReceiver<T>) {
     let (tx, rx) = mpsc::channel(capacity);
     (tx, Arc::new(Mutex::new(rx)))
