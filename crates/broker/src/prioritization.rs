@@ -930,7 +930,7 @@ mod tests {
         orders.push(Arc::from(regular_order));
 
         // Switch the signer address to a new one.
-        ctx.signer = crate::PrivateKeySigner::random();
+        ctx.signer = alloy::signers::local::PrivateKeySigner::random();
         let priority_addr = ctx.signer.address();
         let priority_addresses = vec![priority_addr];
 
