@@ -79,8 +79,6 @@ impl BrokerBuilder {
             rpc_request_timeout: 30,
             log_json: false,
             listen_only: false,
-            experimental_rpc: true,
-            legacy_rpc: false,
             version_registry_address: Some(ctx.version_registry_address),
             force_version_check: false,
         };

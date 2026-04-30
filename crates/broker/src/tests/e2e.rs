@@ -133,15 +133,22 @@ async fn new_config(min_batch_size: u32) -> TestConfig {
     new_config_with_min_deadline(min_batch_size, 100).await
 }
 
-// We put some config into an override file so that we can test the per-chain overrides feature e2e.
 pub(super) async fn new_config_with_min_deadline(
     min_batch_size: u32,
     min_deadline: u64,
 ) -> TestConfig {
+    new_config_with_extra_market(min_batch_size, min_deadline, "").await
+}
+
+// We put some config into an override file so that we can test the per-chain overrides feature e2e.
+pub(super) async fn new_config_with_extra_market(
+    min_batch_size: u32,
+    min_deadline: u64,
+    extra_market_lines: &str,
+) -> TestConfig {
     let base_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
     let override_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
 
-    // Base config: prover settings and price oracle (shared across chains)
     let mut base_config = Config::default();
     base_config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
     base_config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
@@ -154,7 +161,6 @@ pub(super) async fn new_config_with_min_deadline(
     base_config.price_oracle.zkc_usd = PriceValue::Static(1.0);
     base_config.write(base_file.path()).await.unwrap();
 
-    // Override config: only the per-chain market and batcher fields we want to override.
     // Written as raw TOML to avoid serializing a full Config::default() which would
     // clobber base values (e.g. price_oracle static prices) with unwanted defaults.
     let override_toml = format!(
@@ -163,6 +169,7 @@ pub(super) async fn new_config_with_min_deadline(
 min_mcycle_price = "0.00001 ETH"
 expected_probability_win_secondary_fulfillment = 50
 min_deadline = {min_deadline}
+{extra_market_lines}
 
 [batcher]
 min_batch_size = {min_batch_size}
@@ -208,8 +215,6 @@ pub(super) fn broker_args(
         rpc_request_timeout: 30,
         log_json: false,
         listen_only: false,
-        experimental_rpc: true,
-        legacy_rpc: false,
         version_registry_address,
         force_version_check: false,
     }
@@ -346,7 +351,7 @@ async fn simple_e2e() {
 
 #[tokio::test]
 #[traced_test]
-async fn simple_e2e_experimental_rpc() {
+async fn simple_e2e_rpc_mode_legacy() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
@@ -360,11 +365,11 @@ async fn simple_e2e_experimental_rpc() {
         .unwrap();
     ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
 
-    // Regression test: the deprecated `--experimental-rpc` flag must still parse and behave
-    // identically to the (now-default) V2 path. Setting it explicitly is a no-op.
-    let config = new_config(1).await;
+    // Start broker with the legacy ChainMonitorService + MarketMonitor pair via
+    // `[market] rpc_mode = "legacy"` in the chain config override.
+    let config = new_config_with_extra_market(1, 100, "rpc_mode = \"legacy\"").await;
     let config_watcher = config.watcher().await;
-    let mut args = broker_args(
+    let args = broker_args(
         config.base_path(),
         ctx.deployment.clone(),
         anvil.endpoint_url(),
@@ -381,79 +386,6 @@ async fn simple_e2e_experimental_rpc() {
         db_dir.path(),
     )
     .await;
-    args.experimental_rpc = true;
-    let broker = Broker::new(args, config_watcher).await.unwrap();
-
-    // Provide URL for ECHO program
-    let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
-
-    // Submit an order
-    let request = generate_request(
-        ctx.customer_market.index_from_nonce().await.unwrap(),
-        &ctx.customer_signer.address(),
-        ProofType::Any,
-        image_url,
-        None,
-        None,
-        None,
-        None,
-    );
-
-    run_with_broker(broker, vec![chain], async move {
-        // Submit the request
-        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
-
-        // Wait for fulfillment
-        ctx.customer_market
-            .wait_for_request_fulfillment(
-                U256::from(request.id),
-                Duration::from_secs(1),
-                request.expires_at(),
-            )
-            .await
-            .unwrap();
-    })
-    .await;
-}
-
-#[tokio::test]
-#[traced_test]
-async fn simple_e2e_legacy_rpc() {
-    // Setup anvil
-    let anvil = Anvil::new().spawn();
-
-    // Setup signers / providers
-    let ctx = create_test_ctx(&anvil).await.unwrap();
-
-    // Deposit prover / customer balances
-    ctx.prover_market
-        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
-        .await
-        .unwrap();
-    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
-
-    // Start broker with the legacy ChainMonitorService + MarketMonitor pair (--legacy-rpc).
-    let config = new_config(1).await;
-    let config_watcher = config.watcher().await;
-    let mut args = broker_args(
-        config.base_path(),
-        ctx.deployment.clone(),
-        anvil.endpoint_url(),
-        ctx.prover_signer.clone(),
-        Some(ctx.version_registry_address),
-    );
-    let db_dir = tempfile::tempdir().unwrap();
-    let chain = build_test_chain(
-        &ctx.prover_provider,
-        &ctx.prover_signer,
-        &ctx.deployment,
-        anvil.endpoint_url(),
-        &config_watcher.config,
-        db_dir.path(),
-    )
-    .await;
-    args.legacy_rpc = true;
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     // Provide URL for ECHO program
