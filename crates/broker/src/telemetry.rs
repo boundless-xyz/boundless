@@ -1336,4 +1336,63 @@ mod tests {
         service.send_request_heartbeat().await;
         // No panic = success (the client URL is fake, so sending would fail)
     }
+
+    /// Two-phase shutdown contract: the broker uses `non_critical_cancel_token`
+    /// for tasks like OrderPricer/OrderLocker (Phase 1, immediate cancel) and
+    /// `critical_cancel_token` for tasks like ProvingService/Submitter (Phase 2,
+    /// waited up to 2 h while in-flight orders drain).
+    ///
+    /// Telemetry must be bound to the **critical** token so monitoring keeps
+    /// seeing broker heartbeats during the Phase 2 drain. If it were bound to
+    /// the non-critical token, heartbeats would stop within seconds of SIGTERM
+    /// while the broker is still actively proving — causing false "broker
+    /// offline" alarms.
+    ///
+    /// This test validates the function-level contract of `run_telemetry_service`:
+    /// when given a token that has not been cancelled, it keeps running and
+    /// emitting heartbeats indefinitely. The lib.rs wiring is what binds it to
+    /// the right token; this test makes sure the function itself respects that
+    /// contract correctly.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_run_telemetry_only_exits_on_cancel() {
+        // Simulate the broker's two cancel tokens.
+        let non_critical_cancel = CancellationToken::new();
+        let critical_cancel = CancellationToken::new();
+
+        let (_tx, rx) = mpsc::channel(16);
+        let handle = TelemetryHandle::new(_tx.clone());
+        let signer = PrivateKeySigner::random();
+        let config = ConfigLock::default();
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+
+        // Short intervals so the broker_heartbeat tick fires quickly inside the test.
+        let mut service = TelemetryService::new_debug(rx, handle, signer, config, db);
+        service.broker_heartbeat_interval_secs = 1;
+        service.request_heartbeat_interval_secs = 1;
+
+        // Wire telemetry to critical_cancel (the FIX). The bug was that lib.rs
+        // wired this to non_critical_cancel, so Phase 1 cancellation killed it.
+        let cancel_token = critical_cancel.clone();
+        let join = tokio::spawn(async move { run_telemetry_service(service, cancel_token).await });
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!join.is_finished(), "service should be running after startup");
+
+        // Phase 1: non-critical tasks get cancelled. Telemetry is bound to
+        // critical_cancel, so it must NOT exit here.
+        non_critical_cancel.cancel();
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(
+            !join.is_finished(),
+            "telemetry exited during Phase 1 (non_critical_cancel); \
+             must survive until critical_cancel fires so monitoring continues to see \
+             broker heartbeats during the in-flight-order drain phase",
+        );
+
+        // Phase 2: critical token cancels. Telemetry should now exit cleanly
+        // after a final heartbeat flush.
+        critical_cancel.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(5), join).await;
+        assert!(result.is_ok(), "telemetry did not exit within 5s of critical_cancel");
+    }
 }

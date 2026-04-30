@@ -425,14 +425,6 @@ where
             }
         };
 
-        if let Err(e) = self.db.insert_skipped_request(order).await {
-            tracing::error!(
-                "Failed to skip order ({}): {} - {e:?}",
-                skip_commit_reason,
-                order.id()
-            );
-        }
-
         let no_load = estimate_proving_time_no_load(order.total_cycles, config);
         let monitor_wait =
             order.priced_at_timestamp.map(|t| now_timestamp().saturating_sub(t) * 1000);
@@ -661,11 +653,6 @@ where
                                 Some(&skip_reason),
                                 Some(lock_submitted_at),
                             );
-                            if let Err(e) = self.db.insert_skipped_request(order).await {
-                                tracing::error!(
-                                    "Failed to set DB failure state for order: {order_id} - {e:?}"
-                                );
-                            }
                             self.send_completion(order, CommitmentOutcome::Skipped);
                         }
                     }
@@ -1270,8 +1257,7 @@ pub(crate) mod tests {
 
         assert!(result.is_empty());
 
-        let order = ctx.db.get_order(&expired_order_id).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&expired_order_id).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1302,11 +1288,8 @@ pub(crate) mod tests {
 
         assert!(result.is_empty());
 
-        let order = ctx.db.get_order(&order_1_id).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::Skipped);
-
-        let order = ctx.db.get_order(&order_2_id).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_1_id).await.unwrap().is_none());
+        assert!(ctx.db.get_order(&order_2_id).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1340,8 +1323,7 @@ pub(crate) mod tests {
 
         assert!(result.is_empty());
 
-        let order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::Skipped);
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1538,12 +1520,9 @@ pub(crate) mod tests {
         let capacity_result = CapacityResult { orders: valid_orders, meta: HashMap::new() };
         ctx.monitor.lock_and_prove_orders(&capacity_result, &OrderLockerConfig::default(), 0).await;
 
-        let skipped_order = ctx.db.get_order(&order_id).await.unwrap();
-        assert!(skipped_order.is_some(), "Order should be in database");
-        assert_eq!(
-            skipped_order.unwrap().status,
-            OrderStatus::Skipped,
-            "Order should be skipped due to insufficient collateral balance"
+        assert!(
+            ctx.db.get_order(&order_id).await.unwrap().is_none(),
+            "Order should not be persisted after being skipped"
         );
 
         assert!(

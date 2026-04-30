@@ -30,8 +30,8 @@ use thiserror::Error;
 
 use crate::{
     errors::{impl_coded_debug, CodedError},
-    proving_order_from_request, skipped_order_from_request, AggregationState, Batch, BatchStatus,
-    FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
+    proving_order_from_request, AggregationState, Batch, BatchStatus, FulfillmentType, Order,
+    OrderRequest, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
 use url::Url;
@@ -126,11 +126,13 @@ pub struct AggregationOrder {
     pub proof_id: String,
     pub expiration: u64,
     pub fee: U256,
+    pub fulfillment_type: FulfillmentType,
+    pub request_id: U256,
+    pub lock_expiration: u64,
 }
 
 #[async_trait]
 pub trait BrokerDb {
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
     async fn insert_accepted_request(
         &self,
         order_request: &OrderRequest,
@@ -204,6 +206,8 @@ pub trait BrokerDb {
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
     #[cfg(test)]
     async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
+    #[cfg(test)]
+    async fn execute_raw(&self, sql: &str) -> Result<(), DbError>;
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
@@ -318,36 +322,16 @@ impl SqliteDb {
         Ok(res as usize)
     }
 
-    /// Insert an order into the database using ON CONFLICT to handle duplicates safely.
-    /// Always ignores duplicates - used for skipped requests.
-    async fn insert_order_ignore_duplicates(&self, order: &Order) -> Result<(), DbError> {
+    /// Insert an accepted order. Errors with [`DbError::DuplicateOrderId`] if a row already
+    /// exists for the same order id (any status), so duplicate accepts surface loudly to the
+    /// caller. We never persist Skipped rows, so there is no Skipped → Accepted upgrade path.
+    async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
         let result =
             sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2) ON CONFLICT(id) DO NOTHING")
                 .bind(order.id())
                 .bind(sqlx::types::Json(&order))
                 .execute(&self.pool)
                 .await?;
-
-        if result.rows_affected() == 0 {
-            tracing::debug!("Order {} already exists in the database", order.id());
-        }
-
-        Ok(())
-    }
-
-    /// Insert an accepted order, overwriting only if the existing order is skipped.
-    /// Returns true if inserted/updated, false if ignored due to existing non-skipped order.
-    async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
-        let result = sqlx::query(
-            r#"INSERT INTO orders (id, data) VALUES ($1, $2) 
-               ON CONFLICT(id) DO UPDATE SET 
-                   data = excluded.data 
-               WHERE orders.data->>'status' = 'Skipped'"#,
-        )
-        .bind(order.id())
-        .bind(sqlx::types::Json(&order))
-        .execute(&self.pool)
-        .await?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::DuplicateOrderId(order.id()));
@@ -384,12 +368,12 @@ impl BrokerDb for SqliteDb {
     #[cfg(test)]
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order.id())))]
     async fn add_order(&self, order: &Order) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(order).await
-    }
-
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(&skipped_order_from_request(order_request)).await
+        sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2) ON CONFLICT(id) DO NOTHING")
+            .bind(order.id())
+            .bind(sqlx::types::Json(&order))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
@@ -699,14 +683,14 @@ impl BrokerDb for SqliteDb {
                     .data
                     .proof_id
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
-                expiration: order
-                    .data
-                    .expire_timestamp
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_timestamp"))?,
+                expiration: order.data.request.expires_at(),
                 fee: order
                     .data
                     .lock_price
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "lock_price"))?,
+                fulfillment_type: order.data.fulfillment_type,
+                request_id: order.data.request.id,
+                lock_expiration: order.data.request.lock_expires_at(),
             })
         }
 
@@ -742,11 +726,14 @@ impl BrokerDb for SqliteDb {
                     .data
                     .proof_id
                     .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
-                expiration: order
+                expiration: order.data.request.expires_at(),
+                fee: order
                     .data
-                    .expire_timestamp
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "expire_timestamp"))?,
-                fee: order.data.lock_price.ok_or(DbError::InvalidOrder(order.id, "lock_price"))?,
+                    .lock_price
+                    .ok_or(DbError::InvalidOrder(order.id.clone(), "lock_price"))?,
+                fulfillment_type: order.data.fulfillment_type,
+                request_id: order.data.request.id,
+                lock_expiration: order.data.request.lock_expires_at(),
             })
         }
 
@@ -1125,6 +1112,12 @@ impl BrokerDb for SqliteDb {
 
         Ok(())
     }
+
+    #[cfg(test)]
+    async fn execute_raw(&self, sql: &str) -> Result<(), DbError> {
+        sqlx::query(sql).execute(&self.pool).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1137,7 +1130,6 @@ mod tests {
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
-    use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
         let mut request = OrderRequest::new(
@@ -1260,16 +1252,6 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn skip_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let order = create_order_request();
-
-        db.insert_skipped_request(&order).await.unwrap();
-        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
-    }
-
-    #[sqlx::test]
     async fn get_proving_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
@@ -1384,13 +1366,14 @@ mod tests {
         let agg_proof = &agg_proofs[0];
         assert_eq!(agg_proof.order_id, orders[1].id());
         assert_eq!(agg_proof.proof_id, "test_id1");
-        assert_eq!(agg_proof.expiration, 10);
+        // expiration is now derived from request.expires_at() (rampUpStart + timeout = 0 + 100)
+        assert_eq!(agg_proof.expiration, orders[1].request.expires_at());
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let agg_proof = &agg_proofs[1];
         assert_eq!(agg_proof.order_id, orders[2].id());
         assert_eq!(agg_proof.proof_id, "test_id2");
-        assert_eq!(agg_proof.expiration, 10);
+        assert_eq!(agg_proof.expiration, orders[2].request.expires_at());
         assert_eq!(agg_proof.fee, U256::from(10u64));
 
         let db_order = db.get_order(&agg_proofs[0].order_id).await.unwrap().unwrap();
@@ -1522,12 +1505,18 @@ mod tests {
                 order_id: order1.id(),
                 expiration: 20,
                 fee: U256::from(5),
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                request_id: order1.request.id,
+                lock_expiration: order1.request.lock_expires_at(),
             },
             AggregationOrder {
                 proof_id: "b".to_string(),
                 order_id: order2.id(),
                 expiration: 25,
                 fee: U256::from(10),
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                request_id: order2.request.id,
+                lock_expiration: order2.request.lock_expires_at(),
             },
         ];
         let claim_digests = vec![[1u32; 8].into(), [2u32; 8].into()];
@@ -1707,22 +1696,11 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[traced_test]
     async fn insert_duplicate_orders_conflict_handling(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        // Skipped request ignores duplicates
+        // First accept of a fresh order succeeds.
         let order_request = create_order_request();
-        db.insert_skipped_request(&order_request).await.unwrap();
-
-        let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
-        assert_eq!(stored_order.status, OrderStatus::Skipped);
-
-        // Try to insert the same skipped request again - should be ignored
-        db.insert_skipped_request(&order_request).await.unwrap();
-        assert!(logs_contain("already exists"));
-
-        // Accepted request can overwrite skipped order
         let accepted_order =
             db.insert_accepted_request(&order_request, U256::from(100)).await.unwrap();
         assert_eq!(accepted_order.status, OrderStatus::PendingProving);
@@ -1732,10 +1710,9 @@ mod tests {
         assert_eq!(stored_order.status, OrderStatus::PendingProving);
         assert_eq!(stored_order.lock_price, Some(U256::from(100)));
 
-        // Accepted request errors on non-skipped duplicate
+        // Second accept of the same order errors and leaves the row untouched.
         assert!(db.insert_accepted_request(&order_request, U256::from(200)).await.is_err());
 
-        // Verify the stored order still has the original lock price (wasn't updated)
         let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
         assert_eq!(
             stored_order.lock_price,
@@ -1743,7 +1720,7 @@ mod tests {
             "Lock price should not be updated"
         );
 
-        // New order (different ID) should work normally
+        // A different order id is accepted normally.
         let mut different_request = create_order_request();
         different_request.request.id = U256::from(999);
 

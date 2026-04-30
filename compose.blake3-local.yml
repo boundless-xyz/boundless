@@ -15,7 +15,6 @@
 # `just bento up` / `just prover up` auto-include this file whenever
 # BLAKE3_GROTH16_SETUP_DIR is set in the environment.
 
-name: bento
 services:
   gpu_prove_agent:
     volumes:
