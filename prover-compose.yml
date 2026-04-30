@@ -1,4 +1,4 @@
-name: bento
+name: prover
 # GPU Configuration:
 # The gpu_prove_agent service automatically detects all available GPUs using nvidia-smi
 # and spawns a prove agent process for each GPU. No manual configuration needed.
