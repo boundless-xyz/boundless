@@ -44,10 +44,61 @@ macro_rules! impl_coded_debug {
 
 pub use impl_coded_debug;
 
+/// Generates `impl CodedError` and `impl_coded_debug!` for a broker error enum.
+///
+/// Each generated code follows the pattern `[B-<svc>-<code>]`. Variant patterns
+/// are written exactly as they appear in the `match` arm:
+/// - tuple variants as `Variant(..)`
+/// - struct variants as `Variant { .. }`
+/// - unit variants without anything
+///
+/// # Example
+///
+/// ```ignore
+/// coded_error_impl!(MyErr, "ME",
+///     DbError(..)            => "001",
+///     ConfigErr(..)          => "002",
+///     BelowMinimum { .. }    => "003",
+///     NoData                 => "500",
+/// );
+/// ```
+///
+/// expands to an `impl CodedError` whose `code()` returns the matching
+/// `"[B-ME-NNN]"` string per variant, plus an `impl_coded_debug!` invocation.
+#[macro_export]
+macro_rules! coded_error_impl {
+    (
+        $ty:ident, $svc:literal,
+        $(
+            $variant:ident
+            $(( $($_args:tt)* ))?
+            $({ $($_fields:tt)* })?
+            => $code:literal
+        ),+ $(,)?
+    ) => {
+        impl $crate::errors::CodedError for $ty {
+            fn code(&self) -> &str {
+                match self {
+                    $(
+                        Self::$variant
+                            $(( $($_args)* ))?
+                            $({ $($_fields)* })?
+                        => concat!("[B-", $svc, "-", $code, "]")
+                    ),+
+                }
+            }
+        }
+        $crate::impl_coded_debug!($ty);
+    };
+}
+
 use boundless_market::telemetry::CompletionOutcome;
+
+use tokio::sync::mpsc;
 
 use crate::config::ConfigLock;
 use crate::db::DbObj;
+use crate::order_committer::{CommitmentComplete, CommitmentOutcome};
 use crate::{Order, OrderStatus};
 
 // Structured broker failure combining an error code with a human-readable reason.
@@ -73,22 +124,37 @@ impl std::fmt::Display for BrokerFailure {
     }
 }
 
-// Sets DB failure status AND emits a telemetry Failed event.
-pub(crate) async fn handle_order_failure(db: &DbObj, order_id: &str, failure: &BrokerFailure) {
+/// Sets DB failure status, emits a telemetry Failed event, and sends
+/// [`CommitmentOutcome::ProvingFailed`] to the OrderCommitter to free the capacity slot.
+pub(crate) async fn handle_order_failure(
+    db: &DbObj,
+    order_id: &str,
+    failure: &BrokerFailure,
+    chain_id: u64,
+    proving_completion_tx: &mpsc::Sender<CommitmentComplete>,
+) {
     let db_error_str = failure.to_string();
     if let Err(e) = db.set_order_failure(order_id, &db_error_str).await {
         tracing::error!("Failed to set order {order_id} failure: {e:?}");
     }
-    crate::telemetry::telemetry().record_failed(order_id, failure);
+    crate::telemetry::telemetry(chain_id).record_failed(order_id, failure);
+    let _ = proving_completion_tx.try_send(CommitmentComplete {
+        order_id: order_id.to_string(),
+        chain_id,
+        outcome: CommitmentOutcome::ProvingFailed,
+    });
 }
 
-// Cancels a proof (if configured) and marks the order as failed with telemetry.
+/// Cancels an in-progress proof (if configured) then delegates to [`handle_order_failure`]
+/// to set DB status, emit telemetry, and free the OrderCommitter capacity slot.
 pub(crate) async fn cancel_proof_and_fail(
     prover: &crate::provers::ProverObj,
     db: &DbObj,
     config: &ConfigLock,
     order: &Order,
     failure: &BrokerFailure,
+    chain_id: u64,
+    proving_completion_tx: &mpsc::Sender<CommitmentComplete>,
 ) {
     let order_id = order.id();
 
@@ -116,5 +182,68 @@ pub(crate) async fn cancel_proof_and_fail(
         }
     }
 
-    handle_order_failure(db, &order_id, failure).await;
+    handle_order_failure(db, &order_id, failure, chain_id, proving_completion_tx).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CodedError;
+    use thiserror::Error;
+
+    #[derive(Error)]
+    enum SampleErr {
+        #[error("{code} db: {0}", code = self.code())]
+        DbError(String),
+        #[error("{code} config: {0}", code = self.code())]
+        ConfigErr(anyhow::Error),
+        #[error(
+            "{code} below minimum: have {actual}, need {required}",
+            code = self.code()
+        )]
+        BelowMinimum { actual: u64, required: u64 },
+        #[error("{code} no data variant", code = self.code())]
+        NoData,
+    }
+
+    crate::coded_error_impl!(SampleErr, "TST",
+        DbError(..)        => "001",
+        ConfigErr(..)      => "002",
+        BelowMinimum { .. } => "003",
+        NoData             => "500",
+    );
+
+    #[test]
+    fn coded_error_impl_emits_expected_codes() {
+        let db = SampleErr::DbError("boom".to_string());
+        let cfg = SampleErr::ConfigErr(anyhow::anyhow!("nope"));
+        let strct = SampleErr::BelowMinimum { actual: 1, required: 2 };
+        let unit = SampleErr::NoData;
+
+        assert_eq!(db.code(), "[B-TST-001]");
+        assert_eq!(cfg.code(), "[B-TST-002]");
+        assert_eq!(strct.code(), "[B-TST-003]");
+        assert_eq!(unit.code(), "[B-TST-500]");
+    }
+
+    #[test]
+    fn coded_error_impl_provides_debug_with_code() {
+        let err = SampleErr::DbError("boom".to_string());
+        let dbg = format!("{:?}", err);
+        assert!(dbg.contains("[B-TST-001]"), "debug output missing code: {dbg}");
+    }
+
+    #[test]
+    fn coded_error_impl_display_includes_code_via_self_code() {
+        // Variant attributes use `{code}` bound to `self.code()` — the macro must
+        // produce a CodedError impl that returns the right code so Display works.
+        let db = SampleErr::DbError("boom".to_string());
+        let cfg = SampleErr::ConfigErr(anyhow::anyhow!("nope"));
+        let strct = SampleErr::BelowMinimum { actual: 1, required: 2 };
+        let unit = SampleErr::NoData;
+
+        assert_eq!(format!("{}", db), "[B-TST-001] db: boom");
+        assert_eq!(format!("{}", cfg), "[B-TST-002] config: nope");
+        assert_eq!(format!("{}", strct), "[B-TST-003] below minimum: have 1, need 2");
+        assert_eq!(format!("{}", unit), "[B-TST-500] no data variant");
+    }
 }

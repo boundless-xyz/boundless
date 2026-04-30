@@ -41,12 +41,16 @@ use risc0_zkvm::{
     MaybePruned, Receipt, ReceiptClaim,
 };
 
+use tokio::sync::mpsc;
+
 use crate::{
+    coded_error_impl,
     config::ConfigLock,
     db::DbObj,
-    impl_coded_debug, is_dev_mode, now_timestamp,
+    is_dev_mode, now_timestamp,
+    order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::ProverObj,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     Batch, FulfillmentType, Order,
 };
 use thiserror::Error;
@@ -79,21 +83,15 @@ pub enum SubmitterErr {
     UnexpectedErr(#[from] anyhow::Error),
 }
 
-impl_coded_debug!(SubmitterErr);
-
-impl CodedError for SubmitterErr {
-    fn code(&self) -> &str {
-        match self {
-            SubmitterErr::UnexpectedErr(_) => "[B-SUB-500]",
-            SubmitterErr::AllRequestsExpiredBeforeSubmission(_) => "[B-SUB-001]",
-            SubmitterErr::SomeRequestsExpiredBeforeSubmission(_) => "[B-SUB-005]",
-            SubmitterErr::MarketError(_) => "[B-SUB-002]",
-            SubmitterErr::BatchSubmissionFailed(_) => "[B-SUB-004]",
-            SubmitterErr::BatchSubmissionFailedTimeouts(_) => "[B-SUB-003]",
-            SubmitterErr::TxnConfirmationError(_) => "[B-SUB-006]",
-        }
-    }
-}
+coded_error_impl!(SubmitterErr, "SUB",
+    UnexpectedErr(..)                       => "500",
+    AllRequestsExpiredBeforeSubmission(..)  => "001",
+    SomeRequestsExpiredBeforeSubmission(..) => "005",
+    MarketError(..)                         => "002",
+    BatchSubmissionFailed(..)               => "004",
+    BatchSubmissionFailedTimeouts(..)       => "003",
+    TxnConfirmationError(..)                => "006",
+);
 
 #[derive(Clone)]
 pub struct Submitter<P> {
@@ -105,6 +103,9 @@ pub struct Submitter<P> {
     set_builder_img_id: Digest,
     prover_address: Address,
     config: ConfigLock,
+    chain_id: u64,
+    /// Sends ProvingCompleted or ProvingFailed to the OrderCommitter to free the capacity slot.
+    proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
 impl<P> Submitter<P>
@@ -120,6 +121,8 @@ where
         set_verifier_addr: Address,
         market_addr: Address,
         set_builder_img_id: Digest,
+        chain_id: u64,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -153,6 +156,8 @@ where
             set_builder_img_id,
             prover_address,
             config,
+            chain_id,
+            proving_completion_tx,
         })
     }
 
@@ -404,6 +409,11 @@ where
                 if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
                     tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }
+                let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                    order_id: order_id.to_string(),
+                    chain_id: self.chain_id,
+                    outcome: CommitmentOutcome::ProvingFailed,
+                });
             }
         }
 
@@ -486,24 +496,13 @@ where
                         .collect();
                     tracing::warn!("Failed to submit app merkle root for orders: {order_ids:?}");
 
-                    // Map the error from the R0 Contracts crate crate to an error type from BoundlessMarket
-                    if err.to_string().contains("failed to confirm tx") {
-                        self.handle_fulfillment_error(
-                            MarketError::TxnConfirmationError(err),
-                            batch_id,
-                            &fulfillments,
-                            &order_ids,
-                        )
-                        .await?;
+                    // Map the error from the R0 Contracts crate to an error type from BoundlessMarket
+                    let market_err = if err.to_string().contains("failed to confirm tx") {
+                        MarketError::TxnConfirmationError(err)
                     } else {
-                        self.handle_fulfillment_error(
-                            MarketError::Error(err),
-                            batch_id,
-                            &fulfillments,
-                            &order_ids,
-                        )
-                        .await?;
-                    }
+                        MarketError::Error(err)
+                    };
+                    return Err(Self::classify_fulfillment_error(market_err, batch_id));
                 }
             } else {
                 tracing::info!("Contract already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
@@ -514,7 +513,7 @@ where
             let order_ids: Vec<&str> =
                 fulfillments.iter().map(|f| *fulfillment_to_order_id.get(&f.id).unwrap()).collect();
             tracing::warn!("Failed to fulfill batch for orders {order_ids:?}: {err:?}");
-            self.handle_fulfillment_error(err, batch_id, &fulfillments, &order_ids).await?;
+            return Err(Self::classify_fulfillment_error(err, batch_id));
         }
 
         for fulfillment in fulfillments.iter() {
@@ -527,8 +526,13 @@ where
                 );
                 continue;
             }
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                order_id: order_id.to_string(),
+                chain_id: self.chain_id,
+                outcome: CommitmentOutcome::ProvingCompleted,
+            });
 
-            crate::telemetry::telemetry().record_fulfilled(order_id);
+            crate::telemetry::telemetry(self.chain_id).record_fulfilled(order_id);
             let order_price = order_prices
                 .get(order_id)
                 .unwrap_or(&OrderPrice { price: U256::ZERO, collateral_reward: U256::ZERO });
@@ -578,35 +582,24 @@ where
                     order.id()
                 );
             }
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                order_id: order.id(),
+                chain_id: self.chain_id,
+                outcome: CommitmentOutcome::ProvingFailed,
+            });
         }
         Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(
             orders.iter().map(|order| format!("{order}")).collect(),
         ))
     }
 
-    async fn handle_fulfillment_error(
-        &self,
-        err: MarketError,
-        batch_id: usize,
-        fulfillments: &[Fulfillment],
-        order_ids: &[&str],
-    ) -> Result<(), SubmitterErr> {
-        tracing::warn!("Failed to submit proofs for batch {batch_id}: {err:?} ");
-        for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
-            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
-            {
-                tracing::error!(
-                    "Failed to set order failure during proof submission: {:x} {db_err:?}",
-                    fulfillment.id
-                );
-            }
-        }
-
+    fn classify_fulfillment_error(err: MarketError, batch_id: usize) -> SubmitterErr {
+        tracing::warn!("Failed to submit proofs for batch {batch_id}: {err:?}");
         if let MarketError::TxnConfirmationError(_) = &err {
-            return Err(SubmitterErr::TxnConfirmationError(err));
+            SubmitterErr::TxnConfirmationError(err)
+        } else {
+            SubmitterErr::MarketError(err)
         }
-
-        Err(SubmitterErr::MarketError(err))
     }
 
     pub async fn process_next_batch(&self) -> Result<(), SubmitterErr> {
@@ -667,6 +660,17 @@ where
             }
         }
         tracing::warn!("Batch {batch_id} has reached max submission attempts. Errors: {errors:?}");
+
+        // Now that retries are exhausted, mark every order in the batch as Failed.
+        for order_id in batch.orders.iter() {
+            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
+            {
+                tracing::error!(
+                    "Failed to set order failure after retries exhausted: {order_id} {db_err:?}"
+                );
+            }
+        }
+
         if let Err(err) = self.db.set_batch_failure(batch_id, format!("{errors:?}")).await {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Failed to set batch failure in db: {batch_id} - {err:?}"
@@ -680,43 +684,40 @@ where
     }
 }
 
-impl<P> RetryTask for Submitter<P>
+impl<P> BrokerService for Submitter<P>
 where
-    P: Provider<Ethereum> + WalletProvider + 'static + Clone,
+    P: Provider<Ethereum> + WalletProvider + Clone + Send + Sync + 'static,
 {
     type Error = SubmitterErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let obj_clone = self.clone();
 
-        Box::pin(async move {
-            tracing::info!("Starting Submitter service");
-            loop {
-                if cancel_token.is_cancelled() {
-                    tracing::debug!("Submitter service received cancellation");
-                    break;
-                }
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting Submitter service");
+        loop {
+            if cancel_token.is_cancelled() {
+                tracing::debug!("Submitter service received cancellation");
+                break;
+            }
 
-                // Process batch without interruption
-                let result = obj_clone.process_next_batch().await;
-                if let Err(err) = result {
-                    // Only restart the service on unexpected errors.
-                    match err {
-                        SubmitterErr::BatchSubmissionFailed(_)
-                        | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
-                            tracing::error!("Batch submission failed: {err:?}");
-                        }
-                        _ => {
-                            tracing::error!("Submitter service failed: {err:?}");
-                            return Err(SupervisorErr::Recover(err));
-                        }
+            // Process batch without interruption
+            let result = self.process_next_batch().await;
+            if let Err(err) = result {
+                // Only restart the service on unexpected errors.
+                match err {
+                    SubmitterErr::BatchSubmissionFailed(_)
+                    | SubmitterErr::BatchSubmissionFailedTimeouts(_) => {
+                        tracing::error!("Batch submission failed: {err:?}");
+                    }
+                    _ => {
+                        tracing::error!("Submitter service failed: {err:?}");
+                        return Err(SupervisorErr::Recover(err));
                     }
                 }
-
-                // TODO: configuration
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
-            Ok(())
-        })
+
+            // TODO: configuration
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+        Ok(())
     }
 }
 
@@ -972,6 +973,7 @@ mod tests {
 
         market.lock_request(&order.request, client_sig.to_vec()).await.unwrap();
 
+        let (commitment_tx, _commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let submitter = Submitter::new(
             db.clone(),
             config,
@@ -980,6 +982,8 @@ mod tests {
             set_verifier,
             market_address,
             set_builder_id,
+            anvil.chain_id(),
+            commitment_tx,
         )
         .unwrap();
 
@@ -1016,7 +1020,11 @@ mod tests {
     #[traced_test]
     async fn submit_batch_retry_max_attempts() {
         let config = ConfigLock::default();
-        let (anvil, submitter, _db, _batch_id) = build_submitter_and_batch(config).await;
+        let (anvil, submitter, db, batch_id) = build_submitter_and_batch(config).await;
+
+        let batch = db.get_batch(batch_id).await.unwrap();
+        let order_ids = batch.orders.clone();
+        assert!(!order_ids.is_empty(), "test batch should have at least one order");
 
         drop(anvil); // drop anvil to simluate an RPC fault
 
@@ -1024,6 +1032,20 @@ mod tests {
         assert!(logs_contain("Batch submission attempt 1/2 failed"));
         assert!(logs_contain("reached max submission attempts"));
         assert!(matches!(res, Err(SubmitterErr::BatchSubmissionFailed(_))));
+
+        // After exhaustion, every order in the batch must be marked Failed and the
+        // batch itself marked as failed.
+        for order_id in &order_ids {
+            let order = db.get_order(order_id).await.unwrap().expect("order exists");
+            assert_eq!(
+                order.status,
+                OrderStatus::Failed,
+                "order {order_id} should be Failed after retries exhausted"
+            );
+        }
+
+        let final_batch = db.get_batch(batch_id).await.unwrap();
+        assert_eq!(final_batch.status, BatchStatus::Failed);
     }
 
     #[tokio::test]

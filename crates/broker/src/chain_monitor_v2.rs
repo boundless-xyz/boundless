@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Experimental ChainMonitorV2 implementation.
+//! ChainMonitorV2 — the default chain-monitor implementation.
 //!
-//! Replaces both `ChainMonitorService` and `MarketMonitor` with a single struct when
-//! `--experimental-rpc` is set. A single polling loop fetches block receipts per block,
-//! extracts market events, and updates the chain-head atomics read by `ChainMonitorApi`.
+//! Replaces both `ChainMonitorService` and `MarketMonitor` with a single struct: one
+//! polling loop fetches block receipts per block, extracts market events, and updates
+//! the chain-head atomics read by `ChainMonitorApi`. Pass `--legacy-rpc` to fall back
+//! to the older `ChainMonitorService` + `MarketMonitor` pair.
 
 use std::{
     sync::{
@@ -31,14 +32,14 @@ use crate::market_monitor::process_new_logs;
 use crate::{
     block_history::{BlockHistory, BlockHistoryEntry},
     chain_monitor::{ChainHead, ChainMonitorApi},
+    coded_error_impl,
     db::DbObj,
     errors::CodedError,
-    impl_coded_debug,
     market_monitor::{
         process_log, process_order_submitted, process_request_fulfilled, process_request_locked,
         MarketEvent,
     },
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
     OrderRequest, OrderStateChange,
 };
 use alloy::{
@@ -61,9 +62,6 @@ use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
-const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
-
 #[derive(Error)]
 pub enum ChainMonitorV2Err {
     #[error("{code} RPC error: {0:#}", code = self.code())]
@@ -85,26 +83,20 @@ pub enum ChainMonitorV2Err {
     ReceiverDropped,
 }
 
-impl_coded_debug!(ChainMonitorV2Err);
-
-impl CodedError for ChainMonitorV2Err {
-    fn code(&self) -> &str {
-        match self {
-            ChainMonitorV2Err::RpcErr(_) => "[B-CMV2-400]",
-            ChainMonitorV2Err::ReceiptsMismatch(_) => "[B-CMV2-401]",
-            ChainMonitorV2Err::LogProcessingFailed(_) => "[B-CMV2-501]",
-            ChainMonitorV2Err::UnexpectedErr(_) => "[B-CMV2-500]",
-            ChainMonitorV2Err::ReceiverDropped => "[B-CMV2-502]",
-        }
-    }
-}
+coded_error_impl!(ChainMonitorV2Err, "CMV2",
+    RpcErr(..)              => "400",
+    ReceiptsMismatch(..)    => "401",
+    LogProcessingFailed(..) => "501",
+    UnexpectedErr(..)       => "500",
+    ReceiverDropped         => "502",
+);
 
 /// Experimental replacement for `ChainMonitorService` + `MarketMonitor`.
 ///
 /// A single polling loop drives everything: one `eth_getBlockByNumber(Latest)` per tick,
 /// then one `eth_getBlockReceipts` per unprocessed block to decode market events.
 /// The chain-head atomics are updated on every tick and read synchronously by
-/// [`ChainMonitorApi`] callers (e.g. `OrderPicker`, `OrderMonitor`).
+/// [`ChainMonitorApi`] callers (e.g. `OrderPricer`, `OrderLocker`).
 #[derive(Clone)]
 pub(crate) struct ChainMonitorV2<P, ANP> {
     db: DbObj,
@@ -152,7 +144,9 @@ where
         lookback_blocks: u64,
         chain_id: u64,
         gas_priority_mode: Arc<RwLock<PriorityMode>>,
-    ) -> Result<(Self, mpsc::Receiver<Box<OrderRequest>>)> {
+        new_order_tx: mpsc::Sender<Box<OrderRequest>>,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
+    ) -> Result<Self> {
         let initial_block = provider
             .get_block_by_number(BlockNumberOrTag::Latest)
             .await
@@ -210,47 +204,31 @@ where
              poll_interval={poll_interval:?}, initial_gas_price={initial_gas_price}"
         );
 
-        let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
-        let (order_state_tx, _) = broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
-
-        Ok((
-            Self {
-                db,
-                provider,
-                any_provider,
-                market_addr,
-                prover_addr,
-                lookback_blocks,
-                chain_id,
-                poll_interval,
-                block_time,
-                new_order_tx,
-                order_state_tx,
-                head_block_number: Arc::new(AtomicU64::new(initial_number)),
-                head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
-                open_orders_found: Arc::new(AtomicBool::new(false)),
-                last_processed_block: Arc::new(AtomicU64::new(initial_number)),
-                gas_priority_mode,
-                block_history: Arc::new(RwLock::new(block_history)),
-                gas_price: Arc::new(RwLock::new(initial_gas_price)),
-            },
-            new_order_rx,
-        ))
+        Ok(Self {
+            db,
+            provider,
+            any_provider,
+            market_addr,
+            prover_addr,
+            lookback_blocks,
+            chain_id,
+            poll_interval,
+            block_time,
+            new_order_tx,
+            order_state_tx,
+            head_block_number: Arc::new(AtomicU64::new(initial_number)),
+            head_block_timestamp: Arc::new(AtomicU64::new(initial_timestamp)),
+            open_orders_found: Arc::new(AtomicBool::new(false)),
+            last_processed_block: Arc::new(AtomicU64::new(initial_number)),
+            gas_priority_mode,
+            block_history: Arc::new(RwLock::new(block_history)),
+            gas_price: Arc::new(RwLock::new(initial_gas_price)),
+        })
     }
 
     /// Returns the sampled block time (in seconds) from construction.
     pub(crate) fn block_time(&self) -> u64 {
         self.block_time
-    }
-
-    /// Returns a clone of the new-order sender for use by other monitors (e.g. `OffchainMarketMonitor`).
-    pub(crate) fn new_order_tx(&self) -> mpsc::Sender<Box<OrderRequest>> {
-        self.new_order_tx.clone()
-    }
-
-    /// Returns a clone of the order-state broadcast sender for use by downstream components.
-    pub(crate) fn order_state_tx(&self) -> broadcast::Sender<OrderStateChange> {
-        self.order_state_tx.clone()
     }
 
     #[cfg(test)]
@@ -630,6 +608,7 @@ where
                         if let Err(err) = process_request_fulfilled(
                             event,
                             block_number,
+                            self.chain_id,
                             &self.db,
                             &self.order_state_tx,
                         )
@@ -668,28 +647,22 @@ where
     }
 }
 
-impl<P, ANP> RetryTask for ChainMonitorV2<P, ANP>
+impl<P, ANP> BrokerService for ChainMonitorV2<P, ANP>
 where
-    P: Provider<Ethereum> + Send + Sync + Clone + 'static,
-    ANP: Provider<AnyNetwork> + Send + Sync + Clone + 'static,
+    P: Provider<Ethereum> + Clone + Send + Sync + 'static,
+    ANP: Provider<AnyNetwork> + Clone + Send + Sync + 'static,
 {
     type Error = ChainMonitorV2Err;
 
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let self_clone = self.clone();
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting ChainMonitorV2");
 
-        Box::pin(async move {
-            tracing::info!("Starting ChainMonitorV2");
+        if !self.open_orders_found.load(Ordering::Relaxed) {
+            self.find_open_orders().await.map_err(SupervisorErr::Recover)?;
+            self.open_orders_found.store(true, Ordering::Relaxed);
+        }
 
-            if !self_clone.open_orders_found.load(Ordering::Relaxed) {
-                self_clone.find_open_orders().await.map_err(SupervisorErr::Recover)?;
-                self_clone.open_orders_found.store(true, Ordering::Relaxed);
-            }
-
-            self_clone.monitor_chain(cancel_token).await.map_err(SupervisorErr::Recover)?;
-
-            Ok(())
-        })
+        self.monitor_chain(cancel_token).await.map_err(SupervisorErr::Recover)
     }
 }
 
@@ -781,7 +754,10 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let gas_priority_mode = Arc::new(RwLock::new(PriorityMode::default()));
 
-        let (monitor, _new_order_rx) = ChainMonitorV2::new(
+        let (new_order_tx, _new_order_rx) = mpsc::channel(100);
+        let (order_state_tx, _) = broadcast::channel(100);
+
+        ChainMonitorV2::new(
             db,
             provider,
             any_provider,
@@ -790,10 +766,11 @@ mod tests {
             10, // lookback_blocks
             1,  // chain_id
             gas_priority_mode,
+            new_order_tx,
+            order_state_tx,
         )
         .await
-        .expect("ChainMonitorV2::new should succeed with valid mock responses");
-        monitor
+        .expect("ChainMonitorV2::new should succeed with valid mock responses")
     }
 
     /// Verifies that `verify_receipts_root` correctly computes the receipts root for a real

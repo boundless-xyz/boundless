@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 
@@ -31,6 +31,9 @@ pub use boundless_market::prover_utils::{
     config_defaults as defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
     OrderPricingPriority, ProverConfig, TelemetryMode,
 };
+
+/// Directory name for per-chain broker config overrides (e.g. `chain-overrides/broker.8453.toml`).
+pub const CHAIN_OVERRIDES_DIR: &str = "chain-overrides";
 
 #[derive(Error)]
 pub enum ConfigErr {
@@ -75,23 +78,69 @@ impl ConfigLock {
 /// Max number of pending filesystem events from the config file
 const FILE_MONITOR_EVENT_BUFFER: usize = 32;
 
-/// Monitor service for watching config files for changes
+/// Monitor service for watching config files for changes.
+///
+/// Each `ConfigWatcher` manages a single merged config. In single-chain mode, it watches
+/// just `broker.toml`. In multi-chain mode, create one `ConfigWatcher` per chain — each
+/// watches the base `broker.toml` plus an optional `broker.{chain_id}.toml` override file
+/// (found next to the base config or in a `chain-overrides/` subdirectory).
+/// The exposed `config` is always the merged result.
 pub struct ConfigWatcher {
-    /// Current config data
+    /// Merged config (base, or base + chain override)
     pub config: ConfigLock,
     /// monitor task handle
-    // TODO: Need to join and monitor this handle
     _monitor: JoinHandle<Result<()>>,
 }
 
 impl ConfigWatcher {
-    /// Initialize a new config watcher and handle
-    pub async fn new(config_path: &Path) -> Result<Self> {
-        let initial_config = Config::load(config_path).await?;
+    /// Initialize a config watcher for a single base config file (no override).
+    pub async fn new(base_path: &Path) -> Result<Self> {
+        Self::new_with_chain_override(base_path, None, None).await
+    }
+
+    /// Initialize a config watcher with an optional per-chain override file.
+    pub async fn new_with_override(base_path: &Path, override_path: Option<&Path>) -> Result<Self> {
+        Self::new_with_chain_override(base_path, override_path, None).await
+    }
+
+    /// Initialize a config watcher with an optional per-chain override file and chain ID.
+    ///
+    /// If `override_path` is provided, the config is the result of merging the override
+    /// onto the base. Both files are watched for changes; on any modification the merge
+    /// is re-applied and the `config` field updated.
+    ///
+    /// If `chain_id` is provided, chain-specific gas estimation defaults are applied
+    /// after every load/reload (unless the user has explicitly overridden them).
+    pub async fn new_with_chain_override(
+        base_path: &Path,
+        override_path: Option<&Path>,
+        chain_id: Option<u64>,
+    ) -> Result<Self> {
+        let base_toml = tokio::fs::read_to_string(base_path)
+            .await
+            .context(format!("Failed to read base config from {base_path:?}"))?;
+
+        let mut initial_config = match override_path {
+            Some(op) => {
+                let override_toml = tokio::fs::read_to_string(op)
+                    .await
+                    .context(format!("Failed to read override config from {op:?}"))?;
+                Config::merge(&base_toml, &override_toml)
+                    .context(format!("Failed to merge override {op:?} onto {base_path:?}"))?
+            }
+            None => toml::from_str(&base_toml)
+                .context(format!("Failed to parse base config from {base_path:?}"))?,
+        };
         log_deprecated_config_usage(&initial_config);
-        let config = Arc::new(RwLock::new(initial_config));
-        let config_copy = config.clone();
-        let config_path_copy = config_path.to_path_buf();
+
+        if let Some(cid) = chain_id {
+            initial_config.market.apply_chain_defaults(cid);
+        }
+
+        let base_config = Arc::new(RwLock::new(initial_config));
+        let base_config_copy = base_config.clone();
+        let base_path_copy = base_path.to_path_buf();
+        let override_path_copy: Option<PathBuf> = override_path.map(|p| p.to_path_buf());
 
         let startup_notification = Arc::new(tokio::sync::Notify::new());
         let startup_notification_copy = startup_notification.clone();
@@ -101,11 +150,7 @@ impl ConfigWatcher {
 
             let mut watcher = notify::recommended_watcher(move |res| match res {
                 Ok(event) => {
-                    // tracing::debug!("watch event: {event:?}");
                     if let Err(err) = tx.try_send(event) {
-                        // TODO we hit TrySendError::Closed if the ConfigWatcher is dropped
-                        // it would be nice to auto un-watch the file and shutdown in a cleaner
-                        // order
                         tracing::debug!("Failed to send filesystem event to channel: {err:?}");
                     }
                 }
@@ -114,46 +159,84 @@ impl ConfigWatcher {
             .context("Failed to construct watcher")?;
 
             watcher
-                .watch(&config_path_copy, notify::RecursiveMode::NonRecursive)
-                .context("Failed to start watcher")?;
+                .watch(&base_path_copy, notify::RecursiveMode::NonRecursive)
+                .context("Failed to start watching base config")?;
+
+            if let Some(ref op) = override_path_copy {
+                watcher
+                    .watch(op, notify::RecursiveMode::NonRecursive)
+                    .context("Failed to start watching override config")?;
+            }
+
             startup_notification_copy.notify_one();
 
             while let Some(event) = rx.recv().await {
-                // tracing::debug!("Got event: {event:?}");
-                match event.kind {
-                    EventKind::Modify(_) => {
-                        tracing::debug!("Reloading modified config file");
-                        let new_config = match Config::load(&config_path_copy).await {
+                if !matches!(event.kind, EventKind::Modify(_)) {
+                    tracing::debug!("unsupported config file event: {event:?}");
+                    continue;
+                }
+
+                let changed_path =
+                    event.paths.first().map(|p| p.display().to_string()).unwrap_or_default();
+                tracing::debug!("Reloading config due to change in {changed_path}");
+
+                let new_config = match &override_path_copy {
+                    Some(op) => {
+                        let base_toml = match tokio::fs::read_to_string(&base_path_copy).await {
                             Ok(val) => val,
                             Err(err) => {
-                                tracing::error!("Failed to load modified config: {err:?}");
+                                tracing::error!("Failed to read base config: {err:?}");
                                 continue;
                             }
                         };
-                        let mut config = match config_copy.write() {
+                        let override_toml = match tokio::fs::read_to_string(op).await {
                             Ok(val) => val,
                             Err(err) => {
-                                tracing::error!(
-                                    "Failed to lock config, previously poisoned? {err:?}"
-                                );
+                                tracing::error!("Failed to read override config: {err:?}");
                                 continue;
                             }
                         };
+                        match Config::merge(&base_toml, &override_toml) {
+                            Ok(val) => val,
+                            Err(err) => {
+                                tracing::error!("Failed to merge config: {err:?}");
+                                continue;
+                            }
+                        }
+                    }
+                    None => match Config::load(&base_path_copy).await {
+                        Ok(val) => val,
+                        Err(err) => {
+                            tracing::error!("Failed to load modified config: {err:?}");
+                            continue;
+                        }
+                    },
+                };
+
+                match base_config_copy.write() {
+                    Ok(mut config) => {
                         log_deprecated_config_usage(&new_config);
+                        let mut new_config = new_config;
+                        if let Some(cid) = chain_id {
+                            new_config.market.apply_chain_defaults(cid);
+                        }
                         *config = new_config;
                     }
-                    _ => {
-                        tracing::debug!("unsupported config file event: {event:?}");
+                    Err(err) => {
+                        tracing::error!("Failed to lock config, previously poisoned? {err:?}");
                     }
                 }
             }
 
-            watcher.unwatch(&config_path_copy).context("Failed to stop watching config")?;
+            watcher.unwatch(&base_path_copy).context("Failed to stop watching base config")?;
+            if let Some(ref op) = override_path_copy {
+                let _ = watcher.unwatch(op);
+            }
 
             Ok(())
         });
 
-        // Wait for successful start up, if failed return the Result
+        // Wait for successful start up
         if let Err(err) = timeout(Duration::from_secs(1), startup_notification.notified()).await {
             tracing::error!("Failed to get notification from config monitor startup in: {err}");
             let task_res = monitor.await.context("Config watcher startup failed")?;
@@ -162,9 +245,31 @@ impl ConfigWatcher {
                 Err(err) => return Err(err),
             }
         }
-        tracing::debug!("Successful startup");
+        tracing::debug!(
+            base = %base_path.display(),
+            override_file = override_path.map(|p| p.display().to_string()).unwrap_or_default(),
+            "Config watcher started"
+        );
 
-        Ok(Self { config: ConfigLock::new(config), _monitor: monitor })
+        Ok(Self { config: ConfigLock::new(base_config), _monitor: monitor })
+    }
+
+    /// Resolve the override file path for a chain, if it exists.
+    /// Looks for `broker.{chain_id}.toml` first next to `base_path`, then in
+    /// a `chain-overrides/` subdirectory relative to the base config.
+    pub fn override_path_for_chain(base_path: &Path, chain_id: u64) -> Option<PathBuf> {
+        let config_dir = base_path.parent().unwrap_or(Path::new("."));
+        let filename = format!("broker.{chain_id}.toml");
+
+        // Check next to base config (e.g. ./broker.8453.toml)
+        let adjacent = config_dir.join(&filename);
+        if adjacent.exists() {
+            return Some(adjacent);
+        }
+
+        // Check chain-overrides/ subdirectory (e.g. ./chain-overrides/broker.8453.toml)
+        let subdir = config_dir.join(CHAIN_OVERRIDES_DIR).join(&filename);
+        subdir.exists().then_some(subdir)
     }
 }
 
@@ -191,12 +296,12 @@ mod tests {
 
     const CONFIG_TEMPL: &str = r#"
 [market]
-mcycle_price = "0.1 ETH"
+min_mcycle_price = "0.1 ETH"
 expected_probability_win_secondary_fulfillment = 50
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
-max_stake = "0.1 ZKC"
+max_collateral = "0.1 ZKC"
 max_file_size = 50_000_000
 min_mcycle_limit = 5
 
@@ -217,13 +322,13 @@ block_deadline_buffer_secs = 120"#;
 
     const CONFIG_TEMPL_2: &str = r#"
 [market]
-mcycle_price = "0.1 ETH"
+min_mcycle_price = "0.1 ETH"
 expected_probability_win_secondary_fulfillment = 50
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
 lookback_blocks = 100
-max_stake = "0.1 ZKC"
+max_collateral = "0.1 ZKC"
 max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
@@ -243,7 +348,7 @@ proof_retry_sleep_ms = 500
 
 [batcher]
 batch_max_time = 300
-batch_size = 3
+min_batch_size = 3
 block_deadline_buffer_secs = 120
 txn_timeout = 45
 batch_poll_time_ms = 1200
@@ -252,8 +357,8 @@ withdraw = true"#;
 
     const CONFIG_CUSTOM_PRIORITY_MODE: &str = r#"
 [market]
-mcycle_price = "0.2 ETH"
-max_stake = "0.1 ZKC"
+min_mcycle_price = "0.2 ETH"
+max_collateral = "0.1 ZKC"
 gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 9 } }
 "#;
 
@@ -316,6 +421,7 @@ error = ?"#;
                 priority_fee_multiplier_percentage: 150,
                 priority_fee_percentile: 15.0,
                 dynamic_multiplier_percentage: 9,
+                min_priority_fee_wei: 0,
             }
         );
     }
@@ -388,10 +494,209 @@ error = ?"#;
 
     #[tokio::test]
     #[traced_test]
-    #[should_panic(expected = "Failed to parse toml file")]
+    #[should_panic(expected = "TOML parse error")]
     async fn watcher_fail_startup() {
         let mut config_temp = NamedTempFile::new().unwrap();
         write_config(BAD_CONFIG, config_temp.as_file_mut());
         ConfigWatcher::new(config_temp.path()).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn config_watcher_with_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let base_path = dir.path().join("broker.toml");
+        std::fs::write(
+            &base_path,
+            r#"
+[market]
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
+min_deadline = 300
+max_concurrent_proofs = 5
+
+[batcher]
+min_batch_size = 2
+"#,
+        )
+        .unwrap();
+
+        let override_path = dir.path().join("broker.8453.toml");
+        std::fs::write(
+            &override_path,
+            r#"
+[market]
+min_mcycle_price = "0.05 ETH"
+
+[batcher]
+min_batch_size = 4
+"#,
+        )
+        .unwrap();
+
+        let watcher =
+            ConfigWatcher::new_with_override(&base_path, Some(&override_path)).await.unwrap();
+
+        let config = watcher.config.lock_all().unwrap();
+        // Overridden
+        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.05 ETH", None).unwrap());
+        assert_eq!(config.batcher.min_batch_size, 4);
+        // Inherited from base
+        assert_eq!(config.market.min_deadline, 300);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn config_watcher_override_global_fields_not_overridden() {
+        let dir = tempfile::tempdir().unwrap();
+        let base_path = dir.path().join("broker.toml");
+        std::fs::write(
+            &base_path,
+            r#"
+[market]
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
+max_concurrent_proofs = 5
+peak_prove_khz = 100
+"#,
+        )
+        .unwrap();
+
+        let override_path = dir.path().join("broker.8453.toml");
+        std::fs::write(
+            &override_path,
+            r#"
+[market]
+min_mcycle_price = "0.05 ETH"
+max_concurrent_proofs = 99
+peak_prove_khz = 999
+"#,
+        )
+        .unwrap();
+
+        let watcher =
+            ConfigWatcher::new_with_override(&base_path, Some(&override_path)).await.unwrap();
+
+        let config = watcher.config.lock_all().unwrap();
+        // Per-chain field overridden
+        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.05 ETH", None).unwrap());
+        // Global fields kept from base
+        assert_eq!(config.market.max_concurrent_proofs, 5);
+        assert_eq!(config.market.peak_prove_khz, Some(100));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn config_watcher_override_path_helper() {
+        let dir = tempfile::tempdir().unwrap();
+        let base_path = dir.path().join("broker.toml");
+        std::fs::write(&base_path, "").unwrap();
+
+        // No override file exists
+        assert!(ConfigWatcher::override_path_for_chain(&base_path, 8453).is_none());
+
+        // Create one
+        let override_path = dir.path().join("broker.8453.toml");
+        std::fs::write(&override_path, "").unwrap();
+
+        let result = ConfigWatcher::override_path_for_chain(&base_path, 8453);
+        assert_eq!(result, Some(override_path));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn config_watcher_chain_defaults_applied_and_survive_reload() {
+        use boundless_market::dynamic_gas_filler::PriorityMode;
+        use std::io::{Seek, Write};
+
+        let dir = tempfile::tempdir().unwrap();
+        let base_path = dir.path().join("broker.toml");
+
+        // Write a minimal config with NO gas settings — they'll use generic defaults.
+        let base_content = r#"
+[market]
+min_mcycle_price = "0.1 ETH"
+max_collateral = "10 USD"
+"#;
+        std::fs::write(&base_path, base_content).unwrap();
+
+        // Create watcher with Taiko chain_id — should apply chain-specific gas defaults.
+        let watcher =
+            ConfigWatcher::new_with_chain_override(&base_path, None, Some(167000)).await.unwrap();
+
+        {
+            let config = watcher.config.lock_all().unwrap();
+            // Estimation resolves to Taiko's estimation medium (20th percentile)
+            assert!(matches!(
+                config.market.gas_estimation_priority_mode,
+                PriorityMode::Custom { priority_fee_percentile, .. }
+                if (priority_fee_percentile - 20.0).abs() < f64::EPSILON
+            ));
+            // Priority resolves to Taiko's priority medium (5th percentile)
+            assert!(matches!(
+                config.market.gas_priority_mode,
+                PriorityMode::Custom { priority_fee_percentile, .. }
+                if (priority_fee_percentile - 5.0).abs() < f64::EPSILON
+            ));
+        }
+
+        // Simulate a config reload by modifying the file.
+        {
+            let mut file =
+                std::fs::File::options().write(true).truncate(true).open(&base_path).unwrap();
+            file.seek(std::io::SeekFrom::Start(0)).unwrap();
+            write!(
+                file,
+                r#"
+[market]
+min_mcycle_price = "0.2 ETH"
+max_collateral = "10 USD"
+"#
+            )
+            .unwrap();
+        }
+        // Give the file watcher time to pick up the change
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        {
+            let config = watcher.config.lock_all().unwrap();
+            // Config value should be updated
+            assert_eq!(config.market.min_mcycle_price, Amount::parse("0.2 ETH", None).unwrap());
+            // Chain defaults should survive the reload
+            assert!(
+                matches!(
+                    config.market.gas_estimation_priority_mode,
+                    PriorityMode::Custom { priority_fee_percentile, .. }
+                    if (priority_fee_percentile - 20.0).abs() < f64::EPSILON
+                ),
+                "Chain defaults should survive config reload"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn config_watcher_override_path_chain_overrides_subdir() {
+        let dir = tempfile::tempdir().unwrap();
+        let base_path = dir.path().join("broker.toml");
+        std::fs::write(&base_path, "").unwrap();
+
+        // No override in either location
+        assert!(ConfigWatcher::override_path_for_chain(&base_path, 167000).is_none());
+
+        // Create in chain-overrides/ subdirectory
+        let overrides_dir = dir.path().join(CHAIN_OVERRIDES_DIR);
+        std::fs::create_dir_all(&overrides_dir).unwrap();
+        let override_path = overrides_dir.join("broker.167000.toml");
+        std::fs::write(&override_path, "").unwrap();
+
+        let result = ConfigWatcher::override_path_for_chain(&base_path, 167000);
+        assert_eq!(result, Some(override_path));
+
+        // Adjacent file takes precedence over subdirectory
+        let adjacent = dir.path().join("broker.167000.toml");
+        std::fs::write(&adjacent, "").unwrap();
+
+        let result = ConfigWatcher::override_path_for_chain(&base_path, 167000);
+        assert_eq!(result, Some(adjacent));
     }
 }

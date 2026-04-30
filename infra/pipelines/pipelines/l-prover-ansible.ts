@@ -1,6 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { BasePipelineArgs } from "./base";
+import { BasePipelineArgs, createLaunchPipelineNotificationRule, createProdStageFailureAlert } from "./base";
 import {
   BOUNDLESS_OPS_ACCOUNT_ID,
   BOUNDLESS_STAGING_ACCOUNT_ID,
@@ -466,27 +466,28 @@ artifacts:
       { parent: this }
     );
 
-    new aws.codestarnotifications.NotificationRule(
-      `l-${APP_NAME}-pipeline-notifications`,
+    createLaunchPipelineNotificationRule(
+      `l-${APP_NAME}-pipeline-status-notifications`,
+      pipeline.arn,
+      [
+        "codepipeline-pipeline-pipeline-execution-succeeded",
+        "codepipeline-pipeline-manual-approval-needed",
+      ],
+      slackAlertsTopicArn,
       {
-        name: `l-${APP_NAME}-pipeline-notifications`,
-        eventTypeIds: [
-          "codepipeline-pipeline-pipeline-execution-failed",
-          "codepipeline-pipeline-action-execution-failed",
-          "codepipeline-pipeline-pipeline-execution-succeeded",
-          "codepipeline-pipeline-manual-approval-needed",
-        ],
-        resource: pipeline.arn,
-        detailType: "FULL",
-        targets: [
-          {
-            address: slackAlertsTopicArn,
-          },
-        ],
-        tags: {
-          Name: `l-${APP_NAME}-pipeline-notifications`,
-          Component: `l-${APP_NAME}`,
-        },
+        Name: `l-${APP_NAME}-pipeline-status-notifications`,
+        Component: `l-${APP_NAME}`,
+      },
+      { parent: this }
+    );
+
+    createProdStageFailureAlert(
+      `l-${APP_NAME}-prod-stage-failure`,
+      pipeline.arn,
+      slackAlertsTopicArn,
+      {
+        Name: `l-${APP_NAME}-prod-stage-failure`,
+        Component: `l-${APP_NAME}`,
       },
       { parent: this }
     );

@@ -25,7 +25,7 @@ pub struct CustomRetryPolicy;
 ///
 /// Extends the default `RateLimitRetryPolicy` with additional retryable cases:
 /// - OS error 104 / connection reset by peer
-///   https://github.com/boundless-xyz/boundless/issues/240
+///   <https://github.com/boundless-xyz/boundless/issues/240>
 /// - HTTP 408 (Request Timeout), 410 (Gone — pruned block, may be available on another
 ///   endpoint via SequentialFallbackLayer), 500 (Internal Server Error), 502 (Bad Gateway),
 ///   504 (Gateway Timeout) — standard transient HTTP errors not covered by alloy

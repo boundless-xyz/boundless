@@ -124,7 +124,7 @@ async fn request_spawner<P: Provider>(
     Ok(())
 }
 
-async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider>(
+async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider + Send + Sync>(
     ctx: &TestCtx<P>,
     rpc_url: Url,
     db_url: &str,
@@ -136,10 +136,13 @@ async fn spawn_broker<P: Provider + 'static + Clone + WalletProvider>(
     ctx.customer_market.deposit(utils::parse_ether("10.0")?).await?;
 
     // Start broker
-    let (broker, config_file) =
-        BrokerBuilder::new_test(ctx, rpc_url).await.with_db_url(db_url.to_string()).build().await?;
+    let (broker, chain, config_file, _db_dir) = BrokerBuilder::new_test(ctx, rpc_url)
+        .await
+        .with_db_url(db_url.to_string())
+        .build(ctx)
+        .await?;
     let broker_task = tokio::spawn(async move {
-        broker.start_service().await.unwrap();
+        broker.start_service(vec![chain]).await.unwrap();
     });
 
     Ok((broker_task, config_file))

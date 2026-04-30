@@ -100,9 +100,8 @@ impl<S: Clone> TrackedTransport<S> {
 /// transports in parallel. By always preferring the primary transport and only
 /// falling back when it fails, this layer minimizes RPC usage on paid endpoints.
 ///
-/// If a transport fails [`MAX_CONSECUTIVE_FAILURES`] times in a row it is
-/// temporarily skipped. Skipped transports are retried every [`RETRY_INTERVAL`]
-/// requests to detect recovery.
+/// If a transport fails a configured number of times in a row it is temporarily skipped.
+/// Skipped transports are retried every N-th request to detect recovery.
 ///
 /// [`FallbackLayer`]: alloy::transports::layers::FallbackLayer
 #[derive(Debug, Clone, Default)]

@@ -154,7 +154,7 @@ services:
       ORDER_STREAM_URL: "http://localhost:8585"
     volumes:
       - deployer-env:/shared:ro
-      - ../broker.toml:/app/broker.toml:ro
+      - ../broker.localnet.toml:/app/broker.toml:ro
     restart: unless-stopped
 
 volumes:

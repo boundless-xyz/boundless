@@ -1,0 +1,110 @@
+name: Prover Testing
+
+on:
+  pull_request:
+    branches:
+      - main
+      - next
+      - "release-*"
+    paths:
+      - "prover/**"
+      - ".github/workflows/prover.yml"
+  push:
+    branches:
+      - main
+      - next
+      - "release-*"
+    paths:
+      - "prover/**"
+      - ".github/workflows/prover.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "3.0.3"
+
+jobs:
+  prover-test:
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    timeout-minutes: 30
+    services:
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install Rust linker toolchain
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y build-essential binutils lld mold
+
+      - name: Setup sccache + S3
+        uses: ./.github/actions/sccache
+
+      - name: Setup Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@v3.0.3
+
+      - name: Install protoc
+        uses: risc0/risc0/.github/actions/protoc@v3.0.3
+
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install cargo-binstall
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-binstall
+
+      - name: Install cargo-sort
+        run: cargo binstall -y cargo-sort@2
+
+      - name: Cargo sort check
+        run: |
+          cd prover
+          cargo sort --workspace --check
+
+      - name: Cargo format check
+        run: |
+          cd prover
+          cargo fmt --all -- --check
+
+      - name: Cargo check
+        run: |
+          cd prover
+          cargo check --workspace --locked
+
+      - name: Run prover tests
+        run: |
+          cd prover
+          cargo test --workspace --locked
+        env:
+          REDIS_URL: redis://localhost:6379
+          RISC0_DEV_MODE: true
+
+      - name: sccache stats
+        run: sccache --show-stats
+

@@ -1,0 +1,3047 @@
+// Copyright 2026 Boundless Foundation, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
+
+use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
+use crate::{
+    chain_monitor::ChainMonitorObj,
+    channels::SharedReceiver,
+    config::{ConfigLock, MarketConfig},
+    db::DbObj,
+    errors::CodedError,
+    now_timestamp,
+    order_evaluator::{PreflightComplete, PreflightOutcome},
+    provers::ProverObj,
+    requestor_monitor::{AllowRequestors, PriorityRequestors},
+    task::{BrokerService, SupervisorErr},
+    utils, ConfigurableDownloader, Erc1271GasCache, FulfillmentType, OrderPricingContext,
+    OrderPricingError, OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
+};
+use alloy::{
+    network::Ethereum,
+    primitives::{utils::format_ether, Address, U256},
+    providers::{Provider, WalletProvider},
+};
+use anyhow::{Context, Result};
+use boundless_market::price_oracle::{Amount, Asset};
+use boundless_market::prover_utils::apply_secondary_fulfillment_discount;
+use boundless_market::telemetry::EvalOutcome;
+use boundless_market::{
+    contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
+    prover_utils::estimate_erc1271_gas, selector::SupportedSelectors, storage::StorageDownloader,
+};
+use moka::{future::Cache, policy::EvictionPolicy};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinSet,
+};
+use tokio_util::sync::CancellationToken;
+use tracing::{Instrument, Span};
+
+const LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+/// A preflight task that can be cancelled, tagged with its fulfillment type.
+struct PreflightHandle {
+    cancel_token: CancellationToken,
+    fulfillment_type: FulfillmentType,
+}
+
+/// Per-request map of in-flight preflight tasks: request_id → { order_id → task }
+#[derive(Default)]
+struct ActivePreflights(BTreeMap<U256, BTreeMap<String, PreflightHandle>>);
+
+impl ActivePreflights {
+    fn insert(&mut self, order: &OrderRequest, cancel_token: CancellationToken) {
+        let request_id = U256::from(order.request.id);
+        self.0.entry(request_id).or_default().insert(
+            order.id(),
+            PreflightHandle { cancel_token, fulfillment_type: order.fulfillment_type },
+        );
+    }
+
+    fn remove(&mut self, request_id: &U256, order_id: &str) {
+        if let Some(tasks) = self.0.get_mut(request_id) {
+            tasks.remove(order_id);
+            if tasks.is_empty() {
+                self.0.remove(request_id);
+            }
+        }
+    }
+
+    fn contains(&self, request_id: &U256, order_id: &str) -> bool {
+        self.0.get(request_id).is_some_and(|t| t.contains_key(order_id))
+    }
+
+    /// Cancel and remove LockAndFulfill tasks for a locked request.
+    fn cancel_lock_and_fulfill(&mut self, request_id: &U256) {
+        let Some(tasks) = self.0.get_mut(request_id) else { return };
+
+        let before = tasks.len();
+        tasks.retain(|_, task| {
+            let should_cancel = task.fulfillment_type == FulfillmentType::LockAndFulfill;
+            if should_cancel {
+                task.cancel_token.cancel();
+            }
+            !should_cancel
+        });
+
+        let cancelled = before - tasks.len();
+        if cancelled > 0 {
+            tracing::debug!(
+                "Cancelled {cancelled} LockAndFulfill preflights for locked request 0x{request_id:x}"
+            );
+        }
+        if tasks.is_empty() {
+            self.0.remove(request_id);
+        }
+    }
+
+    /// Cancel and remove all tasks for a fulfilled request.
+    fn cancel_all(&mut self, request_id: &U256) {
+        let Some(tasks) = self.0.remove(request_id) else { return };
+
+        tracing::debug!(
+            "Cancelling {} active preflights for fulfilled request 0x{request_id:x}",
+            tasks.len(),
+        );
+        for (_, task) in tasks {
+            task.cancel_token.cancel();
+        }
+    }
+
+    fn format(&self) -> String {
+        format_truncated(self.0.values().flat_map(|orders| orders.keys()))
+    }
+}
+
+// Broker-specific skip codes for checks that live in OrderPicker (not in pricing logic).
+const SKIP_NOT_IN_ALLOWLIST: &str = "[S-OP-001]";
+const SKIP_IN_DENYLIST: &str = "[S-OP-002]";
+const SKIP_UNSUPPORTED_SELECTOR_BROKER: &str = "[S-OP-003]";
+const SKIP_ALREADY_LOCKED: &str = "[S-OP-004]";
+const SKIP_ALREADY_FULFILLED: &str = "[S-OP-005]";
+const SKIP_GAS_EXCEEDS_MAX_PRICE: &str = "[S-OP-006]";
+const SKIP_GAS_EXCEEDS_BALANCE: &str = "[S-OP-007]";
+const SKIP_INSUFFICIENT_COLLATERAL: &str = "[S-OP-008]";
+const SKIP_FETCH_ERROR: &str = "[S-OP-009]";
+const SKIP_PRICING_ERROR: &str = "[S-OP-010]";
+
+/// Maximum number of orders to cache for deduplication
+const ORDER_DEDUP_CACHE_SIZE: u64 = 5000;
+
+/// In-memory LRU cache for order deduplication by ID (prevents duplicate order processing)
+type OrderCache = Arc<Cache<String, ()>>;
+
+/// Configuration for preflight result caching
+const PREFLIGHT_CACHE_SIZE: u64 = 5000;
+const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
+
+type OrderPricerErr = OrderPricingError;
+
+// `coded_error_impl!` doesn't fit here: OrderPricingError is a foreign type
+// (defined in boundless_market::prover_utils) and is `#[non_exhaustive]`, so
+// the match needs a wildcard arm. Keep the manual impl.
+impl CodedError for OrderPricingError {
+    fn code(&self) -> &str {
+        match self {
+            OrderPricingError::FetchInputErr(_) => "[B-OP-001]",
+            OrderPricingError::FetchImageErr(_) => "[B-OP-002]",
+            OrderPricingError::RequestError(_) => "[B-OP-004]",
+            OrderPricingError::RpcErr(_) => "[B-OP-005]",
+            OrderPricingError::UnexpectedErr(_) => "[B-OP-500]",
+            _ => "[B-OP-500]",
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct OrderPricer<P> {
+    db: DbObj,
+    config: ConfigLock,
+    prover: ProverObj,
+    provider: Arc<P>,
+    chain_monitor: ChainMonitorObj,
+    market: BoundlessMarketService<Arc<P>>,
+    supported_selectors: SupportedSelectors,
+    new_order_rx: SharedReceiver<Box<OrderRequest>>,
+    priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
+    collateral_token_decimals: u8,
+    order_cache: OrderCache,
+    preflight_cache: PreflightCache,
+    erc1271_gas_cache: Erc1271GasCache,
+    order_state_tx: broadcast::Sender<OrderStateChange>,
+    priority_requestors: PriorityRequestors,
+    allow_requestors: AllowRequestors,
+    downloader: ConfigurableDownloader,
+    price_oracle: Arc<PriceOracleManager>,
+    listen_only: bool,
+    chain_id: u64,
+    pricing_completion_tx: mpsc::Sender<PreflightComplete>,
+}
+
+impl<P> OrderPricer<P>
+where
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+{
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        db: DbObj,
+        config: ConfigLock,
+        prover: ProverObj,
+        market_addr: Address,
+        provider: Arc<P>,
+        chain_monitor: ChainMonitorObj,
+        new_order_rx: SharedReceiver<Box<OrderRequest>>,
+        order_result_tx: mpsc::Sender<Box<OrderRequest>>,
+        collateral_token_decimals: u8,
+        order_state_tx: broadcast::Sender<OrderStateChange>,
+        priority_requestors: PriorityRequestors,
+        allow_requestors: AllowRequestors,
+        downloader: ConfigurableDownloader,
+        price_oracle: Arc<PriceOracleManager>,
+        erc1271_gas_cache: Erc1271GasCache,
+        listen_only: bool,
+        chain_id: u64,
+        pricing_completion_tx: mpsc::Sender<PreflightComplete>,
+    ) -> Self {
+        let market = BoundlessMarketService::new_for_broker(
+            market_addr,
+            provider.clone(),
+            provider.default_signer_address(),
+        );
+
+        Self {
+            db,
+            config,
+            prover,
+            provider,
+            chain_monitor,
+            market,
+            supported_selectors: SupportedSelectors::default(),
+            new_order_rx,
+            priced_orders_tx: order_result_tx,
+            collateral_token_decimals,
+            order_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .max_capacity(ORDER_DEDUP_CACHE_SIZE)
+                    .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
+                    .build(),
+            ),
+            preflight_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .max_capacity(PREFLIGHT_CACHE_SIZE)
+                    .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
+                    .build(),
+            ),
+            erc1271_gas_cache,
+            order_state_tx,
+            priority_requestors,
+            allow_requestors,
+            downloader,
+            price_oracle,
+            listen_only,
+            chain_id,
+            pricing_completion_tx,
+        }
+    }
+
+    async fn price_order_and_update_state(
+        &self,
+        mut order: Box<OrderRequest>,
+        cancel_token: CancellationToken,
+    ) -> bool {
+        let order_id = order.id();
+        let queue_duration_ms = order
+            .created_at
+            .map(|t| t.elapsed().as_millis() as u64)
+            .unwrap_or_else(|| now_timestamp().saturating_sub(order.received_at_timestamp) * 1000);
+
+        let f = || async {
+            let pricing_result = tokio::select! {
+                result = self.price_order(&mut order) => result,
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Order pricing cancelled during pricing for order {order_id}");
+                    return Ok(false);
+                }
+            };
+
+            let total_elapsed_ms =
+                order.created_at.map(|t| t.elapsed().as_millis() as u64).unwrap_or_else(|| {
+                    now_timestamp().saturating_sub(order.received_at_timestamp) * 1000
+                });
+            let preflight_duration_ms = total_elapsed_ms.saturating_sub(queue_duration_ms);
+
+            let (accepted, skip_code, skip_reason, total_cycles, eval_outcome) =
+                match pricing_result {
+                    Ok(Lock {
+                        total_cycles,
+                        target_timestamp_secs,
+                        expiry_secs,
+                        target_mcycle_price,
+                        max_mcycle_price,
+                        current_mcycle_price,
+                        config_min_mcycle_price,
+                        journal_len,
+                    }) => {
+                        order.total_cycles = Some(total_cycles);
+                        order.journal_bytes = Some(journal_len);
+                        order.target_timestamp = Some(target_timestamp_secs);
+                        order.expire_timestamp = Some(expiry_secs);
+
+                        tracing::info!(
+                            "Order {order_id} scheduled for lock attempt in {}s (timestamp: {}), when price exceeds: {} ETH/Mcycle (config min price: {} ETH/Mcycle, current price: {} ETH/Mcycle, max price: {} ETH/Mcycle)",
+                            target_timestamp_secs.saturating_sub(now_timestamp()),
+                            target_timestamp_secs,
+                            format_ether(target_mcycle_price),
+                            format_ether(config_min_mcycle_price),
+                            format_ether(current_mcycle_price),
+                            format_ether(max_mcycle_price),
+                        );
+
+                        (true, None, None, Some(total_cycles), EvalOutcome::Locked)
+                    }
+                    Ok(ProveAfterLockExpire {
+                        total_cycles,
+                        lock_expire_timestamp_secs,
+                        expiry_secs,
+                        mcycle_price,
+                        config_min_mcycle_price,
+                        journal_len,
+                    }) => {
+                        order.journal_bytes = Some(journal_len);
+                        tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", self.format_collateral(mcycle_price), self.format_collateral(config_min_mcycle_price));
+                        order.total_cycles = Some(total_cycles);
+                        order.target_timestamp = Some(lock_expire_timestamp_secs);
+                        order.expire_timestamp = Some(expiry_secs);
+
+                        // Compute discounted collateral reward, convert ZKC -> USD -> ETH.
+                        // Later used in order prioritization. This value does not change based on time,
+                        // the only variable is the price of ZKC.
+                        let raw_collateral =
+                            order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+                        let config = self.market_config()?;
+                        let discounted = apply_secondary_fulfillment_discount(
+                            raw_collateral,
+                            config.expected_probability_win_secondary_fulfillment,
+                        );
+                        let zkc_amount = Amount::new(discounted, Asset::ZKC);
+                        let eth_amount = self
+                            .price_oracle
+                            .convert(&zkc_amount, Asset::ETH)
+                            .await
+                            .map_err(anyhow::Error::from)?;
+                        order.expected_reward_eth = Some(eth_amount.value);
+                        tracing::debug!(
+                            "Secondary order {order_id}: raw_collateral={} ZKC, win_probability={}%, discounted={} ZKC, expected_reward={} ETH",
+                            self.format_collateral(raw_collateral),
+                            config.expected_probability_win_secondary_fulfillment,
+                            self.format_collateral(discounted),
+                            format_ether(eth_amount.value),
+                        );
+
+                        order.priced_at_timestamp = Some(now_timestamp());
+                        (true, None, None, Some(total_cycles), EvalOutcome::FulfillAfterLockExpire)
+                    }
+                    Ok(Skip { code, reason }) => {
+                        tracing::info!("Skipping order {order_id}: {reason}");
+                        (false, Some(code), Some(reason), order.total_cycles, EvalOutcome::Skipped)
+                    }
+                    Err(
+                        OrderPricingError::FetchInputErr(ref inner)
+                        | OrderPricingError::FetchImageErr(ref inner),
+                    ) => {
+                        let reason = format!("failed to fetch input/image: {inner:#}");
+                        tracing::info!(
+                            "Skipping order {order_id}: {reason} (this is expected for private inputs that require specific storage credentials)"
+                        );
+                        (false, Some(SKIP_FETCH_ERROR), Some(reason), None, EvalOutcome::Skipped)
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to price order {order_id}: {err}");
+                        (
+                            false,
+                            Some(SKIP_PRICING_ERROR),
+                            Some(err.to_string()),
+                            None,
+                            EvalOutcome::Skipped,
+                        )
+                    }
+                };
+
+            crate::telemetry::telemetry(self.chain_id).record_order_pricing(
+                &order,
+                eval_outcome,
+                skip_code,
+                skip_reason,
+                total_cycles,
+                queue_duration_ms,
+                preflight_duration_ms,
+            );
+
+            if accepted {
+                self.priced_orders_tx
+                    .send(order)
+                    .await
+                    .context("Failed to send to order_result_tx")?;
+                Ok::<_, OrderPricerErr>(true)
+            } else {
+                Ok(false)
+            }
+        };
+
+        match f().await {
+            Ok(true) => true,
+            Ok(false) => false,
+            Err(err) => {
+                tracing::error!("Failed to update for order {order_id}: {err}");
+                false
+            }
+        }
+    }
+
+    async fn gas_balance_reserved(&self) -> Result<U256, OrderPricerErr> {
+        let gas_price =
+            self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?;
+        let fulfill_pending_gas = self.estimate_gas_to_fulfill_pending().await?;
+        Ok(U256::from(gas_price) * U256::from(fulfill_pending_gas))
+    }
+}
+
+impl<P> OrderPricingContext for OrderPricer<P>
+where
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+{
+    fn market_config(&self) -> Result<MarketConfig, OrderPricerErr> {
+        let config = self.config.lock_all().context("Failed to read config")?;
+        Ok(config.market.clone())
+    }
+
+    fn denied_requestor_addresses(&self) -> Result<Option<HashSet<Address>>, OrderPricerErr> {
+        let config = self.config.lock_all().context("Failed to read config")?;
+        Ok(config.market.deny_requestor_addresses.clone())
+    }
+
+    fn supported_selectors(&self) -> &SupportedSelectors {
+        &self.supported_selectors
+    }
+
+    fn preflight_cache(&self) -> &PreflightCache {
+        &self.preflight_cache
+    }
+
+    fn collateral_token_decimals(&self) -> u8 {
+        self.collateral_token_decimals
+    }
+
+    fn check_requestor_allowed(
+        &self,
+        order: &OrderRequest,
+        denied_addresses_opt: Option<&HashSet<Address>>,
+    ) -> Result<Option<OrderPricingOutcome>, OrderPricerErr> {
+        let client_addr = order.request.client_address();
+        if !self.allow_requestors.is_allow_requestor(&client_addr) {
+            let has_allow_list = {
+                let config = self.config.lock_all().context("Failed to read config")?;
+                config.market.allow_client_addresses.is_some()
+                    || config.market.allow_requestor_lists.is_some()
+            };
+            if has_allow_list {
+                return Ok(Some(Skip {
+                    code: SKIP_NOT_IN_ALLOWLIST,
+                    reason: format!("order from {client_addr} is not in allow requestors"),
+                }));
+            }
+        }
+
+        if let Some(deny_addresses) = denied_addresses_opt {
+            if deny_addresses.contains(&client_addr) {
+                return Ok(Some(Skip {
+                    code: SKIP_IN_DENYLIST,
+                    reason: format!(
+                        "order is from {} and is in deny_requestor_addresses",
+                        client_addr
+                    ),
+                }));
+            }
+        }
+
+        if !self.supported_selectors.is_supported(order.request.requirements.selector) {
+            return Ok(Some(Skip {
+                code: SKIP_UNSUPPORTED_SELECTOR_BROKER,
+                reason: format!(
+                    "unsupported selector requirement. Requested: {:x}. Supported: {:?}",
+                    order.request.requirements.selector,
+                    self.supported_selectors
+                        .selectors
+                        .iter()
+                        .map(|(k, v)| format!("{k:x} ({v:?})"))
+                        .collect::<Vec<_>>()
+                ),
+            }));
+        };
+
+        Ok(None)
+    }
+
+    async fn check_request_available(
+        &self,
+        order: &OrderRequest,
+    ) -> Result<Option<OrderPricingOutcome>, OrderPricerErr> {
+        let request_id = U256::from(order.request.id);
+        let is_locked = self
+            .db
+            .is_request_locked(request_id)
+            .await
+            .context("Failed to check if request is locked before pricing")?;
+        let is_fulfilled = self
+            .db
+            .is_request_fulfilled(request_id)
+            .await
+            .context("Failed to check if request is fulfilled before pricing")?;
+
+        if order.fulfillment_type == FulfillmentType::LockAndFulfill && is_locked {
+            return Ok(Some(Skip {
+                code: SKIP_ALREADY_LOCKED,
+                reason: "order is already locked".to_string(),
+            }));
+        }
+
+        if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire && is_fulfilled {
+            return Ok(Some(Skip {
+                code: SKIP_ALREADY_FULFILLED,
+                reason: "order is already fulfilled".to_string(),
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64, OrderPricerErr> {
+        let mut gas = 0;
+        let config = &self.config;
+        for order in self
+            .db
+            .get_committed_orders()
+            .await
+            .map_err(|err| OrderPricerErr::UnexpectedErr(Arc::new(err.into())))?
+        {
+            let gas_estimate = utils::estimate_gas_to_fulfill(
+                config,
+                &self.supported_selectors,
+                &order.request,
+                order.journal_bytes,
+            )
+            .await?;
+            gas += gas_estimate;
+        }
+        tracing::debug!("Total gas estimate to fulfill pending orders: {}", gas);
+        Ok(gas)
+    }
+
+    fn is_priority_requestor(&self, client_addr: &Address) -> bool {
+        self.priority_requestors.is_priority_requestor(client_addr)
+    }
+
+    async fn check_available_balances(
+        &self,
+        order: &OrderRequest,
+        order_gas_cost: U256,
+        lock_expired: bool,
+        lockin_collateral: U256,
+    ) -> Result<Option<OrderPricingOutcome>, OrderPricerErr> {
+        if self.listen_only {
+            // In listen-only mode, skip all balance checks since no transactions will be sent.
+            return Ok(None);
+        }
+
+        let balance = self
+            .provider
+            .get_balance(self.provider.default_signer_address())
+            .await
+            .map_err(|err| OrderPricerErr::RpcErr(Arc::new(err.into())))?;
+
+        let gas_balance_reserved = self.gas_balance_reserved().await?;
+
+        let available_gas = balance.saturating_sub(gas_balance_reserved);
+        tracing::debug!(
+            "available gas balance: (account_balance) {} - (expected_future_gas) {} = {}",
+            format_ether(balance),
+            format_ether(gas_balance_reserved),
+            format_ether(available_gas)
+        );
+
+        let available_collateral = self
+            .market
+            .balance_of_collateral(self.provider.default_signer_address())
+            .await
+            .map_err(|err| OrderPricerErr::RpcErr(Arc::new(err.into())))?;
+
+        let skip_gas_check =
+            self.config.lock_all().map(|c| c.market.skip_gas_profitability_check).unwrap_or(false);
+
+        // TODO: Once we have a price feed for the collateral token in gas tokens, extend
+        // this check to cover lock_expired orders (where the reward is a fraction of the collateral).
+        if !skip_gas_check && order_gas_cost > order.request.offer.maxPrice && !lock_expired {
+            return Ok(Some(Skip {
+                code: SKIP_GAS_EXCEEDS_MAX_PRICE,
+                reason: format!(
+                    "estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
+                    format_ether(order_gas_cost),
+                    format_ether(order.request.offer.maxPrice)
+                ),
+            }));
+        }
+
+        if order_gas_cost > available_gas {
+            return Ok(Some(Skip {
+                code: SKIP_GAS_EXCEEDS_BALANCE,
+                reason: format!(
+                    "estimated gas cost to lock and fulfill order of {} exceeds available gas of {}",
+                    format_ether(order_gas_cost),
+                    format_ether(available_gas)
+                ),
+            }));
+        }
+
+        if !lock_expired && lockin_collateral > available_collateral {
+            return Ok(Some(Skip {
+                code: SKIP_INSUFFICIENT_COLLATERAL,
+                reason: format!(
+                    "insufficient available collateral to lock order. Requires {} but has {}",
+                    self.format_collateral(lockin_collateral),
+                    self.format_collateral(available_collateral),
+                ),
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn current_gas_price(&self) -> Result<u128, OrderPricerErr> {
+        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?)
+    }
+
+    async fn estimate_erc1271_gas(&self, order: &OrderRequest) -> u64 {
+        estimate_erc1271_gas(order, &self.provider, &self.erc1271_gas_cache).await
+    }
+
+    async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricerErr> {
+        if amount.asset == Asset::ETH {
+            return Ok(amount.clone());
+        }
+
+        self.price_oracle.convert(amount, Asset::ETH).await.map_err(|e| {
+            OrderPricerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ETH: {}",
+                amount,
+                e
+            )))
+        })
+    }
+
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricerErr> {
+        if amount.asset == Asset::ZKC {
+            return Ok(amount.clone());
+        }
+
+        self.price_oracle.convert(amount, Asset::ZKC).await.map_err(|e| {
+            OrderPricerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ZKC: {}",
+                amount,
+                e
+            )))
+        })
+    }
+
+    fn prover(&self) -> &ProverObj {
+        &self.prover
+    }
+
+    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
+        Arc::new(self.downloader.clone())
+    }
+}
+
+impl<P> BrokerService for OrderPricer<P>
+where
+    P: Provider<Ethereum> + WalletProvider + Clone + Send + Sync + 'static,
+{
+    type Error = OrderPricerErr;
+
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting order pricer");
+
+        let mut tasks: JoinSet<(String, U256, PreflightOutcome)> = JoinSet::new();
+        let mut rx = self.new_order_rx.lock().await;
+        let mut order_state_rx = self.order_state_tx.subscribe();
+        let mut active_preflights = ActivePreflights::default();
+        let mut last_preflights_log: String = String::new();
+        let mut log_interval = tokio::time::interval(LOG_INTERVAL);
+
+        loop {
+            tokio::select! {
+                Some(order) = rx.recv() => {
+                    let order_id = order.id();
+                    let request_id = U256::from(order.request.id);
+                    let chain_id = order.chain_id;
+
+                    if active_preflights.contains(&request_id, &order_id) {
+                        tracing::debug!("Skipping order {order_id} - already being processed");
+                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                            order_id,
+                            request_id,
+                            chain_id,
+                            outcome: PreflightOutcome::Skipped,
+                        });
+                        continue;
+                    }
+
+                    if self.order_cache.get(&order_id).await.is_some() {
+                        tracing::debug!("Skipping duplicate order {order_id}, already being processed");
+                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                            order_id,
+                            request_id,
+                            chain_id,
+                            outcome: PreflightOutcome::Skipped,
+                        });
+                        continue;
+                    }
+
+                    self.order_cache.insert(order_id.clone(), ()).await;
+
+                    let pricer_clone = self.clone();
+                    let task_cancel_token = cancel_token.child_token();
+
+                    active_preflights.insert(&order, task_cancel_token.clone());
+
+                    tasks.spawn(async move {
+                        let accepted = pricer_clone
+                            .price_order_and_update_state(order, task_cancel_token.clone())
+                            .await;
+                        let outcome = match (accepted, task_cancel_token.is_cancelled()) {
+                            (true, _) => PreflightOutcome::Priced,
+                            (false, true) => PreflightOutcome::Cancelled,
+                            (false, false) => PreflightOutcome::Skipped,
+                        };
+                        (order_id, request_id, outcome)
+                    }.instrument(Span::current()));
+                }
+                Ok(state_change) = order_state_rx.recv() => {
+                    if state_change.chain_id() != self.chain_id {
+                        continue;
+                    }
+                    match state_change {
+                        OrderStateChange::Locked { request_id, prover, .. } => {
+                            tracing::debug!("Received order state change for request 0x{:x}: Locked by prover 0x{:x}",
+                                request_id, prover);
+                            active_preflights.cancel_lock_and_fulfill(&request_id);
+                        }
+                        OrderStateChange::Fulfilled { request_id, .. } => {
+                            tracing::debug!("Received order state change for request 0x{:x}: Fulfilled",
+                                request_id);
+                            active_preflights.cancel_all(&request_id);
+                        }
+                    }
+                }
+                Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                    match result {
+                        Ok((order_id, request_id, outcome)) => {
+                            active_preflights.remove(&request_id, &order_id);
+
+                            let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                                order_id: order_id.clone(),
+                                request_id,
+                                chain_id: self.chain_id,
+                                outcome,
+                            });
+
+                            tracing::trace!("Priced task for order {} (request 0x{:x}) completed with {outcome} ({} remaining)",
+                                order_id, request_id, tasks.len());
+                        }
+                        Err(e) => {
+                            tracing::error!("Pricing task panicked: {e}");
+                        }
+                    }
+                }
+                _ = log_interval.tick() => {
+                    let current_log = active_preflights.format();
+                    if last_preflights_log != current_log {
+                        tracing::debug!("Active preflights: [{}]", current_log);
+                        last_preflights_log = current_log;
+                    }
+                }
+                _ = cancel_token.cancelled() => {
+                    tracing::debug!("Order pricer received cancellation, shutting down gracefully");
+                    while tasks.join_next().await.is_some() {}
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Format orders for logging, limiting to first 3 and showing total count
+fn format_truncated<I, S>(mut iter: I) -> String
+where
+    I: Iterator<Item = S>,
+    S: AsRef<str>,
+{
+    let first_three: Vec<String> = iter.by_ref().take(3).map(|s| s.as_ref().to_string()).collect();
+    let remaining_count = iter.count();
+
+    if remaining_count == 0 {
+        first_three.join(", ")
+    } else {
+        format!("{}, ... ({} total)", first_three.join(", "), first_three.len() + remaining_count)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::config::defaults;
+    use crate::{
+        chain_monitor::ChainMonitorService,
+        db::SqliteDb,
+        provers::{DefaultProver, ProofResult, Prover, ProverError},
+        FulfillmentType,
+    };
+    use alloy::{
+        network::EthereumWallet,
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::{
+            address,
+            aliases::U96,
+            utils::{parse_ether, parse_units},
+            Address, Bytes, FixedBytes,
+        },
+        providers::{ext::AnvilApi, ProviderBuilder},
+        signers::local::PrivateKeySigner,
+    };
+    use async_trait::async_trait;
+    use boundless_market::price_oracle::{
+        sources::StaticPriceSource, Amount, CachedPriceOracle, PriceOracleManager,
+    };
+    use boundless_market::{
+        contracts::{
+            Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        },
+        dynamic_gas_filler::PriorityMode,
+        price_oracle,
+        selector::SelectorExt,
+        storage::{MockStorageUploader, StorageUploader},
+    };
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
+        market::{deploy_boundless_market, deploy_hit_points},
+    };
+    use price_oracle::TradingPair;
+    use risc0_ethereum_contracts::selector::Selector;
+    use risc0_zkvm::{sha::Digest, Receipt};
+    use tracing_test::traced_test;
+
+    /// Create a test price oracle with static prices for ETH and ZKC
+    fn create_test_price_oracle() -> Arc<PriceOracleManager> {
+        let eth_usd = Arc::new(CachedPriceOracle::new(
+            Arc::new(StaticPriceSource::new(TradingPair::EthUsd, 2000.0)), // $2000 per ETH
+        ));
+        let zkc_usd = Arc::new(CachedPriceOracle::new(
+            Arc::new(StaticPriceSource::new(TradingPair::ZkcUsd, 1.0)), // $1 per ZKC
+        ));
+        Arc::new(PriceOracleManager::new(
+            eth_usd, zkc_usd, 60,  // refresh interval
+            300, // max time without update
+        ))
+    }
+
+    /// Reusable context for testing the order pricer
+    pub(crate) struct PricerTestCtx<P> {
+        anvil: AnvilInstance,
+        pub(crate) pricer: OrderPricer<P>,
+        boundless_market: BoundlessMarketService<Arc<P>>,
+        uploader: MockStorageUploader,
+        db: DbObj,
+        provider: Arc<P>,
+        priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
+        new_order_tx: mpsc::Sender<Box<OrderRequest>>,
+    }
+
+    /// Parameters for the generate_next_order function.
+    pub(crate) struct OrderParams {
+        pub(crate) order_index: u32,
+        pub(crate) min_price: U256,
+        pub(crate) max_price: U256,
+        pub(crate) lock_collateral: U256,
+        pub(crate) fulfillment_type: FulfillmentType,
+        pub(crate) bidding_start: u64,
+        pub(crate) lock_timeout: u32,
+        pub(crate) timeout: u32,
+        pub(crate) request_input: Option<Vec<u8>>,
+    }
+
+    impl Default for OrderParams {
+        fn default() -> Self {
+            Self {
+                order_index: 1,
+                min_price: parse_ether("0.02").unwrap(),
+                max_price: parse_ether("0.04").unwrap(),
+                lock_collateral: U256::ZERO,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                bidding_start: now_timestamp(),
+                lock_timeout: 900,
+                timeout: 1200,
+                request_input: None,
+            }
+        }
+    }
+
+    impl<P> PricerTestCtx<P>
+    where
+        P: Provider + WalletProvider,
+    {
+        pub(crate) fn signer(&self, index: usize) -> PrivateKeySigner {
+            self.anvil.keys()[index].clone().into()
+        }
+
+        pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
+            let image_url = self.uploader.upload_program(ECHO_ELF).await.unwrap().to_string();
+            let image_id = Digest::from(ECHO_ID);
+            let chain_id = self.provider.get_chain_id().await.unwrap();
+            let boundless_market_address = self.boundless_market.instance().address();
+
+            let input_bytes = params.request_input.unwrap_or(vec![0x41, 0x41, 0x41, 0x41]);
+            let request = ProofRequest::new(
+                RequestId::new(self.provider.default_signer_address(), params.order_index),
+                Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+                image_url,
+                RequestInput::builder().write_slice(&input_bytes).build_inline().unwrap(),
+                Offer {
+                    minPrice: params.min_price,
+                    maxPrice: params.max_price,
+                    rampUpStart: params.bidding_start,
+                    timeout: params.timeout,
+                    lockTimeout: params.lock_timeout,
+                    rampUpPeriod: 1,
+                    lockCollateral: params.lock_collateral,
+                },
+            );
+            Box::new(OrderRequest::new(
+                request,
+                Bytes::new(),
+                params.fulfillment_type,
+                *boundless_market_address,
+                chain_id,
+            ))
+        }
+
+        pub(crate) async fn generate_loop_order(
+            &self,
+            params: OrderParams,
+            cycles: u64,
+        ) -> Box<OrderRequest> {
+            let image_url = self.uploader.upload_program(LOOP_ELF).await.unwrap().to_string();
+            let image_id = Digest::from(LOOP_ID);
+            let chain_id = self.provider.get_chain_id().await.unwrap();
+            let boundless_market_address = self.boundless_market.instance().address();
+
+            let request = ProofRequest::new(
+                RequestId::new(self.provider.default_signer_address(), params.order_index),
+                Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+                image_url,
+                RequestInput::builder()
+                    .write(&cycles)
+                    .unwrap()
+                    .write(&1u64)
+                    .unwrap() // nonce
+                    .build_inline()
+                    .unwrap(),
+                Offer {
+                    minPrice: params.min_price,
+                    maxPrice: params.max_price,
+                    rampUpStart: params.bidding_start,
+                    timeout: params.timeout,
+                    lockTimeout: params.lock_timeout,
+                    rampUpPeriod: 1,
+                    lockCollateral: params.lock_collateral,
+                },
+            );
+            Box::new(OrderRequest::new(
+                request,
+                Bytes::new(),
+                params.fulfillment_type,
+                *boundless_market_address,
+                chain_id,
+            ))
+        }
+    }
+
+    #[derive(Default)]
+    pub(crate) struct PricerTestCtxBuilder {
+        initial_signer_eth: Option<i32>,
+        initial_hp: Option<U256>,
+        config: Option<ConfigLock>,
+        collateral_token_decimals: Option<u8>,
+        prover: Option<ProverObj>,
+    }
+
+    impl PricerTestCtxBuilder {
+        pub(crate) fn with_initial_signer_eth(self, eth: i32) -> Self {
+            Self { initial_signer_eth: Some(eth), ..self }
+        }
+        pub(crate) fn with_initial_hp(self, hp: U256) -> Self {
+            assert!(hp < U256::from(U96::MAX), "Cannot have more than 2^96 hit points");
+            Self { initial_hp: Some(hp), ..self }
+        }
+        pub(crate) fn with_config(self, config: ConfigLock) -> Self {
+            Self { config: Some(config), ..self }
+        }
+        pub(crate) fn with_prover(self, prover: ProverObj) -> Self {
+            Self { prover: Some(prover), ..self }
+        }
+        pub(crate) fn with_collateral_token_decimals(self, decimals: u8) -> Self {
+            Self { collateral_token_decimals: Some(decimals), ..self }
+        }
+        pub(crate) async fn build(
+            self,
+        ) -> PricerTestCtx<impl Provider + WalletProvider + Clone + 'static> {
+            let anvil = Anvil::new()
+                .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
+                .arg("--block-base-fee-per-gas")
+                .arg("1000000000") // 1 gwei
+                .spawn();
+            let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+            let provider = Arc::new(
+                ProviderBuilder::new()
+                    .wallet(EthereumWallet::from(signer.clone()))
+                    .connect(&anvil.endpoint())
+                    .await
+                    .unwrap(),
+            );
+
+            provider.anvil_mine(Some(4), Some(2)).await.unwrap();
+
+            let hp_contract = deploy_hit_points(signer.address(), provider.clone()).await.unwrap();
+            let market_address = deploy_boundless_market(
+                signer.address(),
+                provider.clone(),
+                address!("0x0000000000000000000000000000000000000001"),
+                hp_contract,
+                Digest::from(ASSESSOR_GUEST_ID),
+                format!("file://{ASSESSOR_GUEST_PATH}"),
+                Some(signer.address()),
+            )
+            .await
+            .unwrap();
+
+            let boundless_market = BoundlessMarketService::new_for_broker(
+                market_address,
+                provider.clone(),
+                provider.default_signer_address(),
+            );
+
+            if let Some(initial_hp) = self.initial_hp {
+                tracing::debug!("Setting initial locked hitpoints to {}", initial_hp);
+                boundless_market.deposit_collateral_with_permit(initial_hp, &signer).await.unwrap();
+                assert_eq!(
+                    boundless_market
+                        .balance_of_collateral(provider.default_signer_address())
+                        .await
+                        .unwrap(),
+                    initial_hp
+                );
+            }
+
+            let storage_uploader = MockStorageUploader::new();
+
+            let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+            let config = self.config.unwrap_or_default();
+            let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
+            let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+            let chain_monitor_service = Arc::new(
+                ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
+            );
+            tokio::spawn((*chain_monitor_service).clone().run(Default::default()));
+            let chain_monitor: ChainMonitorObj = chain_monitor_service;
+
+            let chain_id = provider.get_chain_id().await.unwrap();
+            let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
+            let allow_requestors = AllowRequestors::new(config.clone(), chain_id);
+            let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
+
+            const TEST_CHANNEL_CAPACITY: usize = 50;
+            let (_new_order_tx, new_order_rx) =
+                crate::channels::shared_channel(TEST_CHANNEL_CAPACITY);
+            let (priced_orders_tx, priced_orders_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
+            let (order_state_tx, _) = tokio::sync::broadcast::channel(TEST_CHANNEL_CAPACITY);
+            let (pricing_completion_tx, _completion_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
+
+            let pricer = OrderPricer::new(
+                db.clone(),
+                config,
+                prover,
+                market_address,
+                provider.clone(),
+                chain_monitor,
+                new_order_rx,
+                priced_orders_tx,
+                self.collateral_token_decimals.unwrap_or(6),
+                order_state_tx,
+                priority_requestors,
+                allow_requestors,
+                downloader,
+                create_test_price_oracle(),
+                Arc::new(Cache::builder().build()),
+                false,
+                chain_id,
+                pricing_completion_tx,
+            );
+
+            PricerTestCtx {
+                anvil,
+                pricer,
+                boundless_market,
+                uploader: storage_uploader,
+                db,
+                provider,
+                priced_orders_rx,
+                new_order_tx: _new_order_tx,
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn price_order() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx.generate_next_order(Default::default()).await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced_order.target_timestamp, Some(0));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_bad_predicate() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let mut order = ctx.generate_next_order(Default::default()).await;
+        // set a bad predicate
+        order.request.requirements.predicate =
+            Predicate::digest_match(Digest::from(ECHO_ID), Digest::ZERO).into();
+
+        let order_id = order.id();
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("predicate check failed"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_unsupported_selector() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let mut order = ctx.generate_next_order(Default::default()).await;
+
+        // set an unsupported selector
+        order.request.requirements.selector = FixedBytes::from(Selector::Groth16V1_1 as u32);
+        let order_id = order.id();
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("unsupported selector requirement"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                min_price: parse_ether("0.00015").unwrap(),
+                max_price: parse_ether("0.0003").unwrap(),
+                ..Default::default()
+            })
+            .await;
+        let order_id = order.id();
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
+    }
+
+    const PINNED_BASE_FEE: u128 = 1_000_000_000;
+
+    /// Pin Anvil's base fee to a known value. Call this before any transaction
+    /// or gas price query to ensure deterministic gas pricing. This is to avoid flakiness with
+    /// tests given the base fee adjustment per block.
+    async fn pin_base_fee<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
+        ctx: &PricerTestCtx<P>,
+    ) {
+        ctx.provider.anvil_set_next_block_base_fee_per_gas(PINNED_BASE_FEE).await.unwrap();
+    }
+
+    /// Compute a price between the gas cost of a base order and the gas cost of
+    /// an enhanced order (with `extra_gas` additional gas units). Uses the chain
+    /// monitor's gas price after pinning the Anvil base fee for deterministic
+    /// results.
+    async fn gas_midpoint_price<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
+        ctx: &PricerTestCtx<P>,
+        extra_gas: u64,
+    ) -> U256 {
+        // Pin and mine a block so the chain monitor picks up the stable base fee.
+        pin_base_fee(ctx).await;
+        ctx.provider.anvil_mine(Some(1), None).await.unwrap();
+
+        let gas_price = ctx.pricer.current_gas_price().await.unwrap();
+        // Use the midpoint (50%) so the test price has margin above base and below base+extra_gas.
+        let base_gas: u64 = defaults::lockin_gas_estimate() + defaults::fulfill_gas_estimate();
+        let target_gas = base_gas + extra_gas / 2;
+        U256::from(gas_price) * U256::from(target_gas)
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_groth16() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        // Compute a price between the base gas cost and the groth16 gas cost.
+        // Groth16 adds 250k gas units on top of the base 600k.
+        let price = gas_midpoint_price(&ctx, 250_000).await;
+        let min_price = price;
+        let max_price = price;
+
+        // Order should have high enough price with the default selector.
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(0));
+
+        // Order does not have high enough price when groth16 is used.
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        // set a Groth16 selector
+        order.request.requirements.selector =
+            FixedBytes::from(SelectorExt::groth16_latest() as u32);
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let order_id = order.id();
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_callback() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        // Compute a price between the base gas cost and the callback gas cost.
+        // The callback adds 200k gas units on top of the base 600k.
+        let price = gas_midpoint_price(&ctx, 200_000).await;
+        let min_price = price;
+        let max_price = price;
+
+        // Order should have high enough price with the default selector.
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(0));
+
+        // Order does not have high enough price when a callback is used.
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        // set a callback with a nontrivial gas consumption
+        order.request.requirements.callback = Callback {
+            addr: address!("0x00000000000000000000000000000000ca11bac2"),
+            gasLimit: U96::from(200_000),
+        };
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let order_id = order.id();
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_smart_contract_signature() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        // Compute a price between the base gas cost and the smart contract signature gas cost.
+        // Smart contract signature adds 100k gas units to the lock (ERC1271 check).
+        let price = gas_midpoint_price(&ctx, 100_000).await;
+        let min_price = price;
+        let max_price = price;
+
+        // Order should have high enough price with the default selector.
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(0));
+
+        // Order does not have high enough price when smart contract signature is used.
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                ..Default::default()
+            })
+            .await;
+
+        order.request.id =
+            RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let order_id = order.id();
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_large_journal() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.00000000001 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let large_journal_gas = 10_000u64 * 26;
+        let price = gas_midpoint_price(&ctx, large_journal_gas).await;
+        let min_price = price;
+        let max_price = price;
+
+        // Empty journal order should be accepted (gas cost is below the price).
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                request_input: Some(vec![]),
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(0));
+
+        // Large journal order should be rejected (journal calldata gas pushes cost above the price).
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                request_input: Some(vec![0x41; 10_000]),
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let order_id = order.id();
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(
+            logs_contain("after accounting for journal costs")
+                && logs_contain("estimated gas cost to lock and fulfill order of")
+                && logs_contain("exceeds max price")
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_unallowed_addr() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.allow_client_addresses = Some(vec![Address::ZERO]);
+        }
+        let ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx.generate_next_order(Default::default()).await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let order_id = order.id();
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("is not in allow requestors"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_denied_addr() {
+        let config = ConfigLock::default();
+        let ctx = PricerTestCtxBuilder::default().with_config(config.clone()).build().await;
+        let deny_address = ctx.provider.default_signer_address();
+
+        {
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.min_mcycle_price = Amount::parse("0.0000001 ETH", None).unwrap();
+            cfg.market.deny_requestor_addresses = Some([deny_address].into_iter().collect());
+        }
+
+        let order = ctx.generate_next_order(Default::default()).await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let order_id = order.id();
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+
+        assert!(logs_contain("is in deny_requestor_addresses"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn resume_order_pricing() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order =
+            ctx.generate_next_order(OrderParams { order_index: 1, ..Default::default() }).await;
+        let order_id = order.id();
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let pricing_task = tokio::spawn(ctx.pricer.clone().run(Default::default()));
+
+        ctx.new_order_tx.send(order).await.unwrap();
+
+        // Wait for the order to be priced, with some timeout
+        let priced_order =
+            tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
+                .await
+                .unwrap();
+        assert_eq!(priced_order.unwrap().id(), order_id);
+
+        pricing_task.abort();
+
+        // Send a new order when pricer task is down.
+        let new_order =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        let new_order_id = new_order.id();
+        ctx.new_order_tx.send(new_order).await.unwrap();
+
+        assert!(ctx.priced_orders_rx.is_empty());
+
+        tokio::spawn(ctx.pricer.clone().run(Default::default()));
+
+        let priced_order =
+            tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
+                .await
+                .unwrap();
+        assert_eq!(priced_order.unwrap().id(), new_order_id);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn cannot_overcommit_collateral() {
+        let signer_inital_balance_eth = 2;
+        let decimals = 6;
+        // 200 ZKC tokens with 6 decimals - enough to avoid balance-related failures
+        let initial_balance = parse_units("200", decimals).unwrap().into();
+
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.max_collateral =
+                Amount::parse("10 ZKC", None).unwrap();
+        }
+
+        let mut ctx = PricerTestCtxBuilder::default()
+            .with_initial_signer_eth(signer_inital_balance_eth)
+            .with_initial_hp(initial_balance)
+            .with_config(config)
+            .build()
+            .await;
+
+        // First order: lock 5 ZKC (should succeed, below max_collateral)
+        let order = ctx
+            .generate_next_order(OrderParams {
+                lock_collateral: parse_units("5", decimals).unwrap().into(),
+                ..Default::default()
+            })
+            .await;
+        let order1_id = order.id();
+        assert!(ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await);
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.id(), order1_id);
+
+        // Second order: lock 11 ZKC (should fail due to exceeding max_collateral of 10 ZKC)
+        let order = ctx
+            .generate_next_order(OrderParams {
+                lock_collateral: parse_units("11", decimals).unwrap().into(),
+                ..Default::default()
+            })
+            .await;
+        let order_id = order.id();
+        assert!(!ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+        assert!(logs_contain("collateral requirement exceeds max_collateral config"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn use_gas_to_fulfill_estimate_from_config() {
+        let fulfill_gas = defaults::fulfill_gas_estimate();
+        let journal_gas_per_byte = defaults::fulfill_journal_gas_per_byte();
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
+        }
+
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx.generate_next_order(Default::default()).await;
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        // Simulate order being locked
+        let order = ctx.priced_orders_rx.try_recv().unwrap();
+        // Use the actual journal size from preflight (now persisted on the order).
+        let journal_bytes = order.journal_bytes.unwrap();
+        let expected_per_order = fulfill_gas + journal_bytes as u64 * journal_gas_per_byte;
+        ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
+
+        assert_eq!(ctx.pricer.estimate_gas_to_fulfill_pending().await.unwrap(), expected_per_order);
+
+        // add another order
+        let order =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+        let order = ctx.priced_orders_rx.try_recv().unwrap();
+        ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
+
+        // gas estimate stacks (until estimates factor in bundling)
+        assert_eq!(
+            ctx.pricer.estimate_gas_to_fulfill_pending().await.unwrap(),
+            2 * expected_per_order
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skips_journal_exceeding_limit() {
+        // set this by testing a very small limit (1 byte)
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.max_journal_bytes = 1;
+        }
+        let lock_collateral = U256::from(10);
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(lock_collateral)
+            .build()
+            .await;
+        let order =
+            ctx.generate_next_order(OrderParams { lock_collateral, ..Default::default() }).await;
+
+        let order_id = order.id();
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+        assert!(logs_contain("journal larger than set limit"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn price_locked_by_other() {
+        let config = ConfigLock::default();
+        let mut ctx = PricerTestCtxBuilder::default()
+            .with_config(config)
+            .with_initial_hp(U256::from(1000))
+            .build()
+            .await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                bidding_start: now_timestamp(),
+                lock_timeout: 1000,
+                timeout: 10000,
+                lock_collateral: parse_units("0.1", 6).unwrap().into(),
+                ..Default::default()
+            })
+            .await;
+
+        let order_id = order.id();
+        let expected_target_timestamp =
+            order.request.offer.rampUpStart + order.request.offer.lockTimeout as u64;
+        let expected_expire_timestamp =
+            order.request.offer.rampUpStart + order.request.offer.timeout as u64;
+
+        let expected_log = format!(
+            "Setting order {order_id} to prove after lock expiry at {expected_target_timestamp}"
+        );
+        assert!(ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await);
+
+        assert!(logs_contain(&expected_log));
+
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(expected_target_timestamp));
+        assert_eq!(priced.expire_timestamp, Some(expected_expire_timestamp));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn price_locked_by_other_unprofitable() {
+        let config = ConfigLock::default();
+        {
+            // Set min_mcycle_price which will be converted to ZKC
+            // With ETH=$2500, ZKC=$1: "0.1 USD" -> 0.1 ZKC/mcycle
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.1 USD", None).unwrap();
+        }
+        let ctx = PricerTestCtxBuilder::default()
+            .with_collateral_token_decimals(6)
+            .with_config(config)
+            .build()
+            .await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                bidding_start: now_timestamp(),
+                lock_timeout: 0,
+                timeout: 10000,
+                // Low collateral means low reward for filling after it is unfulfilled
+                lock_collateral: parse_units("0.00001", 6).unwrap().into(),
+                ..Default::default()
+            })
+            .await;
+
+        let order_id = order.id();
+
+        assert!(!ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await);
+
+        // Since we know the collateral reward is constant, and we know our min_mycle_price_collateral_token
+        // the execution limit check tells us if the order is profitable or not, since it computes the max number
+        // of cycles that can be proven while keeping the order profitable.
+        assert!(logs_contain(&format!(
+            "Skipping order {order_id} due to intentional execution limit of"
+        )));
+
+        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_mcycle_limit_for_allowed_address() {
+        let exec_limit = 1000;
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.max_mcycle_limit = exec_limit;
+        }
+        let ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        ctx.pricer.config.load_write().as_mut().unwrap().market.priority_requestor_addresses =
+            Some(vec![ctx.provider.default_signer_address()]);
+
+        // First order from allowed address - should skip mcycle limit
+        let order = ctx.generate_next_order(Default::default()).await;
+        let order_id = order.id();
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        // Check logs for the expected message about skipping mcycle limit
+        assert!(logs_contain(&format!(
+            "Order {order_id} exec limit config ignored due to client {} being part of priority requestors.",
+            ctx.provider.default_signer_address()
+        )));
+
+        // Second order from a different address - should have mcycle limit enforced
+        let mut order2 =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        // Set a different client address
+        order2.request.id = RequestId::new(Address::ZERO, 2).into();
+        let order2_id = order2.id();
+
+        let locked =
+            ctx.pricer.price_order_and_update_state(order2, CancellationToken::new()).await;
+        assert!(locked);
+
+        // Check logs for the expected message about setting exec limit to max_mcycle_limit
+        assert!(logs_contain(&format!(
+            "Order {order2_id} prove limit capped by max_mcycle_limit config"
+        )));
+        assert!(logs_contain(&format!(
+            "with limit of {} cycles (~{} mcycles)",
+            U256::from(exec_limit) * U256::from(1_000_000),
+            exec_limit
+        )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn min_mcycle_limit_skips_small_orders() {
+        let config = ConfigLock::default();
+        {
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.min_mcycle_price = Amount::parse("0.0000001 ETH", None).unwrap();
+            cfg.market.min_mcycle_limit = 50; // Require at least 50 Mcycles
+            cfg.market.min_deadline = 0;
+        }
+        let ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_loop_order(
+                OrderParams {
+                    min_price: parse_ether("1").unwrap(),
+                    max_price: parse_ether("1").unwrap(),
+                    timeout: 3600,
+                    lock_timeout: 300,
+                    ..Default::default()
+                },
+                10_000_000,
+            )
+            .await;
+
+        let _order_id = order.id();
+        assert!(!ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await);
+
+        assert!(logs_contain("below min limit of"));
+        assert!(logs_contain("min_mcycle_limit set to 50 Mcycles in config"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_deadline_exec_limit_and_peak_prove_khz() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.peak_prove_khz = Some(1);
+            config.load_write().unwrap().market.min_deadline = 10;
+        }
+        let ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                min_price: parse_ether("10").unwrap(),
+                max_price: parse_ether("10").unwrap(),
+                bidding_start: now_timestamp(),
+                lock_timeout: 150,
+                timeout: 300,
+                ..Default::default()
+            })
+            .await;
+
+        let order_id = order.id();
+        let _submit_result =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await;
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let expected_log_pattern = format!("Order {order_id} prove limit capped by deadline");
+        assert!(logs_contain(&expected_log_pattern));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_lock_expired_exec_limit_precision_loss() {
+        let config = ConfigLock::default();
+        let min_deadline = {
+            let cfg = config.lock_all().unwrap();
+            cfg.market.min_deadline
+        };
+        {
+            let mut cfg = config.load_write().unwrap();
+            // With ETH=$2500, ZKC=$1: "1 USD" -> 1 ZKC/mcycle
+            cfg.market.min_mcycle_price = Amount::parse("1 USD", None).unwrap();
+            cfg.market.expected_probability_win_secondary_fulfillment = 100;
+        }
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config(config.clone())
+            .with_collateral_token_decimals(6)
+            .build()
+            .await;
+
+        let timeout = (min_deadline + 200) as u32;
+
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                lock_collateral: U256::from(1),
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                bidding_start: now_timestamp() - 100,
+                lock_timeout: 10,
+                timeout,
+                ..Default::default()
+            })
+            .await;
+
+        let collateral_reward = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+        assert_eq!(collateral_reward, U256::from(0));
+
+        let locked = ctx.pricer.price_order(&mut order).await;
+        assert!(
+            matches!(locked, Ok(OrderPricingOutcome::Skip { reason, .. }) if reason.contains("cycle limit hit from max reward"))
+        );
+
+        let mut order2 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                lock_collateral: U256::from(40),
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                bidding_start: now_timestamp() - 100,
+                lock_timeout: 10,
+                timeout,
+                ..Default::default()
+            })
+            .await;
+
+        let order2_id = order2.id();
+        let collateral_reward2 =
+            order2.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+        assert_eq!(collateral_reward2, U256::from(20));
+
+        let locked = ctx.pricer.price_order(&mut order2).await;
+        assert!(matches!(locked, Ok(OrderPricingOutcome::Skip { .. })));
+
+        // collateral token denom offsets the mcycle multiplier, so for 1collateral/mcycle, this will be 10
+        assert!(logs_contain(&format!(
+            "Starting preflight execution of {order2_id} with limit of 20 cycles"
+        )));
+        assert!(logs_contain(&format!(
+            "Skipping order {order2_id} due to intentional execution limit of"
+        )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_is_locked_check() -> Result<()> {
+        let ctx = PricerTestCtxBuilder::default().build().await;
+
+        let mut order = ctx.generate_next_order(Default::default()).await;
+
+        ctx.db
+            .set_request_locked(
+                U256::from(order.request.id),
+                &ctx.provider.default_signer_address().to_string(),
+                1000,
+            )
+            .await?;
+
+        assert!(ctx.db.is_request_locked(U256::from(order.request.id)).await?);
+
+        let pricing_outcome = ctx.pricer.price_order(&mut order).await?;
+        assert!(
+            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason, .. } if reason.contains("already locked"))
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_duplicate_order_cache() -> Result<()> {
+        let mut ctx = PricerTestCtxBuilder::default().build().await;
+
+        let order1 = ctx.generate_next_order(Default::default()).await;
+        let order_id = order1.id();
+
+        // Duplicate order
+        let mut order2 = OrderRequest::new(
+            order1.request.clone(),
+            order1.client_sig.clone(),
+            order1.fulfillment_type,
+            order1.boundless_market_address,
+            order1.chain_id,
+        );
+        order2.image_id = order1.image_id.clone();
+        order2.input_id = order1.input_id.clone();
+        order2.total_cycles = order1.total_cycles;
+        order2.target_timestamp = order1.target_timestamp;
+        order2.expire_timestamp = order1.expire_timestamp;
+        let order2 = Box::new(order2);
+
+        assert_eq!(order1.id(), order2.id(), "Both orders should have the same ID");
+
+        tokio::spawn(ctx.pricer.clone().run(CancellationToken::new()));
+
+        ctx.new_order_tx.send(order1).await?;
+        ctx.new_order_tx.send(order2).await?;
+
+        let first_processed =
+            tokio::time::timeout(Duration::from_secs(10), ctx.priced_orders_rx.recv())
+                .await?
+                .unwrap();
+
+        assert_eq!(first_processed.id(), order_id, "First order should be processed");
+
+        let second_result =
+            tokio::time::timeout(Duration::from_secs(2), ctx.priced_orders_rx.recv()).await;
+
+        assert!(second_result.is_err(), "Second order should be deduplicated and not processed");
+
+        assert!(logs_contain(&format!("Skipping order {order_id} - already being processed")));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_order_is_fulfilled_check() -> Result<()> {
+        let ctx = PricerTestCtxBuilder::default().build().await;
+
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        ctx.db.set_request_fulfilled(U256::from(order.request.id), 1000).await?;
+
+        assert!(ctx.db.is_request_fulfilled(U256::from(order.request.id)).await?);
+
+        let pricing_outcome = ctx.pricer.price_order(&mut order).await?;
+        assert!(
+            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason, .. } if reason.contains("already fulfilled"))
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_active_preflights_logging() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        // Start the order pricer task
+        let pricer_task = tokio::spawn(ctx.pricer.clone().run(Default::default()));
+
+        // Send an order to trigger the logging
+        let order1 =
+            ctx.generate_next_order(OrderParams { order_index: 1, ..Default::default() }).await;
+        let order1_id = order1.id();
+        ctx.new_order_tx.send(order1).await.unwrap();
+
+        // Wait for the order to be processed and check for the "Added" log
+        tokio::time::timeout(LOG_INTERVAL * 2, ctx.priced_orders_rx.recv()).await.unwrap();
+
+        // Check that we logged the task being added (or that it was completed before the interval)
+        assert!(logs_contain("Current pricing tasks: [") || logs_contain("Priced task for order"));
+        assert!(logs_contain(&order1_id));
+
+        // Send another order to see the task being removed and a new one added
+        let order2 =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
+        let order2_id = order2.id();
+        ctx.new_order_tx.send(order2).await.unwrap();
+
+        // Wait for the second order to be processed
+        tokio::time::timeout(Duration::from_secs(5), ctx.priced_orders_rx.recv()).await.unwrap();
+
+        // Check that we logged the task completion
+        assert!(logs_contain(&format!("Priced task for order {order1_id} (request")));
+
+        // The order2 should be shown as in progress when order1 completes
+        assert!(logs_contain(&order2_id));
+
+        pricer_task.abort();
+    }
+
+    #[tokio::test]
+    async fn test_handle_lock_event() {
+        let ctx = PricerTestCtxBuilder::default().build().await;
+        let mut active_preflights = ActivePreflights::default();
+
+        let lock_and_fulfill_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 123,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+
+        let fulfill_after_expire_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 123,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let request_id = U256::from(lock_and_fulfill_order.request.id);
+
+        let lock_and_fulfill_token = CancellationToken::new();
+        let fulfill_after_expire_token = CancellationToken::new();
+
+        active_preflights.insert(&lock_and_fulfill_order, lock_and_fulfill_token.clone());
+        active_preflights.insert(&fulfill_after_expire_order, fulfill_after_expire_token.clone());
+
+        active_preflights.cancel_lock_and_fulfill(&request_id);
+
+        assert!(lock_and_fulfill_token.is_cancelled(), "LockAndFulfill task should be cancelled");
+        assert!(
+            !fulfill_after_expire_token.is_cancelled(),
+            "FulfillAfterLockExpire task should NOT be cancelled"
+        );
+
+        assert!(active_preflights.contains(&request_id, &fulfill_after_expire_order.id()));
+        assert!(!active_preflights.contains(&request_id, &lock_and_fulfill_order.id()));
+    }
+
+    #[tokio::test]
+    async fn test_handle_fulfill_event() {
+        let ctx = PricerTestCtxBuilder::default().build().await;
+        let mut active_preflights = ActivePreflights::default();
+
+        let lock_and_fulfill_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 456,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                ..Default::default()
+            })
+            .await;
+
+        let fulfill_after_expire_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 456,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let request_id = U256::from(lock_and_fulfill_order.request.id);
+
+        let lock_cancel = CancellationToken::new();
+        let expire_cancel = CancellationToken::new();
+
+        active_preflights.insert(&lock_and_fulfill_order, lock_cancel.clone());
+        active_preflights.insert(&fulfill_after_expire_order, expire_cancel.clone());
+
+        active_preflights.cancel_all(&request_id);
+
+        assert!(lock_cancel.is_cancelled(), "All preflights should be cancelled");
+        assert!(expire_cancel.is_cancelled(), "All preflights should be cancelled");
+
+        assert!(!active_preflights.contains(&request_id, &lock_and_fulfill_order.id()));
+        assert!(!active_preflights.contains(&request_id, &fulfill_after_expire_order.id()));
+    }
+
+    // Mock prover that tracks preflight calls
+    struct MockPreflightTracker {
+        preflight_calls: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+        default_prover: Arc<DefaultProver>,
+    }
+
+    impl MockPreflightTracker {
+        fn new() -> Self {
+            Self {
+                preflight_calls: Arc::new(std::sync::Mutex::new(Vec::new())),
+                default_prover: Arc::new(DefaultProver::new()),
+            }
+        }
+
+        fn get_preflight_calls(&self) -> Vec<(String, String)> {
+            self.preflight_calls.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl Prover for MockPreflightTracker {
+        async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
+            self.default_prover.upload_image(image_id, image).await
+        }
+
+        async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
+            self.default_prover.upload_input(input).await
+        }
+
+        async fn preflight(
+            &self,
+            image_id: &str,
+            input_id: &str,
+            assumptions: Vec<String>,
+            executor_limit: Option<u64>,
+            order_id: &str,
+        ) -> Result<ProofResult, ProverError> {
+            // Track the preflight call
+            self.preflight_calls.lock().unwrap().push((image_id.to_string(), input_id.to_string()));
+
+            // Call the default prover
+            self.default_prover
+                .preflight(image_id, input_id, assumptions, executor_limit, order_id)
+                .await
+        }
+
+        async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
+            self.default_prover.has_image(image_id).await
+        }
+
+        async fn prove_stark(
+            &self,
+            image_id: &str,
+            input_id: &str,
+            assumptions: Vec<String>,
+        ) -> Result<String, ProverError> {
+            self.default_prover.prove_stark(image_id, input_id, assumptions).await
+        }
+
+        async fn wait_for_stark(&self, proof_id: &str) -> Result<ProofResult, ProverError> {
+            self.default_prover.wait_for_stark(proof_id).await
+        }
+
+        async fn cancel_stark(&self, proof_id: &str) -> Result<(), ProverError> {
+            self.default_prover.cancel_stark(proof_id).await
+        }
+
+        async fn get_receipt(&self, proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+            self.default_prover.get_receipt(proof_id).await
+        }
+
+        async fn get_preflight_journal(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_preflight_journal(proof_id).await
+        }
+
+        async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_journal(proof_id).await
+        }
+
+        async fn compress(&self, proof_id: &str) -> Result<String, ProverError> {
+            self.default_prover.compress(proof_id).await
+        }
+
+        async fn get_compressed_receipt(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_compressed_receipt(proof_id).await
+        }
+        async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+            self.default_prover.compress_blake3_groth16(proof_id).await
+        }
+
+        async fn get_blake3_groth16_receipt(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_blake3_groth16_receipt(proof_id).await
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_preflight_cache_behavior() -> Result<()> {
+        let mock_prover = Arc::new(MockPreflightTracker::new());
+
+        let image_id = Digest::from(ECHO_ID).to_string();
+        mock_prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
+
+        let ctx = PricerTestCtxBuilder::default().with_prover(mock_prover.clone()).build().await;
+
+        let mut order1 =
+            ctx.generate_next_order(OrderParams { order_index: 100, ..Default::default() }).await;
+
+        let mut order2 =
+            ctx.generate_next_order(OrderParams { order_index: 200, ..Default::default() }).await;
+
+        let mut order3 = ctx
+            .generate_next_order(OrderParams {
+                order_index: 100,
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        assert_eq!(
+            order1.request.id, order3.request.id,
+            "Order1 and Order3 should have same request ID"
+        );
+        assert_ne!(
+            order1.request.id, order2.request.id,
+            "Order1 and Order2 should have different request IDs"
+        );
+
+        // Process order1 and order2 concurrently to test cache atomicity
+        let (pricing1, pricing2) =
+            tokio::join!(ctx.pricer.price_order(&mut order1), ctx.pricer.price_order(&mut order2));
+
+        assert!(pricing1.is_ok(), "Order1 pricing should succeed");
+        assert!(pricing2.is_ok(), "Order2 pricing should succeed");
+
+        // Process order3 (should use cache)
+        let pricing3 = ctx.pricer.price_order(&mut order3).await;
+        assert!(pricing3.is_ok(), "Order3 pricing should succeed");
+
+        // Check preflight calls - should only be called once since all orders are identical
+        let preflight_calls = mock_prover.get_preflight_calls();
+
+        // Since ALL orders have the same image_url and input data, they should share the same cache entry
+        assert_eq!(
+            preflight_calls.len(),
+            1,
+            "Should have exactly 1 preflight call since all orders are identical.",
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_smaller_cycle_limit_cache() -> Result<()> {
+        let mock_prover = Arc::new(MockPreflightTracker::new());
+        let image_id = Digest::from(LOOP_ID).to_string();
+        mock_prover.upload_image(&image_id, LOOP_ELF.to_vec()).await.unwrap();
+
+        // Create context with very low mcycle price and set peak_prove_khz to create different deadline caps
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+            config.load_write().unwrap().market.peak_prove_khz = Some(1000); // Set peak_prove_khz to create deadline caps
+            config.load_write().unwrap().market.min_deadline = 0; // Remove min_deadline interference
+        }
+        let ctx = PricerTestCtxBuilder::default()
+            .with_prover(mock_prover.clone())
+            .with_config(config)
+            .build()
+            .await;
+
+        // Create two orders with same program+input but very different exec limits due to different timeouts:
+        // Order 1: Order about to expire = very low deadline cap (should hit session limit exceeded)
+        // For LockAndFulfill orders, preflight_limit = max(prove_deadline_limit, fulfill_after_expiry_limit)
+        // By setting bidding_start in the past, we ensure both limits are small:
+        // - prove_deadline_limit: remaining time ~2s * 1000 khz = 2M cycles
+        // - fulfill_after_expiry: (30-28)s * 1000 khz = 2M cycles
+        // The 5M cycle loop exceeds this 2M limit
+        let mut low_timeout_order = ctx
+            .generate_loop_order(
+                OrderParams {
+                    order_index: 1,
+                    min_price: parse_ether("100.0").unwrap(),
+                    max_price: parse_ether("100.0").unwrap(),
+                    timeout: 30,
+                    lock_timeout: 28,
+                    bidding_start: now_timestamp() - 28, // Order expires in ~2s
+                    ..Default::default()
+                },
+                5_000_000,
+            ) // 5M cycles - should exceed the 2M cycle limit
+            .await;
+
+        // Order 2: Long timeout = high deadline cap (should succeed and NOT reuse low-limit cache)
+        // Same cycle count but much higher exec limit due to longer timeout
+        let mut high_timeout_order = ctx
+            .generate_loop_order(
+                OrderParams {
+                    order_index: 2,
+                    min_price: parse_ether("100.0").unwrap(), // Same high price but much longer timeout
+                    max_price: parse_ether("100.0").unwrap(),
+                    timeout: 3600, // Much longer timeout = high deadline cap (3600s * 1000khz = 3.6B cycles)
+                    lock_timeout: 3000, // Also set long lock_timeout
+                    ..Default::default()
+                },
+                5_000_000,
+            ) // Same 5M cycles - should be under the 3B cycle limit
+            .await;
+
+        // Process short timeout order first - this should hit session limit and cache the Skip result
+        let result1 = ctx.pricer.price_order(&mut low_timeout_order).await;
+        assert!(matches!(result1, Ok(OrderPricingOutcome::Skip { .. })));
+
+        // Process long timeout order second - this should NOT reuse the low-limit cached result
+        // It should succeed with its own higher exec limit via a new preflight call
+        let result2 = ctx.pricer.price_order(&mut high_timeout_order).await;
+        assert!(matches!(result2, Ok(OrderPricingOutcome::Lock { .. })));
+
+        // We expect 2 preflight calls since the orders have different deadline-based exec limits
+        let preflight_calls = mock_prover.get_preflight_calls();
+        assert_eq!(
+            preflight_calls.len(),
+            1,
+            "Should have exactly 1 preflight call due to preflight result caching that avoids redundant execution.",
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_concurrent_preflights_with_cancellation() -> Result<()> {
+        let mock_prover = Arc::new(MockPreflightTracker::new());
+        let image_id = Digest::from(LOOP_ID).to_string();
+        mock_prover.upload_image(&image_id, LOOP_ELF.to_vec()).await.unwrap();
+
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0.0000001 ETH", None).unwrap();
+        }
+        let ctx = PricerTestCtxBuilder::default()
+            .with_prover(mock_prover.clone())
+            .with_config(config)
+            .build()
+            .await;
+
+        // Create two orders with same program+input for same cache key
+        let order_a = ctx
+            .generate_loop_order(
+                OrderParams {
+                    order_index: 1,
+                    min_price: parse_ether("100.0").unwrap(),
+                    max_price: parse_ether("100.0").unwrap(),
+                    timeout: 3600,
+                    lock_timeout: 3000,
+                    ..Default::default()
+                },
+                5_000_000,
+            )
+            .await;
+
+        let order_b = ctx
+            .generate_loop_order(
+                OrderParams {
+                    order_index: 2,
+                    min_price: parse_ether("100.0").unwrap(),
+                    max_price: parse_ether("100.0").unwrap(),
+                    timeout: 3600,
+                    lock_timeout: 3000,
+                    ..Default::default()
+                },
+                5_000_000,
+            )
+            .await;
+
+        // Create cancellation tokens
+        let cancel_token_a = CancellationToken::new();
+        let cancel_token_b = CancellationToken::new();
+
+        // Save order IDs before moving into tasks
+        let order_a_id = order_a.id();
+        let _order_b_id = order_b.id();
+
+        // Start both preflights concurrently with a slight stagger
+        let cancel_a_clone = cancel_token_a.clone();
+        let pricer_a = ctx.pricer.clone();
+        let task_a = tokio::spawn(async move {
+            pricer_a.price_order_and_update_state(order_a, cancel_token_a).await
+        });
+
+        // Small delay to ensure task A starts first
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let pricer_b = ctx.pricer.clone();
+        let task_b = tokio::spawn(async move {
+            pricer_b.price_order_and_update_state(order_b, cancel_token_b).await
+        });
+
+        // Wait for task A to start its preflight before cancelling
+        loop {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if logs_contain(&format!("Starting preflight execution of {order_a_id}")) {
+                // Sleep to wait for B to wait on this preflight
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                break;
+            }
+        }
+
+        // Cancel task A now that we know it has started preflight
+        cancel_a_clone.cancel();
+
+        // Wait for both tasks to complete
+        let result_a = task_a.await.unwrap();
+        let result_b = task_b.await.unwrap();
+
+        // Task A should have been cancelled and returned false
+        assert!(!result_a, "Task A should have been cancelled");
+
+        // Task B should have completed successfully
+        assert!(result_b, "Task B should have completed successfully");
+
+        // Check that the cancellation was logged
+        assert!(logs_contain("Order pricing cancelled during pricing for order"));
+
+        // Verify preflight was called. With cancellation, we may get 1 or 2 calls:
+        // - 1 call if Task B coalesces with Task A's in-progress preflight before cancellation
+        // - 2 calls if Task A's preflight is cancelled before Task B reaches the cache lookup
+        let preflight_calls = mock_prover.get_preflight_calls();
+        assert!(
+            preflight_calls.len() <= 2,
+            "Should have at most 2 preflight calls, got {}",
+            preflight_calls.len()
+        );
+
+        Ok(())
+    }
+
+    // Unit tests for calculate_exec_limits function
+
+    /// Helper to parse collateral token amounts (6 decimals) instead of ETH (18 decimals)
+    fn parse_collateral_tokens(amount: &str) -> U256 {
+        parse_units(amount, 6).unwrap().into()
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_eth_higher_than_collateral() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap(); // 0.001 ETH per mcycle
+                                                                                    // With ETH=$2500, ZKC=$1: 0.001 ETH = $2.5 = 2.5 ZKC/mcycle for collateral pricing
+        market_config.max_mcycle_limit = 8000;
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap(); // 0.001 ETH gas cost
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(), // 0.05 ETH max price
+                lock_collateral: parse_collateral_tokens("100"), // 100 collateral tokens
+                lock_timeout: 900,                       // lock timeout
+                timeout: 1200,                           // order timeout
+                ..Default::default()
+            })
+            .await;
+
+        // For lock and fulfill, if the exec limit based on ETH is higher than the exec
+        // limit based on collateral, we should use the ETH limit.
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.001 ETH/mcycle = 49M cycles
+        // collateral based: (100 collateral tokens - 20% collateral burn) * 1M / 10 collateral_tokens/mcycle = 8M cycles
+        // ETH-based is higher, so both should use ETH-based limit
+
+        assert_eq!(preflight_limit, 49_000_000u64);
+        assert_eq!(prove_limit, 49_000_000u64);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_collateral_higher_than_eth_exposes_bug() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.1 ETH", None).unwrap(); // 0.1 ETH per mcycle (expensive)
+                                                                                  // With ETH=$2500, ZKC=$1: 0.1 ETH = $250 = 250 ZKC/mcycle for collateral pricing
+        market_config.max_mcycle_limit = 8000;
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(), // 0.05 ETH max price
+                lock_collateral: parse_collateral_tokens("1000"), // 1000 collateral tokens
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.1 ETH/mcycle = 490k cycles
+        // Collateral based (now unified): 0.1 ETH = $250 = 250 ZKC/mcycle
+        // Collateral reward: 1000 * 50% = 500 tokens (in 6 decimals)
+        // With decimal scaling: actual limit is 2.5M cycles
+        // Since we use the higher of ETH and collateral for preflight, and lower for prove:
+        // preflight_limit = max(490k, 2.5M) = 2.5M
+        // prove_limit (for LockAndFulfill) = 490k (ETH-based)
+
+        assert_eq!(preflight_limit, 2_500_000u64);
+        assert_eq!(prove_limit, 490_000u64);
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn test_calculate_exec_limits_fulfill_after_expire_collateral_only() {
+        let mut market_config = MarketConfig::default();
+        // With ETH=$2500, ZKC=$1: need "0.1 USD" to get 0.1 ZKC/mcycle for collateral pricing
+        market_config.min_mcycle_price = Amount::parse("0.1 USD", None).unwrap();
+        market_config.max_mcycle_limit = 8000;
+        market_config.expected_probability_win_secondary_fulfillment = 100;
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                max_price: parse_ether("1.0").unwrap(), // Won't be used
+                lock_collateral: parse_collateral_tokens("100"), // 100 collateral tokens
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // Should only use collateral-based pricing for FulfillAfterLockExpire
+        // collateral based: (100 collateral tokens - 20% burn) / 0.1 collateral tokens per mcycle = 80M cycles
+        let collateral_reward_tokens =
+            order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+        tracing::info!("collateral reward tokens: {collateral_reward_tokens}");
+        let collateral_based_limit: u64 = collateral_reward_tokens
+            .saturating_mul(U256::from(1_000_000))
+            .div_ceil(parse_collateral_tokens("0.1"))
+            .try_into()
+            .unwrap();
+
+        assert_eq!(preflight_limit, collateral_based_limit);
+        assert_eq!(prove_limit, collateral_based_limit);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_max_mcycle_cap() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.max_mcycle_limit = 20; // 20 mcycle limit
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("10.0").unwrap(), // Very high price
+                lock_collateral: parse_collateral_tokens("1000.0"), // Very high collateral
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // Should be capped at 20M cycles regardless of high prices
+        let expected_cycles = 20_000_000u64;
+
+        assert_eq!(preflight_limit, expected_cycles);
+        assert_eq!(prove_limit, expected_cycles);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_priority_requestor_unlimited() {
+        let priority_address = address!("1234567890123456789012345678901234567890");
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.max_mcycle_limit = 5; // Low limit normally
+        market_config.priority_requestor_addresses = Some(vec![priority_address]);
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let mut order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("1.0").unwrap(),
+                lock_collateral: parse_collateral_tokens("100.0"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        // Set the client address to the priority address
+        order.request.id = RequestId::new(priority_address, 1).into();
+
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // Priority requestors ignore max_mcycle_limit
+        // With unified pricing: 0.01 ETH = $25 = 25 ZKC/mcycle
+        // Collateral limit: 50 * 1M / 25 = 2M cycles
+        // ETH limit: (1.0 - 0.001) * 1M / 0.01 = 99.9M cycles
+        // preflight_limit = max(2M, 99.9M) = 99.9M
+        // prove_limit (for LockAndFulfill) = 99.9M (ETH-based)
+        assert_eq!(preflight_limit, 99_900_000u64);
+        assert_eq!(prove_limit, 99_900_000u64);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_timing_constraints() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.max_mcycle_limit = 8000;
+        market_config.peak_prove_khz = Some(1000); // 1M cycles per second
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("10.0").unwrap(), // High price that would normally allow many cycles
+                lock_collateral: parse_collateral_tokens("100.0"), // High collateral
+                lock_timeout: 60,                        // 60 second lock timeout
+                timeout: 120,                            // 120 second order timeout
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // Should be limited by timing constraints (peak_prove_khz = 1000 → 1M cycles/sec).
+        // prove_window = lock_expires_at - now ≈ lock_timeout = 60s → ~60M cycles.
+        //
+        // prove_limit may drift down by a few seconds of wall-clock time elapsed between
+        // order creation (bidding_start = now()) and the now() call inside
+        // calculate_exec_limits. preflight_limit is stable because it takes the max
+        // with the fulfill-after-expiry window (timeout - lock_timeout = 60s), which
+        // is constant and not subject to drift.
+        let expected_cycles = 60_000_000u64;
+
+        assert_eq!(preflight_limit, expected_cycles);
+        assert!(
+            prove_limit <= expected_cycles && prove_limit >= expected_cycles - 5_000_000,
+            "prove_limit {prove_limit} should be in [55M, 60M]"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_very_short_deadline() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.01 ETH", None).unwrap();
+        market_config.max_mcycle_limit = 8000;
+        market_config.peak_prove_khz = Some(1000); // 1M cycles per second
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("1.0").unwrap(),
+                lock_collateral: parse_collateral_tokens("10.0"),
+                lock_timeout: 1,
+                timeout: 2,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // Should be limited by very short deadline (peak_prove_khz = 1000 → 1M cycles/sec).
+        // prove_window = lock_expires_at - now ≈ 1s → ~1M cycles.
+        //
+        // prove_limit may drop to 0 if even 1 second elapses between order creation
+        // and calculate_exec_limits. preflight_limit is stable because it takes the
+        // max with the fulfill-after-expiry window (timeout - lock_timeout = 1s = 1M
+        // cycles), which is constant.
+        let expected_cycles = 1_000_000u64;
+
+        assert_eq!(preflight_limit, expected_cycles);
+        assert!(
+            prove_limit <= expected_cycles,
+            "prove_limit {prove_limit} should be at most {expected_cycles}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0 ETH", None).unwrap(); // Zero ETH price
+        market_config.max_mcycle_limit = u64::MAX;
+
+        let ctx = PricerTestCtxBuilder::default()
+            .with_config({
+                let config = ConfigLock::default();
+                config.load_write().unwrap().market = market_config;
+                config
+            })
+            .build()
+            .await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("1.0").unwrap(),
+                lock_collateral: parse_collateral_tokens("10.0"),
+                lock_timeout: 60,
+                timeout: 120,
+                ..Default::default()
+            })
+            .await;
+
+        let (preflight_limit, prove_limit, _reason) =
+            ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // Should be unlimited (u64::MAX) when ETH mcycle_price is zero
+        assert_eq!(preflight_limit, u64::MAX);
+        assert_eq!(prove_limit, u64::MAX);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zero_mcycle_price_order_processing() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx.generate_next_order(Default::default()).await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced_order.target_timestamp, Some(0));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_zero_collateral_price_order_processing() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0 ETH", None).unwrap();
+        }
+        let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
+                ..Default::default()
+            })
+            .await;
+
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+
+        let priced_order = ctx.priced_orders_rx.try_recv().unwrap();
+        assert!(priced_order.target_timestamp.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_calculate_exec_limits_proof_type_override_takes_priority() {
+        let mut market_config = MarketConfig::default();
+        market_config.min_mcycle_price = Amount::parse("0.001 ETH", None).unwrap();
+        market_config.max_mcycle_limit = 100_000;
+
+        let config = ConfigLock::default();
+        config.load_write().unwrap().market = market_config;
+
+        // Set up overrides: requestor gets 0.005 ETH, but proof_type gets 0.01 ETH.
+        // proof_type should win per the cascade priority.
+        let ctx_baseline =
+            PricerTestCtxBuilder::default().with_config(config.clone()).build().await;
+
+        let order_template = ctx_baseline
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(),
+                lock_collateral: parse_collateral_tokens("100"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let requestor_addr = order_template.request.client_address();
+        let proof_type = order_template.request.requirements.selector;
+
+        let mut config2_market = config.lock_all().unwrap().market.clone();
+        config2_market
+            .pricing_overrides
+            .by_requestor
+            .insert(requestor_addr, Amount::parse("0.005 ETH", None).unwrap());
+        config2_market
+            .pricing_overrides
+            .by_proof_type
+            .insert(proof_type, Amount::parse("0.01 ETH", None).unwrap());
+        let config2 = ConfigLock::default();
+        config2.load_write().unwrap().market = config2_market;
+
+        let ctx = PricerTestCtxBuilder::default().with_config(config2).build().await;
+
+        let gas_cost = parse_ether("0.001").unwrap();
+        let order = ctx
+            .generate_next_order(OrderParams {
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                max_price: parse_ether("0.05").unwrap(),
+                lock_collateral: parse_collateral_tokens("100"),
+                lock_timeout: 900,
+                timeout: 1200,
+                ..Default::default()
+            })
+            .await;
+
+        let (_, prove_limit, _) = ctx.pricer.calculate_exec_limits(&order, gas_cost).await.unwrap();
+
+        // proof_type override (0.01 ETH) should take priority over requestor (0.005 ETH).
+        // ETH based: (0.05 - 0.001) * 1M / 0.01 = 4.9M cycles
+        assert_eq!(prove_limit, 4_900_000u64);
+    }
+}

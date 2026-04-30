@@ -1,0 +1,43 @@
+[package]
+name = "boundless-executor"
+version = "0.1.0"
+edition = "2021"
+description = "Simple HTTP API for executing guest programs across multiple zkVMs and reporting cycle counts."
+license = "Apache-2.0"
+
+# Standalone workspace: each zkVM SDK drags in a large and sometimes
+# conflicting dependency graph, so we keep this crate out of the parent
+# workspace rather than force-align versions.
+[workspace]
+
+[features]
+default = ["risc0"]
+risc0 = ["dep:risc0-zkvm"]
+# Additional zkVM backends should be added here as feature flags gating an
+# optional SDK dependency. See `src/backends/mod.rs` for the full recipe.
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["macros"] }
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+dashmap = "6"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "limit"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+
+# RISC Zero executor (no prover features needed for execution + cycle counting).
+# `client` is enough for execution + cycle counting. We shell out to `r0vm`
+# for the actual RV32IM run, avoiding the much heavier `prove` feature (which
+# pulls in rayon, groth16, the rv32im/recursion/keccak circuits, etc.).
+risc0-zkvm = { version = "3.0", default-features = false, features = ["std", "client"], optional = true }
+
+[[bin]]
+name = "boundless-executor"
+path = "src/main.rs"

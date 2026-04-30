@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::{
+    coded_error_impl,
     config::ConfigLock,
     errors::CodedError,
-    impl_coded_debug,
-    task::{RetryRes, RetryTask},
+    task::{BrokerService, SupervisorErr},
 };
 use alloy::primitives::Address;
 use anyhow::Result;
@@ -37,15 +37,9 @@ pub enum MonitorError {
     LockFailed,
 }
 
-impl_coded_debug!(MonitorError);
-
-impl CodedError for MonitorError {
-    fn code(&self) -> &str {
-        match self {
-            MonitorError::LockFailed => "[B-RM-4001]",
-        }
-    }
-}
+coded_error_impl!(MonitorError, "RM",
+    LockFailed => "4001",
+);
 
 /// Cached entry that tracks both the requestor data and its source URL
 #[derive(Clone, Debug)]
@@ -113,6 +107,11 @@ impl PriorityRequestors {
     /// Check if an address is a priority requestor
     pub fn is_priority_requestor(&self, address: &Address) -> bool {
         self.get_requestor_entry(address).is_some()
+    }
+
+    /// Returns all dynamically-registered priority addresses (from remote lists).
+    pub fn dynamic_addresses(&self) -> Vec<Address> {
+        self.requestors.read().map(|r| r.keys().copied().collect()).unwrap_or_default()
     }
 
     /// Update the priority requestors from a list
@@ -241,6 +240,7 @@ impl AllowRequestors {
 }
 
 /// Service for periodically monitoring and refreshing requestor priority and allowed lists
+#[derive(Clone)]
 pub struct RequestorMonitor {
     priority_requestors: PriorityRequestors,
     allow_requestors: AllowRequestors,
@@ -365,18 +365,12 @@ impl RequestorMonitor {
     }
 }
 
-impl RetryTask for RequestorMonitor {
+impl BrokerService for RequestorMonitor {
     type Error = MonitorError;
 
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let priority_requestors = self.priority_requestors.clone();
-        let allow_requestors = self.allow_requestors.clone();
-        let monitor = Self { priority_requestors, allow_requestors };
-
-        Box::pin(async move {
-            monitor.monitor_loop(cancel_token).await;
-            Ok(())
-        })
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        self.monitor_loop(cancel_token).await;
+        Ok(())
     }
 }
 

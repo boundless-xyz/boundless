@@ -95,16 +95,20 @@ Compose defaults can be overridden with env vars: `AGENT_IMAGE`, `CPU_AGENT_IMAG
 
 ### Broker Configuration
 
-| Variable                         | Default      | Description                                                                                |
-| -------------------------------- | ------------ | ------------------------------------------------------------------------------------------ |
-| `prover_private_key`             | `""`         | Prover wallet private key                                                                  |
-| `prover_rpc_url`                 | `""`         | RPC URL for blockchain                                                                     |
-| `prover_rpc_urls`                | `""`         | Comma-separated RPC URLs                                                                   |
-| `prover_povw_log_id`             | `""`         | POVW log contract address                                                                  |
-| `prover_broker_config`           | `""`         | Basename in `configs/broker/` (e.g. `staging_84532`, `8453`). Local file copied on deploy. |
-| `prover_broker_experimental_rpc` | `false`      | When true, pass `--experimental-rpc` to the broker.                                        |
-| `prover_broker_extra_args`       | `""`         | Extra CLI args for the broker (can combine with experimental_rpc).                         |
-| `prover_broker_toml_url`         | (GitHub URL) | URL to broker.toml template (used when prover_broker_config not set)                       |
+| Variable                         | Default      | Description                                                                                     |
+| -------------------------------- | ------------ | ----------------------------------------------------------------------------------------------- |
+| `prover_private_key`             | `""`         | Prover wallet private key                                                                       |
+| `prover_rpc_url`                 | `""`         | RPC URL for blockchain                                                                          |
+| `prover_rpc_urls`                | `""`         | Comma-separated RPC URLs                                                                        |
+| `prover_povw_log_id`             | `""`         | POVW log contract address                                                                       |
+| `prover_broker_config_dir`       | `""`         | Config directory (e.g. `configs/broker/prod-mainnet-nightly`). Copies all files. Preferred.     |
+| `prover_broker_toml_local`       | `""`         | Local broker.toml file path. Used when config_dir is not set.                                   |
+| `prover_broker_toml_url`         | (GitHub URL) | URL to broker.toml template (used when config_dir and toml_local are not set)                   |
+| `prover_broker_experimental_rpc` | `false`      | Deprecated. ChainMonitorV2 is now the broker default; `--experimental-rpc` is a no-op flag.     |
+| `prover_broker_legacy_rpc`       | `false`      | When true, pass `--legacy-rpc` to opt back into the legacy ChainMonitorService + MarketMonitor. |
+| `prover_broker_extra_args`       | `""`         | Extra CLI args for the broker.                                                                  |
+| `prover_chain_rpc_urls`          | `{}`         | Dict of chain_id → RPC URL for multichain (e.g. `{8453: "https://...", 167000: "https://..."}`) |
+| `prover_chain_overrides`         | `{}`         | Dict of chain_id → URL or local path for per-chain broker config overrides                      |
 
 ## Usage
 
@@ -197,12 +201,13 @@ docker compose restart gpu_prove_agent
 
 ## Files Created
 
-| Path                                | Description               |
-| ----------------------------------- | ------------------------- |
-| `/opt/bento/`                       | Cloned repository         |
-| `/opt/bento/.env`                   | Environment configuration |
-| `/opt/bento/broker.toml`            | Broker configuration      |
-| `/etc/systemd/system/bento.service` | Systemd service unit      |
+| Path                                | Description                |
+| ----------------------------------- | -------------------------- |
+| `/opt/bento/`                       | Cloned repository          |
+| `/opt/bento/.env`                   | Environment configuration  |
+| `/opt/bento/broker.toml`            | Base broker configuration  |
+| `/opt/bento/broker.{chain_id}.toml` | Per-chain config overrides |
+| `/etc/systemd/system/bento.service` | Systemd service unit       |
 
 ## Docker Compose Profiles
 

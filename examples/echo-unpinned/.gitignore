@@ -1,0 +1,4 @@
+# This crate must not commit a Cargo.lock — each run regenerates it to exercise
+# unpinned transitive dependency resolution.
+/Cargo.lock
+/target

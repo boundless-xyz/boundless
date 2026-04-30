@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{default::Default, str::FromStr, sync::Arc};
+use std::{
+    default::Default,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
+};
 
 use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, U256};
 use async_trait::async_trait;
@@ -25,10 +30,11 @@ use thiserror::Error;
 
 use crate::{
     errors::{impl_coded_debug, CodedError},
-    proving_order_from_request, skipped_order_from_request, AggregationState, Batch, BatchStatus,
-    FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
+    proving_order_from_request, AggregationState, Batch, BatchStatus, FulfillmentType, Order,
+    OrderRequest, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
+use url::Url;
 
 #[cfg(test)]
 mod fuzz_db;
@@ -127,7 +133,6 @@ pub struct AggregationOrder {
 
 #[async_trait]
 pub trait BrokerDb {
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
     async fn insert_accepted_request(
         &self,
         order_request: &OrderRequest,
@@ -207,6 +212,71 @@ pub trait BrokerDb {
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
 
+/// Builds a per-chain SQLite connection URL from the broker's configured base URL.
+///
+/// File URLs insert `.{chain_id}` before the extension (`broker.sqlite` → `broker.8453.sqlite`).
+/// In-memory bases (`sqlite::memory:`) map to a distinct named in-memory database per chain.
+pub fn broker_sqlite_url_for_chain(base_conn_str: &str, chain_id: u64) -> Result<String, String> {
+    let base = base_conn_str.trim();
+    if sqlite_url_is_memory_base(base) {
+        tracing::info!("Using in-memory broker database for chain {chain_id}");
+        return Ok(format!("sqlite:file:boundless_broker_{chain_id}?mode=memory&cache=shared"));
+    }
+
+    let base_url = Url::parse(base).map_err(|e| format!("invalid broker database URL: {e}"))?;
+    if base_url.scheme() != "sqlite" {
+        return Err(format!(
+            "broker database URL must use the sqlite scheme, got {}",
+            base_url.scheme()
+        ));
+    }
+
+    let path = sqlite_file_path_from_url(&base_url)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "broker database URL path has no file name".to_string())?;
+
+    let path_buf = PathBuf::from(file_name);
+    let stem =
+        path_buf.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("broker");
+    let ext = path_buf.extension().and_then(|e| e.to_str());
+    let new_file_name = match ext {
+        Some(e) => format!("{stem}.{chain_id}.{e}"),
+        None => format!("{stem}.{chain_id}"),
+    };
+    let new_path = parent.join(new_file_name);
+    let path_str = new_path
+        .to_str()
+        .ok_or_else(|| "derived broker database path is not valid UTF-8".to_string())?;
+
+    tracing::info!("Using file broker database for chain {chain_id}: {path_str}");
+    Ok(format!("sqlite://{path_str}"))
+}
+
+fn sqlite_url_is_memory_base(s: &str) -> bool {
+    let head = s.split('?').next().unwrap_or("");
+    head.eq_ignore_ascii_case("sqlite::memory:")
+}
+
+fn sqlite_file_path_from_url(url: &Url) -> Result<PathBuf, String> {
+    if sqlite_url_is_memory_base(url.as_str()) {
+        return Err("in-memory broker URL should be handled before URL path extraction".into());
+    }
+
+    let path = url.path();
+    if !path.is_empty() && path != "/" {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Some(host) = url.host_str() {
+        return Ok(PathBuf::from(host));
+    }
+
+    Err("sqlite broker URL has no file path (use sqlite:///path, sqlite://relative.db, or sqlite::memory:)".into())
+}
+
 pub struct SqliteDb {
     pool: SqlitePool,
 }
@@ -252,36 +322,16 @@ impl SqliteDb {
         Ok(res as usize)
     }
 
-    /// Insert an order into the database using ON CONFLICT to handle duplicates safely.
-    /// Always ignores duplicates - used for skipped requests.
-    async fn insert_order_ignore_duplicates(&self, order: &Order) -> Result<(), DbError> {
+    /// Insert an accepted order. Errors with [`DbError::DuplicateOrderId`] if a row already
+    /// exists for the same order id (any status), so duplicate accepts surface loudly to the
+    /// caller. We never persist Skipped rows, so there is no Skipped → Accepted upgrade path.
+    async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
         let result =
             sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2) ON CONFLICT(id) DO NOTHING")
                 .bind(order.id())
                 .bind(sqlx::types::Json(&order))
                 .execute(&self.pool)
                 .await?;
-
-        if result.rows_affected() == 0 {
-            tracing::debug!("Order {} already exists in the database", order.id());
-        }
-
-        Ok(())
-    }
-
-    /// Insert an accepted order, overwriting only if the existing order is skipped.
-    /// Returns true if inserted/updated, false if ignored due to existing non-skipped order.
-    async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
-        let result = sqlx::query(
-            r#"INSERT INTO orders (id, data) VALUES ($1, $2) 
-               ON CONFLICT(id) DO UPDATE SET 
-                   data = excluded.data 
-               WHERE orders.data->>'status' = 'Skipped'"#,
-        )
-        .bind(order.id())
-        .bind(sqlx::types::Json(&order))
-        .execute(&self.pool)
-        .await?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::DuplicateOrderId(order.id()));
@@ -318,12 +368,12 @@ impl BrokerDb for SqliteDb {
     #[cfg(test)]
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order.id())))]
     async fn add_order(&self, order: &Order) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(order).await
-    }
-
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(&skipped_order_from_request(order_request)).await
+        sqlx::query("INSERT INTO orders (id, data) VALUES ($1, $2) ON CONFLICT(id) DO NOTHING")
+            .bind(order.id())
+            .bind(sqlx::types::Json(&order))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
@@ -1080,7 +1130,6 @@ mod tests {
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
-    use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
         let mut request = OrderRequest::new(
@@ -1200,16 +1249,6 @@ mod tests {
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Done);
-    }
-
-    #[sqlx::test]
-    async fn skip_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let order = create_order_request();
-
-        db.insert_skipped_request(&order).await.unwrap();
-        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
     }
 
     #[sqlx::test]
@@ -1657,22 +1696,11 @@ mod tests {
     }
 
     #[sqlx::test]
-    #[traced_test]
     async fn insert_duplicate_orders_conflict_handling(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        // Skipped request ignores duplicates
+        // First accept of a fresh order succeeds.
         let order_request = create_order_request();
-        db.insert_skipped_request(&order_request).await.unwrap();
-
-        let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
-        assert_eq!(stored_order.status, OrderStatus::Skipped);
-
-        // Try to insert the same skipped request again - should be ignored
-        db.insert_skipped_request(&order_request).await.unwrap();
-        assert!(logs_contain("already exists"));
-
-        // Accepted request can overwrite skipped order
         let accepted_order =
             db.insert_accepted_request(&order_request, U256::from(100)).await.unwrap();
         assert_eq!(accepted_order.status, OrderStatus::PendingProving);
@@ -1682,10 +1710,9 @@ mod tests {
         assert_eq!(stored_order.status, OrderStatus::PendingProving);
         assert_eq!(stored_order.lock_price, Some(U256::from(100)));
 
-        // Accepted request errors on non-skipped duplicate
+        // Second accept of the same order errors and leaves the row untouched.
         assert!(db.insert_accepted_request(&order_request, U256::from(200)).await.is_err());
 
-        // Verify the stored order still has the original lock price (wasn't updated)
         let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
         assert_eq!(
             stored_order.lock_price,
@@ -1693,7 +1720,7 @@ mod tests {
             "Lock price should not be updated"
         );
 
-        // New order (different ID) should work normally
+        // A different order id is accepted normally.
         let mut different_request = create_order_request();
         different_request.request.id = U256::from(999);
 
@@ -1701,5 +1728,80 @@ mod tests {
             db.insert_accepted_request(&different_request, U256::from(300)).await.unwrap();
         assert_eq!(new_order.status, OrderStatus::PendingProving);
         assert_eq!(new_order.lock_price, Some(U256::from(300)));
+    }
+}
+
+#[cfg(test)]
+mod chain_db_url_tests {
+    use super::*;
+    use crate::{FulfillmentType, OrderRequest, ProofRequest};
+    use alloy::primitives::{Address, Bytes, U256};
+    use boundless_market::contracts::{
+        Offer, Predicate, RequestId, RequestInput, RequestInputType, Requirements,
+    };
+    use risc0_zkvm::sha::Digest;
+    use tempfile::tempdir;
+
+    fn sample_order() -> crate::Order {
+        let mut order_request = OrderRequest::new(
+            ProofRequest::new(
+                RequestId::new(Address::ZERO, 1),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                "http://risczero.com",
+                RequestInput { inputType: RequestInputType::Inline, data: "".into() },
+                Offer {
+                    minPrice: U256::from(1),
+                    maxPrice: U256::from(2),
+                    rampUpStart: 0,
+                    timeout: 100,
+                    lockTimeout: 100,
+                    rampUpPeriod: 1,
+                    lockCollateral: U256::from(0),
+                },
+            ),
+            Bytes::new(),
+            FulfillmentType::LockAndFulfill,
+            Address::ZERO,
+            1,
+        );
+        order_request.image_id = Some(Digest::ZERO.to_string());
+        crate::proving_order_from_request(&order_request, Default::default())
+    }
+
+    #[test]
+    fn memory_base_yields_distinct_urls_per_chain() {
+        let a = broker_sqlite_url_for_chain("sqlite::memory:", 1).unwrap();
+        let b = broker_sqlite_url_for_chain("sqlite::memory:", 8453).unwrap();
+        assert_ne!(a, b);
+        assert!(a.contains("boundless_broker_1"));
+        assert!(b.contains("boundless_broker_8453"));
+    }
+
+    #[test]
+    fn file_base_inserts_chain_id_before_extension() {
+        let dir = tempdir().unwrap();
+        let base = format!("sqlite://{}", dir.path().join("broker.sqlite").display());
+        let u1 = broker_sqlite_url_for_chain(&base, 1).unwrap();
+        let u2 = broker_sqlite_url_for_chain(&base, 2).unwrap();
+        assert!(u1.contains("broker.1.sqlite"));
+        assert!(u2.contains("broker.2.sqlite"));
+        assert_ne!(u1, u2);
+    }
+
+    #[tokio::test]
+    async fn two_chain_files_have_isolated_migrations_and_data() {
+        let dir = tempdir().unwrap();
+        let base = format!("sqlite://{}", dir.path().join("broker.sqlite").display());
+        let url1 = broker_sqlite_url_for_chain(&base, 1).unwrap();
+        let url2 = broker_sqlite_url_for_chain(&base, 2).unwrap();
+
+        let db1: DbObj = Arc::new(SqliteDb::new(&url1).await.unwrap());
+        let db2: DbObj = Arc::new(SqliteDb::new(&url2).await.unwrap());
+
+        let order = sample_order();
+        db1.add_order(&order).await.unwrap();
+
+        assert!(db1.get_order(&order.id()).await.unwrap().is_some());
+        assert!(db2.get_order(&order.id()).await.unwrap().is_none());
     }
 }

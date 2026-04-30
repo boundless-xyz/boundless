@@ -1,0 +1,342 @@
+name: bento
+# GPU Configuration:
+# The gpu_prove_agent service automatically detects all available GPUs using nvidia-smi
+# and spawns a prove agent process for each GPU. No manual configuration needed.
+#
+# To check available GPUs:
+#   nvidia-smi --list-gpus
+
+# Anchors:
+x-base-environment:
+  &base-environment # With Redis auth set REDIS_PASSWORD; URL is redis://:password@host:6379 (empty password OK when no auth)
+  BENTO_API_URL: http://rest_api:8081
+  REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
+  NO_COLOR: 1
+  RUST_LOG: ${RUST_LOG:-info}
+  RISC0_HOME: /usr/local/risc0
+  RUST_BACKTRACE: 1
+  POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
+x-agent-common: &agent-common
+  image: ${PROVER_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent:latest}
+  runtime: ${DOCKER_RUNTIME:-nvidia}
+  build:
+    context: .
+    dockerfile: ${PROVER_AGENT_DOCKERFILE:-dockerfiles/prover/agent.dockerfile}
+    args:
+      BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
+      USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
+      RELEASE: ${BOUNDLESS_RELEASE:-true}
+  restart: always
+  depends_on:
+    redis:
+      condition: service_healthy
+    rest_api:
+      condition: service_healthy
+  environment:
+    <<: *base-environment
+
+x-exec-agent-common: &exec-agent-common
+  <<: *agent-common
+  mem_limit: 4G
+  cpus: 3
+  environment:
+    <<: *base-environment
+    RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
+    SEGMENT_SIZE: ${SEGMENT_SIZE:-21}
+    REDIS_TTL: ${REDIS_TTL:-57600}
+  entrypoint:
+    [
+      "/bin/sh",
+      "-c",
+      "/app/agent -t exec --segment-po2 $$SEGMENT_SIZE --redis-ttl $$REDIS_TTL",
+    ]
+
+x-broker-environment: &broker-environment
+  NO_COLOR: 1
+  RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
+  # RUST_BACKTRACE: 1
+  PROVER_PRIVATE_KEY: ${PROVER_PRIVATE_KEY:-${PRIVATE_KEY}}
+  PROVER_RPC_URL: ${PROVER_RPC_URL:-${RPC_URL}}
+  PROVER_RPC_URLS: ${PROVER_RPC_URLS}
+  BOUNDLESS_MARKET_ADDRESS:
+  SET_VERIFIER_ADDRESS:
+  ORDER_STREAM_URL:
+
+x-gpu-prove-agent: &gpu-prove-agent
+  <<: *agent-common
+  environment:
+    <<: *base-environment
+    REDIS_TTL: ${REDIS_TTL:-57600}
+  # Detect GPUs and spawn one agent per GPU, then wait for all
+  entrypoint:
+    [
+      "/bin/sh",
+      "-c",
+      "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
+    ]
+  # By default, the prebuilt agent image ships with the BLAKE3 Groth16 setup
+  # artifacts baked in at /.blake3_groth16_artifacts/. To swap in host-provided
+  # artifacts (e.g., images built with USE_LOCAL_BLAKE3_GROTH16_SETUP=1, or
+  # Ansible-managed deployments), opt in by passing the override file:
+  #   docker compose -f prover-compose.yml -f compose.blake3-local.yml up
+  # `just bento up` / `just prover up` auto-include it whenever
+  # BLAKE3_GROTH16_SETUP_DIR is set in the environment.
+
+x-broker-common: &broker-common
+  image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:latest}
+  restart: always
+  depends_on:
+    rest_api:
+      condition: service_healthy
+    gpu_prove_agent:
+      condition: service_started
+    exec_agent:
+      condition: service_started
+    aux_agent:
+      condition: service_started
+    redis:
+      condition: service_healthy
+  profiles: [broker]
+  build:
+    context: .
+    dockerfile: ${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}
+    args:
+      RELEASE: ${BOUNDLESS_RELEASE:-true}
+  mem_limit: 2G
+  cpus: 2
+  stop_grace_period: 3h
+  network_mode: host
+
+services:
+  redis:
+    hostname: ${REDIS_HOST:-redis}
+    image: ${REDIS_IMG:-valkey/valkey:9.0}
+    restart: always
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - 6379:6379
+    volumes:
+      - redis-data:/data
+    command:
+      [
+        "sh",
+        "-c",
+        'exec valkey-server --maxmemory-policy noeviction --save 900 1 --appendonly yes $$(test -n "$$REDIS_PASSWORD" && echo "--requirepass $$REDIS_PASSWORD")',
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          'redis-cli $$(test -n "$$REDIS_PASSWORD" && echo "-a $$REDIS_PASSWORD") ping',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  prometheus:
+    image: ${PROMETHEUS_IMG:-prom/prometheus:v2.53.0}
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./dockerfiles/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+
+  grafana:
+    image: ${GRAFANA_IMG:-grafana/grafana:11.0.0}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_LOG_LEVEL=WARN
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource
+    volumes:
+      - ./dockerfiles/grafana:/etc/grafana/provisioning/
+      - grafana-data:/var/lib/grafana
+      - broker-data:/db
+    depends_on:
+      - redis
+      - prometheus
+
+  exec_agent:
+    <<: *exec-agent-common
+    image: ${PROVER_CPU_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent-cpu:latest}
+    build:
+      context: .
+      dockerfile: ${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}
+      args:
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
+    runtime: runc
+    deploy:
+      replicas: ${BENTO_EXECUTOR_COUNT:-4}
+
+  aux_agent:
+    <<: *agent-common
+    image: ${PROVER_CPU_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent-cpu:latest}
+    build:
+      context: .
+      dockerfile: ${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}
+      args:
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
+    runtime: runc
+    mem_limit: 256M
+    deploy:
+      replicas: ${BENTO_AUX_WORKER_COUNT:-2}
+    cpus: 1
+    environment:
+      <<: *base-environment
+      CLEANUP_POLL_INTERVAL:
+      CLEANUP_STATS_TTL:
+      STUCK_TASKS_POLL_INTERVAL:
+      BENTO_DISABLE_COMPLETED_CLEANUP: false
+      BENTO_DISABLE_STUCK_TASK_CLEANUP:
+      REDIS_TTL: ${REDIS_TTL:-57600}
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "/app/agent -t aux --monitor-requeue --redis-ttl $$REDIS_TTL",
+      ]
+
+  # GPU Prover Agent - automatically detects and uses all available GPUs
+  # Uses nvidia-smi to detect GPUs and spawns one agent process per GPU
+  gpu_prove_agent:
+    <<: *gpu-prove-agent
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # No device_ids restriction - all GPUs are accessible
+              # The entrypoint script will detect and use all available GPUs
+              capabilities: [gpu]
+
+  rest_api:
+    image: ${PROVER_REST_API_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-rest-api:latest}
+    build:
+      context: .
+      dockerfile: ${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}
+      args:
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
+    restart: always
+
+    mem_limit: 4G
+    cpus: 1
+
+    environment:
+      <<: *base-environment
+
+    ports:
+      - "8081:8081"
+
+    entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  broker:
+    <<: *broker-common
+    volumes:
+      - type: bind
+        source: ./broker.toml
+        target: /app/broker.toml
+      - type: bind
+        source: ./chain-overrides
+        target: /app/chain-overrides
+        read_only: true
+      - broker-data:/db/
+    # Uncomment when using locally built set-builder and assessor guest programs
+    # - type: bind
+    #   source: ./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+    #   target: /target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+    # - type: bind
+    #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+    #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *broker-environment
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "exec /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 ${BROKER_EXTRA_ARGS:-}",
+      ]
+
+  # # Example second broker with different configuration
+  # broker2:
+  #   <<: *broker-common
+  #   volumes:
+  #     - type: bind
+  #       source: ./broker2.toml
+  #       target: /app/broker.toml
+  #     - broker2-data:/db/
+  #   environment:
+  #     <<: *broker-environment
+  #     # Note: use a different variable if you want to use different private keys in each broker
+  #     PRIVATE_KEY: ${PROVER_PRIVATE_KEY:-${PRIVATE_KEY}}
+  #     RPC_URL: ${RPC_URL_2}
+  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
+
+  miner:
+    image: ${PROVER_CLI_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-cli:latest}
+    build:
+      context: .
+      dockerfile: ${PROVER_CLI_DOCKERFILE:-dockerfiles/prover/prover_cli.dockerfile}
+      args:
+        BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
+        # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
+        USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
+    restart: always
+    depends_on:
+      rest_api:
+        condition: service_healthy
+    profiles: [miner]
+    mem_limit: 2G
+    cpus: 2
+    network_mode: host
+    environment:
+      <<: *base-environment
+      RUST_LOG: ${RUST_LOG:-info}
+    entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 500000; done"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      rest_api:
+        condition: service_healthy
+    profiles: [caddy]
+    network_mode: host
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-:80}
+      CADDY_API_HOST: ${CADDY_API_HOST:-127.0.0.1}
+      CADDY_API_PORT: ${CADDY_API_PORT:-8081}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
+      CADDY_API_KEY: ${CADDY_API_KEY:-}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./caddy/${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
+volumes:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+  broker-data:
+  caddy-data:
+  caddy-config:
+  # broker2-data:

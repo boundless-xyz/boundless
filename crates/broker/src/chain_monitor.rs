@@ -27,9 +27,9 @@ use boundless_market::dynamic_gas_filler::PriorityMode;
 use thiserror::Error;
 
 use crate::{
+    coded_error_impl,
     errors::CodedError,
-    impl_coded_debug,
-    task::{RetryRes, RetryTask, SupervisorErr},
+    task::{BrokerService, SupervisorErr},
 };
 
 #[derive(Error)]
@@ -40,16 +40,10 @@ pub enum ChainMonitorErr {
     UnexpectedErr(#[from] anyhow::Error),
 }
 
-impl_coded_debug!(ChainMonitorErr);
-
-impl CodedError for ChainMonitorErr {
-    fn code(&self) -> &str {
-        match self {
-            ChainMonitorErr::RpcErr(_) => "[B-CHM-400]",
-            ChainMonitorErr::UnexpectedErr(_) => "[B-CHM-500]",
-        }
-    }
-}
+coded_error_impl!(ChainMonitorErr, "CHM",
+    RpcErr(..)        => "400",
+    UnexpectedErr(..) => "500",
+);
 
 #[derive(Clone, Debug, Copy)]
 pub(crate) struct ChainHead {
@@ -58,8 +52,8 @@ pub(crate) struct ChainHead {
 }
 
 /// Trait abstracting the chain monitor query interface.
-/// Allows swapping the standard `ChainMonitorService` with alternative implementations
-/// (e.g. `ChainMonitorV2` behind `--experimental-rpc`).
+/// Implemented by both the default `ChainMonitorV2` (eth_getBlockReceipts) and the
+/// legacy `ChainMonitorService` pair (eth_getLogs, selected via `--legacy-rpc`).
 #[async_trait]
 pub(crate) trait ChainMonitorApi: Send + Sync {
     async fn current_chain_head(&self) -> Result<ChainHead>;
@@ -141,77 +135,74 @@ impl<P: Provider + Send + Sync> ChainMonitorApi for ChainMonitorService<P> {
     }
 }
 
-impl<P> RetryTask for ChainMonitorService<P>
+impl<P> BrokerService for ChainMonitorService<P>
 where
-    P: Provider + 'static + Clone,
+    P: Provider + Clone + Send + Sync + 'static,
 {
     type Error = ChainMonitorErr;
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let self_clone = self.clone();
 
-        Box::pin(async move {
-            tracing::info!("Starting ChainMonitor service");
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting ChainMonitor service");
 
-            let chain_id = self_clone
-                .provider
-                .get_chain_id()
-                .await
-                .context("failed to get chain ID")
-                .map_err(ChainMonitorErr::UnexpectedErr)
-                .map_err(SupervisorErr::Recover)?;
+        let chain_id = self
+            .provider
+            .get_chain_id()
+            .await
+            .context("failed to get chain ID")
+            .map_err(ChainMonitorErr::UnexpectedErr)
+            .map_err(SupervisorErr::Recover)?;
 
-            let chain_poll_time = NamedChain::try_from(chain_id)
-                .ok()
-                .and_then(|chain| chain.average_blocktime_hint())
-                .map(|block_time| block_time.mul_f32(0.6))
-                .unwrap_or(Duration::from_secs(2));
+        let chain_poll_time = NamedChain::try_from(chain_id)
+            .ok()
+            .and_then(|chain| chain.average_blocktime_hint())
+            .map(|block_time| block_time.mul_f32(0.6))
+            .unwrap_or(Duration::from_secs(2));
 
-            loop {
-                tokio::select! {
-                    // Wait for notification or handle cancellation
-                    _ = self_clone.update_notifier.notified() => {
-                        // Needs update, lock next update value to avoid unnecessary notifications.
-                        let mut next_update = self_clone.next_update.write().await;
+        loop {
+            tokio::select! {
+                // Wait for notification or handle cancellation
+                _ = self.update_notifier.notified() => {
+                    // Needs update, lock next update value to avoid unnecessary notifications.
+                    let mut next_update = self.next_update.write().await;
 
-                        // Get the latest block and estimated max fee per gas.
-                        let priority_mode = self_clone.gas_priority_mode.read().await.clone();
-                        let (block_res, gas_price_res) = tokio::join!(
-                            self_clone.provider.get_block_by_number(BlockNumberOrTag::Latest),
-                            priority_mode.estimate_max_fee_per_gas(self_clone.provider.as_ref())
-                        );
+                    // Get the latest block and estimated max fee per gas.
+                    let priority_mode = self.gas_priority_mode.read().await.clone();
+                    let (block_res, gas_price_res) = tokio::join!(
+                        self.provider.get_block_by_number(BlockNumberOrTag::Latest),
+                        priority_mode.estimate_max_fee_per_gas(self.provider.as_ref())
+                    );
 
-                        let block = block_res
-                            .context("failed to latest block")
-                            .map_err(ChainMonitorErr::RpcErr)
-                            .map_err(SupervisorErr::Recover)?
-                            .context("failed to fetch latest block: no block in response")
-                            .map_err(ChainMonitorErr::UnexpectedErr)
-                            .map_err(SupervisorErr::Recover)?;
-                        let head = ChainHead {
-                            block_number: block.header.number,
-                            block_timestamp: block.header.timestamp,
-                        };
-                        let _ = self_clone.head_update.send_replace(head);
+                    let block = block_res
+                        .context("failed to latest block")
+                        .map_err(ChainMonitorErr::RpcErr)
+                        .map_err(SupervisorErr::Recover)?
+                        .context("failed to fetch latest block: no block in response")
+                        .map_err(ChainMonitorErr::UnexpectedErr)
+                        .map_err(SupervisorErr::Recover)?;
+                    let head = ChainHead {
+                        block_number: block.header.number,
+                        block_timestamp: block.header.timestamp,
+                    };
+                    let _ = self.head_update.send_replace(head);
 
-                        let gas_price = gas_price_res
-                            .context("failed to get gas price")
-                            .map_err(ChainMonitorErr::RpcErr)
-                            .map_err(SupervisorErr::Recover)?;
-                        let _ = self_clone.gas_price.send_replace(gas_price);
+                    let gas_price = gas_price_res
+                        .context("failed to get gas price")
+                        .map_err(ChainMonitorErr::RpcErr)
+                        .map_err(SupervisorErr::Recover)?;
+                    let _ = self.gas_price.send_replace(gas_price);
 
-                        // Set timestamp for next update
-                        *next_update = Instant::now() + chain_poll_time;
-                    }
-                    // Handle cancellation
-                    _ = cancel_token.cancelled() => {
-                        tracing::debug!("Chain monitor received cancellation, shutting down gracefully");
-                        break;
-                    }
+                    // Set timestamp for next update
+                    *next_update = Instant::now() + chain_poll_time;
+                }
+                // Handle cancellation
+                _ = cancel_token.cancelled() => {
+                    tracing::debug!("Chain monitor received cancellation, shutting down gracefully");
+                    break;
                 }
             }
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 }
 
@@ -241,8 +232,8 @@ mod tests {
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
         let chain_monitor =
-            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
-        tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
+            ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap();
+        tokio::spawn(chain_monitor.clone().run(CancellationToken::new()));
 
         let block = chain_monitor.current_block_number().await.unwrap();
         assert_eq!(block, 0);

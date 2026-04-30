@@ -233,22 +233,28 @@ impl StatusPoller {
                     continue;
                 }
                 "SUCCEEDED" => {
-                    let Some(stats) = status.stats else {
-                        return Err(ProverError::MissingStatus);
-                    };
-                    tracing::trace!(
-                        "Session {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
-                        stats.cycles,
-                        stats.total_cycles
-                    );
-                    return Ok(ProofResult {
-                        id: proof_id.uuid.clone(),
-                        stats: ExecutorResp {
+                    let stats = status.stats.map(|stats| {
+                        tracing::trace!(
+                            "Session {proof_id:?} succeeded with user cycles: {} and total cycles: {}",
+                            stats.cycles,
+                            stats.total_cycles
+                        );
+                        ExecutorResp {
                             assumption_count: 0,
                             segments: stats.segments as u64,
                             user_cycles: stats.cycles,
                             total_cycles: stats.total_cycles,
-                        },
+                        }
+                    });
+                    if stats.is_none() {
+                        tracing::warn!(
+                            "Session {proof_id:?} succeeded but stats are not available. \
+                            This can happen if the status is cleaned up before this is polled."
+                        );
+                    }
+                    return Ok(ProofResult {
+                        id: proof_id.uuid.clone(),
+                        stats,
                         elapsed_time: status.elapsed_time.unwrap_or(f64::NAN),
                     });
                 }

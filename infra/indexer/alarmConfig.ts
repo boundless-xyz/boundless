@@ -215,10 +215,10 @@ export const alarmConfig: ChainStageAlarms = {
           }
         }],
         submittedRequests: [{
-          description: "less than 2 submitted orders in 30 minutes",
+          description: "less than 2 submitted orders in 1 hour",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 2,
@@ -569,6 +569,40 @@ export const alarmConfig: ChainStageAlarms = {
             },
             alarmConfig: {
               threshold: 1,
+              evaluationPeriods: 2,
+              datapointsToAlarm: 2,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
+        },
+        {
+          name: "signal_sepolia_requestor",
+          address: "0xe30260d1dc14e70b17951e97719a9d81e768d2c1",
+          submissionRate: [
+            {
+              description: "no submitted orders in 3 hours from signal_sepolia_requestor",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 10800
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            }
+          ],
+          successRate: [],
+          expiredRequests: [{
+            description: "greater than or equal to 5 expired orders across 2 hours from signal_sepolia_requestor",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 5,
               evaluationPeriods: 2,
               datapointsToAlarm: 2,
               comparisonOperator: "GreaterThanOrEqualToThreshold",

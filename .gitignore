@@ -36,8 +36,11 @@ network_address_labels.json
 !.env.base-sepolia
 !.env.base
 
-# Ignore broker config file(s)
+# Ignore broker config file(s) in repo root and chain-overrides/
 *broker*.toml
+# But track the localnet broker config and Ansible-managed broker configs
+!broker.localnet.toml
+!ansible/roles/prover/configs/broker/**
 ansible/inventory.yml
 # Custom ansible inventories
 ansible/inventory-*.yml
@@ -51,7 +54,6 @@ target/
 .aider*
 **/CLAUDE.md
 **/AGENTS.md
-.codex
 scripts/internal
 
 infra/**/build

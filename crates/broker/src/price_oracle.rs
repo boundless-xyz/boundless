@@ -13,29 +13,22 @@
 // limitations under the License.
 
 use crate::errors::CodedError;
-use crate::task::{RetryRes, RetryTask, SupervisorErr};
+use crate::task::{BrokerService, SupervisorErr};
 use boundless_market::price_oracle::{PriceOracleError, PriceOracleManager};
 use tokio_util::sync::CancellationToken;
 
-impl RetryTask for PriceOracleManager {
+impl BrokerService for PriceOracleManager {
     type Error = PriceOracleError;
 
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let manager = self.clone();
-        Box::pin(async move {
-            tracing::info!("Starting price oracle refresh task");
-            manager.start_oracle(cancel_token).await.map_err(|err| match err {
-                PriceOracleError::UpdateTimeout() => {
-                    tracing::error!("Price oracle could not refresh prices for too long, if this continues consider setting static prices in the config for `eth_usd` and `zkc_usd`: {}", err);
-                    SupervisorErr::Recover(err)
-                },
-                _ => SupervisorErr::Recover(err),
-            })?;
-            Ok(())
-        })
+    async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
+        tracing::info!("Starting price oracle refresh task");
+        self.start_oracle(cancel_token).await.map_err(SupervisorErr::Recover)
     }
 }
 
+// `coded_error_impl!` doesn't fit here: PriceOracleError is a foreign type
+// from `boundless_market::price_oracle` and its variants live upstream.
+// Delegate to the upstream-provided `code()` method instead.
 impl CodedError for PriceOracleError {
     fn code(&self) -> &str {
         PriceOracleError::code(self)
