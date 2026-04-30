@@ -16,7 +16,9 @@
 //! plumbing, configuration plumbing, and the prioritization core used by
 //! both the order pricer and the order committer.
 
+pub mod channels;
 pub mod config;
 pub mod errors;
 pub mod prioritization;
+pub mod service_runner;
 pub mod task;
