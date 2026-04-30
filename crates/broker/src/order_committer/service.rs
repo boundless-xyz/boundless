@@ -39,15 +39,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, U256};
-use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     channels::SharedReceiver,
-    coded_error_impl,
-    config::{ConfigLock, OrderCommitmentPriority},
-    errors::CodedError,
+    config::ConfigLock,
     now_timestamp,
     order_locker::OrderCommitmentMeta,
     prioritization::prioritize_orders_to_commit,
@@ -56,71 +53,13 @@ use crate::{
     FulfillmentType, OrderRequest, OrderStateChange,
 };
 
+use super::error::OrderCommitterErr;
+use super::state::{CommitterConfig, InFlightOrder};
+use super::types::CommitmentComplete;
+
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_PROVING_BATCH_SIZE: usize = 10;
 const DEFAULT_MAX_COMMITMENT_DURATION_SECS: u64 = 7200;
-
-/// Reason a proving capacity slot was released. Sent via [`CommitmentComplete`]
-/// from the OrderLocker (for `Skipped`) or proving pipeline components
-/// (for `ProvingCompleted`/`ProvingFailed`).
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum CommitmentOutcome {
-    /// Order failed validation or locking in the OrderLocker and never entered the
-    /// proving pipeline. Capacity is freed immediately.
-    Skipped,
-    /// Order was proven, aggregated, and fulfilled on-chain by the Submitter.
-    ProvingCompleted,
-    /// Order failed somewhere in the proving pipeline (ProvingService, Aggregator,
-    /// Submitter, or ReaperTask).
-    ProvingFailed,
-}
-
-impl std::fmt::Display for CommitmentOutcome {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CommitmentOutcome::Skipped => write!(f, "Skipped"),
-            CommitmentOutcome::ProvingCompleted => write!(f, "ProvingCompleted"),
-            CommitmentOutcome::ProvingFailed => write!(f, "ProvingFailed"),
-        }
-    }
-}
-
-/// Capacity release signal sent back to the OrderCommitter to free an `in_flight` slot.
-/// Produced by the OrderLocker (Skipped) and proving pipeline (ProvingCompleted/Failed).
-pub(crate) struct CommitmentComplete {
-    pub order_id: String,
-    pub chain_id: u64,
-    pub outcome: CommitmentOutcome,
-}
-
-struct InFlightOrder {
-    dispatched_at: Instant,
-    total_cycles: Option<u64>,
-    proving_started_at: Option<u64>,
-}
-
-#[derive(Error)]
-pub(crate) enum OrderCommitterErr {
-    #[error("{code} Config read error: {0}", code = self.code())]
-    ConfigReadErr(Arc<anyhow::Error>),
-
-    #[error("{code} Stale capacity for order {order_id} expired after {elapsed_secs}s with no completion", code = self.code())]
-    StaleCapacity { order_id: String, elapsed_secs: u64 },
-}
-
-coded_error_impl!(OrderCommitterErr, "OC",
-    ConfigReadErr(..)   => "001",
-    StaleCapacity { .. } => "004",
-);
-
-struct CommitterConfig {
-    max_concurrent_proofs: usize,
-    peak_prove_khz: Option<u64>,
-    additional_proof_cycles: u64,
-    batch_buffer_time_secs: u64,
-    order_commitment_priority: OrderCommitmentPriority,
-    priority_addresses: Option<Vec<Address>>,
-}
 
 /// Singleton service that manages global proving capacity across all chains.
 ///
@@ -616,6 +555,7 @@ impl BrokerService for OrderCommitter {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::CommitmentOutcome;
     use super::*;
     use crate::{now_timestamp, FulfillmentType};
     use alloy::primitives::{Address, Bytes};
