@@ -49,8 +49,8 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
 
-// Keys under [market] that were renamed. Old names are silently dropped on load, 
-// which looks like the user's tuning is in effect when it isn't. 
+// Keys under [market] that were renamed. Old names are silently dropped on load,
+// which looks like the user's tuning is in effect when it isn't.
 // The wizard surfaces these so the user notices and renames.
 const RENAMED_MARKET_KEYS: &[(&str, &str)] = &[
     ("mcycle_price", "min_mcycle_price"),
