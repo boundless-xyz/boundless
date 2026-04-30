@@ -31,7 +31,6 @@
 use crate::{
     chain_monitor::{ChainHead, ChainMonitorObj},
     channels::SharedReceiver,
-    coded_error_impl,
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -59,9 +58,11 @@ use boundless_market::{
     selector::SupportedSelectors,
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
+use super::error::OrderLockerErr;
+use super::types::{CapacityResult, OrderCommitmentMeta, OrderLockerConfig, RpcRetryConfig};
 
 fn estimate_proving_time_no_load(
     order_cycles: Option<u64>,
@@ -71,67 +72,6 @@ fn estimate_proving_time_no_load(
     let peak_prove_khz = config.peak_prove_khz?;
     let total = cycles + config.additional_proof_cycles;
     Some(total.div_ceil(1_000).div_ceil(peak_prove_khz))
-}
-
-/// Metadata attached to each order for telemetry when recording commitment decisions.
-pub(crate) struct OrderCommitmentMeta {
-    pub(crate) estimated_proving_time_secs: Option<u64>,
-    pub(crate) estimated_proving_time_no_load_secs: Option<u64>,
-    pub(crate) concurrent_proving_jobs: u32,
-}
-
-struct CapacityResult {
-    orders: Vec<Arc<OrderRequest>>,
-    meta: HashMap<String, OrderCommitmentMeta>,
-}
-
-#[derive(Error)]
-pub enum OrderLockerErr {
-    #[error("{code} Failed to lock order: {0}", code = self.code())]
-    LockTxFailed(String),
-
-    #[error("{code} Failed to confirm lock tx: {0}", code = self.code())]
-    LockTxNotConfirmed(String),
-
-    #[error("{code} Insufficient balance for lock", code = self.code())]
-    InsufficientBalance,
-
-    #[error("{code} Order already locked", code = self.code())]
-    AlreadyLocked,
-
-    #[error("{code} RPC error: {0:?}", code = self.code())]
-    RpcErr(anyhow::Error),
-
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
-    UnexpectedError(#[from] anyhow::Error),
-
-    /// Pre-lock gas check failed (e.g. gas spike). Caller may retry next block.
-    #[error("{code} Pre-lock gas check failed (retry later): {0}", code = self.code())]
-    PreLockCheckRetry(String),
-}
-
-coded_error_impl!(OrderLockerErr, "OL",
-    LockTxNotConfirmed(..)  => "006",
-    LockTxFailed(..)        => "007",
-    AlreadyLocked           => "009",
-    InsufficientBalance     => "010",
-    RpcErr(..)              => "011",
-    PreLockCheckRetry(..)   => "012",
-    UnexpectedError(..)     => "500",
-);
-
-#[derive(Default)]
-pub(crate) struct OrderLockerConfig {
-    pub(crate) min_deadline: u64,
-    pub(crate) peak_prove_khz: Option<u64>,
-    pub(crate) max_concurrent_proofs: Option<u32>,
-    pub(crate) additional_proof_cycles: u64,
-}
-
-#[derive(Clone)]
-pub struct RpcRetryConfig {
-    pub retry_count: u64,
-    pub retry_sleep_ms: u64,
 }
 
 /// Per-chain order locker that validates dispatched orders, locks them on-chain (for
