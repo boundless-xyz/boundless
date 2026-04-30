@@ -20,7 +20,7 @@
 
 use alloy::primitives::U256;
 
-use crate::{Batch, Order};
+use crate::{Batch, FulfillmentType, Order};
 
 /// Struct containing the information about an order used by the aggregation worker.
 #[derive(Clone, Debug)]
@@ -29,6 +29,9 @@ pub struct AggregationOrder {
     pub proof_id: String,
     pub expiration: u64,
     pub fee: U256,
+    pub fulfillment_type: FulfillmentType,
+    pub request_id: U256,
+    pub lock_expiration: u64,
 }
 
 #[derive(sqlx::FromRow)]

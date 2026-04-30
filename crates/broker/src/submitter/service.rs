@@ -199,7 +199,7 @@ where
         let order_ids = batch.orders.iter().map(|order| order.as_str()).collect::<Vec<_>>();
         let orders = self.db.get_orders(&order_ids).await.context("Failed to get orders")?;
         let expired_orders =
-            orders.iter().filter(|order| order.expire_timestamp.unwrap() < now).collect::<Vec<_>>();
+            orders.iter().filter(|order| order.request.expires_at() < now).collect::<Vec<_>>();
         if expired_orders.len() == orders.len() {
             return self.handle_expired_requests_error(batch_id, orders).await;
         } else if !expired_orders.is_empty() {
@@ -378,6 +378,17 @@ where
                     outcome: CommitmentOutcome::ProvingFailed,
                 });
             }
+        }
+
+        // No valid fulfillments, skip on-chain submission attempt.
+        if fulfillments.is_empty() {
+            tracing::error!(
+                "All orders in batch {batch_id} failed during submission preparation. \
+                 Skipping on-chain submission."
+            );
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "No fulfillments to submit for batch {batch_id}"
+            )));
         }
 
         let assessor_claim_index = aggregation_state
@@ -562,56 +573,48 @@ where
             return Ok(());
         };
 
-        let max_batch_submission_attempts = self
-            .config
-            .lock_all()
-            .context("Failed to read config")?
-            .batcher
-            .max_submission_attempts;
+        let (max_attempts, retry_delay_ms) = {
+            let cfg = self.config.lock_all().context("Failed to read config")?;
+            (cfg.batcher.max_submission_attempts, cfg.batcher.submit_retry_delay_ms)
+        };
+        let retry_count = u64::from(max_attempts.saturating_sub(1));
 
-        let mut errors = Vec::new();
-        for attempt in 0..max_batch_submission_attempts {
-            match self.submit_batch(batch_id, &batch).await {
-                Ok(_) => {
-                    self.db
-                        .set_batch_submitted(batch_id)
-                        .await
-                        .context("Failed to set batch submitted")?;
-                    tracing::info!(
-                        "Completed batch: {batch_id} total_fees: {}",
-                        format_ether(batch.fees)
-                    );
-                    return Ok(());
-                }
-                Err(SubmitterErr::MarketError(
-                    MarketError::PaymentRequirementsFailedUnknownError(raw),
-                )) => {
-                    tracing::warn!(
-                        "Payment requirement failed for one or more orders, will not retry (raw error: {raw:?})"
-                    );
-                    errors.push(SubmitterErr::MarketError(
-                        MarketError::PaymentRequirementsFailedUnknownError(raw),
-                    ));
-                    break;
-                }
-                Err(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailed(err))) => {
-                    tracing::warn!("Payment requirement failed for one or more orders: {err:?}, will not retry");
-                    errors.push(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailed(
-                        err,
-                    )));
-                    break;
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        "Batch submission attempt {}/{} failed. Error: {err:?}",
-                        attempt + 1,
-                        max_batch_submission_attempts,
-                    );
-                    errors.push(err);
-                }
+        let context = format!("batch_id={batch_id}");
+        let result = crate::futures_retry::retry_only_with_context(
+            retry_count,
+            retry_delay_ms,
+            || async { self.submit_batch(batch_id, &batch).await },
+            "submit_batch",
+            &context,
+            |err: &SubmitterErr| {
+                // Retry on every error except payment-requirements, which is fatal today.
+                !matches!(
+                    err,
+                    SubmitterErr::MarketError(
+                        MarketError::PaymentRequirementsFailed(_)
+                            | MarketError::PaymentRequirementsFailedUnknownError(_),
+                    )
+                )
+            },
+        )
+        .await;
+
+        let err = match result {
+            Ok(()) => {
+                self.db
+                    .set_batch_submitted(batch_id)
+                    .await
+                    .context("Failed to set batch submitted")?;
+                tracing::info!(
+                    "Completed batch: {batch_id} total_fees: {}",
+                    format_ether(batch.fees)
+                );
+                return Ok(());
             }
-        }
-        tracing::warn!("Batch {batch_id} has reached max submission attempts. Errors: {errors:?}");
+            Err(err) => err,
+        };
+
+        tracing::warn!("Batch {batch_id} submission failed after retries: {err:?}");
 
         // Now that retries are exhausted, mark every order in the batch as Failed.
         for order_id in batch.orders.iter() {
@@ -623,15 +626,16 @@ where
             }
         }
 
-        if let Err(err) = self.db.set_batch_failure(batch_id, format!("{errors:?}")).await {
+        if let Err(db_err) = self.db.set_batch_failure(batch_id, format!("{err:?}")).await {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Failed to set batch failure in db: {batch_id} - {err:?}"
+                "Failed to set batch failure in db: {batch_id} - {db_err:?}"
             )));
         }
-        if errors.iter().all(|e| matches!(e, SubmitterErr::TxnConfirmationError(_))) {
-            Err(SubmitterErr::BatchSubmissionFailedTimeouts(errors))
+
+        if matches!(err, SubmitterErr::TxnConfirmationError(_)) {
+            Err(SubmitterErr::BatchSubmissionFailedTimeouts(vec![err]))
         } else {
-            Err(SubmitterErr::BatchSubmissionFailed(errors))
+            Err(SubmitterErr::BatchSubmissionFailed(vec![err]))
         }
     }
 }
@@ -972,17 +976,31 @@ mod tests {
     #[traced_test]
     async fn submit_batch_retry_max_attempts() {
         let config = ConfigLock::default();
+        {
+            let mut cfg = config.load_write();
+            let cfg = cfg.as_mut().unwrap();
+            // Pin the attempt count for stable assertions and zero out the retry delay
+            // so the test does not wait between attempts.
+            cfg.batcher.max_submission_attempts = 2;
+            cfg.batcher.submit_retry_delay_ms = 0;
+        }
         let (anvil, submitter, db, batch_id) = build_submitter_and_batch(config).await;
 
         let batch = db.get_batch(batch_id).await.unwrap();
         let order_ids = batch.orders.clone();
         assert!(!order_ids.is_empty(), "test batch should have at least one order");
 
-        drop(anvil); // drop anvil to simluate an RPC fault
+        drop(anvil); // drop anvil to simulate an RPC fault
 
         let res = submitter.process_next_batch().await;
-        assert!(logs_contain("Batch submission attempt 1/2 failed"));
-        assert!(logs_contain("reached max submission attempts"));
+        // futures_retry emits this format on each failed attempt:
+        //   "Operation [submit_batch] (context: batch_id=0) failed: ..., starting retry 1/1"
+        assert!(logs_contain("Operation [submit_batch] (context: batch_id=0)"));
+        assert!(logs_contain("starting retry 1/1"));
+        assert!(logs_contain(
+            "Operation [submit_batch] (context: batch_id=0) failed after 1 retries",
+        ));
+        assert!(logs_contain("Batch 0 submission failed after retries"));
         assert!(matches!(res, Err(SubmitterErr::BatchSubmissionFailed(_))));
 
         // After exhaustion, every order in the batch must be marked Failed and the
@@ -998,5 +1016,31 @@ mod tests {
 
         let final_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(final_batch.status, BatchStatus::Failed);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch_all_expired() {
+        let config = ConfigLock::default();
+        let (_anvil, submitter, db, _batch_id) = build_submitter_and_batch(config).await;
+
+        // Expire the order by setting rampUpStart=0 and timeout=100 → expires_at()=100 (past)
+        db.execute_raw(
+            r#"UPDATE orders SET data = json_set(data, '$.request.offer.rampUpStart', 0, '$.request.offer.timeout', 100)"#,
+        )
+        .await
+        .unwrap();
+
+        let res = submitter.process_next_batch().await;
+        // The retry loop wraps all errors in BatchSubmissionFailed; verify every
+        // inner error is AllRequestsExpiredBeforeSubmission.
+        assert!(
+            matches!(
+                &res,
+                Err(SubmitterErr::BatchSubmissionFailed(errs))
+                    if errs.iter().all(|e| matches!(e, SubmitterErr::AllRequestsExpiredBeforeSubmission(_)))
+            ),
+            "Expected BatchSubmissionFailed wrapping AllRequestsExpiredBeforeSubmission but got: {res:?}"
+        );
     }
 }

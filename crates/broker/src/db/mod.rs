@@ -115,6 +115,8 @@ pub trait BrokerDb {
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
     #[cfg(test)]
     async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
+    #[cfg(test)]
+    async fn execute_raw(&self, sql: &str) -> Result<(), DbError>;
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;

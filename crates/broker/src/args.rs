@@ -128,17 +128,6 @@ pub struct CoreArgs {
     #[clap(long, default_value_t = false)]
     pub listen_only: bool,
 
-    /// Deprecated and ignored: ChainMonitorV2 (eth_getBlockReceipts) is now the default.
-    /// Pass `--legacy-rpc` to opt back into the legacy ChainMonitorService + MarketMonitor pair.
-    /// Kept for backwards compatibility with existing scripts and inventories.
-    #[clap(long, default_value_t = true, hide = true)]
-    pub experimental_rpc: bool,
-
-    /// Use the legacy ChainMonitorService + MarketMonitor pair (eth_getLogs based).
-    /// The default is ChainMonitorV2, which uses eth_getBlockReceipts in a single polling loop.
-    #[clap(long, default_value_t = false)]
-    pub legacy_rpc: bool,
-
     /// VersionRegistry contract address override. Not a CLI flag — set programmatically in tests
     /// to exercise the version check against a locally deployed registry.
     #[clap(skip)]

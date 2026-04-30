@@ -24,7 +24,7 @@ config:
     secure: v1:jRnEC0ITCjWjtawv:WMxiA9eNu0xWwOinKzFk8zogBGJSPwZLlTdElVRL
   indexer:ORDER_STREAM_URL:
     secure: v1:DV6+i/4nICnQAuho:3Zr57euv3Uk8BkBTTRiwTILOWn8sJtSaCkM/jspB3ZxiWZo2xaC+lU+6+dNOu7HYtvSjmvCodtSG68C+uLKsId3t837RGVvHvD21xp3lqoyNjL1Psw8h0Wz4Tg==
-#  indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:PREMIUM_API_KEY:
     secure: v1:CtMR8aiDjeNb79XR:HdqjuQ1Mt96mu1PAI16GXaNjzdt2kVsm5+zI7g==
   indexer:PROXY_SECRET:
@@ -34,7 +34,7 @@ config:
   indexer:RUST_LOG_API: debug
   indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
-#  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "4819525"
   indexer:ETH_RPC_URL:
     secure: v1:i5OnXx7QhxsA5/di:+RUggBiN4cB2Or9ddL924PybNqI3lhDOYB63eYKwQWtYye4TteC8dajkJY6P

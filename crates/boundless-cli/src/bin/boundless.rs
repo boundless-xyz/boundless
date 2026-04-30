@@ -132,6 +132,7 @@ async fn show_welcome_screen() -> Result<()> {
     use boundless_cli::commands::rewards::State;
     use boundless_cli::commands::setup::network::display_name_for_network;
     use boundless_cli::config_file::{Config, Secrets};
+    use boundless_cli::display::{DisplayManager, TipItem};
     use colored::Colorize;
 
     println!();
@@ -518,12 +519,24 @@ async fn show_welcome_screen() -> Result<()> {
         println!("  {} {}", "→".cyan(), "Run 'boundless rewards setup'".cyan());
     }
 
-    println!();
-    println!(
-        "{} {}",
-        "Tip:".bold(),
-        "Run 'boundless <module> networks' to see supported networks (e.g. 'boundless requestor networks')"
-            .dimmed()
+    let display = DisplayManager::new();
+    display.tip_list(
+        "Tips:",
+        &[
+            TipItem {
+                title: "List supported networks for a module:",
+                command: Some("boundless <module> networks"),
+                examples: &["boundless requestor networks"],
+            },
+            TipItem {
+                title: "Switch the active network for a module (accepts display name or chain ID):",
+                command: Some("boundless <module> networks --set <name|chain-id>"),
+                examples: &[
+                    "boundless requestor networks --set \"Base Mainnet\"",
+                    "boundless requestor networks --set 8453",
+                ],
+            },
+        ],
     );
     println!();
 

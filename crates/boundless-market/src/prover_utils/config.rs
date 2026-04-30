@@ -86,7 +86,11 @@ pub mod defaults {
     }
 
     pub const fn max_submission_attempts() -> u32 {
-        2
+        3
+    }
+
+    pub const fn submit_retry_delay_ms() -> u64 {
+        1500
     }
 
     pub const fn reaper_interval_secs() -> u32 {
@@ -284,6 +288,31 @@ impl Default for OrderCommitmentPriority {
     }
 }
 
+/// Selects which chain-monitor implementation the broker uses on a given chain.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RpcMode {
+    /// Resolve to a chain-specific default at config load time.
+    #[default]
+    Auto,
+    /// Legacy `ChainMonitorService` + `MarketMonitor` pair, backed by `eth_getLogs`.
+    /// Kept as a fallback for chains where `V2` is unreliable; may be removed in a future release.
+    Legacy,
+    /// `ChainMonitorV2`: a single polling loop backed by `eth_getBlockReceipts`.
+    V2,
+}
+
+impl RpcMode {
+    /// Resolve `Auto` to the chain-specific default. Concrete variants pass through.
+    pub fn resolve(&self, chain_id: u64) -> RpcMode {
+        match self {
+            RpcMode::Auto => crate::deployments::default_rpc_mode_for_chain(chain_id),
+            other => other.clone(),
+        }
+    }
+}
+
 /// Deserialize Amount with validation that asset is USD or ETH.
 /// Plain numbers without asset suffix default to ETH for backward compatibility.
 fn deserialize_mcycle_price<'de, D>(deserializer: D) -> Result<Amount, D::Error>
@@ -418,6 +447,17 @@ pub struct MarketConfig {
     /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
+
+    /// Selects which chain-monitor implementation the broker uses on this chain.
+    ///
+    /// - `"auto"` (default): chain-specific default from `default_rpc_mode_for_chain`.
+    /// - `"legacy"`: legacy `ChainMonitorService` + `MarketMonitor` pair (`eth_getLogs`).
+    ///   Fallback for chains where `v2` is unreliable; may be removed in a future release.
+    /// - `"v2"`: `ChainMonitorV2`, a single polling loop using `eth_getBlockReceipts`.
+    ///
+    /// Resolved at config load via `MarketConfig::apply_chain_defaults`.
+    #[serde(default)]
+    pub rpc_mode: RpcMode,
 
     /// Gas estimation priority mode (low, medium, high, or custom)
     ///
@@ -594,6 +634,7 @@ impl Default for MarketConfig {
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
             gas_estimation_priority_mode: defaults::estimation_priority_mode(),
+            rpc_mode: RpcMode::default(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
             max_fetch_retries: defaults::max_fetch_retries(),
@@ -744,6 +785,13 @@ pub struct BatcherConfig {
     /// Number of attempts to make to submit a batch before abandoning
     #[serde(default = "defaults::max_submission_attempts")]
     pub max_submission_attempts: u32,
+    /// Delay (in milliseconds) between batch submission retry attempts.
+    ///
+    /// Inserted between attempts to give the chain and the public RPC's pending-tx view
+    /// time to converge after a transient nonce-state inconsistency (e.g. a concurrent
+    /// lock and fulfill from the same wallet hitting `replacement transaction underpriced`).
+    #[serde(default = "defaults::submit_retry_delay_ms")]
+    pub submit_retry_delay_ms: u64,
 }
 
 impl Default for BatcherConfig {
@@ -759,6 +807,7 @@ impl Default for BatcherConfig {
             single_txn_fulfill: defaults::single_txn_fulfill(),
             withdraw: defaults::withdraw(),
             max_submission_attempts: defaults::max_submission_attempts(),
+            submit_retry_delay_ms: defaults::submit_retry_delay_ms(),
         }
     }
 }
@@ -880,12 +929,14 @@ impl Config {
 impl MarketConfig {
     /// Resolve Low/Medium/High gas modes to chain-specific preset values.
     /// Each context (priority and estimation) has its own set of presets.
-    /// Custom modes are left as-is.
+    /// Custom modes are left as-is. Also resolves `RpcMode::Auto` to the
+    /// chain-specific monitor default.
     pub fn apply_chain_defaults(&mut self, chain_id: u64) {
         let presets = crate::deployments::gas_presets_for_chain(chain_id);
         self.gas_priority_mode = presets.priority.resolve(&self.gas_priority_mode);
         self.gas_estimation_priority_mode =
             presets.estimation.resolve(&self.gas_estimation_priority_mode);
+        self.rpc_mode = self.rpc_mode.resolve(chain_id);
     }
 }
 
@@ -1142,6 +1193,7 @@ min_mcycle_price = "0.05 ETH"
 
 [batcher]
 min_batch_size = 4
+submit_retry_delay_ms = 250
 "#;
         let config = Config::merge(base, override_toml).unwrap();
         assert_eq!(config.market.min_mcycle_price, Amount::parse("0.05 ETH", None).unwrap());
@@ -1149,6 +1201,7 @@ min_batch_size = 4
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.batcher.min_batch_size, 4);
         assert_eq!(config.batcher.batch_max_time, 300);
+        assert_eq!(config.batcher.submit_retry_delay_ms, 250);
     }
 
     #[test]
@@ -1212,5 +1265,12 @@ min_batch_size = 4
         let config = Config::merge(base, override_toml).unwrap();
         assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
         assert_eq!(config.batcher.min_batch_size, 4);
+    }
+
+    #[test]
+    fn test_batcher_config_defaults() {
+        let config = BatcherConfig::default();
+        assert_eq!(config.max_submission_attempts, 3);
+        assert_eq!(config.submit_retry_delay_ms, 1500);
     }
 }

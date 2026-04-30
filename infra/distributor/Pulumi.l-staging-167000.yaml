@@ -29,14 +29,14 @@ config:
   distributor:MIN_BCYCLES_THRESHOLD: "100"
   distributor:ORDER_GENERATOR_KEYS:
     secure: v1:cgFbnETQoySqs0jo:x17dGakW/ymvvbVtP3NrhzCOWfKYkkLdoz6Yw8+d2iGfeELfZMtJtaKPlTfI0ComWiS1WLILzY37hCGKBRp5LF/igEiXpThlBDow1FDPEko/zg8HcAAiN9iKD9NE+9xyWrcuCdqUVV+qcVjXWmiABDSzrVTUHnOS1eiDaqwVm9jJwLQWOhSQUGcoG6jsBAOfE8scqhUO7Lr1HdLhvg+tATH51lRmHKIKPZ6NqHnjk0tGDiKSLB7aBK/DlCvOTagF+i3N8afsWVlfdP6CmJ04idfyuXrSYsFLdrofJ1ICGf7Bi9e6Am653VM5UXYtR2hZJj8Ez3roRCt2rFVLI2fgtlks8OT+B1hAhaktr928JOykeouiUxA2CZbDabdWPzFnh2Sos0Do8UMAD8pEzCi7oJgAATclaPTB7fAKYUUXTAjQgftCoVtMwdKpW6BjtK1h3+X6wDBFyP7Pcce0Aj4g77sNyXXpz7YPTRpU9ptgfuD6CzjCkXQQ/aGyD37d/id7NQvRCXDPyVK9W/qoAEnxtYThei3Rv5FKVY2WZSnvPAdhRnLzT7k1AgN0Vu8nSFeC1klfFSMIB3Gymp7Gn8sF4uiqiHGoJcQ+k2f5NWKGLyeeTTSZr9tudQM7R54xJNFJwVMfv5lfzqX2lYVfSqUYxaaOx8qdPyJIZdyu2tI4YLBh0fvfLZqEXP2LJ04EmN3qR83Ht2Zr0w==
-#  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
+  distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   distributor:PROVER_ETH_DONATE_THRESHOLD: "0.2"
   distributor:PROVER_KEYS:
     secure: v1:Sz42CYl6pldA0wRa:KfALsOi/YJHf+b7QlMEu4720p+cKfijmide77Vf1fWsgxR1kBO5LtR+dko9aqJt2Ay2gdM6qhlBD8rPnsmqtUlyfjOqbut5eot/i7ecZlfo=
   distributor:PROVER_STAKE_DONATE_THRESHOLD: "500.0"
   distributor:SCHEDULE_MINUTES: "90"
   distributor:SET_VERIFIER_ADDR: 0x6135DC08D14EF8a44496B009e2181426628B8ebd
-#  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
+  distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   distributor:SLASHER_KEY:
     secure: v1:qLo7sKRsnZ6Z6n9X:SUA3LvOqdWVi6CXAvQp1A0bkq0Ai4vXBwZd2dMGi7Y/2sESHxrPVn6c7SkhfVw2ukto9K+T/hdfCYrbdJnF2XzJfTykZd3Zq2KwoT+9XhiU=
   distributor:STAKE_THRESHOLD: "100"

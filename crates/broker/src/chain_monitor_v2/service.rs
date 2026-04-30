@@ -16,8 +16,9 @@
 //!
 //! Replaces both `ChainMonitorService` and `MarketMonitor` with a single struct: one
 //! polling loop fetches block receipts per block, extracts market events, and updates
-//! the chain-head atomics read by `ChainMonitorApi`. Pass `--legacy-rpc` to fall back
-//! to the older `ChainMonitorService` + `MarketMonitor` pair.
+//! the chain-head atomics read by `ChainMonitorApi`. Set `[market] rpc_mode = "legacy"`
+//! in `broker.toml` (or in a per-chain override) to fall back to the older
+//! `ChainMonitorService` + `MarketMonitor` pair (may be removed in a future release).
 
 use std::{
     sync::{

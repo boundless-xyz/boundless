@@ -554,8 +554,6 @@ mod tests {
             rpc_request_timeout: 30,
             log_json: false,
             listen_only: false,
-            experimental_rpc: true,
-            legacy_rpc: false,
             version_registry_address: None,
             force_version_check: false,
         }
