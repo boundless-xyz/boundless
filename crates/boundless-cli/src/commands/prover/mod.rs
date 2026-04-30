@@ -64,6 +64,8 @@ use crate::{
 pub enum ProverCommands {
     /// Show prover configuration status
     Config(ProverConfigCmd),
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
     /// Deposit collateral funds into the market
     #[command(name = "deposit-collateral")]
     DepositCollateral(ProverDepositCollateral),
@@ -91,8 +93,6 @@ pub enum ProverCommands {
     /// Generate optimized broker and compose configuration files
     #[command(name = "generate-config")]
     GenerateConfig(ProverGenerateConfig),
-    /// List supported networks or switch the active network
-    Networks(NetworksCmd),
 }
 
 /// List or switch the active prover network

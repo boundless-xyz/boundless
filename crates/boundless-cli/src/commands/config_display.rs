@@ -15,7 +15,7 @@
 //! Shared utilities for displaying configuration status across modules
 
 use crate::commands::setup::secrets::address_from_private_key;
-use crate::display::{obscure_url, DisplayManager};
+use crate::display::{obscure_url, DisplayManager, TipItem};
 use alloy::primitives::Address;
 
 /// Module type for configuration display
@@ -48,12 +48,30 @@ impl ModuleType {
         }
     }
 
-    /// Get the help command for this module
-    pub fn help_command(&self) -> &'static str {
+    /// Get the `networks` subcommand for this module
+    pub fn networks_command(&self) -> &'static str {
         match self {
-            ModuleType::Requestor => "boundless requestor --help",
-            ModuleType::Prover => "boundless prover --help",
-            ModuleType::Rewards => "boundless rewards --help",
+            ModuleType::Requestor => "boundless requestor networks",
+            ModuleType::Prover => "boundless prover networks",
+            ModuleType::Rewards => "boundless rewards networks",
+        }
+    }
+
+    /// Example switch-network commands for this module: (display name, chain ID)
+    pub fn switch_network_examples(&self) -> [&'static str; 2] {
+        match self {
+            ModuleType::Requestor => [
+                "boundless requestor networks --set \"Base Mainnet\"",
+                "boundless requestor networks --set 8453",
+            ],
+            ModuleType::Prover => [
+                "boundless prover networks --set \"Base Mainnet\"",
+                "boundless prover networks --set 8453",
+            ],
+            ModuleType::Rewards => [
+                "boundless rewards networks --set \"Ethereum Mainnet\"",
+                "boundless rewards networks --set 1",
+            ],
         }
     }
 
@@ -151,9 +169,22 @@ pub fn display_not_configured(display: &DisplayManager, module: ModuleType) {
     display.warning(&format!("Not configured - run '{}'", module.setup_command()));
 }
 
-/// Display tip message for a module
+/// Display tip message for a module suggesting how to switch networks
 pub fn display_tip(display: &DisplayManager, module: ModuleType) {
-    display.note(&format!("💡 Tip: Run '{}' to see available commands", module.help_command()));
+    let examples = module.switch_network_examples();
+    let items = [
+        TipItem {
+            title: "List supported networks:",
+            command: Some(module.networks_command()),
+            examples: &[],
+        },
+        TipItem {
+            title: "Switch the active network (accepts display name or chain ID):",
+            command: None,
+            examples: &examples,
+        },
+    ];
+    display.tip_list("Tips:", &items);
 }
 
 /// Get address from private key as Address type

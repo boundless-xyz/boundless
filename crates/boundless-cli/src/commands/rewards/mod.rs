@@ -78,6 +78,8 @@ use crate::{
 pub enum RewardsCommands {
     /// Show rewards configuration status
     Config(RewardsConfigCmd),
+    /// List supported networks or switch the active network
+    Networks(NetworksCmd),
     /// Stake ZKC tokens
     #[command(name = "stake-zkc")]
     StakeZkc(RewardsStakeZkc),
@@ -119,8 +121,6 @@ pub enum RewardsCommands {
     InspectMiningState(RewardsInspectMiningState),
     /// Interactive setup wizard for rewards configuration
     Setup(RewardsSetup),
-    /// List supported networks or switch the active network
-    Networks(NetworksCmd),
 }
 
 /// List or switch the active rewards network
