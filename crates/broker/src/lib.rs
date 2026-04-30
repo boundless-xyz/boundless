@@ -63,7 +63,7 @@ pub use boundless_market::prover_utils::{
     OrderPricingOutcome, OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue,
     ProveLimitReason,
 };
-pub(crate) use order_types::{proving_order_from_request};
+pub(crate) use order_types::proving_order_from_request;
 pub use order_types::{CompressionType, Order, OrderStateChange, OrderStatus};
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
