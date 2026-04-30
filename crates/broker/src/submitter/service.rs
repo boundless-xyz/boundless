@@ -44,7 +44,6 @@ use risc0_zkvm::{
 use tokio::sync::mpsc;
 
 use crate::{
-    coded_error_impl,
     config::ConfigLock,
     db::DbObj,
     is_dev_mode, now_timestamp,
@@ -53,45 +52,9 @@ use crate::{
     task::{BrokerService, SupervisorErr},
     Batch, FulfillmentType, Order,
 };
-use thiserror::Error;
-
-use crate::errors::CodedError;
-
 use tokio_util::sync::CancellationToken;
 
-#[derive(Error)]
-pub enum SubmitterErr {
-    #[error("{code} Batch submission failed: {0:?}", code = self.code())]
-    BatchSubmissionFailed(Vec<Self>),
-
-    #[error("{code} Batch submission failed due to timeouts: {0:?}", code = self.code())]
-    BatchSubmissionFailedTimeouts(Vec<Self>),
-
-    #[error("{code} Failed to confirm transaction: {0}", code = self.code())]
-    TxnConfirmationError(MarketError),
-
-    #[error("{code} All requests expired before submission: {0:?}", code = self.code())]
-    AllRequestsExpiredBeforeSubmission(Vec<String>),
-
-    #[error("{code} Some requests expired before submission: {0:?}", code = self.code())]
-    SomeRequestsExpiredBeforeSubmission(Vec<String>),
-
-    #[error("{code} Market error: {0}", code = self.code())]
-    MarketError(#[from] MarketError),
-
-    #[error("{code} Unexpected error: {0:#}", code = self.code())]
-    UnexpectedErr(#[from] anyhow::Error),
-}
-
-coded_error_impl!(SubmitterErr, "SUB",
-    UnexpectedErr(..)                       => "500",
-    AllRequestsExpiredBeforeSubmission(..)  => "001",
-    SomeRequestsExpiredBeforeSubmission(..) => "005",
-    MarketError(..)                         => "002",
-    BatchSubmissionFailed(..)               => "004",
-    BatchSubmissionFailedTimeouts(..)       => "003",
-    TxnConfirmationError(..)                => "006",
-);
+use super::error::SubmitterErr;
 
 #[derive(Clone)]
 pub struct Submitter<P> {
