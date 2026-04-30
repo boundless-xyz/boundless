@@ -24,4 +24,4 @@
 mod error;
 mod service;
 
-pub use service::Submitter;
+pub(crate) use service::Submitter;

@@ -24,4 +24,4 @@
 mod error;
 mod service;
 
-pub use service::OffchainMarketMonitor;
+pub(crate) use service::OffchainMarketMonitor;

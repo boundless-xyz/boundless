@@ -27,7 +27,7 @@ mod error;
 mod service;
 mod types;
 
-pub use service::MarketMonitor;
+pub(crate) use service::MarketMonitor;
 pub(crate) use service::{
     process_log, process_new_logs, process_order_submitted, process_request_fulfilled,
     process_request_locked,

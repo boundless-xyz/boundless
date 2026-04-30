@@ -32,4 +32,3 @@ mod error;
 mod service;
 
 pub(crate) use service::VersionCheckTask;
-pub use service::{format_version, pack_version, unpack_version, BROKER_VERSION};

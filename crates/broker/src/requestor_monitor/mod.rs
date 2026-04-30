@@ -29,5 +29,5 @@ mod error;
 mod service;
 mod types;
 
-pub use service::RequestorMonitor;
-pub use types::{AllowRequestors, PriorityRequestors};
+pub(crate) use service::RequestorMonitor;
+pub(crate) use types::{AllowRequestors, PriorityRequestors};

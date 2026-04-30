@@ -27,9 +27,8 @@ mod error;
 mod service;
 mod types;
 
-pub use service::OrderLocker;
-pub use types::RpcRetryConfig;
-pub(crate) use types::{OrderCommitmentMeta, OrderLockerConfig};
+pub(crate) use service::OrderLocker;
+pub(crate) use types::{OrderCommitmentMeta, OrderLockerConfig, RpcRetryConfig};
 
 #[cfg(test)]
 pub(crate) use service::tests;

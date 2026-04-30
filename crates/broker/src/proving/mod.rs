@@ -26,4 +26,4 @@
 mod error;
 mod service;
 
-pub use service::ProvingService;
+pub(crate) use service::ProvingService;

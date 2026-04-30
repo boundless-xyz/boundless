@@ -27,5 +27,5 @@ mod error;
 mod service;
 mod types;
 
-pub use service::AggregatorService;
-pub use types::{AggregationState, Batch, BatchStatus};
+pub(crate) use service::AggregatorService;
+pub(crate) use types::{AggregationState, Batch, BatchStatus};

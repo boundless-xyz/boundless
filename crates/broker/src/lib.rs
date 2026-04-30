@@ -19,7 +19,7 @@ pub use rpc_retry_policy::CustomRetryPolicy;
 pub(crate) use storage::ConfigurableDownloader;
 
 pub(crate) mod aggregator;
-pub use aggregator::{AggregationState, Batch, BatchStatus};
+pub(crate) use aggregator::{AggregationState, Batch, BatchStatus};
 pub mod args;
 mod broker;
 pub(crate) mod chain_monitor_v2;

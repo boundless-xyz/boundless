@@ -35,7 +35,7 @@ mod price_oracle;
 mod service;
 mod types;
 
-pub use service::OrderPricer;
+pub(crate) use service::OrderPricer;
 
 #[cfg(test)]
 pub(crate) use service::tests;
