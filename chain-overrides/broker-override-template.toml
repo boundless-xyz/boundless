@@ -14,10 +14,6 @@
 # Minimum price per mega-cycle. Can be specified in USD or ETH.
 # min_mcycle_price = "0.00002 USD"
 
-# Minimum price per mega-cycle in collateral token for secondary fulfillment.
-# Can be specified in USD or ZKC.
-# min_mcycle_price_collateral_token = "0.00005 ZKC"
-
 # Maximum collateral the broker will deposit on this chain.
 # max_collateral = "10 USD"
 

@@ -49,6 +49,27 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
 
+// Keys under [market] that were renamed. Old names are silently dropped on load,
+// which looks like the user's tuning is in effect when it isn't.
+// The wizard surfaces these so the user notices and renames.
+const RENAMED_MARKET_KEYS: &[(&str, &str)] = &[
+    ("mcycle_price", "min_mcycle_price"),
+    ("max_stake", "max_collateral"),
+    ("stake_balance_warn_threshold", "collateral_balance_warn_threshold"),
+    ("stake_balance_error_threshold", "collateral_balance_error_threshold"),
+    ("max_concurrent_locks", "max_concurrent_proofs"),
+    ("expired_order_fulfillment_priority", "order_commitment_priority"),
+];
+
+// Keys under [market] that have been removed entirely with no replacement key.
+// They are silently ignored by the broker (no `deny_unknown_fields`), so the
+// wizard surfaces them so the user can clean up their broker.toml. Pairs are
+// (old_key, explanation).
+const REMOVED_MARKET_KEYS: &[(&str, &str)] = &[(
+    "min_mcycle_price_collateral_token",
+    "is no longer used; secondary fulfillment now derives its threshold from min_mcycle_price (converted to ZKC at runtime)",
+)];
+
 mod selection_strings {
     // Benchmark performance options
     pub const BENCHMARK_RUN_SUITE: &str =
@@ -1043,6 +1064,26 @@ impl ProverGenerateConfig {
         // Parse with toml_edit (preserves comments and formatting)
         let mut doc = source.parse::<toml_edit::DocumentMut>().context("Failed to parse TOML")?;
 
+        // Surface any keys whose serde aliases were removed — the broker will
+        // refuse to load these names — and any keys that have been removed
+        // outright and are now silently dropped on load.
+        if matches!(strategy, FileHandlingStrategy::ModifyExisting) {
+            if let Some(market) = doc.get("market").and_then(|v| v.as_table()) {
+                for (old_key, new_key) in RENAMED_MARKET_KEYS {
+                    if market.contains_key(old_key) {
+                        display.warning(&format!(
+                            "[market].{old_key} is no longer used; rename to [market].{new_key}"
+                        ));
+                    }
+                }
+                for (key, msg) in REMOVED_MARKET_KEYS {
+                    if market.contains_key(key) {
+                        display.warning(&format!("[market].{key} {msg}; please remove this entry"));
+                    }
+                }
+            }
+        }
+
         // Create CLI wizard metadata section with pretty tags
         let metadata_section = format!(
             "### [CLI Wizard Metadata] #####\n\
@@ -1109,13 +1150,16 @@ impl ProverGenerateConfig {
                 *item = toml_edit::value(config.max_concurrent_proofs as i64);
             }
 
-            // Update priority_requestor_lists
+            // Update priority_requestor_lists (insert if missing)
+            let mut arr = toml_edit::Array::new();
+            for list in &config.priority_requestor_lists {
+                arr.push(list.clone());
+            }
+            let priority_lists_value = toml_edit::value(arr);
             if let Some(item) = market.get_mut("priority_requestor_lists") {
-                let mut arr = toml_edit::Array::new();
-                for list in &config.priority_requestor_lists {
-                    arr.push(list.clone());
-                }
-                *item = toml_edit::value(arr);
+                *item = priority_lists_value;
+            } else {
+                market.insert("priority_requestor_lists", priority_lists_value);
             }
 
             // Update max_concurrent_preflights with calculation comment
@@ -1185,11 +1229,19 @@ impl ProverGenerateConfig {
                 }
             }
 
-            // Update expected_probability_win_secondary_fulfillment (uses first chain's value)
-            if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment") {
-                if let Some(first_chain) = config.chains.first() {
-                    *item = toml_edit::value(
-                        first_chain.expected_probability_win_secondary_fulfillment as i64,
+            // Update expected_probability_win_secondary_fulfillment (insert if missing,
+            // uses first chain's value)
+            if let Some(first_chain) = config.chains.first() {
+                let probability_value = toml_edit::value(
+                    first_chain.expected_probability_win_secondary_fulfillment as i64,
+                );
+                if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment")
+                {
+                    *item = probability_value;
+                } else {
+                    market.insert(
+                        "expected_probability_win_secondary_fulfillment",
+                        probability_value,
                     );
                 }
             }
