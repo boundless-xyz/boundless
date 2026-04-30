@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! [`TelemetryService`] — drains [`TelemetryEvent`]s emitted by broker
+//! services, merges them with on-chain status, and pushes
+//! `RequestEvaluated` / `RequestCompleted` payloads upstream.
+
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use alloy::primitives::{Address, FixedBytes, U256};
+use alloy::primitives::Address;
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
 use boundless_market::order_stream_client::OrderStreamClient;
-use boundless_market::selector::{is_blake3_groth16_selector, is_groth16_selector};
 use boundless_market::telemetry::{
     BrokerHeartbeat, CommitmentOutcome, CompletionOutcome, EvalOutcome, RequestCompleted,
     RequestEvaluated, RequestHeartbeat,
@@ -30,457 +31,21 @@ use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use boundless_market::prover_utils::OrderRequest;
-
 use crate::config::ConfigLock;
 use crate::db::DbObj;
-use crate::errors::BrokerFailure;
 use crate::futures_retry::retry;
-use crate::order_locker::{OrderCommitmentMeta, OrderLockerConfig};
 
-const HEARTBEAT_RETRY_COUNT: u64 = 2;
-const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
-
-static CHAIN_HANDLES: LazyLock<Mutex<HashMap<u64, TelemetryHandle>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static NOOP_HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
-
-/// Sum a per-chain counter across all registered telemetry handles.
-fn sum_chain_handles(f: impl Fn(&TelemetryHandle) -> u32) -> u32 {
-    CHAIN_HANDLES.lock().map(|handles| handles.values().map(&f).sum()).unwrap_or(0)
-}
-
-fn global_committed_count() -> u32 {
-    sum_chain_handles(|h| h.committed_count.load(Ordering::Relaxed))
-}
-
-fn global_pending_preflight_count() -> u32 {
-    sum_chain_handles(|h| h.pending_preflight_count.load(Ordering::Relaxed))
-}
-
-/// Initializes the telemetry handle for a specific chain. Each chain gets its own
-/// handle and underlying TelemetryService that sends heartbeats to its order-stream URL.
-pub(crate) fn init_for_chain<F>(chain_id: u64, build_handle: F) -> TelemetryHandle
-where
-    F: FnOnce() -> TelemetryHandle,
-{
-    let mut map = CHAIN_HANDLES.lock().unwrap();
-    if let Some(handle) = map.get(&chain_id) {
-        tracing::warn!(chain_id, "Telemetry handle already initialized for chain");
-        return handle.clone();
-    }
-
-    let handle = build_handle();
-    tracing::debug!(chain_id, "Telemetry handle initialized");
-    map.insert(chain_id, handle.clone());
-    handle
-}
-
-/// Returns the telemetry handle for the given chain, or a noop fallback if none was registered.
-pub(crate) fn telemetry(chain_id: u64) -> TelemetryHandle {
-    CHAIN_HANDLES.lock().unwrap().get(&chain_id).cloned().unwrap_or_else(noop_handle)
-}
-
-fn noop_handle() -> TelemetryHandle {
-    NOOP_HANDLE
-        .get_or_init(|| {
-            let (tx, rx) = mpsc::channel(1);
-            drop(rx);
-            TelemetryHandle::new(tx)
-        })
-        .clone()
-}
-
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
+use super::event::TelemetryEvent;
+use super::handle::TelemetryHandle;
+use super::state::{build_request_evaluated, CommitmentInfo, InFlightRequest};
+use super::{global_committed_count, global_pending_preflight_count, now_unix};
 
 const REQUEST_HEARTBEAT_INTERVAL_SECS: u64 = 60;
 const BROKER_HEARTBEAT_INTERVAL_SECS: u64 = 60;
 const EVICTION_INTERVAL_SECS: u64 = 300;
 const STALE_ENTRY_SECS: u64 = 7200;
-
-// Internal telemetry events emitted by broker services to the TelemetryHandle.
-// These events are then processed/merged by the TelemetryService into RequestEvaluated
-// and RequestCompleted events. Those shared types live in the boundless-market crate.
-#[derive(Debug)]
-pub(crate) enum TelemetryEvent {
-    // Emitted by OrderPicker immediately after pricing an order (preflight + price evaluation).
-    OrderPricing {
-        /// Composite order ID: "0x{request_id}-{request_digest}-{fulfillment_type}".
-        order_id: String,
-        /// On-chain request ID.
-        request_id: U256,
-        /// Signing hash (digest) of the proof request, hex-encoded.
-        request_digest: String,
-        /// Ethereum address of the requestor who submitted the proof request.
-        requestor: Address,
-        /// Pricing outcome: Locked, FulfillAfterLockExpire, or Skipped.
-        outcome: EvalOutcome,
-        /// Structured skip code (e.g. "[B-OP-001]"), set when outcome is Skipped.
-        skip_code: Option<String>,
-        /// Human-readable skip reason, set when outcome is Skipped.
-        skip_reason: Option<String>,
-        /// Total execution cycles from preflight. None if preflight was skipped.
-        total_cycles: Option<u64>,
-        /// "LockAndFulfill", "FulfillAfterLockExpire", or "FulfillWithoutLocking".
-        fulfillment_type: String,
-        /// "Groth16", "Blake3Groth16", or "Merkle". Derived from the request's selector.
-        proof_type: String,
-        /// Time spent in the pending queue before a preflight slot was available (ms).
-        /// Calculated as: (now - received_at_timestamp - preflight_duration) * 1000.
-        queue_duration_ms: Option<u64>,
-        /// Time spent running preflight (upload + execution), in milliseconds.
-        /// Calculated as: (now - received_at_timestamp - queue_duration) * 1000.
-        preflight_duration_ms: Option<u64>,
-        /// Unix timestamp (seconds) when the broker first received this request.
-        received_at_timestamp: u64,
-    },
-    // Emitted by OrderLocker when it makes its final commit/drop decision for an order.
-    // For LockAndFulfill orders: emitted after the lock tx succeeds or fails.
-    // For FulfillAfterLockExpire orders: emitted immediately when the order enters the pipeline.
-    OrderCommitment {
-        /// Composite order ID.
-        order_id: String,
-        /// Whether the order was committed to the proving pipeline.
-        committed: bool,
-        /// Wall-clock instant when the commitment was recorded. Used to compute proving
-        /// duration later. Set only when committed=true.
-        committed_at: Option<Instant>,
-        /// Number of orders already committed in the DB at the moment the commit/drop
-        /// decision is made. Queried via db.get_committed_orders().len().
-        concurrent_proving_jobs: u32,
-        /// Estimated proving time in seconds with current load factored in. Accounts for
-        /// all currently committed orders ahead in the queue.
-        estimated_proving_time_secs: Option<u64>,
-        /// Estimated proving time in seconds ignoring current load (as if no other orders
-        /// were queued).
-        estimated_proving_time_no_load_secs: Option<u64>,
-        /// Time from when the order was priced (entered monitor cache) to when the
-        /// commit/drop decision was made, in milliseconds. Calculated as:
-        /// (now_timestamp() - order.priced_at_timestamp) * 1000.
-        /// None if priced_at_timestamp was not set.
-        monitor_wait_duration_ms: Option<u64>,
-        /// Peak proving speed from broker config (kHz). Passed through from
-        /// config.market.peak_prove_khz.
-        peak_prove_khz: Option<u64>,
-        /// Max concurrent proofs from broker config. Passed through from
-        /// config.market.max_concurrent_proofs.
-        max_capacity: Option<u32>,
-        /// Number of orders in the monitor caches (lock_and_prove_cache + prove_cache)
-        /// waiting to be committed, excluding the current order. Calculated as:
-        /// (lock_and_prove_cache.entry_count() + prove_cache.entry_count()).saturating_sub(1).
-        pending_commitment_count: u32,
-        /// Structured skip code (e.g. "[B-OL-001]"), set when the order is dropped.
-        skip_commit_code: Option<String>,
-        /// Human-readable reason the order was dropped at commitment.
-        skip_commit_reason: Option<String>,
-        /// Wall-clock instant when the lock transaction was submitted. Set only for
-        /// LockAndFulfill orders that attempt a lock. Used with committed_at to
-        /// compute lock_duration_secs.
-        lock_submitted_at: Option<Instant>,
-    },
-    // Emitted by the proving pipeline when STARK proving (and optional Groth16 compression)
-    // completes for an order.
-    ApplicationProvingCompleted {
-        /// Composite order ID.
-        order_id: String,
-        /// Total execution cycles reported by the prover. May differ from the preflight
-        /// estimate if the guest behaved differently.
-        total_cycles: Option<u64>,
-        /// Wall-clock seconds for the STARK proof (session creation through proof completion).
-        stark_proving_secs: Option<f64>,
-        /// Wall-clock seconds for Groth16/Blake3Groth16 compression of the individual proof.
-        /// None for merkle inclusion orders (they skip per-order compression).
-        proof_compression_secs: Option<f64>,
-    },
-    // Emitted by the batching pipeline when aggregation completes (set builder + assessor
-    // + aggregation Groth16 compression).
-    AggregationCompleted {
-        /// Composite order ID.
-        order_id: String,
-        /// Wall-clock seconds for the set-builder STARK proof that merges claim digests.
-        set_builder_proving_secs: Option<f64>,
-        /// Wall-clock seconds for the assessor STARK proof that validates batch fulfillments.
-        assessor_proving_secs: Option<f64>,
-        /// Wall-clock seconds for compressing the aggregation STARK proof into Groth16.
-        assessor_compression_proof_secs: Option<f64>,
-    },
-    // Emitted when the fulfill transaction is confirmed on-chain.
-    Fulfilled {
-        /// Composite order ID.
-        order_id: String,
-    },
-    // Emitted when the order fails at any stage after commitment.
-    Failed {
-        /// Composite order ID.
-        order_id: String,
-        /// Structured error code (e.g. "[B-PRO-501]").
-        error_code: String,
-        /// Human-readable error description.
-        error_reason: String,
-        /// Terminal outcome for this failure.
-        outcome: CompletionOutcome,
-    },
-}
-
-// Lightweight, cheaply cloneable handle for recording telemetry events.
-#[derive(Clone)]
-pub(crate) struct TelemetryHandle {
-    tx: mpsc::Sender<TelemetryEvent>,
-    drop_count: Arc<AtomicU64>,
-    pending_preflight_count: Arc<AtomicU32>,
-    committed_count: Arc<AtomicU32>,
-}
-
-impl TelemetryHandle {
-    pub(crate) fn new(tx: mpsc::Sender<TelemetryEvent>) -> Self {
-        Self {
-            tx,
-            drop_count: Arc::new(AtomicU64::new(0)),
-            pending_preflight_count: Arc::new(AtomicU32::new(0)),
-            committed_count: Arc::new(AtomicU32::new(0)),
-        }
-    }
-
-    /// Send a telemetry event without blocking. Increments the drop counter on backpressure.
-    pub(crate) fn record(&self, event: TelemetryEvent) {
-        if self.tx.try_send(event).is_err() {
-            self.drop_count.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    pub(crate) fn set_pending_preflight(&self, count: u32) {
-        self.pending_preflight_count.store(count, Ordering::Relaxed);
-    }
-
-    pub(crate) fn set_committed_count(&self, count: u32) {
-        self.committed_count.store(count, Ordering::Relaxed);
-    }
-
-    pub(crate) fn drop_count(&self) -> u64 {
-        self.drop_count.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn pending_preflight(&self) -> u32 {
-        self.pending_preflight_count.load(Ordering::Relaxed)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn record_order_pricing(
-        &self,
-        order: &OrderRequest,
-        outcome: EvalOutcome,
-        skip_code: Option<&str>,
-        skip_reason: Option<String>,
-        total_cycles: Option<u64>,
-        queue_duration_ms: u64,
-        preflight_duration_ms: u64,
-    ) {
-        self.record(TelemetryEvent::OrderPricing {
-            order_id: order.id(),
-            request_id: order.request.id,
-            request_digest: order.request_digest(),
-            requestor: order.request.client_address(),
-            outcome,
-            skip_code: skip_code.map(|s| s.to_string()),
-            skip_reason,
-            total_cycles,
-            fulfillment_type: order.fulfillment_type.to_string(),
-            proof_type: proof_type_label(order.request.requirements.selector).to_string(),
-            queue_duration_ms: Some(queue_duration_ms),
-            preflight_duration_ms: Some(preflight_duration_ms),
-            received_at_timestamp: order.received_at_timestamp,
-        });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn record_order_commitment(
-        &self,
-        order_id: &str,
-        committed: bool,
-        meta: Option<&OrderCommitmentMeta>,
-        monitor_wait_duration_ms: Option<u64>,
-        config: &OrderLockerConfig,
-        pending_commitment_count: u32,
-        skip_code: Option<&str>,
-        skip_reason: Option<&str>,
-        lock_submitted_at: Option<Instant>,
-    ) {
-        self.record(TelemetryEvent::OrderCommitment {
-            order_id: order_id.to_string(),
-            committed,
-            committed_at: if committed { Some(Instant::now()) } else { None },
-            concurrent_proving_jobs: meta.map(|m| m.concurrent_proving_jobs).unwrap_or(0),
-            estimated_proving_time_secs: meta.and_then(|m| m.estimated_proving_time_secs),
-            estimated_proving_time_no_load_secs: meta
-                .and_then(|m| m.estimated_proving_time_no_load_secs),
-            monitor_wait_duration_ms,
-            peak_prove_khz: config.peak_prove_khz,
-            max_capacity: config.max_concurrent_proofs,
-            pending_commitment_count,
-            skip_commit_code: skip_code.map(|s| s.to_string()),
-            skip_commit_reason: skip_reason.map(|s| s.to_string()),
-            lock_submitted_at,
-        });
-    }
-
-    pub(crate) fn record_application_proving_completed(
-        &self,
-        order_id: &str,
-        total_cycles: Option<u64>,
-        stark_proving_secs: Option<f64>,
-        proof_compression_secs: Option<f64>,
-    ) {
-        self.record(TelemetryEvent::ApplicationProvingCompleted {
-            order_id: order_id.to_string(),
-            total_cycles,
-            stark_proving_secs,
-            proof_compression_secs,
-        });
-    }
-
-    pub(crate) fn record_aggregation_completed(
-        &self,
-        order_id: &str,
-        set_builder_proving_secs: Option<f64>,
-        assessor_proving_secs: Option<f64>,
-        assessor_compression_proof_secs: Option<f64>,
-    ) {
-        self.record(TelemetryEvent::AggregationCompleted {
-            order_id: order_id.to_string(),
-            set_builder_proving_secs,
-            assessor_proving_secs,
-            assessor_compression_proof_secs,
-        });
-    }
-
-    pub(crate) fn record_fulfilled(&self, order_id: &str) {
-        self.record(TelemetryEvent::Fulfilled { order_id: order_id.to_string() });
-    }
-
-    pub(crate) fn record_failed(&self, order_id: &str, failure: &BrokerFailure) {
-        self.record(TelemetryEvent::Failed {
-            order_id: order_id.to_string(),
-            error_code: failure.code.clone(),
-            error_reason: failure.reason.clone(),
-            outcome: failure.outcome,
-        });
-    }
-}
-
-// In-memory tracking for a request as it moves through the pipeline.
-struct InFlightRequest {
-    received_at_timestamp: u64,
-    request_id: Option<U256>,
-    request_digest: String,
-    fulfillment_type: String,
-    proof_type: String,
-    total_cycles: Option<u64>,
-    // Pricing fields stored for deferred RequestEvaluated construction.
-    requestor: Option<Address>,
-    pricing_outcome: Option<EvalOutcome>,
-    pricing_skip_code: Option<String>,
-    pricing_skip_reason: Option<String>,
-    queue_duration_ms: Option<u64>,
-    preflight_duration_ms: Option<u64>,
-    // Commitment + completion tracking fields.
-    estimated_proving_time_secs: Option<u64>,
-    lock_duration_secs: Option<u64>,
-    committed_at: Option<Instant>,
-    concurrent_proving_jobs_start: Option<u32>,
-    stark_proving_secs: Option<f64>,
-    proof_compression_secs: Option<f64>,
-    proving_completed_at: Option<Instant>,
-    set_builder_proving_secs: Option<f64>,
-    assessor_proving_secs: Option<f64>,
-    assessor_compression_proof_secs: Option<f64>,
-    aggregation_completed_at: Option<Instant>,
-}
-
-impl InFlightRequest {
-    fn new() -> Self {
-        Self {
-            received_at_timestamp: now_unix(),
-            request_id: None,
-            request_digest: String::new(),
-            fulfillment_type: String::new(),
-            proof_type: "Unknown".to_string(),
-            total_cycles: None,
-            requestor: None,
-            pricing_outcome: None,
-            pricing_skip_code: None,
-            pricing_skip_reason: None,
-            queue_duration_ms: None,
-            preflight_duration_ms: None,
-            estimated_proving_time_secs: None,
-            lock_duration_secs: None,
-            committed_at: None,
-            concurrent_proving_jobs_start: None,
-            stark_proving_secs: None,
-            proof_compression_secs: None,
-            proving_completed_at: None,
-            set_builder_proving_secs: None,
-            assessor_proving_secs: None,
-            assessor_compression_proof_secs: None,
-            aggregation_completed_at: None,
-        }
-    }
-}
-
-struct CommitmentInfo {
-    outcome: Option<CommitmentOutcome>,
-    skip_commit_code: Option<String>,
-    skip_commit_reason: Option<String>,
-    estimated_proving_time_secs: Option<u64>,
-    estimated_proving_time_no_load_secs: Option<u64>,
-    monitor_wait_duration_ms: Option<u64>,
-    peak_prove_khz: Option<u64>,
-    max_capacity: Option<u32>,
-    pending_commitment_count: Option<u32>,
-    concurrent_proving_jobs: Option<u32>,
-    lock_duration_secs: Option<u64>,
-}
-
-fn build_request_evaluated(
-    broker_address: Address,
-    order_id: String,
-    entry: &InFlightRequest,
-    commitment: CommitmentInfo,
-) -> RequestEvaluated {
-    let request_id =
-        entry.request_id.map(|id| format!("0x{id:x}")).unwrap_or_else(|| "unknown".to_string());
-    RequestEvaluated {
-        broker_address,
-        order_id,
-        request_id,
-        request_digest: entry.request_digest.clone(),
-        requestor: entry.requestor.unwrap_or(Address::ZERO),
-        outcome: entry.pricing_outcome.unwrap_or(EvalOutcome::Skipped),
-        skip_code: entry.pricing_skip_code.clone(),
-        skip_reason: entry.pricing_skip_reason.clone(),
-        total_cycles: entry.total_cycles,
-        fulfillment_type: entry.fulfillment_type.clone(),
-        queue_duration_ms: entry.queue_duration_ms,
-        preflight_duration_ms: entry.preflight_duration_ms,
-        received_at_timestamp: entry.received_at_timestamp,
-        evaluated_at: Utc::now(),
-        commitment_outcome: commitment.outcome,
-        commitment_skip_code: commitment.skip_commit_code,
-        commitment_skip_reason: commitment.skip_commit_reason,
-        estimated_proving_time_secs: commitment.estimated_proving_time_secs,
-        estimated_proving_time_no_load_secs: commitment.estimated_proving_time_no_load_secs,
-        monitor_wait_duration_ms: commitment.monitor_wait_duration_ms,
-        peak_prove_khz: commitment.peak_prove_khz,
-        max_capacity: commitment.max_capacity,
-        pending_commitment_count: commitment.pending_commitment_count,
-        concurrent_proving_jobs: commitment.concurrent_proving_jobs,
-        lock_duration_secs: commitment.lock_duration_secs,
-    }
-}
+const HEARTBEAT_RETRY_COUNT: u64 = 2;
+const HEARTBEAT_RETRY_SLEEP_MS: u64 = 1000;
 
 pub(crate) struct TelemetryService {
     rx: mpsc::Receiver<TelemetryEvent>,
@@ -968,18 +533,12 @@ pub(crate) async fn run_telemetry_service(
     Ok(())
 }
 
-pub(crate) fn proof_type_label(selector: FixedBytes<4>) -> &'static str {
-    if is_groth16_selector(selector) {
-        "Groth16"
-    } else if is_blake3_groth16_selector(selector) {
-        "Blake3Groth16"
-    } else {
-        "Merkle"
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use alloy::primitives::U256;
+
     use super::*;
     use crate::config::ConfigLock;
     use crate::db::{DbObj, SqliteDb};
