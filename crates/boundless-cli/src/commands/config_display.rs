@@ -15,7 +15,7 @@
 //! Shared utilities for displaying configuration status across modules
 
 use crate::commands::setup::secrets::address_from_private_key;
-use crate::display::{obscure_url, DisplayManager};
+use crate::display::{obscure_url, DisplayManager, TipItem};
 use alloy::primitives::Address;
 
 /// Module type for configuration display
@@ -170,21 +170,21 @@ pub fn display_not_configured(display: &DisplayManager, module: ModuleType) {
 }
 
 /// Display tip message for a module suggesting how to switch networks
-pub fn display_tip(_display: &DisplayManager, module: ModuleType) {
-    use colored::Colorize;
-
-    println!();
-    println!("{}", "Tips:".bold());
-    println!("  {} {}", "•".cyan().bold(), "List supported networks:".white());
-    println!("      {}", module.networks_command().dimmed());
-    println!(
-        "  {} {}",
-        "•".cyan().bold(),
-        "Switch the active network (accepts display name or chain ID):".white(),
-    );
-    for example in module.switch_network_examples() {
-        println!("          {}", format!("e.g. {example}").dimmed());
-    }
+pub fn display_tip(display: &DisplayManager, module: ModuleType) {
+    let examples = module.switch_network_examples();
+    let items = [
+        TipItem {
+            title: "List supported networks:",
+            command: Some(module.networks_command()),
+            examples: &[],
+        },
+        TipItem {
+            title: "Switch the active network (accepts display name or chain ID):",
+            command: None,
+            examples: &examples,
+        },
+    ];
+    display.tip_list("Tips:", &items);
 }
 
 /// Get address from private key as Address type

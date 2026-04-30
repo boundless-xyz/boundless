@@ -22,6 +22,16 @@ use chrono::{DateTime, Local};
 use colored::Colorize;
 use std::fmt::Display;
 
+/// A single entry within a bulleted tip list rendered by [`DisplayManager::tip_list`].
+pub struct TipItem<'a> {
+    /// Title shown next to the bullet.
+    pub title: &'a str,
+    /// Generic command shown at the primary indent level. `None` skips the line.
+    pub command: Option<&'a str>,
+    /// Concrete examples shown at the deeper indent level (each prefixed with `e.g. `).
+    pub examples: &'a [&'a str],
+}
+
 /// Standard display formatter for CLI output
 pub struct DisplayManager {
     /// Optional network name to display in headers
@@ -145,6 +155,25 @@ impl DisplayManager {
     /// Print a sub-item (extra indented under a main item)
     pub fn subitem(&self, prefix: &str, message: &str) {
         println!("    {} {}", prefix.dimmed(), message);
+    }
+
+    /// Print a bulleted tips block with a header and one or more [`TipItem`]s.
+    ///
+    /// Each item renders as a cyan bullet followed by the item title, an optional
+    /// generic command at the primary indent, and zero or more example lines at the
+    /// deeper indent (each automatically prefixed with `e.g. `).
+    pub fn tip_list(&self, header: &str, items: &[TipItem<'_>]) {
+        println!();
+        println!("{}", header.bold());
+        for item in items {
+            println!("  {} {}", "•".cyan().bold(), item.title.white());
+            if let Some(command) = item.command {
+                println!("      {}", command.dimmed());
+            }
+            for example in item.examples {
+                println!("          {}", format!("e.g. {example}").dimmed());
+            }
+        }
     }
 }
 
