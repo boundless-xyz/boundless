@@ -36,7 +36,7 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    chain_monitor::ChainMonitorService,
+    chain_monitor_v2::ChainMonitorService,
     db::{DbError, DbObj},
     task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,

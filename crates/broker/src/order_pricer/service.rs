@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
-    chain_monitor::ChainMonitorObj,
+    chain_monitor_v2::ChainMonitorObj,
     channels::SharedReceiver,
     config::ConfigLock,
     db::DbObj,
@@ -273,7 +273,7 @@ pub(crate) mod tests {
     use crate::config::{defaults, MarketConfig};
     use crate::order_pricer::types::ActivePreflights;
     use crate::{
-        chain_monitor::ChainMonitorService,
+        chain_monitor_v2::ChainMonitorService,
         db::SqliteDb,
         provers::{DefaultProver, ProofResult, Prover, ProverError},
         FulfillmentType,

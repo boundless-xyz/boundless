@@ -44,7 +44,7 @@ use url::Url;
 use crate::{
     aggregator,
     args::{ChainPipeline, CoreArgs},
-    chain_monitor, chain_monitor_v2, channels,
+    chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, TelemetryMode},
     db::DbObj,
     is_dev_mode, market_monitor, offchain_market_monitor, order_committer, order_evaluator,
@@ -655,10 +655,10 @@ impl Broker {
             );
 
             let block_times = monitor.block_time();
-            (monitor as chain_monitor::ChainMonitorObj, block_times)
+            (monitor as chain_monitor_v2::ChainMonitorObj, block_times)
         } else {
             let chain_monitor_service = Arc::new(
-                chain_monitor::ChainMonitorService::new(
+                chain_monitor_v2::ChainMonitorService::new(
                     provider.clone(),
                     gas_priority_mode.clone(),
                 )
@@ -696,7 +696,7 @@ impl Broker {
                 chain_span.clone(),
             );
 
-            (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
+            (chain_monitor_service as chain_monitor_v2::ChainMonitorObj, block_times)
         };
 
         tracing::debug!(chain_id, "Estimated block time: {block_times}");

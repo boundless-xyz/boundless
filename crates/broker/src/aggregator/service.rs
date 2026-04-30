@@ -802,7 +802,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        chain_monitor::ChainMonitorService,
+        chain_monitor_v2::ChainMonitorService,
         db::SqliteDb,
         now_timestamp,
         order_committer::CommitmentComplete,

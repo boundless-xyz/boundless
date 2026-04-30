@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Legacy chain monitor — `ChainMonitorService` exposes the shared
+//! [`ChainMonitorApi`] via `eth_getBlockNumber` polling. Selected at startup
+//! via `--legacy-rpc`. Slated for removal once V2 has fully replaced it.
+
 use alloy_chains::NamedChain;
 use async_trait::async_trait;
 use std::{
@@ -32,6 +36,8 @@ use crate::{
     task::{BrokerService, SupervisorErr},
 };
 
+use super::types::{ChainHead, ChainMonitorApi};
+
 #[derive(Error)]
 pub enum ChainMonitorErr {
     #[error("{code} RPC error: {0:?}", code = self.code())]
@@ -44,24 +50,6 @@ coded_error_impl!(ChainMonitorErr, "CHM",
     RpcErr(..)        => "400",
     UnexpectedErr(..) => "500",
 );
-
-#[derive(Clone, Debug, Copy)]
-pub(crate) struct ChainHead {
-    pub block_number: u64,
-    pub block_timestamp: u64,
-}
-
-/// Trait abstracting the chain monitor query interface.
-/// Implemented by both the default `ChainMonitorV2` (eth_getBlockReceipts) and the
-/// legacy `ChainMonitorService` pair (eth_getLogs, selected via `--legacy-rpc`).
-#[async_trait]
-pub(crate) trait ChainMonitorApi: Send + Sync {
-    async fn current_chain_head(&self) -> Result<ChainHead>;
-    async fn current_gas_price(&self) -> Result<u128>;
-}
-
-/// Type alias for a heap-allocated, type-erased chain monitor.
-pub(crate) type ChainMonitorObj = Arc<dyn ChainMonitorApi>;
 
 #[derive(Clone)]
 pub struct ChainMonitorService<P> {

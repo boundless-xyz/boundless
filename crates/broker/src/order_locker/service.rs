@@ -29,7 +29,7 @@
 //! the proving pipeline finishes (ProvingCompleted or ProvingFailed from downstream).
 
 use crate::{
-    chain_monitor::{ChainHead, ChainMonitorObj},
+    chain_monitor_v2::{ChainHead, ChainMonitorObj},
     channels::SharedReceiver,
     config::ConfigLock,
     db::DbObj,
@@ -932,7 +932,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::chain_monitor::ChainMonitorService;
+    use crate::chain_monitor_v2::ChainMonitorService;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
