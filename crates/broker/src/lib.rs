@@ -38,7 +38,6 @@ pub(crate) mod order_evaluator;
 pub(crate) mod order_locker;
 pub(crate) mod order_pricer;
 mod order_types;
-mod price_oracle;
 pub mod provers;
 pub(crate) mod proving;
 pub(crate) mod requestor_monitor;
