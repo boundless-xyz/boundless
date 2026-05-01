@@ -186,5 +186,5 @@ jobs:
             "${{ steps.get_version.outputs.minor_version }}" \
             "${{ steps.get_version.outputs.minor_version_unprefixed }}" \
             "${{ steps.get_version.outputs.latest }}"; do
-            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+            if [ -n "$TAG" ]; then crane tag "$SRC" "$TAG"; fi
           done

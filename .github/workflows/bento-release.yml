@@ -293,7 +293,7 @@ jobs:
             "${{ needs.release-metadata.outputs.minor_version }}" \
             "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
             "${{ needs.release-metadata.outputs.latest }}"; do
-            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+            if [ -n "$TAG" ]; then crane tag "$SRC" "$TAG"; fi
           done
 
       - name: Retag cpu agent image
@@ -305,7 +305,7 @@ jobs:
             "${{ needs.release-metadata.outputs.minor_version }}" \
             "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
             "${{ needs.release-metadata.outputs.latest }}"; do
-            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+            if [ -n "$TAG" ]; then crane tag "$SRC" "$TAG"; fi
           done
 
       - name: Retag rest api image
@@ -317,7 +317,7 @@ jobs:
             "${{ needs.release-metadata.outputs.minor_version }}" \
             "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
             "${{ needs.release-metadata.outputs.latest }}"; do
-            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+            if [ -n "$TAG" ]; then crane tag "$SRC" "$TAG"; fi
           done
 
       - name: Retag cli image
@@ -329,5 +329,5 @@ jobs:
             "${{ needs.release-metadata.outputs.minor_version }}" \
             "${{ needs.release-metadata.outputs.minor_version_unprefixed }}" \
             "${{ needs.release-metadata.outputs.latest }}"; do
-            [ -n "$TAG" ] && crane tag "$SRC" "$TAG"
+            if [ -n "$TAG" ]; then crane tag "$SRC" "$TAG"; fi
           done
