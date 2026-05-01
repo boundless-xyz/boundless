@@ -17,65 +17,23 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use alloy::primitives::U256;
-use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     channels::SharedReceiver,
-    coded_error_impl,
     config::ConfigLock,
-    errors::CodedError,
     prioritization::prioritize_orders_to_evaluate,
     requestor_monitor::PriorityRequestors,
     task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
 };
 
+use super::error::OrderEvaluatorErr;
+use super::types::PreflightComplete;
+
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_MAX_PREFLIGHT_DURATION_SECS: u64 = 3600;
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum PreflightOutcome {
-    Priced,
-    Skipped,
-    #[allow(dead_code)]
-    Failed,
-    Cancelled,
-}
-
-impl std::fmt::Display for PreflightOutcome {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PreflightOutcome::Priced => write!(f, "Priced"),
-            PreflightOutcome::Skipped => write!(f, "Skipped"),
-            PreflightOutcome::Failed => write!(f, "Failed"),
-            PreflightOutcome::Cancelled => write!(f, "Cancelled"),
-        }
-    }
-}
-
-pub(crate) struct PreflightComplete {
-    pub order_id: String,
-    #[allow(dead_code)]
-    pub request_id: U256,
-    pub chain_id: u64,
-    pub outcome: PreflightOutcome,
-}
-
-#[derive(Error)]
-pub(crate) enum OrderEvaluatorErr {
-    #[error("{code} Config read error: {0}", code = self.code())]
-    ConfigReadErr(Arc<anyhow::Error>),
-
-    #[error("{code} Stale capacity for order {order_id} expired after {elapsed_secs}s with no completion", code = self.code())]
-    StaleCapacity { order_id: String, elapsed_secs: u64 },
-}
-
-coded_error_impl!(OrderEvaluatorErr, "OE",
-    ConfigReadErr(..)   => "001",
-    StaleCapacity { .. } => "004",
-);
 
 #[derive(Clone)]
 pub(crate) struct OrderEvaluator {
@@ -389,6 +347,7 @@ impl BrokerService for OrderEvaluator {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::PreflightOutcome;
     use super::*;
     use crate::{now_timestamp, FulfillmentType};
     use alloy::primitives::{Address, Bytes};

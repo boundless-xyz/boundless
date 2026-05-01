@@ -12,13 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cross-service shared infrastructure: error coding, supervisor / retry task
-//! plumbing, configuration plumbing, and the prioritization core used by
-//! both the order pricer and the order committer.
+//! Error type for the requestor monitor service.
 
-pub mod channels;
-pub mod config;
-pub mod errors;
-pub mod prioritization;
-pub mod service_runner;
-pub mod task;
+use thiserror::Error;
+
+use crate::coded_error_impl;
+use crate::errors::CodedError;
+
+#[derive(Error)]
+pub enum MonitorError {
+    #[error("Failed to lock internal state")]
+    LockFailed,
+}
+
+coded_error_impl!(MonitorError, "RM",
+    LockFailed => "4001",
+);

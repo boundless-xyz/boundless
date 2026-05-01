@@ -18,31 +18,12 @@ use boundless_market::order_stream_client::{order_stream, OrderStreamClient};
 use futures_util::StreamExt;
 
 use crate::{
-    coded_error_impl,
-    errors::CodedError,
     task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest,
 };
-use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
-#[derive(Error)]
-pub enum OffchainMarketMonitorErr {
-    #[error("WebSocket error: {0:#}")]
-    WebSocketErr(anyhow::Error),
-
-    #[error("{code} Receiver dropped", code = self.code())]
-    ReceiverDropped,
-
-    #[error("{code} Unexpected error: {0:#}", code = self.code())]
-    UnexpectedErr(#[from] anyhow::Error),
-}
-
-coded_error_impl!(OffchainMarketMonitorErr, "OMM",
-    WebSocketErr(..)  => "001",
-    ReceiverDropped   => "002",
-    UnexpectedErr(..) => "500",
-);
+use super::error::OffchainMarketMonitorErr;
 
 #[derive(Clone)]
 pub struct OffchainMarketMonitor {

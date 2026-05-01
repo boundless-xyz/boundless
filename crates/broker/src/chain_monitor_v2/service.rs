@@ -31,11 +31,7 @@ use std::{
 use crate::futures_retry::retry;
 use crate::market_monitor::process_new_logs;
 use crate::{
-    block_history::{BlockHistory, BlockHistoryEntry},
-    chain_monitor::{ChainHead, ChainMonitorApi},
-    coded_error_impl,
     db::DbObj,
-    errors::CodedError,
     market_monitor::{
         process_log, process_order_submitted, process_request_fulfilled, process_request_locked,
         MarketEvent,
@@ -59,38 +55,12 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, IBoundlessMarket},
     dynamic_gas_filler::PriorityMode,
 };
-use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-#[derive(Error)]
-pub enum ChainMonitorV2Err {
-    #[error("{code} RPC error: {0:#}", code = self.code())]
-    RpcErr(anyhow::Error),
-
-    #[allow(dead_code)]
-    #[error("{code} Receipts root mismatch: {0:#}", code = self.code())]
-    ReceiptsMismatch(anyhow::Error),
-
-    #[allow(dead_code)]
-    #[error("{code} Log processing failed: {0:#}", code = self.code())]
-    LogProcessingFailed(anyhow::Error),
-
-    #[error("{code} Unexpected error: {0:#}", code = self.code())]
-    UnexpectedErr(#[from] anyhow::Error),
-
-    #[allow(dead_code)]
-    #[error("{code} Receiver dropped", code = self.code())]
-    ReceiverDropped,
-}
-
-coded_error_impl!(ChainMonitorV2Err, "CMV2",
-    RpcErr(..)              => "400",
-    ReceiptsMismatch(..)    => "401",
-    LogProcessingFailed(..) => "501",
-    UnexpectedErr(..)       => "500",
-    ReceiverDropped         => "502",
-);
+use super::block_history::{BlockHistory, BlockHistoryEntry};
+use super::error::ChainMonitorV2Err;
+use super::types::{ChainHead, ChainMonitorApi};
 
 /// Experimental replacement for `ChainMonitorService` + `MarketMonitor`.
 ///
@@ -778,8 +748,8 @@ mod tests {
     /// Base block (43414930) using static fixture data captured from the RPC. Currently fails due to Base's non-standard receipts format
     #[test]
     fn verify_receipts_root_base_43414930() {
-        let receipts_json = include_str!("../testdata/base_43414930_receipts.json");
-        let block_json = include_str!("../testdata/base_43414930_block.json");
+        let receipts_json = include_str!("../../testdata/base_43414930_receipts.json");
+        let block_json = include_str!("../../testdata/base_43414930_block.json");
 
         let receipts: Vec<AnyTransactionReceipt> =
             serde_json::from_str(receipts_json).expect("failed to deserialize receipts");
@@ -799,8 +769,8 @@ mod tests {
     /// ETH mainnet block (24666352) using static fixture data.
     #[test]
     fn verify_receipts_root_eth_24666352() {
-        let receipts_json = include_str!("../testdata/eth_24666352_receipts.json");
-        let block_json = include_str!("../testdata/eth_24666352_block.json");
+        let receipts_json = include_str!("../../testdata/eth_24666352_receipts.json");
+        let block_json = include_str!("../../testdata/eth_24666352_block.json");
 
         let receipts: Vec<AnyTransactionReceipt> =
             serde_json::from_str(receipts_json).expect("failed to deserialize receipts");

@@ -12,16 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Minimum broker version enforcement via on-chain VersionRegistry contract.
-//!
-//! The broker checks the on-chain minimum version at startup and periodically
-//! via a supervised background task. If the broker version is below the minimum,
-//! the supervisor faults, triggering graceful shutdown. If the contract cannot
-//! be read (RPC error, not deployed, etc.), it logs a warning and continues.
+//! [`VersionCheckTask`] — on-chain minimum-version enforcement service +
+//! the version-packing helpers and `IVersionRegistry` ABI binding it
+//! depends on.
 
 use crate::{
-    coded_error_impl,
-    errors::CodedError,
     is_dev_mode,
     task::{BrokerService, SupervisorErr},
 };
@@ -30,9 +25,10 @@ use alloy::providers::Provider;
 use alloy::sol;
 use boundless_market::deployments::{BASE, BASE_SEPOLIA};
 use std::time::Duration;
-use thiserror::Error;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
+
+use super::error::VersionCheckError;
 
 // Minimal ABI binding for the VersionRegistry contract.
 sol! {
@@ -104,22 +100,6 @@ pub fn format_version(version: u64) -> String {
     let (major, minor, patch) = unpack_version(version);
     format!("{major}.{minor}.{patch}")
 }
-
-#[derive(Error)]
-pub(crate) enum VersionCheckError {
-    #[error(
-        "{code} Broker version {broker_version} is below the minimum supported \
-         version {min_version} for chain {chain_id}. Outdated versions may have \
-         known performance or security vulnerabilities. \
-         Please upgrade to at least version {min_version}. \
-         See https://docs.boundless.network/ for instructions.", code = self.code()
-    )]
-    BelowMinimum { broker_version: String, min_version: String, chain_id: u64 },
-}
-
-coded_error_impl!(VersionCheckError, "VER",
-    BelowMinimum { .. } => "001",
-);
 
 #[derive(Clone)]
 pub(crate) struct VersionCheckTask<P> {

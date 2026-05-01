@@ -17,7 +17,6 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
-    coded_error_impl,
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -34,62 +33,10 @@ use crate::{
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
 use boundless_market::contracts::boundless_market::BoundlessMarketService;
-use boundless_market::telemetry::CompletionOutcome;
-use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, Span};
 
-#[derive(Error)]
-pub enum ProvingErr {
-    #[error("{code} Proving failed after retries: {0:#}", code = self.code())]
-    ProvingFailed(anyhow::Error),
-
-    #[error(
-        "{code} Cancelled: secondary fulfillment order was fulfilled by another prover",
-        code = self.code()
-    )]
-    CancelFulfilledByAnother,
-
-    #[error("{code} Cancelled: order expired during proving", code = self.code())]
-    CancelExpired,
-
-    #[error(
-        "{code} Proof completed but secondary fulfillment order was fulfilled by another prover",
-        code = self.code()
-    )]
-    CompletedFulfilledByAnother,
-
-    #[error("{code} Proof completed but order expired", code = self.code())]
-    CompletedExpired,
-
-    #[error("{code} Unexpected error: {0:#}", code = self.code())]
-    UnexpectedError(#[from] anyhow::Error),
-}
-
-coded_error_impl!(ProvingErr, "PRO",
-    ProvingFailed(..)            => "501",
-    CancelFulfilledByAnother     => "502",
-    CancelExpired                => "503",
-    CompletedFulfilledByAnother  => "505",
-    CompletedExpired             => "506",
-    UnexpectedError(..)          => "500",
-);
-
-impl ProvingErr {
-    fn completion_outcome(&self) -> CompletionOutcome {
-        match self {
-            ProvingErr::ProvingFailed(_) | ProvingErr::UnexpectedError(_) => {
-                CompletionOutcome::ProvingFailed
-            }
-            ProvingErr::CancelExpired | ProvingErr::CompletedExpired => {
-                CompletionOutcome::ExpiredWhileProving
-            }
-            ProvingErr::CancelFulfilledByAnother | ProvingErr::CompletedFulfilledByAnother => {
-                CompletionOutcome::Cancelled
-            }
-        }
-    }
-}
+use super::error::ProvingErr;
 
 #[derive(Clone)]
 pub struct ProvingService {

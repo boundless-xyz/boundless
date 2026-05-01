@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cross-service shared infrastructure: error coding, supervisor / retry task
-//! plumbing, configuration plumbing, and the prioritization core used by
-//! both the order pricer and the order committer.
+//! Decoded market events emitted by the [`IBoundlessMarket`] contract.
 
-pub mod channels;
-pub mod config;
-pub mod errors;
-pub mod prioritization;
-pub mod service_runner;
-pub mod task;
+use boundless_market::contracts::IBoundlessMarket;
+
+/// All market event types from the [IBoundlessMarket] contract.
+#[derive(Debug, Clone)]
+pub(crate) enum MarketEvent {
+    Submitted(IBoundlessMarket::RequestSubmitted),
+    Locked(IBoundlessMarket::RequestLocked),
+    Fulfilled(IBoundlessMarket::RequestFulfilled),
+}

@@ -12,13 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cross-service shared infrastructure: error coding, supervisor / retry task
-//! plumbing, configuration plumbing, and the prioritization core used by
-//! both the order pricer and the order committer.
+//! Per-chain proving service — picks committed orders out of the DB and
+//! drives them through the prover backend (Bento or Bonsai), recording the
+//! resulting proof IDs and emitting capacity completions back to the
+//! OrderCommitter.
+//!
+//! Layout:
+//! - [`service`] — the [`ProvingService`] struct, its constructor, and the
+//!   [`BrokerService`](crate::task::BrokerService) `run` loop.
+//! - `error` — [`ProvingErr`] enum and its `completion_outcome` mapping to
+//!   `boundless_market::telemetry::CompletionOutcome`.
 
-pub mod channels;
-pub mod config;
-pub mod errors;
-pub mod prioritization;
-pub mod service_runner;
-pub mod task;
+mod error;
+mod service;
+
+pub(crate) use service::ProvingService;

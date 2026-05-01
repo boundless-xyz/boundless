@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cross-service shared infrastructure: error coding, supervisor / retry task
-//! plumbing, configuration plumbing, and the prioritization core used by
-//! both the order pricer and the order committer.
+//! Off-chain market monitor — subscribes to the order-stream WebSocket and
+//! turns incoming pre-signed orders into `OrderRequest`s for downstream
+//! services.
+//!
+//! Layout:
+//! - [`service`] — the [`OffchainMarketMonitor`] struct, its constructor,
+//!   and the [`BrokerService`](crate::task::BrokerService) `run` loop.
+//! - `error` — [`OffchainMarketMonitorErr`].
 
-pub mod channels;
-pub mod config;
-pub mod errors;
-pub mod prioritization;
-pub mod service_runner;
-pub mod task;
+mod error;
+mod service;
+
+pub(crate) use service::OffchainMarketMonitor;

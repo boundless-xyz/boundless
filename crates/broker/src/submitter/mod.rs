@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cross-service shared infrastructure: error coding, supervisor / retry task
-//! plumbing, configuration plumbing, and the prioritization core used by
-//! both the order pricer and the order committer.
+//! Per-chain submitter — drives complete batches through the on-chain
+//! `fulfillBatch` flow, recording results back into the DB and emitting
+//! capacity completions to the OrderCommitter.
+//!
+//! Layout:
+//! - [`service`] — the [`Submitter`] struct, its constructor, and the
+//!   [`BrokerService`](crate::task::BrokerService) `run` loop.
+//! - `error` — [`SubmitterErr`] enum.
 
-pub mod channels;
-pub mod config;
-pub mod errors;
-pub mod prioritization;
-pub mod service_runner;
-pub mod task;
+mod error;
+mod service;
+
+pub(crate) use service::Submitter;

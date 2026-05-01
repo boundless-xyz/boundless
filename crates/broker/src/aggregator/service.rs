@@ -31,10 +31,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    coded_error_impl,
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
-    errors::CodedError,
     futures_retry::retry_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
@@ -43,26 +41,9 @@ use crate::{
     utils::prune_receipt_claim_journal,
     AggregationState, Batch, BatchStatus, FulfillmentType,
 };
-use thiserror::Error;
 
-#[derive(Error)]
-pub enum AggregatorErr {
-    #[error("{code} Compression error: {0}", code = self.code())]
-    CompressionErr(crate::provers::ProverError),
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
-    UnexpectedErr(#[from] anyhow::Error),
-}
-
-coded_error_impl!(AggregatorErr, "AGG",
-    UnexpectedErr(..)  => "500",
-    CompressionErr(..) => "400",
-);
-
-struct AggregateProofsResult {
-    proof_id: String,
-    set_builder_proving_secs: Option<f64>,
-    assessor_proving_secs: Option<f64>,
-}
+use super::error::AggregatorErr;
+use super::types::AggregateProofsResult;
 
 #[derive(Clone)]
 pub struct AggregatorService {
@@ -861,7 +842,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        chain_monitor::ChainMonitorService,
+        chain_monitor_v2::ChainMonitorService,
         db::SqliteDb,
         now_timestamp,
         order_committer::CommitmentComplete,

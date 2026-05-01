@@ -36,40 +36,17 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    chain_monitor::ChainMonitorService,
-    coded_error_impl,
+    chain_monitor_v2::ChainMonitorService,
     db::{DbError, DbObj},
-    errors::CodedError,
     task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
 };
-use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 
+use super::error::MarketMonitorErr;
+use super::types::MarketEvent;
+
 const BLOCK_TIME_SAMPLE_SIZE: u64 = 10;
-
-#[derive(Error)]
-pub enum MarketMonitorErr {
-    #[error("{code} Event polling failed: {0:#}", code = self.code())]
-    EventPollingErr(anyhow::Error),
-
-    #[allow(dead_code)]
-    #[error("{code} Log processing failed: {0:#}", code = self.code())]
-    LogProcessingFailed(anyhow::Error),
-
-    #[error("{code} Unexpected error: {0:#}", code = self.code())]
-    UnexpectedErr(#[from] anyhow::Error),
-
-    #[error("{code} Receiver dropped", code = self.code())]
-    ReceiverDropped,
-}
-
-coded_error_impl!(MarketMonitorErr, "MM",
-    EventPollingErr(..)     => "501",
-    LogProcessingFailed(..) => "502",
-    UnexpectedErr(..)       => "500",
-    ReceiverDropped         => "502",
-);
 
 #[derive(Clone)]
 pub struct MarketMonitor<P> {
@@ -150,14 +127,6 @@ pub(crate) fn process_log(log: Log) -> Option<(MarketEvent, Log)> {
             None
         }
     }
-}
-
-/// All market event types from the [IBoundlessMarket] contract.
-#[derive(Debug, Clone)]
-pub(crate) enum MarketEvent {
-    Submitted(IBoundlessMarket::RequestSubmitted),
-    Locked(IBoundlessMarket::RequestLocked),
-    Fulfilled(IBoundlessMarket::RequestFulfilled),
 }
 
 impl<P> MarketMonitor<P>

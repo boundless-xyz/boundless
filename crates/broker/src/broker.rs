@@ -44,7 +44,7 @@ use url::Url;
 use crate::{
     aggregator,
     args::{ChainPipeline, CoreArgs},
-    chain_monitor, chain_monitor_v2, channels,
+    chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
     is_dev_mode, market_monitor, offchain_market_monitor, order_committer, order_evaluator,
@@ -573,91 +573,56 @@ impl Broker {
         let telemetry_mode =
             config.lock_all().map(|c| c.market.telemetry_mode.clone()).unwrap_or_default();
 
-        let _telemetry_handle = match telemetry_mode {
-            TelemetryMode::Enabled => {
-                if let Some(ref client) = order_stream_client {
-                    telemetry::init_for_chain(chain_id, || {
-                        let (tx, rx) =
-                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
-                        let handle = telemetry::TelemetryHandle::new(tx);
-                        let service = telemetry::TelemetryService::new(
-                            rx,
-                            handle.clone(),
-                            client.clone(),
-                            signer.clone(),
-                            config.clone(),
-                            db.clone(),
-                        );
-                        // Telemetry rides on the critical cancel token so it keeps emitting
-                        // broker heartbeats during the Phase 2 drain (in-flight committed
-                        // orders). Otherwise, monitoring sees the broker as offline within
-                        // seconds of SIGTERM, while it is in fact still actively proving.
-                        let cancel_token = runner.critical_cancel_token();
-                        runner.spawn_future_in_span(
-                            service_runner::Criticality::Critical,
-                            "telemetry service",
-                            chain_span.clone(),
-                            async move {
-                                telemetry::run_telemetry_service(service, cancel_token).await
-                            },
-                        );
-                        handle
-                    })
-                } else {
+        // Decide once whether telemetry uses the full constructor (which requires
+        // an order-stream client) or the debug constructor; warn if Enabled was
+        // requested but no client is available, then fall through to debug mode.
+        let telemetry_client = match telemetry_mode {
+            TelemetryMode::Enabled => match order_stream_client.as_ref() {
+                Some(client) => Some(client.clone()),
+                None => {
                     tracing::warn!(
                         chain_id,
                         "TelemetryMode::Enabled requires order-stream; falling back to LogsOnly"
                     );
-
-                    telemetry::init_for_chain(chain_id, || {
-                        let (tx, rx) =
-                            mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
-                        let handle = telemetry::TelemetryHandle::new(tx);
-                        let service = telemetry::TelemetryService::new_debug(
-                            rx,
-                            handle.clone(),
-                            signer.clone(),
-                            config.clone(),
-                            db.clone(),
-                        );
-                        // See note above: telemetry on the critical token to survive
-                        // the Phase 2 drain.
-                        let cancel_token = runner.critical_cancel_token();
-                        runner.spawn_future_in_span(
-                            service_runner::Criticality::Critical,
-                            "telemetry service",
-                            chain_span.clone(),
-                            async move {
-                                telemetry::run_telemetry_service(service, cancel_token).await
-                            },
-                        );
-                        handle
-                    })
+                    None
                 }
-            }
-            TelemetryMode::LogsOnly => telemetry::init_for_chain(chain_id, || {
-                let (tx, rx) =
-                    mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
-                let handle = telemetry::TelemetryHandle::new(tx);
-                let service = telemetry::TelemetryService::new_debug(
+            },
+            TelemetryMode::LogsOnly => None,
+        };
+
+        let _telemetry_handle = telemetry::init_for_chain(chain_id, || {
+            let (tx, rx) = mpsc::channel::<telemetry::TelemetryEvent>(TELEMETRY_CHANNEL_CAPACITY);
+            let handle = telemetry::TelemetryHandle::new(tx);
+            let service = match telemetry_client {
+                Some(client) => telemetry::TelemetryService::new(
+                    rx,
+                    handle.clone(),
+                    client,
+                    signer.clone(),
+                    config.clone(),
+                    db.clone(),
+                ),
+                None => telemetry::TelemetryService::new_debug(
                     rx,
                     handle.clone(),
                     signer.clone(),
                     config.clone(),
                     db.clone(),
-                );
-                // See note above: telemetry on the critical token to survive
-                // the Phase 2 drain.
-                let cancel_token = runner.critical_cancel_token();
-                runner.spawn_future_in_span(
-                    service_runner::Criticality::Critical,
-                    "telemetry service",
-                    chain_span.clone(),
-                    async move { telemetry::run_telemetry_service(service, cancel_token).await },
-                );
-                handle
-            }),
-        };
+                ),
+            };
+            // Telemetry rides on the critical cancel token so it keeps emitting
+            // broker heartbeats during the Phase 2 drain (in-flight committed
+            // orders). Otherwise, monitoring sees the broker as offline within
+            // seconds of SIGTERM, while it is in fact still actively proving.
+            let cancel_token = runner.critical_cancel_token();
+            runner.spawn_future_in_span(
+                service_runner::Criticality::Critical,
+                "telemetry service",
+                chain_span.clone(),
+                async move { telemetry::run_telemetry_service(service, cancel_token).await },
+            );
+            handle
+        });
 
         let prover_addr = provider.default_signer_address();
 
@@ -697,11 +662,11 @@ impl Broker {
                 );
 
                 let block_times = monitor.block_time();
-                (monitor as chain_monitor::ChainMonitorObj, block_times)
+                (monitor as chain_monitor_v2::ChainMonitorObj, block_times)
             }
             RpcMode::Legacy => {
                 let chain_monitor_service = Arc::new(
-                    chain_monitor::ChainMonitorService::new(
+                    chain_monitor_v2::ChainMonitorService::new(
                         provider.clone(),
                         gas_priority_mode.clone(),
                     )
@@ -741,7 +706,7 @@ impl Broker {
                     chain_span.clone(),
                 );
 
-                (chain_monitor_service as chain_monitor::ChainMonitorObj, block_times)
+                (chain_monitor_service as chain_monitor_v2::ChainMonitorObj, block_times)
             }
             other => anyhow::bail!("Unsupported rpc_mode after resolution: {:?}", other),
         };
