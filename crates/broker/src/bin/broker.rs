@@ -140,12 +140,10 @@ fn discover_chain_ids_from_argv() -> BTreeSet<u64> {
 /// Add dynamic clap args for a single chain ID.
 fn register_chain_args(mut cmd: clap::Command, chain_id: u64) -> clap::Command {
     for def in CHAIN_ARG_DEFS {
-        // Leak the arg name string since clap requires &'static str for Arg::new/long.
-        // Runs once at startup so the leak is negligible.
-        let arg_name: &'static str = format!("{}-{chain_id}", def.name).leak();
+        let arg_name: String = format!("{}-{chain_id}", def.name);
         let action = if def.append { ArgAction::Append } else { ArgAction::Set };
         cmd = cmd.arg(
-            Arg::new(arg_name)
+            Arg::new(&arg_name)
                 .long(arg_name)
                 .action(action)
                 .help(format!("{} for chain {chain_id}", def.help)),
