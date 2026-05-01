@@ -168,3 +168,31 @@
   ansible.builtin.command:
     cmd: docker system prune -af
   changed_when: true
+
+# When the host is configured for the new prover-compose stack (i.e.
+# prover_stack != "legacy"), tear down any leftover containers from the legacy
+# `bento` compose project. Both compose files publish redis on host port 6379,
+# so a stale `bento-redis-1` from a previous setup will block `prover-redis-1`
+# from starting on every subsequent restart, with the failure invisible above
+# the docker layer.
+- name: Detect legacy bento compose containers
+  ansible.builtin.command:
+    cmd: docker ps -aq --filter label=com.docker.compose.project=bento
+  register: prover_legacy_bento_containers
+  changed_when: false
+  when: prover_stack | default('') != 'legacy'
+
+- name: Tear down legacy bento compose project
+  ansible.builtin.command:
+    cmd: >-
+      docker compose -f {{ prover_dir }}/compose.yml
+      --profile broker --profile miner --profile caddy
+      down --remove-orphans
+    chdir: "{{ prover_dir }}"
+  when:
+    - prover_stack | default('') != 'legacy'
+    - prover_legacy_bento_containers.stdout | default('') | length > 0
+  notify: Restart Bento
+
+- name: Flush queued handlers
+  ansible.builtin.meta: flush_handlers
