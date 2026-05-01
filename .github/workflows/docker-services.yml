@@ -11,8 +11,15 @@ on:
         required: false
         type: string
 
+# Concurrency group resolution:
+#   PR         -> pull_request.number  (new commit on PR cancels older run)
+#   Tag push   -> github.sha           (multiple tags at the same SHA collapse to one run;
+#                                       three release tags pushed in parallel would otherwise
+#                                       trigger 3x the matrix and exhaust the shared
+#                                       DOCKERHUB_CI_PAT pull-rate budget)
+#   Branch push -> github.ref          (new commit on branch cancels older run)
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.ref_type == 'tag' && github.sha) || github.ref }}
   cancel-in-progress: true
 
 permissions:
