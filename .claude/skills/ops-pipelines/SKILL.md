@@ -92,22 +92,60 @@ If the SHA's execution is `Superseded`, a later commit took over and that
 SHA will not deploy to prod on its own. Call this out — common source of
 confusion when merging PRs back-to-back.
 
-Poll each pipeline's state until staging completes:
+**Use the Monitor tool to poll in the background** so the user can keep
+working while staging runs (CodePipeline deployments take 10–30+ minutes).
+The Monitor tool runs a script in the background and feeds each output line
+back, so the agent can interject as soon as a stage transitions.
+
+Run one Monitor per tracked pipeline with a script that prints a status
+heartbeat every 30s and exits on a terminal event. Use the execution's
+overall status from `get-pipeline-execution`, and `get-pipeline-state` to
+detect the approval gate (filtered to the inbound exec at DeployProduction
+so a newer superseding exec doesn't trigger a false approval signal):
 
 ```bash
-aws codepipeline get-pipeline-state --name "$P" \
-  --query 'stageStates[].{stage:stageName, status:latestExecution.status, exec:latestExecution.pipelineExecutionId}' \
-  --output table
+PIPELINE="l-indexer-pipeline"
+EXEC="<pipelineExecutionId from step above>"
+while true; do
+  STATUS=$(aws codepipeline get-pipeline-execution \
+    --pipeline-name "$PIPELINE" --pipeline-execution-id "$EXEC" \
+    --query 'pipelineExecution.status' --output text 2>/dev/null || echo Unknown)
+  echo "$(date -u +%H:%M:%SZ) $PIPELINE exec=$EXEC status=$STATUS"
+  case "$STATUS" in
+    Succeeded)
+      echo "DONE pipeline=$PIPELINE exec=$EXEC"; break ;;
+    Failed|Stopped|Cancelled|Superseded)
+      echo "ALERT pipeline=$PIPELINE status=$STATUS exec=$EXEC"; break ;;
+    InProgress)
+      APPROVAL=$(aws codepipeline get-pipeline-state --name "$PIPELINE" --output json \
+        | jq -r --arg E "$EXEC" '
+          .stageStates[]
+          | select(.stageName=="DeployProduction"
+                   and .inboundExecution.pipelineExecutionId == $E)
+          | .actionStates[] | select(.actionName=="ApproveDeployToProduction")
+          | .latestExecution.status // empty' | head -1)
+      if [ "$APPROVAL" = "InProgress" ]; then
+        echo "READY-TO-APPROVE pipeline=$PIPELINE exec=$EXEC"; break
+      fi ;;
+  esac
+  sleep 30
+done
 ```
 
-Match rows where `exec` equals the tracked execution. Cadence: 30s while any
-tracked stage is `InProgress`, back off to 60s after 10 min. Stop when every
-tracked pipeline is either:
+Each tracked pipeline gets its own Monitor (run them in parallel — the
+boundless ops account handles the call rate fine at 30s intervals). React
+when a line starting with `ALERT`, `READY-TO-APPROVE`, or `DONE` arrives:
 
-- `DeployProduction` `InProgress` with `ApproveDeployToProduction` waiting
-  → green path, prompt the user to approve (workflow 2).
-- `Failed` on any stage → surface the failure (workflow 3).
-- `Succeeded` end-to-end (only if someone already approved).
+- `READY-TO-APPROVE` → prompt the user to approve production (workflow 2).
+- `ALERT ... Failed` → surface the failure (workflow 3).
+- `ALERT ... Superseded` → a newer commit took over; tell the user this SHA
+  will not deploy to prod on its own.
+- `DONE ... Succeeded` → pipeline fully complete (rare without approval).
+
+If the user cancels the run, moves on to unrelated work, or asks to stop
+monitoring, cancel the monitors — they cost API calls and clutter context.
+If the Monitor tool isn't available, fall back to manual polling with
+`get-pipeline-state` every 30s.
 
 ### 2. Approving production deploys
 
