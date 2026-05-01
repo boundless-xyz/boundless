@@ -102,6 +102,12 @@ jobs:
             LATEST="latest"
           fi
 
+          echo "VERSION=$VERSION"
+          echo "VERSION_UNPREFIXED=$VERSION_UNPREFIXED"
+          echo "IS_RC=$IS_RC"
+          echo "MINOR_VERSION=$MINOR_VERSION"
+          echo "LATEST=$LATEST"
+
           BUNDLE_ARCHIVE="${BUNDLE_DIR}-linux-amd64.tar.gz"
           BUNDLE_CHECKSUM="${BUNDLE_ARCHIVE}.sha256"
           SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
@@ -206,6 +212,16 @@ jobs:
       contents: write
 
     steps:
+      - name: Install gh CLI
+        run: |
+          if ! command -v gh > /dev/null; then
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update
+            sudo apt-get install -y gh
+          fi
+          gh --version
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
