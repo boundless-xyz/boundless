@@ -12,6 +12,7 @@ x-base-environment:
   BENTO_API_URL: http://rest_api:8081
   REDIS_URL: redis://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:6379
   NO_COLOR: 1
+  JOIN_STREAM: 1
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
@@ -81,7 +82,7 @@ x-gpu-prove-agent: &gpu-prove-agent
     [
       "/bin/sh",
       "-c",
-      "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
+      "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t join --redis-ttl $$REDIS_TTL & done; wait",
     ]
   # By default, the prebuilt agent image ships with the BLAKE3 Groth16 setup
   # artifacts baked in at /.blake3_groth16_artifacts/. To swap in host-provided
