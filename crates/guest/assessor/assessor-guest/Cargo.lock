@@ -1765,7 +1765,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "1.5.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "1.5.0-alpha.0"
+version = "2.0.0"
 dependencies = [
  "alloy",
  "alloy-chains",
