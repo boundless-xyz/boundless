@@ -118,12 +118,17 @@ fn discover_chain_ids_from_argv() -> BTreeSet<u64> {
     }
 
     for (key, value) in std::env::vars() {
-        let Some(suffix) = key.strip_prefix("PROVER_RPC_URL_") else {
-            continue;
-        };
-        if key.starts_with("PROVER_RPC_URLS_") || value.trim().is_empty() {
+        if value.trim().is_empty() {
             continue;
         }
+        // Match either PROVER_RPC_URL_{chain_id} (primary) or
+        // PROVER_RPC_URLS_{chain_id} (failover list). Try the longer prefix
+        // first so PROVER_RPC_URLS_8453 doesn't get parsed as suffix "S_8453".
+        let Some(suffix) =
+            key.strip_prefix("PROVER_RPC_URLS_").or_else(|| key.strip_prefix("PROVER_RPC_URL_"))
+        else {
+            continue;
+        };
         if let Ok(chain_id) = suffix.parse::<u64>() {
             chain_ids.insert(chain_id);
         }
@@ -514,26 +519,39 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
         chain_urls.insert(chain_id, urls);
     }
 
-    // Env vars for chains not already specified via CLI
+    // Discover chain IDs referenced by either PROVER_RPC_URL_{chain_id} or
+    // PROVER_RPC_URLS_{chain_id}, then combine both forms per chain — same
+    // semantics as collect_rpc_urls() for single-chain mode.
+    let mut env_chain_ids: BTreeSet<u64> = BTreeSet::new();
     for (key, value) in std::env::vars() {
-        let Some(suffix) = key.strip_prefix("PROVER_RPC_URL_") else {
-            continue;
-        };
-        if key.starts_with("PROVER_RPC_URLS_") || value.trim().is_empty() {
+        if value.trim().is_empty() {
             continue;
         }
-        let chain_id: u64 = match suffix.parse() {
-            Ok(id) => id,
-            Err(_) => continue,
+        let Some(suffix) =
+            key.strip_prefix("PROVER_RPC_URLS_").or_else(|| key.strip_prefix("PROVER_RPC_URL_"))
+        else {
+            continue;
         };
+        if let Ok(chain_id) = suffix.parse::<u64>() {
+            env_chain_ids.insert(chain_id);
+        }
+    }
+
+    for chain_id in env_chain_ids {
         if chain_urls.contains_key(&chain_id) {
             continue;
         }
+        let mut urls: Vec<Url> = Vec::new();
 
-        let primary_url = std::env::var(format!("PROVER_RPC_URL_{chain_id}"))
-            .with_context(|| format!("PROVER_RPC_URL_{chain_id} is set but empty"))?;
-        let mut urls = vec![Url::parse(&primary_url)
-            .with_context(|| format!("Invalid PROVER_RPC_URL_{chain_id}"))?];
+        if let Ok(primary) = std::env::var(format!("PROVER_RPC_URL_{chain_id}")) {
+            let trimmed = primary.trim();
+            if !trimmed.is_empty() {
+                urls.push(
+                    Url::parse(trimmed)
+                        .with_context(|| format!("Invalid PROVER_RPC_URL_{chain_id}"))?,
+                );
+            }
+        }
 
         if let Ok(extra_urls) = std::env::var(format!("PROVER_RPC_URLS_{chain_id}")) {
             for url_str in extra_urls.split(',') {
@@ -549,7 +567,9 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
             }
         }
 
-        chain_urls.insert(chain_id, urls);
+        if !urls.is_empty() {
+            chain_urls.insert(chain_id, urls);
+        }
     }
 
     if chain_urls.is_empty() {
@@ -775,6 +795,46 @@ mod tests {
         assert_eq!(chains[0].rpc_urls[0].as_str(), "http://primary.example.com/");
         assert_eq!(chains[0].rpc_urls[1].as_str(), "http://backup1.example.com/");
         assert_eq!(chains[0].rpc_urls[2].as_str(), "http://backup2.example.com/");
+
+        clear_chain_env_vars();
+    }
+
+    #[test]
+    fn discover_chains_failover_only_registers_chain() {
+        // Regression: setting only PROVER_RPC_URLS_{chain_id} (no singular
+        // PROVER_RPC_URL_{chain_id}) should still register the chain, mirroring
+        // the v1.x single-chain semantics where PROVER_RPC_URLS alone was valid.
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+
+        std::env::set_var(
+            "PROVER_RPC_URLS_8453",
+            "http://backup1.example.com,http://backup2.example.com",
+        );
+
+        let mut args = default_args();
+        args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
+
+        let mut per_chain = PerChainArgs::default();
+        let chains = discover_chains(&args, &mut per_chain).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert_eq!(chains[0].chain_id, 8453);
+        assert_eq!(chains[0].rpc_urls.len(), 2);
+        assert_eq!(chains[0].rpc_urls[0].as_str(), "http://backup1.example.com/");
+        assert_eq!(chains[0].rpc_urls[1].as_str(), "http://backup2.example.com/");
+
+        clear_chain_env_vars();
+    }
+
+    #[test]
+    fn discover_chain_ids_from_failover_only_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+
+        std::env::set_var("PROVER_RPC_URLS_167000", "http://taiko1.example.com");
+
+        let ids = discover_chain_ids_from_argv();
+        assert!(ids.contains(&167000));
 
         clear_chain_env_vars();
     }
