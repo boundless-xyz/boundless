@@ -17,7 +17,7 @@ x-base-environment:
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
-  image: ${PROVER_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent:latest}
+  image: ${PROVER_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent:prover-v2.0.0-rc.0}
   runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
@@ -92,7 +92,7 @@ x-gpu-prove-agent: &gpu-prove-agent
   # BLAKE3_GROTH16_SETUP_DIR is set in the environment.
 
 x-broker-common: &broker-common
-  image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:latest}
+  image: ${BROKER_IMAGE-ghcr.io/boundless-xyz/boundless/broker:broker-v2.0.0-rc.0}
   restart: always
   depends_on:
     rest_api:
@@ -178,7 +178,7 @@ services:
 
   exec_agent:
     <<: *exec-agent-common
-    image: ${PROVER_CPU_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent-cpu:latest}
+    image: ${PROVER_CPU_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent-cpu:prover-v2.0.0-rc.0}
     build:
       context: .
       dockerfile: ${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}
@@ -190,7 +190,7 @@ services:
 
   aux_agent:
     <<: *agent-common
-    image: ${PROVER_CPU_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent-cpu:latest}
+    image: ${PROVER_CPU_AGENT_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-agent-cpu:prover-v2.0.0-rc.0}
     build:
       context: .
       dockerfile: ${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}
@@ -230,7 +230,7 @@ services:
               capabilities: [gpu]
 
   rest_api:
-    image: ${PROVER_REST_API_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-rest-api:latest}
+    image: ${PROVER_REST_API_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-rest-api:prover-v2.0.0-rc.0}
     build:
       context: .
       dockerfile: ${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}
@@ -301,7 +301,7 @@ services:
   #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
   miner:
-    image: ${PROVER_CLI_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-cli:latest}
+    image: ${PROVER_CLI_IMAGE:-ghcr.io/boundless-xyz/boundless/prover-cli:prover-v2.0.0-rc.0}
     build:
       context: .
       dockerfile: ${PROVER_CLI_DOCKERFILE:-dockerfiles/prover/prover_cli.dockerfile}
