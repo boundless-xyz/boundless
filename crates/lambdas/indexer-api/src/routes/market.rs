@@ -1847,6 +1847,29 @@ async fn get_requests_by_request_id_impl(
 const MAX_LEADERBOARD: u64 = 100;
 const DEFAULT_LEADERBOARD_LIMIT: u64 = 50;
 
+fn compute_leaderboard_window(period: LeaderboardPeriod, now: u64) -> (u64, u64, bool) {
+    match period {
+        LeaderboardPeriod::OneHour => {
+            // Current UTC hour bucket: [hour_start, hour_start + 3600).
+            let hour_start = (now / 3600) * 3600;
+            (hour_start, hour_start + 3600, true)
+        }
+        LeaderboardPeriod::OneDay => {
+            let end = ((now / 3600) + 1) * 3600;
+            (end.saturating_sub(24 * 3600), end, true)
+        }
+        LeaderboardPeriod::ThreeDays => {
+            let day_start = (now / 86400) * 86400;
+            (day_start - 2 * 86400, day_start + 86400, false)
+        }
+        LeaderboardPeriod::SevenDays => {
+            let day_start = (now / 86400) * 86400;
+            (day_start - 6 * 86400, day_start + 86400, false)
+        }
+        LeaderboardPeriod::AllTime => (0, now + 86400, false),
+    }
+}
+
 /// GET /v1/market/requestors
 /// Returns a paginated leaderboard of requestors with aggregated stats for the specified time period
 #[utoipa::path(
@@ -1891,25 +1914,7 @@ async fn list_requestors_impl(
         .unwrap_or(0);
 
     // Calculate time range based on period
-    let (start_ts, end_ts, use_hourly_table) = match params.period {
-        LeaderboardPeriod::OneHour => {
-            let hour_start = (now / 3600) * 3600;
-            (hour_start, hour_start + 3600, true)
-        }
-        LeaderboardPeriod::OneDay => {
-            let day_start = (now / 86400) * 86400;
-            (day_start, day_start + 86400, true)
-        }
-        LeaderboardPeriod::ThreeDays => {
-            let day_start = (now / 86400) * 86400;
-            (day_start - 2 * 86400, day_start + 86400, false)
-        }
-        LeaderboardPeriod::SevenDays => {
-            let day_start = (now / 86400) * 86400;
-            (day_start - 6 * 86400, day_start + 86400, false)
-        }
-        LeaderboardPeriod::AllTime => (0, now + 86400, false),
-    };
+    let (start_ts, end_ts, use_hourly_table) = compute_leaderboard_window(params.period, now);
 
     // Parse cursor if provided
     let (cursor_orders, cursor_address) = if let Some(cursor_str) = &params.cursor {
@@ -2092,25 +2097,7 @@ async fn list_provers_impl(
         .unwrap_or(0);
 
     // Calculate time range based on period
-    let (start_ts, end_ts, use_hourly_table) = match params.period {
-        LeaderboardPeriod::OneHour => {
-            let hour_start = (now / 3600) * 3600;
-            (hour_start, hour_start + 3600, true)
-        }
-        LeaderboardPeriod::OneDay => {
-            let day_start = (now / 86400) * 86400;
-            (day_start, day_start + 86400, true)
-        }
-        LeaderboardPeriod::ThreeDays => {
-            let day_start = (now / 86400) * 86400;
-            (day_start - 2 * 86400, day_start + 86400, false)
-        }
-        LeaderboardPeriod::SevenDays => {
-            let day_start = (now / 86400) * 86400;
-            (day_start - 6 * 86400, day_start + 86400, false)
-        }
-        LeaderboardPeriod::AllTime => (0, now + 86400, false),
-    };
+    let (start_ts, end_ts, use_hourly_table) = compute_leaderboard_window(params.period, now);
 
     // Parse cursor if provided
     let (cursor_fees, cursor_address) = if let Some(cursor_str) = &params.cursor {
@@ -2630,5 +2617,99 @@ async fn get_efficiency_request_by_id_impl(
             }))
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOUR: u64 = 3600;
+    const DAY: u64 = 86_400;
+
+    #[test]
+    fn one_hour_window_is_current_utc_hour_bucket() {
+        // 2026-01-15 12:34:56 UTC → bucket [12:00, 13:00)
+        let now: u64 = 1_768_523_696;
+        let (start, end, hourly) = compute_leaderboard_window(LeaderboardPeriod::OneHour, now);
+        assert!(hourly, "OneHour must use the hourly summary table");
+        assert_eq!(end - start, HOUR);
+        assert_eq!(start, (now / HOUR) * HOUR);
+        assert_eq!(end, start + HOUR);
+    }
+
+    #[test]
+    fn one_day_window_always_covers_24h() {
+        // Sample several times of day, including the bug-trigger moments
+        // (just after 00:00 UTC and just after a UTC hour boundary).
+        let day_start: u64 = 1_768_521_600; // 2026-01-15 00:00:00 UTC
+        for offset in [
+            0,             // 00:00 UTC — was previously a 0-second window
+            60,            // 00:01 UTC
+            5 * HOUR,      // 05:00 UTC — covers the "5 hours ago" report
+            12 * HOUR + 1, // mid-day
+            23 * HOUR + 59 * 60,
+        ] {
+            let now = day_start + offset;
+            let (start, end, hourly) = compute_leaderboard_window(LeaderboardPeriod::OneDay, now);
+            assert!(hourly, "OneDay must use the hourly summary table");
+            assert_eq!(
+                end - start,
+                24 * HOUR,
+                "1d window should be exactly 24h at offset {}s",
+                offset
+            );
+            // Window ends at the next hour boundary after `now`.
+            assert_eq!(end % HOUR, 0, "end aligned to hour at offset {}s", offset);
+            assert!(end > now, "end must be in the future at offset {}s", offset);
+            assert!(end - now <= HOUR, "end is at most one hour ahead of now");
+        }
+    }
+
+    #[test]
+    fn one_day_window_includes_event_from_five_hours_ago() {
+        // Regression for the bug where an order locked 5h ago was excluded
+        // from the 1d leaderboard if `now` was early in the UTC day.
+        // 2026-01-15 04:00:00 UTC. Five hours ago = 2026-01-14 23:00 UTC.
+        let now = 1_768_521_600 + 4 * HOUR;
+        let five_hours_ago = now - 5 * HOUR;
+        let (start, end, _) = compute_leaderboard_window(LeaderboardPeriod::OneDay, now);
+        assert!(
+            five_hours_ago >= start && five_hours_ago < end,
+            "event at {}s must fall inside [{}, {})",
+            five_hours_ago,
+            start,
+            end
+        );
+    }
+
+    #[test]
+    fn three_day_window_unchanged() {
+        // 2026-01-15 12:00:00 UTC
+        let now = 1_768_521_600 + 12 * HOUR;
+        let (start, end, hourly) = compute_leaderboard_window(LeaderboardPeriod::ThreeDays, now);
+        assert!(!hourly, "ThreeDays uses the daily summary table");
+        let day_start = (now / DAY) * DAY;
+        assert_eq!(start, day_start - 2 * DAY);
+        assert_eq!(end, day_start + DAY);
+    }
+
+    #[test]
+    fn seven_day_window_unchanged() {
+        let now = 1_768_521_600 + 12 * HOUR;
+        let (start, end, hourly) = compute_leaderboard_window(LeaderboardPeriod::SevenDays, now);
+        assert!(!hourly);
+        let day_start = (now / DAY) * DAY;
+        assert_eq!(start, day_start - 6 * DAY);
+        assert_eq!(end, day_start + DAY);
+    }
+
+    #[test]
+    fn all_time_starts_at_epoch() {
+        let now = 1_768_521_600;
+        let (start, end, hourly) = compute_leaderboard_window(LeaderboardPeriod::AllTime, now);
+        assert!(!hourly);
+        assert_eq!(start, 0);
+        assert_eq!(end, now + DAY);
     }
 }
