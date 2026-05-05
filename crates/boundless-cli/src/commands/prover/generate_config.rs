@@ -1507,12 +1507,17 @@ impl ProverGenerateConfig {
             display.note("   Learn more: https://docs.boundless.network/zkc/mining/overview");
             display.note("");
             display.note("   Option 1: export REWARD_ADDRESS=<reward_address>");
-            display.note("   Option 2: Set POVW_LOG_ID in compose.yml to your reward address");
+            display.note(
+                "   Option 2: Set POVW_LOG_ID in prover-compose.yml and compose.yml to your reward address",
+            );
         }
 
         display.note("");
         if config.chains.len() > 1 {
-            display.note("2. Ensure you have collateral deposited on each chain:");
+            display.note("2. Ensure you have collateral deposited on each chain.");
+            display
+                .note("   We recommend depositing 50 USD per chain to allow you to lock and prove");
+            display.note("   multiple orders in parallel.");
             for chain in &config.chains {
                 display.note(&format!(
                     "   • {} ({}): min {} collateral",
@@ -1520,8 +1525,12 @@ impl ProverGenerateConfig {
                 ));
             }
         } else {
+            display.note("2. Ensure you have collateral deposited in your prover address.");
+            display
+                .note("   We recommend depositing 50 USD to allow you to lock and prove multiple");
+            display.note("   orders in parallel.");
             display.note(&format!(
-                "2. Ensure you have a minimum of {} ZKC collateral in your prover address:",
+                "   Minimum: {}",
                 config.chains.first().map(|c| c.max_collateral.as_str()).unwrap_or("10 USD")
             ));
         }
