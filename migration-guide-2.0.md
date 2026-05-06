@@ -12,14 +12,14 @@ This guide covers upgrading a Boundless prover from v1.x to v2.0. Allow 30-60 mi
 - **Removes the cluster mining penalty** — the Redis-backed TaskDB rewrite eliminates the overheads that made running large clusters inefficient.
 - **Multi-chain from one node** — one prover node can now monitor and fulfill Proof Requests across multiple chains, allowing provers to fulfill more orders (more revenue). Taiko alongside Base ships in this release.
 
-| | Prover stack (default) | Legacy bento stack (opt-in) |
-|--|------------------------|------------------------------|
-| Compose file | `prover-compose.yml` | `compose.yml` |
-| Compose project name | `prover` | `bento` |
-| Start with | `just prover up` | `PROVER_STACK=legacy just prover up` |
-| Infrastructure | Redis only | Redis + PostgreSQL + MinIO |
-| Docker images | `prover-*` (`prover-agent`, `prover-agent-cpu`, `prover-rest-api`, `prover-cli`) | `bento-*` |
-| Status | **Recommended** | Supported for backward compatibility, will be deprecated |
+|                      | Prover stack (default)                                                           | Legacy bento stack (opt-in)                              |
+| -------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Compose file         | `prover-compose.yml`                                                             | `compose.yml`                                            |
+| Compose project name | `prover`                                                                         | `bento`                                                  |
+| Start with           | `just prover up`                                                                 | `PROVER_STACK=legacy just prover up`                     |
+| Infrastructure       | Redis only                                                                       | Redis + PostgreSQL + MinIO                               |
+| Docker images        | `prover-*` (`prover-agent`, `prover-agent-cpu`, `prover-rest-api`, `prover-cli`) | `bento-*`                                                |
+| Status               | **Recommended**                                                                  | Supported for backward compatibility, will be deprecated |
 
 The legacy bento stack is supported via `PROVER_STACK=legacy` for hosts that aren't ready to cut over (e.g. anything with persistent PostgreSQL/MinIO state), but will be removed in a future release.
 
@@ -91,7 +91,7 @@ v2.0 doesn't touch your existing `broker.db` — it runs under a separate Compos
 
 PostgreSQL and MinIO data don't need to be backed up: the only non-recoverable contents were PoVW work receipts, which were submitted on-chain in the [prerequisite step above](#submit-outstanding-povw-work-receipts-before-upgrading); everything else (proving artifacts, request inputs) is recreated on demand. If you don't plan to roll back to the bento stack, you can reclaim the disk later with `docker volume rm bento_postgres-data bento_minio-data`.
 
-> **Redis state does not carry across the bento → prover-stack switch.** v1.x's bento stack stored Redis under the Compose project `bento` (`bento_redis-data` volume); v2.0's prover stack uses project `prover` (`prover_redis-data`). After you bring the prover stack up, Redis starts fresh — any in-flight worker tasks tracked in the bento Redis volume are left behind. The broker's SQLite DB holds the canonical order state, so order tracking is unaffected; what's lost is in-flight proving work in the worker pool, which the broker will retry or time out as appropriate. The bento Redis volume is *kept* by Docker after `just prover down` — volumes aren't auto-removed — so a rollback can pick it up again.
+> **Redis state does not carry across the bento → prover-stack switch.** v1.x's bento stack stored Redis under the Compose project `bento` (`bento_redis-data` volume); v2.0's prover stack uses project `prover` (`prover_redis-data`). After you bring the prover stack up, Redis starts fresh — any in-flight worker tasks tracked in the bento Redis volume are left behind. The broker's SQLite DB holds the canonical order state, so order tracking is unaffected; what's lost is in-flight proving work in the worker pool, which the broker will retry or time out as appropriate. The bento Redis volume is _kept_ by Docker after `just prover down` — volumes aren't auto-removed — so a rollback can pick it up again.
 
 ## Step 2: Update the Repository
 
@@ -122,7 +122,9 @@ The wizard will prompt for chain selection (Base, Taiko, or both), collect per-c
 
 > **Taiko RPC option:** Taiko offer a free RPC endpoint at: `https://rpc.mainnet.taiko.xyz`. Use at your own risk. See [Step 4](#step-4-configure-multi-chain) for details.
 
-If you used the wizard, skip to [Step 5](#step-5-start-the-stack).
+> **Taiko ZKC:** If you enable Taiko, bridge ZKC to your prover wallet on Taiko and deposit market collateral before going live. See [Taiko: Bridge and deposit ZKC](#taiko-bridge-and-deposit-zkc-when-enabling-taiko).
+
+If you used the wizard, skip to [Step 5](#step-5-start-the-stack) after completing any Taiko bridging and collateral deposit you need.
 
 ### Manual config migration
 
@@ -133,6 +135,7 @@ If you prefer to migrate your existing config manually instead of using the wiza
 Several config field names have been renamed. The old names are **no longer accepted** in v2.0 — the backward-compatibility aliases have been removed.
 
 **Before (v1.x)**:
+
 ```toml
 [market]
 mcycle_price = "0.00000001"
@@ -145,6 +148,7 @@ batch_size = 2
 ```
 
 **After (v2.0)**:
+
 ```toml
 [market]
 min_mcycle_price = "0.00000001"
@@ -158,17 +162,18 @@ min_batch_size = 2
 
 Full rename table:
 
-| Old name (v1.x) | New name (v2.0) |
-|------------------|-----------------|
-| `mcycle_price` | `min_mcycle_price` |
-| `max_stake` | `max_collateral` |
-| `stake_balance_warn_threshold` | `collateral_balance_warn_threshold` |
-| `stake_balance_error_threshold` | `collateral_balance_error_threshold` |
-| `max_concurrent_locks` | `max_concurrent_proofs` |
-| `batch_size` | `min_batch_size` |
-| `expired_order_fulfillment_priority` | `order_commitment_priority` |
+| Old name (v1.x)                      | New name (v2.0)                      |
+| ------------------------------------ | ------------------------------------ |
+| `mcycle_price`                       | `min_mcycle_price`                   |
+| `max_stake`                          | `max_collateral`                     |
+| `stake_balance_warn_threshold`       | `collateral_balance_warn_threshold`  |
+| `stake_balance_error_threshold`      | `collateral_balance_error_threshold` |
+| `max_concurrent_locks`               | `max_concurrent_proofs`              |
+| `batch_size`                         | `min_batch_size`                     |
+| `expired_order_fulfillment_priority` | `order_commitment_priority`          |
 
 > If your v1.x config already uses the new names (most v1.3+ configs do), no changes are needed. You can verify with:
+>
 > ```bash
 > grep -E 'mcycle_price\b[^_]|max_stake|stake_balance|max_concurrent_locks|^batch_size|expired_order_fulfillment' broker.toml
 > ```
@@ -189,6 +194,7 @@ Any field set in an override takes precedence over the base `broker.toml` for th
 To enable multi-chain, set per-chain RPC endpoints. These are configured via environment variables — either shell exports, a `.env` file, or however you currently manage your environment.
 
 **What changes from v1.x:**
+
 - `PROVER_RPC_URL` becomes `PROVER_RPC_URL_8453` and `PROVER_RPC_URL_167000`
 - `BOUNDLESS_MARKET_ADDRESS` and `SET_VERIFIER_ADDRESS` can be removed — the broker has built-in deployment addresses for known chains that are resolved automatically from the chain ID
 - Optionally, `PROVER_PRIVATE_KEY_8453` / `PROVER_PRIVATE_KEY_167000` for per-chain wallets (or keep a single global `PROVER_PRIVATE_KEY`)
@@ -206,6 +212,28 @@ export PROVER_RPC_URL_167000=https://rpc.mainnet.taiko.xyz
 That's it. The broker auto-discovers chains from `PROVER_RPC_URL_{chain_id}` variables, resolves the contract addresses for known chains, and creates separate SQLite databases per chain automatically (`broker.8453.db`, `broker.167000.db`).
 
 Old v1.x variables like `BOUNDLESS_MARKET_ADDRESS`, `SET_VERIFIER_ADDRESS`, `POSTGRES_HOST`, `MINIO_HOST`, etc. are harmless if still present. When per-chain `PROVER_RPC_URL_{chain_id}` variables are set, the global `PROVER_RPC_URL` is ignored.
+
+## Taiko: Bridge and deposit ZKC (when enabling Taiko)
+
+If your v2.0 setup includes Taiko (`PROVER_RPC_URL_167000`), the Boundless Market on Taiko settles collateral in **ZKC**. That balance must live on Taiko—the same Ethereum mainnet ZKC you may already hold for Base does not automatically appear on Taiko.
+
+1. **Bridge ZKC to Taiko** — Use the Taiko native bridge to move ZKC from **Ethereum Mainnet** to **Taiko Mainnet**: [https://bridge.taiko.xyz/](https://bridge.taiko.xyz/). Bridge to the **same wallet address** you configure for the prover on Taiko (`PROVER_PRIVATE_KEY_167000` or your shared `PROVER_PRIVATE_KEY`). Complete any claim or finalization steps the UI requires so the tokens are visible on Taiko.
+
+2. **Keep gas on Taiko** — You need Taiko **ETH** (or the native gas token Taiko uses for transactions) to approve and deposit collateral. Bridge or fund that separately if needed.
+
+3. **Deposit collateral into the market** — Enable Taiko in the Boundless CLI via the prover setup wizard so `deposit-collateral` targets the Taiko market (this configures the CLI module separately from `generate-config`, which produces `broker.toml` and compose files):
+
+   ```bash
+   boundless prover setup
+   ```
+
+   Follow the prompts to enable **Taiko Mainnet** (Taiko RPC URL and prover private key as needed). Then deposit:
+
+   ```bash
+   boundless prover deposit-collateral "<amount>"
+   ```
+
+   Confirm the on-chain market balance with `boundless prover balance-collateral`.
 
 ## Step 5: Start the Stack
 
@@ -227,6 +255,7 @@ INFO chain{chain_id=167000}: broker::chain_monitor: Starting ChainMonitor servic
 ```
 
 > You may see AWS IMDS timeout warnings if running on non-AWS hardware. These are harmless:
+>
 > ```
 > WARN aws_config::imds::region: failed to load region from IMDS ...
 > ```
@@ -234,9 +263,11 @@ INFO chain{chain_id=167000}: broker::chain_monitor: Starting ChainMonitor servic
 ## Step 6: Verify
 
 **Services are running:**
+
 ```bash
 just prover logs
 ```
+
 Look for `Starting pipeline for chain` lines — one per chain — followed by `Detected new on-chain request` messages.
 
 With the prover stack (default) you should see `redis`, `rest_api`, `exec_agent`, `aux_agent`, `gpu_prove_agent`, `broker`, `prometheus`, `grafana` — no `postgres` or `minio`. The legacy bento stack will additionally include `postgres`, `minio`, and `minio-init`.
