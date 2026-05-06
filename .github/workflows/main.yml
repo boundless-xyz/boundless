@@ -225,6 +225,7 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
+          version: "1.18.1"
 
       - name: install nextest
         run: cargo binstall -y cargo-nextest@0.9.128
@@ -266,6 +267,7 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
+          version: "1.18.1"
 
       - name: install lychee
         run: cargo binstall -y lychee@0.15.1
@@ -327,6 +329,7 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
+          version: "1.18.1"
 
       - name: install dprint
         run: cargo binstall -y dprint@0.47.2
