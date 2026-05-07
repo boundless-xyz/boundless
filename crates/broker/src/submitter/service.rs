@@ -624,6 +624,14 @@ where
                     "Failed to set order failure after retries exhausted: {order_id} {db_err:?}"
                 );
             }
+            // Release the committer's in-flight slot for this order. Without this, a permanent
+            // batch failure leaks a slot in OrderCommitter::in_flight, eventually exhausting
+            // max_concurrent_proofs and silently halting dispatch on all chains.
+            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                order_id: order_id.clone(),
+                chain_id: self.chain_id,
+                outcome: CommitmentOutcome::ProvingFailed,
+            });
         }
 
         if let Err(db_err) = self.db.set_batch_failure(batch_id, format!("{err:?}")).await {
