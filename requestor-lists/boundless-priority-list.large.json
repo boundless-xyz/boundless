@@ -25,6 +25,14 @@
       }
     },
     {
+      "address": "0x371479ca8a23b662f5b08d137bb21a4850861aca",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
       "address": "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
       "chainId": 8453,
       "name": "Mango",
