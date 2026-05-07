@@ -1099,6 +1099,15 @@ impl From<ContractErr> for TxnErr {
                 let data = data.get().trim_matches('"');
 
                 let Ok(data) = Bytes::from_str(data) else {
+                    // Pre-contract RPC rejection (nonce/gas/eviction/etc); downstream
+                    // callers only see TxnErr::BytesDecode, so surface the raw message here.
+                    tracing::warn!(
+                        target: "boundless_market::txn_decode",
+                        code = ts_err.code,
+                        msg = %ts_err.message,
+                        data = %data.chars().take(256).collect::<String>(),
+                        "non-hex revert data; falling back to TxnErr::BytesDecode"
+                    );
                     return Self::BytesDecode;
                 };
 
@@ -1131,6 +1140,13 @@ fn decode_contract_err<T: SolInterface>(err: ContractErr) -> Result<T, TxnErr> {
             let data = data.get().trim_matches('"');
 
             let Ok(data) = Bytes::from_str(data) else {
+                tracing::warn!(
+                    target: "boundless_market::txn_decode",
+                    code = ts_err.code,
+                    msg = %ts_err.message,
+                    data = %data.chars().take(256).collect::<String>(),
+                    "non-hex revert data; falling back to TxnErr::BytesDecode"
+                );
                 return Err(TxnErr::BytesDecode);
             };
 
@@ -1179,6 +1195,72 @@ pub mod bytecode;
 mod tests {
     use super::*;
     use alloy::signers::local::PrivateKeySigner;
+    use tracing_test::traced_test;
+
+    /// Build a `ContractErr::TransportError(ErrorResp(ErrorPayload))` with the given
+    /// `data` field for use by the BytesDecode tests below.
+    fn make_contract_err_with_data(code: i64, message: &str, data: Option<&str>) -> ContractErr {
+        let raw_data = data.map(|s| {
+            // serde_json::value::RawValue expects the JSON repr; `data` here is the
+            // already-JSON-encoded string the RPC would send.
+            serde_json::value::RawValue::from_string(s.to_string()).unwrap()
+        });
+        ContractErr::TransportError(TransportError::ErrorResp(alloy::rpc::json_rpc::ErrorPayload {
+            code,
+            message: message.to_string().into(),
+            data: raw_data,
+        }))
+    }
+
+    #[test]
+    #[traced_test]
+    fn warns_on_non_hex_revert_data() {
+        // RPC returns plaintext "already known" in error.data — typical for a
+        // resubmit-of-already-known-tx or replacement-underpriced rejection.
+        let err = make_contract_err_with_data(-32000, "already known", Some("\"already known\""));
+        let txn_err = TxnErr::from(err);
+        assert!(matches!(txn_err, TxnErr::BytesDecode), "expected BytesDecode, got {txn_err:?}");
+        assert!(logs_contain("non-hex revert data"), "expected WARN log on non-hex revert path");
+        assert!(
+            logs_contain("already known"),
+            "expected the raw RPC message/data to be surfaced in the WARN log"
+        );
+    }
+
+    #[test]
+    #[traced_test]
+    fn no_warn_on_valid_hex_revert_data() {
+        // Valid hex revert blob (e.g. 4-byte selector). `Bytes::from_str` succeeds, so the
+        // BytesDecode fall-through is not taken and the new WARN must NOT fire — even
+        // though the trial ABI-decode below it may fail and we end up in `ContractErr`.
+        let err = make_contract_err_with_data(3, "execution reverted", Some("\"0xc274d3e3\""));
+        let txn_err = TxnErr::from(err);
+        assert!(
+            !matches!(txn_err, TxnErr::BytesDecode),
+            "valid hex must not produce BytesDecode; got {txn_err:?}"
+        );
+        assert!(
+            !logs_contain("non-hex revert data"),
+            "WARN must not fire on normal contract reverts (would be noisy)"
+        );
+    }
+
+    #[test]
+    #[traced_test]
+    fn no_warn_on_missing_data() {
+        // RPC returns no `error.data` field at all — we should hit MissingData, not
+        // BytesDecode, and the new WARN must NOT fire.
+        let err = make_contract_err_with_data(-32000, "some rpc error", None);
+        let txn_err = TxnErr::from(err);
+        assert!(
+            matches!(txn_err, TxnErr::MissingData(..)),
+            "expected MissingData, got {txn_err:?}"
+        );
+        assert!(
+            !logs_contain("non-hex revert data"),
+            "WARN must not fire when data field is absent"
+        );
+    }
 
     async fn create_order(
         signer: &impl Signer,
