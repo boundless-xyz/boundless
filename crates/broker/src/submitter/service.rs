@@ -32,6 +32,7 @@ use boundless_market::{
         FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector},
+    telemetry::CompletionOutcome,
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -46,6 +47,7 @@ use tokio::sync::mpsc;
 use crate::{
     config::ConfigLock,
     db::DbObj,
+    errors::{handle_order_failure, BrokerFailure, CodedError},
     is_dev_mode, now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::ProverObj,
@@ -369,14 +371,18 @@ where
 
             if let Err(err) = res.await {
                 tracing::error!("Failed to submit {order_id}: {err:?}");
-                if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
-                    tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
-                }
-                let _ = self.proving_completion_tx.try_send(CommitmentComplete {
-                    order_id: order_id.to_string(),
-                    chain_id: self.chain_id,
-                    outcome: CommitmentOutcome::ProvingFailed,
-                });
+                handle_order_failure(
+                    &self.db,
+                    order_id,
+                    &BrokerFailure::new(
+                        SubmitterErr::UnexpectedErr(err).code(),
+                        "Failed to submit",
+                        CompletionOutcome::ProvingFailed,
+                    ),
+                    self.chain_id,
+                    &self.proving_completion_tx,
+                )
+                .await;
             }
         }
 
@@ -536,20 +542,20 @@ where
         orders: Vec<Order>,
     ) -> Result<(), SubmitterErr> {
         tracing::warn!("All orders in batch {batch_id} are expired ({}). Batch will not be submitted, and all orders will be marked as failed.", &orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "));
+        let expired_err = SubmitterErr::AllRequestsExpiredBeforeSubmission(Vec::new());
         for order in orders.clone() {
-            if let Err(db_err) =
-                self.db.set_order_failure(order.id().as_str(), "Failed to submit batch").await
-            {
-                tracing::error!(
-                    "Failed to set order failure during proof submission: {} {db_err:?}",
-                    order.id()
-                );
-            }
-            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
-                order_id: order.id(),
-                chain_id: self.chain_id,
-                outcome: CommitmentOutcome::ProvingFailed,
-            });
+            handle_order_failure(
+                &self.db,
+                order.id().as_str(),
+                &BrokerFailure::new(
+                    expired_err.code(),
+                    "Expired before submission",
+                    CompletionOutcome::ExpiredBeforeSubmission,
+                ),
+                self.chain_id,
+                &self.proving_completion_tx,
+            )
+            .await;
         }
         Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(
             orders.iter().map(|order| format!("{order}")).collect(),
@@ -617,21 +623,24 @@ where
         tracing::warn!("Batch {batch_id} submission failed after retries: {err:?}");
 
         // Now that retries are exhausted, mark every order in the batch as Failed.
+        // `handle_order_failure` updates the DB, emits the telemetry Failed event, and sends
+        // ProvingFailed to the OrderCommitter so the in-flight capacity slot is freed —
+        // without that last step, a permanent batch failure leaks a slot in
+        // `OrderCommitter::in_flight`, eventually exhausting `max_concurrent_proofs` and
+        // silently halting dispatch on all chains.
         for order_id in batch.orders.iter() {
-            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
-            {
-                tracing::error!(
-                    "Failed to set order failure after retries exhausted: {order_id} {db_err:?}"
-                );
-            }
-            // Release the committer's in-flight slot for this order. Without this, a permanent
-            // batch failure leaks a slot in OrderCommitter::in_flight, eventually exhausting
-            // max_concurrent_proofs and silently halting dispatch on all chains.
-            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
-                order_id: order_id.to_string(),
-                chain_id: self.chain_id,
-                outcome: CommitmentOutcome::ProvingFailed,
-            });
+            handle_order_failure(
+                &self.db,
+                order_id,
+                &BrokerFailure::new(
+                    err.code(),
+                    "Failed to submit batch",
+                    CompletionOutcome::ProvingFailed,
+                ),
+                self.chain_id,
+                &self.proving_completion_tx,
+            )
+            .await;
         }
 
         if let Err(db_err) = self.db.set_batch_failure(batch_id, format!("{err:?}")).await {
