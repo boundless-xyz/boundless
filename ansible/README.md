@@ -8,7 +8,7 @@ This setup deploys:
 
 - **Prover nodes**: Bento stack (PostgreSQL, Redis, MinIO, agents, REST API, optional broker/miner)
 - **Explorer nodes**: Same stack plus Caddy for TLS and API-key auth
-- **Supporting roles**: NVIDIA drivers and CUDA Toolkit, Docker Engine (with optional NVIDIA Container Toolkit), UFW firewall, Vector log shipping to AWS CloudWatch
+- **Supporting roles**: NVIDIA drivers and CUDA Toolkit, Docker Engine (with optional NVIDIA Container Toolkit), AWS CLI
 
 ## Requirements
 
@@ -23,8 +23,6 @@ This setup deploys:
 ```
 ansible/
 ├── prover.yml             # Main deployment playbook (nvidia, docker, prover)
-├── monitoring.yml         # AWS CLI + Vector log shipping
-├── security.yml           # UFW firewall
 ├── test-prover.yml        # bento-cli prover smoke test
 ├── kailua.yml             # Kailua installer/service playbook
 ├── inventory.yml          # Runtime inventory (do not commit real data)
@@ -37,9 +35,7 @@ ansible/
     ├── docker/            # Docker Engine + optional NVIDIA Container Toolkit
     ├── kailua/            # Kailua binary + systemd launcher
     ├── nvidia/            # NVIDIA drivers and CUDA Toolkit
-    ├── prover/            # Prover/explorer Docker Compose deployment
-    ├── ufw/               # UFW firewall (optional Docker NAT)
-    └── vector/            # Vector log shipping to CloudWatch
+    └── prover/            # Prover/explorer Docker Compose deployment
 ```
 
 ## Quick Start
@@ -55,12 +51,6 @@ ansible-playbook -i inventory.yml prover.yml
 # Deploy to specific host
 ansible-playbook -i inventory.yml prover.yml --limit 127.0.0.1
 
-# Deploy monitoring (Vector + AWS CLI)
-ansible-playbook -i inventory.yml monitoring.yml
-
-# Configure UFW
-ansible-playbook -i inventory.yml security.yml
-
 # Run prover smoke test
 ansible-playbook -i inventory.yml test-prover.yml
 
@@ -72,8 +62,7 @@ ansible-playbook -i inventory.yml kailua.yml
 
 The inventory uses nested groups and group vars to reduce duplication:
 
-- **all.vars**: `ansible_user`, `prover_version`, `ufw_docker_nat_enabled` (apply to every host)
-- **staging** / **production**: `vector_aws_access_key_id`, `vector_aws_secret_access_key` (for Vector/CloudWatch)
+- **all.vars**: `ansible_user`, `prover_version` (apply to every host)
 - **Role groups**: `prover`, `explorer`, `nightly`, `release`, plus chain-ID groups (`8453`, `84532`, `11155111`) for targeting
 
 Hosts live in leaf groups (e.g. `explorer_84532_staging_release`, `prover_8453_production_nightly`). Limit patterns use Ansible group syntax:
@@ -95,14 +84,10 @@ Example structure:
 ---
 all:
   vars:
-    ufw_docker_nat_enabled: true
     ansible_user: ubuntu
     prover_version: main
   children:
     staging:
-      vars:
-        vector_aws_access_key_id: "YOUR_AWS_ACCESS_KEY_ID"
-        vector_aws_secret_access_key: "YOUR_AWS_SECRET_ACCESS_KEY"
       children: [explorer_84532_staging_release, prover_84532_staging_nightly]
     # Leaf groups define hosts and host vars
     explorer_84532_staging_release:
@@ -131,27 +116,6 @@ Deploys the complete prover stack:
 ansible-playbook -i inventory.yml prover.yml
 ```
 
-### monitoring.yml
-
-Deploys log shipping to AWS CloudWatch:
-
-1. **awscli role** - Installs AWS CLI v2
-2. **vector role** - Installs and configures Vector
-
-AWS credentials for Vector are set per environment in inventory (`staging.vars` / `production.vars`). No host-level Vector credentials needed when using these groups.
-
-```bash
-ansible-playbook -i inventory.yml monitoring.yml
-```
-
-### security.yml
-
-Configures UFW firewall. When `ufw_docker_nat_enabled` is true (set in `all.vars`), inserts Docker NAT rules so containers can reach the internet when Docker has `iptables: false`.
-
-```bash
-ansible-playbook -i inventory.yml security.yml
-```
-
 ### test-prover.yml
 
 Installs `bento-cli` from a release bundle and runs a prover smoke test:
@@ -172,11 +136,10 @@ ansible-playbook -i inventory.yml kailua.yml
 
 ### Global (all.vars)
 
-| Variable                 | Description                                                        |
-| ------------------------ | ------------------------------------------------------------------ |
-| `ansible_user`           | SSH user (e.g. `ubuntu`)                                           |
-| `prover_version`         | Git tag/branch to deploy (e.g. `main`)                             |
-| `ufw_docker_nat_enabled` | If true, UFW role adds Docker NAT when Docker iptables is disabled |
+| Variable         | Description                            |
+| ---------------- | -------------------------------------- |
+| `ansible_user`   | SSH user (e.g. `ubuntu`)               |
+| `prover_version` | Git tag/branch to deploy (e.g. `main`) |
 
 ### Prover / Explorer (host or role defaults)
 
@@ -192,15 +155,6 @@ ansible-playbook -i inventory.yml kailua.yml
 | `prover_docker_compose_invoke` | (varies)     | Services to run (e.g. `exec_agent rest_api caddy`)            |
 
 Explorer hosts also use Caddy variables (`caddy_domain`, `caddy_acme_email`, `caddy_auth_enabled`, `caddy_api_key`, etc.). See role defaults and `ENV_VARS.md`.
-
-### Vector (staging / production group vars)
-
-| Variable                       | Description                               |
-| ------------------------------ | ----------------------------------------- |
-| `vector_aws_access_key_id`     | Set in `staging.vars` / `production.vars` |
-| `vector_aws_secret_access_key` | Set in `staging.vars` / `production.vars` |
-
-Other Vector vars (e.g. `vector_service_enabled`, `vector_cloudwatch_log_group`) have role defaults; see `ENV_VARS.md`.
 
 ## Tags
 
@@ -229,7 +183,6 @@ ansible-playbook -i inventory.yml prover.yml --skip-tags nvidia
 | `docker-nvidia` | NVIDIA Container Toolkit        |
 | `prover`        | Prover Docker Compose stack     |
 | `awscli`        | AWS CLI installation            |
-| `vector`        | Vector log shipping             |
 
 ## GitHub Actions Checks
 
@@ -237,7 +190,7 @@ CI checks are defined in `.github/workflows/ansible.yml` (repo root). Current
 jobs run:
 
 - `ansible-lint`
-- syntax checks for `prover.yml` and `monitoring.yml`
+- syntax checks for `prover.yml`
 - YAML validation for `ansible/**/*.yml`
 
 ## Service Management
@@ -365,5 +318,3 @@ cd /opt/bento && docker compose logs --tail=100
 - `roles/kailua/README.md` - Kailua deployment and service launcher
 - `roles/nvidia/README.md` - NVIDIA drivers and CUDA
 - `roles/prover/README.md` - Prover/explorer Docker Compose deployment
-- `roles/ufw/README.md` - UFW firewall and optional Docker NAT
-- `roles/vector/README.md` - Vector log shipping to CloudWatch

@@ -110,8 +110,6 @@ phases:
 
         cd ansible
         echo "Deploying to target: $TARGET"
-        ansible-playbook -i inventory.yml monitoring.yml -D -v --limit "$TARGET"
-        ansible-playbook -i inventory.yml security.yml -D -v --limit "$TARGET"
         ansible-playbook -i inventory.yml prover.yml -D -v --limit "$TARGET"
   post_build:
     commands:

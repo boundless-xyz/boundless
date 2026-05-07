@@ -1,8 +1,7 @@
 // CloudWatch Monitoring Stack
 //
 // Creates CloudWatch log groups, metric filters, alarms, and a dashboard for
-// bare-metal nodes. Nodes already ship logs and metrics via Vector
-// (ansible role: vector) — this stack owns the AWS-side monitoring resources.
+// bare-metal nodes. This stack owns the AWS-side monitoring resources.
 //
 // Alarm thresholds are tuned per-node in nodeConfig.ts following the same
 // data-driven pattern as infra/indexer/alarmConfig.ts:

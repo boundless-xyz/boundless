@@ -24,7 +24,6 @@ on:
         type: choice
         options:
           - prover.yml
-          - monitoring.yml
       hosts:
         description: 'Hosts to deploy to (comma-separated, or "all")'
         required: true
@@ -87,7 +86,7 @@ jobs:
         working-directory: ansible
         run: |
           # List of playbooks to check (exclude inventory.yml and other non-playbook files)
-          playbooks=("prover.yml" "monitoring.yml")
+          playbooks=("prover.yml")
           for playbook in "${playbooks[@]}"; do
             if [ -f "$playbook" ]; then
               echo "Checking syntax of $playbook..."

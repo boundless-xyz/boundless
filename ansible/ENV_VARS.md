@@ -11,7 +11,7 @@ Ansible variable precedence (highest to lowest):
 3. **Inventory group variables** (e.g. `staging.vars`, `production.vars`, `all.vars` in `inventory.yml`)
 4. **Role defaults** (`roles/*/defaults/main.yml`)
 
-The inventory uses `all.vars` for `ansible_user`, `prover_version`, and `ufw_docker_nat_enabled`. Staging and production set `vector_aws_access_key_id` and `vector_aws_secret_access_key` so hosts in those groups inherit AWS credentials for Vector without per-host duplication.
+The inventory uses `all.vars` for shared values such as `ansible_user` and `prover_version`.
 
 ## Quick Start
 
@@ -24,12 +24,8 @@ all:
   vars:
     ansible_user: ubuntu
     prover_version: main
-    ufw_docker_nat_enabled: true
   children:
     staging:
-      vars:
-        vector_aws_access_key_id: "AKIA..."
-        vector_aws_secret_access_key: "..."
       children:
         prover_84532_staging_nightly:
     prover_84532_staging_nightly:
@@ -147,43 +143,6 @@ These variables enable the broker service:
 | `nvidia_ubuntu_version`       | (auto-detected) | Ubuntu version override   |
 | `nvidia_reboot_after_install` | `false`         | Reboot after installation |
 
-## Vector Role Variables
-
-### Service Configuration
-
-| Variable                 | Default   | Description    |
-| ------------------------ | --------- | -------------- |
-| `vector_install`         | `true`    | Install Vector |
-| `vector_service_enabled` | `true`    | Enable at boot |
-| `vector_service_state`   | `started` | Service state  |
-
-### CloudWatch Configuration
-
-| Variable                        | Default                     | Description         |
-| ------------------------------- | --------------------------- | ------------------- |
-| `vector_cloudwatch_log_group`   | `/boundless/bento/hostname` | Log group name      |
-| `vector_cloudwatch_region`      | `us-west-2`                 | AWS region          |
-| `vector_cloudwatch_stream_name` | `%Y-%m-%d`                  | Stream name pattern |
-
-### AWS Authentication
-
-| Variable                          | Default | Description                  |
-| --------------------------------- | ------- | ---------------------------- |
-| `vector_aws_use_instance_profile` | `true`  | Use IAM instance profile     |
-| `vector_aws_credentials_file`     | `null`  | Path to AWS credentials file |
-| `vector_aws_access_key_id`        | `null`  | AWS access key ID            |
-| `vector_aws_secret_access_key`    | `null`  | AWS secret access key        |
-
-### Monitoring and Metrics
-
-| Variable                         | Default                            | Description                              |
-| -------------------------------- | ---------------------------------- | ---------------------------------------- |
-| `vector_monitor_services`        | `["bento.service"]`                | Systemd units to ingest from journald    |
-| `vector_host_metrics_collectors` | `["memory", "disk", "filesystem"]` | Enabled host metrics collectors          |
-| `vector_metrics_scrape_interval` | `15`                               | Host metrics scrape interval (seconds)   |
-| `vector_track_bento_process`     | `true`                             | Emit `bento_active` and container gauges |
-| `vector_track_log_errors`        | `true`                             | Emit `bento_log_errors` metric           |
-
 ## AWS CLI Role Variables
 
 | Variable                | Default              | Description                            |
@@ -192,17 +151,6 @@ These variables enable the broker service:
 | `awscli_install_dir`    | `/usr/local/aws-cli` | Installation directory                 |
 | `awscli_bin_dir`        | `/usr/local/bin`     | Binary directory                       |
 | `awscli_update`         | `false`              | Update existing installation           |
-
-## UFW Role Variables
-
-Used by `security.yml` and the `ufw` role:
-
-| Variable                 | Default  | Description                                                     |
-| ------------------------ | -------- | --------------------------------------------------------------- |
-| `ufw_docker_nat_enabled` | `true`   | If true, add Docker NAT rules when Docker has `iptables: false` |
-| `ufw_allowed_ports`      | (varies) | List of `{ port, proto, comment }` for UFW allow rules          |
-
-See `roles/ufw/README.md` and `roles/ufw/defaults/main.yml` for full UFW options.
 
 ## Example Configurations
 
@@ -213,12 +161,8 @@ all:
   vars:
     ansible_user: ubuntu
     prover_version: main
-    ufw_docker_nat_enabled: true
   children:
     production:
-      vars:
-        vector_aws_access_key_id: "AKIA..."
-        vector_aws_secret_access_key: "..."
       children:
         prover_8453_production_release:
     prover_8453_production_release:
@@ -255,10 +199,6 @@ To build from source instead (slower, not recommended for staging):
 prover_boundless_build: "all"
 prover_image_tag: ""
 ```
-
-### Vector logging (credentials from group vars)
-
-Set `vector_aws_access_key_id` and `vector_aws_secret_access_key` on the parent group (`staging` or `production`) so all hosts in that environment inherit them. Override per host only if needed.
 
 ## Security Best Practices
 
