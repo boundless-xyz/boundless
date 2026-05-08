@@ -167,9 +167,6 @@ impl AggregatorService {
             .await
             .context("Failed to upload set-builder input")?;
 
-        // TODO: we should run this on a different stream in the prover
-        // aka make a few different priority streams for each level of the proving
-
         // TODO: Need to set a timeout here to handle stuck or even just alert on delayed proving if
         // the proving cluster is overloaded
 
@@ -185,7 +182,7 @@ impl AggregatorService {
             || async {
                 let proof_res = self
                     .prover
-                    .prove_and_monitor_stark(
+                    .prove_and_monitor_stark_high(
                         &self.set_builder_guest_id.to_string(),
                         &input_id,
                         assumption_ids.clone(),
@@ -306,7 +303,7 @@ impl AggregatorService {
 
         let proof_res = self
             .prover
-            .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, vec![])
+            .prove_and_monitor_stark_high(&self.assessor_guest_id.to_string(), &input_id, vec![])
             .await
             .context("Failed to prove assesor stark")?;
 
@@ -765,7 +762,7 @@ impl AggregatorService {
                 retry_count,
                 sleep_ms,
                 || async {
-                    let proof_id = self.prover.compress(&aggregation_proof_id).await?;
+                    let proof_id = self.prover.compress_high(&aggregation_proof_id).await?;
                     provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
                     Ok::<String, provers::ProverError>(proof_id)
                 },
