@@ -107,7 +107,9 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-binstall
-          version: "1.18.1"
+          # Pinned: cargo-binstall v1.19.x pulls cargo-platform 0.3.3 which requires rustc 1.91,
+          # but rust-toolchain.toml is on 1.89. Bump together with any toolchain bump.
+          version: "1.17.9"
 
       - name: install cargo-sort
         run: cargo binstall -y cargo-sort@2
