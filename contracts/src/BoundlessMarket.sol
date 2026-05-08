@@ -59,10 +59,12 @@ contract BoundlessMarket is
     mapping(RequestId => RequestLock) public requestLocks;
     /// Mapping of address to account state.
     mapping(address => Account) internal accounts;
-    /// @dev Reserved storage slot. Held the assessor `imageUrl` in earlier
-    ///      implementations; preserved here so the layout doesn't shift across
-    ///      upgrades. Do not reuse without coordinating with prior deployments.
-    string private __deprecated_imageUrl;
+    /// @dev Held the assessor guest URL in earlier implementations. The market
+    ///      no longer reads or writes this field; the slot is preserved so the
+    ///      storage layout doesn't shift across upgrades. Kept under its
+    ///      original name so the OZ storage-layout check accepts the upgrade
+    ///      without a rename annotation.
+    string private imageUrl;
 
     /// @notice The verification engine. The market calls `ROUTER.verifySubBatch`
     ///         once per sub-batch and trusts whatever per-class adapter the
