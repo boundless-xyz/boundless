@@ -526,7 +526,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
 
     function _isJointTag(bytes4 tag) internal pure returns (bool) {
         return tag == type(IBoundlessJointVerifierAssessor).interfaceId;
-}
+    }
 
     function _isAssessorTag(bytes4 tag) internal pure returns (bool) {
         return tag == type(IBoundlessAssessor).interfaceId;
