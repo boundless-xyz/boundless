@@ -14,6 +14,7 @@ import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {Blake3Groth16Verifier} from "../src/blake3-groth16/Blake3Groth16Verifier.sol";
+import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
@@ -145,15 +146,17 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             console2.log("Using collateral token deployed at", stakeToken);
         }
 
-        // Deploy the Boundless market
+        // Deploy the Boundless market. The market dispatches verification via the
+        // BoundlessRouter; its address is supplied via the BOUNDLESS_ROUTER env
+        // var until the deployment.toml schema is updated to carry it.
+        address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
         bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
-        address newImplementation = address(
-            new BoundlessMarket{salt: salt}(verifier, applicationVerifier, assessorImageId, bytes32(0), 0, stakeToken)
-        );
+        address newImplementation =
+            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
-                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
+                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner))
             )
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);

@@ -35,10 +35,10 @@ import {IBoundlessVerifier} from "../interfaces/IBoundlessVerifier.sol";
 ///           * `SetVerifierV0_9  = 0x242f9d5b`  → `RiscZeroSetVerifier`
 ///           * `Blake3Groth16V0_1 = 0x62f049f6` → Blake3-Groth16 verifier
 ///
-///         The Phase C deployment script instantiates one adapter per selector,
-///         pinning it to the corresponding underlying verifier address (looked up
-///         from the existing R0 router at deploy time), then registers each
-///         adapter under the `R0_VERIFIER` class with its own selector entry.
+///         The deployment script instantiates one adapter per selector, pinning
+///         it to the corresponding underlying verifier address (looked up from
+///         the existing R0 router at deploy time), then registers each adapter
+///         under the `R0_VERIFIER` class with its own selector entry.
 contract R0BoundlessVerifierAdapter is IBoundlessVerifier, IERC165 {
     /// @notice The specific R0 verifier this adapter forwards to. Pinned at
     ///         deploy time to one underlying verifier (a Groth16 verifier, a

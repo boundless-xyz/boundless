@@ -68,19 +68,19 @@ import {MerkleProofish} from "../../libraries/MerkleProofish.sol";
 ///         reachable through BoundlessRouter is explicit at the top level, with
 ///         no transitive trust of the upstream R0 router's selector set.
 ///
-/// @dev    TODO (post Phase C): once the market takes `ProofRequest[]` at
-///         fulfill time and re-verifies each request's EIP-712 digest against
-///         the lock, the journal's per-batch `callbacks` and `selectors`
-///         fields become redundant — the market sources them directly from
-///         the verified request struct, so a malicious broker can no longer
-///         lie about them. The same applies to the per-fill `id` in the
-///         envelope (also bound by `requestDigest`). At the next assessor
-///         image rotation the guest can drop those commitments, and the
-///         corresponding adapter version (a fresh contract under a new
-///         `R0_ASSESSOR` selector, per the rotation pattern above) shrinks
-///         the envelope and the journal binding accordingly. Until then this
-///         adapter keeps reconstructing the existing shape verbatim — the
-///         redundancy is harmless, just calldata waste.
+/// @dev    TODO: once the market takes `ProofRequest[]` at fulfill time and
+///         re-verifies each request's EIP-712 digest against the lock, the
+///         journal's per-batch `callbacks` and `selectors` fields become
+///         redundant — the market sources them directly from the verified
+///         request struct, so a malicious broker can no longer lie about
+///         them. The same applies to the per-fill `id` in the envelope (also
+///         bound by `requestDigest`). At the next assessor image rotation the
+///         guest can drop those commitments, and the corresponding adapter
+///         version (a fresh contract under a new `R0_ASSESSOR` selector, per
+///         the rotation pattern above) shrinks the envelope and the journal
+///         binding accordingly. Until then this adapter keeps reconstructing
+///         the existing shape verbatim — the redundancy is harmless, just
+///         calldata waste.
 contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
     /// @notice Off-chain envelope packing the journal extras the universal
     ///         `IBoundlessAssessor` interface doesn't surface, plus the
