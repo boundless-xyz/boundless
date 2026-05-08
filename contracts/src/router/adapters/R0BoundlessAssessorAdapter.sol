@@ -85,7 +85,8 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
     /// @notice Off-chain envelope packing the journal extras the universal
     ///         `IBoundlessAssessor` interface doesn't surface, plus the
     ///         underlying R0 STARK seal. The image id is implicit (pinned by
-    ///         the adapter's immutable `ASSESSOR_IMAGE_ID`).
+    ///         the adapter's immutable `ASSESSOR_IMAGE_ID`); the prover is
+    ///         passed as a universal arg, not via the envelope.
     struct Envelope {
         /// @notice Per-fill `RequestId`. Length must equal `requestDigests.length`.
         RequestId[] ids;
@@ -95,8 +96,6 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
         AssessorCallback[] callbacks;
         /// @notice Optional per-fill selectors committed in the journal.
         Selector[] selectors;
-        /// @notice Address of the prover that produced the assessor receipt.
-        address prover;
         /// @notice The R0 STARK seal that the underlying verifier consumes.
         bytes innerSeal;
     }
@@ -124,6 +123,7 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
     function verifyAssessor(
         bytes32[] calldata requestDigests,
         bytes32[] calldata claimDigests,
+        address prover,
         bytes calldata assessorSeal
     ) external view {
         // Strip the router's 4-byte selector prefix; the rest is the ABI-encoded envelope.
@@ -148,12 +148,12 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
         }
         bytes32 batchRoot = MerkleProofish.processTree(leaves);
 
-        // Reconstruct the journal binding identically to today's market path.
+        // Reconstruct the journal binding identically to today's market path. The
+        // `prover` arg is committed by the journal — the R0 STARK fails if the seal
+        // was produced against a different prover than the one passed by the caller.
         bytes32 journalDigest = sha256(
             abi.encode(
-                AssessorJournal({
-                    root: batchRoot, callbacks: env.callbacks, selectors: env.selectors, prover: env.prover
-                })
+                AssessorJournal({root: batchRoot, callbacks: env.callbacks, selectors: env.selectors, prover: prover})
             )
         );
 

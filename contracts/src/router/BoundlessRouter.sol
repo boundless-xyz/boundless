@@ -375,6 +375,11 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     ///                           Each value is `0x00` (any entry under the default class),
     ///                           a registered class id (any entry under that class), or a
     ///                           specific entry selector (must match the seal exactly).
+    /// @param  prover            Address the market will credit / slash for this
+    ///                           sub-batch. Forwarded as a universal arg to the assessor
+    ///                           adapter, which is responsible for binding it via its
+    ///                           own mechanism (R0 STARK journal, signature payload,
+    ///                           etc.). Ignored for joint sub-batches in v1.
     /// @param  assessorSeal      Bytes for the assessor call (only used for verifier
     ///                           classes; must be empty for joint). Like per-fill seals,
     ///                           the first 4 bytes are the assessor selector — the router
@@ -390,6 +395,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         bytes32[] calldata claimDigests,
         bytes[] calldata seals,
         bytes4[] calldata signedSelectors,
+        address prover,
         bytes calldata assessorSeal
     ) external view {
         uint256 n = seals.length;
@@ -424,7 +430,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
                 }
             } else if (_isJointTag(tag)) {
                 try IBoundlessJointVerifierAssessor(e.impl).verifyJoint{gas: e.gasLimit}(
-                    requestDigests[i], claimDigests[i], seals[i]
+                    requestDigests[i], claimDigests[i], prover, seals[i]
                 ) {}
                 catch {
                     revert VerifierFailed(i, sealSel);
@@ -448,7 +454,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
                 revert AssessorClassMismatch(cm.requiredAssessorClass, asEntry.classId);
             }
             IBoundlessAssessor(asEntry.impl).verifyAssessor{gas: asEntry.gasLimit}(
-                requestDigests, claimDigests, assessorSeal
+                requestDigests, claimDigests, prover, assessorSeal
             );
         } else if (_isJointTag(tag)) {
             // Joint class: no assessor seam — caller must signal that with an empty seal.
