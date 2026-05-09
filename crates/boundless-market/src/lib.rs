@@ -72,6 +72,27 @@ pub mod input;
 #[cfg(not(target_os = "zkvm"))]
 pub use input::{GuestEnv, GuestEnvBuilder};
 
+/// Generic program-identity and public-output types at the market boundary.
+pub mod program;
+pub use program::{ProgramId, PublicOutput};
+
+/// 4-byte on-chain verifier selector. Routes to the verifier contract that
+/// validates the proof seal.
+pub type VerifierSelector = alloy_primitives::FixedBytes<4>;
+
+/// Claim-digest abstraction binding `(program_id, public_output)` to a
+/// 32-byte commitment.
+pub mod claim_digest;
+pub use claim_digest::{ComputeClaimDigest, Sha256ClaimDigest};
+
+/// Per-selector backend post-processing trait.
+#[cfg(not(target_os = "zkvm"))]
+pub mod backend_provider;
+
+/// Selector → backend registry types.
+#[cfg(not(target_os = "zkvm"))]
+pub mod backend_registry;
+
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]
 pub mod order_stream_client;

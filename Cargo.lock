@@ -2962,6 +2962,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-r0-backend"
+version = "2.1.0-alpha.0"
+dependencies = [
+ "alloy-primitives 1.4.1",
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "blake3_groth16",
+ "boundless-market",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
+ "serde",
+ "thiserror 2.0.17",
+ "tracing",
+]
+
+[[package]]
 name = "boundless-rewards"
 version = "2.1.0-alpha.0"
 dependencies = [

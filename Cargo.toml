@@ -18,6 +18,7 @@ members = [
     "crates/order-generator",
     "crates/order-stream",
     "crates/povw",
+    "crates/r0-backend",
     "crates/requestor-lists",
     "crates/rewards",
     "crates/slasher",

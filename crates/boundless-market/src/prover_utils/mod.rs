@@ -13,10 +13,21 @@
 // limitations under the License.
 #![allow(missing_docs)]
 
+// Compatibility re-exports for callers using the
+// `boundless_market::prover_utils::{backend_provider, backend_registry}` paths.
+#[cfg(feature = "prover_utils")]
+pub use crate::backend_provider;
+#[cfg(feature = "prover_utils")]
+pub use crate::backend_registry;
 pub mod config;
 pub(crate) mod local_executor;
 pub mod prover;
 pub(crate) mod requestor_pricing;
+
+#[cfg(feature = "prover_utils")]
+pub use backend_provider::{BackendProvider, BackendProviderError, BackendProviderObj};
+#[cfg(feature = "prover_utils")]
+pub use backend_registry::{BackendEntry, BackendRegistry, ProverRegistry};
 
 #[cfg(not(feature = "prover_utils"))]
 pub use config::MarketConfig;

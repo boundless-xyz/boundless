@@ -1,0 +1,32 @@
+[package]
+name = "boundless-r0-backend"
+description = "RISC Zero implementation of the Boundless market BackendProvider"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+license = "Apache-2.0"
+
+[features]
+default = ["risc0"]
+risc0 = [
+    "boundless-market/prover_utils",
+    "dep:bincode",
+    "dep:blake3_groth16",
+    "dep:risc0-ethereum-contracts",
+    "dep:risc0-zkvm",
+    "dep:tracing",
+]
+
+[dependencies]
+alloy-primitives = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bincode = { workspace = true, optional = true }
+blake3_groth16 = { workspace = true, optional = true }
+boundless-market = { version = "2.1.0-alpha.0", path = "../boundless-market", default-features = false }
+risc0-ethereum-contracts = { workspace = true, optional = true }
+risc0-zkvm = { workspace = true, optional = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true, optional = true }
