@@ -16,6 +16,7 @@ use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
+    backend_registry::BackendRegistry,
     contracts::{eip712_domain, FulfillmentData, PredicateType},
     input::GuestEnv,
 };
@@ -49,7 +50,12 @@ use super::types::AggregateProofsResult;
 pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
+    /// Prover used for set-builder and assessor proving.
     prover: ProverObj,
+    /// Selector → backend registry. Per-order journal fetches resolve
+    /// `entry.prover` from this so the prover that produced an order's
+    /// `proof_id` is the one queried for its journal.
+    backends: BackendRegistry,
     set_builder_guest_id: Digest,
     assessor_guest_id: Digest,
     market_addr: Address,
@@ -70,12 +76,14 @@ impl AggregatorService {
         prover_addr: Address,
         config: ConfigLock,
         prover: ProverObj,
+        backends: BackendRegistry,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         Ok(Self {
             db,
             config,
             prover,
+            backends,
             set_builder_guest_id,
             assessor_guest_id,
             market_addr,
@@ -267,8 +275,17 @@ impl AggregatorService {
                 .proof_id
                 .with_context(|| format!("Missing proof_id for order: {order_id}"))?;
 
-            let journal = self
-                .prover
+            // The prover that produced this proof_id is the one that has
+            // its journal cached.
+            let selector = order.request.requirements.selector;
+            let order_prover = self
+                .backends
+                .find(selector)
+                .map(|entry| entry.prover.clone())
+                .with_context(|| {
+                    format!("no backend registered for selector {selector:?} (order {order_id})")
+                })?;
+            let journal = order_prover
                 .get_journal(&proof_id)
                 .await
                 .with_context(|| format!("Failed to get {proof_id} journal"))?
@@ -856,15 +873,31 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::{
+        backend_provider::BackendProviderObj,
+        backend_registry::BackendEntry,
         contracts::{
             Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
         },
         dynamic_gas_filler::PriorityMode,
+        selector::SupportedSelectors,
     };
+    use boundless_r0_backend::RiscZeroBackend;
     use boundless_test_utils::guests::{
         ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF, SET_BUILDER_ID,
     };
     use tracing_test::traced_test;
+
+    fn test_backends(prover: ProverObj) -> BackendRegistry {
+        let provider: BackendProviderObj =
+            Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+        let supported = SupportedSelectors::default();
+        BackendRegistry::with_backend(BackendEntry::new(
+            "risc0",
+            supported.selectors.keys().copied().collect(),
+            prover,
+            provider,
+        ))
+    }
 
     #[tokio::test]
     #[traced_test]
@@ -918,7 +951,8 @@ mod tests {
             Address::ZERO,
             prover_addr,
             config,
-            prover,
+            prover.clone(),
+            test_backends(prover),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1087,7 +1121,8 @@ mod tests {
             Address::ZERO,
             prover_addr,
             config,
-            prover,
+            prover.clone(),
+            test_backends(prover),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1266,7 +1301,8 @@ mod tests {
             Address::ZERO,
             prover_addr,
             config,
-            prover,
+            prover.clone(),
+            test_backends(prover),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1386,7 +1422,8 @@ mod tests {
             Address::ZERO,
             signer.address(),
             config.clone(),
-            prover,
+            prover.clone(),
+            test_backends(prover),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1514,7 +1551,8 @@ mod tests {
             Address::ZERO,
             signer.address(),
             config.clone(),
-            prover,
+            prover.clone(),
+            test_backends(prover),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1691,7 +1729,8 @@ mod tests {
             Address::ZERO,
             Address::ZERO,
             config,
-            prover,
+            prover.clone(),
+            test_backends(prover),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await

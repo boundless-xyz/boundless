@@ -266,8 +266,19 @@ where
 
                 order_prices.insert(order_id, OrderPrice { price: lock_price, collateral_reward });
 
-                let order_journal = self
-                    .prover
+                // The prover that produced this proof_id is the one that has
+                // its journal cached.
+                let order_selector = order_request.requirements.selector;
+                let order_journal_prover = self
+                    .backends
+                    .find(order_selector)
+                    .map(|entry| entry.prover.clone())
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "no backend registered for selector {order_selector:?} (order {order_id})"
+                        )
+                    })?;
+                let order_journal = order_journal_prover
                     .get_journal(&order_proof_id)
                     .await
                     .context("Failed to get order journal from prover")?

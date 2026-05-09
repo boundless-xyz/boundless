@@ -127,6 +127,17 @@ impl BackendRegistry {
         }
         provers
     }
+
+    /// Build a [`crate::selector::SupportedSelectors`] from every selector
+    /// claimed by any registered backend. Each selector is classified via
+    /// [`crate::selector::classify_selector`].
+    pub fn supported_selectors(&self) -> crate::selector::SupportedSelectors {
+        let mut supported = crate::selector::SupportedSelectors::new();
+        for selector in self.by_selector.keys() {
+            supported.add_selector(*selector, crate::selector::classify_selector(*selector));
+        }
+        supported
+    }
 }
 
 /// Selector → `Prover` registry. Used by paths that only need

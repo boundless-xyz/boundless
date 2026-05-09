@@ -235,6 +235,21 @@ impl SupportedSelectors {
     }
 }
 
+/// Classify a selector into a [`ProofType`].
+///
+/// Returns [`ProofType::Groth16`] or [`ProofType::Blake3Groth16`] for the
+/// matching dedicated forms, and [`ProofType::Any`] for the unspecified
+/// selector or any set-inclusion / pass-through selector.
+pub fn classify_selector(selector: FixedBytes<4>) -> ProofType {
+    if is_groth16_selector(selector) {
+        ProofType::Groth16
+    } else if is_blake3_groth16_selector(selector) {
+        ProofType::Blake3Groth16
+    } else {
+        ProofType::Any
+    }
+}
+
 /// Check if a selector is a groth16 selector.
 pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
     let sel = SelectorExt::from_bytes(selector.into());

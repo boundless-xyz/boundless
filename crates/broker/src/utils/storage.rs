@@ -19,8 +19,6 @@ use boundless_market::{
     contracts::Predicate,
     storage::{StandardDownloader, StorageDownloader, StorageDownloaderConfig, StorageError},
 };
-use hex::FromHex;
-use risc0_zkvm::Digest;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use url::Url;
@@ -136,20 +134,26 @@ pub async fn upload_image_uri(
         .await
         .with_context(|| format!("Failed to fetch image URI: {}", request.imageUrl))?;
 
-    let image_id = risc0_zkvm::compute_image_id(&image_data)
+    let image_id_bytes = prover
+        .compute_image_id_from_bytes(&image_data)
         .context(format!("Failed to compute image ID for request {:x}", request.id))?;
 
     if let Some(ref image_id_str) = image_id_str {
-        let required_image_id = Digest::from_hex(image_id_str)?;
+        let required_bytes = <[u8; 32]>::try_from(
+            hex::decode(image_id_str)
+                .context("Failed to decode requirement image ID hex")?
+                .as_slice(),
+        )
+        .map_err(|_| anyhow::anyhow!("Requirement image ID is not 32 bytes"))?;
         anyhow::ensure!(
-            image_id == required_image_id,
+            image_id_bytes == required_bytes,
             "image ID does not match requirements; expect {}, got {}",
-            required_image_id,
-            image_id
+            hex::encode(required_bytes),
+            hex::encode(image_id_bytes)
         );
     }
 
-    let image_id_str = image_id.to_string();
+    let image_id_str = hex::encode(image_id_bytes);
 
     tracing::debug!(
         "Uploading program for request {:x} with image ID {image_id_str} to prover",
@@ -179,9 +183,9 @@ pub async fn upload_input_uri(
     Ok(match request.input.inputType {
         boundless_market::contracts::RequestInputType::Inline => prover
             .upload_input(
-                boundless_market::input::GuestEnv::decode(&request.input.data)
-                    .with_context(|| "Failed to decode input")?
-                    .stdin,
+                prover
+                    .decode_input_bytes(&request.input.data)
+                    .with_context(|| "Failed to decode input")?,
             )
             .await
             .context("Failed to upload input data")?,
@@ -198,9 +202,9 @@ pub async fn upload_input_uri(
                 downloader.download(input_uri_str).await
             }
             .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?;
-            let input_data = boundless_market::input::GuestEnv::decode(&input)
-                .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-                .stdin;
+            let input_data = prover
+                .decode_input_bytes(&input)
+                .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?;
 
             prover.upload_input(input_data).await.context("Failed to upload input")?
         }

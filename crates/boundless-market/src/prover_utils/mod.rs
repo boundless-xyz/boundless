@@ -42,7 +42,6 @@ use crate::{
         erc1271::IERC1271, FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError,
         RequestInputType,
     },
-    input::GuestEnv,
     price_oracle::{scale_decimals, Amount},
     selector::{is_blake3_groth16_selector, SupportedSelectors},
     storage::StorageDownloader,
@@ -418,21 +417,26 @@ async fn upload_image_with_downloader(
         .await
         .with_context(|| format!("Failed to fetch image URI: {image_url}"))?;
 
-    let image_id =
-        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
+    let image_id_bytes =
+        prover.compute_image_id_from_bytes(&image_data).context("Failed to compute image ID")?;
 
     if let Some(ref expected_image_id_str) = image_id_str {
-        let expected_image_id = risc0_zkvm::sha::Digest::from_hex(expected_image_id_str)?;
-        if image_id != expected_image_id {
+        let expected_bytes = <[u8; 32]>::try_from(
+            hex::decode(expected_image_id_str)
+                .context("Failed to decode requirement image ID hex")?
+                .as_slice(),
+        )
+        .map_err(|_| anyhow::anyhow!("Requirement image ID is not 32 bytes"))?;
+        if image_id_bytes != expected_bytes {
             anyhow::bail!(
                 "image ID does not match requirements; expect {}, got {}",
-                expected_image_id,
-                image_id
+                hex::encode(expected_bytes),
+                hex::encode(image_id_bytes)
             );
         }
     }
 
-    let image_id_str = image_id.to_string();
+    let image_id_str = hex::encode(image_id_bytes);
 
     tracing::debug!("Uploading program with image ID {image_id_str} to prover");
     prover.upload_image(&image_id_str, image_data).await?;
@@ -455,7 +459,7 @@ async fn upload_input_with_downloader(
 ) -> anyhow::Result<String> {
     match input_type {
         crate::contracts::RequestInputType::Inline => {
-            let stdin = GuestEnv::decode(input_data).context("Failed to decode input")?.stdin;
+            let stdin = prover.decode_input_bytes(input_data).context("Failed to decode input")?;
             prover.upload_input(stdin).await.map_err(|e| anyhow::anyhow!("{}", e))
         }
         crate::contracts::RequestInputType::Url => {
@@ -471,7 +475,7 @@ async fn upload_input_with_downloader(
             .with_context(|| format!("Failed to fetch input URI: {input_url}"))?;
 
             let stdin =
-                GuestEnv::decode(&raw_input).context("Failed to decode input from URL")?.stdin;
+                prover.decode_input_bytes(&raw_input).context("Failed to decode input from URL")?;
 
             prover.upload_input(stdin).await.map_err(|e| anyhow::anyhow!("{}", e))
         }

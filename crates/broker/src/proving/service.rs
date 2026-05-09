@@ -24,7 +24,6 @@ use crate::{
     futures_retry::retry_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::ProverObj,
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{BrokerService, SupervisorErr},
@@ -46,11 +45,10 @@ use super::error::ProvingErr;
 #[derive(Clone)]
 pub struct ProvingService {
     db: DbObj,
-    prover: ProverObj,
-    /// Selector → backend registry. Per-selector composition runs through
-    /// `provider.compress_proof(...)` (Groth16 / Blake3-Groth16 today). The
-    /// broker keeps `prover` for the STARK phase to preserve its
-    /// checkpointing / cancel / timeout semantics.
+    /// Selector → backend registry. Every per-order prover operation
+    /// (image upload, input upload, prove_stark, wait_for_stark, compose,
+    /// cancel) resolves `entry.prover` through this so the prover that
+    /// starts the proof is the prover that finishes it.
     backends: BackendRegistry,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
@@ -66,7 +64,6 @@ impl ProvingService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
-        prover: ProverObj,
         backends: BackendRegistry,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
@@ -78,7 +75,6 @@ impl ProvingService {
     ) -> Self {
         Self {
             db,
-            prover,
             backends,
             config,
             order_state_tx,
@@ -99,8 +95,14 @@ impl ProvingService {
         snark_proof_id: Option<String>,
         selector: FixedBytes<4>,
     ) -> Result<OrderStatus> {
-        let proof_res = self
-            .prover
+        // The prover that ran `prove_stark` for this selector also owns the
+        // wait-for-stark cache for this `proof_id`.
+        let stark_prover = self
+            .backends
+            .find(selector)
+            .map(|entry| entry.prover.clone())
+            .ok_or_else(|| anyhow!("no backend registered for selector {selector:?}"))?;
+        let proof_res = stark_prover
             .wait_for_stark(stark_proof_id)
             .await
             .context("Monitoring proof (stark) failed")?;
@@ -181,11 +183,22 @@ impl ProvingService {
                 // This is a new order that needs proving
                 tracing::info!("Proving order {order_id}");
 
+                // Image upload, input upload, prove_stark, and the later
+                // wait_for_stark all run on the same registered prover.
+                let selector = order.request.requirements.selector;
+                let order_prover = self
+                    .backends
+                    .find(selector)
+                    .map(|entry| entry.prover.clone())
+                    .ok_or_else(|| {
+                    anyhow!("no backend registered for selector {selector:?} (order {order_id})")
+                })?;
+
                 // If the ID's are not present then upload them now
                 // Mostly hit by skipping pre-flight
                 let image_id = match order.image_id.as_ref() {
                     Some(val) => val.clone(),
-                    None => upload_image_uri(&self.prover, &order.request, &self.downloader)
+                    None => upload_image_uri(&order_prover, &order.request, &self.downloader)
                         .await
                         .context(format!("Failed to upload image for order {order_id}"))?,
                 };
@@ -193,7 +206,7 @@ impl ProvingService {
                 let input_id = match order.input_id.as_ref() {
                     Some(val) => val.clone(),
                     None => upload_input_uri(
-                        &self.prover,
+                        &order_prover,
                         &order.request,
                         &self.downloader,
                         &self.priority_requestors,
@@ -202,8 +215,7 @@ impl ProvingService {
                     .context(format!("Failed to upload input for order {order_id}"))?,
                 };
 
-                let proof_id = self
-                    .prover
+                let proof_id = order_prover
                     .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
                     .await
                     .context(format!("Failed to prove customer proof STARK order {order_id}"))?;
@@ -490,8 +502,16 @@ impl ProvingService {
             }
             Err(ref err @ (ProvingErr::CancelFulfilledByAnother | ProvingErr::CancelExpired)) => {
                 tracing::info!("Order {order_id} not actionable, cancelling proof: {err}");
+                let selector = order.request.requirements.selector;
+                let Some(entry) = self.backends.find(selector) else {
+                    tracing::error!(
+                        "no backend registered for selector {selector:?}; cannot cancel order {order_id}"
+                    );
+                    return;
+                };
+                let order_prover = entry.prover.clone();
                 cancel_proof_and_fail(
-                    &self.prover,
+                    &order_prover,
                     &self.db,
                     &self.config,
                     &order,
@@ -640,7 +660,7 @@ mod tests {
         db::SqliteDb,
         now_timestamp,
         order_committer::CommitmentComplete,
-        provers::{encode_input, DefaultProver},
+        provers::{encode_input, DefaultProver, ProverObj},
         FulfillmentType, OrderStatus,
     };
     use alloy::{
@@ -821,7 +841,6 @@ mod tests {
             mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
-            prover.clone(),
             test_backends(prover.clone()),
             config.clone(),
             order_state_tx,
@@ -855,7 +874,6 @@ mod tests {
             mpsc::channel::<CommitmentComplete>(100);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
-            prover.clone(),
             test_backends(prover.clone()),
             config.clone(),
             order_state_tx.clone(),
@@ -921,7 +939,6 @@ mod tests {
             mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
-            prover.clone(),
             test_backends(prover.clone()),
             config.clone(),
             order_state_tx,
@@ -1020,7 +1037,6 @@ mod tests {
             mpsc::channel::<CommitmentComplete>(100);
         let proving_service = ProvingService::new(
             db.clone(),
-            prover.clone(),
             test_backends(prover.clone()),
             config.clone(),
             order_state_tx.clone(),

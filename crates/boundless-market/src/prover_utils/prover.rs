@@ -160,6 +160,28 @@ pub trait Prover {
         &self,
         proof_id: &str,
     ) -> Result<Option<Vec<u8>>, ProverError>;
+
+    /// Compute the 32-byte program identity from the ELF bytes the prover
+    /// would upload as an image. Backends that derive program identity by
+    /// hashing the binary in their own format override this.
+    ///
+    /// Default uses the RISC Zero formula.
+    fn compute_image_id_from_bytes(&self, elf: &[u8]) -> Result<[u8; 32], ProverError> {
+        let digest = risc0_zkvm::compute_image_id(elf)
+            .map_err(|e| ProverError::ProverInternalError(format!("compute_image_id: {e}")))?;
+        Ok(digest.into())
+    }
+
+    /// Decode the prover's stdin payload from a request input blob.
+    ///
+    /// R0 wraps stdin in `GuestEnv` so the request stores the encoded form
+    /// and the prover unwraps it. Backends with a different input encoding
+    /// override this.
+    fn decode_input_bytes(&self, input: &[u8]) -> Result<Vec<u8>, ProverError> {
+        let env = crate::input::GuestEnv::decode(input)
+            .map_err(|e| ProverError::ProverInternalError(format!("decode input: {e}")))?;
+        Ok(env.stdin)
+    }
 }
 
 /// Type alias for a boxed Prover trait object.

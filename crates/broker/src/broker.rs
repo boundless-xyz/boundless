@@ -769,6 +769,22 @@ impl Broker {
                 .build(),
         );
 
+        // Selector → backend registry shared across the chain pipeline:
+        // proving, aggregator, and submitter resolve per-order operations
+        // through it. Pricing and preflight remain tied to the scalar
+        // `prover` so the supported set and the preflight prover stay in
+        // lockstep.
+        let r0_provider: boundless_market::backend_provider::BackendProviderObj = Arc::new(
+            RiscZeroBackend::new(prover.clone(), aggregation_prover.clone(), is_dev_mode()),
+        );
+        let supported_selectors = SupportedSelectors::default();
+        let backends = BackendRegistry::with_backend(BackendEntry::new(
+            "risc0",
+            supported_selectors.selectors.keys().copied().collect(),
+            prover.clone(),
+            r0_provider,
+        ));
+
         let order_pricer = Arc::new(order_pricer::OrderPricer::new(
             db.clone(),
             config.clone(),
@@ -825,25 +841,8 @@ impl Broker {
         );
 
         if !self.args.listen_only {
-            // Build the selector → backend registry the broker uses for
-            // composition (compress_proof + encode_seal) and per-order
-            // claim-digest computation. R0 covers every supported selector
-            // today; additional backends register their own entries when they
-            // come online.
-            let r0_provider: boundless_market::backend_provider::BackendProviderObj = Arc::new(
-                RiscZeroBackend::new(prover.clone(), aggregation_prover.clone(), is_dev_mode()),
-            );
-            let supported_selectors = SupportedSelectors::default();
-            let backends = BackendRegistry::with_backend(BackendEntry::new(
-                "risc0",
-                supported_selectors.selectors.keys().copied().collect(),
-                prover.clone(),
-                r0_provider,
-            ));
-
             let proving_service = Arc::new(proving::ProvingService::new(
                 db.clone(),
-                prover.clone(),
                 backends.clone(),
                 config.clone(),
                 order_state_tx.clone(),
@@ -878,6 +877,7 @@ impl Broker {
                     prover_addr,
                     config.clone(),
                     aggregation_prover.clone(),
+                    backends.clone(),
                     proving_completion_tx.clone(),
                 )
                 .await
