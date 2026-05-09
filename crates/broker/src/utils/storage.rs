@@ -110,7 +110,10 @@ pub async fn upload_image_uri(
     let predicate = Predicate::try_from(request.requirements.predicate.clone())
         .with_context(|| format!("Failed to parse predicate for request {:x}", request.id))?;
 
-    let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
+    // FixedBytes<32>::to_string produces "0x..." (66 chars). The prover and
+    // R0's Digest::from_hex expect plain hex (64 chars), so encode the bytes
+    // directly to keep the round-trip working.
+    let image_id_str = predicate.image_id().map(|image_id| hex::encode(image_id.as_slice()));
 
     // When predicate is ClaimDigestMatch, we do not have the image id, so we must always download and upload the image.
     if let Some(ref image_id_str) = image_id_str {

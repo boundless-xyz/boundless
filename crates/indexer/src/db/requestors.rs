@@ -2296,7 +2296,6 @@ mod tests {
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
     };
-    use risc0_zkvm::Digest;
 
     // Helper functions for test data generation
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
@@ -2306,7 +2305,7 @@ mod tests {
     fn generate_request_with_collateral(id: u32, addr: &Address, collateral: U256) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, id),
-            Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
+            Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
             "https://image_url.dev",
             RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
@@ -4350,7 +4349,7 @@ mod tests {
             if i < 3 {
                 request = ProofRequest::new(
                     RequestId::new(requestor, i),
-                    Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
+                    Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                     shared_image_url.to_string(),
                     RequestInput::builder()
                         .write_slice(&[0x41, 0x41, 0x41, 0x41])
@@ -4492,7 +4491,7 @@ mod tests {
             let collateral = U256::from(100 * (i + 1));
             let request = ProofRequest::new(
                 RequestId::new(requestor, i),
-                Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
+                Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                 shared_image_url.to_string(),
                 RequestInput::builder()
                     .write_slice(&[0x42, 0x42, 0x42, 0x42])

@@ -112,7 +112,9 @@ impl Fulfillment {
     /// Evaluates the requirements of the request and returns the claim digest.
     pub fn evaluate_requirements(&self) -> Result<Digest, Error> {
         let predicate = Predicate::try_from(self.request.requirements.predicate.clone())?;
-        predicate.eval(&self.fulfillment_data).ok_or(Error::RequirementsEvaluationError)
+        let claim_digest =
+            predicate.eval(&self.fulfillment_data).ok_or(Error::RequirementsEvaluationError)?;
+        Ok(Digest::from_bytes(claim_digest.0))
     }
 }
 
@@ -202,7 +204,7 @@ mod tests {
     fn proving_request(id: u32, signer: Address, image_id: B256, prefix: Vec<u8>) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(signer, id),
-            Requirements::new(Predicate::prefix_match(Digest::from_bytes(image_id.0), prefix)),
+            Requirements::new(Predicate::prefix_match(image_id.0, prefix)),
             "http://test.null",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
@@ -220,7 +222,7 @@ mod tests {
     fn claim_digest_request(id: u32, signer: Address, claim_digest: Digest) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(signer, id),
-            Requirements::new(Predicate::claim_digest_match(claim_digest)),
+            Requirements::new(Predicate::claim_digest_match(<[u8; 32]>::from(claim_digest))),
             "http://test.null",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {
@@ -249,10 +251,7 @@ mod tests {
         let claim = Fulfillment {
             request: proving_request,
             signature: signature.as_bytes().to_vec(),
-            fulfillment_data: FulfillmentData::from_image_id_and_journal(
-                Digest::from_bytes(B256::ZERO.0),
-                vec![1u8],
-            ),
+            fulfillment_data: FulfillmentData::from_image_id_and_journal(B256::ZERO.0, vec![1u8]),
         };
 
         claim.verify_signature(&eip712_domain(Address::ZERO, 1).alloy_struct()).unwrap();

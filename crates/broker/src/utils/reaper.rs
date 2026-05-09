@@ -144,7 +144,6 @@ mod tests {
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use chrono::Utc;
-    use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
     use tracing_test::traced_test;
 
@@ -159,7 +158,7 @@ mod tests {
             target_timestamp: None,
             request: ProofRequest::new(
                 RequestId::new(Address::ZERO, id as u32),
-                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                 "http://risczero.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {

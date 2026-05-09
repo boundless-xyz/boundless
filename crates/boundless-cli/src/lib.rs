@@ -461,7 +461,10 @@ impl OrderFulfiller {
                 let fulfillment_data = match req.requirements.predicate.predicateType {
                     PredicateType::ClaimDigestMatch => FulfillmentData::None,
                     PredicateType::PrefixMatch | PredicateType::DigestMatch => {
-                        FulfillmentData::from_image_id_and_journal(order_image_id, order_journal)
+                        FulfillmentData::from_image_id_and_journal(
+                            <[u8; 32]>::from(order_image_id),
+                            order_journal,
+                        )
                     }
                     _ => bail!("Invalid predicate type"),
                 };
@@ -649,11 +652,14 @@ mod tests {
     ) -> (ProofRequest, Signature) {
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
-            Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), vec![1]))
-                .with_selector(match selector {
-                    Some(selector) => FixedBytes::from(selector as u32),
-                    None => UNSPECIFIED_SELECTOR,
-                }),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(Digest::from(ECHO_ID)),
+                vec![1],
+            ))
+            .with_selector(match selector {
+                Some(selector) => FixedBytes::from(selector as u32),
+                None => UNSPECIFIED_SELECTOR,
+            }),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&[1, 2, 3, 4]).build_inline().unwrap(),
             Offer::default()
@@ -725,7 +731,7 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
-            Requirements::new(Predicate::claim_digest_match(blake3_claim_digest))
+            Requirements::new(Predicate::claim_digest_match(<[u8; 32]>::from(blake3_claim_digest)))
                 .with_selector(FixedBytes::from(SelectorExt::blake3_groth16_latest() as u32)),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&input).build_inline().unwrap(),

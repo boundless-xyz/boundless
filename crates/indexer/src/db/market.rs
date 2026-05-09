@@ -4710,7 +4710,6 @@ mod tests {
         AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
         RequestId, RequestInput, Requirements,
     };
-    use risc0_zkvm::Digest;
     use tracing_test::traced_test;
 
     // generate a test request
@@ -4721,7 +4720,7 @@ mod tests {
     fn generate_request_with_collateral(id: u32, addr: &Address, collateral: U256) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, id),
-            Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
+            Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
             "https://image_url.dev",
             RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
@@ -6394,7 +6393,7 @@ mod tests {
         fn create_test_proof_request(i: usize, addr: &Address) -> ProofRequest {
             ProofRequest::new(
                 RequestId::new(*addr, i as u32),
-                Requirements::new(Predicate::digest_match(Digest::default(), Digest::default())),
+                Requirements::new(Predicate::digest_match([0u8; 32], [0u8; 32])),
                 format!("http://example.com/image_{}", i),
                 RequestInput::builder()
                     .write_slice(&[0x41, 0x41, 0x41, 0x41])
@@ -6743,7 +6742,7 @@ mod tests {
             let digest = B256::from([i as u8; 32]);
             let request = ProofRequest::new(
                 RequestId::new(test_addr, i as u32),
-                Requirements::new(Predicate::digest_match(Digest::default(), Digest::default())),
+                Requirements::new(Predicate::digest_match([0u8; 32], [0u8; 32])),
                 format!("http://example.com/image_{}", i),
                 RequestInput::builder()
                     .write_slice(&[0x41, 0x41, 0x41, 0x41])
@@ -6847,7 +6846,7 @@ mod tests {
             let digest = B256::from([i as u8; 32]);
             let request = ProofRequest::new(
                 RequestId::new(test_addr, i as u32),
-                Requirements::new(Predicate::digest_match(Digest::default(), Digest::default())),
+                Requirements::new(Predicate::digest_match([0u8; 32], [0u8; 32])),
                 format!("http://example.com/image_{}", i),
                 RequestInput::builder()
                     .write_slice(&[0x41, 0x41, 0x41, 0x41])

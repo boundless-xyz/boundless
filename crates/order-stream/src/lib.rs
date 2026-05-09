@@ -653,7 +653,6 @@ mod tests {
 
     use futures_util::StreamExt;
     use reqwest::Url;
-    use risc0_zkvm::sha::Digest;
     use serial_test::serial;
     use sqlx::PgPool;
     use std::{
@@ -711,7 +710,7 @@ mod tests {
     fn new_request(idx: u32, addr: &Address) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, idx),
-            Requirements::new(Predicate::prefix_match(Digest::from_bytes([1; 32]), [])),
+            Requirements::new(Predicate::prefix_match([1u8; 32], [])),
             "http://image_uri.null",
             GuestEnv::builder().build_inline().unwrap(),
             Offer {

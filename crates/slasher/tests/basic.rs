@@ -32,6 +32,7 @@ use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::create_test_ctx;
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use futures_util::StreamExt;
+use risc0_zkvm::sha::Digest;
 
 /// Extract the database connection string from a sqlx::test PgPool.
 /// sqlx::test creates an isolated database per test with a unique name.
@@ -96,7 +97,10 @@ async fn create_order(
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         RequestId::new(signer_addr, order_id),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {

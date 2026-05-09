@@ -179,6 +179,7 @@ mod tests {
         market::create_test_ctx,
     };
     use broker::provers::DefaultProver;
+    use risc0_zkvm::sha::Digest;
     use std::{collections::HashSet, default::Default, sync::Arc};
 
     async fn create_order(
@@ -192,7 +193,7 @@ mod tests {
         let req = ProofRequest::new(
             RequestId::new(signer_addr, order_id),
             Requirements::new(Predicate::prefix_match(
-                ECHO_ID,
+                <[u8; 32]>::from(Digest::from(ECHO_ID)),
                 alloy::primitives::Bytes::default(),
             )),
             format!("file://{ECHO_PATH}"),

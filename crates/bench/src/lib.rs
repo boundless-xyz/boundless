@@ -319,8 +319,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                     offer: Offer { rampUpStart: ramp_up_start, ..initial_offer },
                     input: request_input,
                     requirements: Requirements::new(Predicate::digest_match(
-                        image_id,
-                        journal.digest(),
+                        <[u8; 32]>::from(image_id),
+                        <[u8; 32]>::from(journal.digest()),
                     )),
                     imageUrl: inital_request.imageUrl.clone(),
                 };

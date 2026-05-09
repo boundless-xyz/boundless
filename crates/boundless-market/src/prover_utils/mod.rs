@@ -399,7 +399,10 @@ async fn upload_image_with_downloader(
 ) -> anyhow::Result<String> {
     let predicate = Predicate::try_from(predicate.clone()).context("Failed to parse predicate")?;
 
-    let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
+    // FixedBytes<32>::to_string produces "0x..." (66 chars). The prover and
+    // R0's Digest::from_hex expect plain hex (64 chars), so encode the bytes
+    // directly to keep the round-trip working.
+    let image_id_str = predicate.image_id().map(|image_id| hex::encode(image_id.as_slice()));
 
     // Check if prover already has the image cached
     if let Some(ref image_id_str) = image_id_str {
@@ -1033,7 +1036,9 @@ pub trait OrderPricingContext {
             FulfillmentData::None
         } else {
             FulfillmentData::from_image_id_and_journal(
-                Risc0Digest::from_hex(image_id).context("Failed to parse image ID")?,
+                <[u8; 32]>::from(
+                    Risc0Digest::from_hex(image_id).context("Failed to parse image ID")?,
+                ),
                 journal,
             )
         };

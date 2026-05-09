@@ -24,22 +24,23 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
-use blake3_groth16::Blake3Groth16Receipt;
 use boundless_market::{
+    backend_registry::BackendRegistry,
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
-        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
-        FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
+        AssessorJournal, AssessorReceipt, Fulfillment, FulfillmentDataImageIdAndJournal,
+        FulfillmentDataType, PredicateType,
     },
-    selector::{is_blake3_groth16_selector, is_groth16_selector},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, SelectorExt},
     telemetry::CompletionOutcome,
+    ProgramId, PublicOutput,
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
-    MaybePruned, Receipt, ReceiptClaim,
+    MaybePruned, ReceiptClaim,
 };
 
 use tokio::sync::mpsc;
@@ -48,7 +49,7 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
-    is_dev_mode, now_timestamp,
+    now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::ProverObj,
     task::{BrokerService, SupervisorErr},
@@ -62,6 +63,12 @@ use super::error::SubmitterErr;
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
+    /// Selector → backend registry. Per-order seal encoding for compressed
+    /// selectors (Groth16, Blake3-Groth16) and per-order claim-digest
+    /// computation route through the registered `BackendProvider`. Set
+    /// inclusion seals are still built here against the R0 set-builder
+    /// (handled in PR 6 / BoundlessRouter).
+    backends: BackendRegistry,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
@@ -82,6 +89,7 @@ where
         db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
+        backends: BackendRegistry,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
@@ -115,6 +123,7 @@ where
         Ok(Self {
             db,
             prover,
+            backends,
             market,
             set_verifier,
             set_verifier_addr,
@@ -126,44 +135,23 @@ where
         })
     }
 
-    async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
-        let groth16_receipt = self
-            .prover
-            .get_compressed_receipt(g16_proof_id)
+    /// Encode the on-chain seal for the batch's aggregation-root Groth16
+    /// receipt. The batch always uses the canonical Groth16 selector;
+    /// routing through the registered backend keeps R0 receipt fetch + encode
+    /// inside the backend impl.
+    async fn encode_batch_seal(&self, groth16_proof_id: &str) -> Result<Vec<u8>> {
+        let batch_selector = alloy::primitives::FixedBytes::from(
+            (SelectorExt::groth16_latest() as u32).to_be_bytes(),
+        );
+        let entry = self
+            .backends
+            .find(batch_selector)
+            .ok_or_else(|| anyhow!("no backend registered for batch groth16 selector"))?;
+        entry
+            .provider
+            .encode_seal(groth16_proof_id, batch_selector)
             .await
-            .context("Failed to fetch g16 receipt")?
-            .context("Groth16 receipt missing")?;
-
-        let groth16_receipt: Receipt =
-            bincode::deserialize(&groth16_receipt).context("Failed to deserialize g16 receipt")?;
-
-        let encoded_seal =
-            encode_seal(&groth16_receipt).context("Failed to encode g16 receipt seal")?;
-
-        Ok(encoded_seal)
-    }
-
-    async fn fetch_encode_b3_g16(&self, b3_g16_proof_id: &str) -> Result<Vec<u8>> {
-        let blake3_receipt = self
-            .prover
-            .get_blake3_groth16_receipt(b3_g16_proof_id)
-            .await
-            .context("Failed to fetch blake3 groth16 receipt")?
-            .context("Blake3 Groth16 receipt missing")?;
-
-        let blake3_receipt: Blake3Groth16Receipt = bincode::deserialize(&blake3_receipt)
-            .context("Failed to deserialize Blake3 Groth16 receipt")?;
-
-        let mut encoded_seal = encode_seal(&blake3_receipt.into())
-            .context("Failed to encode Blake3 Groth16 receipt seal")?;
-        if is_dev_mode() {
-            // In dev mode, we use the fake selector for Blake3 Groth16 proofs.
-            let fake_selector = &[0xFFu8, 0xFF, 0x00, 0x00];
-            // Replace the first 4 bytes with the fake selector
-            encoded_seal.splice(0..4, fake_selector.iter().cloned());
-        }
-
-        Ok(encoded_seal)
+            .context("provider.encode_seal for batch groth16")
     }
 
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
@@ -210,7 +198,7 @@ where
         }
 
         // Collect the needed parts for the new merkle root:
-        let batch_seal = self.fetch_encode_g16(groth16_proof_id).await?;
+        let batch_seal = self.encode_batch_seal(groth16_proof_id).await?;
         let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
@@ -285,33 +273,47 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
-                // NOTE: We assume here that the order execution ended with exit code 0.
-                let order_claim =
-                    ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
-                let order_claim_digest = order_claim.digest();
-                let seal = if is_groth16_selector(order_request.requirements.selector) {
+                // Per-order claim digest goes through the registered
+                // backend's `BackendProvider::compute_claim_digest`. Each
+                // backend owns its formula; different selectors under the
+                // same backend may use different ones. Failing the lookup is
+                // a configuration bug, not a fallback path: a wrong digest
+                // here would be rejected on-chain anyway.
+                let selector = order_request.requirements.selector;
+                let entry = self.backends.find(selector).ok_or_else(|| {
+                    anyhow!("no backend registered for selector {selector:?} (order {order_id})")
+                })?;
+                let provider = entry.provider.clone();
+                let order_claim_digest_bytes = provider
+                    .compute_claim_digest(
+                        selector,
+                        &ProgramId::from(<[u8; 32]>::from(order_img_id)),
+                        &PublicOutput::from(order_journal.clone()),
+                    )
+                    .map_err(|e| anyhow!("provider.compute_claim_digest for order: {e}"))?;
+                let order_claim_digest = Digest::from_bytes(order_claim_digest_bytes);
+
+                let seal = if is_groth16_selector(selector) || is_blake3_groth16_selector(selector)
+                {
+                    // Compressed-receipt path: hand off to the per-selector backend.
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
-                    self.fetch_encode_g16(&compressed_proof_id)
+                    provider
+                        .encode_seal(&compressed_proof_id, selector)
                         .await
-                        .context("Failed to fetch and encode g16 proof")?
-                } else if is_blake3_groth16_selector(order_request.requirements.selector) {
-                    let compressed_proof_id =
-                        self.db.get_order_compressed_proof_id(order_id).await.context(
-                            "Failed to get order compressed proof ID from DB for submission",
-                        )?;
-                    self.fetch_encode_b3_g16(&compressed_proof_id)
-                        .await
-                        .context("Failed to fetch and encode blake3 groth16 proof")?
+                        .with_context(|| format!("provider.encode_seal for order {order_id}"))?
                 } else {
+                    // Set-inclusion path: still constructed inline against
+                    // the R0 set-builder. Moves behind an Aggregator trait
+                    // in PR 6.
                     let order_claim_index = aggregation_state
                         .claim_digests
                         .iter()
                         .position(|claim| *claim == order_claim_digest)
                         .ok_or(anyhow!(
-                            "Failed to find order claim {order_claim:x?} in aggregated claims"
+                            "Failed to find order claim {order_claim_digest:x?} in aggregated claims"
                         ))?;
                     let order_path = risc0_aggregation::merkle_path(
                         &aggregation_state.claim_digests,
@@ -321,6 +323,8 @@ where
                         "Merkle path for order {order_id} : {:x?} : {order_path:x?}",
                         order_claim_digest
                     );
+                    let order_claim =
+                        ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
                     let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                         order_claim,
                         order_path,
@@ -712,12 +716,16 @@ mod tests {
     };
     use boundless_assessor::{AssessorInput, Fulfillment};
     use boundless_market::{
+        backend_provider::BackendProviderObj,
+        backend_registry::{BackendEntry, BackendRegistry},
         contracts::{
             hit_points::default_allowance, FulfillmentData, Offer, Predicate, ProofRequest,
             RequestId, RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
+        selector::SupportedSelectors,
     };
+    use boundless_r0_backend::RiscZeroBackend;
     use boundless_test_utils::{
         guests::{
             ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
@@ -730,6 +738,18 @@ mod tests {
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
+
+    fn test_backends(prover: ProverObj) -> BackendRegistry {
+        let provider: BackendProviderObj =
+            Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+        let supported = SupportedSelectors::default();
+        BackendRegistry::with_backend(BackendEntry::new(
+            "risc0",
+            supported.selectors.keys().copied().collect(),
+            prover,
+            provider,
+        ))
+    }
 
     async fn build_submitter_and_batch(
         config: ConfigLock,
@@ -821,7 +841,7 @@ mod tests {
 
         let order_request = ProofRequest::new(
             RequestId::new(customer_addr, market_customer.index_from_nonce().await.unwrap()),
-            Requirements::new(Predicate::prefix_match(echo_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(<[u8; 32]>::from(echo_id), Bytes::default())),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -848,7 +868,7 @@ mod tests {
                 request: order_request.clone(),
                 signature: client_sig.into(),
                 fulfillment_data: FulfillmentData::from_image_id_and_journal(
-                    echo_id,
+                    <[u8; 32]>::from(echo_id),
                     echo_receipt.journal.bytes.clone(),
                 ),
             }],
@@ -956,6 +976,7 @@ mod tests {
             db.clone(),
             config,
             prover.clone(),
+            test_backends(prover.clone()),
             provider.clone(),
             set_verifier,
             market_address,

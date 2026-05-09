@@ -403,7 +403,6 @@ mod tests {
         eip712_domain, Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
     use futures_util::StreamExt;
-    use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
     use tokio::task::JoinHandle;
 
@@ -413,10 +412,7 @@ mod tests {
         let signer = LocalSigner::random();
         let req = ProofRequest {
             id,
-            requirements: Requirements::new(Predicate::prefix_match(
-                Digest::ZERO,
-                Bytes::default(),
-            )),
+            requirements: Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
             imageUrl: "test".to_string(),
             input: RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             offer: Offer {

@@ -57,7 +57,10 @@ fn now_timestamp() -> u64 {
 async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
     ProofRequest::new(
         RequestId::new(ctx.customer_signer.address(), idx),
-        Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         "http://image_uri.null",
         GuestEnv::builder().build_inline().unwrap(),
         Offer {
@@ -604,8 +607,9 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
 
     let request = {
         let mut request = new_request(1, &ctx).await;
-        request.requirements =
-            request.requirements.with_predicate(Predicate::claim_digest_match(claim_digest));
+        request.requirements = request
+            .requirements
+            .with_predicate(Predicate::claim_digest_match(<[u8; 32]>::from(claim_digest)));
 
         request
     };

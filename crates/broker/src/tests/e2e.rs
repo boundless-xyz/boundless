@@ -73,10 +73,9 @@ pub(super) fn generate_request(
     predicate: Option<Predicate>,
     input: Option<RequestInput>,
 ) -> ProofRequest {
-    let mut requirements = Requirements::new(
-        predicate
-            .unwrap_or_else(|| Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
-    );
+    let mut requirements = Requirements::new(predicate.unwrap_or_else(|| {
+        Predicate::prefix_match(<[u8; 32]>::from(Digest::from(ECHO_ID)), Bytes::default())
+    }));
 
     if proof_type == ProofType::Groth16 {
         requirements = requirements.with_groth16_proof();
@@ -84,8 +83,8 @@ pub(super) fn generate_request(
         requirements = requirements.with_blake3_groth16_proof();
         let blake3_claim_digest =
             blake3_groth16::Blake3Groth16ReceiptClaim::ok(ECHO_ID, [255u8; 32]).digest();
-        requirements =
-            requirements.with_predicate(Predicate::claim_digest_match(blake3_claim_digest));
+        requirements = requirements
+            .with_predicate(Predicate::claim_digest_match(<[u8; 32]>::from(blake3_claim_digest)));
     }
     if let Some(callback) = callback {
         requirements = requirements.with_callback(callback);
@@ -908,7 +907,7 @@ async fn e2e_with_claim_digest_match() {
 
     let correct_claim_digest = ReceiptClaim::ok(ECHO_ID, input_bytes).digest();
 
-    let predicate = Predicate::claim_digest_match(correct_claim_digest);
+    let predicate = Predicate::claim_digest_match(<[u8; 32]>::from(correct_claim_digest));
 
     run_with_broker(broker, vec![chain], async move {
         // Request 1: Regular valid request

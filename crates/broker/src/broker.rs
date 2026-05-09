@@ -29,12 +29,15 @@ use alloy::{
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
+    backend_registry::{BackendEntry, BackendRegistry},
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
+    selector::SupportedSelectors,
     storage::StorageDownloader,
     Deployment,
 };
+use boundless_r0_backend::RiscZeroBackend;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -822,10 +825,26 @@ impl Broker {
         );
 
         if !self.args.listen_only {
+            // Build the selector → backend registry the broker uses for
+            // composition (compress_proof + encode_seal) and per-order
+            // claim-digest computation. R0 covers every supported selector
+            // today; additional backends register their own entries when they
+            // come online.
+            let r0_provider: boundless_market::backend_provider::BackendProviderObj = Arc::new(
+                RiscZeroBackend::new(prover.clone(), aggregation_prover.clone(), is_dev_mode()),
+            );
+            let supported_selectors = SupportedSelectors::default();
+            let backends = BackendRegistry::with_backend(BackendEntry::new(
+                "risc0",
+                supported_selectors.selectors.keys().copied().collect(),
+                prover.clone(),
+                r0_provider,
+            ));
+
             let proving_service = Arc::new(proving::ProvingService::new(
                 db.clone(),
                 prover.clone(),
-                aggregation_prover.clone(),
+                backends.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 priority_requestors.clone(),
@@ -892,6 +911,7 @@ impl Broker {
                 db.clone(),
                 config.clone(),
                 aggregation_prover.clone(),
+                backends.clone(),
                 provider.clone(),
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,

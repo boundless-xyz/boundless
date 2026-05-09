@@ -562,7 +562,6 @@ mod tests {
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
-    use risc0_zkvm::sha::Digest;
     use tokio::time::timeout;
 
     fn make_order(
@@ -574,7 +573,7 @@ mod tests {
         let mut order = Box::new(OrderRequest::new(
             ProofRequest::new(
                 RequestId::new(Address::ZERO, request_index),
-                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                 "http://example.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {

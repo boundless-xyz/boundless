@@ -91,7 +91,10 @@ async fn request_spawner<P: Provider>(
                 ctx.customer_signer.address(),
                 ctx.customer_market.index_from_nonce().await?,
             ),
-            Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(Digest::from(ECHO_ID)),
+                Bytes::default(),
+            )),
             program_url,
             RequestInput {
                 inputType: RequestInputType::Inline,

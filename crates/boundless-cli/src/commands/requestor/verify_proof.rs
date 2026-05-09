@@ -17,7 +17,6 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{FulfillmentData, Predicate};
 use clap::Args;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
-use risc0_zkvm::sha::Digest;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
@@ -93,7 +92,7 @@ impl RequestorVerifyProof {
             (_, FulfillmentData::ImageIdAndJournal(image_id_from_data, journal)) => {
                 // Verify image ID matches
                 ensure!(
-                    image_id_from_data == Digest::from(<[u8; 32]>::from(self.image_id)),
+                    image_id_from_data == self.image_id,
                     "Image ID mismatch: expected {:?}, got {:?}",
                     image_id_from_data,
                     self.image_id

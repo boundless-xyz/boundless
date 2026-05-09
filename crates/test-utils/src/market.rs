@@ -350,7 +350,10 @@ pub fn mock_singleton(
     let (claim_digest, fulfillment_data) = match fulfillment_data_type {
         FulfillmentDataType::ImageIdAndJournal => (
             <[u8; 32]>::from(app_claim_digest).into(),
-            FulfillmentData::from_image_id_and_journal(ECHO_ID, app_journal.bytes.clone()),
+            FulfillmentData::from_image_id_and_journal(
+                <[u8; 32]>::from(Digest::from(ECHO_ID)),
+                app_journal.bytes.clone(),
+            ),
         ),
         FulfillmentDataType::None => {
             (<[u8; 32]>::from(app_claim_digest).into(), FulfillmentData::None)

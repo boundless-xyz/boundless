@@ -100,7 +100,7 @@ impl ProverExecute {
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
         let fulfillment_data =
-            FulfillmentData::from_image_id_and_journal(image_id, journal.clone());
+            FulfillmentData::from_image_id_and_journal(<[u8; 32]>::from(image_id), journal.clone());
 
         display.status("Status", "Evaluating predicate", "yellow");
         if predicate.eval(&fulfillment_data).is_none() {

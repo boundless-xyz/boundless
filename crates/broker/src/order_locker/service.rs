@@ -998,7 +998,7 @@ pub(crate) mod tests {
 
             let request = ProofRequest::new(
                 RequestId::new(self.signer.address(), request_id),
-                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                 "http://risczero.com/image",
                 RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
                 Offer {

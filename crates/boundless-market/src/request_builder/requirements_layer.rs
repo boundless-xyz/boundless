@@ -73,7 +73,7 @@ impl TryFrom<Requirements> for RequirementParams {
 
     fn try_from(value: Requirements) -> Result<Self, Self::Error> {
         let predicate = Predicate::try_from(value.predicate)?;
-        let image_id = predicate.image_id().map(<[u8; 32]>::from).map(Into::into);
+        let image_id = predicate.image_id();
         Ok(Self {
             predicate: Some(predicate),
             selector: Some(value.selector),
@@ -185,14 +185,15 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
                             journal.bytes.clone(),
                         )
                         .digest();
-                        Predicate::claim_digest_match(blake3_claim_digest)
+                        Predicate::claim_digest_match(<[u8; 32]>::from(blake3_claim_digest))
                     }));
                 }
             }
         }
 
-        let predicate =
-            predicate.unwrap_or_else(|| Predicate::digest_match(image_id, journal.digest()));
+        let predicate = predicate.unwrap_or_else(|| {
+            Predicate::digest_match(<[u8; 32]>::from(image_id), <[u8; 32]>::from(journal.digest()))
+        });
 
         if let Some(params_image_id) = params.image_id {
             ensure!(

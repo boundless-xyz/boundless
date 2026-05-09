@@ -385,7 +385,10 @@ pub(crate) mod tests {
             let input_bytes = params.request_input.unwrap_or(vec![0x41, 0x41, 0x41, 0x41]);
             let request = ProofRequest::new(
                 RequestId::new(self.provider.default_signer_address(), params.order_index),
-                Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+                Requirements::new(Predicate::prefix_match(
+                    <[u8; 32]>::from(image_id),
+                    Bytes::default(),
+                )),
                 image_url,
                 RequestInput::builder().write_slice(&input_bytes).build_inline().unwrap(),
                 Offer {
@@ -419,7 +422,10 @@ pub(crate) mod tests {
 
             let request = ProofRequest::new(
                 RequestId::new(self.provider.default_signer_address(), params.order_index),
-                Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+                Requirements::new(Predicate::prefix_match(
+                    <[u8; 32]>::from(image_id),
+                    Bytes::default(),
+                )),
                 image_url,
                 RequestInput::builder()
                     .write(&cycles)
@@ -617,7 +623,7 @@ pub(crate) mod tests {
         let mut order = ctx.generate_next_order(Default::default()).await;
         // set a bad predicate
         order.request.requirements.predicate =
-            Predicate::digest_match(Digest::from(ECHO_ID), Digest::ZERO).into();
+            Predicate::digest_match(<[u8; 32]>::from(Digest::from(ECHO_ID)), [0u8; 32]).into();
 
         let order_id = order.id();
         let _request_id =

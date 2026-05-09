@@ -24,15 +24,20 @@ use crate::{
     futures_retry::retry_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::{self, ProverObj},
+    provers::ProverObj,
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{BrokerService, SupervisorErr},
     CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
-use alloy::providers::DynProvider;
-use anyhow::{Context, Result};
-use boundless_market::contracts::boundless_market::BoundlessMarketService;
+use alloy::{primitives::FixedBytes, providers::DynProvider};
+use anyhow::{anyhow, Context, Result};
+use boundless_market::{
+    backend_registry::BackendRegistry, contracts::boundless_market::BoundlessMarketService,
+    ProgramId,
+};
+use hex::FromHex;
+use risc0_zkvm::sha::Digest;
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, Span};
 
@@ -42,7 +47,11 @@ use super::error::ProvingErr;
 pub struct ProvingService {
     db: DbObj,
     prover: ProverObj,
-    snark_prover: ProverObj,
+    /// Selector → backend registry. Per-selector composition runs through
+    /// `provider.compress_proof(...)` (Groth16 / Blake3-Groth16 today). The
+    /// broker keeps `prover` for the STARK phase to preserve its
+    /// checkpointing / cancel / timeout semantics.
+    backends: BackendRegistry,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
@@ -58,7 +67,7 @@ impl ProvingService {
     pub fn new(
         db: DbObj,
         prover: ProverObj,
-        snark_prover: ProverObj,
+        backends: BackendRegistry,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
@@ -70,7 +79,7 @@ impl ProvingService {
         Self {
             db,
             prover,
-            snark_prover,
+            backends,
             config,
             order_state_tx,
             priority_requestors,
@@ -84,9 +93,11 @@ impl ProvingService {
     async fn monitor_proof_internal(
         &self,
         order_id: &str,
+        image_id: &str,
         stark_proof_id: &str,
         compression_type: CompressionType,
         snark_proof_id: Option<String>,
+        selector: FixedBytes<4>,
     ) -> Result<OrderStatus> {
         let proof_res = self
             .prover
@@ -105,46 +116,30 @@ impl ProvingService {
                 (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
             };
 
+            // Per-selector composition runs through the registered
+            // `BackendProvider`. The provider owns the STARK to SNARK path
+            // for its selector and verifies the compressed receipt before
+            // returning the id.
+            let provider = self
+                .backends
+                .find(selector)
+                .map(|entry| entry.provider.clone())
+                .ok_or_else(|| anyhow!("no backend registered for selector {selector:?}"))?;
+            let program_id = ProgramId::from(<[u8; 32]>::from(
+                Digest::from_hex(image_id).context("Failed to parse order image_id as hex")?,
+            ));
+
             let context = format!("order {order_id}");
             let compressed_proof_id = retry_with_context(
                 retry_count,
                 sleep_ms,
                 || async {
-                    let proof_id = match compression_type {
-                        CompressionType::Groth16 => self
-                            .snark_prover
-                            .compress(stark_proof_id)
-                            .await
-                            .context("Failed to compress proof for order {order_id}")?,
-                        CompressionType::Blake3Groth16 => self
-                            .snark_prover
-                            .compress_blake3_groth16(stark_proof_id)
-                            .await
-                            .context("Failed to compress blake3 groth16 proof for order {order_id}")?,
-                        CompressionType::None => {
-                            unreachable!("Compression type should not be None here")
-                        }
-                    };
-                    match compression_type {
-                        CompressionType::Groth16 => {
-                            tracing::trace!(
-                                "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
-                            );
-                            provers::verify_groth16_receipt(&self.snark_prover, &proof_id).await?;
-                        }
-                        CompressionType::Blake3Groth16 => {
-                            tracing::trace!(
-                                "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
-                            );
-                            provers::verify_blake3_groth16_receipt(&self.snark_prover, &proof_id).await?;
-                        }
-                        CompressionType::None => {
-                            unreachable!("Compression type should not be None here")
-                        }
-                    }
-                    Ok::<String, provers::ProverError>(proof_id)
+                    provider
+                        .compress_proof(&program_id, stark_proof_id, selector)
+                        .await
+                        .map_err(|e| anyhow!("provider.compress_proof: {e}"))
                 },
-                "compress_and_verify",
+                "compress_proof",
                 &context,
             )
             .await?;
@@ -274,11 +269,17 @@ impl ProvingService {
             }
         }
 
+        let image_id = order
+            .image_id
+            .as_deref()
+            .ok_or_else(|| ProvingErr::ProvingFailed(anyhow!("Order missing image_id")))?;
         let monitor_task = self.monitor_proof_internal(
             &order_id,
+            image_id,
             proof_id,
             order.compression_type(),
-            order.compressed_proof_id,
+            order.compressed_proof_id.clone(),
+            order.request.requirements.selector,
         );
         tokio::pin!(monitor_task);
 
@@ -650,12 +651,73 @@ mod tests {
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
+    use boundless_market::{
+        backend_provider::BackendProviderObj,
+        backend_registry::{BackendEntry, BackendRegistry},
+        selector::SupportedSelectors,
+    };
+    use boundless_r0_backend::RiscZeroBackend;
     use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
     use chrono::Utc;
     use hex::encode;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
     use tracing_test::traced_test;
+
+    /// Build a single-backend registry covering every supported selector.
+    /// Mirrors the production wiring in `broker.rs` for tests that run a
+    /// single `DefaultProver`.
+    fn test_backends(prover: ProverObj) -> BackendRegistry {
+        let provider: BackendProviderObj =
+            Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+        let supported = SupportedSelectors::default();
+        BackendRegistry::with_backend(BackendEntry::new(
+            "risc0",
+            supported.selectors.keys().copied().collect(),
+            prover,
+            provider,
+        ))
+    }
+
+    #[test]
+    fn registry_covers_every_supported_selector() {
+        // Tests run with RISC0_DEV_MODE=1, so SupportedSelectors::default()
+        // includes the dev-only entries (FakeReceipt, FakeBlake3Groth16).
+        // The registry must register every one of them; missing dev-mode
+        // entries would surface as a "no backend registered for selector"
+        // error at proving time on a localnet broker.
+        use boundless_market::selector::SelectorExt;
+        use boundless_market::{contracts::UNSPECIFIED_SELECTOR, VerifierSelector};
+
+        let prover: ProverObj = Arc::new(DefaultProver::new());
+        let backends = test_backends(prover);
+        let supported = SupportedSelectors::default();
+
+        for selector in supported.selectors.keys() {
+            let entry = backends.find(*selector).unwrap_or_else(|| {
+                panic!("registry missing selector {:#06x}", u32::from_be_bytes(selector.0))
+            });
+            assert_eq!(entry.name, "risc0");
+        }
+
+        // Spot-check the four production selectors and the two dev-mode
+        // selectors are present, independent of how SupportedSelectors is
+        // shaped, so renaming or moving entries on either side surfaces here.
+        let must_resolve: &[VerifierSelector] = &[
+            UNSPECIFIED_SELECTOR,
+            VerifierSelector::from((SelectorExt::Groth16V3_0 as u32).to_be_bytes()),
+            VerifierSelector::from((SelectorExt::Blake3Groth16V0_1 as u32).to_be_bytes()),
+            VerifierSelector::from((SelectorExt::FakeReceipt as u32).to_be_bytes()),
+            VerifierSelector::from((SelectorExt::FakeBlake3Groth16 as u32).to_be_bytes()),
+        ];
+        for selector in must_resolve {
+            assert!(
+                backends.find(*selector).is_some(),
+                "registry missing required selector {:#06x}",
+                u32::from_be_bytes(selector.0)
+            );
+        }
+    }
 
     fn mock_market(responses: Vec<bool>) -> Arc<BoundlessMarketService<DynProvider>> {
         let asserter = Asserter::new();
@@ -686,7 +748,7 @@ mod tests {
             request: ProofRequest {
                 id: request_id,
                 requirements: Requirements::new(Predicate::prefix_match(
-                    Digest::ZERO,
+                    [0u8; 32],
                     Bytes::default(),
                 )),
 
@@ -760,7 +822,7 @@ mod tests {
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
-            prover.clone(),
+            test_backends(prover.clone()),
             config.clone(),
             order_state_tx,
             priority_requestors,
@@ -794,7 +856,7 @@ mod tests {
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
             prover.clone(),
-            prover.clone(),
+            test_backends(prover.clone()),
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,
@@ -860,7 +922,7 @@ mod tests {
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
-            prover,
+            test_backends(prover.clone()),
             config.clone(),
             order_state_tx,
             priority_requestors,
@@ -881,7 +943,7 @@ mod tests {
             request: ProofRequest {
                 id: order_id,
                 requirements: Requirements::new(Predicate::prefix_match(
-                    Digest::ZERO,
+                    [0u8; 32],
                     Bytes::default(),
                 )),
 
@@ -959,7 +1021,7 @@ mod tests {
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
-            prover.clone(),
+            test_backends(prover.clone()),
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,

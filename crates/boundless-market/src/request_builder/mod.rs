@@ -1137,7 +1137,10 @@ mod tests {
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
-        assert_eq!(predicate.image_id().unwrap(), risc0_zkvm::compute_image_id(ECHO_ELF)?);
+        assert_eq!(
+            predicate.image_id().unwrap(),
+            <[u8; 32]>::from(risc0_zkvm::compute_image_id(ECHO_ELF)?)
+        );
         Ok(())
     }
 
@@ -1368,7 +1371,10 @@ mod tests {
         let layer = OfferLayer::from(provider.clone());
         // Build minimal requirements and request ID
         let image_id = compute_image_id(ECHO_ELF).unwrap();
-        let predicate = Predicate::digest_match(image_id, Journal::new(b"hello".to_vec()).digest());
+        let predicate = Predicate::digest_match(
+            <[u8; 32]>::from(image_id),
+            <[u8; 32]>::from(Journal::new(b"hello".to_vec()).digest()),
+        );
         let requirements = Requirements::new(predicate);
         let request_id = RequestId::new(test_ctx.customer_signer.address(), 0);
 
@@ -1436,7 +1442,10 @@ mod tests {
 
         // Build minimal requirements and request ID
         let image_id = compute_image_id(ECHO_ELF).unwrap();
-        let predicate = Predicate::digest_match(image_id, Journal::new(b"hello".to_vec()).digest());
+        let predicate = Predicate::digest_match(
+            <[u8; 32]>::from(image_id),
+            <[u8; 32]>::from(Journal::new(b"hello".to_vec()).digest()),
+        );
         let requirements = Requirements::new(predicate);
         let request_id = RequestId::new(test_ctx.customer_signer.address(), 0);
 

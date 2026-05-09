@@ -240,14 +240,13 @@ pub enum CompressionType {
 mod tests {
     use super::*;
     use boundless_market::contracts::{Offer, Predicate, RequestId, RequestInput, Requirements};
-    use risc0_zkvm::sha::Digest;
 
     /// Ensures existing DB rows (serialized without journal_bytes) deserialize correctly.
     #[test]
     fn journal_bytes_backwards_compat() {
         let request = boundless_market::contracts::ProofRequest::new(
             RequestId::new(Address::ZERO, 0),
-            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+            Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
             "",
             RequestInput::inline(Bytes::new()),
             Offer::default(),

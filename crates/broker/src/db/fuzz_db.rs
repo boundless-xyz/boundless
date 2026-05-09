@@ -19,7 +19,6 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use rand::Rng;
 use risc0_aggregation::GuestState;
-use risc0_zkvm::sha::Digest;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -89,7 +88,7 @@ fn generate_test_order(request_id: u32) -> Order {
         target_timestamp: None,
         request: ProofRequest::new(
             RequestId::new(Address::ZERO, request_id),
-            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+            Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
             "test",
             RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             Offer {

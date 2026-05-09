@@ -716,10 +716,7 @@ mod tests {
         let max_price = 10;
         let proving_request = ProofRequest {
             id: boundless_market.request_id_from_nonce().await.unwrap(),
-            requirements: Requirements::new(Predicate::prefix_match(
-                Digest::ZERO,
-                Bytes::default(),
-            )),
+            requirements: Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
             imageUrl: "test".to_string(),
             input: RequestInput { inputType: RequestInputType::Url, data: Default::default() },
             offer: Offer {
@@ -925,7 +922,10 @@ mod tests {
     async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(ctx.customer_signer.address(), idx),
-            Requirements::new(Predicate::prefix_match(Digest::from(ECHO_ID), Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(Digest::from(ECHO_ID)),
+                Bytes::default(),
+            )),
             "http://image_uri.null",
             GuestEnv::builder().build_inline().unwrap(),
             Offer {

@@ -178,7 +178,10 @@ impl Adapt<Finalizer> for RequestParams {
                     // It is not possible to fulfill a blake3 groth16 request with fulfillment data
                     FulfillmentData::None
                 } else {
-                    FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone())
+                    FulfillmentData::from_image_id_and_journal(
+                        <[u8; 32]>::from(image_id),
+                        journal.bytes.clone(),
+                    )
                 };
                 predicate.eval(&eval_data).is_some()
             }

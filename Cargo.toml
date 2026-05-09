@@ -62,6 +62,7 @@ boundless-assessor = { version = "2.1.0-alpha.0", path = "crates/assessor" }
 boundless-cli = { path = "crates/boundless-cli" }
 boundless-market = { version = "2.1.0-alpha.0", path = "crates/boundless-market" }
 boundless-povw = { path = "crates/povw" }
+boundless-r0-backend = { version = "2.1.0-alpha.0", path = "crates/r0-backend" }
 boundless-rewards = { path = "crates/rewards" }
 boundless-test-utils = { path = "crates/test-utils" }
 boundless-zkc = { path = "crates/zkc" }

@@ -951,7 +951,7 @@ mod tests {
         let mut request = OrderRequest::new(
             ProofRequest::new(
                 RequestId::new(Address::ZERO, 1),
-                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                 "http://risczero.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {
@@ -1564,7 +1564,7 @@ mod chain_db_url_tests {
         let mut order_request = OrderRequest::new(
             ProofRequest::new(
                 RequestId::new(Address::ZERO, 1),
-                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                 "http://risczero.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {

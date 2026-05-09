@@ -32,6 +32,7 @@ use boundless_market::contracts::{
     Requirements,
 };
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
+use risc0_zkvm::sha::Digest;
 use sqlx::{PgPool, Row};
 
 use super::common::*;
@@ -431,7 +432,10 @@ async fn test_aggregation_across_hours(pool: sqlx::PgPool) {
     // Create and fulfill first order with cycle counts
     let request1 = ProofRequest::new(
         RequestId::new(fixture.ctx.customer_signer.address(), 1),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
@@ -488,7 +492,10 @@ async fn test_aggregation_across_hours(pool: sqlx::PgPool) {
     // Create and fulfill second order in a different hour
     let request2 = ProofRequest::new(
         RequestId::new(fixture.ctx.customer_signer.address(), 2),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
@@ -752,7 +759,10 @@ async fn test_aggregation_percentiles(pool: sqlx::PgPool) {
 
         let request = ProofRequest::new(
             RequestId::new(fixture.ctx.customer_signer.address(), request_id as u32),
-            Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(Digest::from(ECHO_ID)),
+                Bytes::default(),
+            )),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().build_inline().unwrap(),
             Offer {
@@ -1827,7 +1837,10 @@ async fn test_request_status_lock_expired_then_slashed(pool: sqlx::PgPool) {
     // Create request with short lock timeout
     let req = ProofRequest::new(
         RequestId::new(fixture.ctx.customer_signer.address(), 1),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
@@ -2016,7 +2029,10 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps(pool: sqlx::PgPool)
     // Create and fulfill first request with 0 collateral
     let request1 = ProofRequest::new(
         RequestId::new(fixture.ctx.customer_signer.address(), 1),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
@@ -2067,7 +2083,10 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps(pool: sqlx::PgPool)
     // Create and fulfill second request (different hour) with no collateral
     let request2 = ProofRequest::new(
         RequestId::new(fixture.ctx.customer_signer.address(), 2),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
@@ -2403,7 +2422,10 @@ async fn test_prover_aggregation(pool: sqlx::PgPool) {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     let request = ProofRequest::new(
         RequestId::new(fixture.ctx.customer_signer.address(), 1),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {

@@ -34,6 +34,7 @@ boundless-test-utils = { workspace = true }
 broker = { workspace = true }
 futures-util = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
+risc0-zkvm = { workspace = true }
 sqlx = { workspace = true, features = [ "postgres", "runtime-tokio", "json", "migrate", "macros" ] }
 tracing-test = { workspace = true }
 

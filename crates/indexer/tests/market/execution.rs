@@ -46,6 +46,7 @@ use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
+use risc0_zkvm::sha::Digest;
 use sqlx::{PgPool, Row};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -91,7 +92,10 @@ fn test_config(uri: String, max_iterations: u32) -> IndexerServiceExecutionConfi
 fn generate_request(id: u32, client: &Address) -> ProofRequest {
     ProofRequest::new(
         RequestId::new(*client, id),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {

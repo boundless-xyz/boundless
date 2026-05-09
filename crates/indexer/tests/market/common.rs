@@ -39,6 +39,7 @@ use boundless_test_utils::{
     guests::{ECHO_ID, ECHO_PATH},
     market::{create_test_ctx, TestCtx},
 };
+use risc0_zkvm::sha::Digest;
 use sqlx::{PgPool, Row};
 
 /// Test fixture containing all common test setup
@@ -348,7 +349,10 @@ pub async fn create_order(
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         RequestId::new(signer_addr, order_id),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
@@ -381,7 +385,10 @@ pub async fn create_order_with_timeouts(
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         RequestId::new(signer_addr, order_id),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {
@@ -412,7 +419,10 @@ pub async fn create_order_with_collateral(
 ) -> (ProofRequest, Bytes) {
     let req = ProofRequest::new(
         RequestId::new(signer_addr, order_id),
-        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        Requirements::new(Predicate::prefix_match(
+            <[u8; 32]>::from(Digest::from(ECHO_ID)),
+            Bytes::default(),
+        )),
         format!("file://{ECHO_PATH}"),
         RequestInput::builder().build_inline().unwrap(),
         Offer {

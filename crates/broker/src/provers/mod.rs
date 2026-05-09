@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use blake3_groth16::Blake3Groth16Receipt;
 use boundless_market::input::GuestEnv;
 use risc0_zkvm::Receipt;
 
@@ -56,31 +55,5 @@ pub(crate) async fn verify_groth16_receipt(
     })?;
 
     tracing::debug!("Groth16 verification passed for proof_id: {proof_id}");
-    Ok(())
-}
-
-/// Verify a blake3 Groth16 compressed receipt
-///
-/// This helper fetches the compressed receipt, deserializes it, and verifies its integrity.
-/// Used by both aggregator and proving services to validate Groth16 proofs before submission.
-pub(crate) async fn verify_blake3_groth16_receipt(
-    prover: &ProverObj,
-    proof_id: &str,
-) -> Result<(), ProverError> {
-    tracing::trace!("Verifying Blake3 Groth16 receipt locally for proof_id: {proof_id}");
-
-    let receipt_bytes = prover.get_blake3_groth16_receipt(proof_id).await?.ok_or_else(|| {
-        ProverError::NotFound(format!("Blake3 Groth16 receipt not found: {proof_id}"))
-    })?;
-
-    let receipt: Blake3Groth16Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
-        ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
-    })?;
-
-    receipt.verify_integrity().map_err(|e| {
-        ProverError::ProverInternalError(format!("Blake3 Groth16 verification failed: {e}"))
-    })?;
-
-    tracing::debug!("Blake3 Groth16 verification passed for proof_id: {proof_id}");
     Ok(())
 }

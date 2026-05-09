@@ -274,17 +274,16 @@ impl AggregatorService {
                 .with_context(|| format!("Failed to get {proof_id} journal"))?
                 .with_context(|| format!("{proof_id} journal missing"))?;
 
-            let fulfillment_data = match order.request.requirements.predicate.predicateType {
-                PredicateType::ClaimDigestMatch => FulfillmentData::None,
-                _ => FulfillmentData::from_image_id_and_journal(
-                    Digest::from_hex(
-                        order
-                            .image_id
-                            .with_context(|| format!("Missing image_id for order: {order_id}"))?,
-                    )?,
-                    journal,
-                ),
-            };
+            let fulfillment_data =
+                match order.request.requirements.predicate.predicateType {
+                    PredicateType::ClaimDigestMatch => FulfillmentData::None,
+                    _ => FulfillmentData::from_image_id_and_journal(
+                        <[u8; 32]>::from(Digest::from_hex(order.image_id.with_context(|| {
+                            format!("Missing image_id for order: {order_id}")
+                        })?)?),
+                        journal,
+                    ),
+                };
 
             fills.push(Fulfillment {
                 request: order.request.clone(),
@@ -931,7 +930,10 @@ mod tests {
         // First order
         let order_request = ProofRequest::new(
             RequestId::new(customer_signer.address(), 0),
-            Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(image_id),
+                Bytes::default(),
+            )),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -977,7 +979,10 @@ mod tests {
         // Second order
         let order_request = ProofRequest::new(
             RequestId::new(customer_signer.address(), 1),
-            Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(image_id),
+                Bytes::default(),
+            )),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -1095,7 +1100,10 @@ mod tests {
         // First order
         let order_request = ProofRequest::new(
             RequestId::new(customer_signer.address(), 0),
-            Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(image_id),
+                Bytes::default(),
+            )),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -1156,7 +1164,10 @@ mod tests {
         // Second order
         let order_request = ProofRequest::new(
             RequestId::new(customer_signer.address(), 1),
-            Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(image_id),
+                Bytes::default(),
+            )),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -1267,7 +1278,10 @@ mod tests {
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
             RequestId::new(customer_signer.address(), 0),
-            Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(image_id),
+                Bytes::default(),
+            )),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -1384,7 +1398,10 @@ mod tests {
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
             RequestId::new(customer_signer.address(), 0),
-            Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(image_id),
+                Bytes::default(),
+            )),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -1509,7 +1526,10 @@ mod tests {
         let min_price = 200000000000000000u64;
         let order_request = ProofRequest::new(
             RequestId::new(customer_signer.address(), 0),
-            Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
+            Requirements::new(Predicate::prefix_match(
+                <[u8; 32]>::from(image_id),
+                Bytes::default(),
+            )),
             "http://risczero.com/image",
             RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
             Offer {
@@ -1616,7 +1636,7 @@ mod tests {
             target_timestamp: None,
             request: ProofRequest::new(
                 RequestId::new(Address::ZERO, request_id_nonce),
-                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+                Requirements::new(Predicate::prefix_match([0u8; 32], Bytes::default())),
                 "http://risczero.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {
