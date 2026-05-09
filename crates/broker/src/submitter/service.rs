@@ -66,8 +66,7 @@ pub struct Submitter<P> {
     /// Selector → backend registry. Per-order seal encoding for compressed
     /// selectors (Groth16, Blake3-Groth16) and per-order claim-digest
     /// computation route through the registered `BackendProvider`. Set
-    /// inclusion seals are still built here against the R0 set-builder
-    /// (handled in PR 6 / BoundlessRouter).
+    /// inclusion seals are still built inline against the R0 set-builder.
     backends: BackendRegistry,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
@@ -316,9 +315,8 @@ where
                         .await
                         .with_context(|| format!("provider.encode_seal for order {order_id}"))?
                 } else {
-                    // Set-inclusion path: still constructed inline against
-                    // the R0 set-builder. Moves behind an Aggregator trait
-                    // in PR 6.
+                    // Set-inclusion path: constructed inline against the R0
+                    // set-builder.
                     let order_claim_index = aggregation_state
                         .claim_digests
                         .iter()

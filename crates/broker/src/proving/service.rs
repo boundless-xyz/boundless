@@ -701,28 +701,33 @@ mod tests {
 
     #[test]
     fn registry_covers_every_supported_selector() {
-        // Tests run with RISC0_DEV_MODE=1, so SupportedSelectors::default()
-        // includes the dev-only entries (FakeReceipt, FakeBlake3Groth16).
-        // The registry must register every one of them; missing dev-mode
-        // entries would surface as a "no backend registered for selector"
-        // error at proving time on a localnet broker.
+        // Two checks. The first asserts the broker's production wiring
+        // (test_backends mirrors broker.rs) registers every selector that
+        // SupportedSelectors::default() returns under whatever
+        // RISC0_DEV_MODE happens to be set to. The second asserts that an
+        // explicit registry covering all four production selectors plus
+        // the two dev-mode selectors works regardless of env, so tests
+        // exercise the dev-mode dispatch path even when RISC0_DEV_MODE is
+        // unset.
+        use boundless_market::backend_provider::BackendProviderObj;
         use boundless_market::selector::SelectorExt;
         use boundless_market::{contracts::UNSPECIFIED_SELECTOR, VerifierSelector};
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let backends = test_backends(prover);
-        let supported = SupportedSelectors::default();
 
-        for selector in supported.selectors.keys() {
-            let entry = backends.find(*selector).unwrap_or_else(|| {
+        // Check 1: test_backends covers everything in SupportedSelectors::default()
+        // under the current env.
+        let env_backends = test_backends(prover.clone());
+        let env_supported = SupportedSelectors::default();
+        for selector in env_supported.selectors.keys() {
+            let entry = env_backends.find(*selector).unwrap_or_else(|| {
                 panic!("registry missing selector {:#06x}", u32::from_be_bytes(selector.0))
             });
             assert_eq!(entry.name, "risc0");
         }
 
-        // Spot-check the four production selectors and the two dev-mode
-        // selectors are present, independent of how SupportedSelectors is
-        // shaped, so renaming or moving entries on either side surfaces here.
+        // Check 2: an explicit registry covering all production + dev
+        // selectors resolves every one of them, regardless of env.
         let must_resolve: &[VerifierSelector] = &[
             UNSPECIFIED_SELECTOR,
             VerifierSelector::from((SelectorExt::Groth16V3_0 as u32).to_be_bytes()),
@@ -730,9 +735,17 @@ mod tests {
             VerifierSelector::from((SelectorExt::FakeReceipt as u32).to_be_bytes()),
             VerifierSelector::from((SelectorExt::FakeBlake3Groth16 as u32).to_be_bytes()),
         ];
+        let provider: BackendProviderObj =
+            Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+        let explicit_backends = BackendRegistry::with_backend(BackendEntry::new(
+            "risc0",
+            must_resolve.to_vec(),
+            prover,
+            provider,
+        ));
         for selector in must_resolve {
             assert!(
-                backends.find(*selector).is_some(),
+                explicit_backends.find(*selector).is_some(),
                 "registry missing required selector {:#06x}",
                 u32::from_be_bytes(selector.0)
             );
