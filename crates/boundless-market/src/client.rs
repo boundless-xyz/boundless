@@ -892,6 +892,50 @@ impl<P, U, D, Si> Client<P, U, D, StandardRequestBuilder<P, U, D>, Si> {
     }
 }
 
+#[cfg(feature = "prover_utils")]
+impl<P, U, D, Si> Client<P, U, D, StandardRequestBuilder<P, U, D>, Si>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    D: crate::storage::StorageDownloader,
+{
+    /// Install a backend-supplied pricer into the request builder.
+    ///
+    /// `B` selects the backend; the pricer is constructed via
+    /// [`crate::order_pricer::BackendPricerFactory::make_pricer`] using the
+    /// client's market address and chain id and the
+    /// [`crate::prover_utils::prover::ProverObj`] held by the preflight
+    /// layer. The request builder's `run_pricing_check` step then dispatches
+    /// through the installed pricer.
+    pub async fn with_backend<B>(mut self) -> Result<Self, ClientError>
+    where
+        B: crate::order_pricer::BackendPricerFactory<P>,
+    {
+        let Some(ref mut builder) = self.request_builder else {
+            return Ok(self);
+        };
+        let market_address = *self.boundless_market.instance().address();
+        let chain_id = self
+            .boundless_market
+            .get_chain_id()
+            .await
+            .map_err(|e| ClientError::Error(anyhow::anyhow!(e)))?;
+        let provider = std::sync::Arc::new(builder.offer_layer.provider.clone());
+        let price_provider = builder.offer_layer.price_provider.clone();
+        let price_oracle = builder.offer_layer.price_oracle_manager.clone();
+        let prover = builder.preflight_layer.prover_obj_cloned();
+        let pricer = B::make_pricer(
+            prover,
+            provider,
+            market_address,
+            chain_id,
+            price_provider,
+            price_oracle,
+        );
+        builder.pricer = Some(std::sync::Arc::new(pricer));
+        Ok(self)
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 /// Client error

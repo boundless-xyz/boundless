@@ -31,7 +31,6 @@ use anyhow::Context;
 use moka::future::Cache;
 use moka::policy::EvictionPolicy;
 
-use super::local_executor::LocalExecutor;
 use super::prover::ProverObj;
 use super::{
     Erc1271GasCache, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
@@ -61,7 +60,7 @@ const ONE_MILLION: U256 = uint!(1_000_000_U256);
 /// `MarketConf::default()`.
 pub async fn requestor_order_preflight<P>(
     request: ProofRequest,
-    executor: LocalExecutor,
+    prover: ProverObj,
     provider: Arc<P>,
     market_address: Address,
     chain_id: u64,
@@ -101,7 +100,7 @@ where
         market_config,
         preflight_cache,
         erc1271_gas_cache,
-        Arc::new(executor),
+        prover,
         downloader,
         price_oracle,
     );

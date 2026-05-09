@@ -22,7 +22,9 @@ pub use crate::backend_registry;
 pub mod config;
 pub(crate) mod local_executor;
 pub mod prover;
-pub(crate) mod requestor_pricing;
+pub mod requestor_pricing;
+#[cfg(feature = "prover_utils")]
+pub use requestor_pricing::requestor_order_preflight;
 
 #[cfg(feature = "prover_utils")]
 pub use backend_provider::{BackendProvider, BackendProviderError, BackendProviderObj};

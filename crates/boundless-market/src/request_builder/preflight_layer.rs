@@ -62,6 +62,13 @@ where
         self.executor.clone()
     }
 
+    /// Get an owned [`crate::prover_utils::prover::ProverObj`] backed by the
+    /// same executor instance, so callers share the executor's
+    /// content-addressed cache.
+    pub fn prover_obj_cloned(&self) -> crate::prover_utils::prover::ProverObj {
+        std::sync::Arc::new(self.executor.clone())
+    }
+
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             RequestInputType::Inline => GuestEnv::decode(&input.data)?,

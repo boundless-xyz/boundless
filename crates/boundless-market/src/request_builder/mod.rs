@@ -202,6 +202,15 @@ pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = Sta
     /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     #[builder(setter(into, strip_option), default)]
     pub skip_preflight: Option<bool>,
+
+    /// Backend-supplied pricer for the pricing-check step.
+    ///
+    /// When `Some`, `run_pricing_check` dispatches through it. When `None`,
+    /// the check runs the inline R0 `requestor_order_preflight` path keyed
+    /// off the preflight layer's executor.
+    #[cfg(feature = "prover_utils")]
+    #[builder(setter(into, strip_option), default)]
+    pub pricer: Option<std::sync::Arc<dyn crate::order_pricer::OrderPricer>>,
 }
 
 impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
@@ -233,6 +242,19 @@ where
             return;
         }
 
+        // Dispatch through the installed pricer when set.
+        #[cfg(feature = "prover_utils")]
+        if let Some(pricer) = &self.pricer {
+            match pricer.price(request).await {
+                Ok(crate::order_pricer::OrderPricingResult::Lock { .. }) => {}
+                Ok(crate::order_pricer::OrderPricingResult::Skip { reason }) => {
+                    tracing::warn!("Pricing check skipped: {reason}");
+                }
+                Err(e) => tracing::error!("Pricing check failed: {:#}", e),
+            }
+            return;
+        }
+
         let market_address = *self.request_id_layer.boundless_market.instance().address();
         let chain_id = match self.request_id_layer.boundless_market.get_chain_id().await {
             Ok(id) => id,
@@ -246,7 +268,7 @@ where
 
         if let Err(e) = requestor_order_preflight(
             request.clone(),
-            self.preflight_layer.executor_cloned(),
+            self.preflight_layer.prover_obj_cloned(),
             provider,
             market_address,
             chain_id,

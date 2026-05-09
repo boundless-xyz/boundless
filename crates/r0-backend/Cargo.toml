@@ -19,6 +19,7 @@ risc0 = [
 ]
 
 [dependencies]
+alloy = { workspace = true, features = ["network", "providers"] }
 alloy-primitives = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
