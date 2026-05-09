@@ -165,11 +165,22 @@ pub trait Prover {
     /// would upload as an image. Backends that derive program identity by
     /// hashing the binary in their own format override this.
     ///
-    /// Default uses the RISC Zero formula.
+    /// Default uses the RISC Zero formula and requires the `risc0`
+    /// feature; without it non-R0 backends must override.
     fn compute_image_id_from_bytes(&self, elf: &[u8]) -> Result<[u8; 32], ProverError> {
-        let digest = risc0_zkvm::compute_image_id(elf)
-            .map_err(|e| ProverError::ProverInternalError(format!("compute_image_id: {e}")))?;
-        Ok(digest.into())
+        #[cfg(feature = "risc0")]
+        {
+            let digest = risc0_zkvm::compute_image_id(elf)
+                .map_err(|e| ProverError::ProverInternalError(format!("compute_image_id: {e}")))?;
+            Ok(digest.into())
+        }
+        #[cfg(not(feature = "risc0"))]
+        {
+            let _ = elf;
+            Err(ProverError::ProverInternalError(
+                "compute_image_id_from_bytes requires the `risc0` feature; non-R0 backends must override".into(),
+            ))
+        }
     }
 
     /// Decode the prover's stdin payload from a request input blob.
@@ -177,10 +188,24 @@ pub trait Prover {
     /// R0 wraps stdin in `GuestEnv` so the request stores the encoded form
     /// and the prover unwraps it. Backends with a different input encoding
     /// override this.
+    ///
+    /// Default requires the `risc0` feature; without it non-R0 backends
+    /// must override.
     fn decode_input_bytes(&self, input: &[u8]) -> Result<Vec<u8>, ProverError> {
-        let env = crate::input::GuestEnv::decode(input)
-            .map_err(|e| ProverError::ProverInternalError(format!("decode input: {e}")))?;
-        Ok(env.stdin)
+        #[cfg(feature = "risc0")]
+        {
+            let env = crate::input::GuestEnv::decode(input)
+                .map_err(|e| ProverError::ProverInternalError(format!("decode input: {e}")))?;
+            Ok(env.stdin)
+        }
+        #[cfg(not(feature = "risc0"))]
+        {
+            let _ = input;
+            Err(ProverError::ProverInternalError(
+                "decode_input_bytes requires the `risc0` feature; non-R0 backends must override"
+                    .into(),
+            ))
+        }
     }
 }
 

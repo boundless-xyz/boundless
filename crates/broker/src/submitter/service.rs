@@ -33,7 +33,7 @@ use boundless_market::{
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector, SelectorExt},
     telemetry::CompletionOutcome,
-    ProgramId, PublicOutput,
+    ComputeClaimDigest, ProgramId, PublicOutput,
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -72,6 +72,13 @@ pub struct Submitter<P> {
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
     set_builder_img_id: Digest,
+    /// Assessor program identity. Combined with the assessor receipt's
+    /// journal under `assessor_claim_digest` to produce the assessor's
+    /// claim digest.
+    assessor_program_id: [u8; 32],
+    /// Claim-digest formula applied to `(assessor_program_id, journal)` to
+    /// produce the assessor's claim digest.
+    assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
     prover_address: Address,
     config: ConfigLock,
     chain_id: u64,
@@ -93,6 +100,8 @@ where
         set_verifier_addr: Address,
         market_addr: Address,
         set_builder_img_id: Digest,
+        assessor_program_id: [u8; 32],
+        assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
@@ -127,6 +136,8 @@ where
             set_verifier,
             set_verifier_addr,
             set_builder_img_id,
+            assessor_program_id,
+            assessor_claim_digest,
             prover_address,
             config,
             chain_id,
@@ -215,12 +226,13 @@ where
             .await
             .context("Failed to get assessor receipt")?
             .context("Assessor receipt missing")?;
-        let assessor_claim_digest = assessor_receipt
-            .claim()
-            .with_context(|| format!("Receipt for assessor {assessor_proof_id} missing claim"))?
-            .value()
-            .with_context(|| format!("Receipt for assessor {assessor_proof_id} claims pruned"))?
-            .digest();
+        // Compute the assessor's claim digest from
+        // `(assessor_program_id, journal)` through the configured
+        // `ComputeClaimDigest` impl.
+        let assessor_claim_digest = Digest::from_bytes(
+            self.assessor_claim_digest
+                .compute(&self.assessor_program_id, &assessor_receipt.journal.bytes),
+        );
         let assessor_journal = AssessorJournal::abi_decode(&assessor_receipt.journal.bytes)
             .context("Failed to decode assessor journal for {assessor_proof_id}")?;
 
@@ -990,6 +1002,8 @@ mod tests {
             set_verifier,
             market_address,
             set_builder_id,
+            <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)),
+            Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
             anvil.chain_id(),
             commitment_tx,
         )

@@ -916,6 +916,8 @@ impl Broker {
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,
                 set_builder_img_id,
+                <[u8; 32]>::from(assessor_img_id),
+                Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
                 chain_id,
                 proving_completion_tx.clone(),
             )?);
