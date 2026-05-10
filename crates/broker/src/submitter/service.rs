@@ -156,15 +156,6 @@ where
                 "Cannot submit batch with no assessor receipt"
             )));
         }
-        let root_bytes = self
-            .aggregator
-            .root(aggregation_state)
-            .await
-            .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("aggregator.root: {e}")))?;
-        let batch_seal =
-            self.aggregator.encode_compressed_seal(aggregation_state).await.map_err(|e| {
-                SubmitterErr::UnexpectedErr(anyhow!("aggregator.encode_compressed_seal: {e}"))
-            })?;
 
         // Check that at least one order in the batch is not expired before submitting on chain.
         // Can happen if we overcommitted to work and proving took longer than expected.
@@ -179,6 +170,16 @@ where
             // Still submit, since we support partial fulfillment.
             tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
         }
+
+        let root_bytes = self
+            .aggregator
+            .root(aggregation_state)
+            .await
+            .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("aggregator.root: {e}")))?;
+        let batch_seal =
+            self.aggregator.encode_compressed_seal(aggregation_state).await.map_err(|e| {
+                SubmitterErr::UnexpectedErr(anyhow!("aggregator.encode_compressed_seal: {e}"))
+            })?;
 
         let root = B256::from_slice(&root_bytes);
 
