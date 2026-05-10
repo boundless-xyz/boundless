@@ -867,17 +867,22 @@ impl Broker {
                 .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
                 .await?;
 
+            let set_builder_aggregator: boundless_market::aggregator::AggregatorObj =
+                Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
+                    aggregation_prover.clone(),
+                    set_builder_img_id,
+                ));
             let aggregator = Arc::new(
                 aggregator::AggregatorService::new(
                     db.clone(),
                     chain_id,
-                    set_builder_img_id,
                     assessor_img_id,
                     deployment.boundless_market_address,
                     prover_addr,
                     config.clone(),
                     aggregation_prover.clone(),
                     backends.clone(),
+                    set_builder_aggregator,
                     proving_completion_tx.clone(),
                 )
                 .await

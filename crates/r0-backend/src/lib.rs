@@ -16,9 +16,16 @@ pub mod order_pricer;
 #[cfg(feature = "risc0")]
 pub mod risc_zero;
 #[cfg(feature = "risc0")]
+pub mod set_builder;
+#[cfg(feature = "risc0")]
 pub use order_pricer::{RiscZeroRequestPricer, RiscZeroRequestPricingBackend};
 #[cfg(feature = "risc0")]
 pub use risc_zero::{RiscZeroBackend, RiscZeroClaimDigest};
+#[cfg(feature = "risc0")]
+pub use set_builder::{decode_set_builder_state, R0SetBuilderAggregator, SetBuilderView};
+
+#[cfg(feature = "test-utils")]
+pub use set_builder::test_utils::encode_set_builder_state;
 
 pub use boundless_market::backend_provider::{
     BackendProvider, BackendProviderError, BackendProviderObj,

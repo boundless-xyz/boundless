@@ -567,7 +567,7 @@ impl BrokerDb for SqliteDb {
             SET data = json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.aggregation_state.groth16_proof_id', $2)
+                       '$.aggregation_state.compressed_proof_id', $2)
             WHERE
                 id = $3"#,
         )
@@ -1239,9 +1239,11 @@ mod tests {
         let batch_id = 1;
         let batch = Batch {
             aggregation_state: Some(AggregationState {
-                guest_state: GuestState::initial([1u32; 8]),
-                claim_digests: vec![],
-                groth16_proof_id: None,
+                state: boundless_r0_backend::encode_set_builder_state(
+                    GuestState::initial([1u32; 8]),
+                    vec![],
+                ),
+                compressed_proof_id: None,
                 proof_id: "a".to_string(),
             }),
             ..Default::default()
@@ -1253,7 +1255,7 @@ mod tests {
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::Complete);
-        assert_eq!(db_batch.aggregation_state.unwrap().groth16_proof_id.unwrap(), g16_proof_id);
+        assert_eq!(db_batch.aggregation_state.unwrap().compressed_proof_id.unwrap(), g16_proof_id);
     }
 
     #[sqlx::test]
@@ -1335,14 +1337,16 @@ mod tests {
                 lock_expiration: order2.request.lock_expires_at(),
             },
         ];
-        let claim_digests = vec![[1u32; 8].into(), [2u32; 8].into()];
+        let claim_digests: Vec<risc0_zkvm::sha::Digest> = vec![[1u32; 8].into(), [2u32; 8].into()];
         let mut guest_state = GuestState::initial([3u32; 8]);
         guest_state.mmr.extend(&claim_digests);
         let agg_state = AggregationState {
-            guest_state,
+            state: boundless_r0_backend::encode_set_builder_state(
+                guest_state,
+                claim_digests.clone(),
+            ),
             proof_id: "c".to_string(),
-            claim_digests: claim_digests.clone(),
-            groth16_proof_id: None,
+            compressed_proof_id: None,
         };
 
         let base_fees = U256::from(10);
@@ -1365,10 +1369,11 @@ mod tests {
         assert_eq!(db_batch.fees, U256::from(25));
         assert!(db_batch.aggregation_state.is_some());
         let agg_state = db_batch.aggregation_state.unwrap();
-        assert_eq!(agg_state.groth16_proof_id.as_ref(), None);
-        assert!(!agg_state.guest_state.is_initial());
+        assert_eq!(agg_state.compressed_proof_id.as_ref(), None);
+        let view = boundless_r0_backend::decode_set_builder_state(&agg_state.state).unwrap();
+        assert!(!view.guest_state.is_initial());
         assert_eq!(&agg_state.proof_id, "c");
-        assert_eq!(&agg_state.claim_digests, &claim_digests);
+        assert_eq!(&view.claim_digests, &claim_digests);
     }
 
     #[sqlx::test]

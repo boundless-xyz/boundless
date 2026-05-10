@@ -271,9 +271,11 @@ proptest! {
                                             }
 
                                             let agg_state = AggregationState {
-                                                guest_state: GuestState::initial([1u32; 8]),
-                                                claim_digests: vec![],
-                                                groth16_proof_id: None,
+                                                state: boundless_r0_backend::encode_set_builder_state(
+                                                    GuestState::initial([1u32; 8]),
+                                                    vec![],
+                                                ),
+                                                compressed_proof_id: None,
                                                 proof_id,
                                             };
 

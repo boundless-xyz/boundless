@@ -17,8 +17,9 @@
 
 use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
-use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
+
+pub use boundless_market::aggregator::AggregationState;
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BatchStatus {
@@ -29,19 +30,6 @@ pub enum BatchStatus {
     PendingSubmission,
     Submitted,
     Failed,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct AggregationState {
-    pub guest_state: risc0_aggregation::GuestState,
-    /// All claim digests in this aggregation.
-    /// This collection can be used to construct the aggregation Merkle tree and Merkle paths.
-    pub claim_digests: Vec<Digest>,
-    /// Proof ID for the STARK proof that compresses the root of the aggregation tree.
-    pub proof_id: String,
-    /// Proof ID for the Groth16 proof that compresses the root of the aggregation tree.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub groth16_proof_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]

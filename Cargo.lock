@@ -2972,6 +2972,8 @@ dependencies = [
  "bincode",
  "blake3_groth16",
  "boundless-market",
+ "bytemuck",
+ "risc0-aggregation",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
  "serde",

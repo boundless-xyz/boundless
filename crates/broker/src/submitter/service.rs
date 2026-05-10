@@ -145,11 +145,8 @@ where
         })
     }
 
-    /// Encode the on-chain seal for the batch's aggregation-root Groth16
-    /// receipt. The batch always uses the canonical Groth16 selector;
-    /// routing through the registered backend keeps R0 receipt fetch + encode
-    /// inside the backend impl.
-    async fn encode_batch_seal(&self, groth16_proof_id: &str) -> Result<Vec<u8>> {
+    /// Encode the on-chain seal for the batch's compressed receipt.
+    async fn encode_batch_seal(&self, compressed_proof_id: &str) -> Result<Vec<u8>> {
         let batch_selector = alloy::primitives::FixedBytes::from(
             (SelectorExt::groth16_latest() as u32).to_be_bytes(),
         );
@@ -159,7 +156,7 @@ where
             .ok_or_else(|| anyhow!("no backend registered for batch groth16 selector"))?;
         entry
             .provider
-            .encode_seal(groth16_proof_id, batch_selector)
+            .encode_seal(compressed_proof_id, batch_selector)
             .await
             .context("provider.encode_seal for batch groth16")
     }
@@ -172,12 +169,14 @@ where
                 "Cannot submit batch with no recorded aggregation state"
             )));
         };
-        let Some(ref groth16_proof_id) = aggregation_state.groth16_proof_id else {
+        let Some(ref compressed_proof_id) = aggregation_state.compressed_proof_id else {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit batch with no recorded Groth16 proof ID"
+                "Cannot submit batch with no recorded compressed proof ID"
             )));
         };
-        if aggregation_state.claim_digests.is_empty() {
+        let view = boundless_r0_backend::decode_set_builder_state(&aggregation_state.state)
+            .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("decode aggregation state: {e}")))?;
+        if view.claim_digests.is_empty() {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit batch with no claim digests"
             )));
@@ -187,7 +186,7 @@ where
                 "Cannot submit batch with no assessor receipt"
             )));
         }
-        if !aggregation_state.guest_state.mmr.is_finalized() {
+        if !view.guest_state.mmr.is_finalized() {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit guest state that is not finalized"
             )));
@@ -208,11 +207,11 @@ where
         }
 
         // Collect the needed parts for the new merkle root:
-        let batch_seal = self.encode_batch_seal(groth16_proof_id).await?;
-        let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
+        let batch_seal = self.encode_batch_seal(compressed_proof_id).await?;
+        let batch_root = risc0_aggregation::merkle_root(&view.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
-        if aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() != batch_root {
+        if view.guest_state.mmr.clone().finalized_root().unwrap() != batch_root {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Guest state finalized root is inconsistent with claim digests"
             )));
@@ -329,17 +328,15 @@ where
                 } else {
                     // Set-inclusion path: constructed inline against the R0
                     // set-builder.
-                    let order_claim_index = aggregation_state
+                    let order_claim_index = view
                         .claim_digests
                         .iter()
                         .position(|claim| *claim == order_claim_digest)
                         .ok_or(anyhow!(
                             "Failed to find order claim {order_claim_digest:x?} in aggregated claims"
                         ))?;
-                    let order_path = risc0_aggregation::merkle_path(
-                        &aggregation_state.claim_digests,
-                        order_claim_index,
-                    );
+                    let order_path =
+                        risc0_aggregation::merkle_path(&view.claim_digests, order_claim_index);
                     tracing::debug!(
                         "Merkle path for order {order_id} : {:x?} : {order_path:x?}",
                         order_claim_digest
@@ -422,13 +419,13 @@ where
             )));
         }
 
-        let assessor_claim_index = aggregation_state
+        let assessor_claim_index = view
             .claim_digests
             .iter()
             .position(|claim| *claim == assessor_claim_digest)
             .ok_or(anyhow!("Failed to find order claim assessor claim in aggregated claims"))?;
         let assessor_path =
-            risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
+            risc0_aggregation::merkle_path(&view.claim_digests, assessor_claim_index);
         tracing::debug!(
             "Merkle path for assessor : {:x?} : {assessor_path:x?}",
             assessor_claim_digest
@@ -979,13 +976,15 @@ mod tests {
             deadline: Some(order.request.offer.rampUpStart + order.request.offer.timeout as u64),
             error_msg: None,
             aggregation_state: Some(AggregationState {
-                guest_state: batch_guest_state,
+                state: boundless_r0_backend::encode_set_builder_state(
+                    batch_guest_state,
+                    vec![
+                        echo_receipt.claim().unwrap().digest(),
+                        assessor_receipt.claim().unwrap().digest(),
+                    ],
+                ),
                 proof_id: aggregation_proof.id,
-                groth16_proof_id: Some(batch_g16),
-                claim_digests: vec![
-                    echo_receipt.claim().unwrap().digest(),
-                    assessor_receipt.claim().unwrap().digest(),
-                ],
+                compressed_proof_id: Some(batch_g16),
             }),
         };
         db.add_batch(batch_id, batch).await.unwrap();
