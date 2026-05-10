@@ -644,7 +644,7 @@ impl AggregatorService {
             })?;
             let aggregator = self.aggregator.clone();
             let context = format!("batch {batch_id} with orders {:?}", batch.orders);
-            let groth16_start = std::time::Instant::now();
+            let compression_start = std::time::Instant::now();
             let compress_proof_id = match retry_with_context(
                 retry_count,
                 sleep_ms,
@@ -666,9 +666,9 @@ impl AggregatorService {
                     return Err(AggregatorErr::CompressionErr(err));
                 }
             };
-            let batch_groth16_secs = groth16_start.elapsed().as_secs_f64();
+            let batch_compression_secs = compression_start.elapsed().as_secs_f64();
             tracing::debug!(
-                "Completed groth16 compression for batch {batch_id} with orders {:?}",
+                "Completed compression for batch {batch_id} with orders {:?}",
                 batch.orders
             );
 
@@ -677,7 +677,7 @@ impl AggregatorService {
                     order_id_str,
                     set_builder_proving_secs,
                     assessor_proving_secs,
-                    Some(batch_groth16_secs),
+                    Some(batch_compression_secs),
                 );
             }
 
@@ -766,6 +766,19 @@ mod tests {
         ))
     }
 
+    fn test_aggregator(
+        prover: ProverObj,
+        set_builder_id: risc0_zkvm::sha::Digest,
+    ) -> boundless_market::aggregator::AggregatorObj {
+        let provider: BackendProviderObj =
+            Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+        Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
+            prover,
+            set_builder_id,
+            provider,
+        ))
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn aggregate_order_one_shot() {
@@ -819,10 +832,7 @@ mod tests {
             config,
             prover.clone(),
             test_backends(prover.clone()),
-            std::sync::Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
-                prover,
-                set_builder_id,
-            )),
+            test_aggregator(prover, set_builder_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -992,10 +1002,7 @@ mod tests {
             config,
             prover.clone(),
             test_backends(prover.clone()),
-            std::sync::Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
-                prover,
-                set_builder_id,
-            )),
+            test_aggregator(prover, set_builder_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1176,10 +1183,7 @@ mod tests {
             config,
             prover.clone(),
             test_backends(prover.clone()),
-            std::sync::Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
-                prover,
-                set_builder_id,
-            )),
+            test_aggregator(prover, set_builder_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1300,10 +1304,7 @@ mod tests {
             config.clone(),
             prover.clone(),
             test_backends(prover.clone()),
-            std::sync::Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
-                prover,
-                set_builder_id,
-            )),
+            test_aggregator(prover, set_builder_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1432,10 +1433,7 @@ mod tests {
             config.clone(),
             prover.clone(),
             test_backends(prover.clone()),
-            std::sync::Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
-                prover,
-                set_builder_id,
-            )),
+            test_aggregator(prover, set_builder_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1613,10 +1611,7 @@ mod tests {
             config,
             prover.clone(),
             test_backends(prover.clone()),
-            std::sync::Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
-                prover,
-                Digest::ZERO,
-            )),
+            test_aggregator(prover, Digest::ZERO),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await

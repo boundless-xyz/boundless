@@ -25,7 +25,8 @@ use crate::program::{ProgramId, PublicOutput};
 /// Persistent state the broker stores between aggregation rounds.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AggregationState {
-    /// State owned by the [`Aggregator`] implementation.
+    /// State owned by the [`Aggregator`] implementation. Format is
+    /// impl-defined.
     pub state: Vec<u8>,
     /// Proof id for the proof attesting to the current root.
     pub proof_id: String,
@@ -77,11 +78,18 @@ pub trait Aggregator: Send + Sync {
     /// compressed proof id.
     async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError>;
 
-    /// Return the on-chain root for the finalized aggregation state.
+    /// Encode the compressed-proof seal for on-chain submission.
+    async fn encode_compressed_seal(
+        &self,
+        state: &AggregationState,
+    ) -> Result<Vec<u8>, AggregatorError>;
+
+    /// Merkle root of the finalized aggregation state, in the byte form
+    /// the on-chain set verifier expects.
     async fn root(&self, state: &AggregationState) -> Result<[u8; 32], AggregatorError>;
 
-    /// Compute the inclusion proof for `claim_digest` against the
-    /// aggregation state, encoded as on-chain calldata.
+    /// Inclusion proof for `claim_digest` against the aggregation state,
+    /// in the byte form the on-chain verifier expects (encoded calldata).
     async fn inclusion_proof(
         &self,
         state: &AggregationState,

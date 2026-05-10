@@ -32,7 +32,7 @@ use boundless_market::{
         AssessorJournal, AssessorReceipt, Fulfillment, FulfillmentDataImageIdAndJournal,
         FulfillmentDataType, PredicateType,
     },
-    selector::{is_blake3_groth16_selector, is_groth16_selector, SelectorExt},
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
     telemetry::CompletionOutcome,
     ComputeClaimDigest, ProgramId, PublicOutput,
 };
@@ -138,22 +138,6 @@ where
         })
     }
 
-    /// Encode the on-chain seal for the batch's compressed receipt.
-    async fn encode_batch_seal(&self, compressed_proof_id: &str) -> Result<Vec<u8>> {
-        let batch_selector = alloy::primitives::FixedBytes::from(
-            (SelectorExt::groth16_latest() as u32).to_be_bytes(),
-        );
-        let entry = self
-            .backends
-            .find(batch_selector)
-            .ok_or_else(|| anyhow!("no backend registered for batch groth16 selector"))?;
-        entry
-            .provider
-            .encode_seal(compressed_proof_id, batch_selector)
-            .await
-            .context("provider.encode_seal for batch groth16")
-    }
-
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
         tracing::info!("Submitting batch {batch_id}");
 
@@ -162,11 +146,11 @@ where
                 "Cannot submit batch with no recorded aggregation state"
             )));
         };
-        let Some(ref compressed_proof_id) = aggregation_state.compressed_proof_id else {
+        if aggregation_state.compressed_proof_id.is_none() {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit batch with no recorded compressed proof ID"
             )));
-        };
+        }
         if batch.assessor_proof_id.is_none() {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit batch with no assessor receipt"
@@ -177,6 +161,10 @@ where
             .root(aggregation_state)
             .await
             .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("aggregator.root: {e}")))?;
+        let batch_seal =
+            self.aggregator.encode_compressed_seal(aggregation_state).await.map_err(|e| {
+                SubmitterErr::UnexpectedErr(anyhow!("aggregator.encode_compressed_seal: {e}"))
+            })?;
 
         // Check that at least one order in the batch is not expired before submitting on chain.
         // Can happen if we overcommitted to work and proving took longer than expected.
@@ -192,8 +180,6 @@ where
             tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
         }
 
-        // Collect the needed parts for the new merkle root:
-        let batch_seal = self.encode_batch_seal(compressed_proof_id).await?;
         let root = B256::from_slice(&root_bytes);
 
         // Collect the needed parts for the fulfillBatch:
@@ -936,9 +922,14 @@ mod tests {
         market.lock_request(&order.request, client_sig.to_vec()).await.unwrap();
 
         let (commitment_tx, commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
-        let aggregator: boundless_market::aggregator::AggregatorObj = Arc::new(
-            boundless_r0_backend::R0SetBuilderAggregator::new(prover.clone(), set_builder_id),
-        );
+        let aggregator_provider: boundless_market::backend_provider::BackendProviderObj =
+            Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+        let aggregator: boundless_market::aggregator::AggregatorObj =
+            Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
+                prover.clone(),
+                set_builder_id,
+                aggregator_provider,
+            ));
         let submitter = Submitter::new(
             db.clone(),
             config,

@@ -777,6 +777,7 @@ impl Broker {
         let r0_provider: boundless_market::backend_provider::BackendProviderObj = Arc::new(
             RiscZeroBackend::new(prover.clone(), aggregation_prover.clone(), is_dev_mode()),
         );
+        let aggregator_provider = r0_provider.clone();
         let supported_selectors = SupportedSelectors::default();
         let backends = BackendRegistry::with_backend(BackendEntry::new(
             "risc0",
@@ -871,6 +872,7 @@ impl Broker {
                 Arc::new(boundless_r0_backend::R0SetBuilderAggregator::new(
                     aggregation_prover.clone(),
                     set_builder_img_id,
+                    aggregator_provider,
                 ));
             let aggregator = Arc::new(
                 aggregator::AggregatorService::new(

@@ -555,7 +555,11 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError> {
+    async fn complete_batch(
+        &self,
+        batch_id: usize,
+        compressed_proof_id: &str,
+    ) -> Result<(), DbError> {
         let batch = self.get_batch(batch_id).await?;
         if batch.aggregation_state.is_none() {
             return Err(DbError::BatchAggregationStateIsNone(batch_id));
@@ -572,7 +576,7 @@ impl BrokerDb for SqliteDb {
                 id = $3"#,
         )
         .bind(BatchStatus::Complete)
-        .bind(g16_proof_id)
+        .bind(compressed_proof_id)
         .bind(batch_id as i64)
         .execute(&self.pool)
         .await?;
@@ -1250,12 +1254,15 @@ mod tests {
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
-        let g16_proof_id = "Testg16";
-        db.complete_batch(batch_id, g16_proof_id).await.unwrap();
+        let compressed_proof_id = "Testg16";
+        db.complete_batch(batch_id, compressed_proof_id).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::Complete);
-        assert_eq!(db_batch.aggregation_state.unwrap().compressed_proof_id.unwrap(), g16_proof_id);
+        assert_eq!(
+            db_batch.aggregation_state.unwrap().compressed_proof_id.unwrap(),
+            compressed_proof_id
+        );
     }
 
     #[sqlx::test]

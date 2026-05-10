@@ -14,12 +14,15 @@
 
 //! RISC Zero set-builder implementation of the [`Aggregator`] trait.
 
+use alloy_primitives::FixedBytes;
 use anyhow::{anyhow, Context as _};
 use async_trait::async_trait;
 use boundless_market::{
     aggregator::{AggregationState, Aggregator, AggregatorError},
+    backend_provider::BackendProviderObj,
     program::{ProgramId, PublicOutput},
     prover_utils::prover::ProverObj,
+    selector::SelectorExt,
 };
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
@@ -53,12 +56,17 @@ impl PersistedState {
 pub struct R0SetBuilderAggregator {
     prover: ProverObj,
     set_builder_img_id: Digest,
+    provider: BackendProviderObj,
 }
 
 impl R0SetBuilderAggregator {
     /// Construct a new R0 set-builder aggregator.
-    pub fn new(prover: ProverObj, set_builder_img_id: Digest) -> Self {
-        Self { prover, set_builder_img_id }
+    pub fn new(
+        prover: ProverObj,
+        set_builder_img_id: Digest,
+        provider: BackendProviderObj,
+    ) -> Self {
+        Self { prover, set_builder_img_id, provider }
     }
 
     async fn validate_and_extract_claim(
@@ -245,6 +253,20 @@ impl Aggregator for R0SetBuilderAggregator {
         receipt
             .abi_encode_seal()
             .map_err(|e| AggregatorError::Other(anyhow!("abi encode set inclusion seal: {e}")))
+    }
+
+    async fn encode_compressed_seal(
+        &self,
+        state: &AggregationState,
+    ) -> Result<Vec<u8>, AggregatorError> {
+        let compressed_proof_id = state.compressed_proof_id.as_ref().ok_or_else(|| {
+            AggregatorError::InvalidState("compressed_proof_id not present".into())
+        })?;
+        let selector = FixedBytes::from((SelectorExt::groth16_latest() as u32).to_be_bytes());
+        self.provider
+            .encode_seal(compressed_proof_id, selector)
+            .await
+            .map_err(|e| AggregatorError::Other(anyhow!("encode compressed seal: {e}")))
     }
 
     async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError> {

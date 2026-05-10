@@ -67,7 +67,7 @@ enum ExistingOrderOperation {
 enum BatchOperation {
     GetCurrentBatch,
     CompleteBatch {
-        g16_proof_id: String,
+        compressed_proof_id: String,
     },
     GetCompleteBatch,
     SetBatchSubmitted,
@@ -224,11 +224,11 @@ proptest! {
                                     BatchOperation::GetCurrentBatch => {
                                         db.get_current_batch().await.unwrap();
                                     },
-                                    BatchOperation::CompleteBatch { g16_proof_id } => {
+                                    BatchOperation::CompleteBatch { compressed_proof_id } => {
                                         let batch_id = db.get_current_batch().await.unwrap();
                                         let batch = db.get_batch(batch_id).await.unwrap();
                                         if batch.aggregation_state.is_some() {
-                                            db.complete_batch(batch_id, &g16_proof_id).await.unwrap();
+                                            db.complete_batch(batch_id, &compressed_proof_id).await.unwrap();
                                             state.completed_batch.store(true, Ordering::SeqCst);
                                         }
                                     },
