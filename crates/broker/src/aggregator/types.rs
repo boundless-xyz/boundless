@@ -55,7 +55,6 @@ pub struct Batch {
 }
 
 pub(crate) struct AggregateProofsResult {
-    pub(crate) proof_id: String,
     pub(crate) set_builder_proving_secs: Option<f64>,
     pub(crate) assessor_proving_secs: Option<f64>,
 }

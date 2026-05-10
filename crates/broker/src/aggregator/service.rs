@@ -573,11 +573,7 @@ impl AggregatorService {
                 format!("Failed to update batch {batch_id} with orders {:?} in the DB", all_orders)
             })?;
 
-        Ok(AggregateProofsResult {
-            proof_id: aggregation_state.proof_id,
-            set_builder_proving_secs,
-            assessor_proving_secs,
-        })
+        Ok(AggregateProofsResult { set_builder_proving_secs, assessor_proving_secs })
     }
 
     async fn aggregate(&self) -> Result<(), AggregatorErr> {
@@ -586,64 +582,55 @@ impl AggregatorService {
         let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
-        let (aggregation_proof_id, compress, set_builder_proving_secs, assessor_proving_secs) =
-            match batch.status {
-                BatchStatus::Aggregating => {
-                    // Get and filter all pending proofs
-                    let (new_proofs, new_groth16_proofs) =
-                        self.get_filtered_pending_proofs().await?;
+        let (compress, set_builder_proving_secs, assessor_proving_secs) = match batch.status {
+            BatchStatus::Aggregating => {
+                // Get and filter all pending proofs
+                let (new_proofs, new_groth16_proofs) = self.get_filtered_pending_proofs().await?;
 
-                    // Finalize the current batch before adding any new orders if the finalization conditions
-                    // are already met.
-                    let finalize = self
-                        .check_finalize(
-                            batch_id,
-                            &batch,
-                            &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
-                        )
-                        .await?;
-
-                    // If we don't need to finalize, and there are no new proofs, there is no work to do.
-                    if !finalize && new_proofs.is_empty() {
-                        tracing::trace!("No aggregation work to do for batch {batch_id}");
-                        return Ok(());
-                    }
-
-                    let result = self
-                        .aggregate_proofs(
-                            batch_id,
-                            &batch,
-                            &new_proofs,
-                            &new_groth16_proofs,
-                            finalize,
-                        )
-                        .await
-                        .context(format!(
-                            "Failed to aggregate proofs for batch {batch_id} with orders {:?}",
-                            batch.orders
-                        ))?;
-                    (
-                        result.proof_id,
-                        finalize,
-                        result.set_builder_proving_secs,
-                        result.assessor_proving_secs,
+                // Finalize the current batch before adding any new orders if the finalization conditions
+                // are already met.
+                let finalize = self
+                    .check_finalize(
+                        batch_id,
+                        &batch,
+                        &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
                     )
+                    .await?;
+
+                // If we don't need to finalize, and there are no new proofs, there is no work to do.
+                if !finalize && new_proofs.is_empty() {
+                    tracing::trace!("No aggregation work to do for batch {batch_id}");
+                    return Ok(());
                 }
-                BatchStatus::PendingCompression => {
-                    let aggregation_state = batch.aggregation_state.with_context(|| format!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None"))?;
-                    (aggregation_state.proof_id, true, None, None)
-                }
-                status => {
+
+                let result = self
+                    .aggregate_proofs(batch_id, &batch, &new_proofs, &new_groth16_proofs, finalize)
+                    .await
+                    .context(format!(
+                        "Failed to aggregate proofs for batch {batch_id} with orders {:?}",
+                        batch.orders
+                    ))?;
+                (finalize, result.set_builder_proving_secs, result.assessor_proving_secs)
+            }
+            BatchStatus::PendingCompression => {
+                if batch.aggregation_state.is_none() {
                     return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
-                        "Unexpected batch status {status:?}"
-                    )))
+                            "Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None"
+                        )));
                 }
-            };
+                (true, None, None)
+            }
+            status => {
+                return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
+                    "Unexpected batch status {status:?}"
+                )))
+            }
+        };
 
         if compress {
             let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
             tracing::debug!(
-                "Starting groth16 compression proof for batch {batch_id} with orders {:?}",
+                "Starting compression proof for batch {batch_id} with orders {:?}",
                 batch.orders
             );
 
@@ -652,21 +639,20 @@ impl AggregatorService {
                 (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
             };
 
+            let state = batch.aggregation_state.as_ref().with_context(|| {
+                format!("Batch {batch_id} aggregation state missing during compression")
+            })?;
+            let aggregator = self.aggregator.clone();
             let context = format!("batch {batch_id} with orders {:?}", batch.orders);
             let groth16_start = std::time::Instant::now();
-            // TODO: route batch compression through `BackendProvider` so
-            // each backend picks its own wrap target. Today the broker
-            // hardcodes the R0 Groth16 path; `AggregationState::compressed_proof_id`
-            // is the generic handle but the producer is still backend-specific.
             let compress_proof_id = match retry_with_context(
                 retry_count,
                 sleep_ms,
-                || async {
-                    let proof_id = self.prover.compress(&aggregation_proof_id).await?;
-                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
-                    Ok::<String, provers::ProverError>(proof_id)
+                || {
+                    let aggregator = aggregator.clone();
+                    async move { aggregator.compress(state).await }
                 },
-                "compress_and_verify",
+                "compress",
                 &context,
             )
             .await

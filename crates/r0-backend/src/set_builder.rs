@@ -23,7 +23,7 @@ use boundless_market::{
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
-    MaybePruned, ReceiptClaim,
+    MaybePruned, Receipt, ReceiptClaim,
 };
 use serde::{Deserialize, Serialize};
 
@@ -205,6 +205,31 @@ impl Aggregator for R0SetBuilderAggregator {
         proof_ids: &[String],
     ) -> Result<AggregationState, AggregatorError> {
         self.aggregate_inner(state, proof_ids, true).await
+    }
+
+    async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError> {
+        let proof_id = self
+            .prover
+            .compress(&state.proof_id)
+            .await
+            .map_err(|e| AggregatorError::ProvingFailed(format!("compress: {e}")))?;
+
+        let receipt_bytes = self
+            .prover
+            .get_compressed_receipt(&proof_id)
+            .await
+            .map_err(|e| AggregatorError::ProvingFailed(format!("get compressed receipt: {e}")))?
+            .ok_or_else(|| {
+                AggregatorError::ProvingFailed(format!("compressed receipt missing: {proof_id}"))
+            })?;
+        let receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
+            AggregatorError::ProvingFailed(format!("deserialize compressed receipt: {e}"))
+        })?;
+        receipt.verify_integrity_with_context(&Default::default()).map_err(|e| {
+            AggregatorError::ProvingFailed(format!("verify compressed receipt: {e}"))
+        })?;
+
+        Ok(proof_id)
     }
 }
 

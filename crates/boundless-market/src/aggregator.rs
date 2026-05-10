@@ -70,6 +70,10 @@ pub trait Aggregator: Send + Sync {
         state: Option<&AggregationState>,
         proof_ids: &[String],
     ) -> Result<AggregationState, AggregatorError>;
+
+    /// Compress (wrap) the finalized aggregation root and return the
+    /// compressed proof id.
+    async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError>;
 }
 
 /// `Arc`-wrapped trait object alias.
