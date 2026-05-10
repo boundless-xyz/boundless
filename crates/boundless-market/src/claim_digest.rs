@@ -28,9 +28,9 @@ pub trait ComputeClaimDigest: Send + Sync {
 
     /// Compute the claim digest from a pre-hashed public-output digest.
     ///
-    /// Default uses [`Self::compute`] over a buffer that already represents
-    /// the output's digest. Backends that have a more direct formula should
-    /// override.
+    /// This is a required method because many verifier formulas distinguish
+    /// "digest of output" from "output bytes". Implementations must match
+    /// the verifier they are paired with.
     fn compute_from_output_digest(
         &self,
         program_id: &[u8; 32],

@@ -25,6 +25,24 @@ use std::{collections::HashMap, sync::Arc};
 use super::backend_provider::BackendProviderObj;
 use crate::prover_utils::prover::ProverObj;
 
+/// Errors returned when constructing a [`BackendRegistry`].
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum BackendRegistryError {
+    /// More than one backend tried to claim the same selector.
+    #[error(
+        "selector {selector} already registered to backend {existing_backend}; cannot also register backend {new_backend}"
+    )]
+    DuplicateSelector {
+        /// Selector encoded as hex.
+        selector: String,
+        /// Backend that already owns the selector.
+        existing_backend: String,
+        /// Backend that attempted to claim the selector.
+        new_backend: String,
+    },
+}
+
 /// One backend registered with the broker for full proving.
 ///
 /// One entry can claim multiple selectors and is shared under each
@@ -73,29 +91,45 @@ impl BackendRegistry {
 
     /// Construct a registry with a single backend registered for all listed selectors.
     pub fn with_backend(registration: BackendEntry) -> Self {
+        Self::try_with_backend(registration).expect("duplicate selector in BackendRegistry")
+    }
+
+    /// Construct a registry with a single backend registered for all listed selectors.
+    pub fn try_with_backend(registration: BackendEntry) -> Result<Self, BackendRegistryError> {
         let mut registry = Self::default();
-        registry.register(registration);
-        registry
+        registry.try_register(registration)?;
+        Ok(registry)
     }
 
     /// Register a backend.
     ///
-    /// Conflict resolution when two registrations claim the same selector
-    /// is unspecified and may change; callers should not rely on it. Treat
-    /// duplicate-selector registrations as configuration bugs.
+    /// Panics if any selector is already registered. Use
+    /// [`Self::try_register`] to handle duplicate selectors explicitly.
     pub fn register(&mut self, registration: BackendEntry) {
-        let registration = Arc::new(registration);
+        self.try_register(registration).expect("duplicate selector in BackendRegistry")
+    }
+
+    /// Register a backend.
+    ///
+    /// Duplicate-selector registrations are configuration bugs and are
+    /// rejected before any registry state is mutated.
+    pub fn try_register(&mut self, registration: BackendEntry) -> Result<(), BackendRegistryError> {
         for selector in &registration.selectors {
-            if let Some(prev) = self.by_selector.insert(*selector, registration.clone()) {
-                tracing::warn!(
-                    selector = %hex::encode(selector.0),
-                    new_backend = %registration.name,
-                    previous_backend = %prev.name,
-                    "BackendRegistry: selector already registered; overwriting binding"
-                );
+            if let Some(prev) = self.by_selector.get(selector) {
+                return Err(BackendRegistryError::DuplicateSelector {
+                    selector: hex::encode(selector.0),
+                    existing_backend: prev.name.clone(),
+                    new_backend: registration.name.clone(),
+                });
             }
         }
+
+        let registration = Arc::new(registration);
+        for selector in &registration.selectors {
+            self.by_selector.insert(*selector, registration.clone());
+        }
         self.backends.push(registration);
+        Ok(())
     }
 
     /// Look up the backend registered for the given selector.
