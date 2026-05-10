@@ -874,17 +874,19 @@ impl Broker {
                     set_builder_img_id,
                     aggregator_provider,
                 ));
+            let assessor: boundless_assessor::AssessorObj = Arc::new(
+                boundless_r0_backend::R0Assessor::new(aggregation_prover.clone(), assessor_img_id),
+            );
             let aggregator = Arc::new(
                 aggregator::AggregatorService::new(
                     db.clone(),
                     chain_id,
-                    assessor_img_id,
                     deployment.boundless_market_address,
                     prover_addr,
                     config.clone(),
-                    aggregation_prover.clone(),
                     backends.clone(),
                     set_builder_aggregator.clone(),
+                    assessor.clone(),
                     proving_completion_tx.clone(),
                 )
                 .await
@@ -917,13 +919,12 @@ impl Broker {
             let submitter = Arc::new(submitter::Submitter::new(
                 db.clone(),
                 config.clone(),
-                aggregation_prover.clone(),
                 backends.clone(),
                 set_builder_aggregator.clone(),
+                assessor.clone(),
                 provider.clone(),
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,
-                <[u8; 32]>::from(assessor_img_id),
                 Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
                 chain_id,
                 proving_completion_tx.clone(),

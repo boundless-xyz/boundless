@@ -12,11 +12,15 @@
 #![deny(missing_docs)]
 
 #[cfg(feature = "risc0")]
+pub mod assessor;
+#[cfg(feature = "risc0")]
 pub mod order_pricer;
 #[cfg(feature = "risc0")]
 pub mod risc_zero;
 #[cfg(feature = "risc0")]
 pub mod set_builder;
+#[cfg(feature = "risc0")]
+pub use assessor::R0Assessor;
 #[cfg(feature = "risc0")]
 pub use order_pricer::{RiscZeroRequestPricer, RiscZeroRequestPricingBackend};
 #[cfg(feature = "risc0")]

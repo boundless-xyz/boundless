@@ -14,12 +14,11 @@
 
 use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
-use boundless_assessor::{AssessorInput, Fulfillment};
+use boundless_assessor::{AssessorObj, Fulfillment};
 use boundless_market::{
     aggregator::AggregatorObj,
     backend_registry::BackendRegistry,
     contracts::{eip712_domain, FulfillmentData, PredicateType},
-    input::GuestEnv,
 };
 use chrono::Utc;
 use hex::FromHex;
@@ -34,7 +33,7 @@ use crate::{
     futures_retry::retry_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::{self, ProverObj},
+    provers,
     task::{BrokerService, SupervisorErr},
     AggregationState, Batch, BatchStatus, FulfillmentType,
 };
@@ -46,15 +45,15 @@ use super::types::AggregateProofsResult;
 pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
-    /// Prover used for assessor proving.
-    prover: ProverObj,
     /// Selector → backend registry. Per-order journal fetches resolve
     /// `entry.prover` from this so the prover that produced an order's
     /// `proof_id` is the one queried for its journal.
     backends: BackendRegistry,
     /// Pluggable aggregator that owns the set-builder proving body.
     aggregator: AggregatorObj,
-    assessor_guest_id: Digest,
+    /// Pluggable assessor that owns the per-batch assessor proof. Encodes
+    /// its own input and holds its own prover handle internally.
+    assessor: AssessorObj,
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
@@ -67,22 +66,20 @@ impl AggregatorService {
     pub async fn new(
         db: DbObj,
         chain_id: u64,
-        assessor_guest_id: Digest,
         market_addr: Address,
         prover_addr: Address,
         config: ConfigLock,
-        prover: ProverObj,
         backends: BackendRegistry,
         aggregator: AggregatorObj,
+        assessor: AssessorObj,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         Ok(Self {
             db,
             config,
-            prover,
             backends,
             aggregator,
-            assessor_guest_id,
+            assessor,
             market_addr,
             prover_addr,
             chain_id,
@@ -180,31 +177,17 @@ impl AggregatorService {
         }
 
         let order_count = fills.len();
-        let input = AssessorInput {
-            fills,
-            domain: eip712_domain(self.market_addr, self.chain_id),
-            prover_address: self.prover_addr,
-        };
-        let stdin = GuestEnv::builder().write_frame(&input.encode()).stdin;
+        let domain = eip712_domain(self.market_addr, self.chain_id);
 
-        let input_id =
-            self.prover.upload_input(stdin).await.context("Failed to upload assessor input")?;
-
-        let proof_res = self
-            .prover
-            .prove_and_monitor_stark(&self.assessor_guest_id.to_string(), &input_id, vec![])
+        let proof_id = self
+            .assessor
+            .prove(&fills, domain, self.prover_addr)
             .await
-            .context("Failed to prove assesor stark")?;
+            .context("Failed to prove assessor stark")?;
 
-        tracing::debug!(
-            "Assessor proof completed, proof id: {} count: {} cycles: {:?} time: {}",
-            proof_res.id,
-            order_count,
-            proof_res.stats.as_ref().map(|s| s.total_cycles),
-            proof_res.elapsed_time
-        );
+        tracing::debug!("Assessor proof completed, proof id: {} count: {}", proof_id, order_count);
 
-        Ok(proof_res.id)
+        Ok(proof_id)
     }
 
     /// Get the sum of the size of the journals for proofs in a batch
@@ -729,7 +712,7 @@ mod tests {
         db::SqliteDb,
         now_timestamp,
         order_committer::CommitmentComplete,
-        provers::{encode_input, DefaultProver, Prover},
+        provers::{encode_input, DefaultProver, Prover, ProverObj},
         BatchStatus, FulfillmentType, Order, OrderStatus,
     };
     use alloy::{
@@ -779,6 +762,13 @@ mod tests {
         ))
     }
 
+    fn test_assessor(
+        prover: ProverObj,
+        assessor_id: risc0_zkvm::sha::Digest,
+    ) -> boundless_assessor::AssessorObj {
+        Arc::new(boundless_r0_backend::R0Assessor::new(prover, assessor_id))
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn aggregate_order_one_shot() {
@@ -826,13 +816,12 @@ mod tests {
         let aggregator = AggregatorService::new(
             db.clone(),
             chain_id,
-            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
-            prover.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover, set_builder_id),
+            test_aggregator(prover.clone(), set_builder_id),
+            test_assessor(prover, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -996,13 +985,12 @@ mod tests {
         let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
-            prover.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover, set_builder_id),
+            test_aggregator(prover.clone(), set_builder_id),
+            test_assessor(prover, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1177,13 +1165,12 @@ mod tests {
         let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            assessor_id,
             Address::ZERO,
             prover_addr,
             config,
-            prover.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover, set_builder_id),
+            test_aggregator(prover.clone(), set_builder_id),
+            test_assessor(prover, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1298,13 +1285,12 @@ mod tests {
         let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),
-            prover.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover, set_builder_id),
+            test_aggregator(prover.clone(), set_builder_id),
+            test_assessor(prover, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1427,13 +1413,12 @@ mod tests {
         let aggregator = AggregatorService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
-            assessor_id,
             Address::ZERO,
             signer.address(),
             config.clone(),
-            prover.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover, set_builder_id),
+            test_aggregator(prover.clone(), set_builder_id),
+            test_assessor(prover, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1605,13 +1590,12 @@ mod tests {
         AggregatorService::new(
             db,
             1,
-            Digest::ZERO,
             Address::ZERO,
             Address::ZERO,
             config,
-            prover.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover, Digest::ZERO),
+            test_aggregator(prover.clone(), Digest::ZERO),
+            test_assessor(prover, Digest::ZERO),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await

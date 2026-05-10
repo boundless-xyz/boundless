@@ -24,6 +24,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
+use boundless_assessor::AssessorObj;
 use boundless_market::{
     aggregator::AggregatorObj,
     backend_registry::BackendRegistry,
@@ -47,7 +48,6 @@ use crate::{
     errors::{handle_order_failure, BrokerFailure, CodedError},
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::ProverObj,
     task::{BrokerService, SupervisorErr},
     Batch, FulfillmentType, Order,
 };
@@ -58,17 +58,18 @@ use super::error::SubmitterErr;
 #[derive(Clone)]
 pub struct Submitter<P> {
     db: DbObj,
-    prover: ProverObj,
     /// Selector → backend registry. Per-order seal encoding for compressed
     /// selectors (Groth16, Blake3-Groth16) and per-order claim-digest
     /// computation route through the registered `BackendProvider`.
     backends: BackendRegistry,
     aggregator: AggregatorObj,
+    /// Pluggable assessor used to fetch the per-batch assessor journal.
+    /// Holds the assessor's program id; broker reads it via
+    /// `assessor.program_id()` when computing the assessor claim digest.
+    assessor: AssessorObj,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
-    /// Assessor program identity.
-    assessor_program_id: [u8; 32],
     /// Claim-digest formula applied to `(assessor_program_id, journal)` to
     /// produce the assessor's claim digest.
     assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
@@ -87,13 +88,12 @@ where
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
         backends: BackendRegistry,
         aggregator: AggregatorObj,
+        assessor: AssessorObj,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
-        assessor_program_id: [u8; 32],
         assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -123,13 +123,12 @@ where
 
         Ok(Self {
             db,
-            prover,
             backends,
             aggregator,
+            assessor,
             market,
             set_verifier,
             set_verifier_addr,
-            assessor_program_id,
             assessor_claim_digest,
             prover_address,
             config,
@@ -185,16 +184,15 @@ where
 
         // Collect the needed parts for the fulfillBatch:
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
-        let assessor_receipt = self
-            .prover
-            .get_receipt(assessor_proof_id)
+        let assessor_journal_bytes = self
+            .assessor
+            .get_journal(assessor_proof_id)
             .await
-            .context("Failed to get assessor receipt")?
-            .context("Assessor receipt missing")?;
-        let assessor_claim_digest = self
-            .assessor_claim_digest
-            .compute(&self.assessor_program_id, &assessor_receipt.journal.bytes);
-        let assessor_journal = AssessorJournal::abi_decode(&assessor_receipt.journal.bytes)
+            .context("Failed to get assessor journal")?;
+        let assessor_program_id = self.assessor.program_id();
+        let assessor_claim_digest =
+            self.assessor_claim_digest.compute(&assessor_program_id, &assessor_journal_bytes);
+        let assessor_journal = AssessorJournal::abi_decode(&assessor_journal_bytes)
             .context("Failed to decode assessor journal for {assessor_proof_id}")?;
 
         let mut fulfillments = vec![];
@@ -367,8 +365,8 @@ where
             .aggregator
             .inclusion_proof(
                 aggregation_state,
-                &ProgramId::from(self.assessor_program_id),
-                &PublicOutput::from(assessor_receipt.journal.bytes.clone()),
+                &ProgramId::from(assessor_program_id),
+                &PublicOutput::from(assessor_journal_bytes.clone()),
                 &assessor_claim_digest,
             )
             .await
@@ -653,7 +651,7 @@ mod tests {
     use crate::{
         db::SqliteDb,
         now_timestamp,
-        provers::{encode_input, DefaultProver},
+        provers::{encode_input, DefaultProver, ProverObj},
         AggregationState, Batch, BatchStatus, Order, OrderStatus,
     };
     use alloy::{
@@ -931,16 +929,17 @@ mod tests {
                 set_builder_id,
                 aggregator_provider,
             ));
+        let assessor: boundless_assessor::AssessorObj =
+            Arc::new(boundless_r0_backend::R0Assessor::new(prover.clone(), assessor_id));
         let submitter = Submitter::new(
             db.clone(),
             config,
-            prover.clone(),
             test_backends(prover.clone()),
             aggregator,
+            assessor,
             provider.clone(),
             set_verifier,
             market_address,
-            <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)),
             Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
             anvil.chain_id(),
             commitment_tx,

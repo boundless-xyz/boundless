@@ -13,6 +13,7 @@ risc0 = [
     "boundless-market/prover_utils",
     "dep:bincode",
     "dep:blake3_groth16",
+    "dep:boundless-assessor",
     "dep:risc0-aggregation",
     "dep:risc0-ethereum-contracts",
     "dep:risc0-zkvm",
@@ -28,6 +29,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 bincode = { workspace = true, optional = true }
 blake3_groth16 = { workspace = true, optional = true }
+boundless-assessor = { workspace = true, optional = true }
 boundless-market = { version = "2.1.0-alpha.0", path = "../boundless-market", default-features = false }
 bytemuck = { workspace = true }
 risc0-aggregation = { workspace = true, optional = true }

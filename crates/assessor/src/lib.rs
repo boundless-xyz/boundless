@@ -7,6 +7,11 @@
 
 #![deny(missing_docs)]
 
+mod traits;
+#[cfg(feature = "test-utils")]
+pub use traits::mock;
+pub use traits::{Assessor, AssessorError, AssessorObj};
+
 use alloy_primitives::{Address, Keccak256, Signature, SignatureError};
 use alloy_sol_types::{Eip712Domain, SolStruct};
 use boundless_market::contracts::{

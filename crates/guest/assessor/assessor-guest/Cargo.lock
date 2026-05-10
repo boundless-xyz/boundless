@@ -1769,6 +1769,8 @@ version = "2.1.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
+ "anyhow",
+ "async-trait",
  "boundless-market",
  "postcard",
  "risc0-zkvm",
