@@ -18,11 +18,15 @@ use anyhow::{anyhow, Context as _};
 use async_trait::async_trait;
 use boundless_market::{
     aggregator::{AggregationState, Aggregator, AggregatorError},
+    program::{ProgramId, PublicOutput},
     prover_utils::prover::ProverObj,
 };
-use risc0_aggregation::GuestState;
+use risc0_aggregation::{
+    merkle_path, merkle_root, GuestState, SetInclusionReceipt,
+    SetInclusionReceiptVerifierParameters,
+};
 use risc0_zkvm::{
-    sha::{Digest, Digestible},
+    sha::{Digest, Digestible, Impl as ShaImpl, Sha256},
     MaybePruned, Receipt, ReceiptClaim,
 };
 use serde::{Deserialize, Serialize};
@@ -43,21 +47,6 @@ impl PersistedState {
         bincode::deserialize(bytes)
             .map_err(|e| AggregatorError::InvalidState(format!("bincode decode: {e}")))
     }
-}
-
-/// Decoded view of an [`AggregationState::state`] produced by the R0
-/// set-builder aggregator.
-pub struct SetBuilderView {
-    /// Set-builder MMR and commitment state.
-    pub guest_state: GuestState,
-    /// Claim digests in insertion order.
-    pub claim_digests: Vec<Digest>,
-}
-
-/// Decode the `state` bytes produced by [`R0SetBuilderAggregator`].
-pub fn decode_set_builder_state(state: &[u8]) -> Result<SetBuilderView, AggregatorError> {
-    let p = PersistedState::decode(state)?;
-    Ok(SetBuilderView { guest_state: p.guest_state, claim_digests: p.claim_digests })
 }
 
 /// RISC Zero set-builder [`Aggregator`].
@@ -207,6 +196,57 @@ impl Aggregator for R0SetBuilderAggregator {
         self.aggregate_inner(state, proof_ids, true).await
     }
 
+    async fn root(&self, state: &AggregationState) -> Result<[u8; 32], AggregatorError> {
+        let p = PersistedState::decode(&state.state)?;
+        if p.claim_digests.is_empty() {
+            return Err(AggregatorError::InvalidState("no claim digests".into()));
+        }
+        if !p.guest_state.mmr.is_finalized() {
+            return Err(AggregatorError::InvalidState("MMR not finalized".into()));
+        }
+        let root = merkle_root(&p.claim_digests);
+        let finalized_root = p
+            .guest_state
+            .mmr
+            .clone()
+            .finalized_root()
+            .ok_or_else(|| AggregatorError::InvalidState("missing finalized root".into()))?;
+        if finalized_root != root {
+            return Err(AggregatorError::InvalidState(
+                "guest state finalized root inconsistent with claim digests".into(),
+            ));
+        }
+        Ok(root.into())
+    }
+
+    async fn inclusion_proof(
+        &self,
+        state: &AggregationState,
+        program_id: &ProgramId,
+        public_output: &PublicOutput,
+        claim_digest: &[u8; 32],
+    ) -> Result<Vec<u8>, AggregatorError> {
+        let p = PersistedState::decode(&state.state)?;
+        let claim = Digest::from_bytes(*claim_digest);
+        let idx = p.claim_digests.iter().position(|c| *c == claim).ok_or_else(|| {
+            AggregatorError::InvalidState(format!("claim {claim:x?} not in batch"))
+        })?;
+        let path = merkle_path(&p.claim_digests, idx);
+        let img = Digest::from_bytes(*program_id.as_bytes());
+        let public_output_digest = *ShaImpl::hash_bytes(public_output.as_bytes());
+        let receipt_claim = ReceiptClaim::ok(img, MaybePruned::Pruned(public_output_digest));
+        let inclusion_params =
+            SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
+        let receipt = SetInclusionReceipt::from_path_with_verifier_params(
+            receipt_claim,
+            path,
+            inclusion_params.digest(),
+        );
+        receipt
+            .abi_encode_seal()
+            .map_err(|e| AggregatorError::Other(anyhow!("abi encode set inclusion seal: {e}")))
+    }
+
     async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError> {
         let proof_id = self
             .prover
@@ -252,8 +292,17 @@ pub mod test_utils {
     //! Test helpers.
 
     use super::PersistedState;
+    use boundless_market::aggregator::AggregatorError;
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
+
+    /// Decoded view of an [`AggregationState::state`] blob.
+    pub struct SetBuilderView {
+        /// Set-builder MMR and commitment state.
+        pub guest_state: GuestState,
+        /// Claim digests in insertion order.
+        pub claim_digests: Vec<Digest>,
+    }
 
     /// Encode an [`AggregationState::state`] blob from a `(guest_state,
     /// claim_digests)` pair.
@@ -264,5 +313,13 @@ pub mod test_utils {
         claim_digests: Vec<Digest>,
     ) -> Vec<u8> {
         PersistedState { guest_state, claim_digests }.encode()
+    }
+
+    /// Decode an [`AggregationState::state`] blob.
+    ///
+    /// [`AggregationState::state`]: boundless_market::aggregator::AggregationState::state
+    pub fn decode_set_builder_state(state: &[u8]) -> Result<SetBuilderView, AggregatorError> {
+        let p = PersistedState::decode(state)?;
+        Ok(SetBuilderView { guest_state: p.guest_state, claim_digests: p.claim_digests })
     }
 }

@@ -882,7 +882,7 @@ impl Broker {
                     config.clone(),
                     aggregation_prover.clone(),
                     backends.clone(),
-                    set_builder_aggregator,
+                    set_builder_aggregator.clone(),
                     proving_completion_tx.clone(),
                 )
                 .await
@@ -917,10 +917,10 @@ impl Broker {
                 config.clone(),
                 aggregation_prover.clone(),
                 backends.clone(),
+                set_builder_aggregator.clone(),
                 provider.clone(),
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,
-                set_builder_img_id,
                 <[u8; 32]>::from(assessor_img_id),
                 Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
                 chain_id,

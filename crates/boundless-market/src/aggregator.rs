@@ -20,6 +20,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::program::{ProgramId, PublicOutput};
+
 /// Persistent state the broker stores between aggregation rounds.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AggregationState {
@@ -74,6 +76,19 @@ pub trait Aggregator: Send + Sync {
     /// Compress (wrap) the finalized aggregation root and return the
     /// compressed proof id.
     async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError>;
+
+    /// Return the on-chain root for the finalized aggregation state.
+    async fn root(&self, state: &AggregationState) -> Result<[u8; 32], AggregatorError>;
+
+    /// Compute the inclusion proof for `claim_digest` against the
+    /// aggregation state, encoded as on-chain calldata.
+    async fn inclusion_proof(
+        &self,
+        state: &AggregationState,
+        program_id: &ProgramId,
+        public_output: &PublicOutput,
+        claim_digest: &[u8; 32],
+    ) -> Result<Vec<u8>, AggregatorError>;
 }
 
 /// `Arc`-wrapped trait object alias.

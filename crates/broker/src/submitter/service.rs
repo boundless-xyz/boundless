@@ -25,6 +25,7 @@ use alloy::{
 };
 use anyhow::{anyhow, Context, Result};
 use boundless_market::{
+    aggregator::AggregatorObj,
     backend_registry::BackendRegistry,
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
@@ -36,12 +37,7 @@ use boundless_market::{
     ComputeClaimDigest, ProgramId, PublicOutput,
 };
 use hex::FromHex;
-use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-use risc0_zkvm::{
-    sha::{Digest, Digestible},
-    MaybePruned, ReceiptClaim,
-};
 
 use tokio::sync::mpsc;
 
@@ -65,16 +61,13 @@ pub struct Submitter<P> {
     prover: ProverObj,
     /// Selector → backend registry. Per-order seal encoding for compressed
     /// selectors (Groth16, Blake3-Groth16) and per-order claim-digest
-    /// computation route through the registered `BackendProvider`. Set
-    /// inclusion seals are still built inline against the R0 set-builder.
+    /// computation route through the registered `BackendProvider`.
     backends: BackendRegistry,
+    aggregator: AggregatorObj,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
-    set_builder_img_id: Digest,
-    /// Assessor program identity. Combined with the assessor receipt's
-    /// journal under `assessor_claim_digest` to produce the assessor's
-    /// claim digest.
+    /// Assessor program identity.
     assessor_program_id: [u8; 32],
     /// Claim-digest formula applied to `(assessor_program_id, journal)` to
     /// produce the assessor's claim digest.
@@ -96,10 +89,10 @@ where
         config: ConfigLock,
         prover: ProverObj,
         backends: BackendRegistry,
+        aggregator: AggregatorObj,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
-        set_builder_img_id: Digest,
         assessor_program_id: [u8; 32],
         assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
         chain_id: u64,
@@ -132,10 +125,10 @@ where
             db,
             prover,
             backends,
+            aggregator,
             market,
             set_verifier,
             set_verifier_addr,
-            set_builder_img_id,
             assessor_program_id,
             assessor_claim_digest,
             prover_address,
@@ -174,23 +167,16 @@ where
                 "Cannot submit batch with no recorded compressed proof ID"
             )));
         };
-        let view = boundless_r0_backend::decode_set_builder_state(&aggregation_state.state)
-            .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("decode aggregation state: {e}")))?;
-        if view.claim_digests.is_empty() {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit batch with no claim digests"
-            )));
-        }
         if batch.assessor_proof_id.is_none() {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit batch with no assessor receipt"
             )));
         }
-        if !view.guest_state.mmr.is_finalized() {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit guest state that is not finalized"
-            )));
-        }
+        let root_bytes = self
+            .aggregator
+            .root(aggregation_state)
+            .await
+            .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("aggregator.root: {e}")))?;
 
         // Check that at least one order in the batch is not expired before submitting on chain.
         // Can happen if we overcommitted to work and proving took longer than expected.
@@ -208,14 +194,7 @@ where
 
         // Collect the needed parts for the new merkle root:
         let batch_seal = self.encode_batch_seal(compressed_proof_id).await?;
-        let batch_root = risc0_aggregation::merkle_root(&view.claim_digests);
-        let root = B256::from_slice(batch_root.as_bytes());
-
-        if view.guest_state.mmr.clone().finalized_root().unwrap() != batch_root {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Guest state finalized root is inconsistent with claim digests"
-            )));
-        }
+        let root = B256::from_slice(&root_bytes);
 
         // Collect the needed parts for the fulfillBatch:
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
@@ -225,18 +204,11 @@ where
             .await
             .context("Failed to get assessor receipt")?
             .context("Assessor receipt missing")?;
-        // Compute the assessor's claim digest from
-        // `(assessor_program_id, journal)` through the configured
-        // `ComputeClaimDigest` impl.
-        let assessor_claim_digest = Digest::from_bytes(
-            self.assessor_claim_digest
-                .compute(&self.assessor_program_id, &assessor_receipt.journal.bytes),
-        );
+        let assessor_claim_digest = self
+            .assessor_claim_digest
+            .compute(&self.assessor_program_id, &assessor_receipt.journal.bytes);
         let assessor_journal = AssessorJournal::abi_decode(&assessor_receipt.journal.bytes)
             .context("Failed to decode assessor journal for {assessor_proof_id}")?;
-
-        let inclusion_params =
-            SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
 
         let mut fulfillments = vec![];
         let mut requests_to_price: Vec<UnlockedRequest> = vec![];
@@ -264,8 +236,8 @@ where
                         "Failed to get order from DB for submission, order NOT finalized",
                     )?;
 
-                let order_img_id =
-                    Digest::from_hex(order_img_id).context("Failed to decode order image ID")?;
+                let order_img_id = <[u8; 32]>::from_hex(&order_img_id)
+                    .context("Failed to decode order image ID")?;
                 let mut collateral_reward = U256::ZERO;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
@@ -305,14 +277,11 @@ where
                     anyhow!("no backend registered for selector {selector:?} (order {order_id})")
                 })?;
                 let provider = entry.provider.clone();
-                let order_claim_digest_bytes = provider
-                    .compute_claim_digest(
-                        selector,
-                        &ProgramId::from(<[u8; 32]>::from(order_img_id)),
-                        &PublicOutput::from(order_journal.clone()),
-                    )
+                let order_program_id = ProgramId::from(order_img_id);
+                let order_public_output = PublicOutput::from(order_journal.clone());
+                let order_claim_digest = provider
+                    .compute_claim_digest(selector, &order_program_id, &order_public_output)
                     .map_err(|e| anyhow!("provider.compute_claim_digest for order: {e}"))?;
-                let order_claim_digest = Digest::from_bytes(order_claim_digest_bytes);
 
                 let seal = if is_groth16_selector(selector) || is_blake3_groth16_selector(selector)
                 {
@@ -326,29 +295,17 @@ where
                         .await
                         .with_context(|| format!("provider.encode_seal for order {order_id}"))?
                 } else {
-                    // Set-inclusion path: constructed inline against the R0
-                    // set-builder.
-                    let order_claim_index = view
-                        .claim_digests
-                        .iter()
-                        .position(|claim| *claim == order_claim_digest)
-                        .ok_or(anyhow!(
-                            "Failed to find order claim {order_claim_digest:x?} in aggregated claims"
-                        ))?;
-                    let order_path =
-                        risc0_aggregation::merkle_path(&view.claim_digests, order_claim_index);
-                    tracing::debug!(
-                        "Merkle path for order {order_id} : {:x?} : {order_path:x?}",
-                        order_claim_digest
-                    );
-                    let order_claim =
-                        ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
-                    let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
-                        order_claim,
-                        order_path,
-                        inclusion_params.digest(),
-                    );
-                    set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
+                    self.aggregator
+                        .inclusion_proof(
+                            aggregation_state,
+                            &order_program_id,
+                            &order_public_output,
+                            &order_claim_digest,
+                        )
+                        .await
+                        .map_err(|e| {
+                            anyhow!("aggregator.inclusion_proof for order {order_id}: {e}")
+                        })?
                 };
 
                 tracing::debug!("Seal for order {order_id} : {}", hex::encode(seal.clone()));
@@ -369,7 +326,7 @@ where
                     PredicateType::PrefixMatch | PredicateType::DigestMatch => (
                         order_claim_digest,
                         FulfillmentDataImageIdAndJournal {
-                            imageId: <[u8; 32]>::from(order_img_id).into(),
+                            imageId: order_img_id.into(),
                             journal: order_journal.into(),
                         }
                         .abi_encode(),
@@ -385,7 +342,7 @@ where
                     requestDigest: request_digest,
                     fulfillmentData: fulfillment_data.into(),
                     fulfillmentDataType: fulfillment_data_type,
-                    claimDigest: <[u8; 32]>::from(claim_digest).into(),
+                    claimDigest: claim_digest.into(),
                     seal: seal.into(),
                 });
                 anyhow::Ok(())
@@ -419,29 +376,16 @@ where
             )));
         }
 
-        let assessor_claim_index = view
-            .claim_digests
-            .iter()
-            .position(|claim| *claim == assessor_claim_digest)
-            .ok_or(anyhow!("Failed to find order claim assessor claim in aggregated claims"))?;
-        let assessor_path =
-            risc0_aggregation::merkle_path(&view.claim_digests, assessor_claim_index);
-        tracing::debug!(
-            "Merkle path for assessor : {:x?} : {assessor_path:x?}",
-            assessor_claim_digest
-        );
-
-        let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
-            // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
-            // derived from the claim. So instead of constructing the journal, we simply use the
-            // zero digest. We should either plumb through the data for the assessor journal, or we
-            // should make an explicit way to encode an inclusion proof without the claim.
-            ReceiptClaim::ok(Digest::ZERO, MaybePruned::Pruned(Digest::ZERO)),
-            assessor_path,
-            inclusion_params.digest(),
-        );
-        let assessor_seal =
-            assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
+        let assessor_seal = self
+            .aggregator
+            .inclusion_proof(
+                aggregation_state,
+                &ProgramId::from(self.assessor_program_id),
+                &PublicOutput::from(assessor_receipt.journal.bytes.clone()),
+                &assessor_claim_digest,
+            )
+            .await
+            .map_err(|e| anyhow!("aggregator.inclusion_proof for assessor: {e}"))?;
 
         let assessor_receipt = AssessorReceipt {
             seal: assessor_seal.into(),
@@ -754,7 +698,7 @@ mod tests {
     };
     use chrono::Utc;
     use risc0_aggregation::GuestState;
-    use risc0_zkvm::sha::Digest;
+    use risc0_zkvm::sha::{Digest, Digestible};
     use tracing_test::traced_test;
 
     fn test_backends(prover: ProverObj) -> BackendRegistry {
@@ -992,15 +936,18 @@ mod tests {
         market.lock_request(&order.request, client_sig.to_vec()).await.unwrap();
 
         let (commitment_tx, commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
+        let aggregator: boundless_market::aggregator::AggregatorObj = Arc::new(
+            boundless_r0_backend::R0SetBuilderAggregator::new(prover.clone(), set_builder_id),
+        );
         let submitter = Submitter::new(
             db.clone(),
             config,
             prover.clone(),
             test_backends(prover.clone()),
+            aggregator,
             provider.clone(),
             set_verifier,
             market_address,
-            set_builder_id,
             <[u8; 32]>::from(Digest::from(ASSESSOR_GUEST_ID)),
             Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
             anvil.chain_id(),
