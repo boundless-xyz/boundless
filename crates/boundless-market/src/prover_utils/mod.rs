@@ -486,6 +486,13 @@ async fn upload_input_with_downloader(
 }
 
 /// Context required by order pricing.
+///
+/// This trait is single-backend by design. The implementor holds one
+/// `ProverObj` returned via [`OrderPricingContext::prover`], and per-selector
+/// gating is expressed through [`OrderPricingContext::supported_selectors`].
+/// Multi-backend pricing (different preflight backends keyed by order
+/// selector) is a deliberate non-goal here; it would require a separate
+/// pricing surface and rework of the `PreflightCache`.
 #[allow(async_fn_in_trait)]
 pub trait OrderPricingContext {
     fn market_config(&self) -> Result<MarketConfig, OrderPricingError>;
@@ -539,7 +546,15 @@ pub trait OrderPricingContext {
     /// Convert an Amount to ZKC using the price oracle.
     async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
 
-    /// Access to the prover for preflight operations.
+    /// Prover used for preflight operations (image upload, input upload,
+    /// preflight execution, journal fetch).
+    ///
+    /// Returns a single `ProverObj` regardless of selector. This is sufficient
+    /// for today's single-backend pricing. Multi-backend pricing (where
+    /// preflight runs on different backends keyed by selector) is a deliberate
+    /// non-goal for this trait. When that becomes a real need, prefer adding
+    /// `pricer_for(selector) -> ProverObj` (or routing through a registry)
+    /// as a separate trait surface rather than overloading this method.
     fn prover(&self) -> &ProverObj;
 
     /// Access to the downloader for fetching images and inputs.
