@@ -18,7 +18,7 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use boundless_market::telemetry::CompletionOutcome;
+use boundless_market::{backend_registry::BackendRegistry, telemetry::CompletionOutcome};
 
 use tokio::sync::mpsc;
 
@@ -26,9 +26,8 @@ use crate::{
     coded_error_impl,
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
-    errors::{cancel_proof_and_fail, BrokerFailure, CodedError},
+    errors::{cancel_proof_and_fail, handle_order_failure, BrokerFailure, CodedError},
     order_committer::CommitmentComplete,
-    provers::ProverObj,
     task::{BrokerService, SupervisorErr},
 };
 
@@ -50,7 +49,10 @@ coded_error_impl!(ReaperError, "REAP",
 pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
-    prover: ProverObj,
+    /// Selector to backend registry. The reaper resolves the prover that owns
+    /// each order's `proof_id` from this so `cancel_stark` runs on the same
+    /// backend that produced the proof.
+    backends: BackendRegistry,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the capacity slot for expired orders.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -60,11 +62,11 @@ impl ReaperTask {
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
+        backends: BackendRegistry,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
-        Self { db, config, prover, chain_id, proving_completion_tx }
+        Self { db, config, backends, chain_id, proving_completion_tx }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -82,20 +84,41 @@ impl ReaperTask {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
-                cancel_proof_and_fail(
-                    &self.prover,
-                    &self.db,
-                    &self.config,
-                    &order,
-                    &BrokerFailure::new(
-                        "[B-REAP-003]",
-                        "Order expired in reaper",
-                        CompletionOutcome::ExpiredWhileProving,
-                    ),
-                    self.chain_id,
-                    &self.proving_completion_tx,
-                )
-                .await;
+                let failure = BrokerFailure::new(
+                    "[B-REAP-003]",
+                    "Order expired in reaper",
+                    CompletionOutcome::ExpiredWhileProving,
+                );
+
+                let selector = order.request.requirements.selector;
+                match self.backends.find(selector).map(|entry| entry.prover.clone()) {
+                    Some(order_prover) => {
+                        cancel_proof_and_fail(
+                            &order_prover,
+                            &self.db,
+                            &self.config,
+                            &order,
+                            &failure,
+                            self.chain_id,
+                            &self.proving_completion_tx,
+                        )
+                        .await;
+                    }
+                    None => {
+                        error!(
+                            "[B-REAP-004] No backend registered for selector {selector:?}; \
+                             skipping cancel for expired order {order_id}"
+                        );
+                        handle_order_failure(
+                            &self.db,
+                            &order_id,
+                            &failure,
+                            self.chain_id,
+                            &self.proving_completion_tx,
+                        )
+                        .await;
+                    }
+                }
             }
         }
 
@@ -137,15 +160,39 @@ impl BrokerService for ReaperTask {
 mod tests {
     use super::*;
     use crate::{
-        db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus,
+        db::SqliteDb,
+        now_timestamp,
+        provers::{DefaultProver, ProverObj},
+        FulfillmentType, Order, OrderStatus,
     };
     use alloy::primitives::{Address, Bytes, U256};
-    use boundless_market::contracts::{
-        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+    use boundless_market::{
+        backend_provider::BackendProviderObj,
+        backend_registry::{BackendEntry, BackendRegistry},
+        contracts::{
+            Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+        },
+        selector::SupportedSelectors,
     };
+    use boundless_r0_backend::RiscZeroBackend;
     use chrono::Utc;
     use std::sync::Arc;
     use tracing_test::traced_test;
+
+    /// Build a single-backend registry covering every supported selector. Mirrors
+    /// the production wiring in `broker.rs` so reaper tests run a single
+    /// `DefaultProver` against every selector the reaper might encounter.
+    fn test_backends(prover: ProverObj) -> BackendRegistry {
+        let provider: BackendProviderObj =
+            Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+        let supported = SupportedSelectors::default();
+        BackendRegistry::with_backend(BackendEntry::new(
+            "risc0",
+            supported.selectors.keys().copied().collect(),
+            prover,
+            provider,
+        ))
+    }
 
     fn create_order_with_status_and_expiration(
         id: u64,
@@ -196,7 +243,8 @@ mod tests {
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backends(prover), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -233,7 +281,8 @@ mod tests {
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backends(prover), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -291,7 +340,8 @@ mod tests {
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
         let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backends(prover), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
