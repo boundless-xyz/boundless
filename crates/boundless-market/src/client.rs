@@ -898,7 +898,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     D: crate::storage::StorageDownloader,
 {
-    /// Install a backend-supplied pricer into the request builder.
+    /// Install a backend-supplied order pricer into the request builder.
     ///
     /// `B` selects the backend; the pricer is constructed via
     /// [`crate::order_pricer::BackendPricerFactory::make_pricer`] using the
@@ -906,7 +906,7 @@ where
     /// [`crate::prover_utils::prover::ProverObj`] held by the preflight
     /// layer. The request builder's `run_pricing_check` step then dispatches
     /// through the installed pricer.
-    pub async fn with_backend<B>(mut self) -> Result<Self, ClientError>
+    pub async fn with_order_pricer<B>(mut self) -> Result<Self, ClientError>
     where
         B: crate::order_pricer::BackendPricerFactory<P>,
     {
