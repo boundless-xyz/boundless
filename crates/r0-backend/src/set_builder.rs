@@ -30,9 +30,11 @@ use risc0_aggregation::{
 };
 use risc0_zkvm::{
     sha::{Digest, Digestible, Impl as ShaImpl, Sha256},
-    MaybePruned, Receipt, ReceiptClaim,
+    MaybePruned, ReceiptClaim,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::input::GuestEnvBuilderExt;
 
 /// State the R0 set-builder aggregator persists between rounds.
 #[derive(Clone, Serialize, Deserialize)]
@@ -270,28 +272,14 @@ impl Aggregator for R0SetBuilderAggregator {
     }
 
     async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError> {
-        let proof_id = self
-            .prover
-            .compress(&state.proof_id)
+        let selector = FixedBytes::from((SelectorExt::groth16_latest() as u32).to_be_bytes());
+        let program_id = ProgramId::new(
+            self.set_builder_img_id.as_bytes().try_into().expect("R0 Digest is 32 bytes"),
+        );
+        self.provider
+            .compress_proof(&program_id, &state.proof_id, selector)
             .await
-            .map_err(|e| AggregatorError::ProvingFailed(format!("compress: {e}")))?;
-
-        let receipt_bytes = self
-            .prover
-            .get_compressed_receipt(&proof_id)
-            .await
-            .map_err(|e| AggregatorError::ProvingFailed(format!("get compressed receipt: {e}")))?
-            .ok_or_else(|| {
-                AggregatorError::ProvingFailed(format!("compressed receipt missing: {proof_id}"))
-            })?;
-        let receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
-            AggregatorError::ProvingFailed(format!("deserialize compressed receipt: {e}"))
-        })?;
-        receipt.verify_integrity_with_context(&Default::default()).map_err(|e| {
-            AggregatorError::ProvingFailed(format!("verify compressed receipt: {e}"))
-        })?;
-
-        Ok(proof_id)
+            .map_err(|e| AggregatorError::ProvingFailed(format!("compress: {e}")))
     }
 }
 
