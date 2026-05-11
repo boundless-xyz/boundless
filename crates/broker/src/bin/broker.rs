@@ -127,27 +127,54 @@ struct PerChainArgs {
 
 /// Scan raw CLI args and env vars to discover which chain IDs are referenced.
 fn discover_chain_ids_from_argv() -> BTreeSet<u64> {
-    let mut chain_ids = BTreeSet::new();
+    let mut chain_ids = scan_chain_ids_from_args(std::env::args());
+    chain_ids.extend(scan_chain_ids_from_env(std::env::vars()));
+    chain_ids
+}
 
-    for arg in std::env::args() {
+/// Extract chain IDs referenced by `--{flag}-{chain_id}` CLI args.
+///
+/// Accepts both two-token (`--rpc-url-8453 URL`) and equals-joined
+/// (`--rpc-url-8453=URL`) invocations; clap accepts either form, so the
+/// discovery pass must too.
+fn scan_chain_ids_from_args<I, S>(args: I) -> BTreeSet<u64>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut chain_ids = BTreeSet::new();
+    for arg in args {
+        let arg = arg.as_ref();
         for def in CHAIN_ARG_DEFS {
             let prefix = format!("--{}-", def.name);
             let Some(rest) = arg.strip_prefix(&prefix) else {
                 continue;
             };
-            if let Ok(chain_id) = rest.parse::<u64>() {
+            let head = rest.split('=').next().unwrap_or(rest);
+            if let Ok(chain_id) = head.parse::<u64>() {
                 chain_ids.insert(chain_id);
             }
         }
     }
+    chain_ids
+}
 
-    for (key, value) in std::env::vars() {
-        if value.trim().is_empty() {
+/// Extract chain IDs referenced by `PROVER_RPC_URL[S]_{chain_id}` env vars.
+fn scan_chain_ids_from_env<I, K, V>(vars: I) -> BTreeSet<u64>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let mut chain_ids = BTreeSet::new();
+    for (key, value) in vars {
+        if value.as_ref().trim().is_empty() {
             continue;
         }
         // Match either PROVER_RPC_URL_{chain_id} (primary) or
         // PROVER_RPC_URLS_{chain_id} (failover list). Try the longer prefix
         // first so PROVER_RPC_URLS_8453 doesn't get parsed as suffix "S_8453".
+        let key = key.as_ref();
         let Some(suffix) =
             key.strip_prefix("PROVER_RPC_URLS_").or_else(|| key.strip_prefix("PROVER_RPC_URL_"))
         else {
@@ -157,7 +184,6 @@ fn discover_chain_ids_from_argv() -> BTreeSet<u64> {
             chain_ids.insert(chain_id);
         }
     }
-
     chain_ids
 }
 
@@ -846,6 +872,46 @@ mod tests {
         assert!(ids.contains(&167000));
 
         clear_chain_env_vars();
+    }
+
+    #[test]
+    fn scan_chain_ids_from_args_handles_space_form() {
+        let argv = ["broker", "--rpc-url-8453", "https://base.example.com"];
+        let ids = scan_chain_ids_from_args(argv);
+        assert!(ids.contains(&8453), "space-separated --rpc-url-{{id}} form must register chain");
+    }
+
+    #[test]
+    fn scan_chain_ids_from_args_handles_equals_form() {
+        // Regression: previously `--rpc-url-8453=URL` was parsed as suffix "8453=URL"
+        // and failed u64::parse, so the chain was never registered. clap then errored
+        // with "unexpected argument '--rpc-url-8453' found".
+        let argv = ["broker", "--rpc-url-8453=https://base.example.com"];
+        let ids = scan_chain_ids_from_args(argv);
+        assert!(ids.contains(&8453), "--rpc-url-{{id}}=URL form must register chain");
+    }
+
+    #[test]
+    fn scan_chain_ids_from_args_picks_up_multiple_chains_and_flags() {
+        let argv = [
+            "broker",
+            "--rpc-url-1=https://eth.example.com",
+            "--private-key-8453",
+            "0xKEY",
+            "--market-address-167000=0xMARKET",
+        ];
+        let ids = scan_chain_ids_from_args(argv);
+        assert!(ids.contains(&1));
+        assert!(ids.contains(&8453));
+        assert!(ids.contains(&167000));
+        assert_eq!(ids.len(), 3);
+    }
+
+    #[test]
+    fn scan_chain_ids_from_args_ignores_non_numeric_suffix() {
+        let argv = ["broker", "--rpc-url-foo=URL", "--unrelated-8453"];
+        let ids = scan_chain_ids_from_args(argv);
+        assert!(ids.is_empty());
     }
 
     #[test]
