@@ -40,6 +40,30 @@ struct ChainArgDef {
     append: bool,
 }
 
+/// Merge a primary URL with an iterator of additional URLs into a deduplicated `Vec<Url>`.
+///
+/// Empty-after-trim entries are skipped. `err_label` is included in the parse-error context
+/// (e.g. `"PROVER_RPC_URL(S)_8453"`).
+fn merge_rpc_urls<'a>(
+    primary: Option<&'a str>,
+    list: impl IntoIterator<Item = &'a str>,
+    err_label: &'a str,
+) -> Result<Vec<Url>> {
+    let mut all_urls: Vec<Url> = Vec::new();
+    for s in primary.into_iter().chain(list) {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let url = Url::parse(trimmed)
+            .with_context(|| format!("Invalid URL in {err_label}: {trimmed}"))?;
+        if !all_urls.contains(&url) {
+            all_urls.push(url);
+        }
+    }
+    Ok(all_urls)
+}
+
 const CHAIN_ARG_DEFS: &[ChainArgDef] = &[
     ChainArgDef { name: "rpc-url", help: "RPC endpoint (repeat for failover)", append: true },
     ChainArgDef { name: "private-key", help: "Wallet key", append: false },
@@ -263,24 +287,47 @@ async fn main() -> Result<()> {
     let mut chain_pipelines = Vec::new();
     let mut _config_watchers: Vec<ConfigWatcher> = Vec::new();
 
-    if discovered_chains.is_empty() {
-        let private_key = args
-            .private_key
-            .clone()
-            .or_else(|| std::env::var("PRIVATE_KEY").ok().and_then(|key| key.parse().ok()))
-            .context(
-                "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
-            )?;
+    for chain_args in &discovered_chains {
+        match chain_args.chain_id {
+            None => tracing::info!(
+                rpc_urls = ?chain_args.rpc_urls,
+                provenance = "legacy single-chain",
+                "Starting pipeline (chain ID will be resolved from RPC)"
+            ),
+            Some(id) => tracing::info!(
+                configured_chain_id = id,
+                rpc_urls = ?chain_args.rpc_urls,
+                provenance = "per-chain",
+                "Starting pipeline for chain"
+            ),
+        }
 
-        let rpc_urls = collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone())?;
+        // Legacy mode (no chain) has no config override (chain_id is unknown until provider is built);
+        // per-chain pipelines may have an explicit override path.
+        let chain_config_watcher = match chain_args.chain_id {
+            None => ConfigWatcher::new(&args.config_file)
+                .await
+                .context("Failed to load broker config")?,
+            Some(id) => ConfigWatcher::new_with_chain_override(
+                &args.config_file,
+                chain_args.config_override_path.as_deref(),
+                Some(id),
+            )
+            .await
+            .with_context(|| format!("Failed to load config for chain {id}"))?,
+        };
 
-        let config = base_config_watcher.config.clone();
+        let config = chain_config_watcher.config.clone();
         let (provider, any_provider, gas_priority_mode) =
-            build_chain_provider(&rpc_urls, &private_key, &args, &config)?;
+            build_chain_provider(&chain_args.rpc_urls, &chain_args.private_key, &args, &config)?;
         let provider = Arc::new(provider);
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let deployment = resolve_deployment(args.deployment.as_ref(), chain_id)?;
+        let deployment = chain_args
+            .deployment
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| resolve_deployment(args.deployment.as_ref(), chain_id))?;
         tracing::info!(chain_id, %deployment, "Using deployment configuration");
 
         let db_url = broker_sqlite_url_for_chain(&args.db_url, chain_id)
@@ -301,7 +348,7 @@ async fn main() -> Result<()> {
                     "Pre-depositing {deposit_amount} stake tokens into the market contract"
                 );
                 market
-                    .deposit_collateral_with_permit(*deposit_amount, &private_key)
+                    .deposit_collateral_with_permit(*deposit_amount, &chain_args.private_key)
                     .await
                     .context("Failed to deposit to market")?;
             }
@@ -312,79 +359,13 @@ async fn main() -> Result<()> {
             any_provider,
             config,
             gas_priority_mode,
-            private_key,
+            private_key: chain_args.private_key.clone(),
             chain_id,
             deployment,
             db,
         });
-    } else {
-        for chain_args in &discovered_chains {
-            tracing::info!(
-                chain_id = chain_args.chain_id,
-                rpc_urls = ?chain_args.rpc_urls,
-                "Starting pipeline for chain"
-            );
 
-            let chain_config_watcher = ConfigWatcher::new_with_chain_override(
-                &args.config_file,
-                chain_args.config_override_path.as_deref(),
-                Some(chain_args.chain_id),
-            )
-            .await
-            .with_context(|| format!("Failed to load config for chain {}", chain_args.chain_id))?;
-
-            let config = chain_config_watcher.config.clone();
-            let (provider, any_provider, gas_priority_mode) = build_chain_provider(
-                &chain_args.rpc_urls,
-                &chain_args.private_key,
-                &args,
-                &config,
-            )?;
-            let provider = Arc::new(provider);
-
-            let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-            let deployment = chain_args
-                .deployment
-                .clone()
-                .map(Ok)
-                .unwrap_or_else(|| resolve_deployment(args.deployment.as_ref(), chain_id))?;
-            tracing::info!(chain_id, %deployment, "Using deployment configuration");
-
-            let db_url = broker_sqlite_url_for_chain(&args.db_url, chain_id)
-                .map_err(|e| anyhow::anyhow!("invalid broker database URL: {e}"))?;
-            let db = Arc::new(
-                SqliteDb::new(&db_url).await.context("Failed to open per-chain sqlite database")?,
-            );
-
-            if !args.listen_only {
-                if let Some(deposit_amount) = args.deposit_amount.as_ref() {
-                    let market = BoundlessMarketService::new_for_broker(
-                        deployment.boundless_market_address,
-                        provider.clone(),
-                        provider.default_signer_address(),
-                    );
-                    tracing::info!(
-                        chain_id,
-                        "Pre-depositing {deposit_amount} stake tokens into the market contract"
-                    );
-                    market
-                        .deposit_collateral_with_permit(*deposit_amount, &chain_args.private_key)
-                        .await
-                        .context("Failed to deposit to market")?;
-                }
-            }
-
-            chain_pipelines.push(ChainPipeline {
-                provider,
-                any_provider,
-                config,
-                gas_priority_mode,
-                private_key: chain_args.private_key.clone(),
-                chain_id,
-                deployment,
-                db,
-            });
-
+        if chain_args.chain_id.is_some() {
             _config_watchers.push(chain_config_watcher);
         }
     }
@@ -394,59 +375,6 @@ async fn main() -> Result<()> {
     broker.start_service(chain_pipelines).await.context("Broker service failed")?;
 
     Ok(())
-}
-
-/// Collect and deduplicate RPC URLs from the single-chain args.
-/// Returns a list with the primary URL first, followed by any additional failover URLs.
-fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Vec<Url>> {
-    let mut all_rpc_urls: Vec<Url> = Vec::new();
-
-    if let Some(url_str) = rpc_url {
-        if !url_str.is_empty() {
-            let url =
-                Url::parse(&url_str).context("Invalid PROVER_RPC_URL environment variable")?;
-            if !all_rpc_urls.contains(&url) {
-                all_rpc_urls.push(url);
-            }
-        }
-    }
-
-    for url_str in rpc_urls {
-        let url_str = url_str.trim();
-        if !url_str.is_empty() {
-            let url =
-                Url::parse(url_str).context("Invalid PROVER_RPC_URLS environment variable")?;
-            if !all_rpc_urls.contains(&url) {
-                all_rpc_urls.push(url);
-            }
-        }
-    }
-
-    if all_rpc_urls.is_empty() {
-        if let Ok(rpc_url_env) = std::env::var("RPC_URL") {
-            if !rpc_url_env.is_empty() {
-                let url =
-                    Url::parse(&rpc_url_env).context("Invalid RPC_URL environment variable")?;
-                all_rpc_urls.push(url);
-                tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
-            }
-        }
-    }
-
-    if all_rpc_urls.is_empty() {
-        all_rpc_urls.push(
-            Url::parse("https://base.gateway.tenderly.co")
-                .expect("hardcoded Tenderly URL is valid"),
-        );
-    }
-
-    if all_rpc_urls.is_empty() {
-        anyhow::bail!(
-            "No RPC URLs provided. Please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables"
-        );
-    }
-
-    Ok(all_rpc_urls)
 }
 
 /// Build per-chain Deployment objects from the PerChainArgs address fields.
@@ -507,10 +435,14 @@ fn build_chain_deployments(
 ///
 /// Chains are discovered from two sources (CLI args take priority):
 /// 1. `--rpc-url-{chain_id}` CLI args
-/// 2. `PROVER_RPC_URL_{chain_id}` environment variables
+/// 2. `PROVER_RPC_URL_{chain_id}` / `PROVER_RPC_URLS_{chain_id}` environment variables
 ///
-/// Returns an empty vec if no per-chain configuration is found (falls back to
-/// single-chain mode in main).
+/// If neither source yields anything, falls back to the legacy single-chain config
+/// (`PROVER_RPC_URL` / `PROVER_RPC_URLS`, `PROVER_PRIVATE_KEY`, etc.) and returns a
+/// single `ChainArgs` with `chain_id = None`; the actual ID is resolved by
+/// `provider.get_chain_id()` at startup.
+///
+/// Errors if no RPC URL is configured anywhere.
 fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<ChainArgs>> {
     let mut chain_urls: BTreeMap<u64, Vec<Url>> = BTreeMap::new();
     for (chain_id, urls) in per_chain.rpc_urls.drain() {
@@ -518,8 +450,7 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
     }
 
     // Discover chain IDs referenced by either PROVER_RPC_URL_{chain_id} or
-    // PROVER_RPC_URLS_{chain_id}, then combine both forms per chain — same
-    // semantics as collect_rpc_urls() for single-chain mode.
+    // PROVER_RPC_URLS_{chain_id}, then combine both forms per chain.
     let mut env_chain_ids: BTreeSet<u64> = BTreeSet::new();
     for (key, value) in std::env::vars() {
         if value.trim().is_empty() {
@@ -539,39 +470,23 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
         if chain_urls.contains_key(&chain_id) {
             continue;
         }
-        let mut urls: Vec<Url> = Vec::new();
-
-        if let Ok(primary) = std::env::var(format!("PROVER_RPC_URL_{chain_id}")) {
-            let trimmed = primary.trim();
-            if !trimmed.is_empty() {
-                urls.push(
-                    Url::parse(trimmed)
-                        .with_context(|| format!("Invalid PROVER_RPC_URL_{chain_id}"))?,
-                );
-            }
-        }
-
-        if let Ok(extra_urls) = std::env::var(format!("PROVER_RPC_URLS_{chain_id}")) {
-            for url_str in extra_urls.split(',') {
-                let url_str = url_str.trim();
-                if url_str.is_empty() {
-                    continue;
-                }
-                let url = Url::parse(url_str)
-                    .with_context(|| format!("Invalid URL in PROVER_RPC_URLS_{chain_id}"))?;
-                if !urls.contains(&url) {
-                    urls.push(url);
-                }
-            }
-        }
-
+        let primary_env = std::env::var(format!("PROVER_RPC_URL_{chain_id}")).ok();
+        let extra_env = std::env::var(format!("PROVER_RPC_URLS_{chain_id}")).ok();
+        let label = format!("PROVER_RPC_URL(S)_{chain_id}");
+        let urls = merge_rpc_urls(
+            primary_env.as_deref(),
+            extra_env.as_deref().into_iter().flat_map(|s| s.split(',')),
+            &label,
+        )?;
         if !urls.is_empty() {
             chain_urls.insert(chain_id, urls);
         }
     }
 
     if chain_urls.is_empty() {
-        return Ok(Vec::new());
+        // No per-chain configuration: synthesize a single legacy ChainArgs whose
+        // actual chain_id will be resolved at startup via provider.get_chain_id().
+        return Ok(vec![synthesize_legacy_chain(args)?]);
     }
 
     let mut chain_deployments = build_chain_deployments(per_chain)?;
@@ -607,7 +522,7 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
         let deployment = chain_deployments.remove(&chain_id);
 
         chains.push(ChainArgs {
-            chain_id,
+            chain_id: Some(chain_id),
             rpc_urls,
             private_key,
             config_override_path,
@@ -625,6 +540,55 @@ fn discover_chains(args: &CoreArgs, per_chain: &mut PerChainArgs) -> Result<Vec<
     Ok(chains)
 }
 
+/// Build a single `ChainArgs` from the legacy single-chain CLI/env vars.
+///
+/// The `chain_id` is left as `None` — `main()` resolves it via `provider.get_chain_id()`
+/// once the provider is built. Errors if no RPC URL or private key is configured.
+fn synthesize_legacy_chain(args: &CoreArgs) -> Result<ChainArgs> {
+    let mut rpc_urls = merge_rpc_urls(
+        args.rpc_url.as_deref(),
+        args.rpc_urls.iter().map(String::as_str),
+        "PROVER_RPC_URL(S)",
+    )?;
+
+    // Legacy fallback: honor RPC_URL when PROVER_RPC_URL is unset.
+    if rpc_urls.is_empty() {
+        if let Ok(rpc_url_env) = std::env::var("RPC_URL") {
+            let trimmed = rpc_url_env.trim();
+            if !trimmed.is_empty() {
+                let url = Url::parse(trimmed).context("Invalid RPC_URL environment variable")?;
+                rpc_urls.push(url);
+                tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+            }
+        }
+    }
+
+    if rpc_urls.is_empty() {
+        anyhow::bail!(
+            "No RPC URLs configured. Set one of: \
+             PROVER_RPC_URL / PROVER_RPC_URLS (single-chain), \
+             PROVER_RPC_URL_{{id}} / PROVER_RPC_URLS_{{id}} (per-chain env), \
+             or --rpc-url-{{id}} (per-chain CLI)"
+        );
+    }
+
+    let private_key = args
+        .private_key
+        .clone()
+        .or_else(|| std::env::var("PRIVATE_KEY").ok().and_then(|key| key.parse().ok()))
+        .context(
+            "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
+        )?;
+
+    Ok(ChainArgs {
+        chain_id: None,
+        rpc_urls,
+        private_key,
+        config_override_path: None,
+        deployment: args.deployment.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,39 +601,40 @@ mod tests {
         "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
     #[test]
-    fn primary_url_is_first() {
-        let result = collect_rpc_urls(
-            Some("http://primary.example.com".to_string()),
-            vec![
-                "http://secondary.example.com".to_string(),
-                "http://tertiary.example.com".to_string(),
-            ],
-        )
-        .unwrap();
+    fn merge_rpc_urls_primary_is_first() {
+        let extras = ["http://secondary.example.com", "http://tertiary.example.com"];
+        let result =
+            merge_rpc_urls(Some("http://primary.example.com"), extras, "test-label").unwrap();
         assert_eq!(result[0].as_str(), "http://primary.example.com/");
+        assert_eq!(result.len(), 3);
     }
 
     #[test]
-    fn deduplicates_urls() {
-        let result = collect_rpc_urls(
-            Some("http://node.example.com".to_string()),
-            vec!["http://node.example.com".to_string()],
-        )
-        .unwrap();
+    fn merge_rpc_urls_deduplicates() {
+        let extras = ["http://node.example.com"];
+        let result = merge_rpc_urls(Some("http://node.example.com"), extras, "test-label").unwrap();
         assert_eq!(result.len(), 1);
     }
 
     #[test]
-    fn falls_back_to_tenderly_when_empty() {
-        // No URLs supplied via args or RPC_URL env: the Tenderly Base fallback is injected.
-        let _lock = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("RPC_URL");
-        let result = collect_rpc_urls(None, vec![]).unwrap();
+    fn merge_rpc_urls_skips_empty_entries() {
+        let extras = ["", "   ", "http://node.example.com"];
+        let result = merge_rpc_urls(Some(""), extras, "test-label").unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].as_str(), "https://base.gateway.tenderly.co/");
+        assert_eq!(result[0].as_str(), "http://node.example.com/");
     }
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Clear every env var that `synthesize_legacy_chain` / `discover_chains` consult,
+    /// so legacy-path tests aren't affected by leakage from the developer's outer env.
+    fn clear_legacy_env_vars() {
+        std::env::remove_var("PROVER_RPC_URL");
+        std::env::remove_var("PROVER_RPC_URLS");
+        std::env::remove_var("PROVER_PRIVATE_KEY");
+        std::env::remove_var("PRIVATE_KEY");
+        std::env::remove_var("RPC_URL");
+    }
 
     fn default_args() -> CoreArgs {
         CoreArgs {
@@ -713,14 +678,60 @@ mod tests {
     }
 
     #[test]
-    fn discover_chains_empty_when_no_per_chain_vars() {
+    fn discover_chains_errors_when_nothing_configured() {
         let _lock = ENV_LOCK.lock().unwrap();
         clear_chain_env_vars();
+        clear_legacy_env_vars();
 
         let args = default_args();
         let mut per_chain = PerChainArgs::default();
+        let err = discover_chains(&args, &mut per_chain).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("No RPC URLs configured"), "expected URL-missing error, got: {msg}");
+    }
+
+    #[test]
+    fn discover_chains_synthesizes_legacy_chain_from_args() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+        clear_legacy_env_vars();
+
+        let mut args = default_args();
+        args.rpc_url = Some("http://primary.example.com".to_string());
+        args.rpc_urls = vec!["http://backup.example.com".to_string()];
+        args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
+
+        let mut per_chain = PerChainArgs::default();
         let chains = discover_chains(&args, &mut per_chain).unwrap();
-        assert!(chains.is_empty());
+        assert_eq!(chains.len(), 1, "legacy synthesis should yield exactly one ChainArgs");
+        assert_eq!(
+            chains[0].chain_id, None,
+            "legacy chain leaves chain_id unset; real ID is resolved at startup"
+        );
+        assert_eq!(chains[0].rpc_urls.len(), 2);
+        assert_eq!(chains[0].rpc_urls[0].as_str(), "http://primary.example.com/");
+        assert_eq!(chains[0].rpc_urls[1].as_str(), "http://backup.example.com/");
+        assert_eq!(chains[0].private_key, TEST_PRIVATE_KEY_0.parse().unwrap());
+    }
+
+    #[test]
+    fn discover_chains_legacy_falls_back_to_rpc_url_env() {
+        // Legacy compat: when PROVER_RPC_URL is unset, RPC_URL is honored.
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_chain_env_vars();
+        clear_legacy_env_vars();
+
+        std::env::set_var("RPC_URL", "http://legacy-rpc.example.com");
+        let mut args = default_args();
+        args.private_key = Some(TEST_PRIVATE_KEY_0.parse().unwrap());
+
+        let mut per_chain = PerChainArgs::default();
+        let chains = discover_chains(&args, &mut per_chain).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert_eq!(chains[0].chain_id, None);
+        assert_eq!(chains[0].rpc_urls[0].as_str(), "http://legacy-rpc.example.com/");
+
+        clear_legacy_env_vars();
     }
 
     #[test]
@@ -738,9 +749,9 @@ mod tests {
         let mut per_chain = PerChainArgs::default();
         let chains = discover_chains(&args, &mut per_chain).unwrap();
         assert_eq!(chains.len(), 2);
-        assert_eq!(chains[0].chain_id, 1);
+        assert_eq!(chains[0].chain_id, Some(1));
         assert_eq!(chains[0].rpc_urls[0].as_str(), "http://eth.example.com/");
-        assert_eq!(chains[1].chain_id, 8453);
+        assert_eq!(chains[1].chain_id, Some(8453));
         assert_eq!(chains[1].rpc_urls[0].as_str(), "http://base.example.com/");
 
         clear_chain_env_vars();
@@ -763,9 +774,9 @@ mod tests {
 
         let mut per_chain = PerChainArgs::default();
         let chains = discover_chains(&args, &mut per_chain).unwrap();
-        assert_eq!(chains[0].chain_id, 1);
+        assert_eq!(chains[0].chain_id, Some(1));
         assert_eq!(chains[0].private_key, chain_key.parse().unwrap());
-        assert_eq!(chains[1].chain_id, 8453);
+        assert_eq!(chains[1].chain_id, Some(8453));
         assert_eq!(chains[1].private_key, global_key.parse().unwrap());
 
         clear_chain_env_vars();
@@ -816,7 +827,7 @@ mod tests {
         let mut per_chain = PerChainArgs::default();
         let chains = discover_chains(&args, &mut per_chain).unwrap();
         assert_eq!(chains.len(), 1);
-        assert_eq!(chains[0].chain_id, 8453);
+        assert_eq!(chains[0].chain_id, Some(8453));
         assert_eq!(chains[0].rpc_urls.len(), 2);
         assert_eq!(chains[0].rpc_urls[0].as_str(), "http://backup1.example.com/");
         assert_eq!(chains[0].rpc_urls[1].as_str(), "http://backup2.example.com/");
