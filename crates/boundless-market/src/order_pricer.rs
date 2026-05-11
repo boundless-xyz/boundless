@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Backend-agnostic order-pricing trait used by the request builder's
+//! Backend-agnostic request-pricing trait used by the request builder's
 //! pricing-check step.
 //!
-//! Each backend ships its own [`OrderPricer`] implementation; the SDK
-//! constructs one via [`BackendPricerFactory::make_pricer`] for the
+//! Each backend ships its own [`RequestPricer`] implementation; the SDK
+//! constructs one via [`BackendRequestPricerFactory::make_pricer`] for the
 //! environment (provider, market address, chain id) the request is being
 //! built against.
 
@@ -36,7 +36,7 @@ use crate::{
 /// interprets the value consistently with its own proving cost model.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
-pub enum OrderPricingResult {
+pub enum RequestPricingResult {
     /// The request was priced and is acceptable.
     Lock {
         /// Work units the order will consume.
@@ -49,31 +49,31 @@ pub enum OrderPricingResult {
     },
 }
 
-/// Backend-agnostic order pricer.
+/// Backend-agnostic request pricer.
 ///
 /// Used by [`crate::request_builder::StandardRequestBuilder`] to validate
 /// that a constructed request is likely to be accepted by provers. Each
 /// backend implements `price` against its own preflight + cost model.
 #[async_trait]
-pub trait OrderPricer: Send + Sync {
+pub trait RequestPricer: Send + Sync {
     /// Price a request and return the outcome.
     ///
     /// Implementations should not mutate global state; the request builder
     /// invokes this once per `build()` call and only inspects the result.
-    async fn price(&self, request: &ProofRequest) -> anyhow::Result<OrderPricingResult>;
+    async fn price(&self, request: &ProofRequest) -> anyhow::Result<RequestPricingResult>;
 }
 
-/// Companion trait that constructs an [`OrderPricer`] for a specific
+/// Companion trait that constructs a [`RequestPricer`] for a specific
 /// environment.
 ///
 /// Implementations are keyed off the alloy [`Provider`] type so the pricer
 /// can capture an `Arc<P>` and the chain id for its own use.
-pub trait BackendPricerFactory<P>: Backend
+pub trait BackendRequestPricerFactory<P>: Backend
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    /// Concrete pricer the request builder will hold.
-    type Pricer: OrderPricer;
+    /// Concrete request pricer the request builder will hold.
+    type Pricer: RequestPricer;
 
     /// Build a pricer for the given environment.
     ///
@@ -99,13 +99,13 @@ mod tests {
     /// caller-supplied outcome. Validates the trait surface without any
     /// backend dependency.
     struct MockPricer {
-        outcome: OrderPricingResult,
+        outcome: RequestPricingResult,
         seen: std::sync::Mutex<Option<ProofRequest>>,
     }
 
     #[async_trait]
-    impl OrderPricer for MockPricer {
-        async fn price(&self, request: &ProofRequest) -> anyhow::Result<OrderPricingResult> {
+    impl RequestPricer for MockPricer {
+        async fn price(&self, request: &ProofRequest) -> anyhow::Result<RequestPricingResult> {
             *self.seen.lock().unwrap() = Some(request.clone());
             Ok(self.outcome.clone())
         }
@@ -138,12 +138,12 @@ mod tests {
     #[tokio::test]
     async fn mock_pricer_lock_outcome_round_trips() {
         let pricer = MockPricer {
-            outcome: OrderPricingResult::Lock { work_units: 42 },
+            outcome: RequestPricingResult::Lock { work_units: 42 },
             seen: std::sync::Mutex::new(None),
         };
         let req = sample_request();
         let outcome = pricer.price(&req).await.unwrap();
-        let OrderPricingResult::Lock { work_units } = outcome else {
+        let RequestPricingResult::Lock { work_units } = outcome else {
             panic!("expected Lock outcome");
         };
         assert_eq!(work_units, 42);
@@ -153,11 +153,11 @@ mod tests {
     #[tokio::test]
     async fn mock_pricer_skip_outcome_carries_reason() {
         let pricer = MockPricer {
-            outcome: OrderPricingResult::Skip { reason: "test reason".into() },
+            outcome: RequestPricingResult::Skip { reason: "test reason".into() },
             seen: std::sync::Mutex::new(None),
         };
         let outcome = pricer.price(&sample_request()).await.unwrap();
-        let OrderPricingResult::Skip { reason } = outcome else {
+        let RequestPricingResult::Skip { reason } = outcome else {
             panic!("expected Skip outcome");
         };
         assert_eq!(reason, "test reason");

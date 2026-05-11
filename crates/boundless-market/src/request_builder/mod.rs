@@ -203,14 +203,14 @@ pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = Sta
     #[builder(setter(into, strip_option), default)]
     pub skip_preflight: Option<bool>,
 
-    /// Backend-supplied pricer for the pricing-check step.
+    /// Backend-supplied request pricer for the pricing-check step.
     ///
     /// When `Some`, `run_pricing_check` dispatches through it. When `None`,
     /// the check runs the inline R0 `requestor_order_preflight` path keyed
     /// off the preflight layer's executor.
     #[cfg(feature = "prover_utils")]
     #[builder(setter(into, strip_option), default)]
-    pub pricer: Option<std::sync::Arc<dyn crate::order_pricer::OrderPricer>>,
+    pub pricer: Option<std::sync::Arc<dyn crate::order_pricer::RequestPricer + Send + Sync>>,
 }
 
 impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
@@ -246,8 +246,8 @@ where
         #[cfg(feature = "prover_utils")]
         if let Some(pricer) = &self.pricer {
             match pricer.price(request).await {
-                Ok(crate::order_pricer::OrderPricingResult::Lock { .. }) => {}
-                Ok(crate::order_pricer::OrderPricingResult::Skip { reason }) => {
+                Ok(crate::order_pricer::RequestPricingResult::Lock { .. }) => {}
+                Ok(crate::order_pricer::RequestPricingResult::Skip { reason }) => {
                     tracing::warn!("Pricing check skipped: {reason}");
                 }
                 Err(e) => tracing::error!("Pricing check failed: {:#}", e),

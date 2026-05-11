@@ -16,7 +16,7 @@ pub mod order_pricer;
 #[cfg(feature = "risc0")]
 pub mod risc_zero;
 #[cfg(feature = "risc0")]
-pub use order_pricer::RiscZeroOrderPricer;
+pub use order_pricer::{RiscZeroRequestPricer, RiscZeroSdkBackend};
 #[cfg(feature = "risc0")]
 pub use risc_zero::{RiscZeroBackend, RiscZeroClaimDigest};
 

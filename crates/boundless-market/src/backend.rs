@@ -15,10 +15,12 @@
 //! SDK-side backend marker trait.
 //!
 //! [`Backend`] is the type-level anchor for SDK-side companion traits keyed
-//! on a zkVM, such as [`crate::order_pricer::BackendPricerFactory`].
+//! on a zkVM, such as [`crate::order_pricer::BackendRequestPricerFactory`].
 
 /// SDK-side marker trait for a zkVM backend.
 ///
-/// Implementing types are zero-sized markers (e.g. `RiscZeroBackend`).
-/// Companion traits keyed on `Backend` provide the per-backend behaviour.
+/// Implementing types should be zero-sized markers. Stateful runtime
+/// providers should implement [`crate::backend_provider::BackendProvider`]
+/// instead. Companion traits keyed on `Backend` provide per-backend SDK
+/// behavior.
 pub trait Backend: Send + Sync + 'static {}

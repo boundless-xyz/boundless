@@ -103,7 +103,7 @@ pub mod backend_registry;
 #[cfg(all(feature = "prover_utils", not(target_os = "zkvm")))]
 pub mod order_pricer;
 #[cfg(all(feature = "prover_utils", not(target_os = "zkvm")))]
-pub use order_pricer::{BackendPricerFactory, OrderPricer, OrderPricingResult};
+pub use order_pricer::{BackendRequestPricerFactory, RequestPricer, RequestPricingResult};
 
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]

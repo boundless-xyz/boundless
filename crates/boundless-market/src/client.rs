@@ -901,14 +901,14 @@ where
     /// Install a backend-supplied order pricer into the request builder.
     ///
     /// `B` selects the backend; the pricer is constructed via
-    /// [`crate::order_pricer::BackendPricerFactory::make_pricer`] using the
+    /// [`crate::order_pricer::BackendRequestPricerFactory::make_pricer`] using the
     /// client's market address and chain id and the
     /// [`crate::prover_utils::prover::ProverObj`] held by the preflight
     /// layer. The request builder's `run_pricing_check` step then dispatches
     /// through the installed pricer.
-    pub async fn with_order_pricer<B>(mut self) -> Result<Self, ClientError>
+    pub async fn with_request_pricer<B>(mut self) -> Result<Self, ClientError>
     where
-        B: crate::order_pricer::BackendPricerFactory<P>,
+        B: crate::order_pricer::BackendRequestPricerFactory<P>,
     {
         let Some(ref mut builder) = self.request_builder else {
             return Ok(self);
