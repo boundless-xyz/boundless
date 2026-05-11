@@ -314,34 +314,16 @@ async fn main() -> Result<()> {
     let mut _config_watchers: Vec<ConfigWatcher> = Vec::new();
 
     for chain_args in &discovered_chains {
-        match chain_args.chain_id {
-            None => tracing::info!(
-                rpc_urls = ?chain_args.rpc_urls,
-                provenance = "legacy single-chain",
-                "Starting pipeline (chain ID will be resolved from RPC)"
-            ),
-            Some(id) => tracing::info!(
-                configured_chain_id = id,
-                rpc_urls = ?chain_args.rpc_urls,
-                provenance = "per-chain",
-                "Starting pipeline for chain"
-            ),
-        }
-
-        // Legacy mode (no chain) has no config override (chain_id is unknown until provider is built);
-        // per-chain pipelines may have an explicit override path.
-        let chain_config_watcher = match chain_args.chain_id {
-            None => ConfigWatcher::new(&args.config_file)
-                .await
-                .context("Failed to load broker config")?,
-            Some(id) => ConfigWatcher::new_with_chain_override(
-                &args.config_file,
-                chain_args.config_override_path.as_deref(),
-                Some(id),
-            )
-            .await
-            .with_context(|| format!("Failed to load config for chain {id}"))?,
-        };
+        let chain_config_watcher = ConfigWatcher::new_with_chain_override(
+            &args.config_file,
+            chain_args.config_override_path.as_deref(), // None with legacy single-chain config
+            chain_args.chain_id,
+        )
+        .await
+        .with_context(|| match chain_args.chain_id {
+            Some(id) => format!("Failed to load config for chain {id}"),
+            None => "Failed to load broker config".to_string(),
+        })?;
 
         let config = chain_config_watcher.config.clone();
         let (provider, any_provider, gas_priority_mode) =
@@ -349,6 +331,18 @@ async fn main() -> Result<()> {
         let provider = Arc::new(provider);
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
+        if let Some(configured) = chain_args.chain_id {
+            anyhow::ensure!(
+                configured == chain_id,
+                "Configured chain ID {configured} does not match RPC-reported chain ID {chain_id}. \
+                 Check that the RPC URL for chain {configured} actually points at chain {configured}."
+            );
+        }
+
+        let rpc_urls: Vec<&str> = chain_args.rpc_urls.iter().map(Url::as_str).collect();
+        let provenance =
+            if chain_args.chain_id.is_some() { "per-chain" } else { "legacy single-chain" };
+        tracing::info!(chain_id, ?rpc_urls, provenance, "Starting pipeline for chain");
         let deployment = chain_args
             .deployment
             .clone()
