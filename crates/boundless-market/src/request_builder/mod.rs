@@ -210,7 +210,7 @@ pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = Sta
     /// off the preflight layer's executor.
     #[cfg(feature = "prover_utils")]
     #[builder(setter(into, strip_option), default)]
-    pub pricer: Option<std::sync::Arc<dyn crate::order_pricer::RequestPricer>>,
+    pub pricer: Option<std::sync::Arc<dyn crate::order_pricer::RequestPricer + Send + Sync>>,
 }
 
 impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {

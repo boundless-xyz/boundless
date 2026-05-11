@@ -901,7 +901,7 @@ where
     /// Install a request pricer into the request builder.
     pub fn with_request_pricer(
         mut self,
-        pricer: Arc<dyn crate::order_pricer::RequestPricer>,
+        pricer: Arc<dyn crate::order_pricer::RequestPricer + Send + Sync>,
     ) -> Self {
         if let Some(ref mut builder) = self.request_builder {
             builder.pricer = Some(pricer);
