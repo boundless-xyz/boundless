@@ -221,9 +221,10 @@ impl Adapt<RequirementsLayer> for RequestParams {
     async fn process_with(self, layer: &RequirementsLayer) -> Result<Self::Output, Self::Error> {
         tracing::trace!("Processing {self:?} with RequirementsLayer");
 
-        // If the two required paramters of image ID and predicate are already set, skip this
-        // layer.
-        if self.requirements.predicate.is_some() && self.requirements.image_id.is_some() {
+        // If the predicate is already set, requirements are already
+        // semantically specified. `ClaimDigestMatch` intentionally carries
+        // no image id, so do not require one here.
+        if self.requirements.predicate.is_some() {
             return Ok(self);
         }
 

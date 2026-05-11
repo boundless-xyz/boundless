@@ -54,8 +54,10 @@ impl<'de> Deserialize<'de> for AggregationState {
             #[serde(default)]
             state: Option<Vec<u8>>,
             proof_id: String,
-            #[serde(default, alias = "groth16_proof_id")]
+            #[serde(default)]
             compressed_proof_id: Option<String>,
+            #[serde(default)]
+            groth16_proof_id: Option<String>,
             #[serde(default)]
             selector: Option<VerifierSelector>,
             #[serde(default)]
@@ -71,6 +73,8 @@ impl<'de> Deserialize<'de> for AggregationState {
         }
 
         let wire = AggregationStateWire::deserialize(deserializer)?;
+        let used_legacy_compressed_proof_id = wire.compressed_proof_id.is_none();
+        let compressed_proof_id = wire.compressed_proof_id.or(wire.groth16_proof_id);
         let state = match wire.state {
             Some(state) => state,
             None => {
@@ -83,15 +87,11 @@ impl<'de> Deserialize<'de> for AggregationState {
             }
         };
         let selector = wire.selector.or_else(|| {
-            wire.compressed_proof_id.as_ref().map(|_| (SelectorExt::groth16_latest() as u32).into())
+            (used_legacy_compressed_proof_id && compressed_proof_id.is_some())
+                .then(|| (SelectorExt::groth16_latest() as u32).into())
         });
 
-        Ok(Self {
-            state,
-            proof_id: wire.proof_id,
-            compressed_proof_id: wire.compressed_proof_id,
-            selector,
-        })
+        Ok(Self { state, proof_id: wire.proof_id, compressed_proof_id, selector })
     }
 }
 
@@ -166,6 +166,13 @@ pub trait Aggregator: Send + Sync {
 
     /// Merkle root of the finalized aggregation state, in the byte form
     /// the on-chain set verifier expects.
+    ///
+    /// Implementations must validate their finalized-state invariants before
+    /// returning a root. For set-builder style aggregators this includes at
+    /// least: non-empty aggregated claims, finalized accumulator/MMR state,
+    /// and consistency between the persisted accumulator root and the returned
+    /// batch root. Returning `Ok` here tells the submitter the state is ready
+    /// for on-chain submission.
     async fn root(&self, state: &AggregationState) -> Result<[u8; 32], AggregatorError>;
 
     /// Inclusion proof for `claim_digest` against the aggregation state,
@@ -194,6 +201,7 @@ pub type AggregatorObj = Arc<dyn Aggregator>;
 pub mod mock {
     use super::{
         async_trait, AggregationState, Aggregator, AggregatorError, ProgramId, PublicOutput,
+        VerifierSelector,
     };
     use sha2::{Digest as _, Sha256};
 
