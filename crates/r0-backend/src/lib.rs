@@ -8,6 +8,10 @@
 //!
 //! Wraps a broker `Prover` (Bonsai/Bento) and provides per-selector
 //! Groth16 / Blake3-Groth16 composition + on-chain seal encoding.
+//!
+//! With `default-features = false` this crate intentionally exposes only the
+//! backend-provider trait re-exports below. Enable the default `risc0` feature
+//! for the concrete RISC Zero implementation modules.
 
 #![deny(missing_docs)]
 
