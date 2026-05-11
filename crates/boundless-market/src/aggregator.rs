@@ -17,17 +17,16 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
     program::{ProgramId, PublicOutput},
-    selector::SelectorExt,
     VerifierSelector,
 };
 
 /// Persistent state the broker stores between aggregation rounds.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AggregationState {
     /// State owned by the [`Aggregator`] implementation. Format is
     /// impl-defined.
@@ -42,57 +41,6 @@ pub struct AggregationState {
     /// Present iff `compressed_proof_id` is present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selector: Option<VerifierSelector>,
-}
-
-impl<'de> Deserialize<'de> for AggregationState {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct AggregationStateWire {
-            #[serde(default)]
-            state: Option<Vec<u8>>,
-            proof_id: String,
-            #[serde(default)]
-            compressed_proof_id: Option<String>,
-            #[serde(default)]
-            groth16_proof_id: Option<String>,
-            #[serde(default)]
-            selector: Option<VerifierSelector>,
-            #[serde(default)]
-            guest_state: Option<risc0_aggregation::GuestState>,
-            #[serde(default)]
-            claim_digests: Option<Vec<risc0_zkvm::sha::Digest>>,
-        }
-
-        #[derive(Serialize)]
-        struct LegacyR0AggregationState {
-            guest_state: risc0_aggregation::GuestState,
-            claim_digests: Vec<risc0_zkvm::sha::Digest>,
-        }
-
-        let wire = AggregationStateWire::deserialize(deserializer)?;
-        let used_legacy_compressed_proof_id = wire.compressed_proof_id.is_none();
-        let compressed_proof_id = wire.compressed_proof_id.or(wire.groth16_proof_id);
-        let state = match wire.state {
-            Some(state) => state,
-            None => {
-                let guest_state =
-                    wire.guest_state.ok_or_else(|| de::Error::missing_field("state"))?;
-                let claim_digests =
-                    wire.claim_digests.ok_or_else(|| de::Error::missing_field("claim_digests"))?;
-                bincode::serialize(&LegacyR0AggregationState { guest_state, claim_digests })
-                    .map_err(de::Error::custom)?
-            }
-        };
-        let selector = wire.selector.or_else(|| {
-            (used_legacy_compressed_proof_id && compressed_proof_id.is_some())
-                .then(|| (SelectorExt::groth16_latest() as u32).into())
-        });
-
-        Ok(Self { state, proof_id: wire.proof_id, compressed_proof_id, selector })
-    }
 }
 
 /// Errors returned from [`Aggregator`] operations.
