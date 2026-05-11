@@ -53,6 +53,7 @@ where
             chain_id,
             price_provider,
             price_oracle,
+            ..
         } = ctx;
         Self { prover, provider, market_address, chain_id, price_provider, price_oracle }
     }

@@ -91,7 +91,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
 {
     /// Concrete request pricer the request builder will hold.
-    type Pricer: RequestPricer;
+    type Pricer: RequestPricer + 'static;
 
     /// Build a pricer for the given environment.
     ///
