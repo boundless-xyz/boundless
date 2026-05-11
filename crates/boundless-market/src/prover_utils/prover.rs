@@ -165,7 +165,10 @@ pub trait Prover {
     /// would upload as an image. Backends that derive program identity by
     /// hashing the binary in their own format override this.
     ///
-    /// Default uses the RISC Zero formula. Non-R0 backends must override.
+    /// Default uses the RISC Zero formula. Non-R0 backends must override:
+    /// returning a digest computed with the wrong image-id formula can
+    /// silently route an order to a program identity the backend cannot prove
+    /// or the verifier will reject.
     fn compute_image_id_from_bytes(&self, elf: &[u8]) -> Result<[u8; 32], ProverError> {
         let digest = risc0_zkvm::compute_image_id(elf)
             .map_err(|e| ProverError::ProverInternalError(format!("compute_image_id: {e}")))?;
@@ -179,7 +182,9 @@ pub trait Prover {
     /// override this.
     ///
     /// Default uses the RISC Zero `GuestEnv` encoding. Non-R0 backends must
-    /// override.
+    /// override: decoding another backend's request input as `GuestEnv` can
+    /// silently feed different stdin bytes into proving/pricing than the
+    /// requestor intended.
     fn decode_input_bytes(&self, input: &[u8]) -> Result<Vec<u8>, ProverError> {
         let env = crate::input::GuestEnv::decode(input)
             .map_err(|e| ProverError::ProverInternalError(format!("decode input: {e}")))?;

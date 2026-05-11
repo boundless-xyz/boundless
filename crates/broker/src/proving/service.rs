@@ -413,7 +413,7 @@ impl ProvingService {
             Err(err) => {
                 let proving_err = ProvingErr::ProvingFailed(err);
                 tracing::error!(
-                    "Failed to create stark session for order {order_id}: {proving_err:?}"
+                    "[B-PROV-700] Failed to create stark session for order {order_id}: {proving_err:?}"
                 );
                 handle_order_failure(
                     &self.db,
@@ -505,7 +505,7 @@ impl ProvingService {
                 let selector = order.request.requirements.selector;
                 let Some(entry) = self.backends.find(selector) else {
                     tracing::error!(
-                        "no backend registered for selector {selector:?}; cannot cancel order {order_id}"
+                        "[B-PROV-701] no backend registered for selector {selector:?}; cannot cancel order {order_id}"
                     );
                     return;
                 };
@@ -536,7 +536,7 @@ impl ProvingService {
             }
             Err(ref err) => {
                 tracing::error!(
-                    "Order {} with job id {} failed to prove after {} retries: {err:?}",
+                    "[B-PROV-702] Order {} with job id {} failed to prove after {} retries: {err:?}",
                     order_id,
                     order.proof_id.as_deref().unwrap_or("<invalid>"),
                     proof_retry_count
@@ -563,7 +563,9 @@ impl ProvingService {
             let order_id = order.id();
 
             if order.proof_id.is_none() {
-                tracing::error!("Order in status Proving missing proof_id: {order_id}");
+                tracing::error!(
+                    "[B-PROV-703] Order in status Proving missing proof_id: {order_id}"
+                );
                 set_order_failure(
                     &self.db,
                     &order_id,

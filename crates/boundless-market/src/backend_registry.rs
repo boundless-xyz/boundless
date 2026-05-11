@@ -20,7 +20,10 @@
 //!   `BackendProvider`). Used by broker proving / aggregator / submitter
 //!   paths that need composition + on-chain sealing.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use super::backend_provider::BackendProviderObj;
 use crate::prover_utils::prover::ProverObj;
@@ -132,7 +135,15 @@ impl BackendRegistry {
     /// Duplicate-selector registrations are configuration bugs and are
     /// rejected before any registry state is mutated.
     pub fn try_register(&mut self, registration: BackendEntry) -> Result<(), BackendRegistryError> {
+        let mut seen = HashSet::new();
         for selector in &registration.selectors {
+            if !seen.insert(*selector) {
+                return Err(BackendRegistryError::DuplicateSelector {
+                    selector: hex::encode(selector.0),
+                    existing_backend: registration.name.clone(),
+                    new_backend: registration.name.clone(),
+                });
+            }
             if let Some(prev) = self.by_selector.get(selector) {
                 return Err(BackendRegistryError::DuplicateSelector {
                     selector: hex::encode(selector.0),
@@ -262,7 +273,15 @@ impl ProverRegistry {
         prover: ProverObj,
     ) -> Result<(), ProverRegistryError> {
         let name = name.into();
+        let mut seen = HashSet::new();
         for selector in &selectors {
+            if !seen.insert(*selector) {
+                return Err(ProverRegistryError::DuplicateSelector {
+                    selector: hex::encode(selector.0),
+                    existing_prover: name.clone(),
+                    new_prover: name,
+                });
+            }
             if self.by_selector.contains_key(selector) {
                 let existing_prover = self
                     .metadata
