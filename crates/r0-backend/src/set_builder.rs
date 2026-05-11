@@ -33,8 +33,6 @@ use risc0_zkvm::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::input::GuestEnvBuilderExt;
-
 /// State the R0 set-builder aggregator persists between rounds.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct PersistedState {
