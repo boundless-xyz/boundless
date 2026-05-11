@@ -2168,6 +2168,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundless-r0-backend"
+version = "2.1.0-alpha.0"
+dependencies = [
+ "alloy-primitives",
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "blake3_groth16",
+ "boundless-market",
+ "risc0-ethereum-contracts",
+ "risc0-zkvm",
+ "serde",
+ "thiserror 2.0.17",
+ "tracing",
+]
+
+[[package]]
 name = "boundless-test-utils"
 version = "2.1.0-alpha.0"
 dependencies = [
@@ -2217,6 +2234,7 @@ dependencies = [
  "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
+ "boundless-r0-backend",
  "boundless-test-utils",
  "bytemuck",
  "chrono",
