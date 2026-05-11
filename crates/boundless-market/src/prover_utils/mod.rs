@@ -37,6 +37,7 @@ use crate::{
     selector::{is_blake3_groth16_selector, SupportedSelectors},
     storage::StorageDownloader,
     util::now_timestamp,
+    VerifierSelector,
 };
 use alloy::{
     network::Ethereum,
@@ -361,6 +362,8 @@ pub enum InputCacheKey {
 /// Key type for the preflight cache.
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct PreflightCacheKey {
+    /// Verifier selector for the backend that owns this preflight execution.
+    pub selector: VerifierSelector,
     /// The predicate data.
     pub predicate_data: Vec<u8>,
     /// The input cache key.
@@ -679,8 +682,12 @@ pub trait OrderPricingContext {
     }
 
     /// Fetch the journal from a preflight execution.
-    async fn preflight_journal(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError> {
-        self.prover()
+    async fn preflight_journal(
+        &self,
+        order: &OrderRequest,
+        exec_session_id: &str,
+    ) -> Result<Vec<u8>, OrderPricingError> {
+        self.prover_for_order(order)?
             .get_preflight_journal(exec_session_id)
             .await
             .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
@@ -845,6 +852,7 @@ pub trait OrderPricingContext {
         );
 
         // Create cache key based on input type
+        let selector = order.request.requirements.selector;
         let predicate_data = order.request.requirements.predicate.data.to_vec();
         let cache_key = match order.request.input.inputType {
             RequestInputType::Url => {
@@ -852,14 +860,18 @@ pub trait OrderPricingContext {
                     .context("input url is not utf8")
                     .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?
                     .to_string();
-                PreflightCacheKey { predicate_data, input: InputCacheKey::Url(input_url) }
+                PreflightCacheKey { selector, predicate_data, input: InputCacheKey::Url(input_url) }
             }
             RequestInputType::Inline => {
                 // For inline inputs, use SHA256 hash of the data
                 let mut hasher = Sha256::new();
                 sha2::Digest::update(&mut hasher, &order.request.input.data);
                 let input_hash: [u8; 32] = hasher.finalize().into();
-                PreflightCacheKey { predicate_data, input: InputCacheKey::Hash(input_hash) }
+                PreflightCacheKey {
+                    selector,
+                    predicate_data,
+                    input: InputCacheKey::Hash(input_hash),
+                }
             }
             RequestInputType::__Invalid => {
                 return Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
@@ -989,7 +1001,7 @@ pub trait OrderPricingContext {
             }
         }
 
-        let journal = self.preflight_journal(&exec_session_id).await?;
+        let journal = self.preflight_journal(order, &exec_session_id).await?;
         let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)

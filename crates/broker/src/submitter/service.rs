@@ -150,6 +150,11 @@ where
                 "Cannot submit batch with no recorded compressed proof ID"
             )));
         }
+        if aggregation_state.selector.is_none() {
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "Cannot submit batch with no recorded compressed proof selector"
+            )));
+        }
         if batch.assessor_proof_id.is_none() {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit batch with no assessor receipt"
@@ -235,16 +240,11 @@ where
 
                 // The prover that produced this proof_id is the one that has
                 // its journal cached.
-                let order_selector = order_request.requirements.selector;
-                let order_journal_prover = self
-                    .backends
-                    .find(order_selector)
-                    .map(|entry| entry.prover.clone())
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "no backend registered for selector {order_selector:?} (order {order_id})"
-                        )
-                    })?;
+                let selector = order_request.requirements.selector;
+                let entry = self.backends.find(selector).ok_or_else(|| {
+                    anyhow!("no backend registered for selector {selector:?} (order {order_id})")
+                })?;
+                let order_journal_prover = entry.prover.clone();
                 let order_journal = order_journal_prover
                     .get_journal(&order_proof_id)
                     .await
@@ -257,10 +257,6 @@ where
                 // same backend may use different ones. Failing the lookup is
                 // a configuration bug, not a fallback path: a wrong digest
                 // here would be rejected on-chain anyway.
-                let selector = order_request.requirements.selector;
-                let entry = self.backends.find(selector).ok_or_else(|| {
-                    anyhow!("no backend registered for selector {selector:?} (order {order_id})")
-                })?;
                 let provider = entry.provider.clone();
                 let order_program_id = ProgramId::from(order_img_id);
                 let order_public_output = PublicOutput::from(order_journal.clone());
