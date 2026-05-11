@@ -14,9 +14,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 blake3-groth16 = ["dep:blake3", "dep:risc0-circuit-recursion"]
-default = ["risc0", "s3"]
+default = ["s3"]
 openapi = []
-risc0 = []
 s3 = ["dep:aws-sdk-s3", "dep:aws-config"]
 gcs = [
     "dep:google-cloud-storage",
