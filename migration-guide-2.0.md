@@ -120,7 +120,7 @@ boundless prover generate-config
 
 The wizard will prompt for chain selection (Base, Taiko, or both), collect per-chain RPC URLs, keys, and pricing, and generate a base `broker.toml`, per-chain overrides in `chain-overrides/`, and v2.0 `prover-compose.yml` / `compose.yml` (the same derived settings are written to both, so you only need to edit the file matching the stack you actually run).
 
-> **Taiko RPC option:** Taiko offer a free RPC endpoint at: `https://rpc.mainnet.taiko.xyz`. Use at your own risk. See [Step 4](#step-4-configure-multi-chain) for details.
+> **Taiko RPC option:** Taiko offer a free RPC endpoint at: `https://rpc.mainnet.taiko.xyz` (for a full list: `https://chainlist.org/?search=taiko`). Use at your own risk. See [Step 4](#step-4-configure-multi-chain) for details.
 
 > **Taiko ZKC:** If you enable Taiko, bridge ZKC to your prover wallet on Taiko and deposit market collateral before going live. See [Taiko: Bridge and deposit ZKC](#taiko-bridge-and-deposit-zkc-when-enabling-taiko).
 
@@ -207,7 +207,7 @@ export PROVER_RPC_URL_8453=https://your-base-rpc.example.com
 export PROVER_RPC_URL_167000=https://rpc.mainnet.taiko.xyz
 ```
 
-> **Taiko RPC option:** Taiko offer a free RPC endpoint at: `https://rpc.mainnet.taiko.xyz`. Use at your own risk. See [Step 4](#step-4-configure-multi-chain) for details.
+> **Taiko RPC option:** Taiko offer a free RPC endpoint at: `https://rpc.mainnet.taiko.xyz` (for a full list: `https://chainlist.org/?search=taiko`). Use at your own risk. See [Step 4](#step-4-configure-multi-chain) for details.
 
 That's it. The broker auto-discovers chains from `PROVER_RPC_URL_{chain_id}` variables, resolves the contract addresses for known chains, and creates separate SQLite databases per chain automatically (`broker.8453.db`, `broker.167000.db`).
 
