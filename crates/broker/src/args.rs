@@ -158,7 +158,10 @@ pub struct CoreArgs {
 /// Parsed per-chain configuration resolved from environment variables and CLI args.
 #[derive(Debug, Clone)]
 pub struct ChainArgs {
-    pub chain_id: u64,
+    /// Configured chain ID, or [`None`] for the legacy single-chain config path —
+    /// in which case the actual ID is resolved by calling `provider.get_chain_id()`
+    /// at startup.
+    pub chain_id: Option<u64>,
     pub rpc_urls: Vec<Url>,
     pub private_key: PrivateKeySigner,
     pub config_override_path: Option<PathBuf>,
