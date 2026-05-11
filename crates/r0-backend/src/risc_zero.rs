@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use blake3_groth16::{Blake3Groth16Receipt, Blake3Groth16ReceiptClaim};
 use boundless_market::{
     backend_provider::{BackendProvider, BackendProviderError},
+    contracts::UNSPECIFIED_SELECTOR,
     prover_utils::prover::ProverObj,
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
     ComputeClaimDigest, ProgramId, PublicOutput,
@@ -93,6 +94,18 @@ impl RiscZeroBackend {
         } else {
             ProofType::Any
         }
+    }
+
+    fn uses_native_claim_digest(selector: boundless_market::VerifierSelector) -> bool {
+        if selector == UNSPECIFIED_SELECTOR {
+            return true;
+        }
+        matches!(
+            SelectorExt::from_bytes(selector.0),
+            Some(
+                SelectorExt::FakeReceipt | SelectorExt::Groth16V3_0 | SelectorExt::SetVerifierV0_9
+            )
+        )
     }
 
     /// Compress the primitive STARK to a Groth16 SNARK and locally verify.
@@ -247,7 +260,10 @@ impl RiscZeroBackend {
                 );
                 Ok(<[u8; 32]>::from(claim.claim_digest()))
             }
-            _ => Ok(RiscZeroClaimDigest.compute(program_id.as_bytes(), public_output.as_bytes())),
+            _ if Self::uses_native_claim_digest(selector) => {
+                Ok(RiscZeroClaimDigest.compute(program_id.as_bytes(), public_output.as_bytes()))
+            }
+            _ => Err(BackendProviderError::UnsupportedSelector(selector)),
         }
     }
 }

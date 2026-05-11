@@ -68,7 +68,10 @@ pub trait BackendProvider: Send + Sync {
 
     /// Encode the on-chain seal bytes for a compressed proof.
     ///
-    /// The first 4 bytes of the returned seal MUST equal `selector`.
+    /// The first 4 bytes of the returned seal SHOULD equal `selector`. A
+    /// backend may substitute an equivalent development/testing selector
+    /// when explicitly configured to do so; production paths must preserve
+    /// the requested selector.
     async fn encode_seal(
         &self,
         compressed_proof_id: &str,

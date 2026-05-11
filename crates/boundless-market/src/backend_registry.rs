@@ -43,6 +43,24 @@ pub enum BackendRegistryError {
     },
 }
 
+/// Errors returned when constructing a [`ProverRegistry`].
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ProverRegistryError {
+    /// More than one prover tried to claim the same selector.
+    #[error(
+        "selector {selector} already registered to prover {existing_prover}; cannot also register prover {new_prover}"
+    )]
+    DuplicateSelector {
+        /// Selector encoded as hex.
+        selector: String,
+        /// Prover registration that already owns the selector.
+        existing_prover: String,
+        /// Prover registration that attempted to claim the selector.
+        new_prover: String,
+    },
+}
+
 /// One backend registered with the broker for full proving.
 ///
 /// One entry can claim multiple selectors and is shared under each
@@ -205,32 +223,65 @@ impl ProverRegistry {
         selectors: Vec<crate::VerifierSelector>,
         prover: ProverObj,
     ) -> Self {
+        Self::try_with_prover(name, selectors, prover)
+            .expect("duplicate selector in ProverRegistry")
+    }
+
+    /// Construct a registry with a single prover registered for all listed selectors.
+    pub fn try_with_prover(
+        name: impl Into<String>,
+        selectors: Vec<crate::VerifierSelector>,
+        prover: ProverObj,
+    ) -> Result<Self, ProverRegistryError> {
         let mut registry = Self::default();
-        registry.register(name, selectors, prover);
-        registry
+        registry.try_register(name, selectors, prover)?;
+        Ok(registry)
     }
 
     /// Register a prover for a set of selectors.
     ///
-    /// If a selector is already claimed, the new registration replaces the
-    /// old binding for that selector and a `tracing::warn` is emitted.
+    /// Panics if any selector is already registered. Use
+    /// [`Self::try_register`] to handle duplicate selectors explicitly.
     pub fn register(
         &mut self,
         name: impl Into<String>,
         selectors: Vec<crate::VerifierSelector>,
         prover: ProverObj,
     ) {
+        self.try_register(name, selectors, prover).expect("duplicate selector in ProverRegistry")
+    }
+
+    /// Register a prover for a set of selectors.
+    ///
+    /// Duplicate-selector registrations are configuration bugs and are
+    /// rejected before any registry state is mutated.
+    pub fn try_register(
+        &mut self,
+        name: impl Into<String>,
+        selectors: Vec<crate::VerifierSelector>,
+        prover: ProverObj,
+    ) -> Result<(), ProverRegistryError> {
         let name = name.into();
         for selector in &selectors {
-            if let Some(_prev) = self.by_selector.insert(*selector, prover.clone()) {
-                tracing::warn!(
-                    selector = %hex::encode(selector.0),
-                    new_backend = %name,
-                    "ProverRegistry: selector already registered; overwriting binding"
-                );
+            if self.by_selector.contains_key(selector) {
+                let existing_prover = self
+                    .metadata
+                    .iter()
+                    .find(|m| m.selectors.contains(selector))
+                    .map(|m| m.name.clone())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                return Err(ProverRegistryError::DuplicateSelector {
+                    selector: hex::encode(selector.0),
+                    existing_prover,
+                    new_prover: name,
+                });
             }
         }
+        for selector in &selectors {
+            self.by_selector.insert(*selector, prover.clone());
+        }
         self.metadata.push(ProverMetadata { name, selectors });
+        Ok(())
     }
 
     /// Look up the prover registered for the given selector.
