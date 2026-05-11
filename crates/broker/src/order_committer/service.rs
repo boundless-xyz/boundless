@@ -59,7 +59,6 @@ use super::types::CommitmentComplete;
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_PROVING_BATCH_SIZE: usize = 10;
-const DEFAULT_MAX_COMMITMENT_DURATION_SECS: u64 = 7200;
 
 /// Singleton service that manages global proving capacity across all chains.
 ///
@@ -135,6 +134,7 @@ impl OrderCommitter {
         })?;
         Ok(CommitterConfig {
             max_concurrent_proofs: cfg.market.max_concurrent_proofs as usize,
+            max_commitment_duration_secs: cfg.market.max_commitment_duration_secs,
             peak_prove_khz: cfg.market.peak_prove_khz,
             additional_proof_cycles: cfg.market.additional_proof_cycles,
             batch_buffer_time_secs: cfg.batcher.block_deadline_buffer_secs,
@@ -531,7 +531,7 @@ impl BrokerService for OrderCommitter {
 
                     Self::reap_stale_capacity(
                         &mut in_flight,
-                        DEFAULT_MAX_COMMITMENT_DURATION_SECS,
+                        committer_config.max_commitment_duration_secs,
                     );
                 }
 

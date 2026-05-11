@@ -146,6 +146,26 @@ pub trait Prover {
     #[allow(unused)]
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError>;
 
+    /// Start and wait for a STARK proving job at High priority. Subtasks
+    /// inherit the parent job's priority via taskdb. Default falls back to
+    /// the regular flow for backends that don't support priority.
+    #[allow(unused)]
+    async fn prove_and_monitor_stark_high(
+        &self,
+        image_id: &str,
+        input_id: &str,
+        assumptions: Vec<String>,
+    ) -> Result<ProofResult, ProverError> {
+        self.prove_and_monitor_stark(image_id, input_id, assumptions).await
+    }
+
+    /// Compress a STARK proof to Groth16 at High priority. Default falls back
+    /// to the regular flow for backends that don't support priority.
+    #[allow(unused)]
+    async fn compress_high(&self, proof_id: &str) -> Result<String, ProverError> {
+        self.compress(proof_id).await
+    }
+
     /// Get the compressed (Groth16) receipt.
     #[allow(unused)]
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
