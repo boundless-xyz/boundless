@@ -16,7 +16,7 @@ use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use boundless_assessor::{AssessorObj, Fulfillment};
 use boundless_market::{
-    aggregator::AggregatorObj,
+    aggregator::{AggregatorError, AggregatorObj},
     backend_registry::BackendRegistry,
     contracts::{eip712_domain, FulfillmentData, PredicateType},
 };
@@ -30,10 +30,9 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
-    futures_retry::retry_with_context,
+    futures_retry::retry_only_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers,
     task::{BrokerService, SupervisorErr},
     AggregationState, Batch, BatchStatus, FulfillmentType,
 };
@@ -93,7 +92,7 @@ impl AggregatorService {
         proofs: &[String],
         finalize: bool,
         all_orders: &[String],
-    ) -> Result<AggregationState> {
+    ) -> Result<AggregationState, AggregatorError> {
         let (retry_count, sleep_ms) = {
             let config = self.config.lock_all().context("Failed to lock config")?;
             (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
@@ -101,30 +100,24 @@ impl AggregatorService {
 
         let aggregator = self.aggregator.clone();
         tracing::debug!("Starting aggregator '{}' with orders {:?}", aggregator.name(), all_orders);
-        retry_with_context(
+        retry_only_with_context(
             retry_count,
             sleep_ms,
             || {
                 let aggregator = aggregator.clone();
                 async move {
-                    let res = if finalize {
+                    if finalize {
                         aggregator.finalize(aggregation_state, proofs).await
                     } else {
                         aggregator.update(aggregation_state, proofs).await
-                    };
-                    res.map_err(|e| {
-                        provers::ProverError::ProverInternalError(format!(
-                            "aggregator '{}': {e}",
-                            aggregator.name()
-                        ))
-                    })
+                    }
                 }
             },
             "aggregator_aggregate",
             &format!("orders {:?}", all_orders),
+            |err| !matches!(err, AggregatorError::InvalidState(_)),
         )
         .await
-        .map_err(Into::into)
     }
 
     async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
@@ -523,20 +516,33 @@ impl AggregatorService {
             .chain(assessor_proof_id.iter().cloned())
             .collect();
 
-        tracing::debug!(
-            "Running set builder for batch {batch_id} of orders {:?} and proofs {:?}",
-            all_orders,
-            proof_ids
-        );
-        let set_builder_start = std::time::Instant::now();
-        let aggregation_state = self
-            .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize, &all_orders)
-            .await
-            .context(format!(
-                "Failed to prove set builder for batch {batch_id} with orders {:?}",
+        let (aggregation_state, set_builder_proving_secs) = if proof_ids.is_empty() {
+            tracing::debug!(
+                "No set-builder proofs to add for batch {batch_id}; recording Groth16-only orders {:?}",
                 all_orders
-            ))?;
-        let set_builder_proving_secs = Some(set_builder_start.elapsed().as_secs_f64());
+            );
+            (None, None)
+        } else {
+            tracing::debug!(
+                "Running set builder for batch {batch_id} of orders {:?} and proofs {:?}",
+                all_orders,
+                proof_ids
+            );
+            let set_builder_start = std::time::Instant::now();
+            let aggregation_state = self
+                .prove_set_builder(
+                    batch.aggregation_state.as_ref(),
+                    &proof_ids,
+                    finalize,
+                    &all_orders,
+                )
+                .await
+                .context(format!(
+                    "Failed to prove set builder for batch {batch_id} with orders {:?}",
+                    all_orders
+                ))?;
+            (Some(aggregation_state), Some(set_builder_start.elapsed().as_secs_f64()))
+        };
 
         tracing::debug!(
             "Completed aggregation into batch {batch_id} of orders {:?} and proofs {:?}",
@@ -547,7 +553,7 @@ impl AggregatorService {
         self.db
             .update_batch(
                 batch_id,
-                &aggregation_state,
+                aggregation_state.as_ref(),
                 &[new_proofs, new_groth16_proofs].concat(),
                 assessor_proof_id,
             )
@@ -581,7 +587,7 @@ impl AggregatorService {
                     .await?;
 
                 // If we don't need to finalize, and there are no new proofs, there is no work to do.
-                if !finalize && new_proofs.is_empty() {
+                if !finalize && new_proofs.is_empty() && new_groth16_proofs.is_empty() {
                     tracing::trace!("No aggregation work to do for batch {batch_id}");
                     return Ok(());
                 }
@@ -628,7 +634,7 @@ impl AggregatorService {
             let aggregator = self.aggregator.clone();
             let context = format!("batch {batch_id} with orders {:?}", batch.orders);
             let compression_start = std::time::Instant::now();
-            let compress_proof_id = match retry_with_context(
+            let compress_proof_id = match retry_only_with_context(
                 retry_count,
                 sleep_ms,
                 || {
@@ -637,6 +643,7 @@ impl AggregatorService {
                 },
                 "compress",
                 &context,
+                |err| !matches!(err, AggregatorError::InvalidState(_)),
             )
             .await
             {

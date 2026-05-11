@@ -686,11 +686,11 @@ impl BrokerDb for SqliteDb {
         }
     }
 
-    #[instrument(level = "trace", skip(self, aggreagtion_state, orders, assessor_proof_id))]
+    #[instrument(level = "trace", skip(self, aggregation_state, orders, assessor_proof_id))]
     async fn update_batch(
         &self,
         batch_id: usize,
-        aggreagtion_state: &AggregationState,
+        aggregation_state: Option<&AggregationState>,
         orders: &[AggregationOrder],
         assessor_proof_id: Option<String>,
     ) -> Result<(), DbError> {
@@ -718,26 +718,46 @@ impl BrokerDb for SqliteDb {
         let db_fees = U256::from_str(&db_fees)?;
         let new_fees = orders.iter().fold(db_fees, |sum, order| sum + order.fee);
 
-        // Update the batch fees, deadline, and aggregation state.
-        let res = sqlx::query(
-            r#"
-            UPDATE batches
-            SET
-                data = json_set(
-                       json_set(
-                       json_set(data,
-                       '$.deadline', $1),
-                       '$.fees', $2),
-                       '$.aggregation_state', json($3))
-            WHERE
-                id = $4"#,
-        )
-        .bind(new_deadline)
-        .bind(format!("0x{new_fees:x}"))
-        .bind(sqlx::types::Json(aggreagtion_state))
-        .bind(batch_id as i64)
-        .execute(&mut *txn)
-        .await?;
+        // Update the batch fees/deadline, and aggregation state when this
+        // aggregation step actually ran the set builder.
+        let res = if let Some(aggregation_state) = aggregation_state {
+            sqlx::query(
+                r#"
+                UPDATE batches
+                SET
+                    data = json_set(
+                           json_set(
+                           json_set(data,
+                           '$.deadline', $1),
+                           '$.fees', $2),
+                           '$.aggregation_state', json($3))
+                WHERE
+                    id = $4"#,
+            )
+            .bind(new_deadline)
+            .bind(format!("0x{new_fees:x}"))
+            .bind(sqlx::types::Json(aggregation_state))
+            .bind(batch_id as i64)
+            .execute(&mut *txn)
+            .await?
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE batches
+                SET
+                    data = json_set(
+                           json_set(data,
+                           '$.deadline', $1),
+                           '$.fees', $2)
+                WHERE
+                    id = $3"#,
+            )
+            .bind(new_deadline)
+            .bind(format!("0x{new_fees:x}"))
+            .bind(batch_id as i64)
+            .execute(&mut *txn)
+            .await?
+        };
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -1365,7 +1385,7 @@ mod tests {
         };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
-        db.update_batch(batch_id, &agg_state, &agg_proofs, Some("proof_id".to_string()))
+        db.update_batch(batch_id, Some(&agg_state), &agg_proofs, Some("proof_id".to_string()))
             .await
             .unwrap();
 

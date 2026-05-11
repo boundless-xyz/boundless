@@ -281,7 +281,7 @@ proptest! {
 
                                             db.update_batch(
                                                 batch_id,
-                                                &agg_state,
+                                                Some(&agg_state),
                                                 &orders,
                                                 Some("proof_id".to_string()),
                                             ).await.unwrap();

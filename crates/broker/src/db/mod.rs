@@ -102,12 +102,12 @@ pub trait BrokerDb {
     async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError>;
     /// Update a batch with the results of an aggregation step.
     ///
-    /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
-    /// and deadline. During finalization, the assessor_proof_id is recorded as well.
+    /// Optionally sets the aggregation state, and adds the given orders to the batch, updating
+    /// the batch fees and deadline. During finalization, the assessor_proof_id is recorded as well.
     async fn update_batch(
         &self,
         batch_id: usize,
-        aggreagtion_state: &AggregationState,
+        aggregation_state: Option<&AggregationState>,
         orders: &[AggregationOrder],
         assessor_proof_id: Option<String>,
     ) -> Result<(), DbError>;

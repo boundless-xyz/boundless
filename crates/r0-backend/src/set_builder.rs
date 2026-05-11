@@ -101,15 +101,15 @@ impl R0SetBuilderAggregator {
         let prior = state.map(|s| PersistedState::decode(&s.state)).transpose()?;
 
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proof_ids.len());
-        let mut valid_proof_ids = Vec::<String>::with_capacity(proof_ids.len());
         for proof_id in proof_ids {
             match self.validate_and_extract_claim(proof_id).await {
                 Ok(claim) => {
                     claims.push(claim);
-                    valid_proof_ids.push(proof_id.clone());
                 }
                 Err(e) => {
-                    tracing::error!("Excluding invalid proof {proof_id} from aggregation: {e:?}");
+                    return Err(AggregatorError::ProvingFailed(format!(
+                        "invalid proof {proof_id} cannot be aggregated: {e}"
+                    )));
                 }
             }
         }
@@ -129,7 +129,7 @@ impl R0SetBuilderAggregator {
         let assumption_ids: Vec<String> = state
             .map(|s| s.proof_id.clone())
             .into_iter()
-            .chain(valid_proof_ids.iter().cloned())
+            .chain(proof_ids.iter().cloned())
             .collect();
 
         let input_data = boundless_market::input::GuestEnv::builder()
