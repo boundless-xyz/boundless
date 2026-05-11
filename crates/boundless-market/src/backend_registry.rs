@@ -28,39 +28,21 @@ use std::{
 use super::backend_provider::BackendProviderObj;
 use crate::prover_utils::prover::ProverObj;
 
-/// Errors returned when constructing a [`BackendRegistry`].
+/// Errors returned when constructing selector registries.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum BackendRegistryError {
-    /// More than one backend tried to claim the same selector.
+pub enum RegistryError {
+    /// More than one registration tried to claim the same selector.
     #[error(
-        "selector {selector} already registered to backend {existing_backend}; cannot also register backend {new_backend}"
+        "selector {selector} already registered to {existing_registration}; cannot also register {new_registration}"
     )]
     DuplicateSelector {
         /// Selector encoded as hex.
         selector: String,
-        /// Backend that already owns the selector.
-        existing_backend: String,
-        /// Backend that attempted to claim the selector.
-        new_backend: String,
-    },
-}
-
-/// Errors returned when constructing a [`ProverRegistry`].
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ProverRegistryError {
-    /// More than one prover tried to claim the same selector.
-    #[error(
-        "selector {selector} already registered to prover {existing_prover}; cannot also register prover {new_prover}"
-    )]
-    DuplicateSelector {
-        /// Selector encoded as hex.
-        selector: String,
-        /// Prover registration that already owns the selector.
-        existing_prover: String,
-        /// Prover registration that attempted to claim the selector.
-        new_prover: String,
+        /// Registration that already owns the selector.
+        existing_registration: String,
+        /// Registration that attempted to claim the selector.
+        new_registration: String,
     },
 }
 
@@ -116,7 +98,7 @@ impl BackendRegistry {
     }
 
     /// Construct a registry with a single backend registered for all listed selectors.
-    pub fn try_with_backend(registration: BackendEntry) -> Result<Self, BackendRegistryError> {
+    pub fn try_with_backend(registration: BackendEntry) -> Result<Self, RegistryError> {
         let mut registry = Self::default();
         registry.try_register(registration)?;
         Ok(registry)
@@ -134,21 +116,21 @@ impl BackendRegistry {
     ///
     /// Duplicate-selector registrations are configuration bugs and are
     /// rejected before any registry state is mutated.
-    pub fn try_register(&mut self, registration: BackendEntry) -> Result<(), BackendRegistryError> {
+    pub fn try_register(&mut self, registration: BackendEntry) -> Result<(), RegistryError> {
         let mut seen = HashSet::new();
         for selector in &registration.selectors {
             if !seen.insert(*selector) {
-                return Err(BackendRegistryError::DuplicateSelector {
+                return Err(RegistryError::DuplicateSelector {
                     selector: hex::encode(selector.0),
-                    existing_backend: registration.name.clone(),
-                    new_backend: registration.name.clone(),
+                    existing_registration: registration.name.clone(),
+                    new_registration: registration.name.clone(),
                 });
             }
             if let Some(prev) = self.by_selector.get(selector) {
-                return Err(BackendRegistryError::DuplicateSelector {
+                return Err(RegistryError::DuplicateSelector {
                     selector: hex::encode(selector.0),
-                    existing_backend: prev.name.clone(),
-                    new_backend: registration.name.clone(),
+                    existing_registration: prev.name.clone(),
+                    new_registration: registration.name.clone(),
                 });
             }
         }
@@ -243,7 +225,7 @@ impl ProverRegistry {
         name: impl Into<String>,
         selectors: Vec<crate::VerifierSelector>,
         prover: ProverObj,
-    ) -> Result<Self, ProverRegistryError> {
+    ) -> Result<Self, RegistryError> {
         let mut registry = Self::default();
         registry.try_register(name, selectors, prover)?;
         Ok(registry)
@@ -271,28 +253,28 @@ impl ProverRegistry {
         name: impl Into<String>,
         selectors: Vec<crate::VerifierSelector>,
         prover: ProverObj,
-    ) -> Result<(), ProverRegistryError> {
+    ) -> Result<(), RegistryError> {
         let name = name.into();
         let mut seen = HashSet::new();
         for selector in &selectors {
             if !seen.insert(*selector) {
-                return Err(ProverRegistryError::DuplicateSelector {
+                return Err(RegistryError::DuplicateSelector {
                     selector: hex::encode(selector.0),
-                    existing_prover: name.clone(),
-                    new_prover: name,
+                    existing_registration: name.clone(),
+                    new_registration: name,
                 });
             }
             if self.by_selector.contains_key(selector) {
-                let existing_prover = self
+                let existing_registration = self
                     .metadata
                     .iter()
                     .find(|m| m.selectors.contains(selector))
                     .map(|m| m.name.clone())
                     .unwrap_or_else(|| "<unknown>".to_string());
-                return Err(ProverRegistryError::DuplicateSelector {
+                return Err(RegistryError::DuplicateSelector {
                     selector: hex::encode(selector.0),
-                    existing_prover,
-                    new_prover: name,
+                    existing_registration,
+                    new_registration: name,
                 });
             }
         }
