@@ -14,12 +14,11 @@
 
 use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
-use boundless_assessor::{AssessorObj, Fulfillment};
+use boundless_assessor::Fulfillment;
 use boundless_market::{
-    aggregator::{AggregatorError, AggregatorObj},
+    aggregator::AggregatorError,
     backend_registry::BackendRegistry,
     contracts::{eip712_domain, FulfillmentData, PredicateType},
-    selector::SelectorExt,
 };
 use chrono::Utc;
 use hex::FromHex;
@@ -35,7 +34,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    AggregationState, Batch, BatchStatus, FulfillmentType,
+    AggregationBackend, AggregationState, Batch, BatchStatus, FulfillmentType,
 };
 
 use super::error::AggregatorErr;
@@ -49,11 +48,9 @@ pub struct AggregatorService {
     /// `entry.prover` from this so the prover that produced an order's
     /// `proof_id` is the one queried for its journal.
     backends: BackendRegistry,
-    /// Pluggable aggregator that owns the set-builder proving body.
-    aggregator: AggregatorObj,
-    /// Pluggable assessor that owns the per-batch assessor proof. Encodes
-    /// its own input and holds its own prover handle internally.
-    assessor: AssessorObj,
+    /// Coherent aggregation backend: set-builder, assessor, assessor
+    /// claim-digest formula, and batch wrap selector.
+    aggregation_backend: AggregationBackend,
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
@@ -70,16 +67,14 @@ impl AggregatorService {
         prover_addr: Address,
         config: ConfigLock,
         backends: BackendRegistry,
-        aggregator: AggregatorObj,
-        assessor: AssessorObj,
+        aggregation_backend: AggregationBackend,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         Ok(Self {
             db,
             config,
             backends,
-            aggregator,
-            assessor,
+            aggregation_backend,
             market_addr,
             prover_addr,
             chain_id,
@@ -99,7 +94,7 @@ impl AggregatorService {
             (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
         };
 
-        let aggregator = self.aggregator.clone();
+        let aggregator = self.aggregation_backend.aggregator.clone();
         tracing::debug!("Starting aggregator '{}' with orders {:?}", aggregator.name(), all_orders);
         retry_only_with_context(
             retry_count,
@@ -174,6 +169,7 @@ impl AggregatorService {
         let domain = eip712_domain(self.market_addr, self.chain_id);
 
         let proof_id = self
+            .aggregation_backend
             .assessor
             .prove(&fills, domain, self.prover_addr)
             .await
@@ -631,10 +627,10 @@ impl AggregatorService {
             let state = batch.aggregation_state.as_ref().with_context(|| {
                 format!("Batch {batch_id} aggregation state missing during compression")
             })?;
-            let aggregator = self.aggregator.clone();
+            let aggregator = self.aggregation_backend.aggregator.clone();
             let context = format!("batch {batch_id} with orders {:?}", batch.orders);
             let compression_start = std::time::Instant::now();
-            let batch_selector = (SelectorExt::groth16_latest() as u32).into();
+            let batch_selector = self.aggregation_backend.wrap_selector;
             let compress_proof_id = match retry_only_with_context(
                 retry_count,
                 sleep_ms,
@@ -743,7 +739,7 @@ mod tests {
             Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
         },
         dynamic_gas_filler::PriorityMode,
-        selector::SupportedSelectors,
+        selector::{SelectorExt, SupportedSelectors},
     };
     use boundless_r0_backend::RiscZeroBackend;
     use boundless_test_utils::guests::{
@@ -781,6 +777,19 @@ mod tests {
         assessor_id: risc0_zkvm::sha::Digest,
     ) -> boundless_assessor::AssessorObj {
         Arc::new(boundless_r0_backend::R0Assessor::new(prover, assessor_id))
+    }
+
+    fn test_aggregation_backend(
+        prover: ProverObj,
+        set_builder_id: risc0_zkvm::sha::Digest,
+        assessor_id: risc0_zkvm::sha::Digest,
+    ) -> AggregationBackend {
+        AggregationBackend::new(
+            test_aggregator(prover.clone(), set_builder_id),
+            test_assessor(prover, assessor_id),
+            Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
+            (SelectorExt::groth16_latest() as u32).into(),
+        )
     }
 
     #[tokio::test]
@@ -834,8 +843,7 @@ mod tests {
             prover_addr,
             config,
             test_backends(prover.clone()),
-            test_aggregator(prover.clone(), set_builder_id),
-            test_assessor(prover, assessor_id),
+            test_aggregation_backend(prover, set_builder_id, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1003,8 +1011,7 @@ mod tests {
             prover_addr,
             config,
             test_backends(prover.clone()),
-            test_aggregator(prover.clone(), set_builder_id),
-            test_assessor(prover, assessor_id),
+            test_aggregation_backend(prover, set_builder_id, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1183,8 +1190,7 @@ mod tests {
             prover_addr,
             config,
             test_backends(prover.clone()),
-            test_aggregator(prover.clone(), set_builder_id),
-            test_assessor(prover, assessor_id),
+            test_aggregation_backend(prover, set_builder_id, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1303,8 +1309,7 @@ mod tests {
             signer.address(),
             config.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover.clone(), set_builder_id),
-            test_assessor(prover, assessor_id),
+            test_aggregation_backend(prover, set_builder_id, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1431,8 +1436,7 @@ mod tests {
             signer.address(),
             config.clone(),
             test_backends(prover.clone()),
-            test_aggregator(prover.clone(), set_builder_id),
-            test_assessor(prover, assessor_id),
+            test_aggregation_backend(prover, set_builder_id, assessor_id),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await
@@ -1608,8 +1612,7 @@ mod tests {
             Address::ZERO,
             config,
             test_backends(prover.clone()),
-            test_aggregator(prover.clone(), Digest::ZERO),
-            test_assessor(prover, Digest::ZERO),
+            test_aggregation_backend(prover, Digest::ZERO, Digest::ZERO),
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .await

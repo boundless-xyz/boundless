@@ -28,4 +28,4 @@ mod service;
 mod types;
 
 pub(crate) use service::AggregatorService;
-pub(crate) use types::{AggregationState, Batch, BatchStatus};
+pub(crate) use types::{AggregationBackend, AggregationState, Batch, BatchStatus};

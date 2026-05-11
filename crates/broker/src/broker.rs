@@ -33,7 +33,7 @@ use boundless_market::{
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
-    selector::SupportedSelectors,
+    selector::{SelectorExt, SupportedSelectors},
     storage::StorageDownloader,
     Deployment,
 };
@@ -875,6 +875,12 @@ impl Broker {
             let assessor: boundless_assessor::AssessorObj = Arc::new(
                 boundless_r0_backend::R0Assessor::new(aggregation_prover.clone(), assessor_img_id),
             );
+            let aggregation_backend = aggregator::AggregationBackend::new(
+                set_builder_aggregator.clone(),
+                assessor.clone(),
+                Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
+                (SelectorExt::groth16_latest() as u32).into(),
+            );
             let aggregator = Arc::new(
                 aggregator::AggregatorService::new(
                     db.clone(),
@@ -883,8 +889,7 @@ impl Broker {
                     prover_addr,
                     config.clone(),
                     backends.clone(),
-                    set_builder_aggregator.clone(),
-                    assessor.clone(),
+                    aggregation_backend.clone(),
                     proving_completion_tx.clone(),
                 )
                 .await
@@ -918,12 +923,10 @@ impl Broker {
                 db.clone(),
                 config.clone(),
                 backends.clone(),
-                set_builder_aggregator.clone(),
-                assessor.clone(),
+                aggregation_backend,
                 provider.clone(),
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,
-                Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
                 chain_id,
                 proving_completion_tx.clone(),
             )?);

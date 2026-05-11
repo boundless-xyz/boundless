@@ -16,10 +16,38 @@
 //! aggregator service.
 
 use alloy::primitives::U256;
+use boundless_assessor::AssessorObj;
+use boundless_market::{aggregator::AggregatorObj, ComputeClaimDigest, VerifierSelector};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub use boundless_market::aggregator::AggregationState;
+
+/// Coherent broker-side backend for batch aggregation.
+///
+/// The broker still runs one aggregation backend per chain pipeline today,
+/// but keeping these pieces together prevents accidental mismatches between
+/// set-builder, assessor, assessor claim-digest formula, and the selector
+/// used to wrap the batch root proof.
+#[derive(Clone)]
+pub(crate) struct AggregationBackend {
+    pub(crate) aggregator: AggregatorObj,
+    pub(crate) assessor: AssessorObj,
+    pub(crate) assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
+    pub(crate) wrap_selector: VerifierSelector,
+}
+
+impl AggregationBackend {
+    pub(crate) fn new(
+        aggregator: AggregatorObj,
+        assessor: AssessorObj,
+        assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
+        wrap_selector: VerifierSelector,
+    ) -> Self {
+        Self { aggregator, assessor, assessor_claim_digest, wrap_selector }
+    }
+}
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BatchStatus {

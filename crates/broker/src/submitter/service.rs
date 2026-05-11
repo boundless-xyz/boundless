@@ -24,9 +24,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_assessor::AssessorObj;
 use boundless_market::{
-    aggregator::AggregatorObj,
     backend_registry::BackendRegistry,
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
@@ -35,7 +33,7 @@ use boundless_market::{
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector},
     telemetry::CompletionOutcome,
-    ComputeClaimDigest, ProgramId, PublicOutput,
+    ProgramId, PublicOutput,
 };
 use hex::FromHex;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -49,7 +47,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    Batch, FulfillmentType, Order,
+    AggregationBackend, Batch, FulfillmentType, Order,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -62,17 +60,12 @@ pub struct Submitter<P> {
     /// selectors (Groth16, Blake3-Groth16) and per-order claim-digest
     /// computation route through the registered `BackendProvider`.
     backends: BackendRegistry,
-    aggregator: AggregatorObj,
-    /// Pluggable assessor used to fetch the per-batch assessor journal.
-    /// Holds the assessor's program id; broker reads it via
-    /// `assessor.program_id()` when computing the assessor claim digest.
-    assessor: AssessorObj,
+    /// Coherent aggregation backend: set-builder, assessor, assessor
+    /// claim-digest formula, and batch wrap selector.
+    aggregation_backend: AggregationBackend,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
-    /// Claim-digest formula applied to `(assessor_program_id, journal)` to
-    /// produce the assessor's claim digest.
-    assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
     prover_address: Address,
     config: ConfigLock,
     chain_id: u64,
@@ -89,12 +82,10 @@ where
         db: DbObj,
         config: ConfigLock,
         backends: BackendRegistry,
-        aggregator: AggregatorObj,
-        assessor: AssessorObj,
+        aggregation_backend: AggregationBackend,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
-        assessor_claim_digest: Arc<dyn ComputeClaimDigest>,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
@@ -124,12 +115,10 @@ where
         Ok(Self {
             db,
             backends,
-            aggregator,
-            assessor,
+            aggregation_backend,
             market,
             set_verifier,
             set_verifier_addr,
-            assessor_claim_digest,
             prover_address,
             config,
             chain_id,
@@ -176,12 +165,17 @@ where
         }
 
         let root_bytes = self
+            .aggregation_backend
             .aggregator
             .root(aggregation_state)
             .await
             .map_err(|e| SubmitterErr::UnexpectedErr(anyhow!("aggregator.root: {e}")))?;
-        let batch_seal =
-            self.aggregator.encode_compressed_seal(aggregation_state).await.map_err(|e| {
+        let batch_seal = self
+            .aggregation_backend
+            .aggregator
+            .encode_compressed_seal(aggregation_state)
+            .await
+            .map_err(|e| {
                 SubmitterErr::UnexpectedErr(anyhow!("aggregator.encode_compressed_seal: {e}"))
             })?;
 
@@ -190,13 +184,16 @@ where
         // Collect the needed parts for the fulfillBatch:
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
         let assessor_journal_bytes = self
+            .aggregation_backend
             .assessor
             .get_journal(assessor_proof_id)
             .await
             .context("Failed to get assessor journal")?;
-        let assessor_program_id = self.assessor.program_id();
-        let assessor_claim_digest =
-            self.assessor_claim_digest.compute(&assessor_program_id, &assessor_journal_bytes);
+        let assessor_program_id = self.aggregation_backend.assessor.program_id();
+        let assessor_claim_digest = self
+            .aggregation_backend
+            .assessor_claim_digest
+            .compute(&assessor_program_id, &assessor_journal_bytes);
         let assessor_journal = AssessorJournal::abi_decode(&assessor_journal_bytes)
             .context("Failed to decode assessor journal for {assessor_proof_id}")?;
 
@@ -276,7 +273,8 @@ where
                         .await
                         .with_context(|| format!("provider.encode_seal for order {order_id}"))?
                 } else {
-                    self.aggregator
+                    self.aggregation_backend
+                        .aggregator
                         .inclusion_proof(
                             aggregation_state,
                             &order_program_id,
@@ -358,6 +356,7 @@ where
         }
 
         let assessor_seal = self
+            .aggregation_backend
             .aggregator
             .inclusion_proof(
                 aggregation_state,
@@ -666,7 +665,7 @@ mod tests {
             RequestId, RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
-        selector::SupportedSelectors,
+        selector::{SelectorExt, SupportedSelectors},
     };
     use boundless_r0_backend::RiscZeroBackend;
     use boundless_test_utils::{
@@ -930,16 +929,20 @@ mod tests {
             ));
         let assessor: boundless_assessor::AssessorObj =
             Arc::new(boundless_r0_backend::R0Assessor::new(prover.clone(), assessor_id));
+        let aggregation_backend = AggregationBackend::new(
+            aggregator,
+            assessor,
+            Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
+            (SelectorExt::groth16_latest() as u32).into(),
+        );
         let submitter = Submitter::new(
             db.clone(),
             config,
             test_backends(prover.clone()),
-            aggregator,
-            assessor,
+            aggregation_backend,
             provider.clone(),
             set_verifier,
             market_address,
-            Arc::new(boundless_r0_backend::RiscZeroClaimDigest),
             anvil.chain_id(),
             commitment_tx,
         )
