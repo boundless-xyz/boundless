@@ -13,23 +13,12 @@
 // limitations under the License.
 #![allow(missing_docs)]
 
-// Compatibility re-exports for callers using the
-// `boundless_market::prover_utils::{backend_provider, backend_registry}` paths.
-#[cfg(feature = "prover_utils")]
-pub use crate::backend_provider;
-#[cfg(feature = "prover_utils")]
-pub use crate::backend_registry;
 pub mod config;
 pub(crate) mod local_executor;
 pub mod prover;
 pub mod requestor_pricing;
 #[cfg(feature = "prover_utils")]
 pub use requestor_pricing::requestor_order_preflight;
-
-#[cfg(feature = "prover_utils")]
-pub use backend_provider::{BackendProvider, BackendProviderError, BackendProviderObj};
-#[cfg(feature = "prover_utils")]
-pub use backend_registry::{BackendEntry, BackendRegistry, ProverRegistry};
 
 #[cfg(not(feature = "prover_utils"))]
 pub use config::MarketConfig;
@@ -493,8 +482,6 @@ async fn upload_input_with_downloader(
 /// `ProverObj` returned via [`OrderPricingContext::prover`], and per-selector
 /// gating is expressed through [`OrderPricingContext::supported_selectors`].
 /// Multi-backend pricing (different preflight backends keyed by order
-/// selector) is a deliberate non-goal here; it would require a separate
-/// pricing surface and rework of the `PreflightCache`.
 #[allow(async_fn_in_trait)]
 pub trait OrderPricingContext {
     fn market_config(&self) -> Result<MarketConfig, OrderPricingError>;
@@ -548,16 +535,14 @@ pub trait OrderPricingContext {
     /// Convert an Amount to ZKC using the price oracle.
     async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
 
-    /// Prover used for preflight operations (image upload, input upload,
-    /// preflight execution, journal fetch).
-    ///
-    /// Returns a single `ProverObj` regardless of selector. This is sufficient
-    /// for today's single-backend pricing. Multi-backend pricing (where
-    /// preflight runs on different backends keyed by selector) is a deliberate
-    /// non-goal for this trait. When that becomes a real need, prefer adding
-    /// `pricer_for(selector) -> ProverObj` (or routing through a registry)
-    /// as a separate trait surface rather than overloading this method.
+    /// Default prover used for helper paths that are not associated with a
+    /// concrete order.
     fn prover(&self) -> &ProverObj;
+
+    /// Prover used for preflight operations for `order`.
+    fn prover_for_order(&self, _order: &OrderRequest) -> Result<ProverObj, OrderPricingError> {
+        Ok(self.prover().clone())
+    }
 
     /// Access to the downloader for fetching images and inputs.
     /// Returns an Arc so it can be cloned into async closures.
@@ -614,7 +599,7 @@ pub trait OrderPricingContext {
         let order_id = order.id();
 
         // Clone all data needed inside the closure
-        let prover = self.prover().clone();
+        let prover = self.prover_for_order(order)?;
         let downloader = self.downloader();
         let cache = self.preflight_cache().clone();
         let image_url = order.request.imageUrl.clone();

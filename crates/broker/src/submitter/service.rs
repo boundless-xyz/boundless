@@ -914,6 +914,9 @@ mod tests {
                 ),
                 proof_id: aggregation_proof.id,
                 compressed_proof_id: Some(batch_g16),
+                selector: Some(
+                    (boundless_market::selector::SelectorExt::groth16_latest() as u32).into(),
+                ),
             }),
         };
         db.add_batch(batch_id, batch).await.unwrap();

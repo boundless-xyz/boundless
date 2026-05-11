@@ -461,7 +461,16 @@ where
     }
 
     fn prover(&self) -> &ProverObj {
-        &self.prover
+        &self.backends.backends().first().expect("OrderPricer requires at least one backend").prover
+    }
+
+    fn prover_for_order(&self, order: &OrderRequest) -> Result<ProverObj, OrderPricerErr> {
+        let selector = order.request.requirements.selector;
+        self.backends.find(selector).map(|entry| entry.prover.clone()).ok_or_else(|| {
+            OrderPricerErr::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "no backend registered for selector {selector:?}"
+            )))
+        })
     }
 
     fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {

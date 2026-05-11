@@ -265,8 +265,8 @@ where
                 return;
             }
         };
-        let provider = std::sync::Arc::new(self.offer_layer.provider.clone());
-        let price_provider = self.offer_layer.price_provider.clone();
+        let (provider, price_provider, price_oracle_manager) = self.offer_layer.pricing_parts();
+        let provider = std::sync::Arc::new(provider);
 
         if let Err(e) = requestor_order_preflight(
             request.clone(),
@@ -275,7 +275,7 @@ where
             market_address,
             chain_id,
             price_provider,
-            self.offer_layer.price_oracle_manager.clone(),
+            price_oracle_manager,
         )
         .await
         {

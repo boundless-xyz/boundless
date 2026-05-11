@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Selector → backend registries used by broker pricing & proving paths.
+//! Selector → backend registry used by broker pricing & proving paths.
 //!
-//! - `ProverRegistry`: selector → `Prover`. Used for cycle-counting /
-//!   preflight only (SDK pricing + broker `OrderPricer`).
-//! - `BackendRegistry`: selector → `BackendEntry` (`Prover` +
-//!   `BackendProvider`). Used by broker proving / aggregator / submitter
-//!   paths that need composition + on-chain sealing.
+//! `BackendRegistry` is the single selector router for the broker. Pricing
+//! uses the entry's `prover`; proving, aggregation, and submission also use
+//! the entry's `BackendProvider`.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -26,7 +24,6 @@ use std::{
 };
 
 use super::backend_provider::BackendProviderObj;
-use crate::prover_utils::prover::ProverObj;
 
 /// Errors returned when constructing selector registries.
 #[derive(Debug, thiserror::Error)]
@@ -163,16 +160,6 @@ impl BackendRegistry {
         self.backends.is_empty()
     }
 
-    /// Project into a [`ProverRegistry`] view (selectors mapped to provers
-    /// only, drops the `BackendProvider` half).
-    pub fn prover_view(&self) -> ProverRegistry {
-        let mut provers = ProverRegistry::default();
-        for entry in &self.backends {
-            provers.register(entry.name.clone(), entry.selectors.clone(), entry.prover.clone());
-        }
-        provers
-    }
-
     /// Build a [`crate::selector::SupportedSelectors`] from every selector
     /// claimed by any registered backend. Each selector is classified via
     /// [`crate::selector::classify_selector`].
@@ -182,127 +169,5 @@ impl BackendRegistry {
             supported.add_selector(*selector, crate::selector::classify_selector(*selector));
         }
         supported
-    }
-}
-
-/// Selector → `Prover` registry. Used by paths that only need
-/// cycle-counting / preflight (SDK pricing, broker `OrderPricer`).
-#[derive(Clone, Default)]
-#[non_exhaustive]
-pub struct ProverRegistry {
-    by_selector: HashMap<crate::VerifierSelector, ProverObj>,
-    /// Display metadata for registered provers, kept for logging purposes.
-    /// Never read on the lookup path.
-    metadata: Vec<ProverMetadata>,
-}
-
-#[derive(Clone)]
-struct ProverMetadata {
-    #[allow(dead_code)]
-    name: String,
-    #[allow(dead_code)]
-    selectors: Vec<crate::VerifierSelector>,
-}
-
-impl ProverRegistry {
-    /// Construct an empty registry.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Construct a registry with a single prover registered for all listed selectors.
-    pub fn with_prover(
-        name: impl Into<String>,
-        selectors: Vec<crate::VerifierSelector>,
-        prover: ProverObj,
-    ) -> Self {
-        Self::try_with_prover(name, selectors, prover)
-            .expect("duplicate selector in ProverRegistry")
-    }
-
-    /// Construct a registry with a single prover registered for all listed selectors.
-    pub fn try_with_prover(
-        name: impl Into<String>,
-        selectors: Vec<crate::VerifierSelector>,
-        prover: ProverObj,
-    ) -> Result<Self, RegistryError> {
-        let mut registry = Self::default();
-        registry.try_register(name, selectors, prover)?;
-        Ok(registry)
-    }
-
-    /// Register a prover for a set of selectors.
-    ///
-    /// Panics if any selector is already registered. Use
-    /// [`Self::try_register`] to handle duplicate selectors explicitly.
-    pub fn register(
-        &mut self,
-        name: impl Into<String>,
-        selectors: Vec<crate::VerifierSelector>,
-        prover: ProverObj,
-    ) {
-        self.try_register(name, selectors, prover).expect("duplicate selector in ProverRegistry")
-    }
-
-    /// Register a prover for a set of selectors.
-    ///
-    /// Duplicate-selector registrations are configuration bugs and are
-    /// rejected before any registry state is mutated.
-    pub fn try_register(
-        &mut self,
-        name: impl Into<String>,
-        selectors: Vec<crate::VerifierSelector>,
-        prover: ProverObj,
-    ) -> Result<(), RegistryError> {
-        let name = name.into();
-        let mut seen = HashSet::new();
-        for selector in &selectors {
-            if !seen.insert(*selector) {
-                return Err(RegistryError::DuplicateSelector {
-                    selector: hex::encode(selector.0),
-                    existing_registration: name.clone(),
-                    new_registration: name,
-                });
-            }
-            if self.by_selector.contains_key(selector) {
-                let existing_registration = self
-                    .metadata
-                    .iter()
-                    .find(|m| m.selectors.contains(selector))
-                    .map(|m| m.name.clone())
-                    .unwrap_or_else(|| "<unknown>".to_string());
-                return Err(RegistryError::DuplicateSelector {
-                    selector: hex::encode(selector.0),
-                    existing_registration,
-                    new_registration: name,
-                });
-            }
-        }
-        for selector in &selectors {
-            self.by_selector.insert(*selector, prover.clone());
-        }
-        self.metadata.push(ProverMetadata { name, selectors });
-        Ok(())
-    }
-
-    /// Look up the prover registered for the given selector.
-    pub fn find(&self, selector: crate::VerifierSelector) -> Option<&ProverObj> {
-        self.by_selector.get(&selector)
-    }
-
-    /// Iterator over every registered selector.
-    pub fn selectors(&self) -> impl Iterator<Item = crate::VerifierSelector> + '_ {
-        self.by_selector.keys().copied()
-    }
-
-    /// Number of registered provers (counting one per registration call,
-    /// not per selector).
-    pub fn len(&self) -> usize {
-        self.metadata.len()
-    }
-
-    /// Whether the registry is empty.
-    pub fn is_empty(&self) -> bool {
-        self.metadata.is_empty()
     }
 }

@@ -148,7 +148,6 @@ where
 
         let program_url = self.require_program_url().context("failed to preflight request")?;
         let request_input = self.require_request_input().context("failed to preflight request")?;
-
         // Fetch program and input
         let downloader =
             layer.downloader.as_ref().context("cannot preflight URL request without downloader")?;

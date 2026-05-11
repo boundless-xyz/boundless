@@ -338,6 +338,14 @@ impl<P: Clone> Clone for OfferLayer<P> {
     }
 }
 
+impl<P: Clone> OfferLayer<P> {
+    pub(crate) fn pricing_parts(
+        &self,
+    ) -> (P, Option<PriceProviderArc>, Option<Arc<PriceOracleManager>>) {
+        (self.provider.clone(), self.price_provider.clone(), self.price_oracle_manager.clone())
+    }
+}
+
 impl OfferLayerConfig {
     /// Creates a new builder for constructing an [OfferLayerConfig].
     ///

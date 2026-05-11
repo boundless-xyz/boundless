@@ -19,6 +19,7 @@ use boundless_market::{
     aggregator::{AggregatorError, AggregatorObj},
     backend_registry::BackendRegistry,
     contracts::{eip712_domain, FulfillmentData, PredicateType},
+    selector::SelectorExt,
 };
 use chrono::Utc;
 use hex::FromHex;
@@ -115,7 +116,7 @@ impl AggregatorService {
             },
             "aggregator_aggregate",
             &format!("orders {:?}", all_orders),
-            |err| !matches!(err, AggregatorError::InvalidState(_)),
+            |err| err.is_retryable(),
         )
         .await
     }
@@ -272,8 +273,7 @@ impl AggregatorService {
         };
 
         // Skip finalization checks if we have nothing in this batch
-        let is_initial_state = batch.aggregation_state.is_none();
-        if is_initial_state && pending_orders.is_empty() {
+        if batch.orders.is_empty() && pending_orders.is_empty() {
             return Ok(false);
         }
 
@@ -634,16 +634,17 @@ impl AggregatorService {
             let aggregator = self.aggregator.clone();
             let context = format!("batch {batch_id} with orders {:?}", batch.orders);
             let compression_start = std::time::Instant::now();
+            let batch_selector = (SelectorExt::groth16_latest() as u32).into();
             let compress_proof_id = match retry_only_with_context(
                 retry_count,
                 sleep_ms,
                 || {
                     let aggregator = aggregator.clone();
-                    async move { aggregator.compress(state).await }
+                    async move { aggregator.compress(state, batch_selector).await }
                 },
                 "compress",
                 &context,
-                |err| !matches!(err, AggregatorError::InvalidState(_)),
+                |err| err.is_retryable(),
             )
             .await
             {
@@ -671,9 +672,15 @@ impl AggregatorService {
                 );
             }
 
-            self.db.complete_batch(batch_id, &compress_proof_id).await.with_context(|| {
-                format!("Failed to set batch {batch_id} with orders {:?} as complete", batch.orders)
-            })?;
+            self.db
+                .complete_batch(batch_id, &compress_proof_id, batch_selector)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to set batch {batch_id} with orders {:?} as complete",
+                        batch.orders
+                    )
+                })?;
         }
 
         Ok(())

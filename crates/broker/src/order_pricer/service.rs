@@ -21,7 +21,6 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     order_evaluator::{PreflightComplete, PreflightOutcome},
-    provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
     task::{BrokerService, SupervisorErr},
     ConfigurableDownloader, Erc1271GasCache, OrderRequest, OrderStateChange, PreflightCache,
@@ -32,9 +31,9 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::Result;
-use boundless_market::price_oracle::PriceOracleManager;
 use boundless_market::{
-    contracts::boundless_market::BoundlessMarketService, selector::SupportedSelectors,
+    backend_registry::BackendRegistry, contracts::boundless_market::BoundlessMarketService,
+    price_oracle::PriceOracleManager, selector::SupportedSelectors,
 };
 use moka::{future::Cache, policy::EvictionPolicy};
 use tokio::{
@@ -56,7 +55,7 @@ const LOG_INTERVAL: Duration = Duration::from_secs(5);
 pub struct OrderPricer<P> {
     pub(super) db: DbObj,
     pub(super) config: ConfigLock,
-    pub(super) prover: ProverObj,
+    pub(super) backends: BackendRegistry,
     pub(super) provider: Arc<P>,
     pub(super) chain_monitor: ChainMonitorObj,
     pub(super) market: BoundlessMarketService<Arc<P>>,
@@ -85,7 +84,7 @@ where
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
+        backends: BackendRegistry,
         market_addr: Address,
         provider: Arc<P>,
         chain_monitor: ChainMonitorObj,
@@ -107,15 +106,16 @@ where
             provider.clone(),
             provider.default_signer_address(),
         );
+        let supported_selectors = backends.supported_selectors();
 
         Self {
             db,
             config,
-            prover,
+            backends,
             provider,
             chain_monitor,
             market,
-            supported_selectors: SupportedSelectors::default(),
+            supported_selectors,
             new_order_rx,
             priced_orders_tx: order_result_tx,
             collateral_token_decimals,
@@ -275,7 +275,7 @@ pub(crate) mod tests {
     use crate::{
         chain_monitor_v2::ChainMonitorService,
         db::SqliteDb,
-        provers::{DefaultProver, ProofResult, Prover, ProverError},
+        provers::{DefaultProver, ProofResult, Prover, ProverError, ProverObj},
         FulfillmentType,
     };
     use crate::{now_timestamp, OrderPricingContext, OrderPricingOutcome};
@@ -296,6 +296,8 @@ pub(crate) mod tests {
         sources::StaticPriceSource, Amount, CachedPriceOracle, PriceOracleManager,
     };
     use boundless_market::{
+        backend_provider::BackendProviderObj,
+        backend_registry::{BackendEntry, BackendRegistry},
         contracts::{
             Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         },
@@ -304,6 +306,7 @@ pub(crate) mod tests {
         selector::SelectorExt,
         storage::{MockStorageUploader, StorageUploader},
     };
+    use boundless_r0_backend::RiscZeroBackend;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
@@ -535,6 +538,15 @@ pub(crate) mod tests {
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
+            let provider_backend: BackendProviderObj =
+                Arc::new(RiscZeroBackend::with_single_prover(prover.clone(), true));
+            let supported = SupportedSelectors::default();
+            let backends = BackendRegistry::with_backend(BackendEntry::new(
+                "risc0",
+                supported.selectors.keys().copied().collect(),
+                prover,
+                provider_backend,
+            ));
             let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
             let chain_monitor_service = Arc::new(
                 ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
@@ -557,7 +569,7 @@ pub(crate) mod tests {
             let pricer = OrderPricer::new(
                 db.clone(),
                 config,
-                prover,
+                backends,
                 market_address,
                 provider.clone(),
                 chain_monitor,

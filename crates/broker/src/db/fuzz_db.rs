@@ -228,7 +228,11 @@ proptest! {
                                         let batch_id = db.get_current_batch().await.unwrap();
                                         let batch = db.get_batch(batch_id).await.unwrap();
                                         if batch.aggregation_state.is_some() {
-                                            db.complete_batch(batch_id, &compressed_proof_id).await.unwrap();
+                                            db.complete_batch(
+                                                batch_id,
+                                                &compressed_proof_id,
+                                                (boundless_market::selector::SelectorExt::groth16_latest() as u32).into(),
+                                            ).await.unwrap();
                                             state.completed_batch.store(true, Ordering::SeqCst);
                                         }
                                     },
@@ -276,6 +280,7 @@ proptest! {
                                                     vec![],
                                                 ),
                                                 compressed_proof_id: None,
+                                                selector: None,
                                                 proof_id,
                                             };
 

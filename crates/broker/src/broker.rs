@@ -770,10 +770,8 @@ impl Broker {
         );
 
         // Selector → backend registry shared across the chain pipeline:
-        // proving, aggregator, and submitter resolve per-order operations
-        // through it. Pricing and preflight remain tied to the scalar
-        // `prover` so the supported set and the preflight prover stay in
-        // lockstep.
+        // pricing, proving, aggregator, and submitter resolve per-order
+        // operations through it.
         let r0_provider: boundless_market::backend_provider::BackendProviderObj = Arc::new(
             RiscZeroBackend::new(prover.clone(), aggregation_prover.clone(), is_dev_mode()),
         );
@@ -789,7 +787,7 @@ impl Broker {
         let order_pricer = Arc::new(order_pricer::OrderPricer::new(
             db.clone(),
             config.clone(),
-            prover.clone(),
+            backends.clone(),
             deployment.boundless_market_address,
             provider.clone(),
             chain_monitor.clone(),

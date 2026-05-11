@@ -26,6 +26,7 @@ use std::{
 
 use alloy::primitives::{Bytes, U256};
 use async_trait::async_trait;
+use boundless_market::VerifierSelector;
 use chrono::Utc;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
@@ -559,6 +560,7 @@ impl BrokerDb for SqliteDb {
         &self,
         batch_id: usize,
         compressed_proof_id: &str,
+        selector: VerifierSelector,
     ) -> Result<(), DbError> {
         let batch = self.get_batch(batch_id).await?;
         if batch.aggregation_state.is_none() {
@@ -569,14 +571,17 @@ impl BrokerDb for SqliteDb {
             r#"
             UPDATE batches
             SET data = json_set(
+                       json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.aggregation_state.compressed_proof_id', $2)
+                       '$.aggregation_state.compressed_proof_id', $2),
+                       '$.aggregation_state.selector', json($3))
             WHERE
-                id = $3"#,
+                id = $4"#,
         )
         .bind(BatchStatus::Complete)
         .bind(compressed_proof_id)
+        .bind(sqlx::types::Json(selector))
         .bind(batch_id as i64)
         .execute(&self.pool)
         .await?;
@@ -1268,6 +1273,7 @@ mod tests {
                     vec![],
                 ),
                 compressed_proof_id: None,
+                selector: None,
                 proof_id: "a".to_string(),
             }),
             ..Default::default()
@@ -1275,14 +1281,14 @@ mod tests {
         db.add_batch(batch_id, batch).await.unwrap();
 
         let compressed_proof_id = "Testg16";
-        db.complete_batch(batch_id, compressed_proof_id).await.unwrap();
+        let selector = (boundless_market::selector::SelectorExt::groth16_latest() as u32).into();
+        db.complete_batch(batch_id, compressed_proof_id, selector).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::Complete);
-        assert_eq!(
-            db_batch.aggregation_state.unwrap().compressed_proof_id.unwrap(),
-            compressed_proof_id
-        );
+        let aggregation_state = db_batch.aggregation_state.unwrap();
+        assert_eq!(aggregation_state.compressed_proof_id.unwrap(), compressed_proof_id);
+        assert_eq!(aggregation_state.selector.unwrap(), selector);
     }
 
     #[sqlx::test]
@@ -1374,6 +1380,7 @@ mod tests {
             ),
             proof_id: "c".to_string(),
             compressed_proof_id: None,
+            selector: None,
         };
 
         let base_fees = U256::from(10);

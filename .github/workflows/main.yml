@@ -35,6 +35,7 @@ jobs:
     timeout-minutes: 5
     needs:
       - rust-lint
+      - rust-no-default-features
       - rust-test
       - link-check
       - fmt
@@ -243,6 +244,39 @@ jobs:
           RUST_LOG: order_stream=trace,boundless_market=trace
           ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
           BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+  rust-no-default-features:
+    runs-on: [self-hosted, prod, Linux, cpu]
+    timeout-minutes: 15
+    needs: [files-changed]
+    if: needs.files-changed.outputs.main == 'true'
+    env:
+      RUSTFLAGS: "-Dwarnings"
+      RISC0_SKIP_BUILD: 1
+      RISC0_SKIP_BUILD_KERNELS: 1
+    steps:
+      - name: Clean stale artifacts
+        run: |
+          rm -rf lib/
+          sudo rm -rf broadcast/ out/ cache/ 2>/dev/null || true
+
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Setup sccache + S3
+        uses: ./.github/actions/sccache
+
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: cargo check boundless-market no default features
+        run: cargo check --locked -p boundless-market --no-default-features
 
       - name: sccache stats
         run: sccache --show-stats

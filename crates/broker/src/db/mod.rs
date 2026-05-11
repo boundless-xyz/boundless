@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use alloy::primitives::{Bytes, U256};
 use async_trait::async_trait;
+use boundless_market::VerifierSelector;
 
 #[cfg(test)]
 use crate::BatchStatus;
@@ -78,6 +79,7 @@ pub trait BrokerDb {
         &self,
         batch_id: usize,
         compressed_proof_id: &str,
+        selector: VerifierSelector,
     ) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;

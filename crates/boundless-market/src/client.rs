@@ -930,9 +930,8 @@ where
             .get_chain_id()
             .await
             .map_err(|e| ClientError::Error(anyhow::anyhow!(e)))?;
-        let provider = Arc::new(builder.offer_layer.provider.clone());
-        let price_provider = builder.offer_layer.price_provider.clone();
-        let price_oracle = builder.offer_layer.price_oracle_manager.clone();
+        let (provider, price_provider, price_oracle) = builder.offer_layer.pricing_parts();
+        let provider = Arc::new(provider);
         let prover = builder.preflight_layer.prover_obj_cloned();
         let pricer = B::make_pricer(crate::order_pricer::RequestPricingContext {
             prover,

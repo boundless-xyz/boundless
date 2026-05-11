@@ -20,7 +20,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::program::{ProgramId, PublicOutput};
+use crate::{
+    program::{ProgramId, PublicOutput},
+    VerifierSelector,
+};
 
 /// Persistent state the broker stores between aggregation rounds.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -33,6 +36,11 @@ pub struct AggregationState {
     /// Proof id for the compressed form of the root, when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compressed_proof_id: Option<String>,
+    /// Selector used for the compressed aggregation proof/seal.
+    ///
+    /// Present iff `compressed_proof_id` is present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<VerifierSelector>,
 }
 
 /// Errors returned from [`Aggregator`] operations.
@@ -40,14 +48,30 @@ pub struct AggregationState {
 #[non_exhaustive]
 pub enum AggregatorError {
     /// State bytes were not in the expected format.
+    #[error("failed to decode aggregator state: {0}")]
+    StateDecode(String),
+    /// Aggregator state violated an invariant and retrying will not repair it.
     #[error("invalid aggregator state: {0}")]
     InvalidState(String),
+    /// A referenced proof is invalid for this aggregation.
+    #[error("invalid aggregation proof: {0}")]
+    InvalidProof(String),
     /// Proof generation failed.
     #[error("proof generation failed: {0}")]
     ProvingFailed(String),
     /// Other backend failure.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+impl AggregatorError {
+    /// Whether retrying the operation may succeed.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::InvalidState(_) | Self::InvalidProof(_) => false,
+            Self::StateDecode(_) | Self::ProvingFailed(_) | Self::Other(_) => true,
+        }
+    }
 }
 
 /// Aggregator over per-order proofs.
@@ -76,7 +100,11 @@ pub trait Aggregator: Send + Sync {
 
     /// Compress (wrap) the finalized aggregation root and return the
     /// compressed proof id.
-    async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError>;
+    async fn compress(
+        &self,
+        state: &AggregationState,
+        selector: VerifierSelector,
+    ) -> Result<String, AggregatorError>;
 
     /// Encode the compressed-proof seal for on-chain submission.
     async fn encode_compressed_seal(
@@ -150,6 +178,7 @@ pub mod mock {
             state: digest.to_vec(),
             proof_id: format!("mock-agg-{}", hex::encode(digest)),
             compressed_proof_id: None,
+            selector: None,
         }
     }
 
@@ -175,7 +204,11 @@ pub mod mock {
             Ok(fold_state(state, proof_ids))
         }
 
-        async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError> {
+        async fn compress(
+            &self,
+            state: &AggregationState,
+            _selector: VerifierSelector,
+        ) -> Result<String, AggregatorError> {
             Ok(format!("mock-compressed-{}", state.proof_id))
         }
 
@@ -213,6 +246,7 @@ pub mod mock {
 mod tests {
     use super::mock::MockAggregator;
     use super::{Aggregator, AggregatorObj, ProgramId, PublicOutput};
+    use crate::selector::SelectorExt;
     use std::sync::Arc;
 
     /// Round-trips every [`Aggregator`] method through the mock to confirm
@@ -229,7 +263,10 @@ mod tests {
 
         let final_state = agg.finalize(Some(&s2), &proofs).await.unwrap();
 
-        let compressed = agg.compress(&final_state).await.unwrap();
+        let compressed = agg
+            .compress(&final_state, (SelectorExt::groth16_latest() as u32).into())
+            .await
+            .unwrap();
         assert!(compressed.starts_with("mock-compressed-"));
 
         let seal = agg.encode_compressed_seal(&final_state).await.unwrap();

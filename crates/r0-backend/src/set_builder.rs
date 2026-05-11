@@ -22,7 +22,6 @@ use boundless_market::{
     backend_provider::BackendProviderObj,
     program::{ProgramId, PublicOutput},
     prover_utils::prover::ProverObj,
-    selector::SelectorExt,
 };
 use risc0_aggregation::{
     merkle_path, merkle_root, GuestState, SetInclusionReceipt,
@@ -50,7 +49,7 @@ impl PersistedState {
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, AggregatorError> {
         bincode::deserialize(bytes)
-            .map_err(|e| AggregatorError::InvalidState(format!("bincode decode: {e}")))
+            .map_err(|e| AggregatorError::StateDecode(format!("bincode decode: {e}")))
     }
 }
 
@@ -107,7 +106,7 @@ impl R0SetBuilderAggregator {
                     claims.push(claim);
                 }
                 Err(e) => {
-                    return Err(AggregatorError::ProvingFailed(format!(
+                    return Err(AggregatorError::InvalidProof(format!(
                         "invalid proof {proof_id} cannot be aggregated: {e}"
                     )));
                 }
@@ -180,6 +179,7 @@ impl R0SetBuilderAggregator {
             state: new_state.encode(),
             proof_id: proof_res.id,
             compressed_proof_id: None,
+            selector: None,
         })
     }
 }
@@ -264,15 +264,20 @@ impl Aggregator for R0SetBuilderAggregator {
         let compressed_proof_id = state.compressed_proof_id.as_ref().ok_or_else(|| {
             AggregatorError::InvalidState("compressed_proof_id not present".into())
         })?;
-        let selector = FixedBytes::from((SelectorExt::groth16_latest() as u32).to_be_bytes());
+        let selector = state
+            .selector
+            .ok_or_else(|| AggregatorError::InvalidState("selector not present".into()))?;
         self.provider
             .encode_seal(compressed_proof_id, selector)
             .await
             .map_err(|e| AggregatorError::Other(anyhow!("encode compressed seal: {e}")))
     }
 
-    async fn compress(&self, state: &AggregationState) -> Result<String, AggregatorError> {
-        let selector = FixedBytes::from((SelectorExt::groth16_latest() as u32).to_be_bytes());
+    async fn compress(
+        &self,
+        state: &AggregationState,
+        selector: FixedBytes<4>,
+    ) -> Result<String, AggregatorError> {
         let program_id = ProgramId::new(
             self.set_builder_img_id.as_bytes().try_into().expect("R0 Digest is 32 bytes"),
         );
