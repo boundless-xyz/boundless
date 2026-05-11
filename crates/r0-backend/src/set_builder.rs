@@ -190,6 +190,14 @@ impl Aggregator for R0SetBuilderAggregator {
         "risc0-set-builder"
     }
 
+    async fn validate_proof(&self, proof_id: &str) -> Result<(), AggregatorError> {
+        self.validate_and_extract_claim(proof_id).await.map(|_| ()).map_err(|e| {
+            AggregatorError::InvalidProof(format!(
+                "invalid proof {proof_id} cannot be aggregated: {e}"
+            ))
+        })
+    }
+
     async fn update(
         &self,
         state: Option<&AggregationState>,

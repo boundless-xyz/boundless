@@ -80,6 +80,16 @@ pub trait Aggregator: Send + Sync {
     /// Display name used in logs.
     fn name(&self) -> &str;
 
+    /// Validate that `proof_id` can be folded by this aggregator.
+    ///
+    /// Brokers may call this before aggregation to drop and fail invalid
+    /// order proofs without losing the rest of the batch. Implementations
+    /// should return [`AggregatorError::InvalidProof`] for proofs that are
+    /// malformed, missing, or otherwise cannot be included.
+    async fn validate_proof(&self, _proof_id: &str) -> Result<(), AggregatorError> {
+        Ok(())
+    }
+
     /// Fold `proof_ids` into the aggregation.
     ///
     /// `state` is `None` for the first round of a batch and the previous
@@ -194,6 +204,10 @@ pub mod mock {
     impl Aggregator for MockAggregator {
         fn name(&self) -> &str {
             "mock"
+        }
+
+        async fn validate_proof(&self, _proof_id: &str) -> Result<(), AggregatorError> {
+            Ok(())
         }
 
         async fn update(

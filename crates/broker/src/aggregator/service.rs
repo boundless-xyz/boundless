@@ -30,6 +30,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
+    errors::{handle_order_failure, BrokerFailure},
     futures_retry::retry_only_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
@@ -178,6 +179,38 @@ impl AggregatorService {
         tracing::debug!("Assessor proof completed, proof id: {} count: {}", proof_id, order_count);
 
         Ok(proof_id)
+    }
+
+    async fn filter_invalid_aggregation_proofs(
+        &self,
+        proofs: &[AggregationOrder],
+    ) -> Vec<AggregationOrder> {
+        let mut valid = Vec::with_capacity(proofs.len());
+        for proof in proofs {
+            match self.aggregation_backend.aggregator.validate_proof(&proof.proof_id).await {
+                Ok(()) => valid.push(proof.clone()),
+                Err(err) => {
+                    tracing::warn!(
+                        "Dropping invalid aggregation proof {} for order {}: {err}",
+                        proof.proof_id,
+                        proof.order_id
+                    );
+                    handle_order_failure(
+                        &self.db,
+                        &proof.order_id,
+                        &BrokerFailure::new(
+                            "AGG400",
+                            format!("Invalid aggregation proof: {err}"),
+                            boundless_market::telemetry::CompletionOutcome::ProvingFailed,
+                        ),
+                        self.chain_id,
+                        &self.proving_completion_tx,
+                    )
+                    .await;
+                }
+            }
+        }
+        valid
     }
 
     /// Get the sum of the size of the journals for proofs in a batch
@@ -571,6 +604,7 @@ impl AggregatorService {
             BatchStatus::Aggregating => {
                 // Get and filter all pending proofs
                 let (new_proofs, new_groth16_proofs) = self.get_filtered_pending_proofs().await?;
+                let new_proofs = self.filter_invalid_aggregation_proofs(&new_proofs).await;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
