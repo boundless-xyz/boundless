@@ -24,6 +24,7 @@ use std::{
 };
 
 use super::backend_provider::BackendProviderObj;
+use crate::prover_utils::prover::ProverObj;
 
 /// Errors returned when constructing selector registries.
 #[derive(Debug, thiserror::Error)]
