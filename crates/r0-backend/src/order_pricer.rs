@@ -7,16 +7,15 @@
 //!
 //! Wraps the R0 cycle-based pricing pipeline (`requestor_order_preflight`)
 //! behind the backend-agnostic [`RequestPricer`] surface, and registers
-//! [`RiscZeroSdkBackend`] as the [`Backend`] / [`BackendRequestPricerFactory`].
+//! [`RiscZeroRequestPricingBackend`] as the [`BackendRequestPricerFactory`].
 
-use std::sync::Arc;
-
-use alloy::{network::Ethereum, primitives::Address, providers::Provider};
+use alloy::{network::Ethereum, providers::Provider};
 use async_trait::async_trait;
 use boundless_market::{
     contracts::ProofRequest, order_pricer::RequestPricingResult, price_oracle::PriceOracleManager,
     price_provider::PriceProviderArc, prover_utils::prover::ProverObj,
-    prover_utils::requestor_order_preflight, Backend, BackendRequestPricerFactory, RequestPricer,
+    prover_utils::requestor_order_preflight, BackendRequestPricerFactory, RequestPricer,
+    RequestPricingContext,
 };
 
 /// SDK marker for RISC Zero request-pricing behavior.
@@ -24,9 +23,7 @@ use boundless_market::{
 /// This is intentionally separate from [`crate::RiscZeroBackend`], which is a
 /// stateful runtime [`boundless_market::BackendProvider`] implementation.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct RiscZeroSdkBackend;
-
-impl Backend for RiscZeroSdkBackend {}
+pub struct RiscZeroRequestPricingBackend;
 
 /// RISC Zero [`RequestPricer`].
 ///
@@ -36,11 +33,11 @@ impl Backend for RiscZeroSdkBackend {}
 #[derive(Clone)]
 pub struct RiscZeroRequestPricer<P> {
     prover: ProverObj,
-    provider: Arc<P>,
-    market_address: Address,
+    provider: std::sync::Arc<P>,
+    market_address: alloy::primitives::Address,
     chain_id: u64,
     price_provider: Option<PriceProviderArc>,
-    price_oracle: Option<Arc<PriceOracleManager>>,
+    price_oracle: Option<std::sync::Arc<PriceOracleManager>>,
 }
 
 impl<P> RiscZeroRequestPricer<P>
@@ -48,14 +45,15 @@ where
     P: Provider<Ethereum> + 'static + Clone,
 {
     /// Construct a new R0 request pricer.
-    pub fn new(
-        prover: ProverObj,
-        provider: Arc<P>,
-        market_address: Address,
-        chain_id: u64,
-        price_provider: Option<PriceProviderArc>,
-        price_oracle: Option<Arc<PriceOracleManager>>,
-    ) -> Self {
+    pub fn new(ctx: RequestPricingContext<P>) -> Self {
+        let RequestPricingContext {
+            prover,
+            provider,
+            market_address,
+            chain_id,
+            price_provider,
+            price_oracle,
+        } = ctx;
         Self { prover, provider, market_address, chain_id, price_provider, price_oracle }
     }
 }
@@ -77,7 +75,7 @@ where
         )
         .await?;
         Ok(match work_units {
-            Some(work_units) => RequestPricingResult::Lock { work_units },
+            Some(work_units) => RequestPricingResult::Accept { work_units },
             None => RequestPricingResult::Skip {
                 reason: "preflight rejected the order (see logs for details)".into(),
             },
@@ -85,27 +83,13 @@ where
     }
 }
 
-impl<P> BackendRequestPricerFactory<P> for RiscZeroSdkBackend
+impl<P> BackendRequestPricerFactory<P> for RiscZeroRequestPricingBackend
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
     type Pricer = RiscZeroRequestPricer<P>;
 
-    fn make_pricer(
-        prover: ProverObj,
-        provider: Arc<P>,
-        market_address: Address,
-        chain_id: u64,
-        price_provider: Option<PriceProviderArc>,
-        price_oracle: Option<Arc<PriceOracleManager>>,
-    ) -> Self::Pricer {
-        RiscZeroRequestPricer::new(
-            prover,
-            provider,
-            market_address,
-            chain_id,
-            price_provider,
-            price_oracle,
-        )
+    fn make_pricer(ctx: RequestPricingContext<P>) -> Self::Pricer {
+        RiscZeroRequestPricer::new(ctx)
     }
 }

@@ -898,7 +898,18 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     D: crate::storage::StorageDownloader,
 {
-    /// Install a backend-supplied order pricer into the request builder.
+    /// Install a request pricer into the request builder.
+    pub fn with_request_pricer(
+        mut self,
+        pricer: Arc<dyn crate::order_pricer::RequestPricer>,
+    ) -> Self {
+        if let Some(ref mut builder) = self.request_builder {
+            builder.pricer = Some(pricer);
+        }
+        self
+    }
+
+    /// Install a backend-supplied request pricer into the request builder.
     ///
     /// `B` selects the backend; the pricer is constructed via
     /// [`crate::order_pricer::BackendRequestPricerFactory::make_pricer`] using the
@@ -906,11 +917,11 @@ where
     /// [`crate::prover_utils::prover::ProverObj`] held by the preflight
     /// layer. The request builder's `run_pricing_check` step then dispatches
     /// through the installed pricer.
-    pub async fn with_request_pricer<B>(mut self) -> Result<Self, ClientError>
+    pub async fn with_request_pricing_backend<B>(self) -> Result<Self, ClientError>
     where
         B: crate::order_pricer::BackendRequestPricerFactory<P>,
     {
-        let Some(ref mut builder) = self.request_builder else {
+        let Some(builder) = self.request_builder.as_ref() else {
             return Ok(self);
         };
         let market_address = *self.boundless_market.instance().address();
@@ -919,20 +930,19 @@ where
             .get_chain_id()
             .await
             .map_err(|e| ClientError::Error(anyhow::anyhow!(e)))?;
-        let provider = std::sync::Arc::new(builder.offer_layer.provider.clone());
+        let provider = Arc::new(builder.offer_layer.provider.clone());
         let price_provider = builder.offer_layer.price_provider.clone();
         let price_oracle = builder.offer_layer.price_oracle_manager.clone();
         let prover = builder.preflight_layer.prover_obj_cloned();
-        let pricer = B::make_pricer(
+        let pricer = B::make_pricer(crate::order_pricer::RequestPricingContext {
             prover,
             provider,
             market_address,
             chain_id,
             price_provider,
             price_oracle,
-        );
-        builder.pricer = Some(std::sync::Arc::new(pricer));
-        Ok(self)
+        });
+        Ok(self.with_request_pricer(Arc::new(pricer)))
     }
 }
 

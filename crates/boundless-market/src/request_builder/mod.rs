@@ -210,7 +210,7 @@ pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = Sta
     /// off the preflight layer's executor.
     #[cfg(feature = "prover_utils")]
     #[builder(setter(into, strip_option), default)]
-    pub pricer: Option<std::sync::Arc<dyn crate::order_pricer::RequestPricer + Send + Sync>>,
+    pub pricer: Option<std::sync::Arc<dyn crate::order_pricer::RequestPricer>>,
 }
 
 impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
@@ -246,7 +246,9 @@ where
         #[cfg(feature = "prover_utils")]
         if let Some(pricer) = &self.pricer {
             match pricer.price(request).await {
-                Ok(crate::order_pricer::RequestPricingResult::Lock { .. }) => {}
+                Ok(crate::order_pricer::RequestPricingResult::Accept { work_units }) => {
+                    tracing::debug!("Pricing check accepted request with {work_units} work units");
+                }
                 Ok(crate::order_pricer::RequestPricingResult::Skip { reason }) => {
                     tracing::warn!("Pricing check skipped: {reason}");
                 }

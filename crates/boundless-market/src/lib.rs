@@ -85,12 +85,6 @@ pub type VerifierSelector = alloy_primitives::FixedBytes<4>;
 pub mod claim_digest;
 pub use claim_digest::{ComputeClaimDigest, Sha256ClaimDigest};
 
-/// SDK-side backend marker trait.
-#[cfg(not(target_os = "zkvm"))]
-pub mod backend;
-#[cfg(not(target_os = "zkvm"))]
-pub use backend::Backend;
-
 /// Per-selector backend post-processing trait.
 #[cfg(not(target_os = "zkvm"))]
 pub mod backend_provider;
@@ -103,7 +97,9 @@ pub mod backend_registry;
 #[cfg(all(feature = "prover_utils", not(target_os = "zkvm")))]
 pub mod order_pricer;
 #[cfg(all(feature = "prover_utils", not(target_os = "zkvm")))]
-pub use order_pricer::{BackendRequestPricerFactory, RequestPricer, RequestPricingResult};
+pub use order_pricer::{
+    BackendRequestPricerFactory, RequestPricer, RequestPricingContext, RequestPricingResult,
+};
 
 /// Order stream client module for submitting requests off-chain.
 #[cfg(not(target_os = "zkvm"))]

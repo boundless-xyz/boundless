@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Backend-agnostic request-pricing trait used by the request builder's
+//! Backend-aware request-pricing trait used by the request builder's
 //! pricing-check step.
 //!
 //! Each backend ships its own [`RequestPricer`] implementation; the SDK
@@ -26,9 +26,27 @@ use alloy::{network::Ethereum, primitives::Address, providers::Provider};
 use async_trait::async_trait;
 
 use crate::{
-    backend::Backend, contracts::ProofRequest, price_oracle::PriceOracleManager,
-    price_provider::PriceProviderArc, prover_utils::prover::ProverObj,
+    contracts::ProofRequest, price_oracle::PriceOracleManager, price_provider::PriceProviderArc,
+    prover_utils::prover::ProverObj,
 };
+
+/// Environment available to backend request-pricer factories.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct RequestPricingContext<P> {
+    /// Prover shared with the request builder's preflight layer.
+    pub prover: ProverObj,
+    /// Alloy provider for market reads and gas estimation.
+    pub provider: Arc<P>,
+    /// Boundless market contract address.
+    pub market_address: Address,
+    /// Chain id of the target market.
+    pub chain_id: u64,
+    /// Optional external price provider configured on the offer layer.
+    pub price_provider: Option<PriceProviderArc>,
+    /// Optional price oracle manager configured on the offer layer.
+    pub price_oracle: Option<Arc<PriceOracleManager>>,
+}
 
 /// Outcome of a single pricing check.
 ///
@@ -38,7 +56,7 @@ use crate::{
 #[non_exhaustive]
 pub enum RequestPricingResult {
     /// The request was priced and is acceptable.
-    Lock {
+    Accept {
         /// Work units the order will consume.
         work_units: u64,
     },
@@ -68,7 +86,7 @@ pub trait RequestPricer: Send + Sync {
 ///
 /// Implementations are keyed off the alloy [`Provider`] type so the pricer
 /// can capture an `Arc<P>` and the chain id for its own use.
-pub trait BackendRequestPricerFactory<P>: Backend
+pub trait BackendRequestPricerFactory<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -79,14 +97,7 @@ where
     ///
     /// `prover` is the same instance the preflight layer holds, so backends
     /// that cache execution by content-address share that cache.
-    fn make_pricer(
-        prover: ProverObj,
-        provider: Arc<P>,
-        market_address: Address,
-        chain_id: u64,
-        price_provider: Option<PriceProviderArc>,
-        price_oracle: Option<Arc<PriceOracleManager>>,
-    ) -> Self::Pricer;
+    fn make_pricer(ctx: RequestPricingContext<P>) -> Self::Pricer;
 }
 
 #[cfg(test)]
@@ -136,15 +147,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mock_pricer_lock_outcome_round_trips() {
+    async fn mock_pricer_accept_outcome_round_trips() {
         let pricer = MockPricer {
-            outcome: RequestPricingResult::Lock { work_units: 42 },
+            outcome: RequestPricingResult::Accept { work_units: 42 },
             seen: std::sync::Mutex::new(None),
         };
         let req = sample_request();
         let outcome = pricer.price(&req).await.unwrap();
-        let RequestPricingResult::Lock { work_units } = outcome else {
-            panic!("expected Lock outcome");
+        let RequestPricingResult::Accept { work_units } = outcome else {
+            panic!("expected Accept outcome");
         };
         assert_eq!(work_units, 42);
         assert_eq!(pricer.seen.lock().unwrap().as_ref().unwrap().id, req.id);
