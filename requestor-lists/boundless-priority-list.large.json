@@ -45,6 +45,20 @@
           "estimatedMaxInputSizeMB": 550
         }
       }
+    },
+    {
+      "address": "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
+      "chainId": 167000,
+      "name": "Mango",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 170,
+          "estimatedMcycleCountMax": 10000,
+          "estimatedMaxInputSizeMB": 550
+        }
+      }
     }
   ]
 }
