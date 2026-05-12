@@ -249,6 +249,14 @@
       "description": "",
       "tags": [],
       "extensions": {}
+    },
+    {
+      "address": "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
+      "chainId": 167000,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
     }
   ]
 }
