@@ -51,6 +51,7 @@ interface OrderGeneratorArgs {
   useZeth?: boolean;
   maxPriceCap?: string;
   maxOutstandingRequests?: string;
+  desiredCount?: number;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -318,6 +319,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         {
           name: serviceName,
           cluster: cluster.arn,
+          desiredCount: args.desiredCount ?? 1,
           networkConfiguration: {
             securityGroups: [securityGroup.id],
             subnets: args.privateSubnetIds,
