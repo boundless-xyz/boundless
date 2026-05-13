@@ -26,6 +26,7 @@ import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
+import {SlimRequest, SlimRequestLibrary} from "./types/SlimRequest.sol";
 import {SubBatch} from "./types/SubBatch.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";
 
@@ -226,53 +227,36 @@ contract BoundlessMarket is
         FulfillmentContext({valid: true, expired: expired, price: price}).store(requestHash);
     }
 
-    /// @inheritdoc IBoundlessMarket
-    function verifyDelivery(SubBatch[] calldata subBatches) public view {
-        for (uint256 j = 0; j < subBatches.length; j++) {
-            _verifySubBatch(subBatches[j]);
+    /// @dev Reconstruct each fill's `requestDigest` from the slim payload and
+    ///      assert that the result matches either the stored lock digest or
+    ///      a valid `FulfillmentContext` entry from `priceRequest`. Once this
+    ///      passes, the slim payload is bound to a client-signed request and
+    ///      downstream consumers (router, assessor adapter, callback dispatch)
+    ///      can trust its fields without re-verification.
+    function _verifyBinding(RequestId id, bytes32 requestDigest) internal view {
+        if (requestLocks[id].requestDigest == requestDigest) {
+            return;
         }
-    }
-
-    /// @dev Build the per-fill arrays for one sub-batch and dispatch through the
-    ///      router. Re-derives `requestDigest` from each `ProofRequest` so the
-    ///      caller-supplied requests are the integrity source — `signedSelectors`
-    ///      and `requestDigests` come from the verified request structs, not
-    ///      from any assessor commitment.
-    function _verifySubBatch(SubBatch calldata sb) internal view {
-        uint256 n = sb.fills.length;
-        if (n == 0) return;
-        if (n > type(uint16).max) revert BatchSizeExceedsLimit(n, type(uint16).max);
-        if (sb.requests.length != n) revert BatchSizeExceedsLimit(sb.requests.length, n);
-
-        bytes32[] memory requestDigests = new bytes32[](n);
-        bytes32[] memory claimDigests = new bytes32[](n);
-        bytes[] memory seals = new bytes[](n);
-        bytes4[] memory signedSelectors = new bytes4[](n);
-
-        for (uint256 i = 0; i < n; i++) {
-            requestDigests[i] = sb.requests[i].eip712Digest();
-            claimDigests[i] = sb.fills[i].claimDigest;
-            seals[i] = sb.fills[i].seal;
-            signedSelectors[i] = sb.requests[i].requirements.selector;
+        bytes32 requestHash = _hashTypedDataV4(requestDigest);
+        if (FulfillmentContextLibrary.load(requestHash).valid) {
+            return;
         }
-
-        ROUTER.verifySubBatch(requestDigests, claimDigests, seals, signedSelectors, sb.prover, sb.assessorSeal);
+        revert RequestIsNotLockedOrPriced(id);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function priceAndFulfill(SubBatch[] calldata subBatches, bytes[][] calldata clientSignatures)
-        public
-        returns (bytes[] memory paymentError)
-    {
-        _priceAll(subBatches, clientSignatures);
+    function priceAndFulfill(
+        ProofRequest[][] calldata priceRequests,
+        bytes[][] calldata clientSignatures,
+        SubBatch[] calldata subBatches
+    ) public returns (bytes[] memory paymentError) {
+        _priceAll(priceRequests, clientSignatures);
         paymentError = fulfill(subBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
     function fulfill(SubBatch[] calldata subBatches) public returns (bytes[] memory paymentError) {
-        verifyDelivery(subBatches);
-
-        // Total fill count across all sub-batches; flatten for the return array.
+        // Flatten payment-error output across sub-batches.
         uint256 totalFills = 0;
         for (uint256 j = 0; j < subBatches.length; j++) {
             totalFills += subBatches[j].fills.length;
@@ -282,34 +266,44 @@ contract BoundlessMarket is
         uint256 outIdx = 0;
         for (uint256 j = 0; j < subBatches.length; j++) {
             SubBatch calldata sb = subBatches[j];
-            address prover = sb.prover;
-            for (uint256 i = 0; i < sb.fills.length; i++) {
-                Fulfillment calldata fill = sb.fills[i];
-                ProofRequest calldata request = sb.requests[i];
-                bytes32 requestDigest = request.eip712Digest();
-                bool expired;
-                (paymentError[outIdx], expired) = _fulfillAndPay(fill, request, requestDigest, prover);
+            uint256 n = sb.fills.length;
+            if (n == 0) continue;
+            if (n > type(uint16).max) revert BatchSizeExceedsLimit(n, type(uint16).max);
+            if (sb.requests.length != n) revert BatchSizeExceedsLimit(sb.requests.length, n);
 
-                // Skip the callback if this fulfillment is related to an expired request.
+            // Bind every slim payload to a client-signed request (lock or priced) by reconstructing
+            // the digest and asserting it matches the stored lock or transient context.
+            bytes32[] memory requestDigests = new bytes32[](n);
+            for (uint256 i = 0; i < n; i++) {
+                bytes32 requestDigest = SlimRequestLibrary.reconstructRequestDigest(sb.requests[i]);
+                _verifyBinding(sb.requests[i].id, requestDigest);
+                requestDigests[i] = requestDigest;
+            }
+
+            // Dispatch through the router: per-fill verifier + per-sub-batch assessor.
+            ROUTER.verifySubBatch(sb.requests, sb.fills, requestDigests, sb.prover, sb.assessorSeal);
+
+            // Settle each fill.
+            address prover = sb.prover;
+            for (uint256 i = 0; i < n; i++) {
+                Fulfillment calldata fill = sb.fills[i];
+                SlimRequest calldata slim = sb.requests[i];
+                bool expired;
+                (paymentError[outIdx], expired) = _fulfillAndPay(fill, slim.id, requestDigests[i], prover);
+
                 if (expired) {
                     outIdx++;
                     continue;
                 }
 
-                if (request.requirements.callback.addr != address(0)) {
+                if (slim.callback.addr != address(0)) {
                     if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
                         (bytes32 imageId, bytes calldata journal) =
                             FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
                         _executeCallback(
-                            fill.id,
-                            request.requirements.callback.addr,
-                            request.requirements.callback.gasLimit,
-                            imageId,
-                            journal,
-                            fill.seal
+                            slim.id, slim.callback.addr, slim.callback.gasLimit, imageId, journal, fill.seal
                         );
                     } else {
-                        // A callback was requested, but it cannot be fulfilled, so revert.
                         revert UnfulfillableCallback();
                     }
                 }
@@ -319,11 +313,12 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function priceAndFulfillAndWithdraw(SubBatch[] calldata subBatches, bytes[][] calldata clientSignatures)
-        public
-        returns (bytes[] memory paymentError)
-    {
-        _priceAll(subBatches, clientSignatures);
+    function priceAndFulfillAndWithdraw(
+        ProofRequest[][] calldata priceRequests,
+        bytes[][] calldata clientSignatures,
+        SubBatch[] calldata subBatches
+    ) public returns (bytes[] memory paymentError) {
+        _priceAll(priceRequests, clientSignatures);
         paymentError = fulfillAndWithdraw(subBatches);
     }
 
@@ -341,14 +336,18 @@ contract BoundlessMarket is
         }
     }
 
-    /// @dev Price every request in every sub-batch. Inner index of `clientSignatures`
-    ///      is per-request signature within the sub-batch.
-    function _priceAll(SubBatch[] calldata subBatches, bytes[][] calldata clientSignatures) internal {
-        if (clientSignatures.length != subBatches.length) {
-            revert BatchSizeExceedsLimit(clientSignatures.length, subBatches.length);
+    /// @dev Price every request in every group. Each `priceRequests[j]` is the
+    ///      list of `ProofRequest`s that need pricing for the corresponding
+    ///      sub-batch — typically only the un-locked entries. Verified client
+    ///      signatures populate `FulfillmentContext` keyed by `requestHash`,
+    ///      which the subsequent `fulfill` step looks up via the slim
+    ///      payload's reconstructed digest.
+    function _priceAll(ProofRequest[][] calldata priceRequests, bytes[][] calldata clientSignatures) internal {
+        if (clientSignatures.length != priceRequests.length) {
+            revert BatchSizeExceedsLimit(clientSignatures.length, priceRequests.length);
         }
-        for (uint256 j = 0; j < subBatches.length; j++) {
-            ProofRequest[] calldata requests = subBatches[j].requests;
+        for (uint256 j = 0; j < priceRequests.length; j++) {
+            ProofRequest[] calldata requests = priceRequests[j];
             bytes[] calldata sigs = clientSignatures[j];
             if (sigs.length != requests.length) {
                 revert BatchSizeExceedsLimit(sigs.length, requests.length);
@@ -359,19 +358,15 @@ contract BoundlessMarket is
         }
     }
 
-    /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    /// `requestDigest` is the verified EIP-712 digest of `request` (re-derived by
-    /// the caller); the market trusts this value as the request's identity.
-    function _fulfillAndPay(
-        Fulfillment calldata fill,
-        ProofRequest calldata request,
-        bytes32 requestDigest,
-        address prover
-    ) internal returns (bytes memory paymentError, bool expired) {
-        RequestId id = fill.id;
-        if (RequestId.unwrap(id) != RequestId.unwrap(request.id)) {
-            revert MismatchedRequestId(RequestId.unwrap(request.id), RequestId.unwrap(id));
-        }
+    /// Complete the fulfillment logic after having verified the app and assessor
+    /// receipts. `requestDigest` is the verified EIP-712 digest reconstructed
+    /// from the slim payload; the caller has already asserted it matches the
+    /// stored binding via `_verifyBinding`. `id` comes from the trusted slim
+    /// payload (positionally paired with `fill`).
+    function _fulfillAndPay(Fulfillment calldata fill, RequestId id, bytes32 requestDigest, address prover)
+        internal
+        returns (bytes memory paymentError, bool expired)
+    {
         (address client, uint32 idx) = id.clientAndIndex();
         Account storage clientAccount = accounts[client];
         (bool locked, bool fulfilled) = clientAccount.requestFlags(idx);
@@ -434,7 +429,7 @@ contract BoundlessMarket is
         if (paymentError.length > 0) {
             emit PaymentRequirementsFailed(paymentError);
         }
-        emit ProofDelivered(fill.id, prover, fill);
+        emit ProofDelivered(id, prover, fill);
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
@@ -648,11 +643,12 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        SubBatch[] calldata subBatches,
-        bytes[][] calldata clientSignatures
+        ProofRequest[][] calldata priceRequests,
+        bytes[][] calldata clientSignatures,
+        SubBatch[] calldata subBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfill(subBatches, clientSignatures);
+        paymentError = priceAndFulfill(priceRequests, clientSignatures, subBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -660,11 +656,12 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        SubBatch[] calldata subBatches,
-        bytes[][] calldata clientSignatures
+        ProofRequest[][] calldata priceRequests,
+        bytes[][] calldata clientSignatures,
+        SubBatch[] calldata subBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfillAndWithdraw(subBatches, clientSignatures);
+        paymentError = priceAndFulfillAndWithdraw(priceRequests, clientSignatures, subBatches);
     }
 
     /// @inheritdoc IBoundlessMarket

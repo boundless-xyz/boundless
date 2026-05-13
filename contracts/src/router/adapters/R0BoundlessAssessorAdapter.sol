@@ -13,93 +13,74 @@ import {IBoundlessAssessor} from "../interfaces/IBoundlessAssessor.sol";
 import {AssessorCallback} from "../../types/AssessorCallback.sol";
 import {AssessorCommitment} from "../../types/AssessorCommitment.sol";
 import {AssessorJournal} from "../../types/AssessorJournal.sol";
-import {RequestId} from "../../types/RequestId.sol";
+import {Fulfillment, FulfillmentLibrary} from "../../types/Fulfillment.sol";
 import {Selector} from "../../types/Selector.sol";
+import {SlimRequest} from "../../types/SlimRequest.sol";
 import {MerkleProofish} from "../../libraries/MerkleProofish.sol";
 
 /// @title R0BoundlessAssessorAdapter — `IBoundlessAssessor` adapter wrapping the
 ///        existing R0 STARK assessor verifier.
 ///
-/// @notice Reconstructs the assessor journal digest verbatim from today's market
-///         path and forwards to `IRiscZeroVerifier.verify(seal, ASSESSOR_IMAGE_ID,
-///         journalDigest)`. Today's R0 STARK assessor proofs remain bit-identically
-///         verifiable through the router — no guest changes required.
+/// @notice Reconstructs the existing R0 STARK assessor journal from the trusted
+///         slim payload and forwards to `IRiscZeroVerifier.verify(seal,
+///         ASSESSOR_IMAGE_ID, journalDigest)`. Today's R0 STARK assessor proofs
+///         remain bit-identically verifiable through the router — no guest
+///         changes required.
 ///
-///         The `IBoundlessAssessor.verifyAssessor` interface intentionally surfaces
-///         only `(requestDigests, claimDigests, seal)` — that's the universal seam.
-///         Fields the existing R0 STARK journal also commits to (per-fill `id` and
-///         `fulfillmentDataDigest`; per-batch `callbacks`, `selectors`, `prover`)
-///         are specific to this adapter's binding shape, so they ride inside the
-///         seal as an envelope:
-///
-///             bytes4 selector || abi.encode(Envelope) — where `Envelope.innerSeal`
-///             is the underlying R0 STARK seal.
+///         The `IBoundlessAssessor.verifyAssessor` interface surfaces the
+///         universal seam: `(SlimRequest[], Fulfillment[], requestDigests[],
+///         prover, seal)`. The market has already bound each `SlimRequest`
+///         to a client-signed `requestDigest` via the lock or transient
+///         `FulfillmentContext`, so this adapter trusts the payload and
+///         derives every journal field from it:
+///           * Per-fill `id`, `callback`, `selector` — read from `SlimRequest`.
+///           * Per-fill `fulfillmentDataDigest` — `FulfillmentLibrary.fulfillmentDataDigest`
+///             over `fills[i].{fulfillmentDataType, fulfillmentData}`.
+///           * Per-fill merkle leaf — `AssessorCommitment{i, id, requestDigest,
+///             claimDigest, fulfillmentDataDigest}.eip712Digest()`.
+///           * Per-batch `callbacks[]` / `selectors[]` — sparse arrays built
+///             from non-zero `SlimRequest.callback.addr` / `selector` entries.
+///           * Per-batch `prover` — universal arg.
+///         The only adapter-specific bytes in the seal are the underlying R0
+///         STARK proof; everything else lives in `SlimRequest` / `Fulfillment`.
 ///
 ///         **Pinned at deploy time, immutable.** One adapter instance per
-///         `(image id, underlying verifier, envelope shape)` triple. The image
-///         id is set in the constructor and never changes. The adapter has no
-///         governance role, no upgrade path, no mutable state.
+///         `(image id, underlying verifier)` pair. The image id is set in
+///         the constructor and never changes. No governance role, no upgrade
+///         path, no mutable state.
 ///
 ///         **Rotation is router-level, not adapter-level.** When the assessor
 ///         guest image is updated, the operational pattern is:
-///           1. Deploy a new `R0BoundlessAssessorAdapter` pinned to the new
-///              image.
+///           1. Deploy a new `R0BoundlessAssessorAdapter` pinned to the new image.
 ///           2. Governance `instantiate`s a new selector under `R0_ASSESSOR`
 ///              pointing at the new adapter.
 ///           3. Both selectors run in parallel. Brokers using the old image
 ///              select the old selector; brokers using the new image select
-///              the new selector. The choice is broker-side and not visible to
+///              the new one. The choice is broker-side and not visible to
 ///              requestors (the assessor selector is not requestor-signed).
 ///           4. Once all brokers have migrated and drained their queues of
 ///              old-image proofs, governance calls `removeEntry(oldSelector)`
-///              to tombstone the old adapter — the same mechanism as today's
-///              `DEPRECATED_ASSESSOR_EXPIRES_AT` deadline, but managed
-///              manually via governance rather than by an in-contract
-///              timestamp.
-///
-///         The same pattern applies to envelope/journal *shape* changes (a new
-///         leaf field, a different journal binding) — those also require a new
-///         adapter contract because the decode logic differs. So image rotation
-///         and envelope-shape rotation share one operational ceremony.
+///              to tombstone the old adapter.
 ///
 ///         The underlying verifier is pinned at deploy time (today:
 ///         `RiscZeroSetVerifier`, since the broker produces set-inclusion seals
 ///         for the assessor) — never the existing R0 router. Every selector
-///         reachable through BoundlessRouter is explicit at the top level, with
-///         no transitive trust of the upstream R0 router's selector set.
+///         reachable through `BoundlessRouter` is explicit at the top level,
+///         with no transitive trust of the upstream R0 router's selector set.
 ///
-/// @dev    TODO: once the market takes `ProofRequest[]` at fulfill time and
-///         re-verifies each request's EIP-712 digest against the lock, the
-///         journal's per-batch `callbacks` and `selectors` fields become
-///         redundant — the market sources them directly from the verified
-///         request struct, so a malicious broker can no longer lie about
-///         them. The same applies to the per-fill `id` in the envelope (also
-///         bound by `requestDigest`). At the next assessor image rotation the
-///         guest can drop those commitments, and the corresponding adapter
-///         version (a fresh contract under a new `R0_ASSESSOR` selector, per
-///         the rotation pattern above) shrinks the envelope and the journal
-///         binding accordingly. Until then this adapter keeps reconstructing
-///         the existing shape verbatim — the redundancy is harmless, just
-///         calldata waste.
+/// @dev    The existing R0 assessor guest commits to per-fill `id`,
+///         `fulfillmentDataDigest`, and per-batch `callbacks` / `selectors` in
+///         its journal — fields that are also now bound by the market's
+///         `_verifyBinding` (via the `requestDigest` reconstruction from the
+///         slim payload). The guest's commitment is therefore redundant with
+///         the market's. At the next assessor-image rotation, the guest can
+///         drop those journal fields and a fresh adapter version (deployed
+///         under a new `R0_ASSESSOR` selector, per the rotation pattern above)
+///         would shrink the journal binding accordingly. Until that rotation,
+///         this adapter reconstructs the existing journal shape verbatim — the
+///         redundancy costs a few keccak hashes per fill but is otherwise
+///         harmless.
 contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
-    /// @notice Off-chain envelope packing the journal extras the universal
-    ///         `IBoundlessAssessor` interface doesn't surface, plus the
-    ///         underlying R0 STARK seal. The image id is implicit (pinned by
-    ///         the adapter's immutable `ASSESSOR_IMAGE_ID`); the prover is
-    ///         passed as a universal arg, not via the envelope.
-    struct Envelope {
-        /// @notice Per-fill `RequestId`. Length must equal `requestDigests.length`.
-        RequestId[] ids;
-        /// @notice Per-fill fulfillment-data digest. Length must equal `requestDigests.length`.
-        bytes32[] fulfillmentDataDigests;
-        /// @notice Optional callbacks committed in the journal.
-        AssessorCallback[] callbacks;
-        /// @notice Optional per-fill selectors committed in the journal.
-        Selector[] selectors;
-        /// @notice The R0 STARK seal that the underlying verifier consumes.
-        bytes innerSeal;
-    }
-
     /// @notice The specific R0 verifier this adapter forwards to. Pinned at
     ///         deploy time — never the existing R0 router.
     IRiscZeroVerifier public immutable RISC_ZERO_VERIFIER;
@@ -109,8 +90,8 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
     ///         BoundlessRouter selector update (see contract NatSpec).
     bytes32 public immutable ASSESSOR_IMAGE_ID;
 
-    error MalformedEnvelope();
-    error EnvelopeLengthMismatch();
+    error MalformedSeal();
+    error LengthMismatch();
 
     constructor(IRiscZeroVerifier riscZeroVerifier, bytes32 assessorImageId) {
         require(address(riscZeroVerifier) != address(0), "R0BoundlessAssessorAdapter: zero verifier");
@@ -121,43 +102,67 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
 
     /// @inheritdoc IBoundlessAssessor
     function verifyAssessor(
+        SlimRequest[] calldata requests,
+        Fulfillment[] calldata fills,
         bytes32[] calldata requestDigests,
-        bytes32[] calldata claimDigests,
         address prover,
         bytes calldata assessorSeal
     ) external view {
-        // Strip the router's 4-byte selector prefix; the rest is the ABI-encoded envelope.
-        if (assessorSeal.length < 4) revert MalformedEnvelope();
-        Envelope memory env = abi.decode(assessorSeal[4:], (Envelope));
+        uint256 n = requests.length;
+        if (fills.length != n || requestDigests.length != n) revert LengthMismatch();
 
-        uint256 n = requestDigests.length;
-        if (claimDigests.length != n || env.ids.length != n || env.fulfillmentDataDigests.length != n) {
-            revert EnvelopeLengthMismatch();
-        }
+        // Strip the router's 4-byte selector prefix; the rest is the inner STARK seal.
+        if (assessorSeal.length < 4) revert MalformedSeal();
+        bytes calldata innerSeal = assessorSeal[4:];
 
-        // Reconstruct the merkle leaves the assessor guest committed to.
-        bytes32[] memory leaves = new bytes32[](n);
+        // Count sparse callback / selector entries so we can size memory arrays
+        // exactly (Solidity memory arrays can't grow dynamically).
+        uint256 cbCount;
+        uint256 selCount;
         for (uint256 i = 0; i < n; i++) {
-            leaves[i] = AssessorCommitment({
-                    index: i,
-                    id: env.ids[i],
-                    requestDigest: requestDigests[i],
-                    claimDigest: claimDigests[i],
-                    fulfillmentDataDigest: env.fulfillmentDataDigests[i]
-                }).eip712Digest();
+            if (requests[i].callback.addr != address(0)) cbCount++;
+            if (requests[i].selector != bytes4(0)) selCount++;
         }
+        AssessorCallback[] memory callbacks = new AssessorCallback[](cbCount);
+        Selector[] memory selectors = new Selector[](selCount);
+
+        // Reconstruct merkle leaves and populate sparse arrays in one pass.
+        bytes32[] memory leaves = new bytes32[](n);
+        uint256 cbIdx;
+        uint256 selIdx;
+        for (uint256 i = 0; i < n; i++) {
+            bytes32 fulfillmentDataDigest =
+                FulfillmentLibrary.fulfillmentDataDigest(fills[i].fulfillmentDataType, fills[i].fulfillmentData);
+            leaves[i] = AssessorCommitment({
+                index: i,
+                id: requests[i].id,
+                requestDigest: requestDigests[i],
+                claimDigest: fills[i].claimDigest,
+                fulfillmentDataDigest: fulfillmentDataDigest
+            }).eip712Digest();
+
+            if (requests[i].callback.addr != address(0)) {
+                callbacks[cbIdx++] = AssessorCallback({
+                    index: uint16(i),
+                    addr: requests[i].callback.addr,
+                    gasLimit: requests[i].callback.gasLimit
+                });
+            }
+            if (requests[i].selector != bytes4(0)) {
+                selectors[selIdx++] = Selector({index: uint16(i), value: requests[i].selector});
+            }
+        }
+
         bytes32 batchRoot = MerkleProofish.processTree(leaves);
 
         // Reconstruct the journal binding identically to today's market path. The
         // `prover` arg is committed by the journal — the R0 STARK fails if the seal
         // was produced against a different prover than the one passed by the caller.
         bytes32 journalDigest = sha256(
-            abi.encode(
-                AssessorJournal({root: batchRoot, callbacks: env.callbacks, selectors: env.selectors, prover: prover})
-            )
+            abi.encode(AssessorJournal({root: batchRoot, callbacks: callbacks, selectors: selectors, prover: prover}))
         );
 
-        RISC_ZERO_VERIFIER.verify(env.innerSeal, ASSESSOR_IMAGE_ID, journalDigest);
+        RISC_ZERO_VERIFIER.verify(innerSeal, ASSESSOR_IMAGE_ID, journalDigest);
     }
 
     /// @inheritdoc IERC165

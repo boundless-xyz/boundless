@@ -14,6 +14,8 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IBoundlessVerifier} from "./interfaces/IBoundlessVerifier.sol";
 import {IBoundlessJointVerifierAssessor} from "./interfaces/IBoundlessJointVerifierAssessor.sol";
 import {IBoundlessAssessor} from "./interfaces/IBoundlessAssessor.sol";
+import {SlimRequest} from "../types/SlimRequest.sol";
+import {Fulfillment} from "../types/Fulfillment.sol";
 
 /// @title BoundlessRouter — verification engine for the Boundless market.
 ///
@@ -362,50 +364,45 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
 
     /// @notice Verify all fills in one single-class sub-batch.
     ///
-    /// @param  requestDigests    Per-fill EIP-712 request digests.
-    /// @param  claimDigests      Per-fill claim digests committed by the proof.
-    /// @param  seals             Per-fill seal bytes — first 4 bytes select the impl.
-    /// @param  signedSelectors   Per-fill `Requirements.selector` the requestor committed
-    ///                           to in their EIP-712 signature. This is *not* derivable
-    ///                           from the seal: the seal encodes which impl produced the
-    ///                           proof, while `signedSelectors[i]` encodes which impls the
-    ///                           requestor agreed to accept. The router cross-checks the
-    ///                           two so a prover cannot fulfill against a request that
-    ///                           pinned one impl with a seal from a different impl.
-    ///                           Each value is `0x00` (any entry under the default class),
-    ///                           a registered class id (any entry under that class), or a
-    ///                           specific entry selector (must match the seal exactly).
-    /// @param  prover            Address the market will credit / slash for this
-    ///                           sub-batch. Forwarded as a universal arg to the assessor
-    ///                           adapter, which is responsible for binding it via its
-    ///                           own mechanism (R0 STARK journal, signature payload,
-    ///                           etc.). Ignored for joint sub-batches in v1.
-    /// @param  assessorSeal      Bytes for the assessor call (only used for verifier
-    ///                           classes; must be empty for joint). Like per-fill seals,
-    ///                           the first 4 bytes are the assessor selector — the router
-    ///                           extracts it for dispatch, then forwards the full seal to
-    ///                           the assessor adapter.
+    /// @param  requests        Per-fill `SlimRequest`. The CALLER is responsible
+    ///                         for verifying each `SlimRequest` reconstructs to
+    ///                         the lock's stored `requestDigest` before dispatch.
+    ///                         The router and adapters trust the supplied payload.
+    /// @param  fills           Per-fill `Fulfillment`. Same order as `requests`.
+    ///                         Used for `claimDigest`, `seal`, and `fulfillmentData`.
+    /// @param  requestDigests  Pre-computed `requestDigest` per fill, same order.
+    ///                         Forwarded to the assessor adapter and to the
+    ///                         joint per-fill dispatch so neither has to
+    ///                         recompute it. The market builds this during the
+    ///                         binding check; direct router callers must
+    ///                         supply consistent values.
+    /// @param  prover          Address the market will credit / slash for this
+    ///                         sub-batch. Forwarded as a universal arg to the
+    ///                         assessor / joint adapter, which is responsible
+    ///                         for binding it via its own mechanism.
+    /// @param  assessorSeal    Bytes for the assessor call (only used for
+    ///                         verifier classes; must be empty for joint).
+    ///                         First 4 bytes are the assessor selector for
+    ///                         dispatch; the rest is forwarded to the assessor
+    ///                         adapter.
     ///
-    /// @dev    Per-fill calls are gas-bounded `staticcall`s wrapped in try/catch — a
-    ///         malicious adapter can self-rug its sub-batch but cannot starve settlement
-    ///         of sibling sub-batches in the same transaction. The function is `view`
-    ///         because all dispatched calls are `staticcall`-equivalent.
+    /// @dev    Per-fill calls are gas-bounded `staticcall`s wrapped in
+    ///         try/catch — a malicious adapter can self-rug its sub-batch but
+    ///         cannot starve settlement of sibling sub-batches. The function
+    ///         is `view` because all dispatched calls are `staticcall`-equivalent.
     function verifySubBatch(
+        SlimRequest[] calldata requests,
+        Fulfillment[] calldata fills,
         bytes32[] calldata requestDigests,
-        bytes32[] calldata claimDigests,
-        bytes[] calldata seals,
-        bytes4[] calldata signedSelectors,
         address prover,
         bytes calldata assessorSeal
     ) external view {
-        uint256 n = seals.length;
+        uint256 n = fills.length;
         if (n == 0) revert EmptySubBatch();
-        if (requestDigests.length != n || claimDigests.length != n || signedSelectors.length != n) {
-            revert LengthMismatch();
-        }
+        if (requests.length != n || requestDigests.length != n) revert LengthMismatch();
 
         // 1. Resolve the verifier class from the first seal.
-        bytes4 firstSel = _sealSelector(seals[0]);
+        bytes4 firstSel = _sealSelector(fills[0].seal);
         Entry memory firstEntry = _entryOf(firstSel);
         bytes4 verifierClassId = firstEntry.classId;
         ClassMetadata memory cm = _classOf(verifierClassId);
@@ -418,19 +415,19 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         // 2. Per-fill loop: namespace check, signed-selector resolution, gas-bounded
         //    dispatch on interfaceTag.
         for (uint256 i = 0; i < n; i++) {
-            bytes4 sealSel = _sealSelector(seals[i]);
+            bytes4 sealSel = _sealSelector(fills[i].seal);
             Entry memory e = _entryOf(sealSel);
             if (e.classId != verifierClassId) revert MixedClassWithinSubBatch(verifierClassId, e.classId);
-            _matchSignedSelector(sealSel, signedSelectors[i], verifierClassId);
+            _matchSignedSelector(sealSel, requests[i].selector, verifierClassId);
 
             if (_isVerifierTag(tag)) {
-                try IBoundlessVerifier(e.impl).verify{gas: e.gasLimit}(seals[i], claimDigests[i]) {}
+                try IBoundlessVerifier(e.impl).verify{gas: e.gasLimit}(fills[i].seal, fills[i].claimDigest) {}
                 catch {
                     revert VerifierFailed(i, sealSel);
                 }
             } else if (_isJointTag(tag)) {
                 try IBoundlessJointVerifierAssessor(e.impl).verifyJoint{gas: e.gasLimit}(
-                    requestDigests[i], claimDigests[i], prover, seals[i]
+                    requestDigests[i], fills[i].claimDigest, prover, fills[i].seal
                 ) {}
                 catch {
                     revert VerifierFailed(i, sealSel);
@@ -454,7 +451,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
                 revert AssessorClassMismatch(cm.requiredAssessorClass, asEntry.classId);
             }
             IBoundlessAssessor(asEntry.impl).verifyAssessor{gas: asEntry.gasLimit}(
-                requestDigests, claimDigests, prover, assessorSeal
+                requests, fills, requestDigests, prover, assessorSeal
             );
         } else if (_isJointTag(tag)) {
             // Joint class: no assessor seam — caller must signal that with an empty seal.

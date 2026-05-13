@@ -7,7 +7,7 @@
 pragma solidity ^0.8.26;
 
 import {Fulfillment} from "./Fulfillment.sol";
-import {ProofRequest} from "./ProofRequest.sol";
+import {SlimRequest} from "./SlimRequest.sol";
 
 /// @title SubBatch — single-class slice of a fulfillment transaction.
 ///
@@ -21,16 +21,17 @@ import {ProofRequest} from "./ProofRequest.sol";
 ///         seam is per-sub-batch: verifier-class sub-batches carry a non-empty
 ///         `assessorSeal`, joint-class sub-batches must leave it empty.
 ///
-///         The market re-derives each request's EIP-712 digest at fulfill time
-///         (asserts against the lock for locked requests, against the signature
-///         for unlocked requests in `priceAndFulfill`). `signedSelectors` and
-///         per-fill `callback` config are read directly from the verified
-///         `requests`, not from any assessor journal.
+///         The market reconstructs each request's EIP-712 digest from `requests[i]`
+///         and asserts integrity against the lock (locked path) or against the
+///         transient `FulfillmentContext` (priced path). The slim payload carries
+///         the predicate, callback, and selector in full plus pre-computed digests
+///         for `imageUrl`, `input`, and `offer` — enough to reconstruct the
+///         signed `requestDigest` but ~5x smaller than the full `ProofRequest`.
 struct SubBatch {
-    /// @notice Per-fill `ProofRequest` (one per `fills` entry, same order).
-    ///         The market re-derives `requestDigest = requests[i].eip712Digest()`
-    ///         and asserts integrity against the lock or signature.
-    ProofRequest[] requests;
+    /// @notice Per-fill `SlimRequest` (one per `fills` entry, same order).
+    ///         The market reconstructs `requestDigest` from this and asserts
+    ///         integrity against the lock or `FulfillmentContext`.
+    SlimRequest[] requests;
     /// @notice Per-fill `Fulfillment` (one per `requests` entry, same order).
     Fulfillment[] fills;
     /// @notice Bytes for the assessor call. First 4 bytes are the BoundlessRouter
