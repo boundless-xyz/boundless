@@ -200,9 +200,9 @@
       "tags": [],
       "extensions": {
         "requestEstimates": {
-          "estimatedMcycleCountMin": 100,
-          "estimatedMcycleCountMax": 3500,
-          "estimatedMaxInputSizeMB": 10
+          "estimatedMcycleCountMin": 170,
+          "estimatedMcycleCountMax": 10000,
+          "estimatedMaxInputSizeMB": 550
         }
       }
     }
