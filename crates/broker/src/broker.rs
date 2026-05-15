@@ -835,7 +835,6 @@ impl Broker {
             let backend_router = Arc::new(
                 BackendRouter::new()
                     .register_backend(BackendEntry::new(
-                        risc0_backend_id,
                         SupportedSelectors::default().selectors.keys().copied(),
                         risc0_backend,
                     ))

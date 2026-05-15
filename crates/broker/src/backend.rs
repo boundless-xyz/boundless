@@ -26,7 +26,10 @@ use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
-    contracts::{eip712_domain, encode_seal, AssessorJournal, FulfillmentData, PredicateType},
+    contracts::{
+        eip712_domain, encode_seal, AssessorJournal, FulfillmentData, PredicateType,
+        UNSPECIFIED_SELECTOR,
+    },
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
 };
@@ -64,6 +67,190 @@ impl BackendId {
             anyhow::bail!("backend id cannot be empty");
         }
         Ok(Self(value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::{Address, Bytes, U256};
+    use boundless_market::contracts::{
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+    };
+    use chrono::Utc;
+    use risc0_zkvm::sha::Digest;
+    use std::{
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            OnceLock,
+        },
+        vec,
+    };
+
+    #[derive(Debug)]
+    struct MockBackend {
+        id: BackendId,
+        supported: Vec<FixedBytes<4>>,
+        calls: AtomicUsize,
+    }
+
+    impl MockBackend {
+        fn new(id: &str, supported: Vec<FixedBytes<4>>) -> Self {
+            Self { id: BackendId::new(id).unwrap(), supported, calls: AtomicUsize::new(0) }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl Backend for MockBackend {
+        fn id(&self) -> &BackendId {
+            &self.id
+        }
+
+        fn supports(&self, selector: FixedBytes<4>) -> bool {
+            self.supported.contains(&selector)
+        }
+
+        async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(OrderProcessProgress::Completed(ProcessedOrder {
+                backend_id: self.id.clone(),
+                order_id: cmd.order.id(),
+                proof_id: "proof".to_string(),
+                compressed_proof_id: None,
+                next_status: OrderStatus::PendingAgg,
+            }))
+        }
+    }
+
+    fn selector(byte: u8) -> FixedBytes<4> {
+        FixedBytes::from([byte; 4])
+    }
+
+    fn test_order(selector: FixedBytes<4>) -> Order {
+        let mut request = ProofRequest::new(
+            RequestId::new(Address::ZERO, 1),
+            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+            "http://example.com",
+            RequestInput { inputType: RequestInputType::Inline, data: Bytes::new() },
+            Offer {
+                minPrice: U256::from(1),
+                maxPrice: U256::from(2),
+                rampUpStart: 0,
+                timeout: 300,
+                lockTimeout: 300,
+                rampUpPeriod: 1,
+                lockCollateral: U256::ZERO,
+            },
+        );
+        request.requirements.selector = selector;
+
+        Order {
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            fulfillment_type: crate::FulfillmentType::LockAndFulfill,
+            request,
+            status: OrderStatus::Proving,
+            client_sig: Bytes::new(),
+            updated_at: Utc::now(),
+            image_id: None,
+            input_id: None,
+            total_cycles: None,
+            journal_bytes: None,
+            target_timestamp: None,
+            expire_timestamp: None,
+            proving_started_at: None,
+            proof_id: Some("stark".to_string()),
+            compressed_proof_id: None,
+            lock_price: None,
+            error_msg: None,
+            cached_id: OnceLock::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn router_routes_supported_selector() {
+        let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let router = BackendRouter::new()
+            .register_backend(BackendEntry::new(vec![selector(1)], backend.clone()))
+            .unwrap();
+
+        assert!(router.supports(selector(1)));
+        let progress =
+            router.process_order(ProcessOrder { order: test_order(selector(1)) }).await.unwrap();
+
+        assert_eq!(backend.calls(), 1);
+        assert_eq!(
+            progress,
+            OrderProcessProgress::Completed(ProcessedOrder {
+                backend_id: BackendId::new("mock_a").unwrap(),
+                order_id: test_order(selector(1)).id(),
+                proof_id: "proof".to_string(),
+                compressed_proof_id: None,
+                next_status: OrderStatus::PendingAgg,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn router_rejects_unsupported_selector_before_backend_call() {
+        let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let router = BackendRouter::new()
+            .register_backend(BackendEntry::new(vec![selector(1)], backend.clone()))
+            .unwrap();
+
+        let err = router
+            .process_order(ProcessOrder { order: test_order(selector(2)) })
+            .await
+            .unwrap_err();
+
+        assert_eq!(backend.calls(), 0);
+        assert!(err.to_string().contains("no backend registered for selector"));
+    }
+
+    #[test]
+    fn router_rejects_duplicate_backend_id() {
+        let backend_a = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let backend_b = Arc::new(MockBackend::new("mock_a", vec![selector(2)]));
+
+        let err = BackendRouter::new()
+            .register_backend(BackendEntry::new(vec![selector(1)], backend_a))
+            .unwrap()
+            .register_backend(BackendEntry::new(vec![selector(2)], backend_b))
+            .err()
+            .unwrap();
+
+        assert!(err.to_string().contains("backend mock_a is already registered"));
+    }
+
+    #[test]
+    fn router_rejects_duplicate_selector() {
+        let backend_a = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let backend_b = Arc::new(MockBackend::new("mock_b", vec![selector(1)]));
+
+        let err = BackendRouter::new()
+            .register_backend(BackendEntry::new(vec![selector(1)], backend_a))
+            .unwrap()
+            .register_backend(BackendEntry::new(vec![selector(1)], backend_b))
+            .err()
+            .unwrap();
+
+        assert!(err.to_string().contains("is already registered to backend mock_a"));
+    }
+
+    #[test]
+    fn router_rejects_empty_selector_set() {
+        let backend = Arc::new(MockBackend::new("mock_a", vec![]));
+
+        let err = BackendRouter::new()
+            .register_backend(BackendEntry::new(Vec::<FixedBytes<4>>::new(), backend))
+            .err()
+            .unwrap();
+
+        assert!(err.to_string().contains("must register at least one selector"));
     }
 }
 
@@ -123,6 +310,10 @@ pub struct ProcessedOrder {
 
 #[async_trait]
 pub trait Backend: Send + Sync {
+    fn id(&self) -> &BackendId;
+
+    fn supports(&self, selector: FixedBytes<4>) -> bool;
+
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 }
 
@@ -142,11 +333,8 @@ pub struct BackendEntry {
 }
 
 impl BackendEntry {
-    pub fn new(
-        id: BackendId,
-        selectors: impl IntoIterator<Item = FixedBytes<4>>,
-        backend: BackendObj,
-    ) -> Self {
+    pub fn new(selectors: impl IntoIterator<Item = FixedBytes<4>>, backend: BackendObj) -> Self {
+        let id = backend.id().clone();
         Self { id, selectors: selectors.into_iter().collect(), backend }
     }
 
@@ -161,11 +349,18 @@ impl BackendRouter {
     }
 
     pub fn register_backend(mut self, entry: BackendEntry) -> Result<Self> {
+        if entry.selectors.is_empty() {
+            anyhow::bail!("backend {} must register at least one selector", entry.id());
+        }
+
         if self.backends.contains_key(entry.id()) {
             anyhow::bail!("backend {} is already registered", entry.id());
         }
 
         for selector in &entry.selectors {
+            if !entry.backend.supports(*selector) {
+                anyhow::bail!("backend {} does not support selector {selector:?}", entry.id());
+            }
             if let Some(existing_backend) = self.routes.get(selector) {
                 anyhow::bail!(
                     "selector {selector:?} is already registered to backend {existing_backend}"
@@ -196,6 +391,15 @@ impl BackendRouter {
 
 #[async_trait]
 impl Backend for BackendRouter {
+    fn id(&self) -> &BackendId {
+        static ROUTER_ID: std::sync::OnceLock<BackendId> = std::sync::OnceLock::new();
+        ROUTER_ID.get_or_init(|| BackendId::new("backend_router").expect("static backend id"))
+    }
+
+    fn supports(&self, selector: FixedBytes<4>) -> bool {
+        self.routes.contains_key(&selector)
+    }
+
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
         let backend = self.backend_for_order(&cmd.order)?;
         backend.process_order(cmd).await
@@ -303,6 +507,16 @@ impl Risc0Backend {
 
 #[async_trait]
 impl Backend for Risc0Backend {
+    fn id(&self) -> &BackendId {
+        &self.id
+    }
+
+    fn supports(&self, selector: FixedBytes<4>) -> bool {
+        selector == UNSPECIFIED_SELECTOR
+            || is_groth16_selector(selector)
+            || is_blake3_groth16_selector(selector)
+    }
+
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
         let order = cmd.order;
         let order_id = order.id();
