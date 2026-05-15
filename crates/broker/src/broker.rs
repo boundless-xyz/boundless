@@ -45,7 +45,7 @@ use url::Url;
 use crate::{
     aggregator,
     args::{ChainPipeline, CoreArgs},
-    backend::{BackendRouter, Risc0Backend},
+    backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend},
     chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
@@ -824,7 +824,9 @@ impl Broker {
         );
 
         if !self.args.listen_only {
+            let risc0_backend_id = BackendId::new("risc0_v3")?;
             let risc0_backend = Arc::new(Risc0Backend::new(
+                risc0_backend_id.clone(),
                 prover.clone(),
                 aggregation_prover.clone(),
                 self.downloader.clone(),
@@ -832,10 +834,11 @@ impl Broker {
             ));
             let backend_router = Arc::new(
                 BackendRouter::new()
-                    .register_backend(
+                    .register_backend(BackendEntry::new(
+                        risc0_backend_id,
                         SupportedSelectors::default().selectors.keys().copied(),
                         risc0_backend,
-                    )
+                    ))
                     .context("Failed to register RISC0 backend selectors")?,
             );
 

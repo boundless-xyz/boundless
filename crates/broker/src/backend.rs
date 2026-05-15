@@ -130,7 +130,29 @@ pub type BackendObj = Arc<dyn Backend>;
 
 #[derive(Clone, Default)]
 pub struct BackendRouter {
-    routes: HashMap<FixedBytes<4>, BackendObj>,
+    backends: HashMap<BackendId, BackendEntry>,
+    routes: HashMap<FixedBytes<4>, BackendId>,
+}
+
+#[derive(Clone)]
+pub struct BackendEntry {
+    id: BackendId,
+    selectors: Vec<FixedBytes<4>>,
+    backend: BackendObj,
+}
+
+impl BackendEntry {
+    pub fn new(
+        id: BackendId,
+        selectors: impl IntoIterator<Item = FixedBytes<4>>,
+        backend: BackendObj,
+    ) -> Self {
+        Self { id, selectors: selectors.into_iter().collect(), backend }
+    }
+
+    pub fn id(&self) -> &BackendId {
+        &self.id
+    }
 }
 
 impl BackendRouter {
@@ -138,26 +160,37 @@ impl BackendRouter {
         Self::default()
     }
 
-    pub fn register_backend(
-        mut self,
-        selectors: impl IntoIterator<Item = FixedBytes<4>>,
-        backend: BackendObj,
-    ) -> Result<Self> {
-        for selector in selectors {
-            if self.routes.contains_key(&selector) {
-                anyhow::bail!("selector {selector:?} is already registered to a backend");
-            }
-            self.routes.insert(selector, backend.clone());
+    pub fn register_backend(mut self, entry: BackendEntry) -> Result<Self> {
+        if self.backends.contains_key(entry.id()) {
+            anyhow::bail!("backend {} is already registered", entry.id());
         }
+
+        for selector in &entry.selectors {
+            if let Some(existing_backend) = self.routes.get(selector) {
+                anyhow::bail!(
+                    "selector {selector:?} is already registered to backend {existing_backend}"
+                );
+            }
+        }
+
+        for selector in &entry.selectors {
+            self.routes.insert(*selector, entry.id.clone());
+        }
+        self.backends.insert(entry.id.clone(), entry);
         Ok(self)
     }
 
     fn backend_for_order(&self, order: &Order) -> Result<BackendObj> {
         let selector = order.request.requirements.selector;
-        self.routes
+        let backend_id = self
+            .routes
             .get(&selector)
             .cloned()
-            .with_context(|| format!("no backend registered for selector {selector:?}"))
+            .with_context(|| format!("no backend registered for selector {selector:?}"))?;
+        self.backends
+            .get(&backend_id)
+            .map(|entry| entry.backend.clone())
+            .with_context(|| format!("backend {backend_id} is not registered"))
     }
 }
 
@@ -180,18 +213,13 @@ pub struct Risc0Backend {
 
 impl Risc0Backend {
     pub fn new(
+        id: BackendId,
         prover: ProverObj,
         snark_prover: ProverObj,
         downloader: ConfigurableDownloader,
         priority_requestors: PriorityRequestors,
     ) -> Self {
-        Self {
-            id: BackendId::new("risc0_v1").expect("static backend id is valid"),
-            prover,
-            snark_prover,
-            downloader,
-            priority_requestors,
-        }
+        Self { id, prover, snark_prover, downloader, priority_requestors }
     }
 
     async fn start_order(&self, order: &Order) -> Result<String> {

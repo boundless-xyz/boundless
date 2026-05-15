@@ -17,7 +17,11 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 #[cfg(test)]
-use crate::{backend::Risc0Backend, requestor_monitor::PriorityRequestors, ConfigurableDownloader};
+use crate::{
+    backend::{BackendId, Risc0Backend},
+    requestor_monitor::PriorityRequestors,
+    ConfigurableDownloader,
+};
 use crate::{
     backend::{BackendObj, OrderProcessProgress, ProcessOrder},
     config::ConfigLock,
@@ -68,6 +72,7 @@ impl ProvingService {
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
         let backend = Arc::new(Risc0Backend::new(
+            BackendId::new("risc0_v3").expect("static backend id is valid"),
             prover.clone(),
             snark_prover,
             downloader,
