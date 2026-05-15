@@ -45,7 +45,7 @@ use url::Url;
 use crate::{
     aggregator,
     args::{ChainPipeline, CoreArgs},
-    backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend},
+    backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend, Risc0BatchProcessor},
     chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
@@ -832,14 +832,38 @@ impl Broker {
                 self.downloader.clone(),
                 priority_requestors.clone(),
             ));
+
+            let set_builder_img_id = self
+                .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
+                .await?;
+            let assessor_img_id = self
+                .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
+                .await?;
+            let risc0_batch_processor = Arc::new(Risc0BatchProcessor::new(
+                db.clone(),
+                config.clone(),
+                aggregation_prover.clone(),
+                set_builder_img_id,
+                assessor_img_id,
+                deployment.boundless_market_address,
+                prover_addr,
+                chain_id,
+            ));
+
             let backend_router = Arc::new(
                 BackendRouter::new()
-                    .register_backend(BackendEntry::new(
-                        SupportedSelectors::default().selectors.keys().copied(),
-                        risc0_backend,
-                    ))
+                    .register_backend(
+                        BackendEntry::new(
+                            SupportedSelectors::default().selectors.keys().copied(),
+                            risc0_backend,
+                        )
+                        .with_batch_processor(risc0_batch_processor),
+                    )
                     .context("Failed to register RISC0 backend selectors")?,
             );
+            let batch_processor = backend_router
+                .batch_processor(&risc0_backend_id)
+                .context("Failed to load RISC0 batch processor")?;
 
             let order_processor = Arc::new(order_processor::OrderProcessor::new_with_backend(
                 db.clone(),
@@ -858,28 +882,13 @@ impl Broker {
                 chain_span.clone(),
             );
 
-            let set_builder_img_id = self
-                .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
-                .await?;
-            let assessor_img_id = self
-                .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
-                .await?;
-
-            let aggregator = Arc::new(
-                aggregator::AggregatorService::new(
-                    db.clone(),
-                    chain_id,
-                    set_builder_img_id,
-                    assessor_img_id,
-                    deployment.boundless_market_address,
-                    prover_addr,
-                    config.clone(),
-                    aggregation_prover.clone(),
-                    proving_completion_tx.clone(),
-                )
-                .await
-                .context("Failed to initialize aggregator service")?,
-            );
+            let aggregator = Arc::new(aggregator::AggregatorService::new_with_batch_processor(
+                db.clone(),
+                config.clone(),
+                batch_processor,
+                chain_id,
+                proving_completion_tx.clone(),
+            ));
 
             runner.spawn_in_span(
                 aggregator,

@@ -12,22 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{utils, Address};
+use alloy::primitives::utils;
+#[cfg(test)]
+use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use chrono::Utc;
+#[cfg(test)]
 use risc0_zkvm::sha::Digest;
+#[cfg(test)]
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+#[cfg(test)]
+use crate::{backend::Risc0BatchProcessor, provers::ProverObj};
 use crate::{
-    backend::{BatchProcessorObj, BatchUpdate, CloseBatch, Risc0BatchProcessor, UpdateBatch},
+    backend::{BatchProcessorObj, BatchUpdate, CloseBatch, UpdateBatch},
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::ProverObj,
     task::{BrokerService, SupervisorErr},
     Batch, BatchStatus, FulfillmentType,
 };
@@ -44,6 +49,7 @@ pub struct AggregatorService {
 }
 
 impl AggregatorService {
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DbObj,

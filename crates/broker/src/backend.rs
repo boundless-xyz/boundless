@@ -402,12 +402,18 @@ pub struct BackendEntry {
     id: BackendId,
     selectors: Vec<FixedBytes<4>>,
     backend: BackendObj,
+    batch_processor: Option<BatchProcessorObj>,
 }
 
 impl BackendEntry {
     pub fn new(selectors: impl IntoIterator<Item = FixedBytes<4>>, backend: BackendObj) -> Self {
         let id = backend.id().clone();
-        Self { id, selectors: selectors.into_iter().collect(), backend }
+        Self { id, selectors: selectors.into_iter().collect(), backend, batch_processor: None }
+    }
+
+    pub fn with_batch_processor(mut self, batch_processor: BatchProcessorObj) -> Self {
+        self.batch_processor = Some(batch_processor);
+        self
     }
 
     pub fn id(&self) -> &BackendId {
@@ -458,6 +464,15 @@ impl BackendRouter {
             .get(&backend_id)
             .map(|entry| entry.backend.clone())
             .with_context(|| format!("backend {backend_id} is not registered"))
+    }
+
+    pub fn batch_processor(&self, backend_id: &BackendId) -> Result<BatchProcessorObj> {
+        self.backends
+            .get(backend_id)
+            .with_context(|| format!("backend {backend_id} is not registered"))?
+            .batch_processor
+            .clone()
+            .with_context(|| format!("backend {backend_id} has no batch processor"))
     }
 }
 
