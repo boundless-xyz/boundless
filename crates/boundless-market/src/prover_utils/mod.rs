@@ -728,7 +728,7 @@ pub trait OrderPricingContext: RequestEvaluator {
             }
         }
 
-        let journal = self.evaluation_output(&evaluation_id).await?;
+        let journal = self.public_output(&evaluation_id).await?;
         let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)

@@ -82,7 +82,7 @@ Request evaluation:
 ```text
 RequestEvaluator
   evaluate_request(EvaluationRequest, EvaluationLimits) -> RequestEvaluation
-  evaluation_output(evaluation_id) -> bytes
+  public_output(evaluation_id) -> bytes
 
 EvaluationLimits
   max_cycles

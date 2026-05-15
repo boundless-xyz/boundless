@@ -136,7 +136,7 @@ pub trait RequestEvaluator {
         limits: EvaluationLimits,
     ) -> Result<RequestEvaluation, OrderPricingError>;
 
-    async fn evaluation_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError>;
+    async fn public_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError>;
 }
 
 /// RISC0-backed request evaluation hooks.
@@ -276,7 +276,7 @@ where
         }
     }
 
-    async fn evaluation_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError> {
+    async fn public_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError> {
         Risc0RequestEvaluatorContext::prover(self)
             .get_preflight_journal(evaluation_id)
             .await
