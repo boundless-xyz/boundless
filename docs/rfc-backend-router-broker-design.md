@@ -81,9 +81,8 @@ Request evaluation:
 
 ```text
 RequestEvaluator
-  evaluate_request(EvaluationRequest, exec_limit_cycles, cache_key) -> RequestEvaluation
+  evaluate_request(EvaluationRequest, exec_limit_cycles) -> RequestEvaluation
   evaluation_output(evaluation_id) -> bytes
-  invalidate_evaluation(cache_key) -> ()
 
 EvaluationRequest
   request_id
@@ -101,7 +100,8 @@ Today the only implementation is RISC0-backed. `OrderPricingContext` consumes
 `RequestEvaluator`; profitability, collateral, deadline, capacity, and
 allow/deny-list policy stay outside the evaluator. This keeps a small trait that
 can later be shared with the requestor SDK without making the broker backend
-router responsible for pricing.
+router responsible for pricing. Preflight caching is an implementation detail of
+the RISC0 evaluator context, not part of the neutral evaluator API.
 
 Single backend implementation:
 

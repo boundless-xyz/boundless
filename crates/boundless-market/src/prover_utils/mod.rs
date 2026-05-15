@@ -394,6 +394,32 @@ impl EvaluationRequest {
             client_address: order.request.client_address(),
         }
     }
+
+    fn cache_key(&self) -> Result<PreflightCacheKey, OrderPricingError> {
+        let predicate_data = self.predicate.data.to_vec();
+        let input = match self.input_type {
+            RequestInputType::Url => {
+                let input_url = std::str::from_utf8(&self.input_data)
+                    .context("input url is not utf8")
+                    .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?
+                    .to_string();
+                InputCacheKey::Url(input_url)
+            }
+            RequestInputType::Inline => {
+                let mut hasher = Sha256::new();
+                sha2::Digest::update(&mut hasher, &self.input_data);
+                InputCacheKey::Hash(hasher.finalize().into())
+            }
+            RequestInputType::__Invalid => {
+                return Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                    "Unknown input type: {:?}",
+                    self.input_type
+                ))));
+            }
+        };
+
+        Ok(PreflightCacheKey { predicate_data, input })
+    }
 }
 
 /// Executes request preflight for pricing without making broker policy decisions.
@@ -407,12 +433,9 @@ pub trait RequestEvaluator {
         &self,
         request: EvaluationRequest,
         exec_limit_cycles: u64,
-        cache_key: PreflightCacheKey,
     ) -> Result<RequestEvaluation, OrderPricingError>;
 
     async fn evaluation_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError>;
-
-    async fn invalidate_evaluation(&self, _cache_key: &PreflightCacheKey) {}
 }
 
 /// RISC0-backed request evaluation hooks.
@@ -442,8 +465,8 @@ where
         &self,
         request: EvaluationRequest,
         exec_limit_cycles: u64,
-        cache_key: PreflightCacheKey,
     ) -> Result<RequestEvaluation, OrderPricingError> {
+        let cache_key = request.cache_key()?;
         let prover = Risc0RequestEvaluatorContext::prover(self).clone();
         let downloader = Risc0RequestEvaluatorContext::downloader(self);
         let cache = Risc0RequestEvaluatorContext::preflight_cache(self).clone();
@@ -455,10 +478,11 @@ where
         let is_priority =
             Risc0RequestEvaluatorContext::is_priority_requestor(self, &request.client_address);
 
-        // Multiple concurrent calls of this coalesce into a single execution.
-        // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
-        let result = cache
-            .try_get_with(cache_key, async move {
+        loop {
+            // Multiple concurrent calls of this coalesce into a single execution.
+            // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
+            let result = cache
+                .try_get_with(cache_key.clone(), async {
                 tracing::trace!(
                     "Starting preflight execution of {request_id} with limit of {exec_limit_cycles} cycles"
                 );
@@ -519,7 +543,16 @@ where
             .await
             .map_err(|e| (*e).clone())?;
 
-        Ok(result)
+            if let RequestEvaluation::Skip { cached_limit } = result {
+                if cached_limit < exec_limit_cycles {
+                    cache.invalidate(&cache_key).await;
+                    continue;
+                }
+                return Ok(RequestEvaluation::Skip { cached_limit });
+            }
+
+            return Ok(result);
+        }
     }
 
     async fn evaluation_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError> {
@@ -532,10 +565,6 @@ where
                     "Preflight journal not found"
                 )))
             })
-    }
-
-    async fn invalidate_evaluation(&self, cache_key: &PreflightCacheKey) {
-        Risc0RequestEvaluatorContext::preflight_cache(self).invalidate(cache_key).await;
     }
 }
 
@@ -894,47 +923,8 @@ pub trait OrderPricingContext: RequestEvaluator {
             exec_limit_cycles / 1_000_000
         );
 
-        // Create cache key based on input type
-        let predicate_data = order.request.requirements.predicate.data.to_vec();
-        let cache_key = match order.request.input.inputType {
-            RequestInputType::Url => {
-                let input_url = std::str::from_utf8(&order.request.input.data)
-                    .context("input url is not utf8")
-                    .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?
-                    .to_string();
-                PreflightCacheKey { predicate_data, input: InputCacheKey::Url(input_url) }
-            }
-            RequestInputType::Inline => {
-                // For inline inputs, use SHA256 hash of the data
-                let mut hasher = Sha256::new();
-                sha2::Digest::update(&mut hasher, &order.request.input.data);
-                let input_hash: [u8; 32] = hasher.finalize().into();
-                PreflightCacheKey { predicate_data, input: InputCacheKey::Hash(input_hash) }
-            }
-            RequestInputType::__Invalid => {
-                return Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                    "Unknown input type: {:?}",
-                    order.request.input.inputType
-                ))));
-            }
-        };
-
-        let preflight_result = loop {
-            let result = self
-                .evaluate_request(
-                    EvaluationRequest::from_order(order),
-                    exec_limit_cycles,
-                    cache_key.clone(),
-                )
-                .await?;
-            if let PreflightCacheValue::Skip { cached_limit } = result {
-                if cached_limit < exec_limit_cycles {
-                    self.invalidate_evaluation(&cache_key).await;
-                    continue;
-                }
-            }
-            break result;
-        };
+        let preflight_result =
+            self.evaluate_request(EvaluationRequest::from_order(order), exec_limit_cycles).await?;
 
         let (evaluation_id, cycle_count, program_id) = match preflight_result {
             PreflightCacheValue::Success { evaluation_id, cycle_count, program_id, input_id } => {
