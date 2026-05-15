@@ -64,7 +64,7 @@ router can both implement this same interface:
 ```text
 Broker -> BackendService
             |
-            +--> RiscZeroBackendService
+            +--> Risc0BackendService
             |
             +--> BackendRouter -> BackendEntry -> backend implementation
 ```
@@ -624,13 +624,13 @@ The RISC Zero implementation is one reusable backend implementation configured
 with selectors, prover handles, image IDs, and wrap selector.
 
 ```text
-RiscZeroBackend
+Risc0Backend
   - prover
   - snark_prover
   - request pricing config
   - implements BackendService directly, or is wrapped by BackendRouter
 
-RiscZeroBatchProcessor
+Risc0BatchProcessor
   - set-builder aggregation
   - assessor proving
   - assessor output decoding
@@ -641,8 +641,8 @@ Two RISC Zero versions should normally be two registrations of the same
 implementation with different config behind a router:
 
 ```text
-BackendEntry("risc0_v1", selectors_v1, RiscZeroBackend(config_v1), RiscZeroBatchProcessor(config_v1))
-BackendEntry("risc0_v2", selectors_v2, RiscZeroBackend(config_v2), RiscZeroBatchProcessor(config_v2))
+BackendEntry("risc0_v1", selectors_v1, Risc0Backend(config_v1), Risc0BatchProcessor(config_v1))
+BackendEntry("risc0_v2", selectors_v2, Risc0Backend(config_v2), Risc0BatchProcessor(config_v2))
 ```
 
 If two versions require incompatible native RISC Zero crate versions in the

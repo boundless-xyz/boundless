@@ -57,14 +57,14 @@ pub trait BackendService: Send + Sync {
 }
 
 #[derive(Clone)]
-pub struct RiscZeroBackendService {
+pub struct Risc0BackendService {
     prover: ProverObj,
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
     priority_requestors: PriorityRequestors,
 }
 
-impl RiscZeroBackendService {
+impl Risc0BackendService {
     pub fn new(
         prover: ProverObj,
         snark_prover: ProverObj,
@@ -154,7 +154,7 @@ impl RiscZeroBackendService {
 }
 
 #[async_trait]
-impl BackendService for RiscZeroBackendService {
+impl BackendService for Risc0BackendService {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
         let order = cmd.order;
         let order_id = order.id();
