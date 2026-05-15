@@ -22,7 +22,7 @@ use crate::errors::CodedError;
 #[derive(Error)]
 pub enum AggregatorErr {
     #[error("{code} Compression error: {0}", code = self.code())]
-    CompressionErr(crate::provers::ProverError),
+    CompressionErr(crate::backend::BackendError),
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }

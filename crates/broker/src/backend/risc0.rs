@@ -48,11 +48,12 @@ use crate::{
 use anyhow::{Context, Result};
 
 use super::types::{
-    AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendId, BatchClose,
-    BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchUpdate, ClaimDigest, CloseBatch,
-    CompressedProofId, FulfillmentArtifacts, FulfillmentBatch, OrderFulfillmentArtifact,
-    OrderFulfillmentFailure, OrderFulfillmentResult, OrderProcessProgress, ProcessOrder,
-    ProcessedOrder, ProofId, RootSubmission, SubmissionAssessorArtifact, UpdateBatch,
+    AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
+    BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchUpdate, ClaimDigest,
+    CloseBatch, CompressedProofId, FulfillmentArtifacts, FulfillmentBatch,
+    OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
+    OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, RootSubmission,
+    SubmissionAssessorArtifact, UpdateBatch,
 };
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -292,10 +293,10 @@ impl Backend for Risc0Backend {
         self.batch_processor()?.update_batch(cmd).await
     }
 
-    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError> {
         match self.batch_processor() {
             Ok(batch_processor) => batch_processor.close_batch(cmd).await,
-            Err(err) => Err(provers::ProverError::ProverInternalError(err.to_string())),
+            Err(err) => Err(BackendError::operation(err)),
         }
     }
 
@@ -1013,14 +1014,16 @@ impl BatchProcessor for Risc0BatchProcessor {
         })
     }
 
-    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError> {
         let start = std::time::Instant::now();
-        let compressed_proof_id =
-            self.compress_batch_proof(cmd.batch_id, cmd.proof_id.as_str(), &cmd.order_ids).await?;
+        let compressed_proof_id = self
+            .compress_batch_proof(cmd.batch_id, cmd.proof_id.as_str(), &cmd.order_ids)
+            .await
+            .map_err(BackendError::from)?;
 
         Ok(BatchClose {
             compressed_proof_id: CompressedProofId::new(compressed_proof_id)
-                .map_err(|err| provers::ProverError::ProverInternalError(err.to_string()))?,
+                .map_err(BackendError::operation)?,
             compression_secs: start.elapsed().as_secs_f64(),
         })
     }

@@ -17,10 +17,10 @@ use std::{collections::HashMap, sync::Arc};
 use alloy::primitives::FixedBytes;
 use anyhow::{Context, Result};
 
-use crate::{provers, Order};
+use crate::Order;
 
 use super::types::{
-    Backend, BackendId, BatchClose, BatchSizeEstimate, BatchUpdate, CloseBatch,
+    Backend, BackendError, BackendId, BatchClose, BatchSizeEstimate, BatchUpdate, CloseBatch,
     FulfillmentArtifacts, FulfillmentBatch, OrderProcessProgress, ProcessOrder, UpdateBatch,
 };
 
@@ -137,10 +137,8 @@ impl BackendRouter {
         &self,
         backend_id: &BackendId,
         cmd: CloseBatch,
-    ) -> Result<BatchClose, provers::ProverError> {
-        let backend = self
-            .backend_for_id(backend_id)
-            .map_err(|err| provers::ProverError::ProverInternalError(err.to_string()))?;
+    ) -> Result<BatchClose, BackendError> {
+        let backend = self.backend_for_id(backend_id).map_err(BackendError::operation)?;
         backend.close_batch(cmd).await
     }
 
@@ -236,10 +234,8 @@ mod tests {
             anyhow::bail!("mock backend does not update batches")
         }
 
-        async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
-            Err(provers::ProverError::ProverInternalError(
-                "mock backend does not close batches".to_string(),
-            ))
+        async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, BackendError> {
+            Err(BackendError::operation(anyhow::anyhow!("mock backend does not close batches")))
         }
 
         async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {

@@ -323,6 +323,24 @@ pub struct BatchClose {
     pub compression_secs: f64,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum BackendError {
+    #[error("backend operation failed: {0:#}")]
+    Operation(#[source] anyhow::Error),
+}
+
+impl BackendError {
+    pub fn operation(err: impl Into<anyhow::Error>) -> Self {
+        Self::Operation(err.into())
+    }
+}
+
+impl From<provers::ProverError> for BackendError {
+    fn from(err: provers::ProverError) -> Self {
+        Self::operation(err)
+    }
+}
+
 pub struct SubmissionAssessorArtifact {
     pub seal: Bytes,
     pub selectors: Vec<AssessorSelector>,
@@ -335,7 +353,7 @@ pub(crate) trait BatchProcessor: Send + Sync {
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
 
-    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError>;
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError>;
 }
 
 pub(crate) type BatchProcessorObj = Arc<dyn BatchProcessor>;
@@ -354,7 +372,7 @@ pub trait Backend: Send + Sync {
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
 
-    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError>;
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError>;
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts>;
 }
