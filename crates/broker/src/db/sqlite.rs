@@ -35,6 +35,7 @@ use tracing::instrument;
 use url::Url;
 
 use crate::{
+    backend::BackendId,
     db::{
         error::DbError,
         types::{AggregationOrder, DbBatch, DbLockedRequest, DbOrder},
@@ -443,18 +444,27 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_aggregation_status(&self, id: &str, status: OrderStatus) -> Result<(), DbError> {
+    async fn set_aggregation_status(
+        &self,
+        id: &str,
+        status: OrderStatus,
+        backend_id: Option<&BackendId>,
+    ) -> Result<(), DbError> {
+        let backend_id = backend_id.map(ToString::to_string);
         let res = sqlx::query(
             r#"
             UPDATE orders
             SET data = json_set(
+                       json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.updated_at', $2)
+                       '$.backend_id', $2),
+                       '$.updated_at', $3)
             WHERE
-                id = $3"#,
+                id = $4"#,
         )
         .bind(status)
+        .bind(backend_id)
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
@@ -1129,7 +1139,7 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        db.set_aggregation_status(&order.id(), OrderStatus::PendingAgg).await.unwrap();
+        db.set_aggregation_status(&order.id(), OrderStatus::PendingAgg, None).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 

@@ -874,6 +874,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(echo_proof.id.clone()),
             compressed_proof_id: None,
+            backend_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::ZERO),

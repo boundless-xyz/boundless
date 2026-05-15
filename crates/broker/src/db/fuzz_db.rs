@@ -106,6 +106,7 @@ fn generate_test_order(request_id: u32) -> Order {
         input_id: None,
         proof_id: Some(format!("proof_{request_id}")),
         compressed_proof_id: Some(format!("compressed_proof_{request_id}")),
+        backend_id: None,
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
@@ -207,7 +208,7 @@ proptest! {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_aggregation_status(id, OrderStatus::PendingAgg).await.unwrap();
+                                        db.set_aggregation_status(id, OrderStatus::PendingAgg, None).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();

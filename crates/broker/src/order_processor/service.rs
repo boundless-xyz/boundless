@@ -24,7 +24,7 @@ use crate::{
     ConfigurableDownloader,
 };
 use crate::{
-    backend::{BackendObj, OrderProcessProgress, ProcessOrder},
+    backend::{BackendObj, OrderProcessProgress, ProcessOrder, ProcessedOrder},
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -33,7 +33,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    CompressionType, FulfillmentType, Order, OrderStateChange, OrderStatus,
+    CompressionType, FulfillmentType, Order, OrderStateChange,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
@@ -110,7 +110,7 @@ impl OrderProcessor {
         }
     }
 
-    async fn monitor_proof_internal(&self, mut order: Order) -> Result<OrderStatus> {
+    async fn monitor_proof_internal(&self, mut order: Order) -> Result<ProcessedOrder> {
         loop {
             let progress = self
                 .backend
@@ -139,7 +139,7 @@ impl OrderProcessor {
                     order.proof_id = Some(proof_id);
                     order.compressed_proof_id = Some(compressed_proof_id);
                 }
-                OrderProcessProgress::Completed(processed) => return Ok(processed.next_status),
+                OrderProcessProgress::Completed(processed) => return Ok(processed),
             }
         }
     }
@@ -147,7 +147,7 @@ impl OrderProcessor {
     pub async fn monitor_proof_with_timeout(
         &self,
         order: Order,
-    ) -> Result<OrderStatus, ProvingErr> {
+    ) -> Result<ProcessedOrder, ProvingErr> {
         let order_id = order.id();
         let request_id = order.request.id;
 
@@ -200,7 +200,7 @@ impl OrderProcessor {
         let timeout_future = tokio::time::sleep(timeout_duration);
         tokio::pin!(timeout_future);
 
-        let order_status = loop {
+        let processed_order = loop {
             tokio::select! {
                 // Proof monitoring completed
                 res = &mut monitor_task => {
@@ -288,7 +288,7 @@ impl OrderProcessor {
             }
         };
 
-        Ok(order_status)
+        Ok(processed_order)
     }
 
     async fn prove_and_update_db(&self, mut order: Order) {
@@ -378,7 +378,7 @@ impl OrderProcessor {
         };
 
         match result {
-            Ok(order_status) => {
+            Ok(processed) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
                 crate::telemetry::telemetry(self.chain_id).record_application_proving_completed(
@@ -420,7 +420,15 @@ impl OrderProcessor {
                     }
                 }
 
-                if let Err(e) = self.db.set_aggregation_status(&order_id, order_status).await {
+                if let Err(e) = self
+                    .db
+                    .set_aggregation_status(
+                        &order_id,
+                        processed.next_status,
+                        Some(&processed.backend_id),
+                    )
+                    .await
+                {
                     tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
                 }
             }
@@ -649,6 +657,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id,
             compressed_proof_id: None,
+            backend_id: None,
             expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
             client_sig: Bytes::new(),
             lock_price: None,
@@ -725,6 +734,7 @@ mod tests {
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
+        assert_eq!(order.backend_id, Some(BackendId::new("risc0_v3").unwrap()));
 
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);
@@ -844,6 +854,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_id.clone()),
             compressed_proof_id: None,
+            backend_id: None,
             expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
             client_sig: Bytes::new(),
             lock_price: None,
@@ -972,7 +983,7 @@ mod tests {
 
         let result_2 = monitor_task_2.await.unwrap();
         assert!(result_2.is_ok());
-        assert_eq!(result_2.unwrap(), OrderStatus::PendingAgg);
+        assert_eq!(result_2.unwrap().next_status, OrderStatus::PendingAgg);
 
         assert!(logs_contain("fulfilled externally"));
     }

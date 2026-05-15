@@ -31,6 +31,8 @@ use boundless_market::{
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::backend::BackendId;
+
 /// Status of a persistent order as it moves through the lifecycle in the database.
 /// Orders in initial, intermediate, or terminal non-failure states (e.g. New, Pricing, Done, Skipped)
 /// are managed in-memory or removed from the database.
@@ -104,6 +106,7 @@ pub(crate) fn order_from_request(order_request: &OrderRequest, status: OrderStat
         proving_started_at: None,
         proof_id: None,
         compressed_proof_id: None,
+        backend_id: None,
         lock_price: None,
         error_msg: None,
         cached_id: OnceLock::new(),
@@ -171,6 +174,11 @@ pub struct Order {
     ///
     /// Populated after proof completion. if the proof is compressed
     pub(crate) compressed_proof_id: Option<String>,
+    /// Backend that processed this order.
+    ///
+    /// Populated after proof completion.
+    #[serde(default)]
+    pub(crate) backend_id: Option<BackendId>,
     /// UNIX timestamp the order expires at
     ///
     /// Populated during order picking
@@ -269,6 +277,7 @@ mod tests {
             input_id: None,
             proof_id: None,
             compressed_proof_id: None,
+            backend_id: None,
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,

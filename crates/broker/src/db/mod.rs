@@ -27,7 +27,8 @@ use async_trait::async_trait;
 #[cfg(test)]
 use crate::BatchStatus;
 use crate::{
-    AggregationState, Batch, FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
+    backend::BackendId, AggregationState, Batch, FulfillmentType, Order, OrderRequest, OrderStatus,
+    ProofRequest,
 };
 
 mod error;
@@ -71,7 +72,12 @@ pub trait BrokerDb {
         order_id: &str,
         proof_id: &str,
     ) -> Result<(), DbError>;
-    async fn set_aggregation_status(&self, id: &str, status: OrderStatus) -> Result<(), DbError>;
+    async fn set_aggregation_status(
+        &self,
+        id: &str,
+        status: OrderStatus,
+        backend_id: Option<&BackendId>,
+    ) -> Result<(), DbError>;
     async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
     async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
     async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError>;

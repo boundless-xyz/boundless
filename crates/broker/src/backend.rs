@@ -70,6 +70,25 @@ impl BackendId {
     }
 }
 
+impl serde::Serialize for BackendId {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BackendId {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +199,7 @@ mod tests {
             proving_started_at: None,
             proof_id: Some("stark".to_string()),
             compressed_proof_id: None,
+            backend_id: None,
             lock_price: None,
             error_msg: None,
             cached_id: OnceLock::new(),

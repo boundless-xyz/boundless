@@ -176,6 +176,7 @@ mod tests {
             input_id: None,
             proof_id: None,
             compressed_proof_id: None,
+            backend_id: None,
             expire_timestamp,
             client_sig: Bytes::new(),
             lock_price: Some(U256::from(1)),
