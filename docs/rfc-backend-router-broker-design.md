@@ -96,7 +96,8 @@ EvaluationRequest
 
 RequestEvaluation
   Success { evaluation_id, cycle_count, program_id, input_id }
-  Skip { cached_limit }
+  LimitExceeded { limit }
+  GuestFailed
 ```
 
 Today the only implementation is RISC0-backed. `OrderPricingContext` consumes

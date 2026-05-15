@@ -73,7 +73,7 @@ pub const SKIP_EXPIRY_TOO_LONG: &str = "[S-003]";
 pub const SKIP_UNSUPPORTED_SELECTOR: &str = "[S-004]";
 pub const SKIP_COLLATERAL_TOO_HIGH: &str = "[S-005]";
 pub const SKIP_CYCLE_LIMIT_FROM_REWARD: &str = "[S-006]";
-pub const SKIP_PREFLIGHT_CACHE_LIMIT: &str = "[S-007]";
+pub const SKIP_PREFLIGHT_LIMIT_EXCEEDED: &str = "[S-007]";
 pub const SKIP_CYCLES_ABOVE_LIMIT: &str = "[S-008]";
 pub const SKIP_CYCLES_BELOW_MIN: &str = "[S-009]";
 pub const SKIP_JOURNAL_TOO_LARGE: &str = "[S-010]";
@@ -627,12 +627,19 @@ pub trait OrderPricingContext: RequestEvaluator {
 
                 (evaluation_id, cycle_count, program_id)
             }
-            PreflightCacheValue::Skip { cached_limit } => {
+            PreflightCacheValue::LimitExceeded { limit } => {
                 return Ok(Skip {
-                    code: SKIP_PREFLIGHT_CACHE_LIMIT,
+                    code: SKIP_PREFLIGHT_LIMIT_EXCEEDED,
                     reason: format!(
-                        "order preflight execution limit hit with {cached_limit} cycles - limited by {prove_limit_reason}"
+                        "order preflight exceeded execution limit of {} cycles - limited by {prove_limit_reason}",
+                        limit.max_cycles,
                     ),
+                });
+            }
+            PreflightCacheValue::GuestFailed => {
+                return Ok(Skip {
+                    code: SKIP_PREFLIGHT_LIMIT_EXCEEDED,
+                    reason: "order preflight failed because the guest panicked".to_string(),
                 });
             }
         };

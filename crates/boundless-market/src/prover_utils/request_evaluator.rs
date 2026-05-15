@@ -32,7 +32,8 @@ use crate::{
 #[derive(Clone, Debug)]
 pub enum RequestEvaluation {
     Success { evaluation_id: String, cycle_count: u64, program_id: String, input_id: String },
-    Skip { cached_limit: u64 },
+    LimitExceeded { limit: EvaluationLimits },
+    GuestFailed,
 }
 
 /// Value type for preflight cache.
@@ -245,7 +246,7 @@ where
                                 tracing::debug!(
                                     "Skipping order {request_id} due to intentional execution limit of {max_cycles}"
                                 );
-                                Ok(RequestEvaluation::Skip { cached_limit: max_cycles })
+                                Ok(RequestEvaluation::LimitExceeded { limit: limits })
                             } else if err_msg.contains("Guest panicked")
                                 || err_msg.contains("GuestPanic")
                             {
@@ -253,7 +254,7 @@ where
                                     "Skipping order {request_id} due to guest panic: {}",
                                     err_msg
                                 );
-                                Ok(RequestEvaluation::Skip { cached_limit: u64::MAX })
+                                Ok(RequestEvaluation::GuestFailed)
                             } else {
                                 Err(OrderPricingError::UnexpectedErr(Arc::new(err.into())))
                             }
@@ -263,12 +264,12 @@ where
                 .await
                 .map_err(|e| (*e).clone())?;
 
-            if let RequestEvaluation::Skip { cached_limit } = result {
-                if cached_limit < max_cycles {
+            if let RequestEvaluation::LimitExceeded { limit } = result {
+                if limit.max_cycles < max_cycles {
                     cache.invalidate(&cache_key).await;
                     continue;
                 }
-                return Ok(RequestEvaluation::Skip { cached_limit });
+                return Ok(RequestEvaluation::LimitExceeded { limit });
             }
 
             return Ok(result);
