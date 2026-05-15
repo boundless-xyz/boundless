@@ -29,7 +29,7 @@ use boundless_market::{
 use hex::FromHex;
 use risc0_aggregation::{GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_zkvm::{
-    sha::{Digest, Digestible},
+    sha::{Digest as Risc0Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
 };
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,7 @@ use anyhow::{Context, Result};
 use super::types::{
     AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchUpdate, ClaimDigest,
-    CloseBatch, CompressedProofId, FulfillmentArtifacts, FulfillmentBatch,
+    CloseBatch, CompressedProofId, Digest as BackendDigest, FulfillmentArtifacts, FulfillmentBatch,
     OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
     OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, RootSubmission,
     SubmissionAssessorArtifact, UpdateBatch,
@@ -59,7 +59,31 @@ use super::types::{
 #[derive(Clone, Serialize, Deserialize)]
 struct Risc0BatchState {
     guest_state: GuestState,
-    claim_digests: Vec<Digest>,
+    claim_digests: Vec<Risc0Digest>,
+}
+
+impl From<Risc0Digest> for BackendDigest {
+    fn from(value: Risc0Digest) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<BackendDigest> for Risc0Digest {
+    fn from(value: BackendDigest) -> Self {
+        Self::from(<[u8; 32]>::from(value))
+    }
+}
+
+impl From<Risc0Digest> for ClaimDigest {
+    fn from(value: Risc0Digest) -> Self {
+        Self(BackendDigest::from(value))
+    }
+}
+
+impl From<ClaimDigest> for Risc0Digest {
+    fn from(value: ClaimDigest) -> Self {
+        Self::from(value.0)
+    }
 }
 
 impl Risc0BatchState {
@@ -87,7 +111,7 @@ pub struct Risc0Backend {
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
     priority_requestors: PriorityRequestors,
-    set_builder_program_id: Option<Digest>,
+    set_builder_program_id: Option<Risc0Digest>,
     batch_processor: Option<BatchProcessorObj>,
 }
 
@@ -110,7 +134,7 @@ impl Risc0Backend {
         }
     }
 
-    pub fn with_set_builder_program_id(mut self, set_builder_program_id: Digest) -> Self {
+    pub fn with_set_builder_program_id(mut self, set_builder_program_id: Risc0Digest) -> Self {
         self.set_builder_program_id = Some(set_builder_program_id);
         self
     }
@@ -349,7 +373,7 @@ impl Backend for Risc0Backend {
         for order in cmd.orders {
             let order_id = order.order_id.clone();
             let res = async {
-                let order_img_id = Digest::from(<[u8; 32]>::from(order.program_id));
+                let order_img_id = Risc0Digest::from(<[u8; 32]>::from(order.program_id));
                 let order_journal = self
                     .prover
                     .get_journal(order.proof_id.as_str())
@@ -420,16 +444,11 @@ impl Backend for Risc0Backend {
 
                 let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
                     PredicateType::ClaimDigestMatch => (
-                        ClaimDigest(
-                            order
-                                .request
-                                .requirements
-                                .predicate
-                                .data
-                                .0
-                                .as_ref()
-                                .try_into()
-                                .context("claim digest predicate has invalid length")?,
+                        ClaimDigest::from(
+                            <[u8; 32]>::try_from(
+                                order.request.requirements.predicate.data.0.as_ref(),
+                            )
+                            .context("claim digest predicate has invalid length")?,
                         ),
                         vec![],
                         FulfillmentDataType::None,
@@ -469,7 +488,7 @@ impl Backend for Risc0Backend {
         }
 
         let assessor = submission.assessor_receipt(assessor_proof_id.as_str()).await?;
-        let assessor_claim = Digest::from(assessor.claim_digest);
+        let assessor_claim = Risc0Digest::from(assessor.claim_digest);
         let assessor_claim_index = aggregation_state
             .claim_digests
             .iter()
@@ -486,7 +505,7 @@ impl Backend for Risc0Backend {
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
-            ReceiptClaim::ok(Digest::ZERO, MaybePruned::Pruned(Digest::ZERO)),
+            ReceiptClaim::ok(Risc0Digest::ZERO, MaybePruned::Pruned(Risc0Digest::ZERO)),
             assessor_path,
             inclusion_params.digest(),
         );
@@ -510,8 +529,8 @@ pub struct Risc0BatchProcessor {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
-    set_builder_guest_id: Digest,
-    assessor_guest_id: Digest,
+    set_builder_guest_id: Risc0Digest,
+    assessor_guest_id: Risc0Digest,
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
@@ -576,7 +595,7 @@ impl Risc0Submission {
         Ok(encoded_seal)
     }
 
-    pub fn claim_digest(&self, image_id: Digest, journal_digest: Digest) -> Digest {
+    pub fn claim_digest(&self, image_id: Risc0Digest, journal_digest: Risc0Digest) -> Risc0Digest {
         ReceiptClaim::ok(image_id, MaybePruned::Pruned(journal_digest)).digest()
     }
 
@@ -610,8 +629,8 @@ impl Risc0BatchProcessor {
         db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
-        set_builder_guest_id: Digest,
-        assessor_guest_id: Digest,
+        set_builder_guest_id: Risc0Digest,
+        assessor_guest_id: Risc0Digest,
         market_addr: Address,
         prover_addr: Address,
         chain_id: u64,
@@ -812,7 +831,7 @@ impl Risc0BatchProcessor {
             let fulfillment_data = match order.request.requirements.predicate.predicateType {
                 PredicateType::ClaimDigestMatch => FulfillmentData::None,
                 _ => FulfillmentData::from_image_id_and_journal(
-                    Digest::from_hex(
+                    Risc0Digest::from_hex(
                         order
                             .image_id
                             .with_context(|| format!("Missing image_id for order: {order_id}"))?,

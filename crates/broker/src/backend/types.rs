@@ -20,7 +20,6 @@ use boundless_market::contracts::{
     AssessorCallback, AssessorSelector, EIP712DomainSaltless, Fulfillment as MarketFulfillment,
     ProofRequest,
 };
-use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
 use crate::{provers, FulfillmentType, Order, OrderStatus};
@@ -153,23 +152,44 @@ string_id!(CompressedProofId, "Durable backend compressed proof handle.");
 string_id!(AssessorProofId, "Durable backend assessor proof handle.");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ProgramId(pub [u8; 32]);
+pub struct Digest(pub [u8; 32]);
 
-impl ProgramId {
+impl Digest {
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 }
 
-impl From<[u8; 32]> for ProgramId {
+impl From<[u8; 32]> for Digest {
     fn from(value: [u8; 32]) -> Self {
         Self(value)
     }
 }
 
+impl From<Digest> for [u8; 32] {
+    fn from(value: Digest) -> Self {
+        value.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProgramId(pub Digest);
+
+impl ProgramId {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+}
+
+impl From<[u8; 32]> for ProgramId {
+    fn from(value: [u8; 32]) -> Self {
+        Self(Digest::from(value))
+    }
+}
+
 impl From<ProgramId> for [u8; 32] {
     fn from(value: ProgramId) -> Self {
-        value.0
+        value.0.into()
     }
 }
 
@@ -198,29 +218,29 @@ pub struct ProcessedOrder {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ClaimDigest(pub [u8; 32]);
+pub struct ClaimDigest(pub Digest);
 
 impl ClaimDigest {
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+        self.0.as_bytes()
+    }
+}
+
+impl From<[u8; 32]> for ClaimDigest {
+    fn from(value: [u8; 32]) -> Self {
+        Self(Digest::from(value))
     }
 }
 
 impl From<Digest> for ClaimDigest {
     fn from(value: Digest) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<ClaimDigest> for Digest {
-    fn from(value: ClaimDigest) -> Self {
-        Self::from(value.0)
+        Self(value)
     }
 }
 
 impl From<ClaimDigest> for [u8; 32] {
     fn from(value: ClaimDigest) -> Self {
-        value.0
+        value.0.into()
     }
 }
 
