@@ -659,6 +659,7 @@ where
 mod tests {
     use super::*;
     use crate::{
+        backend::BackendId,
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, DefaultProver},
@@ -892,6 +893,7 @@ mod tests {
 
         let batch_id = 0;
         let batch = Batch {
+            backend_id: BackendId::new("risc0_v3").unwrap(),
             status: BatchStatus::Complete,
             assessor_proof_id: Some(assessor_proof.id),
             orders: vec![order_id],

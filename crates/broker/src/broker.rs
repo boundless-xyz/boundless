@@ -885,6 +885,7 @@ impl Broker {
             let aggregator = Arc::new(aggregator::AggregatorService::new_with_batch_processor(
                 db.clone(),
                 config.clone(),
+                risc0_backend_id.clone(),
                 batch_processor,
                 chain_id,
                 proving_completion_tx.clone(),

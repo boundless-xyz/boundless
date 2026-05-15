@@ -28,7 +28,7 @@ use tokio_util::sync::CancellationToken;
 #[cfg(test)]
 use crate::{backend::Risc0BatchProcessor, provers::ProverObj};
 use crate::{
-    backend::{BatchProcessorObj, BatchUpdate, CloseBatch, UpdateBatch},
+    backend::{BackendId, BatchProcessorObj, BatchUpdate, CloseBatch, UpdateBatch},
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -42,6 +42,7 @@ use super::error::AggregatorErr;
 pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
+    backend_id: BackendId,
     batch_backend: BatchProcessorObj,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
@@ -62,6 +63,7 @@ impl AggregatorService {
         prover: ProverObj,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
+        let backend_id = BackendId::new("risc0_v3")?;
         let batch_backend = Arc::new(Risc0BatchProcessor::new(
             db.clone(),
             config.clone(),
@@ -76,6 +78,7 @@ impl AggregatorService {
         Ok(Self::new_with_batch_processor(
             db,
             config,
+            backend_id,
             batch_backend,
             chain_id,
             proving_completion_tx,
@@ -85,11 +88,12 @@ impl AggregatorService {
     pub fn new_with_batch_processor(
         db: DbObj,
         config: ConfigLock,
+        backend_id: BackendId,
         batch_backend: BatchProcessorObj,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
-        Self { db, config, batch_backend, chain_id, proving_completion_tx }
+        Self { db, config, backend_id, batch_backend, chain_id, proving_completion_tx }
     }
 
     /// Check if we should finalize the batch
@@ -324,10 +328,16 @@ impl AggregatorService {
         let current_time = crate::now_timestamp();
 
         // Get both types of proofs
-        let new_proofs =
-            self.db.get_aggregation_proofs().await.context("Failed to get aggregation proofs")?;
-        let groth16_proofs =
-            self.db.get_groth16_proofs().await.context("Failed to get groth16 proofs")?;
+        let new_proofs = self
+            .db
+            .get_aggregation_proofs(&self.backend_id)
+            .await
+            .context("Failed to get aggregation proofs")?;
+        let groth16_proofs = self
+            .db
+            .get_groth16_proofs(&self.backend_id)
+            .await
+            .context("Failed to get groth16 proofs")?;
 
         // Filter expired orders from both lists
         let valid_new_proofs = self.filter_non_actionable_orders(new_proofs, current_time).await?;
@@ -381,7 +391,11 @@ impl AggregatorService {
     async fn aggregate(&self) -> Result<(), AggregatorErr> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.
-        let batch_id = self.db.get_current_batch().await.context("Failed to get current batch")?;
+        let batch_id = self
+            .db
+            .get_current_batch(&self.backend_id)
+            .await
+            .context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
         let (aggregation_proof_id, compress, set_builder_proving_secs, assessor_proving_secs) =
@@ -638,7 +652,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -685,7 +699,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -803,7 +817,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -828,7 +842,8 @@ mod tests {
         let option_batch = db.get_complete_batch().await.unwrap();
         assert!(option_batch.is_none());
 
-        let aggregating_batch_id = db.get_current_batch().await.unwrap();
+        let aggregating_batch_id =
+            db.get_current_batch(&BackendId::new("risc0_v3").unwrap()).await.unwrap();
         let aggregating_batch = db.get_batch(aggregating_batch_id).await.unwrap();
         assert_eq!(aggregating_batch.orders, vec![order.id()]);
         assert!(aggregating_batch.aggregation_state.is_some());
@@ -865,7 +880,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -978,7 +993,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1096,7 +1111,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1222,7 +1237,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.clone().id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1264,7 +1279,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig_2.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1319,7 +1334,7 @@ mod tests {
             input_id: None,
             proof_id: None,
             compressed_proof_id: None,
-            backend_id: None,
+            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
             expire_timestamp,
             client_sig: Bytes::new(),
             lock_price: Some(U256::from(1)),

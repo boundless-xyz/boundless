@@ -148,8 +148,8 @@ impl SqliteDb {
         Ok(Self { pool })
     }
 
-    async fn new_batch(&self) -> Result<usize, DbError> {
-        let batch = Batch { start_time: Utc::now(), ..Default::default() };
+    async fn new_batch(&self, backend_id: &BackendId) -> Result<usize, DbError> {
+        let batch = Batch::new(backend_id.clone(), Utc::now());
 
         let res: i64 = sqlx::query_scalar("INSERT INTO batches (data) VALUES ($1) RETURNING id")
             .bind(sqlx::types::Json(&batch))
@@ -478,7 +478,11 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+    async fn get_aggregation_proofs(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<AggregationOrder>, DbError> {
+        let backend_id = backend_id.to_string();
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -488,6 +492,7 @@ impl BrokerDb for SqliteDb {
                        '$.update_at', $2)
             WHERE
                 data->>'status' IN ($3, $4)
+                AND data->>'backend_id' = $5
             RETURNING *
             "#,
         )
@@ -495,6 +500,7 @@ impl BrokerDb for SqliteDb {
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::PendingAgg)
         .bind(OrderStatus::Aggregating)
+        .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -522,7 +528,11 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+    async fn get_groth16_proofs(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<AggregationOrder>, DbError> {
+        let backend_id = backend_id.to_string();
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
@@ -532,12 +542,14 @@ impl BrokerDb for SqliteDb {
                        '$.update_at', $2)
             WHERE
                 data->>'status' == $3
+                AND data->>'backend_id' = $4
             RETURNING *
             "#,
         )
         .bind(OrderStatus::SkipAggregation)
         .bind(Utc::now().timestamp())
         .bind(OrderStatus::SkipAggregation)
+        .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -670,24 +682,26 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_current_batch(&self) -> Result<usize, DbError> {
+    async fn get_current_batch(&self, backend_id: &BackendId) -> Result<usize, DbError> {
         let batch_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM batches").fetch_one(&self.pool).await?;
 
         if batch_count == 0 {
-            self.new_batch().await
+            self.new_batch(backend_id).await
         } else {
-            let cur_batch: Option<DbBatch> =
-                sqlx::query_as("SELECT * FROM batches WHERE data->>'status' IN ($1, $2) LIMIT 1")
-                    .bind(BatchStatus::Aggregating)
-                    .bind(BatchStatus::PendingCompression)
-                    .fetch_optional(&self.pool)
-                    .await?;
+            let cur_batch: Option<DbBatch> = sqlx::query_as(
+                "SELECT * FROM batches WHERE data->>'status' IN ($1, $2) AND data->>'backend_id' = $3 LIMIT 1",
+            )
+            .bind(BatchStatus::Aggregating)
+            .bind(BatchStatus::PendingCompression)
+            .bind(backend_id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
 
             if let Some(batch) = cur_batch {
                 Ok(batch.id as usize)
             } else {
-                self.new_batch().await
+                self.new_batch(backend_id).await
             }
         }
     }
@@ -957,6 +971,14 @@ mod tests {
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
 
+    fn test_backend_id() -> BackendId {
+        BackendId::new("risc0_v3").unwrap()
+    }
+
+    fn other_backend_id() -> BackendId {
+        BackendId::new("risc0_v4").unwrap()
+    }
+
     fn create_order_request() -> OrderRequest {
         let mut request = OrderRequest::new(
             ProofRequest::new(
@@ -1179,13 +1201,22 @@ mod tests {
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
+            Order {
+                status: OrderStatus::PendingAgg,
+                proof_id: Some("test_id5".to_string()),
+                expire_timestamp: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                backend_id: Some(other_backend_id()),
+                ..create_order()
+            },
         ];
         for (i, order) in orders.iter_mut().enumerate() {
             order.request.id = U256::from(i);
+            order.backend_id.get_or_insert_with(test_backend_id);
             db.add_order(order).await.unwrap();
         }
 
-        let agg_proofs = db.get_aggregation_proofs().await.unwrap();
+        let agg_proofs = db.get_aggregation_proofs(&test_backend_id()).await.unwrap();
 
         assert_eq!(agg_proofs.len(), 2);
 
@@ -1206,19 +1237,24 @@ mod tests {
         assert_eq!(db_order.status, OrderStatus::Aggregating);
         let db_order = db.get_order(&agg_proofs[1].order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Aggregating);
+
+        let other_agg_proofs = db.get_aggregation_proofs(&other_backend_id()).await.unwrap();
+        assert_eq!(other_agg_proofs.len(), 1);
+        assert_eq!(other_agg_proofs[0].order_id, orders[4].id());
     }
 
     #[sqlx::test]
     async fn get_current_batch(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         assert_eq!(batch_id, 1);
 
         let batch = db.get_batch(batch_id).await.unwrap();
+        assert_eq!(batch.backend_id, test_backend_id());
         assert_eq!(batch.status, BatchStatus::Aggregating);
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         assert_eq!(batch_id, 1);
 
         db.set_batch_status(1, BatchStatus::PendingCompression).await.unwrap();
@@ -1226,7 +1262,13 @@ mod tests {
         let batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(batch.status, BatchStatus::PendingCompression);
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
+        assert_eq!(batch_id, 1);
+
+        let other_batch_id = db.get_current_batch(&other_backend_id()).await.unwrap();
+        assert_eq!(other_batch_id, 2);
+
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         assert_eq!(batch_id, 1);
     }
 
@@ -1235,7 +1277,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let batch = Batch { start_time: Utc::now(), ..Default::default() };
+        let batch = Batch::new(test_backend_id(), Utc::now());
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let batch = db.get_batch(batch_id).await.unwrap();
@@ -1248,13 +1290,14 @@ mod tests {
 
         let batch_id = 1;
         let batch = Batch {
+            backend_id: test_backend_id(),
             aggregation_state: Some(AggregationState {
                 guest_state: GuestState::initial([1u32; 8]),
                 claim_digests: vec![],
                 groth16_proof_id: None,
                 proof_id: "a".to_string(),
             }),
-            ..Default::default()
+            ..Batch::new(test_backend_id(), Utc::now())
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
@@ -1272,7 +1315,7 @@ mod tests {
 
         let batch_id = 1;
         let batch =
-            Batch { start_time: Utc::now(), status: BatchStatus::Complete, ..Default::default() };
+            Batch { status: BatchStatus::Complete, ..Batch::new(test_backend_id(), Utc::now()) };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
@@ -1285,7 +1328,7 @@ mod tests {
     async fn set_batch_submitted(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         db.set_batch_submitted(batch_id).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
@@ -1296,7 +1339,7 @@ mod tests {
     async fn set_batch_failure(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         let err_msg = "test_err";
         db.set_batch_failure(batch_id, err_msg.into()).await.unwrap();
 
@@ -1357,10 +1400,11 @@ mod tests {
 
         let base_fees = U256::from(10);
         let batch = Batch {
+            backend_id: test_backend_id(),
             start_time: Utc::now(),
             deadline: Some(100),
             fees: base_fees,
-            ..Default::default()
+            ..Batch::new(test_backend_id(), Utc::now())
         };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();

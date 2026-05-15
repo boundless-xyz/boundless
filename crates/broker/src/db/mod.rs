@@ -78,13 +78,19 @@ pub trait BrokerDb {
         status: OrderStatus,
         backend_id: Option<&BackendId>,
     ) -> Result<(), DbError>;
-    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
+    async fn get_aggregation_proofs(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<AggregationOrder>, DbError>;
+    async fn get_groth16_proofs(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<AggregationOrder>, DbError>;
     async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError>;
-    async fn get_current_batch(&self) -> Result<usize, DbError>;
+    async fn get_current_batch(&self, backend_id: &BackendId) -> Result<usize, DbError>;
     async fn set_request_fulfilled(
         &self,
         request_id: U256,

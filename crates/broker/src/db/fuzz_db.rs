@@ -27,6 +27,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
+use crate::backend::BackendId;
 use crate::FulfillmentType;
 use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 
@@ -35,6 +36,10 @@ use super::{BrokerDb, SqliteDb};
 use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
 };
+
+fn test_backend_id() -> BackendId {
+    BackendId::new("risc0_v3").unwrap()
+}
 
 // Add new state tracking structure
 struct TestState {
@@ -208,7 +213,7 @@ proptest! {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_aggregation_status(id, OrderStatus::PendingAgg, None).await.unwrap();
+                                        db.set_aggregation_status(id, OrderStatus::PendingAgg, Some(&test_backend_id())).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();
@@ -224,10 +229,10 @@ proptest! {
                             DbOperation::BatchOperation(operation) => {
                                 match operation {
                                     BatchOperation::GetCurrentBatch => {
-                                        db.get_current_batch().await.unwrap();
+                                        db.get_current_batch(&test_backend_id()).await.unwrap();
                                     },
                                     BatchOperation::CompleteBatch { g16_proof_id } => {
-                                        let batch_id = db.get_current_batch().await.unwrap();
+                                        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                         let batch = db.get_batch(batch_id).await.unwrap();
                                         if batch.aggregation_state.is_some() {
                                             db.complete_batch(batch_id, &g16_proof_id).await.unwrap();
@@ -239,19 +244,19 @@ proptest! {
                                     },
                                     BatchOperation::SetBatchSubmitted => {
                                         if state.completed_batch.load(Ordering::SeqCst) {
-                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                             db.set_batch_submitted(batch_id).await.unwrap();
                                         }
                                     },
                                     BatchOperation::SetBatchFailure { error } => {
                                         if state.completed_batch.load(Ordering::SeqCst) {
-                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                             db.set_batch_failure(batch_id, error).await.unwrap();
                                         }
                                     },
                                     BatchOperation::UpdateBatch { proof_id, order_count } => {
                                         if !state.added_orders.is_empty() {
-                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                             // Select up to order_count random orders
                                             let count = std::cmp::min(order_count as usize, state.added_orders.len());
                                             let mut orders = Vec::with_capacity(count);
@@ -298,10 +303,10 @@ proptest! {
                             },
 
                             DbOperation::GetAggregationProofs => {
-                                db.get_aggregation_proofs().await.unwrap();
+                                db.get_aggregation_proofs(&test_backend_id()).await.unwrap();
                             },
                             DbOperation::GetBatch(batch_id) => {
-                                let current_batch = db.get_current_batch().await.unwrap();
+                                let current_batch = db.get_current_batch(&test_backend_id()).await.unwrap();
                                 let _ = db.get_batch(batch_id as usize % current_batch).await;
                             },
                         }

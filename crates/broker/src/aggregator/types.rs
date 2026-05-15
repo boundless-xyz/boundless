@@ -20,6 +20,8 @@ use chrono::{DateTime, Utc};
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
+use crate::backend::BackendId;
+
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BatchStatus {
     #[default]
@@ -44,8 +46,10 @@ pub struct AggregationState {
     pub groth16_proof_id: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Batch {
+    /// Backend responsible for this batch's aggregation and assessment semantics.
+    pub backend_id: BackendId,
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
     pub orders: Vec<String>,
@@ -64,4 +68,20 @@ pub struct Batch {
     pub fees: U256,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_msg: Option<String>,
+}
+
+impl Batch {
+    pub fn new(backend_id: BackendId, start_time: DateTime<Utc>) -> Self {
+        Self {
+            backend_id,
+            status: BatchStatus::Aggregating,
+            orders: Vec::new(),
+            assessor_proof_id: None,
+            aggregation_state: None,
+            start_time,
+            deadline: None,
+            fees: U256::ZERO,
+            error_msg: None,
+        }
+    }
 }
