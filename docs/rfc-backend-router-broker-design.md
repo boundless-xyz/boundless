@@ -590,8 +590,9 @@ Proving service
   moves order to PendingBatch
 
 Current implementation note: `ProvingService` depends on a `Backend` trait
-object. Its legacy constructor still builds the single `Risc0Backend` directly,
-and the router path can use `new_with_backend` to inject `BackendRouter`.
+object. Broker startup registers the single current `Risc0Backend` behind
+`BackendRouter` for proving. The legacy constructor still builds a direct
+`Risc0Backend` for focused tests and compatibility call sites.
 
 Aggregator service
   groups PendingBatch orders by BackendId

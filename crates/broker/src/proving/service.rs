@@ -16,8 +16,10 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::sync::mpsc;
 
+#[cfg(test)]
+use crate::{backend::Risc0Backend, requestor_monitor::PriorityRequestors, ConfigurableDownloader};
 use crate::{
-    backend::{BackendObj, OrderProcessProgress, ProcessOrder, Risc0Backend},
+    backend::{BackendObj, OrderProcessProgress, ProcessOrder},
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -26,9 +28,8 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::ProverObj,
-    requestor_monitor::PriorityRequestors,
     task::{BrokerService, SupervisorErr},
-    CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
+    CompressionType, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
@@ -52,6 +53,7 @@ pub struct ProvingService {
 }
 
 impl ProvingService {
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,

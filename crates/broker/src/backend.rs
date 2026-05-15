@@ -18,7 +18,7 @@
 //! The broker keeps DB state, retry policy, cancellation, and batch lifecycle
 //! orchestration; the backend owns zkVM-specific proof processing.
 
-use std::{fmt, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use alloy::primitives::{Address, FixedBytes};
 use alloy::sol_types::SolValue;
@@ -127,6 +127,47 @@ pub trait Backend: Send + Sync {
 }
 
 pub type BackendObj = Arc<dyn Backend>;
+
+#[derive(Clone, Default)]
+pub struct BackendRouter {
+    routes: HashMap<FixedBytes<4>, BackendObj>,
+}
+
+impl BackendRouter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register_backend(
+        mut self,
+        selectors: impl IntoIterator<Item = FixedBytes<4>>,
+        backend: BackendObj,
+    ) -> Result<Self> {
+        for selector in selectors {
+            if self.routes.contains_key(&selector) {
+                anyhow::bail!("selector {selector:?} is already registered to a backend");
+            }
+            self.routes.insert(selector, backend.clone());
+        }
+        Ok(self)
+    }
+
+    fn backend_for_order(&self, order: &Order) -> Result<BackendObj> {
+        let selector = order.request.requirements.selector;
+        self.routes
+            .get(&selector)
+            .cloned()
+            .with_context(|| format!("no backend registered for selector {selector:?}"))
+    }
+}
+
+#[async_trait]
+impl Backend for BackendRouter {
+    async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
+        let backend = self.backend_for_order(&cmd.order)?;
+        backend.process_order(cmd).await
+    }
+}
 
 #[derive(Clone)]
 pub struct Risc0Backend {

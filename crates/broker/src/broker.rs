@@ -32,6 +32,7 @@ use boundless_market::{
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
+    selector::SupportedSelectors,
     storage::StorageDownloader,
     Deployment,
 };
@@ -44,6 +45,7 @@ use url::Url;
 use crate::{
     aggregator,
     args::{ChainPipeline, CoreArgs},
+    backend::{BackendRouter, Risc0Backend},
     chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
@@ -822,15 +824,28 @@ impl Broker {
         );
 
         if !self.args.listen_only {
-            let proving_service = Arc::new(proving::ProvingService::new(
-                db.clone(),
+            let risc0_backend = Arc::new(Risc0Backend::new(
                 prover.clone(),
                 aggregation_prover.clone(),
+                self.downloader.clone(),
+                priority_requestors.clone(),
+            ));
+            let backend_router = Arc::new(
+                BackendRouter::new()
+                    .register_backend(
+                        SupportedSelectors::default().selectors.keys().copied(),
+                        risc0_backend,
+                    )
+                    .context("Failed to register RISC0 backend selectors")?,
+            );
+
+            let proving_service = Arc::new(proving::ProvingService::new_with_backend(
+                db.clone(),
+                prover.clone(),
+                backend_router,
                 config.clone(),
                 order_state_tx.clone(),
-                priority_requestors.clone(),
                 market.clone(),
-                self.downloader.clone(),
                 chain_id,
                 proving_completion_tx.clone(),
             ));
