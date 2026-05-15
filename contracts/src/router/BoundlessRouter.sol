@@ -134,6 +134,11 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     ///         an entry.
     error EntryUnknown(bytes4 selector);
 
+    /// @notice A seal-derived selector resolved to a registered `classId` rather than
+    ///         an entry. Seals must lead with an entry selector that pins a concrete
+    ///         impl; class ids identify conformance groups, not impls.
+    error EntryIsClass(bytes4 selector);
+
     /// @notice Caller tried to register a `selector` that is already in `entries` or
     ///         already in `classes` (the two namespaces are disjoint).
     error EntryInUse(bytes4 selector);
@@ -403,8 +408,10 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         if (requests.length != n || requestDigests.length != n) revert LengthMismatch();
 
         // 1. Resolve the verifier class from the first seal. We reuse `firstEntry`
-        //    for i=0 inside the loop to avoid re-reading the same entry.
-        // TODO: what if selector is a class or default? seal is untrusted and could be anything
+        //    for i=0 inside the loop to avoid re-reading the same entry. The seal's
+        //    first 4 bytes are prover-supplied; non-entry values (a class id, the
+        //    chain-default sentinel, or a tombstoned bytes4) revert in `_entryOf`
+        //    with the appropriate diagnostic — no entry can ever resolve from them.
         bytes4 firstSel = _sealSelector(fills[0].seal);
         Entry memory firstEntry = _entryOf(firstSel);
         bytes4 verifierClassId = firstEntry.classId;
@@ -412,29 +419,28 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
 
         // A class registered with the assessor interface tag is terminal — only
         // referenced as `requiredAssessorClass`, never selected as a verifier class.
-        // TODO: cache this and use functions like `_isVerifierTag` / `_isAssessorTag`
-        bytes4 verifierTag = type(IBoundlessVerifier).interfaceId;
-        bytes4 jointTag = type(IBoundlessJointVerifierAssessor).interfaceId;
-        bool isVerifier = tag == verifierTag;
-        if (!isVerifier && tag != jointTag) {
+        bool isVerifier = _isVerifierTag(tag);
+        if (!isVerifier && !_isJointTag(tag)) {
             // Either the terminal assessor tag (which is invalid as a verifier class)
             // or a future tag that `addClass` accepts but this dispatch doesn't know.
-            if (tag == type(IBoundlessAssessor).interfaceId) {
-                revert TerminalAssessorAsVerifier(verifierClassId);
-            }
+            if (_isAssessorTag(tag)) revert TerminalAssessorAsVerifier(verifierClassId);
             revert InvalidInterfaceTag(tag);
         }
 
         // 2. Per-fill loop: namespace check, signed-selector resolution, gas-bounded
-        //    dispatch on the (already hoisted) interface tag.
+        //    dispatch on the (already hoisted) interface tag. We cache the last-seen
+        //    `(sealSel, e)` so a batch of fills that share a selector pays one entry
+        //    lookup, not N — the common case when one verifier serves a whole batch.
         Entry memory e = firstEntry;
         bytes4 sealSel = firstSel;
         for (uint256 i = 0; i < n;) {
             if (i != 0) {
-                sealSel = _sealSelector(fills[i].seal);
-                // TODO: if same selector appears twice, we read the same entry twice — can we save gas by caching it in memory and reusing it for subsequent matches?
-                e = _entryOf(sealSel);
-                if (e.classId != verifierClassId) revert MixedClassWithinBatch(verifierClassId, e.classId);
+                bytes4 nextSel = _sealSelector(fills[i].seal);
+                if (nextSel != sealSel) {
+                    sealSel = nextSel;
+                    e = _entryOf(sealSel);
+                    if (e.classId != verifierClassId) revert MixedClassWithinBatch(verifierClassId, e.classId);
+                }
             }
             _matchSignedSelector(sealSel, requests[i].selector, verifierClassId);
 
@@ -484,15 +490,17 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         return bytes4(seal[0:4]);
     }
 
-    /// @dev Look up an entry, reverting with the right error for unknown / tombstoned.
-    ///      Happy-path: 1 SLOAD on the packed Entry slot. The tombstoned check is
-    ///      deferred to the error path because a registered entry can never share a
-    ///      bytes4 with a tombstoned one (tombstoning happens on remove, after the
-    ///      entry is cleared).
+    /// @dev Look up an entry, reverting with the right error for unknown / tombstoned /
+    ///      class / chain-default. Happy-path: 1 SLOAD on the packed Entry slot. All
+    ///      diagnostic SLOADs are deferred to the error path because a registered entry
+    ///      can never share a bytes4 with a tombstoned one, a class id, or the
+    ///      chain-default sentinel (namespace disjointness + remove-then-tombstone).
     function _entryOf(bytes4 selector) internal view returns (Entry memory e) {
         e = entries[selector];
         if (e.impl == address(0)) {
+            if (selector == CHAIN_DEFAULT_SENTINEL) revert ZeroSelectorReserved();
             if (tombstoned[selector]) revert EntryRemoved(selector);
+            if (classes[selector].interfaceTag != bytes4(0)) revert EntryIsClass(selector);
             revert EntryUnknown(selector);
         }
     }
