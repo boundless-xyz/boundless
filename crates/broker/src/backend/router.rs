@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use alloy::primitives::FixedBytes;
 use anyhow::{Context, Result};
@@ -64,7 +67,14 @@ impl BackendRouter {
             anyhow::bail!("backend {} is already registered", entry.id());
         }
 
+        let mut entry_selectors = HashSet::new();
         for selector in &entry.selectors {
+            if !entry_selectors.insert(*selector) {
+                anyhow::bail!(
+                    "selector {selector:?} is listed more than once for backend {}",
+                    entry.id()
+                );
+            }
             if !entry.backend.supports(*selector) {
                 anyhow::bail!("backend {} does not support selector {selector:?}", entry.id());
             }
@@ -392,6 +402,18 @@ mod tests {
             .unwrap();
 
         assert!(err.to_string().contains("is already registered to backend mock_a"));
+    }
+
+    #[test]
+    fn router_rejects_duplicate_selector_inside_backend_entry() {
+        let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+
+        let err = BackendRouter::new()
+            .register_backend(BackendEntry::new(vec![selector(1), selector(1)], backend))
+            .err()
+            .unwrap();
+
+        assert!(err.to_string().contains("is listed more than once for backend mock_a"));
     }
 
     #[test]
