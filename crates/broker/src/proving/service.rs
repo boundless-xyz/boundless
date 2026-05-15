@@ -17,6 +17,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
+    backend_service::{BackendService, OrderProcessProgress, ProcessOrder, RiscZeroBackendService},
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -24,9 +25,8 @@ use crate::{
     futures_retry::retry_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::{self, ProverObj},
+    provers::ProverObj,
     requestor_monitor::PriorityRequestors,
-    storage::{upload_image_uri, upload_input_uri},
     task::{BrokerService, SupervisorErr},
     CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
@@ -42,12 +42,10 @@ use super::error::ProvingErr;
 pub struct ProvingService {
     db: DbObj,
     prover: ProverObj,
-    snark_prover: ProverObj,
+    backend: RiscZeroBackendService,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
-    priority_requestors: PriorityRequestors,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
-    downloader: ConfigurableDownloader,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -69,157 +67,51 @@ impl ProvingService {
     ) -> Self {
         Self {
             db,
+            backend: RiscZeroBackendService::new(
+                prover.clone(),
+                snark_prover,
+                downloader,
+                priority_requestors,
+            ),
             prover,
-            snark_prover,
             config,
             order_state_tx,
-            priority_requestors,
             fulfillment_market,
-            downloader,
             chain_id,
             proving_completion_tx,
         }
     }
 
-    async fn monitor_proof_internal(
-        &self,
-        order_id: &str,
-        stark_proof_id: &str,
-        compression_type: CompressionType,
-        snark_proof_id: Option<String>,
-    ) -> Result<OrderStatus> {
-        let proof_res = self
-            .prover
-            .wait_for_stark(stark_proof_id)
-            .await
-            .context("Monitoring proof (stark) failed")?;
-
-        tracing::debug!(
-            "Order {order_id} has compression_type: {compression_type:?}, snark_proof_id: {snark_proof_id:?}"
-        );
-        let is_compress = compression_type != CompressionType::None;
-
-        if is_compress && snark_proof_id.is_none() {
-            let (retry_count, sleep_ms) = {
-                let config = self.config.lock_all().context("Failed to lock config")?;
-                (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-            };
-
-            let context = format!("order {order_id}");
-            let compressed_proof_id = retry_with_context(
-                retry_count,
-                sleep_ms,
-                || async {
-                    let proof_id = match compression_type {
-                        CompressionType::Groth16 => self
-                            .snark_prover
-                            .compress(stark_proof_id)
-                            .await
-                            .context("Failed to compress proof for order {order_id}")?,
-                        CompressionType::Blake3Groth16 => self
-                            .snark_prover
-                            .compress_blake3_groth16(stark_proof_id)
-                            .await
-                            .context("Failed to compress blake3 groth16 proof for order {order_id}")?,
-                        CompressionType::None => {
-                            unreachable!("Compression type should not be None here")
-                        }
-                    };
-                    match compression_type {
-                        CompressionType::Groth16 => {
-                            tracing::trace!(
-                                "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
-                            );
-                            provers::verify_groth16_receipt(&self.snark_prover, &proof_id).await?;
-                        }
-                        CompressionType::Blake3Groth16 => {
-                            tracing::trace!(
-                                "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
-                            );
-                            provers::verify_blake3_groth16_receipt(&self.snark_prover, &proof_id).await?;
-                        }
-                        CompressionType::None => {
-                            unreachable!("Compression type should not be None here")
-                        }
-                    }
-                    Ok::<String, provers::ProverError>(proof_id)
-                },
-                "compress_and_verify",
-                &context,
-            )
-            .await?;
-
-            self.db
-                .set_order_compressed_proof_id(order_id, &compressed_proof_id)
+    async fn monitor_proof_internal(&self, mut order: Order) -> Result<OrderStatus> {
+        loop {
+            let progress = self
+                .backend
+                .process_order(ProcessOrder { order: order.clone() })
                 .await
-                .with_context(|| {
-                    format!(
-                        "Failed to set order {order_id} compressed proof id: {compressed_proof_id}"
-                    )
-                })?;
-        };
+                .context("Failed to process order proof")?;
 
-        let status = match is_compress {
-            false => OrderStatus::PendingAgg,
-            true => OrderStatus::SkipAggregation,
-        };
-
-        tracing::info!(
-            "Customer Proof complete for proof_id: {stark_proof_id}, order_id: {order_id} cycles: {:?} time: {}",
-            proof_res.stats.as_ref().map(|s| s.total_cycles),
-            proof_res.elapsed_time,
-        );
-
-        Ok(status)
-    }
-
-    async fn get_or_create_stark_session(&self, order: Order) -> Result<String> {
-        let order_id = order.id();
-
-        // Get the proof_id - either from existing order or create new proof
-        match order.proof_id.clone() {
-            Some(existing_proof_id) => {
-                tracing::debug!("Using existing proof {existing_proof_id} for order {order_id}");
-                Ok(existing_proof_id)
-            }
-            None => {
-                // This is a new order that needs proving
-                tracing::info!("Proving order {order_id}");
-
-                // If the ID's are not present then upload them now
-                // Mostly hit by skipping pre-flight
-                let image_id = match order.image_id.as_ref() {
-                    Some(val) => val.clone(),
-                    None => upload_image_uri(&self.prover, &order.request, &self.downloader)
+            match progress {
+                OrderProcessProgress::Started { proof_id } => {
+                    let order_id = order.id();
+                    self.db.set_order_proof_id(&order_id, &proof_id).await.with_context(|| {
+                        format!("Failed to set order {order_id} proof id: {proof_id}")
+                    })?;
+                    order.proof_id = Some(proof_id);
+                }
+                OrderProcessProgress::Compressed { proof_id, compressed_proof_id } => {
+                    let order_id = order.id();
+                    self.db
+                        .set_order_compressed_proof_id(&order_id, &compressed_proof_id)
                         .await
-                        .context(format!("Failed to upload image for order {order_id}"))?,
-                };
-
-                let input_id = match order.input_id.as_ref() {
-                    Some(val) => val.clone(),
-                    None => upload_input_uri(
-                        &self.prover,
-                        &order.request,
-                        &self.downloader,
-                        &self.priority_requestors,
-                    )
-                    .await
-                    .context(format!("Failed to upload input for order {order_id}"))?,
-                };
-
-                let proof_id = self
-                    .prover
-                    .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
-                    .await
-                    .context(format!("Failed to prove customer proof STARK order {order_id}"))?;
-
-                tracing::debug!("Order {order_id} being proved, proof id: {proof_id}");
-
-                self.db.set_order_proof_id(&order_id, &proof_id).await.with_context(|| {
-                    format!("Failed to set order {order_id} proof id: {proof_id}")
-                })?;
-
-                Ok(proof_id)
+                        .with_context(|| {
+                            format!(
+                                "Failed to set order {order_id} compressed proof id: {compressed_proof_id}"
+                            )
+                        })?;
+                    order.proof_id = Some(proof_id);
+                    order.compressed_proof_id = Some(compressed_proof_id);
+                }
+                OrderProcessProgress::Completed(processed) => return Ok(processed.next_status),
             }
         }
     }
@@ -274,12 +166,7 @@ impl ProvingService {
             }
         }
 
-        let monitor_task = self.monitor_proof_internal(
-            &order_id,
-            proof_id,
-            order.compression_type(),
-            order.compressed_proof_id,
-        );
+        let monitor_task = self.monitor_proof_internal(order.clone());
         tokio::pin!(monitor_task);
 
         let timeout_future = tokio::time::sleep(timeout_duration);
@@ -387,37 +274,59 @@ impl ProvingService {
         };
 
         let context = format!("order {order_id}");
-        let proof_id = match retry_with_context(
-            proof_retry_count,
-            proof_retry_sleep_ms,
-            || async { self.get_or_create_stark_session(order.clone()).await },
-            "get_or_create_stark_session",
-            &context,
-        )
-        .await
-        {
-            Ok(proof_id) => proof_id,
-            Err(err) => {
-                let proving_err = ProvingErr::ProvingFailed(err);
-                tracing::error!(
-                    "Failed to create stark session for order {order_id}: {proving_err:?}"
-                );
-                handle_order_failure(
-                    &self.db,
-                    &order_id,
-                    &BrokerFailure::new(
-                        proving_err.code(),
-                        "Proving session create failed",
-                        proving_err.completion_outcome(),
-                    ),
-                    self.chain_id,
-                    &self.proving_completion_tx,
+        let proof_id = match order.proof_id.clone() {
+            Some(existing_proof_id) => existing_proof_id,
+            None => {
+                match retry_with_context(
+                    proof_retry_count,
+                    proof_retry_sleep_ms,
+                    || async {
+                        match self
+                            .backend
+                            .process_order(ProcessOrder { order: order.clone() })
+                            .await?
+                        {
+                            OrderProcessProgress::Started { proof_id } => Ok(proof_id),
+                            OrderProcessProgress::Compressed { .. }
+                            | OrderProcessProgress::Completed(_) => {
+                                unreachable!("new order cannot complete before proof start")
+                            }
+                        }
+                    },
+                    "process_order_start",
+                    &context,
                 )
-                .await;
-                return;
+                .await
+                {
+                    Ok(proof_id) => proof_id,
+                    Err(err) => {
+                        let proving_err = ProvingErr::ProvingFailed(err);
+                        tracing::error!(
+                            "Failed to create stark session for order {order_id}: {proving_err:?}"
+                        );
+                        handle_order_failure(
+                            &self.db,
+                            &order_id,
+                            &BrokerFailure::new(
+                                proving_err.code(),
+                                "Proving session create failed",
+                                proving_err.completion_outcome(),
+                            ),
+                            self.chain_id,
+                            &self.proving_completion_tx,
+                        )
+                        .await;
+                        return;
+                    }
+                }
             }
         };
 
+        if order.proof_id.is_none() {
+            if let Err(err) = self.db.set_order_proof_id(&order_id, &proof_id).await {
+                tracing::error!("Failed to set order {order_id} proof id: {proof_id}: {err:?}");
+            }
+        }
         order.proof_id = Some(proof_id);
 
         let result = retry_with_context(
