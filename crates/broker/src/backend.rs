@@ -18,6 +18,8 @@
 //! The broker keeps DB state, retry policy, cancellation, and batch lifecycle
 //! orchestration; the backend owns zkVM-specific proof processing.
 
+use std::{fmt, str::FromStr};
+
 use alloy::primitives::{Address, FixedBytes};
 use alloy::sol_types::SolValue;
 use async_trait::async_trait;
@@ -48,6 +50,53 @@ use crate::{
 };
 use anyhow::{Context, Result};
 
+/// Stable broker-side identity for a backend registration.
+///
+/// This is intentionally distinct from a verifier selector: many selectors may
+/// route to the same backend, and broker policy/batching is keyed by backend.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct BackendId(String);
+
+impl BackendId {
+    pub fn new(value: impl Into<String>) -> Result<Self> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            anyhow::bail!("backend id cannot be empty");
+        }
+        Ok(Self(value))
+    }
+}
+
+impl fmt::Display for BackendId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for BackendId {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<String> for BackendId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<&str> for BackendId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
 /// Command for processing one accepted broker order.
 #[derive(Clone, Debug)]
 pub struct ProcessOrder {
@@ -65,6 +114,7 @@ pub enum OrderProcessProgress {
 /// Completed backend processing for one broker order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessedOrder {
+    pub backend_id: BackendId,
     pub order_id: String,
     pub proof_id: String,
     pub compressed_proof_id: Option<String>,
@@ -78,6 +128,7 @@ pub trait Backend: Send + Sync {
 
 #[derive(Clone)]
 pub struct Risc0Backend {
+    id: BackendId,
     prover: ProverObj,
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
@@ -91,7 +142,13 @@ impl Risc0Backend {
         downloader: ConfigurableDownloader,
         priority_requestors: PriorityRequestors,
     ) -> Self {
-        Self { prover, snark_prover, downloader, priority_requestors }
+        Self {
+            id: BackendId::new("risc0_v1").expect("static backend id is valid"),
+            prover,
+            snark_prover,
+            downloader,
+            priority_requestors,
+        }
     }
 
     async fn start_order(&self, order: &Order) -> Result<String> {
@@ -218,6 +275,7 @@ impl Backend for Risc0Backend {
         );
 
         Ok(OrderProcessProgress::Completed(ProcessedOrder {
+            backend_id: self.id.clone(),
             order_id,
             proof_id: stark_proof_id,
             compressed_proof_id: order.compressed_proof_id,

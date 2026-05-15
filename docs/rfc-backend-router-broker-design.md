@@ -44,7 +44,7 @@ PublicOutput       opaque execution output bytes
 ClaimDigest        opaque 32-byte claim digest
 ProofId            opaque backend primitive proof handle
 CompressedProofId  opaque backend compressed proof handle
-BackendId          stable broker-side backend identity
+BackendId          stable broker-side backend identity, e.g. "risc0_v1"
 ```
 
 Broker-facing backend:
@@ -179,10 +179,11 @@ market config. Priority-requestor bypass is represented by omitting the relevant
 limit. The backend only enforces the limits it receives; it does not know why a
 limit is present or absent.
 
-`resolve` starts the routing chain. The broker persists the resolved
-`BackendId` on accepted orders and carries it through later service commands.
-The router dispatches by selector for `evaluate_order`; later calls dispatch
-directly by `backend_id`.
+`resolve` starts the routing chain. `BackendId` is a typed broker value, not a
+raw string in service code. The broker persists the resolved `BackendId` on
+accepted orders and carries it through later service commands. The router
+dispatches by selector for `evaluate_order`; later calls dispatch directly by
+`backend_id`.
 
 `process_order` may return durable progress before the order is complete. The
 broker persists returned proof handles and may call `process_order` again after
