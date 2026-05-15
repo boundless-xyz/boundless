@@ -41,7 +41,7 @@ use risc0_zkvm::sha::{Digest, Digestible};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::Risc0SubmissionCodec,
+    backend::Risc0Submission,
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
@@ -59,7 +59,7 @@ use super::error::SubmitterErr;
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
-    submission_backend: Risc0SubmissionCodec,
+    submission_backend: Risc0Submission,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
@@ -112,7 +112,7 @@ where
 
         Ok(Self {
             db,
-            submission_backend: Risc0SubmissionCodec::new(prover.clone()),
+            submission_backend: Risc0Submission::new(prover.clone()),
             prover,
             market,
             set_verifier,

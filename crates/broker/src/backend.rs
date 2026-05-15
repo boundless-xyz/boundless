@@ -712,7 +712,7 @@ pub struct Risc0BatchProcessor {
 }
 
 #[derive(Clone)]
-pub struct Risc0SubmissionCodec {
+pub struct Risc0Submission {
     prover: ProverObj,
 }
 
@@ -721,7 +721,7 @@ pub struct Risc0AssessorReceipt {
     pub journal: AssessorJournal,
 }
 
-impl Risc0SubmissionCodec {
+impl Risc0Submission {
     pub fn new(prover: ProverObj) -> Self {
         Self { prover }
     }
