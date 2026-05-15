@@ -882,7 +882,7 @@ impl Broker {
             let aggregator = Arc::new(aggregator::AggregatorService::new_with_backend_router(
                 db.clone(),
                 config.clone(),
-                backend_router,
+                backend_router.clone(),
                 chain_id,
                 proving_completion_tx.clone(),
             )?);
@@ -914,6 +914,7 @@ impl Broker {
                 db.clone(),
                 config.clone(),
                 aggregation_prover.clone(),
+                backend_router.clone(),
                 provider.clone(),
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,

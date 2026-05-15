@@ -41,7 +41,9 @@ use risc0_zkvm::sha::{Digest, Digestible};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::Risc0Submission,
+    backend::{
+        BackendObj, ComputeClaimDigest, EncodeBatchSeal, EncodeOrderSeal, FetchAssessorReceipt,
+    },
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
@@ -59,7 +61,7 @@ use super::error::SubmitterErr;
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
-    submission_backend: Risc0Submission,
+    backend: BackendObj,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
@@ -80,6 +82,7 @@ where
         db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
+        backend: BackendObj,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
@@ -112,7 +115,7 @@ where
 
         Ok(Self {
             db,
-            submission_backend: Risc0Submission::new(prover.clone()),
+            backend,
             prover,
             market,
             set_verifier,
@@ -169,7 +172,13 @@ where
         }
 
         // Collect the needed parts for the new merkle root:
-        let batch_seal = self.submission_backend.encode_groth16_seal(groth16_proof_id).await?;
+        let batch_seal = self
+            .backend
+            .encode_batch_seal(EncodeBatchSeal {
+                backend_id: batch.backend_id.clone(),
+                proof_id: groth16_proof_id.clone(),
+            })
+            .await?;
         let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
@@ -181,7 +190,13 @@ where
 
         // Collect the needed parts for the fulfillBatch:
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
-        let assessor_receipt = self.submission_backend.assessor_receipt(assessor_proof_id).await?;
+        let assessor_receipt = self
+            .backend
+            .fetch_assessor_receipt(FetchAssessorReceipt {
+                backend_id: batch.backend_id.clone(),
+                proof_id: assessor_proof_id.clone(),
+            })
+            .await?;
 
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
@@ -232,18 +247,22 @@ where
                     .context("Order proof Journal missing")?;
 
                 let order_journal_digest = order_journal.digest();
-                let order_claim_digest =
-                    self.submission_backend.claim_digest(order_img_id, order_journal_digest);
+                let order_claim_digest = self.backend.compute_claim_digest(ComputeClaimDigest {
+                    backend_id: batch.backend_id.clone(),
+                    image_id: order_img_id,
+                    journal_digest: order_journal_digest,
+                })?;
                 let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
-                    self.submission_backend
-                        .encode_seal_for_selector(
-                            order_request.requirements.selector,
-                            &compressed_proof_id,
-                        )
+                    self.backend
+                        .encode_order_seal(EncodeOrderSeal {
+                            backend_id: batch.backend_id.clone(),
+                            selector: order_request.requirements.selector,
+                            proof_id: compressed_proof_id,
+                        })
                         .await
                         .context("Failed to fetch and encode g16 proof")?
                 } else if is_blake3_groth16_selector(order_request.requirements.selector) {
@@ -251,11 +270,12 @@ where
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
-                    self.submission_backend
-                        .encode_seal_for_selector(
-                            order_request.requirements.selector,
-                            &compressed_proof_id,
-                        )
+                    self.backend
+                        .encode_order_seal(EncodeOrderSeal {
+                            backend_id: batch.backend_id.clone(),
+                            selector: order_request.requirements.selector,
+                            proof_id: compressed_proof_id,
+                        })
                         .await
                         .context("Failed to fetch and encode blake3 groth16 proof")?
                 } else {
@@ -659,11 +679,12 @@ where
 mod tests {
     use super::*;
     use crate::{
-        backend::BackendId,
+        backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend},
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, DefaultProver},
-        AggregationState, Batch, BatchStatus, Order, OrderStatus,
+        requestor_monitor::PriorityRequestors,
+        AggregationState, Batch, BatchStatus, ConfigurableDownloader, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -679,6 +700,7 @@ mod tests {
             RequestId, RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
+        selector::SupportedSelectors,
     };
     use boundless_test_utils::{
         guests::{
@@ -916,10 +938,29 @@ mod tests {
         market.lock_request(&order.request, client_sig.to_vec()).await.unwrap();
 
         let (commitment_tx, commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
+        let backend_id = BackendId::new("risc0_v3").unwrap();
+        let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
+        let priority_requestors = PriorityRequestors::new(config.clone(), anvil.chain_id());
+        let risc0_backend = Arc::new(Risc0Backend::new(
+            backend_id,
+            prover.clone(),
+            prover.clone(),
+            downloader,
+            priority_requestors,
+        ));
+        let backend_router = Arc::new(
+            BackendRouter::new()
+                .register_backend(BackendEntry::new(
+                    SupportedSelectors::default().selectors.keys().copied(),
+                    risc0_backend,
+                ))
+                .unwrap(),
+        );
         let submitter = Submitter::new(
             db.clone(),
             config,
             prover.clone(),
+            backend_router,
             provider.clone(),
             set_verifier,
             market_address,

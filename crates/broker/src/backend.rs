@@ -131,6 +131,11 @@ mod tests {
         fn cancel_calls(&self) -> usize {
             self.cancel_calls.load(Ordering::SeqCst)
         }
+
+        fn ensure_backend_id(&self, backend_id: &BackendId) -> Result<()> {
+            anyhow::ensure!(backend_id == &self.id, "wrong backend id");
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -157,6 +162,29 @@ mod tests {
         async fn cancel_order(&self, _order: &Order) -> Result<()> {
             self.cancel_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
+        }
+
+        async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>> {
+            self.ensure_backend_id(&cmd.backend_id)?;
+            Ok(cmd.proof_id.into_bytes())
+        }
+
+        async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>> {
+            self.ensure_backend_id(&cmd.backend_id)?;
+            Ok(cmd.proof_id.into_bytes())
+        }
+
+        fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest> {
+            self.ensure_backend_id(&cmd.backend_id)?;
+            Ok(cmd.image_id)
+        }
+
+        async fn fetch_assessor_receipt(
+            &self,
+            cmd: FetchAssessorReceipt,
+        ) -> Result<Risc0AssessorReceipt> {
+            self.ensure_backend_id(&cmd.backend_id)?;
+            Ok(Risc0AssessorReceipt { claim_digest: Digest::ZERO, journal: Default::default() })
         }
     }
 
@@ -355,6 +383,28 @@ pub struct ProcessedOrder {
     pub next_status: OrderStatus,
 }
 
+pub struct EncodeBatchSeal {
+    pub backend_id: BackendId,
+    pub proof_id: String,
+}
+
+pub struct EncodeOrderSeal {
+    pub backend_id: BackendId,
+    pub selector: FixedBytes<4>,
+    pub proof_id: String,
+}
+
+pub struct ComputeClaimDigest {
+    pub backend_id: BackendId,
+    pub image_id: Digest,
+    pub journal_digest: Digest,
+}
+
+pub struct FetchAssessorReceipt {
+    pub backend_id: BackendId,
+    pub proof_id: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct BatchSizeEstimate {
     pub size: usize,
@@ -407,6 +457,17 @@ pub trait Backend: Send + Sync {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 
     async fn cancel_order(&self, order: &Order) -> Result<()>;
+
+    async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>>;
+
+    async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>>;
+
+    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest>;
+
+    async fn fetch_assessor_receipt(
+        &self,
+        cmd: FetchAssessorReceipt,
+    ) -> Result<Risc0AssessorReceipt>;
 }
 
 pub type BackendObj = Arc<dyn Backend>;
@@ -486,6 +547,13 @@ impl BackendRouter {
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
+    fn backend_for_id(&self, backend_id: &BackendId) -> Result<BackendObj> {
+        self.backends
+            .get(backend_id)
+            .map(|entry| entry.backend.clone())
+            .with_context(|| format!("backend {backend_id} is not registered"))
+    }
+
     pub fn batch_processors(&self) -> Result<Vec<(BackendId, BatchProcessorObj)>> {
         self.backends
             .values()
@@ -519,6 +587,29 @@ impl Backend for BackendRouter {
     async fn cancel_order(&self, order: &Order) -> Result<()> {
         let backend = self.backend_for_order(order)?;
         backend.cancel_order(order).await
+    }
+
+    async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>> {
+        let backend = self.backend_for_id(&cmd.backend_id)?;
+        backend.encode_batch_seal(cmd).await
+    }
+
+    async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>> {
+        let backend = self.backend_for_id(&cmd.backend_id)?;
+        backend.encode_order_seal(cmd).await
+    }
+
+    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest> {
+        let backend = self.backend_for_id(&cmd.backend_id)?;
+        backend.compute_claim_digest(cmd)
+    }
+
+    async fn fetch_assessor_receipt(
+        &self,
+        cmd: FetchAssessorReceipt,
+    ) -> Result<Risc0AssessorReceipt> {
+        let backend = self.backend_for_id(&cmd.backend_id)?;
+        backend.fetch_assessor_receipt(cmd).await
     }
 }
 
@@ -696,6 +787,52 @@ impl Backend for Risc0Backend {
         }
 
         Ok(())
+    }
+
+    async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>> {
+        anyhow::ensure!(
+            cmd.backend_id == self.id,
+            "backend {} cannot encode batch seal for backend {}",
+            self.id,
+            cmd.backend_id
+        );
+        Risc0Submission::new(self.snark_prover.clone()).encode_groth16_seal(&cmd.proof_id).await
+    }
+
+    async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>> {
+        anyhow::ensure!(
+            cmd.backend_id == self.id,
+            "backend {} cannot encode order seal for backend {}",
+            self.id,
+            cmd.backend_id
+        );
+        Risc0Submission::new(self.snark_prover.clone())
+            .encode_seal_for_selector(cmd.selector, &cmd.proof_id)
+            .await
+    }
+
+    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest> {
+        anyhow::ensure!(
+            cmd.backend_id == self.id,
+            "backend {} cannot compute claim digest for backend {}",
+            self.id,
+            cmd.backend_id
+        );
+        Ok(Risc0Submission::new(self.snark_prover.clone())
+            .claim_digest(cmd.image_id, cmd.journal_digest))
+    }
+
+    async fn fetch_assessor_receipt(
+        &self,
+        cmd: FetchAssessorReceipt,
+    ) -> Result<Risc0AssessorReceipt> {
+        anyhow::ensure!(
+            cmd.backend_id == self.id,
+            "backend {} cannot fetch assessor receipt for backend {}",
+            self.id,
+            cmd.backend_id
+        );
+        Risc0Submission::new(self.snark_prover.clone()).assessor_receipt(&cmd.proof_id).await
     }
 }
 
