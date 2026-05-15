@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    backend::{BatchUpdate, Risc0BatchProcessor, UpdateBatch},
+    backend::{BatchUpdate, CloseBatch, Risc0BatchProcessor, UpdateBatch},
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -417,18 +417,18 @@ impl AggregatorService {
 
         if compress {
             let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
-            tracing::debug!(
-                "Starting groth16 compression proof for batch {batch_id} with orders {:?}",
-                batch.orders
-            );
+            tracing::debug!("Closing batch {batch_id} with orders {:?}", batch.orders);
 
-            let groth16_start = std::time::Instant::now();
-            let compress_proof_id = match self
+            let close = match self
                 .batch_backend
-                .compress_batch_proof(batch_id, &aggregation_proof_id, &batch.orders)
+                .close_batch(CloseBatch {
+                    batch_id,
+                    aggregation_proof_id,
+                    order_ids: batch.orders.clone(),
+                })
                 .await
             {
-                Ok(id) => id,
+                Ok(close) => close,
                 Err(err) => {
                     self.db
                         .set_batch_failure(batch_id, err.to_string())
@@ -437,24 +437,25 @@ impl AggregatorService {
                     return Err(AggregatorErr::CompressionErr(err));
                 }
             };
-            let batch_groth16_secs = groth16_start.elapsed().as_secs_f64();
-            tracing::debug!(
-                "Completed groth16 compression for batch {batch_id} with orders {:?}",
-                batch.orders
-            );
+            tracing::debug!("Closed batch {batch_id} with orders {:?}", batch.orders);
 
             for order_id_str in &batch.orders {
                 crate::telemetry::telemetry(self.chain_id).record_aggregation_completed(
                     order_id_str,
                     set_builder_proving_secs,
                     assessor_proving_secs,
-                    Some(batch_groth16_secs),
+                    Some(close.compression_secs),
                 );
             }
 
-            self.db.complete_batch(batch_id, &compress_proof_id).await.with_context(|| {
-                format!("Failed to set batch {batch_id} with orders {:?} as complete", batch.orders)
-            })?;
+            self.db.complete_batch(batch_id, &close.compressed_proof_id).await.with_context(
+                || {
+                    format!(
+                        "Failed to set batch {batch_id} with orders {:?} as complete",
+                        batch.orders
+                    )
+                },
+            )?;
         }
 
         Ok(())

@@ -356,6 +356,17 @@ pub struct BatchUpdate {
     pub assessor_proving_secs: Option<f64>,
 }
 
+pub struct CloseBatch {
+    pub batch_id: usize,
+    pub aggregation_proof_id: String,
+    pub order_ids: Vec<String>,
+}
+
+pub struct BatchClose {
+    pub compressed_proof_id: String,
+    pub compression_secs: f64,
+}
+
 #[async_trait]
 pub trait Backend: Send + Sync {
     fn id(&self) -> &BackendId;
@@ -1128,5 +1139,14 @@ impl Risc0BatchProcessor {
             &context,
         )
         .await
+    }
+
+    pub async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+        let start = std::time::Instant::now();
+        let compressed_proof_id = self
+            .compress_batch_proof(cmd.batch_id, &cmd.aggregation_proof_id, &cmd.order_ids)
+            .await?;
+
+        Ok(BatchClose { compressed_proof_id, compression_secs: start.elapsed().as_secs_f64() })
     }
 }
