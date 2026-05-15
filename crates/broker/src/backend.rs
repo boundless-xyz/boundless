@@ -20,7 +20,7 @@
 
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
-use alloy::primitives::{Address, FixedBytes};
+use alloy::primitives::{Address, Bytes, FixedBytes, B256};
 use alloy::sol_types::{SolStruct, SolValue};
 use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
@@ -166,14 +166,10 @@ mod tests {
             Ok(())
         }
 
-        async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>> {
-            self.ensure_backend_id(&cmd.backend_id)?;
-            Ok(cmd.proof_id.into_bytes())
-        }
-
         async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
             self.ensure_backend_id(&cmd.backend_id)?;
             Ok(FulfillmentArtifacts {
+                root_submission: None,
                 orders: cmd
                     .orders
                     .into_iter()
@@ -395,11 +391,6 @@ pub struct ProcessedOrder {
     pub next_status: OrderStatus,
 }
 
-pub struct EncodeBatchSeal {
-    pub backend_id: BackendId,
-    pub proof_id: String,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClaimDigest(pub [u8; 32]);
 
@@ -451,6 +442,11 @@ pub struct FulfillmentBatch {
     pub orders: Vec<FulfillmentOrder>,
 }
 
+pub struct RootSubmission {
+    pub root: B256,
+    pub seal: Bytes,
+}
+
 pub struct OrderFulfillmentArtifact {
     pub order_id: String,
     pub fulfillment: MarketFulfillment,
@@ -467,6 +463,7 @@ pub enum OrderFulfillmentResult {
 }
 
 pub struct FulfillmentArtifacts {
+    pub root_submission: Option<RootSubmission>,
     pub orders: Vec<OrderFulfillmentResult>,
     pub assessor_receipt: AssessorReceipt,
 }
@@ -523,8 +520,6 @@ pub trait Backend: Send + Sync {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 
     async fn cancel_order(&self, order: &Order) -> Result<()>;
-
-    async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>>;
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts>;
 }
@@ -646,11 +641,6 @@ impl Backend for BackendRouter {
     async fn cancel_order(&self, order: &Order) -> Result<()> {
         let backend = self.backend_for_order(order)?;
         backend.cancel_order(order).await
-    }
-
-    async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>> {
-        let backend = self.backend_for_id(&cmd.backend_id)?;
-        backend.encode_batch_seal(cmd).await
     }
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
@@ -835,16 +825,6 @@ impl Backend for Risc0Backend {
         Ok(())
     }
 
-    async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>> {
-        anyhow::ensure!(
-            cmd.backend_id == self.id,
-            "backend {} cannot encode batch seal for backend {}",
-            self.id,
-            cmd.backend_id
-        );
-        Risc0Submission::new(self.snark_prover.clone()).encode_groth16_seal(&cmd.proof_id).await
-    }
-
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
         anyhow::ensure!(
             cmd.backend_id == self.id,
@@ -856,6 +836,29 @@ impl Backend for Risc0Backend {
         let submission = Risc0Submission::new(self.snark_prover.clone());
         let inclusion_params = SetInclusionReceiptVerifierParameters {
             image_id: Digest::from(cmd.set_builder_program_id),
+        };
+        let groth16_proof_id = cmd
+            .aggregation_state
+            .groth16_proof_id
+            .as_ref()
+            .context("Cannot submit batch with no recorded Groth16 proof ID")?;
+        anyhow::ensure!(
+            !cmd.aggregation_state.claim_digests.is_empty(),
+            "Cannot submit batch with no claim digests"
+        );
+        anyhow::ensure!(
+            cmd.aggregation_state.guest_state.mmr.is_finalized(),
+            "Cannot submit guest state that is not finalized"
+        );
+
+        let batch_root = risc0_aggregation::merkle_root(&cmd.aggregation_state.claim_digests);
+        anyhow::ensure!(
+            cmd.aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
+            "Guest state finalized root is inconsistent with claim digests"
+        );
+        let root_submission = RootSubmission {
+            root: B256::from_slice(batch_root.as_bytes()),
+            seal: submission.encode_groth16_seal(groth16_proof_id).await?.into(),
         };
 
         let mut orders = Vec::with_capacity(cmd.orders.len());
@@ -1011,6 +1014,7 @@ impl Backend for Risc0Backend {
             assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
         Ok(FulfillmentArtifacts {
+            root_submission: Some(root_submission),
             orders,
             assessor_receipt: AssessorReceipt {
                 seal: assessor_seal.into(),

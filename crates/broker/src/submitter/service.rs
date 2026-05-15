@@ -18,7 +18,7 @@ use alloy::{
     network::Ethereum,
     primitives::{
         utils::{format_ether, format_units},
-        Address, B256, U256,
+        Address, U256,
     },
     providers::{Provider, WalletProvider},
 };
@@ -36,9 +36,7 @@ use risc0_zkvm::sha::Digest;
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::{
-        BackendObj, EncodeBatchSeal, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult,
-    },
+    backend::{BackendObj, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult},
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
@@ -127,24 +125,9 @@ where
                 "Cannot submit batch with no recorded aggregation state"
             )));
         };
-        let Some(ref groth16_proof_id) = aggregation_state.groth16_proof_id else {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit batch with no recorded Groth16 proof ID"
-            )));
-        };
-        if aggregation_state.claim_digests.is_empty() {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit batch with no claim digests"
-            )));
-        }
         if batch.assessor_proof_id.is_none() {
             return Err(SubmitterErr::UnexpectedErr(anyhow!(
                 "Cannot submit batch with no assessor receipt"
-            )));
-        }
-        if !aggregation_state.guest_state.mmr.is_finalized() {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit guest state that is not finalized"
             )));
         }
 
@@ -160,23 +143,6 @@ where
         } else if !expired_orders.is_empty() {
             // Still submit, since we support partial fulfillment.
             tracing::warn!("Some orders in batch {batch_id} are expired ({}). Batch will still be submitted. {:?}", expired_orders.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "), SubmitterErr::SomeRequestsExpiredBeforeSubmission(expired_orders.iter().map(|order| order.id()).collect()));
-        }
-
-        // Collect the needed parts for the new merkle root:
-        let batch_seal = self
-            .backend
-            .encode_batch_seal(EncodeBatchSeal {
-                backend_id: batch.backend_id.clone(),
-                proof_id: groth16_proof_id.clone(),
-            })
-            .await?;
-        let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
-        let root = B256::from_slice(batch_root.as_bytes());
-
-        if aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() != batch_root {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Guest state finalized root is inconsistent with claim digests"
-            )));
         }
 
         let mut fulfillments = vec![];
@@ -317,45 +283,59 @@ where
             FulfillmentTx::new(fulfillments.clone(), artifacts.assessor_receipt)
                 .with_withdraw(withdraw)
                 .with_unlocked_requests(requests_to_price);
-        if single_txn_fulfill {
-            fulfillment_tx =
-                fulfillment_tx.with_submit_root(self.set_verifier_addr, root, batch_seal);
-        } else {
-            let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
-            let contains_root = match self.set_verifier.contains_root(root).await {
-                Ok(res) => {
-                    tracing::info!("Checked if set-verifier contains the root for batch {batch_id} with requests {:?}: {res:?}", request_ids);
-                    res
-                }
-                Err(err) => {
-                    tracing::warn!("Failed to query if set-verifier contains the new root for batch {batch_id} with requests {:?}, trying to submit anyway {err:?}", request_ids);
-                    false
-                }
-            };
-            if !contains_root {
-                tracing::info!(
-                    "Submitting app merkle root: {root} for batch {batch_id} with requests {:?}",
-                    request_ids
+        if let Some(root_submission) = artifacts.root_submission {
+            if single_txn_fulfill {
+                fulfillment_tx = fulfillment_tx.with_submit_root(
+                    self.set_verifier_addr,
+                    root_submission.root,
+                    root_submission.seal,
                 );
-                if let Err(err) =
-                    self.set_verifier.submit_merkle_root(root, batch_seal.into()).await
-                {
-                    let order_ids: Vec<&str> = fulfillments
-                        .iter()
-                        .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
-                        .collect();
-                    tracing::warn!("Failed to submit app merkle root for orders: {order_ids:?}");
-
-                    // Map the error from the R0 Contracts crate to an error type from BoundlessMarket
-                    let market_err = if err.to_string().contains("failed to confirm tx") {
-                        MarketError::TxnConfirmationError(err)
-                    } else {
-                        MarketError::Error(err)
-                    };
-                    return Err(Self::classify_fulfillment_error(market_err, batch_id));
-                }
             } else {
-                tracing::info!("Contract already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
+                let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
+                let contains_root = match self
+                    .set_verifier
+                    .contains_root(root_submission.root)
+                    .await
+                {
+                    Ok(res) => {
+                        tracing::info!("Checked if set-verifier contains the root for batch {batch_id} with requests {:?}: {res:?}", request_ids);
+                        res
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to query if set-verifier contains the new root for batch {batch_id} with requests {:?}, trying to submit anyway {err:?}", request_ids);
+                        false
+                    }
+                };
+                if !contains_root {
+                    tracing::info!(
+                        "Submitting app merkle root: {} for batch {batch_id} with requests {:?}",
+                        root_submission.root,
+                        request_ids
+                    );
+                    if let Err(err) = self
+                        .set_verifier
+                        .submit_merkle_root(root_submission.root, root_submission.seal)
+                        .await
+                    {
+                        let order_ids: Vec<&str> = fulfillments
+                            .iter()
+                            .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
+                            .collect();
+                        tracing::warn!(
+                            "Failed to submit app merkle root for orders: {order_ids:?}"
+                        );
+
+                        // Map the error from the R0 Contracts crate to an error type from BoundlessMarket
+                        let market_err = if err.to_string().contains("failed to confirm tx") {
+                            MarketError::TxnConfirmationError(err)
+                        } else {
+                            MarketError::Error(err)
+                        };
+                        return Err(Self::classify_fulfillment_error(market_err, batch_id));
+                    }
+                } else {
+                    tracing::info!("Contract already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
+                }
             }
         };
 
