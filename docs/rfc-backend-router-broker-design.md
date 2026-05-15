@@ -89,6 +89,7 @@ EvaluationLimits
 EvaluationRequest
   request_id
   program_url
+  selector
   predicate
   input_type/input_data
   client_address
@@ -104,7 +105,9 @@ Today the only implementation is RISC0-backed. `OrderPricingContext` consumes
 allow/deny-list policy stay outside the evaluator. This keeps a small trait that
 can later be shared with the requestor SDK without making the broker backend
 router responsible for pricing. Preflight caching is an implementation detail of
-the RISC0 evaluator context, not part of the neutral evaluator API.
+the RISC0 evaluator context, not part of the neutral evaluator API. The cache
+uses the resolved program ID and selector, not the raw program URL, so equivalent
+URLs can share while different programs or verifier paths cannot collide.
 
 Single backend implementation:
 
