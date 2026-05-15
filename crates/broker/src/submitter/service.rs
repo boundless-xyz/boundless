@@ -29,9 +29,7 @@ use boundless_market::{
     },
     telemetry::CompletionOutcome,
 };
-use hex::FromHex;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-use risc0_zkvm::sha::Digest;
 
 use tokio::sync::mpsc;
 
@@ -56,7 +54,6 @@ pub struct Submitter<P> {
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
-    set_builder_img_id: Digest,
     prover_address: Address,
     config: ConfigLock,
     chain_id: u64,
@@ -76,7 +73,6 @@ where
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,
-        set_builder_img_id: Digest,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
@@ -109,7 +105,6 @@ where
             market,
             set_verifier,
             set_verifier_addr,
-            set_builder_img_id,
             prover_address,
             config,
             chain_id,
@@ -119,17 +114,6 @@ where
 
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
         tracing::info!("Submitting batch {batch_id}");
-
-        let Some(ref aggregation_state) = batch.aggregation_state else {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit batch with no recorded aggregation state"
-            )));
-        };
-        if batch.assessor_proof_id.is_none() {
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "Cannot submit batch with no assessor receipt"
-            )));
-        }
 
         // Check that at least one order in the batch is not expired before submitting on chain.
         // Can happen if we overcommitted to work and proving took longer than expected.
@@ -174,8 +158,10 @@ where
                         "Failed to get order from DB for submission, order NOT finalized",
                     )?;
 
-                let order_img_id =
-                    Digest::from_hex(order_img_id).context("Failed to decode order image ID")?;
+                let order_img_id: [u8; 32] = hex::decode(order_img_id)
+                    .context("Failed to decode order image ID")?
+                    .try_into()
+                    .map_err(|_| anyhow!("Order image ID must be 32 bytes"))?;
                 let mut collateral_reward = U256::ZERO;
                 if fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     requests_to_price
@@ -194,7 +180,7 @@ where
                     request: order_request,
                     proof_id: order_proof_id,
                     compressed_proof_id,
-                    program_id: order_img_id.into(),
+                    program_id: order_img_id,
                 });
                 anyhow::Ok(())
             };
@@ -230,9 +216,8 @@ where
             .backend
             .build_fulfillments(FulfillmentBatch {
                 backend_id: batch.backend_id.clone(),
-                aggregation_state: aggregation_state.clone(),
-                assessor_proof_id: batch.assessor_proof_id.clone().unwrap(),
-                set_builder_program_id: self.set_builder_img_id.into(),
+                aggregation_state: batch.aggregation_state.clone(),
+                assessor_proof_id: batch.assessor_proof_id.clone(),
                 eip712_domain: self.market.eip712_domain().await?,
                 prover_address: self.prover_address,
                 orders: fulfillment_orders,
@@ -823,13 +808,16 @@ mod tests {
         let backend_id = BackendId::new("risc0_v3").unwrap();
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
         let priority_requestors = PriorityRequestors::new(config.clone(), anvil.chain_id());
-        let risc0_backend = Arc::new(Risc0Backend::new(
-            backend_id,
-            prover.clone(),
-            prover.clone(),
-            downloader,
-            priority_requestors,
-        ));
+        let risc0_backend = Arc::new(
+            Risc0Backend::new(
+                backend_id,
+                prover.clone(),
+                prover.clone(),
+                downloader,
+                priority_requestors,
+            )
+            .with_set_builder_program_id(set_builder_id),
+        );
         let backend_router = Arc::new(
             BackendRouter::new()
                 .register_backend(BackendEntry::new(
@@ -845,7 +833,6 @@ mod tests {
             provider.clone(),
             set_verifier,
             market_address,
-            set_builder_id,
             anvil.chain_id(),
             commitment_tx,
         )

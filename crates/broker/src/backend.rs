@@ -434,9 +434,8 @@ pub struct FulfillmentOrder {
 
 pub struct FulfillmentBatch {
     pub backend_id: BackendId,
-    pub aggregation_state: AggregationState,
-    pub assessor_proof_id: String,
-    pub set_builder_program_id: [u8; 32],
+    pub aggregation_state: Option<AggregationState>,
+    pub assessor_proof_id: Option<String>,
     pub eip712_domain: EIP712DomainSaltless,
     pub prover_address: Address,
     pub orders: Vec<FulfillmentOrder>,
@@ -656,6 +655,7 @@ pub struct Risc0Backend {
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
     priority_requestors: PriorityRequestors,
+    set_builder_program_id: Option<Digest>,
 }
 
 impl Risc0Backend {
@@ -666,7 +666,19 @@ impl Risc0Backend {
         downloader: ConfigurableDownloader,
         priority_requestors: PriorityRequestors,
     ) -> Self {
-        Self { id, prover, snark_prover, downloader, priority_requestors }
+        Self {
+            id,
+            prover,
+            snark_prover,
+            downloader,
+            priority_requestors,
+            set_builder_program_id: None,
+        }
+    }
+
+    pub fn with_set_builder_program_id(mut self, set_builder_program_id: Digest) -> Self {
+        self.set_builder_program_id = Some(set_builder_program_id);
+        self
     }
 
     async fn start_order(&self, order: &Order) -> Result<String> {
@@ -833,27 +845,37 @@ impl Backend for Risc0Backend {
             cmd.backend_id
         );
 
-        let submission = Risc0Submission::new(self.snark_prover.clone());
-        let inclusion_params = SetInclusionReceiptVerifierParameters {
-            image_id: Digest::from(cmd.set_builder_program_id),
-        };
-        let groth16_proof_id = cmd
+        let aggregation_state = cmd
             .aggregation_state
+            .as_ref()
+            .context("Cannot submit batch with no recorded aggregation state")?;
+        let assessor_proof_id = cmd
+            .assessor_proof_id
+            .as_ref()
+            .context("Cannot submit batch with no assessor receipt")?;
+        let set_builder_program_id = self
+            .set_builder_program_id
+            .context("RISC0 backend is missing set-builder program id")?;
+
+        let submission = Risc0Submission::new(self.snark_prover.clone());
+        let inclusion_params =
+            SetInclusionReceiptVerifierParameters { image_id: set_builder_program_id };
+        let groth16_proof_id = aggregation_state
             .groth16_proof_id
             .as_ref()
             .context("Cannot submit batch with no recorded Groth16 proof ID")?;
         anyhow::ensure!(
-            !cmd.aggregation_state.claim_digests.is_empty(),
+            !aggregation_state.claim_digests.is_empty(),
             "Cannot submit batch with no claim digests"
         );
         anyhow::ensure!(
-            cmd.aggregation_state.guest_state.mmr.is_finalized(),
+            aggregation_state.guest_state.mmr.is_finalized(),
             "Cannot submit guest state that is not finalized"
         );
 
-        let batch_root = risc0_aggregation::merkle_root(&cmd.aggregation_state.claim_digests);
+        let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         anyhow::ensure!(
-            cmd.aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
+            aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
             "Guest state finalized root is inconsistent with claim digests"
         );
         let root_submission = RootSubmission {
@@ -897,8 +919,7 @@ impl Backend for Risc0Backend {
                 } else {
                     let order_claim =
                         ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal_digest));
-                    let order_claim_index = cmd
-                        .aggregation_state
+                    let order_claim_index = aggregation_state
                         .claim_digests
                         .iter()
                         .position(|claim| *claim == order_claim_digest)
@@ -908,7 +929,7 @@ impl Backend for Risc0Backend {
                             )
                         })?;
                     let order_path = risc0_aggregation::merkle_path(
-                        &cmd.aggregation_state.claim_digests,
+                        &aggregation_state.claim_digests,
                         order_claim_index,
                     );
                     tracing::debug!(
@@ -985,20 +1006,17 @@ impl Backend for Risc0Backend {
             });
         }
 
-        let assessor = submission.assessor_receipt(&cmd.assessor_proof_id).await?;
+        let assessor = submission.assessor_receipt(assessor_proof_id).await?;
         let assessor_claim = Digest::from(assessor.claim_digest);
-        let assessor_claim_index = cmd
-            .aggregation_state
+        let assessor_claim_index = aggregation_state
             .claim_digests
             .iter()
             .position(|claim| *claim == assessor_claim)
             .ok_or_else(|| {
                 anyhow::anyhow!("Failed to find order claim assessor claim in aggregated claims")
             })?;
-        let assessor_path = risc0_aggregation::merkle_path(
-            &cmd.aggregation_state.claim_digests,
-            assessor_claim_index,
-        );
+        let assessor_path =
+            risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
         tracing::debug!("Merkle path for assessor : {:x?} : {assessor_path:x?}", assessor_claim);
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(

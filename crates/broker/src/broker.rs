@@ -825,20 +825,22 @@ impl Broker {
 
         if !self.args.listen_only {
             let risc0_backend_id = BackendId::new("risc0_v3")?;
-            let risc0_backend = Arc::new(Risc0Backend::new(
-                risc0_backend_id.clone(),
-                prover.clone(),
-                aggregation_prover.clone(),
-                self.downloader.clone(),
-                priority_requestors.clone(),
-            ));
-
             let set_builder_img_id = self
                 .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
                 .await?;
             let assessor_img_id = self
                 .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
                 .await?;
+            let risc0_backend = Arc::new(
+                Risc0Backend::new(
+                    risc0_backend_id.clone(),
+                    prover.clone(),
+                    aggregation_prover.clone(),
+                    self.downloader.clone(),
+                    priority_requestors.clone(),
+                )
+                .with_set_builder_program_id(set_builder_img_id),
+            );
             let risc0_batch_processor = Arc::new(Risc0BatchProcessor::new(
                 db.clone(),
                 config.clone(),
@@ -917,7 +919,6 @@ impl Broker {
                 provider.clone(),
                 deployment.set_verifier_address,
                 deployment.boundless_market_address,
-                set_builder_img_id,
                 chain_id,
                 proving_completion_tx.clone(),
             )?);
