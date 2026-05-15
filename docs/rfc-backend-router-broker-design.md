@@ -47,10 +47,10 @@ CompressedProofId  opaque backend compressed proof handle
 BackendId          stable broker-side backend identity
 ```
 
-Broker-facing backend service:
+Broker-facing backend:
 
 ```text
-BackendService
+Backend
   resolve(selector) -> BackendId
   evaluate_order(EvaluateOrder) -> OrderEvaluation
   process_order(ProcessOrder) -> OrderProcessProgress
@@ -58,13 +58,13 @@ BackendService
   close_batch(CloseBatch) -> CloseBatchProgress
 ```
 
-The broker depends only on `BackendService`. A single backend and a multi-backend
+The broker depends only on `Backend`. A single backend and a multi-backend
 router can both implement this same interface:
 
 ```text
-Broker -> BackendService
+Broker -> Backend
             |
-            +--> Risc0BackendService
+            +--> Risc0Backend
             |
             +--> BackendRouter -> BackendEntry -> backend implementation
 ```
@@ -195,7 +195,7 @@ work restart-safe.
 
 Internally, an implementation may still decompose into a prover, batch
 processor, claim-digest helper, and seal encoder. Those are implementation
-details behind `BackendService`, not broker dependencies.
+details behind `Backend`, not broker dependencies.
 
 `BatchProcessor`, when used internally, is not the broker batcher. The broker
 owns batch lifecycle and decides when a backend-specific batch closes.
@@ -246,12 +246,12 @@ assessor proof.
 
 ## Broker Routing
 
-The router implements `BackendService` by selecting a `BackendEntry` from
+The router implements `Backend` by selecting a `BackendEntry` from
 selector or backend id metadata. A backend instance may claim many selectors.
 
 ```text
                   +----------------+
-Broker request -> | BackendService |
+Broker request -> | Backend |
                   +----------------+
                          |
                          v
@@ -283,13 +283,13 @@ The broker owns policy. The backend owns zkVM execution semantics.
 Request observed
     |
     v
-BackendService.resolve(request.selector)
+Backend.resolve(request.selector)
     |
     v
 Broker computes backend-specific EvaluationLimits
     |
     v
-BackendService.evaluate_order(EvaluateOrder { order_request, limits })
+Backend.evaluate_order(EvaluateOrder { order_request, limits })
     |
     v
 Broker pricing / capacity / allowlist policy
@@ -298,7 +298,7 @@ Broker pricing / capacity / allowlist policy
 Order accepted
     |
     v
-BackendService.process_order(ProcessOrder { backend_id, order, evaluation })
+Backend.process_order(ProcessOrder { backend_id, order, evaluation })
     |
     +--> OrderProcessProgress::Started
     |       proof_id persisted on order
@@ -377,7 +377,7 @@ longer splits candidates into "aggregation proofs" and "Groth16 proofs".
 The broker groups candidates only by `BackendId` and calls:
 
 ```text
-BackendService.update_batch(UpdateBatch {
+Backend.update_batch(UpdateBatch {
   backend_id,
   state,
   new_orders,
@@ -386,7 +386,7 @@ BackendService.update_batch(UpdateBatch {
 })
 ```
 
-The backend service decides internally how each selector participates:
+The backend decides internally how each selector participates:
 
 ```text
 selector A -> update aggregation state, also assessed at finalization
@@ -449,7 +449,7 @@ final proof artifact must be compressed before submission.
 Closing a batch is the explicit finalization call:
 
 ```text
-BackendService.close_batch(CloseBatch {
+Backend.close_batch(CloseBatch {
   backend_id,
   state,
   orders,
@@ -495,7 +495,7 @@ For broker batch fulfillment, `state` is the persisted backend batch state and
 Batch complete
     |
     v
-BackendService.close_batch(CloseBatch {
+Backend.close_batch(CloseBatch {
   backend_id,
   state,
   orders,
@@ -628,7 +628,7 @@ Risc0Backend
   - prover
   - snark_prover
   - request pricing config
-  - implements BackendService directly, or is wrapped by BackendRouter
+  - implements Backend directly, or is wrapped by BackendRouter
 
 Risc0BatchProcessor
   - set-builder aggregation
@@ -672,7 +672,7 @@ The stable requirement is that any request builder produces protocol-valid
 - Should telemetry preserve old field names for compatibility, or migrate fully
   to `aggregation_secs`, `assessor_secs`, and
   `batch_compression_secs`?
-- Should `BackendService::evaluate_order` eventually return mandatory
+- Should `Backend::evaluate_order` eventually return mandatory
   normalized cost/duration fields instead of optional estimates?
 - Where should the explicit non-RISC-Zero requestor API live once the SDK
   redesign starts?

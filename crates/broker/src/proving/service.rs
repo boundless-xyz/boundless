@@ -17,7 +17,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend_service::{BackendService, OrderProcessProgress, ProcessOrder, Risc0BackendService},
+    backend::{Backend, OrderProcessProgress, ProcessOrder, Risc0Backend},
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -42,7 +42,7 @@ use super::error::ProvingErr;
 pub struct ProvingService {
     db: DbObj,
     prover: ProverObj,
-    backend: Risc0BackendService,
+    backend: Risc0Backend,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
@@ -67,7 +67,7 @@ impl ProvingService {
     ) -> Self {
         Self {
             db,
-            backend: Risc0BackendService::new(
+            backend: Risc0Backend::new(
                 prover.clone(),
                 snark_prover,
                 downloader,

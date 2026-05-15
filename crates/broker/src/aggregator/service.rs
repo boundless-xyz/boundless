@@ -22,7 +22,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    backend_service::Risc0BatchService,
+    backend::Risc0BatchService,
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,

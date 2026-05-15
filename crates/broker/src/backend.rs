@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Broker-facing backend service boundary.
+//! Broker-facing backend boundary.
 //!
 //! This module starts as a thin adapter over the existing RISC Zero broker code.
 //! The broker keeps DB state, retry policy, cancellation, and batch lifecycle
-//! orchestration; the backend service owns zkVM-specific proof processing.
+//! orchestration; the backend owns zkVM-specific proof processing.
 
 use alloy::primitives::{Address, FixedBytes};
 use alloy::sol_types::SolValue;
@@ -72,19 +72,19 @@ pub struct ProcessedOrder {
 }
 
 #[async_trait]
-pub trait BackendService: Send + Sync {
+pub trait Backend: Send + Sync {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 }
 
 #[derive(Clone)]
-pub struct Risc0BackendService {
+pub struct Risc0Backend {
     prover: ProverObj,
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
     priority_requestors: PriorityRequestors,
 }
 
-impl Risc0BackendService {
+impl Risc0Backend {
     pub fn new(
         prover: ProverObj,
         snark_prover: ProverObj,
@@ -174,7 +174,7 @@ impl Risc0BackendService {
 }
 
 #[async_trait]
-impl BackendService for Risc0BackendService {
+impl Backend for Risc0Backend {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
         let order = cmd.order;
         let order_id = order.id();

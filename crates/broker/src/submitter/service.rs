@@ -41,7 +41,7 @@ use risc0_zkvm::sha::{Digest, Digestible};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend_service::Risc0SubmissionService,
+    backend::Risc0SubmissionService,
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
