@@ -14,32 +14,22 @@
 
 use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
-use boundless_assessor::{AssessorInput, Fulfillment};
-use boundless_market::{
-    contracts::{eip712_domain, FulfillmentData, PredicateType},
-    input::GuestEnv,
-};
+use boundless_market::contracts::PredicateType;
 use chrono::Utc;
-use hex::FromHex;
-use risc0_aggregation::GuestState;
-use risc0_zkvm::{
-    sha::{Digest, Digestible},
-    ReceiptClaim,
-};
+use risc0_zkvm::sha::Digest;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    backend_service::Risc0BatchService,
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
-    futures_retry::retry_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::{self, ProverObj},
+    provers::ProverObj,
     task::{BrokerService, SupervisorErr},
-    utils::prune_receipt_claim_journal,
-    AggregationState, Batch, BatchStatus, FulfillmentType,
+    Batch, BatchStatus, FulfillmentType,
 };
 
 use super::error::AggregatorErr;
@@ -50,10 +40,7 @@ pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
-    set_builder_guest_id: Digest,
-    assessor_guest_id: Digest,
-    market_addr: Address,
-    prover_addr: Address,
+    batch_backend: Risc0BatchService,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -72,250 +59,18 @@ impl AggregatorService {
         prover: ProverObj,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
-        Ok(Self {
-            db,
-            config,
-            prover,
+        let batch_backend = Risc0BatchService::new(
+            db.clone(),
+            config.clone(),
+            prover.clone(),
             set_builder_guest_id,
             assessor_guest_id,
             market_addr,
             prover_addr,
             chain_id,
-            proving_completion_tx,
-        })
-    }
-
-    async fn validate_and_extract_claim(&self, proof_id: &str) -> Result<ReceiptClaim> {
-        let receipt = self
-            .prover
-            .get_receipt(proof_id)
-            .await
-            .with_context(|| format!("Failed to fetch receipt for {proof_id}"))?
-            .with_context(|| format!("Receipt not found for {proof_id}"))?;
-
-        receipt
-            .verify_integrity_with_context(&Default::default())
-            .with_context(|| format!("Receipt verification failed for {proof_id}"))?;
-
-        let claim = receipt
-            .claim()
-            .with_context(|| format!("Failed to get claim for {proof_id}"))?
-            .value()
-            .with_context(|| format!("Failed to extract claim value for {proof_id}"))?;
-
-        Ok(prune_receipt_claim_journal(claim))
-    }
-
-    async fn prove_set_builder(
-        &self,
-        aggregation_state: Option<&AggregationState>,
-        proofs: &[String],
-        finalize: bool,
-        all_orders: &[String],
-    ) -> Result<AggregationState> {
-        let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
-        let mut valid_proof_ids = Vec::<String>::with_capacity(proofs.len());
-
-        // Verify each proof and collect only valid ones
-        for proof_id in proofs {
-            match self.validate_and_extract_claim(proof_id).await {
-                Ok(claim) => {
-                    claims.push(claim);
-                    valid_proof_ids.push(proof_id.clone());
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Error fetching proof from batch: {e:?} containing orders {:?}, excluding",
-                        all_orders
-                    );
-                }
-            }
-        }
-
-        if claims.is_empty() {
-            anyhow::bail!(format!("No valid proofs found in batch with orders {:?}", all_orders));
-        }
-
-        if valid_proof_ids.len() < proofs.len() {
-            tracing::warn!(
-                "Excluded {} invalid proofs from batch with orders {:?}. Valid: {}/{}",
-                proofs.len() - valid_proof_ids.len(),
-                all_orders,
-                valid_proof_ids.len(),
-                proofs.len()
-            );
-        }
-
-        let input = aggregation_state
-            .map_or(GuestState::initial(self.set_builder_guest_id), |s| s.guest_state.clone())
-            .into_input(claims.clone(), finalize)
-            .context("Failed to build set builder input")?;
-
-        // Gather the proof IDs for the assumptions we will need: any pending proofs, and the proof
-        // for the current aggregation state.
-        let assumption_ids: Vec<String> = aggregation_state
-            .map(|s| s.proof_id.clone())
-            .into_iter()
-            .chain(valid_proof_ids.iter().cloned())
-            .collect();
-
-        let input_data =
-            provers::encode_input(&input).context("Failed to encode set-builder proof input")?;
-        let input_id = self
-            .prover
-            .upload_input(input_data)
-            .await
-            .context("Failed to upload set-builder input")?;
-
-        // TODO: Need to set a timeout here to handle stuck or even just alert on delayed proving if
-        // the proving cluster is overloaded
-
-        let (retry_count, sleep_ms) = {
-            let config = self.config.lock_all().context("Failed to lock config")?;
-            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-        };
-
-        tracing::debug!("Starting proving of set-builder with orders {:?}", all_orders);
-        let (proof_res, journal) = retry_with_context(
-            retry_count,
-            sleep_ms,
-            || async {
-                let proof_res = self
-                    .prover
-                    .prove_and_monitor_stark_high(
-                        &self.set_builder_guest_id.to_string(),
-                        &input_id,
-                        assumption_ids.clone(),
-                    )
-                    .await
-                    .map_err(|e| {
-                        provers::ProverError::ProverInternalError(format!(
-                            "Failed to prove set-builder: {e}"
-                        ))
-                    })?;
-
-                tracing::debug!(
-                    "Set-builder proof complete with orders {:?}, proof id: {} cycles: {:?} time: {}",
-                    all_orders,
-                    proof_res.id,
-                    proof_res.stats.as_ref().map(|s| s.total_cycles),
-                    proof_res.elapsed_time
-                );
-
-                let receipt = self
-                    .prover
-                    .get_receipt(&proof_res.id)
-                    .await
-                    .map_err(|e| {
-                        provers::ProverError::ProverInternalError(format!(
-                            "Failed to get receipt for set-builder: {e}"
-                        ))
-                    })?
-                    .ok_or_else(|| {
-                        provers::ProverError::NotFound(format!(
-                            "Receipt missing for set-builder: {}",
-                            proof_res.id
-                        ))
-                    })?;
-
-                receipt.verify(self.set_builder_guest_id).map_err(|e| {
-                    provers::ProverError::ProverInternalError(format!(
-                        "Set builder proof produced invalid receipt: {e}"
-                    ))
-                })?;
-
-                let journal = receipt.journal.bytes;
-
-                Ok::<_, provers::ProverError>((proof_res, journal))
-            },
-            "set_builder_prove_and_get_journal",
-            &format!("orders {:?}", all_orders),
-        )
-        .await?;
-
-        let guest_state = GuestState::decode(&journal).context("Failed to decode guest output")?;
-        let claim_digests = aggregation_state
-            .map(|s| s.claim_digests.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .chain(claims.into_iter().map(|claim| claim.digest()))
-            .collect();
-
-        Ok(AggregationState {
-            guest_state,
-            proof_id: proof_res.id,
-            claim_digests,
-            groth16_proof_id: None,
-        })
-    }
-
-    async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
-        let mut fills = vec![];
-
-        for order_id in order_ids {
-            let order = self
-                .db
-                .get_order(order_id)
-                .await
-                .with_context(|| format!("Failed to get DB order ID {order_id}"))?
-                .with_context(|| format!("order ID {order_id} missing from DB"))?;
-
-            let proof_id = order
-                .proof_id
-                .with_context(|| format!("Missing proof_id for order: {order_id}"))?;
-
-            let journal = self
-                .prover
-                .get_journal(&proof_id)
-                .await
-                .with_context(|| format!("Failed to get {proof_id} journal"))?
-                .with_context(|| format!("{proof_id} journal missing"))?;
-
-            let fulfillment_data = match order.request.requirements.predicate.predicateType {
-                PredicateType::ClaimDigestMatch => FulfillmentData::None,
-                _ => FulfillmentData::from_image_id_and_journal(
-                    Digest::from_hex(
-                        order
-                            .image_id
-                            .with_context(|| format!("Missing image_id for order: {order_id}"))?,
-                    )?,
-                    journal,
-                ),
-            };
-
-            fills.push(Fulfillment {
-                request: order.request.clone(),
-                signature: order.client_sig.clone().to_vec(),
-                fulfillment_data,
-            })
-        }
-
-        let order_count = fills.len();
-        let input = AssessorInput {
-            fills,
-            domain: eip712_domain(self.market_addr, self.chain_id),
-            prover_address: self.prover_addr,
-        };
-        let stdin = GuestEnv::builder().write_frame(&input.encode()).stdin;
-
-        let input_id =
-            self.prover.upload_input(stdin).await.context("Failed to upload assessor input")?;
-
-        let proof_res = self
-            .prover
-            .prove_and_monitor_stark_high(&self.assessor_guest_id.to_string(), &input_id, vec![])
-            .await
-            .context("Failed to prove assesor stark")?;
-
-        tracing::debug!(
-            "Assessor proof completed, proof id: {} count: {} cycles: {:?} time: {}",
-            proof_res.id,
-            order_count,
-            proof_res.stats.as_ref().map(|s| s.total_cycles),
-            proof_res.elapsed_time
         );
 
-        Ok(proof_res.id)
+        Ok(Self { db, config, prover, batch_backend, chain_id, proving_completion_tx })
     }
 
     /// Get the sum of the size of the journals for proofs in a batch
@@ -621,9 +376,9 @@ impl AggregatorService {
 
             let assessor_start = std::time::Instant::now();
             let assessor_proof_id =
-                self.prove_assessor(&assessor_order_ids).await.with_context(|| {
-                    format!("Failed to prove assessor with orders {assessor_order_ids:?}")
-                })?;
+                self.batch_backend.prove_assessor(&assessor_order_ids).await.with_context(
+                    || format!("Failed to prove assessor with orders {assessor_order_ids:?}"),
+                )?;
             assessor_proving_secs = Some(assessor_start.elapsed().as_secs_f64());
 
             tracing::debug!(
@@ -651,6 +406,7 @@ impl AggregatorService {
         );
         let set_builder_start = std::time::Instant::now();
         let aggregation_state = self
+            .batch_backend
             .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize, &all_orders)
             .await
             .context(format!(
@@ -751,25 +507,11 @@ impl AggregatorService {
                 batch.orders
             );
 
-            let (retry_count, sleep_ms) = {
-                let config = self.config.lock_all().context("Failed to lock config")?;
-                (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-            };
-
-            let context = format!("batch {batch_id} with orders {:?}", batch.orders);
             let groth16_start = std::time::Instant::now();
-            let compress_proof_id = match retry_with_context(
-                retry_count,
-                sleep_ms,
-                || async {
-                    let proof_id = self.prover.compress_high(&aggregation_proof_id).await?;
-                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
-                    Ok::<String, provers::ProverError>(proof_id)
-                },
-                "compress_and_verify",
-                &context,
-            )
-            .await
+            let compress_proof_id = match self
+                .batch_backend
+                .compress_batch_proof(batch_id, &aggregation_proof_id, &batch.orders)
+                .await
             {
                 Ok(id) => id,
                 Err(err) => {
