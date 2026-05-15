@@ -192,10 +192,21 @@ impl AggregatorService {
 
         // Historical config name: for RISC0 this estimate is journal bytes. More generally this is
         // a backend-estimated batch size used to cap submission payload growth.
-        let batch_size_estimate = batch_backend.estimate_batch_size(&batch.orders).await?.size;
+        let batch_size_estimate = batch_backend
+            .estimate_batch_size(crate::backend::EstimateBatchSize {
+                backend_id: batch_backend.id().clone(),
+                order_ids: batch.orders.clone(),
+            })
+            .await?
+            .size;
         let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
-        let pending_size_estimate =
-            batch_backend.estimate_batch_size(&pending_order_ids).await?.size;
+        let pending_size_estimate = batch_backend
+            .estimate_batch_size(crate::backend::EstimateBatchSize {
+                backend_id: batch_backend.id().clone(),
+                order_ids: pending_order_ids,
+            })
+            .await?
+            .size;
         let total_size_estimate = batch_size_estimate + pending_size_estimate;
         if total_size_estimate >= conf_max_journal_bytes {
             tracing::debug!(
@@ -378,6 +389,7 @@ impl AggregatorService {
     ) -> Result<BatchUpdate> {
         let update = batch_backend
             .update_batch(UpdateBatch {
+                backend_id: batch_backend.id().clone(),
                 batch_id,
                 existing_order_ids: batch.orders.clone(),
                 aggregation_state: batch.aggregation_state.clone(),
@@ -481,6 +493,7 @@ impl AggregatorService {
 
             let close = match batch_backend
                 .close_batch(CloseBatch {
+                    backend_id: batch_backend.id().clone(),
                     batch_id,
                     aggregation_proof_id,
                     order_ids: batch.orders.clone(),

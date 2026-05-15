@@ -166,7 +166,8 @@ mod tests {
             Ok(())
         }
 
-        async fn estimate_batch_size(&self, _order_ids: &[String]) -> Result<BatchSizeEstimate> {
+        async fn estimate_batch_size(&self, cmd: EstimateBatchSize) -> Result<BatchSizeEstimate> {
+            self.ensure_backend_id(&cmd.backend_id)?;
             Ok(BatchSizeEstimate { size: 0 })
         }
 
@@ -481,12 +482,18 @@ pub struct FulfillmentArtifacts {
     pub assessor_receipt: AssessorReceipt,
 }
 
+pub struct EstimateBatchSize {
+    pub backend_id: BackendId,
+    pub order_ids: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct BatchSizeEstimate {
     pub size: usize,
 }
 
 pub struct UpdateBatch {
+    pub backend_id: BackendId,
     pub batch_id: usize,
     pub existing_order_ids: Vec<String>,
     pub aggregation_state: Option<AggregationState>,
@@ -503,6 +510,7 @@ pub struct BatchUpdate {
 }
 
 pub struct CloseBatch {
+    pub backend_id: BackendId,
     pub batch_id: usize,
     pub aggregation_proof_id: String,
     pub order_ids: Vec<String>,
@@ -515,7 +523,7 @@ pub struct BatchClose {
 
 #[async_trait]
 pub(crate) trait BatchProcessor: Send + Sync {
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate>;
+    async fn estimate_batch_size(&self, cmd: EstimateBatchSize) -> Result<BatchSizeEstimate>;
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
 
@@ -534,7 +542,7 @@ pub trait Backend: Send + Sync {
 
     async fn cancel_order(&self, order: &Order) -> Result<()>;
 
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate>;
+    async fn estimate_batch_size(&self, cmd: EstimateBatchSize) -> Result<BatchSizeEstimate>;
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
 
@@ -647,23 +655,21 @@ impl Backend for BackendRouter {
         backend.cancel_order(order).await
     }
 
-    async fn estimate_batch_size(&self, _order_ids: &[String]) -> Result<BatchSizeEstimate> {
-        anyhow::bail!(
-            "BackendRouter cannot estimate batch size without a backend id; call the resolved backend"
-        )
+    async fn estimate_batch_size(&self, cmd: EstimateBatchSize) -> Result<BatchSizeEstimate> {
+        let backend = self.backend_for_id(&cmd.backend_id)?;
+        backend.estimate_batch_size(cmd).await
     }
 
-    async fn update_batch(&self, _cmd: UpdateBatch) -> Result<BatchUpdate> {
-        anyhow::bail!(
-            "BackendRouter cannot update a batch without a backend id; call the resolved backend"
-        )
+    async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
+        let backend = self.backend_for_id(&cmd.backend_id)?;
+        backend.update_batch(cmd).await
     }
 
-    async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
-        Err(provers::ProverError::ProverInternalError(
-            "BackendRouter cannot close a batch without a backend id; call the resolved backend"
-                .to_string(),
-        ))
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+        let backend = self
+            .backend_for_id(&cmd.backend_id)
+            .map_err(|err| provers::ProverError::ProverInternalError(err.to_string()))?;
+        backend.close_batch(cmd).await
     }
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
@@ -872,15 +878,33 @@ impl Backend for Risc0Backend {
         Ok(())
     }
 
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
-        self.batch_processor()?.estimate_batch_size(order_ids).await
+    async fn estimate_batch_size(&self, cmd: EstimateBatchSize) -> Result<BatchSizeEstimate> {
+        anyhow::ensure!(
+            cmd.backend_id == self.id,
+            "backend {} cannot estimate batch size for backend {}",
+            self.id,
+            cmd.backend_id
+        );
+        self.batch_processor()?.estimate_batch_size(cmd).await
     }
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
+        anyhow::ensure!(
+            cmd.backend_id == self.id,
+            "backend {} cannot update batch for backend {}",
+            self.id,
+            cmd.backend_id
+        );
         self.batch_processor()?.update_batch(cmd).await
     }
 
     async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+        if cmd.backend_id != self.id {
+            return Err(provers::ProverError::ProverInternalError(format!(
+                "backend {} cannot close batch for backend {}",
+                self.id, cmd.backend_id
+            )));
+        }
         match self.batch_processor() {
             Ok(batch_processor) => batch_processor.close_batch(cmd).await,
             Err(err) => Err(provers::ProverError::ProverInternalError(err.to_string())),
@@ -1475,9 +1499,9 @@ impl Risc0BatchProcessor {
 
 #[async_trait]
 impl BatchProcessor for Risc0BatchProcessor {
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
+    async fn estimate_batch_size(&self, cmd: EstimateBatchSize) -> Result<BatchSizeEstimate> {
         let mut size = 0;
-        for order_id in order_ids {
+        for order_id in &cmd.order_ids {
             let order = self
                 .db
                 .get_order(order_id)
