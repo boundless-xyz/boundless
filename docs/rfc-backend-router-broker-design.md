@@ -589,6 +589,10 @@ Proving service
     claim_digest
   moves order to PendingBatch
 
+Current implementation note: `ProvingService` depends on a `Backend` trait
+object. Its legacy constructor still builds the single `Risc0Backend` directly,
+and the router path can use `new_with_backend` to inject `BackendRouter`.
+
 Aggregator service
   groups PendingBatch orders by BackendId
   update_batch(UpdateBatch) -> BatchProgress

@@ -18,7 +18,7 @@
 //! The broker keeps DB state, retry policy, cancellation, and batch lifecycle
 //! orchestration; the backend owns zkVM-specific proof processing.
 
-use std::{fmt, str::FromStr};
+use std::{fmt, str::FromStr, sync::Arc};
 
 use alloy::primitives::{Address, FixedBytes};
 use alloy::sol_types::SolValue;
@@ -125,6 +125,8 @@ pub struct ProcessedOrder {
 pub trait Backend: Send + Sync {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 }
+
+pub type BackendObj = Arc<dyn Backend>;
 
 #[derive(Clone)]
 pub struct Risc0Backend {

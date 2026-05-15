@@ -17,7 +17,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::{Backend, OrderProcessProgress, ProcessOrder, Risc0Backend},
+    backend::{BackendObj, OrderProcessProgress, ProcessOrder, Risc0Backend},
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -42,7 +42,7 @@ use super::error::ProvingErr;
 pub struct ProvingService {
     db: DbObj,
     prover: ProverObj,
-    backend: Risc0Backend,
+    backend: BackendObj,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
@@ -65,14 +65,39 @@ impl ProvingService {
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
+        let backend = Arc::new(Risc0Backend::new(
+            prover.clone(),
+            snark_prover,
+            downloader,
+            priority_requestors,
+        ));
+
+        Self::new_with_backend(
+            db,
+            prover,
+            backend,
+            config,
+            order_state_tx,
+            fulfillment_market,
+            chain_id,
+            proving_completion_tx,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_backend(
+        db: DbObj,
+        prover: ProverObj,
+        backend: BackendObj,
+        config: ConfigLock,
+        order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
+        fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
+        chain_id: u64,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
+    ) -> Self {
         Self {
             db,
-            backend: Risc0Backend::new(
-                prover.clone(),
-                snark_prover,
-                downloader,
-                priority_requestors,
-            ),
+            backend,
             prover,
             config,
             order_state_tx,
