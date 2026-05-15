@@ -82,6 +82,7 @@ pub const SKIP_GAS_EXCEEDS_MAX_PRICE: &str = "[S-012]";
 pub const SKIP_PREDICATE_CHECK_FAILED: &str = "[S-013]";
 pub const SKIP_COLLATERAL_REWARD_TOO_LOW: &str = "[S-014]";
 pub const SKIP_PRICE_TOO_LOW: &str = "[S-015]";
+pub const SKIP_PREFLIGHT_GUEST_FAILED: &str = "[S-016]";
 
 /// Scale a reward value for secondary fulfillment probability.
 ///
@@ -644,7 +645,7 @@ pub trait OrderPricingContext: RequestEvaluator {
             }
             PreflightCacheValue::GuestFailed => {
                 return Ok(Skip {
-                    code: SKIP_PREFLIGHT_LIMIT_EXCEEDED,
+                    code: SKIP_PREFLIGHT_GUEST_FAILED,
                     reason: "order preflight failed because the guest panicked".to_string(),
                 });
             }

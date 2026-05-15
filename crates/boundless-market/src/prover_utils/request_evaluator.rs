@@ -45,6 +45,9 @@ pub enum RequestEvaluation {
 }
 
 /// Value type for preflight cache.
+///
+/// Successful entries intentionally include the public output because pricing
+/// always consumes it for output-size and predicate checks.
 pub type PreflightCacheValue = RequestEvaluation;
 
 /// Input type for preflight cache.
