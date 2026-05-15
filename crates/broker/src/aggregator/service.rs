@@ -16,12 +16,13 @@ use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use risc0_zkvm::sha::Digest;
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    backend::{BatchUpdate, CloseBatch, Risc0BatchProcessor, UpdateBatch},
+    backend::{BatchProcessorObj, BatchUpdate, CloseBatch, Risc0BatchProcessor, UpdateBatch},
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -36,7 +37,7 @@ use super::error::AggregatorErr;
 pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
-    batch_backend: Risc0BatchProcessor,
+    batch_backend: BatchProcessorObj,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -55,7 +56,7 @@ impl AggregatorService {
         prover: ProverObj,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
-        let batch_backend = Risc0BatchProcessor::new(
+        let batch_backend = Arc::new(Risc0BatchProcessor::new(
             db.clone(),
             config.clone(),
             prover.clone(),
@@ -64,9 +65,25 @@ impl AggregatorService {
             market_addr,
             prover_addr,
             chain_id,
-        );
+        ));
 
-        Ok(Self { db, config, batch_backend, chain_id, proving_completion_tx })
+        Ok(Self::new_with_batch_processor(
+            db,
+            config,
+            batch_backend,
+            chain_id,
+            proving_completion_tx,
+        ))
+    }
+
+    pub fn new_with_batch_processor(
+        db: DbObj,
+        config: ConfigLock,
+        batch_backend: BatchProcessorObj,
+        chain_id: u64,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
+    ) -> Self {
+        Self { db, config, batch_backend, chain_id, proving_completion_tx }
     }
 
     /// Check if we should finalize the batch

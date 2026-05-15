@@ -368,6 +368,17 @@ pub struct BatchClose {
 }
 
 #[async_trait]
+pub trait BatchProcessor: Send + Sync {
+    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate>;
+
+    async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
+
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError>;
+}
+
+pub type BatchProcessorObj = Arc<dyn BatchProcessor>;
+
+#[async_trait]
 pub trait Backend: Send + Sync {
     fn id(&self) -> &BackendId;
 
@@ -794,38 +805,6 @@ impl Risc0BatchProcessor {
         Ok(prune_receipt_claim_journal(claim))
     }
 
-    pub async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
-        let mut size = 0;
-        for order_id in order_ids {
-            let order = self
-                .db
-                .get_order(order_id)
-                .await
-                .with_context(|| format!("Failed to get order {order_id}"))?
-                .with_context(|| format!("Order {order_id} missing from DB"))?;
-
-            let proof_id =
-                order.proof_id.with_context(|| format!("Missing proof_id for order {order_id}"))?;
-
-            let journal = self
-                .prover
-                .get_journal(&proof_id)
-                .await
-                .with_context(|| format!("Failed to get journal for {proof_id}"))?
-                .with_context(|| format!("Journal for {proof_id} missing"))?;
-
-            // For RISC0 claim-digest match orders, the journal is not included in calldata.
-            if !matches!(
-                order.request.requirements.predicate.predicateType,
-                PredicateType::ClaimDigestMatch
-            ) {
-                size += journal.len();
-            }
-        }
-
-        Ok(BatchSizeEstimate { size })
-    }
-
     pub async fn prove_set_builder(
         &self,
         aggregation_state: Option<&AggregationState>,
@@ -1032,7 +1011,70 @@ impl Risc0BatchProcessor {
         Ok(proof_res.id)
     }
 
-    pub async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
+    pub async fn compress_batch_proof(
+        &self,
+        batch_id: usize,
+        aggregation_proof_id: &str,
+        orders: &[String],
+    ) -> Result<String, provers::ProverError> {
+        let (retry_count, sleep_ms) = {
+            let config = self.config.lock_all().map_err(|e| {
+                provers::ProverError::ProverInternalError(format!("Failed to lock config: {e}"))
+            })?;
+            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+        };
+
+        let context = format!("batch {batch_id} with orders {:?}", orders);
+        retry_with_context(
+            retry_count,
+            sleep_ms,
+            || async {
+                let proof_id = self.prover.compress_high(aggregation_proof_id).await?;
+                provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                Ok::<String, provers::ProverError>(proof_id)
+            },
+            "compress_and_verify",
+            &context,
+        )
+        .await
+    }
+}
+
+#[async_trait]
+impl BatchProcessor for Risc0BatchProcessor {
+    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
+        let mut size = 0;
+        for order_id in order_ids {
+            let order = self
+                .db
+                .get_order(order_id)
+                .await
+                .with_context(|| format!("Failed to get order {order_id}"))?
+                .with_context(|| format!("Order {order_id} missing from DB"))?;
+
+            let proof_id =
+                order.proof_id.with_context(|| format!("Missing proof_id for order {order_id}"))?;
+
+            let journal = self
+                .prover
+                .get_journal(&proof_id)
+                .await
+                .with_context(|| format!("Failed to get journal for {proof_id}"))?
+                .with_context(|| format!("Journal for {proof_id} missing"))?;
+
+            // For RISC0 claim-digest match orders, the journal is not included in calldata.
+            if !matches!(
+                order.request.requirements.predicate.predicateType,
+                PredicateType::ClaimDigestMatch
+            ) {
+                size += journal.len();
+            }
+        }
+
+        Ok(BatchSizeEstimate { size })
+    }
+
+    async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
         let all_orders: Vec<String> = cmd
             .existing_order_ids
             .iter()
@@ -1113,35 +1155,7 @@ impl Risc0BatchProcessor {
         })
     }
 
-    pub async fn compress_batch_proof(
-        &self,
-        batch_id: usize,
-        aggregation_proof_id: &str,
-        orders: &[String],
-    ) -> Result<String, provers::ProverError> {
-        let (retry_count, sleep_ms) = {
-            let config = self.config.lock_all().map_err(|e| {
-                provers::ProverError::ProverInternalError(format!("Failed to lock config: {e}"))
-            })?;
-            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-        };
-
-        let context = format!("batch {batch_id} with orders {:?}", orders);
-        retry_with_context(
-            retry_count,
-            sleep_ms,
-            || async {
-                let proof_id = self.prover.compress_high(aggregation_proof_id).await?;
-                provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
-                Ok::<String, provers::ProverError>(proof_id)
-            },
-            "compress_and_verify",
-            &context,
-        )
-        .await
-    }
-
-    pub async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
         let start = std::time::Instant::now();
         let compressed_proof_id = self
             .compress_batch_proof(cmd.batch_id, &cmd.aggregation_proof_id, &cmd.order_ids)
