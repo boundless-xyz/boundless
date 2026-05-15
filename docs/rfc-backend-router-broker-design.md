@@ -48,10 +48,9 @@ Market submission adapters
 
 This means broker workers may have names like `OrderEvaluator`,
 `OrderProcessor`, `AggregatorService`, and `Submitter`, but they are not backend
-implementations. The current Rust `ProvingService` name is transitional: its
-broker responsibility is order processing. It owns DB transitions,
-cancellation, retry, telemetry, fulfillment-event cancellation, and capacity
-slot completion, then delegates zkVM-specific proof work to `Backend`.
+implementations. `OrderProcessor` owns DB transitions, cancellation, retry,
+telemetry, fulfillment-event cancellation, and capacity slot completion, then
+delegates zkVM-specific proof work to `BackendRouter`.
 
 `Submitter` remains the broker submission worker. It should eventually consume
 backend-prepared submission artifacts and use a market adapter, but it still
@@ -88,10 +87,12 @@ CompressedProofId  opaque backend compressed proof handle
 BackendId          stable broker-side backend identity, e.g. "risc0_v3"
 ```
 
-Broker-facing backend:
+Single-backend implementation contract:
 
 ```text
 Backend
+  id() -> BackendId
+  supports(selector) -> bool
   process_order(ProcessOrder) -> OrderProcessProgress
   cancel_order(Order) -> ()
   estimate_batch_size(order_ids) -> BatchSizeEstimate
@@ -100,10 +101,25 @@ Backend
   build_fulfillments(FulfillmentBatch) -> FulfillmentArtifacts
 ```
 
+Broker-facing router:
+
+```text
+BackendRouter
+  register_backend(BackendEntry)
+  backend_ids() -> Vec<BackendId>
+  process_order(ProcessOrder) -> OrderProcessProgress
+  cancel_order(Order) -> ()
+  estimate_batch_size(BackendId, order_ids) -> BatchSizeEstimate
+  update_batch(BackendId, UpdateBatch) -> BatchUpdate
+  close_batch(BackendId, CloseBatch) -> BatchClose
+  build_fulfillments(FulfillmentBatch) -> FulfillmentArtifacts
+```
+
 Broker services depend on `BackendRouter`. `BackendRouter` is the registry and
 selector router: it owns the backend objects, resolves selector/order-routed
 calls, and exposes router methods keyed by `BackendId` for per-backend batch
-processing.
+processing. `BackendObj` is internal to the router module; broker workers should
+not receive backend trait objects directly.
 
 ```text
 OrderProcessor  -> BackendRouter -> Backend
@@ -127,7 +143,7 @@ limits, group batches, and route later backend calls. Proof type, if needed, is
 derived from the input `VerifierSelector`; it is not duplicated in
 `BackendEntry`.
 
-Order evaluation uses minimal broker-provided limits:
+Future request evaluation can use minimal broker-provided limits:
 
 ```text
 EvaluateOrder
@@ -150,9 +166,7 @@ OrderEvaluation
   estimated_cost_wei?
 
 ProcessOrder
-  backend_id
   order
-  evaluation
 
 OrderProcessProgress
   Started { proof_id }
@@ -169,64 +183,56 @@ ProcessedOrder
   compressed_proof_id?
 
 UpdateBatch
-  backend_id
-  state?
-  new_orders
-  domain?
-  prover_address?
+  batch_id
+  existing_order_ids
+  aggregation_state?
+  new_proofs
+  new_compressed_proofs
+  finalize
 
-BatchProgress
-  backend_id
-  state?
-  accepted_orders
-  rejected_orders
-  aggregation_secs?
-  assessor_secs?
+BatchUpdate
+  aggregation_state
+  assessor_proof_id?
+  set_builder_proving_secs?
+  assessor_proving_secs?
 
 CloseBatch
+  batch_id
+  aggregation_proof_id
+  order_ids
+
+BatchClose
+  compressed_proof_id
+  compression_secs
+
+FulfillmentBatch
   backend_id
-  state?
+  aggregation_state?
+  assessor_proof_id?
+  eip712_domain
+  prover_address
   orders
 
-CloseBatchProgress
-  Running { state }
-  Closed(ClosedBatch)
-
-ClosedBatch
-  backend_id
-  state?
+FulfillmentArtifacts
   root_submission?
-  sub_batches
-
-FulfillmentSubBatch
-  prover
-  requests
-  assessor_seal
-  legacy_assessor_selectors?
-  legacy_assessor_callbacks?
   fulfillments
-
-FulfillmentRequest
-  order_id
-  request
-  client_sig?
-
-OrderFulfillment
-  order_id
-  request_id
-  fulfillment
+  assessor_receipt
 ```
+
+This evaluation boundary is not fully implemented in the current broker MVP.
+The current branch focuses on order processing, batch processing, and
+submission artifact construction.
 
 The broker computes `EvaluationLimits` from `BackendId`, requestor policy, and
 market config. Priority-requestor bypass is represented by omitting the relevant
 limit. The backend only enforces the limits it receives; it does not know why a
 limit is present or absent.
 
-`resolve` starts the routing chain. `BackendId` is a typed broker value, not a
+Selector routing starts the chain. `BackendId` is a typed broker value, not a
 raw string in service code. The broker persists the resolved `BackendId` on
 accepted orders and carries it through later service commands. The router
-dispatches by selector for `evaluate_order`; later calls dispatch directly by
-`backend_id`.
+dispatches by selector for order processing/cancellation; later batch and
+submission calls dispatch through explicit router methods keyed by `BackendId`.
 
 `process_order` may return durable progress before the order is complete. The
 broker persists returned proof handles and may call `process_order` again after
@@ -248,25 +254,21 @@ broker batch.
 `BatchState` is passive persisted data; it does not own prover handles or know
 how to evolve itself.
 
-The internal batch processor separates three operations without making them part
-of the broker-facing API:
+The backend interface separates batch operations into:
 
 ```text
 ----------------------+-----------------------------------------------+
-| Aggregation state   | add_orders                                    |
-| Assessor proof      | finalize                                      |
-| Fulfillment build   | compress, close_batch                        |
+| Batch size          | estimate_batch_size                           |
+| Aggregation state   | update_batch                                  |
+| Root compression    | close_batch                                   |
+| Fulfillment build   | build_fulfillments                            |
 +----------------------+-----------------------------------------------+
 ```
 
-`add_orders` receives every newly claimed order for the backend batch. The
-backend internally decides which orders update aggregation state and which only
-participate in the assessor proof. The broker does not classify selectors into
-"aggregation" and "assessor-only" paths.
-
-`finalize` receives the current state and all orders in the broker batch. It
-does not receive a separate `new_orders` list; any newly claimed orders must be
-passed through `add_orders` and persisted before finalization.
+`update_batch` receives the current backend state plus newly claimed proofs for
+the backend batch. The backend internally decides which orders update
+aggregation state and which only participate in the assessor proof. The broker
+does not classify selectors into "aggregation" and "assessor-only" paths.
 
 Assessor journal/public-output fetching and decoding stays internal to the
 backend. The broker should not need a generic `assessor_journal` method or an
@@ -290,16 +292,13 @@ assessor proof.
 
 ## Broker Routing
 
-The router implements `Backend` by selecting a `BackendEntry` from
-selector or backend id metadata. A backend instance may claim many selectors.
+The router is the broker-facing facade. It selects a `BackendEntry` from
+selector or backend-id metadata and calls the registered backend implementation.
+A backend instance may claim many selectors.
 
 ```text
                   +----------------+
-Broker request -> | Backend |
-                  +----------------+
-                         |
-                         v
-                 +----------------+
+Broker request -> +----------------+
                  | BackendRouter  |
                  +----------------+
                          |
@@ -309,7 +308,6 @@ Broker request -> | Backend |
                 | - BackendId      |
                 | - selectors      |
                 | - Backend object |
-                | - BatchProcessor |
                 +------------------+
                          |
                          v
@@ -321,19 +319,22 @@ registration time.
 
 ## Request Evaluation And Proving
 
-The broker owns policy. The backend owns zkVM execution semantics.
+The broker owns policy. The backend owns zkVM execution semantics. The current
+implementation keeps request evaluation/preflight mostly in existing broker/SDK
+paths; a future SDK/requestor API pass can move more of that into a dedicated
+evaluation boundary.
 
 ```text
 Request observed
     |
     v
-Backend.resolve(request.selector)
+BackendRouter resolves request.selector
     |
     v
 Broker computes backend-specific EvaluationLimits
     |
     v
-Backend.evaluate_order(EvaluateOrder { order_request, limits })
+Existing evaluation / pricing path
     |
     v
 Broker pricing / capacity / allowlist policy
@@ -342,7 +343,7 @@ Broker pricing / capacity / allowlist policy
 Order accepted
     |
     v
-Backend.process_order(ProcessOrder { backend_id, order, evaluation })
+BackendRouter.process_order(ProcessOrder { order })
     |
     +--> OrderProcessProgress::Started
     |       proof_id persisted on order
@@ -359,19 +360,22 @@ Backend.process_order(ProcessOrder { backend_id, order, evaluation })
 ProcessedOrder persisted on order
     - proof_id
     - backend_id
-    - program_id
-    - public_output
-    - claim_digest
     - optional compressed proof handle
             |
             v
         Order enters batch lifecycle:
-            PendingBatch      -> ready to be claimed into a backend batch
+            PendingAgg or SkipAggregation
 ```
 
 The broker no longer needs to know whether a selector is "Groth16",
 "set-builder", or any other backend-specific proof mode. Once `process_order`
-completes, the order is simply ready to enter a backend-owned batch.
+completes, the order is ready to enter broker-owned batching. Today the
+database still has `PendingAgg` and `SkipAggregation` order states; those names
+come from the RISC Zero set-builder path, but the backend-neutral meaning is:
+
+- `PendingAgg`: proof output that should be sent through backend batch update.
+- `SkipAggregation`: proof output that skips backend accumulation but still
+  participates in assessor/submission batching.
 
 ## Broker-Owned Batching
 
@@ -409,24 +413,26 @@ BackendId("other")    -> Batch #12 -> orders [...]
 
 ## Candidate Claiming
 
-The DB exposes one generic claim path:
+The current DB still has two RISC Zero-shaped pending-proof queries, but they
+are scoped by `BackendId`:
 
 ```text
-claim_batch_candidates()
+get_aggregation_proofs(backend_id)
+get_groth16_proofs(backend_id)
 ```
 
-This returns all completed orders ready for backend batch handling. The DB no
-longer splits candidates into "aggregation proofs" and "Groth16 proofs".
-
-The broker groups candidates only by `BackendId` and calls:
+This split is a storage compatibility detail, not a broker policy decision. The
+aggregator filters both sets for expired/already-fulfilled orders, then passes
+both lists to the backend:
 
 ```text
-Backend.update_batch(UpdateBatch {
-  backend_id,
-  state,
-  new_orders,
-  domain,
-  prover_address,
+BackendRouter.update_batch(backend_id, UpdateBatch {
+  batch_id,
+  existing_order_ids,
+  aggregation_state?,
+  new_proofs,
+  new_compressed_proofs,
+  finalize,
 })
 ```
 
@@ -435,15 +441,15 @@ The backend decides internally how each selector participates:
 ```text
 selector A -> update aggregation state, also assessed at finalization
 selector B -> skip aggregation state, assessed at finalization
-selector C -> reject as unsupported by this backend
+selector C -> fail inside backend if inconsistent with registration
 ```
 
 This keeps selector-specific aggregation policy out of broker orchestration.
 
-`update_batch` may return a state with no `proof_id` if the backend accepted
-the orders but did not need to produce an intermediate aggregation proof.
-The broker marks only `accepted_orders` as part of the broker batch. Any
-`rejected_orders` are failed individually; the rest of the batch can continue.
+`update_batch` returns the new backend aggregation state and optionally an
+assessor proof id when the broker asked the backend to finalize. The broker
+persists that state and associates the successfully processed proof rows with
+the broker batch.
 
 ## Batch Lifecycle
 
@@ -456,10 +462,7 @@ PendingProving
 Proving
     |
     v
-PendingBatch
-    |
-    v
-Batching
+PendingAgg / Aggregating / SkipAggregation
     |
     v
 PendingSubmission
@@ -471,77 +474,82 @@ Done
 ```text
 BatchStatus:
 
-Open
+Open                         currently BatchStatus::Aggregating
   |
   v
 PendingCompression
   |
   v
-Complete
+ReadyToSubmit                currently BatchStatus::Complete
   |
   v
 PendingSubmission
   |
   v
 Submitted
+
+Failed
 ```
 
-`Open` means the broker batch is still accepting or waiting on orders.
+`BatchStatus::Aggregating` is the current database name for an open broker
+batch. It does not imply that every order in the batch needs set-builder
+aggregation. A backend may accept some orders into aggregation state and route
+others directly to the assessor/submission envelope. The common broker meaning
+is "this batch can still receive backend updates or be finalized." A later
+migration should rename this persisted status to `Open` or equivalent.
+
+`BatchStatus::Complete` currently means "backend artifacts are ready and the
+batch is waiting to be claimed by the submitter." A later migration should
+rename this to `ReadyToSubmit` or equivalent.
+
 `PendingCompression` means the backend has finalized/assessed the batch and the
 final proof artifact must be compressed before submission.
 
 Closing a batch is the explicit finalization call:
 
 ```text
-Backend.close_batch(CloseBatch {
-  backend_id,
-  state,
-  orders,
+BackendRouter.close_batch(backend_id, CloseBatch {
+  batch_id,
+  aggregation_proof_id,
+  order_ids,
 })
     |
-    +--> CloseBatchProgress::Running
-    |       state persisted on batch
-    |       broker retries/resumes later
-    |
-    +--> CloseBatchProgress::Closed
-            |
-            v
-ClosedBatch
-  state.assessor_proof_id = proof over assessor envelope
-  state.proof_id          = proof to compress for submission
-  root_submission?
-  sub_batches
+    v
+BatchClose
+  compressed_proof_id
+  compression_secs
 ```
 
-The broker persists returned backend state whenever `close_batch` returns
-progress. It does not persist or thread a separate assessor proof id outside the
-backend state.
+The broker stores the returned compressed proof id on the batch and then moves
+the batch toward submission. The assessor proof id is currently stored as a
+batch field because the deployed contract path still needs it for RISC Zero
+submission artifacts.
 
 ## Submission
 
 The submitter gets backend-prepared artifacts instead of reconstructing
-backend-specific seals itself. A small market submission adapter translates the
-backend's generic fulfillment sub-batches into the contract shape deployed on
-the target chain.
+backend-specific seals itself. The current implementation still submits through
+the existing market contract shape directly from `Submitter`; a dedicated market
+submission adapter remains a later cleanup.
 
 ```text
-CloseBatch
+FulfillmentBatch
   backend_id
-  state?     optional backend batch state
-  orders     completed orders to fulfill
+  aggregation_state?
+  assessor_proof_id?
+  eip712_domain
+  prover_address
+  orders
 ```
-
-For a direct single-order fulfillment, `state` is `None` and `orders.len() == 1`.
-For broker batch fulfillment, `state` is the persisted backend batch state and
-`orders` contains the batch orders.
 
 ```text
 Batch complete
     |
     v
-Backend.close_batch(CloseBatch {
+BackendRouter.build_fulfillments(FulfillmentBatch {
   backend_id,
-  state,
+  aggregation_state,
+  assessor_proof_id,
   orders,
 })
     |
@@ -549,22 +557,16 @@ Backend.close_batch(CloseBatch {
     |       root
     |       root seal
     |
-    +--> sub-batches
-            - prover
-            - fulfillment requests
-            - assessor seal, empty if the verifier class requires none
-            - optional legacy assessor selectors/callbacks
-            - fulfillments keyed by order id
+    +--> fulfillments keyed by order id
+    |
+    +--> legacy AssessorReceipt for current market contract
 ```
 
-`close_batch` receives completed orders and optional persisted backend batch
-state. For batched fulfillment, the backend reads its own `assessor_proof_id`
-when it has one, fetches and decodes any backend-specific assessor output,
-computes any backend-specific claim digests or inclusion proofs, and returns
-protocol-facing fulfillment sub-batches. A sub-batch may carry an assessor seal
-for classes that require an assessor adapter, or an empty assessor seal for
-joint/on-chain classes that bind fulfillments without a separate assessor
-receipt. The broker submitter should not need a separate per-order seal callback.
+`build_fulfillments` receives completed orders and optional persisted backend
+batch state. The backend fetches and decodes any backend-specific assessor
+output, computes backend-specific claim digests or inclusion proofs, and returns
+protocol-facing fulfillment artifacts. The broker submitter should not need a
+separate per-order seal, claim digest, or assessor decoding callback.
 
 `FulfillmentRequest` is the submission-time request payload. It is equivalent to
 the current `UnlockedRequest` shape plus the broker `order_id`, and is distinct
@@ -572,28 +574,25 @@ from the order-stream `Order` inbound payload. The market submission adapter
 computes request digests from this request payload when a contract path needs
 them; backend implementations should not own market-domain digest construction.
 
-Contract-version compatibility stays outside the backend:
+Contract-version compatibility should eventually stay outside the backend:
 
 ```text
-ClosedBatch
+FulfillmentArtifacts
     |
     v
 MarketSubmissionAdapter
     |
-    +--> CurrentMarketAdapter
+    +--> CurrentMarketAdapter        (future extraction)
     |       one legacy AssessorReceipt per submission
     |       uses legacy_assessor_selectors / legacy_assessor_callbacks
     |
-    +--> RouterMarketAdapter
+    +--> RouterMarketAdapter         (future contract path)
             one or more router SubBatch values
             ignores legacy assessor metadata
 ```
 
-The current-market adapter is a migration bridge. It may submit one compatible
-legacy transaction when the closed batch contains a single sub-batch, split
-multiple sub-batches into multiple legacy transactions, or reject unsupported
-mixed-class submissions. Once the router-based market is deployed everywhere,
-the adapter and legacy assessor metadata can be removed.
+The current-market adapter is a proposed migration bridge. Today the RISC Zero
+backend returns artifacts compatible with the current `FulfillmentTx` path.
 
 ## Current Broker Mapping
 
@@ -606,22 +605,22 @@ Market monitor
   no backend-specific work
 
 Order pricer
-  resolve(selector) -> BackendId
+  selector resolves to BackendId through accepted order path
   computes broker policy limits:
     max_cycles?
     max_download_bytes?
-  evaluate_order(EvaluateOrder) -> OrderEvaluation
+  existing preflight/pricing path
   applies broker policy:
     gas, collateral, allowlists, capacity, deadlines, lock strategy
   persists accepted Order with:
     backend_id
-    program_id / image_id
+    image_id
     input_id?
     work_units / total_cycles
     fulfillment_data_bytes / journal_bytes
 
 Order processor worker
-  process_order(ProcessOrder) -> OrderProcessProgress
+  BackendRouter.process_order(ProcessOrder) -> OrderProcessProgress
   cancel_order(Order) on broker cancellation
   persists Running proof handles:
     Started.proof_id
@@ -629,26 +628,24 @@ Order processor worker
   persists Completed order artifacts:
     proof_id
     compressed_proof_id?
-    public_output
-    claim_digest
-  moves order to PendingBatch
+  moves order to PendingAgg or SkipAggregation using current DB states
 
 Current implementation note: broker startup registers the single current
-`Risc0Backend` behind `BackendRouter`. `OrderProcessor` and `Submitter` hold the
-router as a `Backend` trait object for selector/backend-id dispatch.
-`AggregatorService` asks the router for resolved backend objects and then calls
-batch methods directly on each backend.
+`Risc0Backend` behind `BackendRouter`. `OrderProcessor`, `AggregatorService`,
+and `Submitter` hold `BackendRouter`. Backend trait objects are internal router
+state.
 
 Aggregator service
-  groups PendingBatch orders by BackendId
-  estimate_batch_size(order_ids) -> BatchSizeEstimate
-  update_batch(UpdateBatch) -> BatchProgress
-  persists backend BatchState
+  groups batch-ready orders by BackendId
+  BackendRouter.estimate_batch_size(backend_id, order_ids) -> BatchSizeEstimate
+  BackendRouter.update_batch(backend_id, UpdateBatch) -> BatchUpdate
+  BackendRouter.close_batch(backend_id, CloseBatch) -> BatchClose
+  persists AggregationState and assessor_proof_id on Batch
   broker decides when the batch closes from:
     size, time, fees, deadlines, journal/fulfillment-data size
 
 Submitter / batch closer
-  build_fulfillments(FulfillmentBatch) -> FulfillmentArtifacts
+  BackendRouter.build_fulfillments(FulfillmentBatch) -> FulfillmentArtifacts
   submits:
     optional root submission
     fulfillment sub-batches
@@ -688,22 +685,24 @@ with selectors, prover handles, image IDs, and wrap selector.
 Risc0Backend
   - prover
   - snark_prover
-  - request pricing config
-  - implements Backend directly, or is wrapped by BackendRouter
+  - downloader and priority requestor policy
+  - set-builder program id
+  - internal Risc0BatchProcessor delegate
+  - implements Backend
 
 Risc0BatchProcessor
   - set-builder aggregation
   - assessor proving
   - assessor output decoding
-  - wrap selector
+  - batch/root proof compression
 ```
 
 Two RISC Zero versions should normally be two registrations of the same
 implementation with different config behind a router:
 
 ```text
-BackendEntry("risc0_v3", selectors_v3, Risc0Backend(config_v3), Risc0BatchProcessor(config_v3))
-BackendEntry("risc0_v4", selectors_v4, Risc0Backend(config_v4), Risc0BatchProcessor(config_v4))
+BackendEntry("risc0_v3", selectors_v3, Risc0Backend(config_v3))
+BackendEntry("risc0_v4", selectors_v4, Risc0Backend(config_v4))
 ```
 
 If two versions require incompatible native RISC Zero crate versions in the
@@ -730,6 +729,9 @@ The stable requirement is that any request builder produces protocol-valid
 
 - Should `BatchCandidate.status` remain visible to the aggregator service, or
   should the service only receive neutral candidate data?
+- Should persisted `BatchStatus` variants be renamed from RISC Zero-shaped
+  lifecycle names to broker-neutral names (`Aggregating` -> `Open`,
+  `Complete` -> `ReadyToSubmit`) in a migration-aware cleanup?
 - Should telemetry preserve old field names for compatibility, or migrate fully
   to `aggregation_secs`, `assessor_secs`, and
   `batch_compression_secs`?
