@@ -92,15 +92,25 @@ mod tests {
         id: BackendId,
         supported: Vec<FixedBytes<4>>,
         calls: AtomicUsize,
+        cancel_calls: AtomicUsize,
     }
 
     impl MockBackend {
         fn new(id: &str, supported: Vec<FixedBytes<4>>) -> Self {
-            Self { id: BackendId::new(id).unwrap(), supported, calls: AtomicUsize::new(0) }
+            Self {
+                id: BackendId::new(id).unwrap(),
+                supported,
+                calls: AtomicUsize::new(0),
+                cancel_calls: AtomicUsize::new(0),
+            }
         }
 
         fn calls(&self) -> usize {
             self.calls.load(Ordering::SeqCst)
+        }
+
+        fn cancel_calls(&self) -> usize {
+            self.cancel_calls.load(Ordering::SeqCst)
         }
     }
 
@@ -123,6 +133,11 @@ mod tests {
                 compressed_proof_id: None,
                 next_status: OrderStatus::PendingAgg,
             }))
+        }
+
+        async fn cancel_order(&self, _order: &Order) -> Result<()> {
+            self.cancel_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -209,6 +224,18 @@ mod tests {
 
         assert_eq!(backend.calls(), 0);
         assert!(err.to_string().contains("no backend registered for selector"));
+    }
+
+    #[tokio::test]
+    async fn router_routes_cancellation() {
+        let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let router = BackendRouter::new()
+            .register_backend(BackendEntry::new(vec![selector(1)], backend.clone()))
+            .unwrap();
+
+        router.cancel_order(&test_order(selector(1))).await.unwrap();
+
+        assert_eq!(backend.cancel_calls(), 1);
     }
 
     #[test]
@@ -315,6 +342,8 @@ pub trait Backend: Send + Sync {
     fn supports(&self, selector: FixedBytes<4>) -> bool;
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
+
+    async fn cancel_order(&self, order: &Order) -> Result<()>;
 }
 
 pub type BackendObj = Arc<dyn Backend>;
@@ -403,6 +432,11 @@ impl Backend for BackendRouter {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
         let backend = self.backend_for_order(&cmd.order)?;
         backend.process_order(cmd).await
+    }
+
+    async fn cancel_order(&self, order: &Order) -> Result<()> {
+        let backend = self.backend_for_order(order)?;
+        backend.cancel_order(order).await
     }
 }
 
@@ -566,6 +600,20 @@ impl Backend for Risc0Backend {
             compressed_proof_id: order.compressed_proof_id,
             next_status,
         }))
+    }
+
+    async fn cancel_order(&self, order: &Order) -> Result<()> {
+        if let Some(proof_id) = order.proof_id.as_ref() {
+            if matches!(order.status, OrderStatus::Proving) {
+                tracing::debug!("Cancelling proof {} for order {}", proof_id, order.id());
+                self.prover
+                    .cancel_stark(proof_id)
+                    .await
+                    .with_context(|| format!("Failed to cancel proof {proof_id}"))?;
+            }
+        }
+
+        Ok(())
     }
 }
 

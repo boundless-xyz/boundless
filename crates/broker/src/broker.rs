@@ -843,7 +843,6 @@ impl Broker {
 
             let order_processor = Arc::new(order_processor::OrderProcessor::new_with_backend(
                 db.clone(),
-                prover.clone(),
                 backend_router,
                 config.clone(),
                 order_state_tx.clone(),

@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 #[cfg(test)]
 use crate::{
     backend::{BackendId, Risc0Backend},
+    provers::ProverObj,
     requestor_monitor::PriorityRequestors,
     ConfigurableDownloader,
 };
@@ -27,11 +28,10 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
-    errors::{cancel_proof_and_fail, handle_order_failure, BrokerFailure},
+    errors::{handle_order_failure, BrokerFailure},
     futures_retry::retry_with_context,
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
-    provers::ProverObj,
     task::{BrokerService, SupervisorErr},
     CompressionType, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
@@ -46,7 +46,6 @@ use super::error::ProvingErr;
 #[derive(Clone)]
 pub struct OrderProcessor {
     db: DbObj,
-    prover: ProverObj,
     backend: BackendObj,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
@@ -81,7 +80,6 @@ impl OrderProcessor {
 
         Self::new_with_backend(
             db,
-            prover,
             backend,
             config,
             order_state_tx,
@@ -94,7 +92,6 @@ impl OrderProcessor {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_backend(
         db: DbObj,
-        prover: ProverObj,
         backend: BackendObj,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
@@ -105,7 +102,6 @@ impl OrderProcessor {
         Self {
             db,
             backend,
-            prover,
             config,
             order_state_tx,
             fulfillment_market,
@@ -430,11 +426,14 @@ impl OrderProcessor {
             }
             Err(ref err @ (ProvingErr::CancelFulfilledByAnother | ProvingErr::CancelExpired)) => {
                 tracing::info!("Order {order_id} not actionable, cancelling proof: {err}");
-                cancel_proof_and_fail(
-                    &self.prover,
+                if let Err(cancel_err) = self.backend.cancel_order(&order).await {
+                    tracing::warn!(
+                        "[B-ORD-001] Failed to cancel backend processing for order {order_id}: {cancel_err:?}"
+                    );
+                }
+                handle_order_failure(
                     &self.db,
-                    &self.config,
-                    &order,
+                    &order_id,
                     &BrokerFailure::new(err.code(), err.to_string(), err.completion_outcome()),
                     self.chain_id,
                     &self.proving_completion_tx,
