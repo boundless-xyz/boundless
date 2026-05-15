@@ -17,7 +17,8 @@ pragma solidity ^0.8.26;
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
-import {SubBatch} from "./types/SubBatch.sol";
+import {ProofRequestBatch} from "./types/ProofRequestBatch.sol";
+import {FulfillmentBatch} from "./types/FulfillmentBatch.sol";
 import {BoundlessRouter} from "./router/BoundlessRouter.sol";
 
 interface IBoundlessMarket {
@@ -289,16 +290,16 @@ interface IBoundlessMarket {
         bytes calldata proverSignature
     ) external;
 
-    /// @notice Fulfills one or more single-class sub-batches of requests.
-    /// @dev    Every request in each sub-batch must already be locked. Use
+    /// @notice Fulfills one or more single-class fulfillment batches of requests.
+    /// @dev    Every request in each fulfillment batch must already be locked. Use
     ///         `priceAndFulfill` for unlocked requests. Returns a flat array of
-    ///         per-fill `paymentError` blobs in document order (sub-batches in
-    ///         order, fills in order within each sub-batch).
-    function fulfill(SubBatch[] calldata subBatches) external returns (bytes[] memory paymentError);
+    ///         per-fill `paymentError` blobs in document order (fulfillment batches in
+    ///         order, fills in order within each fulfillment batch).
+    function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) external returns (bytes[] memory paymentError);
 
-    /// @notice Fulfills sub-batches and withdraws the resulting balance for each
-    ///         sub-batch's prover. See `fulfill` for the locked-only requirement.
-    function fulfillAndWithdraw(SubBatch[] calldata subBatches) external returns (bytes[] memory paymentError);
+    /// @notice Fulfills fulfillment batches and withdraws the resulting balance for each
+    ///         fulfillment batch's prover. See `fulfill` for the locked-only requirement.
+    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches) external returns (bytes[] memory paymentError);
 
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
@@ -311,21 +312,17 @@ interface IBoundlessMarket {
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
     /// @notice A combined call to `priceRequest` (per request) and `fulfill`.
-    ///         `priceRequests[j]` is the list of `ProofRequest`s in sub-batch
-    ///         `j` that need pricing (typically only the un-locked entries);
-    ///         `clientSignatures[j][i]` is the matching signature.
-    function priceAndFulfill(
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
-    ) external returns (bytes[] memory paymentError);
+    ///         Each `ProofRequestBatch` carries the requests and matching
+    ///         client signatures that need pricing in this tx (typically the
+    ///         un-locked entries that the fulfillment batches will then settle).
+    function priceAndFulfill(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
+        external
+        returns (bytes[] memory paymentError);
 
     /// @notice A combined call to `priceRequest` (per request) and `fulfillAndWithdraw`.
-    function priceAndFulfillAndWithdraw(
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
-    ) external returns (bytes[] memory paymentError);
+    function priceAndFulfillAndWithdraw(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
+        external
+        returns (bytes[] memory paymentError);
 
     /// @notice Submit a new root to a set-verifier.
     /// @dev Consider using `submitRootAndFulfill` to submit the root and fulfill in one transaction.
@@ -339,7 +336,7 @@ interface IBoundlessMarket {
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        SubBatch[] calldata subBatches
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
     /// @notice Submit a set-verifier root and then call `fulfillAndWithdraw` in one tx.
@@ -347,7 +344,7 @@ interface IBoundlessMarket {
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        SubBatch[] calldata subBatches
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
     /// @notice Submit a set-verifier root and then call `priceAndFulfill` in one tx.
@@ -355,9 +352,8 @@ interface IBoundlessMarket {
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
     /// @notice Submit a set-verifier root and then call `priceAndFulfillAndWithdraw` in one tx.
@@ -365,9 +361,8 @@ interface IBoundlessMarket {
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn

@@ -29,7 +29,7 @@ import {FulfillmentDataType, FulfillmentDataImageIdAndJournal} from "../../src/t
 import {SlimRequest, SlimRequestLibrary} from "../../src/types/SlimRequest.sol";
 
 /// @notice Always-passing `IBoundlessVerifier` used so the per-fill verifier
-///         dispatch in `BoundlessRouter.verifySubBatch` doesn't revert during
+///         dispatch in `BoundlessRouter.verifyBatch` doesn't revert during
 ///         the bench. We're measuring the assessor seam, not the verifier.
 contract NullVerifier is IBoundlessVerifier, IERC165 {
     function verify(bytes calldata, bytes32) external pure {}
@@ -76,7 +76,7 @@ contract DirectHarness {
 }
 
 /// @notice Router-path harness: simulates the market binding check, then
-///         dispatches through `BoundlessRouter.verifySubBatch`. Measures
+///         dispatches through `BoundlessRouter.verifyBatch`. Measures
 ///         the realistic end-to-end cost a production transaction would
 ///         incur.
 contract RouterHarness {
@@ -103,7 +103,7 @@ contract RouterHarness {
             if (reconstructed != expectedDigests[i]) revert BindingMismatch(i);
             requestDigests[i] = reconstructed;
         }
-        ROUTER.verifySubBatch(requests, fills, requestDigests, prover, assessorSeal);
+        ROUTER.verifyBatch(requests, fills, requestDigests, prover, assessorSeal);
         gasUsed = g0 - gasleft();
     }
 }
@@ -295,7 +295,7 @@ contract OnChainAssessorBench is Test {
     }
 
     /// @dev Build a valid `assessorSeal = ASSESSOR_ENTRY_SEL || sig` where `sig`
-    ///      is the prover's ECDSA signature over the EIP-712 SubBatchAuth digest.
+    ///      is the prover's ECDSA signature over the EIP-712 FulfillmentBatchAuth digest.
     function _buildAssessorSeal(SlimRequest[] memory slim, Fulfillment[] memory fills)
         internal
         returns (bytes memory)
@@ -307,7 +307,7 @@ contract OnChainAssessorBench is Test {
             rd[i] = SlimRequestLibrary.reconstructRequestDigest(slim[i]);
             cd[i] = fills[i].claimDigest;
         }
-        bytes32 typehash = keccak256("SubBatchAuth(address prover,bytes32[] requestDigests,bytes32[] claimDigests)");
+        bytes32 typehash = keccak256("FulfillmentBatchAuth(address prover,bytes32[] requestDigests,bytes32[] claimDigests)");
         bytes32 structHash = keccak256(
             abi.encode(
                 typehash, proverAddr, keccak256(abi.encodePacked(rd)), keccak256(abi.encodePacked(cd))

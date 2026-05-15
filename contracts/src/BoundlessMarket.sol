@@ -26,8 +26,9 @@ import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
+import {ProofRequestBatch} from "./types/ProofRequestBatch.sol";
 import {SlimRequest, SlimRequestLibrary} from "./types/SlimRequest.sol";
-import {SubBatch} from "./types/SubBatch.sol";
+import {FulfillmentBatch} from "./types/FulfillmentBatch.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";
 
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
@@ -67,8 +68,8 @@ contract BoundlessMarket is
     ///      without a rename annotation.
     string private imageUrl;
 
-    /// @notice The verification engine. The market calls `ROUTER.verifySubBatch`
-    ///         once per sub-batch and trusts whatever per-class adapter the
+    /// @notice The verification engine. The market calls `ROUTER.verifyBatch`
+    ///         once per fulfillment batch and trusts whatever per-class adapter the
     ///         router dispatches to.
     /// @dev    Set in the constructor; pinned per implementation contract.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -245,49 +246,48 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function priceAndFulfill(
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
-    ) public returns (bytes[] memory paymentError) {
-        _priceAll(priceRequests, clientSignatures);
-        paymentError = fulfill(subBatches);
+    function priceAndFulfill(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
+        public
+        returns (bytes[] memory paymentError)
+    {
+        _priceAll(requestBatches);
+        paymentError = fulfill(fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfill(SubBatch[] calldata subBatches) public returns (bytes[] memory paymentError) {
-        // Flatten payment-error output across sub-batches.
+    function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) public returns (bytes[] memory paymentError) {
+        // Flatten payment-error output across fulfillment batches.
         uint256 totalFills = 0;
-        for (uint256 j = 0; j < subBatches.length; j++) {
-            totalFills += subBatches[j].fills.length;
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            totalFills += fulfillmentBatches[j].fills.length;
         }
         paymentError = new bytes[](totalFills);
 
         uint256 outIdx = 0;
-        for (uint256 j = 0; j < subBatches.length; j++) {
-            SubBatch calldata sb = subBatches[j];
-            uint256 n = sb.fills.length;
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            FulfillmentBatch calldata batch = fulfillmentBatches[j];
+            uint256 n = batch.fills.length;
             if (n == 0) continue;
             if (n > type(uint16).max) revert BatchSizeExceedsLimit(n, type(uint16).max);
-            if (sb.requests.length != n) revert BatchSizeExceedsLimit(sb.requests.length, n);
+            if (batch.requests.length != n) revert BatchSizeExceedsLimit(batch.requests.length, n);
 
             // Bind every slim payload to a client-signed request (lock or priced) by reconstructing
             // the digest and asserting it matches the stored lock or transient context.
             bytes32[] memory requestDigests = new bytes32[](n);
             for (uint256 i = 0; i < n; i++) {
-                bytes32 requestDigest = SlimRequestLibrary.reconstructRequestDigest(sb.requests[i]);
-                _verifyBinding(sb.requests[i].id, requestDigest);
+                bytes32 requestDigest = SlimRequestLibrary.reconstructRequestDigest(batch.requests[i]);
+                _verifyBinding(batch.requests[i].id, requestDigest);
                 requestDigests[i] = requestDigest;
             }
 
-            // Dispatch through the router: per-fill verifier + per-sub-batch assessor.
-            ROUTER.verifySubBatch(sb.requests, sb.fills, requestDigests, sb.prover, sb.assessorSeal);
+            // Dispatch through the router: per-fill verifier + per-batch assessor.
+            ROUTER.verifyBatch(batch.requests, batch.fills, requestDigests, batch.prover, batch.assessorSeal);
 
             // Settle each fill.
-            address prover = sb.prover;
+            address prover = batch.prover;
             for (uint256 i = 0; i < n; i++) {
-                Fulfillment calldata fill = sb.fills[i];
-                SlimRequest calldata slim = sb.requests[i];
+                Fulfillment calldata fill = batch.fills[i];
+                SlimRequest calldata slim = batch.requests[i];
                 bool expired;
                 (paymentError[outIdx], expired) = _fulfillAndPay(fill, slim.id, requestDigests[i], prover);
 
@@ -313,22 +313,21 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function priceAndFulfillAndWithdraw(
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
-    ) public returns (bytes[] memory paymentError) {
-        _priceAll(priceRequests, clientSignatures);
-        paymentError = fulfillAndWithdraw(subBatches);
+    function priceAndFulfillAndWithdraw(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
+        public
+        returns (bytes[] memory paymentError)
+    {
+        _priceAll(requestBatches);
+        paymentError = fulfillAndWithdraw(fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfillAndWithdraw(SubBatch[] calldata subBatches) public returns (bytes[] memory paymentError) {
-        paymentError = fulfill(subBatches);
+    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches) public returns (bytes[] memory paymentError) {
+        paymentError = fulfill(fulfillmentBatches);
 
-        // Withdraw any remaining balance from each sub-batch's prover.
-        for (uint256 j = 0; j < subBatches.length; j++) {
-            address prover = subBatches[j].prover;
+        // Withdraw any remaining balance from each fulfillment batch's prover.
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            address prover = fulfillmentBatches[j].prover;
             uint256 balance = accounts[prover].balance;
             if (balance > 0) {
                 _withdraw(prover, balance);
@@ -336,19 +335,16 @@ contract BoundlessMarket is
         }
     }
 
-    /// @dev Price every request in every group. Each `priceRequests[j]` is the
-    ///      list of `ProofRequest`s that need pricing for the corresponding
-    ///      sub-batch — typically only the un-locked entries. Verified client
+    /// @dev Price every request in every group. Each `ProofRequestBatch`
+    ///      carries the requests and matching client signatures that need
+    ///      pricing — typically only the un-locked entries. Verified client
     ///      signatures populate `FulfillmentContext` keyed by `requestHash`,
     ///      which the subsequent `fulfill` step looks up via the slim
     ///      payload's reconstructed digest.
-    function _priceAll(ProofRequest[][] calldata priceRequests, bytes[][] calldata clientSignatures) internal {
-        if (clientSignatures.length != priceRequests.length) {
-            revert BatchSizeExceedsLimit(clientSignatures.length, priceRequests.length);
-        }
-        for (uint256 j = 0; j < priceRequests.length; j++) {
-            ProofRequest[] calldata requests = priceRequests[j];
-            bytes[] calldata sigs = clientSignatures[j];
+    function _priceAll(ProofRequestBatch[] calldata requestBatches) internal {
+        for (uint256 j = 0; j < requestBatches.length; j++) {
+            ProofRequest[] calldata requests = requestBatches[j].requests;
+            bytes[] calldata sigs = requestBatches[j].signatures;
             if (sigs.length != requests.length) {
                 revert BatchSizeExceedsLimit(sigs.length, requests.length);
             }
@@ -621,10 +617,10 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        SubBatch[] calldata subBatches
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfill(subBatches);
+        paymentError = fulfill(fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -632,10 +628,10 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        SubBatch[] calldata subBatches
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfillAndWithdraw(subBatches);
+        paymentError = fulfillAndWithdraw(fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -643,12 +639,11 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfill(priceRequests, clientSignatures, subBatches);
+        paymentError = priceAndFulfill(requestBatches, fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -656,12 +651,11 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[][] calldata priceRequests,
-        bytes[][] calldata clientSignatures,
-        SubBatch[] calldata subBatches
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfillAndWithdraw(priceRequests, clientSignatures, subBatches);
+        paymentError = priceAndFulfillAndWithdraw(requestBatches, fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket

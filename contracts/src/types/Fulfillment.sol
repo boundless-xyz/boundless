@@ -11,7 +11,7 @@ using FulfillmentLibrary for Fulfillment global;
 /// @title Fulfillment Struct and Library
 /// @notice The proof material the prover posts to fulfill a request. The request
 ///         identity (`id`, `requestDigest`) is carried by the paired
-///         `SlimRequest` in `SubBatch.requests` — the market re-binds them
+///         `SlimRequest` in `FulfillmentBatch.requests` — the market re-binds them
 ///         positionally and trusts the slim payload after the binding check
 ///         in `_verifyBinding`.
 struct Fulfillment {

@@ -19,11 +19,11 @@ import {Fulfillment} from "../types/Fulfillment.sol";
 
 /// @title BoundlessRouter — verification engine for the Boundless market.
 ///
-/// @notice Owns the per-class verification dispatch. The market calls `verifySubBatch`
-///         once per single-class sub-batch; the router resolves the verifier class from
+/// @notice Owns the per-class verification dispatch. The market calls `verifyBatch`
+///         once per single-class fulfillment batch; the router resolves the verifier class from
 ///         the seals' first-4-byte selector, validates the requestor's signed selector,
 ///         dispatches per-fill into the right interface (`IBoundlessVerifier` or
-///         `IBoundlessJointVerifierAssessor`), and dispatches once per sub-batch into the
+///         `IBoundlessJointVerifierAssessor`), and dispatches once per fulfillment batch into the
 ///         class's required `IBoundlessAssessor` (when the verifier class is per-fill).
 ///
 /// @dev    Two-mapping registry:
@@ -61,8 +61,8 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         ///         tag and any binding metadata.
         bytes4 classId;
         /// @notice Per-call gas cap for `staticcall`s into `impl`. A misbehaving adapter
-        ///         can self-rug its sub-batch on gas, but cannot starve settlement of
-        ///         sibling sub-batches in the same transaction.
+        ///         can self-rug its fulfillment batch on gas, but cannot starve settlement of
+        ///         sibling fulfillment batches in the same transaction.
         uint64 gasLimit;
     }
 
@@ -176,20 +176,20 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     ///         conform to the class interface" — including the `address(0)` case.
     error Erc165CheckFailed(address impl, bytes4 expectedInterfaceId);
 
-    /// @notice `verifySubBatch` was called with no fills.
-    error EmptySubBatch();
+    /// @notice `verifyBatch` was called with no fills.
+    error EmptyBatch();
 
-    /// @notice The four per-fill input arrays passed to `verifySubBatch` are not the
+    /// @notice The four per-fill input arrays passed to `verifyBatch` are not the
     ///         same length.
     error LengthMismatch();
 
-    /// @notice A seal in `verifySubBatch` was shorter than the 4 bytes required to
+    /// @notice A seal in `verifyBatch` was shorter than the 4 bytes required to
     ///         extract a selector.
     error MalformedSeal();
 
-    /// @notice Two fills in the same sub-batch resolved to different verifier classes.
-    ///         Each sub-batch must be single-class.
-    error MixedClassWithinSubBatch(bytes4 expected, bytes4 received);
+    /// @notice Two fills in the same fulfillment batch resolved to different verifier classes.
+    ///         Each fulfillment batch must be single-class.
+    error MixedClassWithinBatch(bytes4 expected, bytes4 received);
 
     /// @notice The requestor signed `0x00000000` (chain default), but no chain default
     ///         class is currently registered.
@@ -216,23 +216,23 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     error SignedSelectorTombstoned(bytes4 signed);
 
     /// @notice A per-fill verifier or joint adapter call reverted (or ran out of gas).
-    ///         The failure is isolated to the offending fill's sub-batch — sibling
-    ///         sub-batches in the same transaction still settle.
+    ///         The failure is isolated to the offending fill's fulfillment batch — sibling
+    ///         fulfillment batches in the same transaction still settle.
     error VerifierFailed(uint256 index, bytes4 selector);
 
-    /// @notice The assessor selector supplied in `verifySubBatch` belongs to a class
+    /// @notice The assessor selector supplied in `verifyBatch` belongs to a class
     ///         other than the verifier class's `requiredAssessorClass`.
     error AssessorClassMismatch(bytes4 expected, bytes4 actual);
 
     /// @notice The first seal's class is itself an assessor class — assessor classes
-    ///         are terminal and cannot be selected as the verifier class for a sub-batch.
+    ///         are terminal and cannot be selected as the verifier class for a fulfillment batch.
     error TerminalAssessorAsVerifier(bytes4 classId);
 
-    /// @notice A verifier-class sub-batch was submitted without an assessor selector.
+    /// @notice A verifier-class fulfillment batch was submitted without an assessor selector.
     ///         The assessor seam is mandatory for verifier classes.
     error AssessorRequired();
 
-    /// @notice A joint-class sub-batch was submitted with a non-empty assessor selector
+    /// @notice A joint-class fulfillment batch was submitted with a non-empty assessor selector
     ///         or seal. Joint classes have no assessor seam — both fields must be zero.
     error AssessorMustBeAbsent();
 
@@ -362,7 +362,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
 
     // ─── Verification engine ──────────────────────────────────────────────
 
-    /// @notice Verify all fills in one single-class sub-batch.
+    /// @notice Verify all fills in one single-class fulfillment batch.
     ///
     /// @param  requests        Per-fill `SlimRequest`. The CALLER is responsible
     ///                         for verifying each `SlimRequest` reconstructs to
@@ -377,7 +377,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     ///                         binding check; direct router callers must
     ///                         supply consistent values.
     /// @param  prover          Address the market will credit / slash for this
-    ///                         sub-batch. Forwarded as a universal arg to the
+    ///                         fulfillment batch. Forwarded as a universal arg to the
     ///                         assessor / joint adapter, which is responsible
     ///                         for binding it via its own mechanism.
     /// @param  assessorSeal    Bytes for the assessor call (only used for
@@ -387,10 +387,10 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     ///                         adapter.
     ///
     /// @dev    Per-fill calls are gas-bounded `staticcall`s wrapped in
-    ///         try/catch — a malicious adapter can self-rug its sub-batch but
-    ///         cannot starve settlement of sibling sub-batches. The function
+    ///         try/catch — a malicious adapter can self-rug its fulfillment batch but
+    ///         cannot starve settlement of sibling fulfillment batches. The function
     ///         is `view` because all dispatched calls are `staticcall`-equivalent.
-    function verifySubBatch(
+    function verifyBatch(
         SlimRequest[] calldata requests,
         Fulfillment[] calldata fills,
         bytes32[] calldata requestDigests,
@@ -398,7 +398,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         bytes calldata assessorSeal
     ) external view {
         uint256 n = fills.length;
-        if (n == 0) revert EmptySubBatch();
+        if (n == 0) revert EmptyBatch();
         if (requests.length != n || requestDigests.length != n) revert LengthMismatch();
 
         // 1. Resolve the verifier class from the first seal.
@@ -417,7 +417,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         for (uint256 i = 0; i < n; i++) {
             bytes4 sealSel = _sealSelector(fills[i].seal);
             Entry memory e = _entryOf(sealSel);
-            if (e.classId != verifierClassId) revert MixedClassWithinSubBatch(verifierClassId, e.classId);
+            if (e.classId != verifierClassId) revert MixedClassWithinBatch(verifierClassId, e.classId);
             _matchSignedSelector(sealSel, requests[i].selector, verifierClassId);
 
             if (_isVerifierTag(tag)) {

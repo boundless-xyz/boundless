@@ -12,7 +12,7 @@ import {Fulfillment} from "../../types/Fulfillment.sol";
 /// @title IBoundlessAssessor — per-batch fulfillment-check seam.
 ///
 /// @notice An adapter implementing this interface vouches, for each fill in a
-///         sub-batch, that the fulfillment satisfies the requestor's
+///         batch, that the fulfillment satisfies the requestor's
 ///         `predicate`. The adapter does NOT verify request authenticity —
 ///         that is the market's job (binding check before dispatch).
 ///
@@ -22,7 +22,7 @@ import {Fulfillment} from "../../types/Fulfillment.sol";
 ///             slim-payload calldata.
 ///           * R0 STARK (`R0BoundlessAssessorAdapter`) — verifies an off-chain
 ///             merkle commitment proof. Fixed ~280k Groth16 verify per call,
-///             amortized across all fills in the sub-batch.
+///             amortized across all fills in the batch.
 ///
 ///         Brokers choose between them by setting the first 4 bytes of
 ///         `assessorSeal` to the registered adapter's selector. The router

@@ -34,7 +34,7 @@ import {PredicateType} from "../../types/Predicate.sol";
 ///              Without this, a malicious prover could submit a valid seal for
 ///              one computation and journal bytes from a different one.
 ///
-///         Per sub-batch:
+///         Per batch:
 ///           3. Prover binding: `assessorSeal` carries an ECDSA signature by
 ///              `prover` over the EIP-712 hash of `(prover, requestDigests[],
 ///              claimDigests[])`. The adapter recovers the signer and asserts
@@ -45,10 +45,10 @@ import {PredicateType} from "../../types/Predicate.sol";
 contract OnChainAssessor is IBoundlessAssessor, IERC165 {
     using ReceiptClaimLib for ReceiptClaim;
 
-    /// @notice EIP-712 type for the sub-batch authorization signed by `prover`.
-    string internal constant SUB_BATCH_AUTH_TYPE =
-        "SubBatchAuth(address prover,bytes32[] requestDigests,bytes32[] claimDigests)";
-    bytes32 internal constant SUB_BATCH_AUTH_TYPEHASH = keccak256(bytes(SUB_BATCH_AUTH_TYPE));
+    /// @notice EIP-712 type for the fulfillment-batch authorization signed by `prover`.
+    string internal constant FULFILLMENT_BATCH_AUTH_TYPE =
+        "FulfillmentBatchAuth(address prover,bytes32[] requestDigests,bytes32[] claimDigests)";
+    bytes32 internal constant FULFILLMENT_BATCH_AUTH_TYPEHASH = keccak256(bytes(FULFILLMENT_BATCH_AUTH_TYPE));
 
     /// @notice EIP-712 domain pinned at deploy time (chain id + verifying contract).
     bytes32 public immutable DOMAIN_SEPARATOR;
@@ -96,7 +96,7 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
         if (fills.length != n || requestDigests.length != n) revert LengthMismatch();
 
         // Per-fill: predicate satisfaction + claim-digest binding. Collect
-        // claimDigests for the per-sub-batch signature hash.
+        // claimDigests for the per-batch signature hash.
         bytes32[] memory claimDigests = new bytes32[](n);
         for (uint256 i = 0; i < n; i++) {
             PredicateType ptype = requests[i].predicate.predicateType;
@@ -129,7 +129,7 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
             claimDigests[i] = fills[i].claimDigest;
         }
 
-        // Per sub-batch: prover signature over (prover, requestDigests, claimDigests).
+        // Per batch: prover signature over (prover, requestDigests, claimDigests).
         _verifyProverSignature(prover, requestDigests, claimDigests, assessorSeal);
     }
 
@@ -147,7 +147,10 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
 
         bytes32 structHash = keccak256(
             abi.encode(
-                SUB_BATCH_AUTH_TYPEHASH, prover, keccak256(abi.encodePacked(requestDigests)), keccak256(abi.encodePacked(claimDigests))
+                FULFILLMENT_BATCH_AUTH_TYPEHASH,
+                prover,
+                keccak256(abi.encodePacked(requestDigests)),
+                keccak256(abi.encodePacked(claimDigests))
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
