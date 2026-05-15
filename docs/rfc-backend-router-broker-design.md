@@ -81,12 +81,19 @@ Request evaluation:
 
 ```text
 RequestEvaluator
-  evaluate_request(order, exec_limit_cycles, cache_key) -> RequestEvaluation
-  evaluation_output(exec_session_id) -> bytes
+  evaluate_request(EvaluationRequest, exec_limit_cycles, cache_key) -> RequestEvaluation
+  evaluation_output(evaluation_id) -> bytes
   invalidate_evaluation(cache_key) -> ()
 
+EvaluationRequest
+  request_id
+  program_url
+  predicate
+  input_type/input_data
+  client_address
+
 RequestEvaluation
-  Success { exec_session_id, cycle_count, program_id/input_id }
+  Success { evaluation_id, cycle_count, program_id, input_id }
   Skip { cached_limit }
 ```
 
