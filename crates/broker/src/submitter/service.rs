@@ -42,7 +42,8 @@ use tokio::sync::mpsc;
 
 use crate::{
     backend::{
-        BackendObj, ComputeClaimDigest, EncodeBatchSeal, EncodeOrderSeal, FetchAssessorReceipt,
+        BackendObj, ClaimDigest, ComputeClaimDigest, EncodeBatchSeal, EncodeOrderSeal,
+        FetchAssessorReceipt,
     },
     config::ConfigLock,
     db::DbObj,
@@ -249,9 +250,10 @@ where
                 let order_journal_digest = order_journal.digest();
                 let order_claim_digest = self.backend.compute_claim_digest(ComputeClaimDigest {
                     backend_id: batch.backend_id.clone(),
-                    image_id: order_img_id,
-                    journal_digest: order_journal_digest,
+                    program_id: order_img_id.into(),
+                    public_output_digest: order_journal_digest.into(),
                 })?;
+                let order_claim_digest_risc0: Digest = order_claim_digest.into();
                 let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
@@ -287,7 +289,7 @@ where
                     let order_claim_index = aggregation_state
                         .claim_digests
                         .iter()
-                        .position(|claim| *claim == order_claim_digest)
+                        .position(|claim| *claim == order_claim_digest_risc0)
                         .ok_or(anyhow!(
                             "Failed to find order claim {order_claim:x?} in aggregated claims"
                         ))?;
@@ -297,7 +299,7 @@ where
                     );
                     tracing::debug!(
                         "Merkle path for order {order_id} : {:x?} : {order_path:x?}",
-                        order_claim_digest
+                        order_claim_digest_risc0
                     );
                     let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                         order_claim,
@@ -318,7 +320,16 @@ where
                 // For now, we default to not providing journals with claim digest match, but you could if it is a R0 ZKVM commit digest.
                 let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
                     PredicateType::ClaimDigestMatch => (
-                        order_request.requirements.predicate.data.0.as_ref().try_into().unwrap(),
+                        ClaimDigest(
+                            order_request
+                                .requirements
+                                .predicate
+                                .data
+                                .0
+                                .as_ref()
+                                .try_into()
+                                .unwrap(),
+                        ),
                         vec![],
                         FulfillmentDataType::None,
                     ),
@@ -378,13 +389,13 @@ where
         let assessor_claim_index = aggregation_state
             .claim_digests
             .iter()
-            .position(|claim| *claim == assessor_receipt.claim_digest)
+            .position(|claim| *claim == Digest::from(assessor_receipt.claim_digest))
             .ok_or(anyhow!("Failed to find order claim assessor claim in aggregated claims"))?;
         let assessor_path =
             risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
         tracing::debug!(
             "Merkle path for assessor : {:x?} : {assessor_path:x?}",
-            assessor_receipt.claim_digest
+            Digest::from(assessor_receipt.claim_digest)
         );
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
@@ -404,9 +415,9 @@ where
 
         let assessor_receipt = AssessorReceipt {
             seal: assessor_seal.into(),
-            selectors: assessor_receipt.journal.selectors,
+            selectors: assessor_receipt.selectors,
             prover: self.prover_address,
-            callbacks: assessor_receipt.journal.callbacks,
+            callbacks: assessor_receipt.callbacks,
         };
 
         let (single_txn_fulfill, withdraw) = {

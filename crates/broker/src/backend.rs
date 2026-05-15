@@ -27,8 +27,8 @@ use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
     contracts::{
-        eip712_domain, encode_seal, AssessorJournal, FulfillmentData, PredicateType,
-        UNSPECIFIED_SELECTOR,
+        eip712_domain, encode_seal, AssessorCallback, AssessorJournal, AssessorSelector,
+        FulfillmentData, PredicateType, UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
@@ -174,17 +174,21 @@ mod tests {
             Ok(cmd.proof_id.into_bytes())
         }
 
-        fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest> {
+        fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest> {
             self.ensure_backend_id(&cmd.backend_id)?;
-            Ok(cmd.image_id)
+            Ok(ClaimDigest(cmd.program_id))
         }
 
         async fn fetch_assessor_receipt(
             &self,
             cmd: FetchAssessorReceipt,
-        ) -> Result<Risc0AssessorReceipt> {
+        ) -> Result<AssessorArtifact> {
             self.ensure_backend_id(&cmd.backend_id)?;
-            Ok(Risc0AssessorReceipt { claim_digest: Digest::ZERO, journal: Default::default() })
+            Ok(AssessorArtifact {
+                claim_digest: ClaimDigest::from(Digest::ZERO),
+                selectors: Vec::new(),
+                callbacks: Vec::new(),
+            })
         }
     }
 
@@ -396,13 +400,46 @@ pub struct EncodeOrderSeal {
 
 pub struct ComputeClaimDigest {
     pub backend_id: BackendId,
-    pub image_id: Digest,
-    pub journal_digest: Digest,
+    pub program_id: [u8; 32],
+    pub public_output_digest: [u8; 32],
 }
 
 pub struct FetchAssessorReceipt {
     pub backend_id: BackendId,
     pub proof_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClaimDigest(pub [u8; 32]);
+
+impl ClaimDigest {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl From<Digest> for ClaimDigest {
+    fn from(value: Digest) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<ClaimDigest> for Digest {
+    fn from(value: ClaimDigest) -> Self {
+        Self::from(value.0)
+    }
+}
+
+impl From<ClaimDigest> for [u8; 32] {
+    fn from(value: ClaimDigest) -> Self {
+        value.0
+    }
+}
+
+pub struct AssessorArtifact {
+    pub claim_digest: ClaimDigest,
+    pub selectors: Vec<AssessorSelector>,
+    pub callbacks: Vec<AssessorCallback>,
 }
 
 #[derive(Clone, Debug)]
@@ -462,12 +499,9 @@ pub trait Backend: Send + Sync {
 
     async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>>;
 
-    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest>;
+    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest>;
 
-    async fn fetch_assessor_receipt(
-        &self,
-        cmd: FetchAssessorReceipt,
-    ) -> Result<Risc0AssessorReceipt>;
+    async fn fetch_assessor_receipt(&self, cmd: FetchAssessorReceipt) -> Result<AssessorArtifact>;
 }
 
 pub type BackendObj = Arc<dyn Backend>;
@@ -599,15 +633,12 @@ impl Backend for BackendRouter {
         backend.encode_order_seal(cmd).await
     }
 
-    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest> {
+    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
         backend.compute_claim_digest(cmd)
     }
 
-    async fn fetch_assessor_receipt(
-        &self,
-        cmd: FetchAssessorReceipt,
-    ) -> Result<Risc0AssessorReceipt> {
+    async fn fetch_assessor_receipt(&self, cmd: FetchAssessorReceipt) -> Result<AssessorArtifact> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
         backend.fetch_assessor_receipt(cmd).await
     }
@@ -811,7 +842,7 @@ impl Backend for Risc0Backend {
             .await
     }
 
-    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<Digest> {
+    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest> {
         anyhow::ensure!(
             cmd.backend_id == self.id,
             "backend {} cannot compute claim digest for backend {}",
@@ -819,13 +850,11 @@ impl Backend for Risc0Backend {
             cmd.backend_id
         );
         Ok(Risc0Submission::new(self.snark_prover.clone())
-            .claim_digest(cmd.image_id, cmd.journal_digest))
+            .claim_digest(Digest::from(cmd.program_id), Digest::from(cmd.public_output_digest))
+            .into())
     }
 
-    async fn fetch_assessor_receipt(
-        &self,
-        cmd: FetchAssessorReceipt,
-    ) -> Result<Risc0AssessorReceipt> {
+    async fn fetch_assessor_receipt(&self, cmd: FetchAssessorReceipt) -> Result<AssessorArtifact> {
         anyhow::ensure!(
             cmd.backend_id == self.id,
             "backend {} cannot fetch assessor receipt for backend {}",
@@ -851,11 +880,6 @@ pub struct Risc0BatchProcessor {
 #[derive(Clone)]
 pub struct Risc0Submission {
     prover: ProverObj,
-}
-
-pub struct Risc0AssessorReceipt {
-    pub claim_digest: Digest,
-    pub journal: AssessorJournal,
 }
 
 impl Risc0Submission {
@@ -916,7 +940,7 @@ impl Risc0Submission {
         ReceiptClaim::ok(image_id, MaybePruned::Pruned(journal_digest)).digest()
     }
 
-    pub async fn assessor_receipt(&self, proof_id: &str) -> Result<Risc0AssessorReceipt> {
+    pub async fn assessor_receipt(&self, proof_id: &str) -> Result<AssessorArtifact> {
         let receipt = self
             .prover
             .get_receipt(proof_id)
@@ -932,7 +956,11 @@ impl Risc0Submission {
         let journal = AssessorJournal::abi_decode(&receipt.journal.bytes)
             .with_context(|| format!("Failed to decode assessor journal for {proof_id}"))?;
 
-        Ok(Risc0AssessorReceipt { claim_digest, journal })
+        Ok(AssessorArtifact {
+            claim_digest: claim_digest.into(),
+            selectors: journal.selectors,
+            callbacks: journal.callbacks,
+        })
     }
 }
 
