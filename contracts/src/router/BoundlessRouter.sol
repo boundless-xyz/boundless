@@ -304,7 +304,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     /// @dev    Removing a class does NOT remove its existing `entries`. Brokers and
     ///         clients should treat any entry whose `classId` resolves to a removed
     ///         class as unusable; the router's per-fill loop guards against this via the
-    ///         class-existence check inside `_classOf`.
+    ///         class-existence check inside `_classTagOf`.
     function removeClass(bytes4 classId) external onlyRole(ADMIN_ROLE) {
         if (classes[classId].interfaceTag == bytes4(0)) revert ClassUnknown(classId);
         if (defaultClassId == classId) {
@@ -390,6 +390,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     ///         try/catch — a malicious adapter can self-rug its fulfillment batch but
     ///         cannot starve settlement of sibling fulfillment batches. The function
     ///         is `view` because all dispatched calls are `staticcall`-equivalent.
+    // TODO: use FulfillmentBatch? so that we can pass calldata from market to router to adapters without copying it into memory?
     function verifyBatch(
         SlimRequest[] calldata requests,
         Fulfillment[] calldata fills,
@@ -401,65 +402,77 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
         if (n == 0) revert EmptyBatch();
         if (requests.length != n || requestDigests.length != n) revert LengthMismatch();
 
-        // 1. Resolve the verifier class from the first seal.
+        // 1. Resolve the verifier class from the first seal. We reuse `firstEntry`
+        //    for i=0 inside the loop to avoid re-reading the same entry.
+        // TODO: what if selector is a class or default? seal is untrusted and could be anything
         bytes4 firstSel = _sealSelector(fills[0].seal);
         Entry memory firstEntry = _entryOf(firstSel);
         bytes4 verifierClassId = firstEntry.classId;
-        ClassMetadata memory cm = _classOf(verifierClassId);
-        bytes4 tag = cm.interfaceTag;
+        bytes4 tag = _classTagOf(verifierClassId);
 
         // A class registered with the assessor interface tag is terminal — only
         // referenced as `requiredAssessorClass`, never selected as a verifier class.
-        if (_isAssessorTag(tag)) revert TerminalAssessorAsVerifier(verifierClassId);
+        // TODO: cache this and use functions like `_isVerifierTag` / `_isAssessorTag`
+        bytes4 verifierTag = type(IBoundlessVerifier).interfaceId;
+        bytes4 jointTag = type(IBoundlessJointVerifierAssessor).interfaceId;
+        bool isVerifier = tag == verifierTag;
+        if (!isVerifier && tag != jointTag) {
+            // Either the terminal assessor tag (which is invalid as a verifier class)
+            // or a future tag that `addClass` accepts but this dispatch doesn't know.
+            if (tag == type(IBoundlessAssessor).interfaceId) {
+                revert TerminalAssessorAsVerifier(verifierClassId);
+            }
+            revert InvalidInterfaceTag(tag);
+        }
 
         // 2. Per-fill loop: namespace check, signed-selector resolution, gas-bounded
-        //    dispatch on interfaceTag.
-        for (uint256 i = 0; i < n; i++) {
-            bytes4 sealSel = _sealSelector(fills[i].seal);
-            Entry memory e = _entryOf(sealSel);
-            if (e.classId != verifierClassId) revert MixedClassWithinBatch(verifierClassId, e.classId);
+        //    dispatch on the (already hoisted) interface tag.
+        Entry memory e = firstEntry;
+        bytes4 sealSel = firstSel;
+        for (uint256 i = 0; i < n;) {
+            if (i != 0) {
+                sealSel = _sealSelector(fills[i].seal);
+                // TODO: if same selector appears twice, we read the same entry twice — can we save gas by caching it in memory and reusing it for subsequent matches?
+                e = _entryOf(sealSel);
+                if (e.classId != verifierClassId) revert MixedClassWithinBatch(verifierClassId, e.classId);
+            }
             _matchSignedSelector(sealSel, requests[i].selector, verifierClassId);
 
-            if (_isVerifierTag(tag)) {
+            if (isVerifier) {
                 try IBoundlessVerifier(e.impl).verify{gas: e.gasLimit}(fills[i].seal, fills[i].claimDigest) {}
                 catch {
                     revert VerifierFailed(i, sealSel);
                 }
-            } else if (_isJointTag(tag)) {
+            } else {
                 try IBoundlessJointVerifierAssessor(e.impl).verifyJoint{gas: e.gasLimit}(
                     requestDigests[i], fills[i].claimDigest, prover, fills[i].seal
                 ) {}
                 catch {
                     revert VerifierFailed(i, sealSel);
                 }
-            } else {
-                // Defensive: assessor tag was already excluded by `TerminalAssessorAsVerifier`,
-                // and `addClass` rejects every other tag value. Reaching this branch means a
-                // future interface was added to `addClass` without updating this dispatch.
-                revert InvalidInterfaceTag(tag);
+            }
+            unchecked {
+                ++i;
             }
         }
 
         // 3. Assessor dispatch — only for per-fill verifier classes.
-        if (_isVerifierTag(tag)) {
+        if (isVerifier) {
             // Assessor seam mandatory for verifier classes. An empty seal signals
             // "missing"; anything else must start with a 4-byte assessor selector.
             if (assessorSeal.length == 0) revert AssessorRequired();
             bytes4 assessorSel = _sealSelector(assessorSeal);
             Entry memory asEntry = _entryOf(assessorSel);
-            if (asEntry.classId != cm.requiredAssessorClass) {
-                revert AssessorClassMismatch(cm.requiredAssessorClass, asEntry.classId);
+            bytes4 required = classes[verifierClassId].requiredAssessorClass;
+            if (asEntry.classId != required) {
+                revert AssessorClassMismatch(required, asEntry.classId);
             }
             IBoundlessAssessor(asEntry.impl).verifyAssessor{gas: asEntry.gasLimit}(
                 requests, fills, requestDigests, prover, assessorSeal
             );
-        } else if (_isJointTag(tag)) {
+        } else {
             // Joint class: no assessor seam — caller must signal that with an empty seal.
             if (assessorSeal.length != 0) revert AssessorMustBeAbsent();
-        } else {
-            // Defensive: see the per-fill dispatch above. Unreachable as long as
-            // `addClass` and this function agree on the set of accepted interface tags.
-            revert InvalidInterfaceTag(tag);
         }
     }
 
@@ -472,17 +485,28 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     }
 
     /// @dev Look up an entry, reverting with the right error for unknown / tombstoned.
+    ///      Happy-path: 1 SLOAD on the packed Entry slot. The tombstoned check is
+    ///      deferred to the error path because a registered entry can never share a
+    ///      bytes4 with a tombstoned one (tombstoning happens on remove, after the
+    ///      entry is cleared).
     function _entryOf(bytes4 selector) internal view returns (Entry memory e) {
-        if (tombstoned[selector]) revert EntryRemoved(selector);
         e = entries[selector];
-        if (e.impl == address(0)) revert EntryUnknown(selector);
+        if (e.impl == address(0)) {
+            if (tombstoned[selector]) revert EntryRemoved(selector);
+            revert EntryUnknown(selector);
+        }
     }
 
-    /// @dev Look up a class, reverting with the right error for unknown / tombstoned.
-    function _classOf(bytes4 classId) internal view returns (ClassMetadata memory cm) {
-        if (tombstoned[classId]) revert ClassRemoved(classId);
-        cm = classes[classId];
-        if (cm.interfaceTag == bytes4(0)) revert ClassUnknown(classId);
+    /// @dev Look up a class's interface tag. Reads only slot 0 of ClassMetadata,
+    ///      avoiding the 4 extra SLOADs from a full-struct memory copy. Defers
+    ///      the tombstoned check to the error path for the same reason as
+    ///      `_entryOf`.
+    function _classTagOf(bytes4 classId) internal view returns (bytes4 tag) {
+        tag = classes[classId].interfaceTag;
+        if (tag == bytes4(0)) {
+            if (tombstoned[classId]) revert ClassRemoved(classId);
+            revert ClassUnknown(classId);
+        }
     }
 
     /// @dev Resolve the requestor's signed `Requirements.selector` against the seal's
@@ -494,12 +518,20 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
     ///      Reverts with a per-meaning error so the failure mode is unambiguous in
     ///      tests and traces.
     function _matchSignedSelector(bytes4 sealSel, bytes4 signedSel, bytes4 sealClassId) internal view {
+        // Fast paths — zero SLOADs in the happy case. The seal's selector and class
+        // are already validated by `_entryOf` / `_classTagOf` upstream, so a match
+        // against either is sufficient: namespaces are disjoint, so if signedSel
+        // equals an active sealSel/sealClassId, it can't simultaneously be
+        // tombstoned or registered to a different slot.
+        if (signedSel == sealSel) return; // signed the exact entry
+        if (signedSel == sealClassId) return; // signed the entry's class
         if (signedSel == CHAIN_DEFAULT_SENTINEL) {
             bytes4 def = defaultClassId;
             if (def == bytes4(0)) revert NoDefaultClass();
             if (sealClassId != def) revert SignedDefaultClassMismatch(sealClassId, def);
             return;
         }
+        // Cold paths — disambiguate the error.
         if (tombstoned[signedSel]) {
             // A request signed against a now-tombstoned bytes4. We can't tell which
             // namespace it was in (both share `tombstoned`), so the diagnostic error is
@@ -507,14 +539,13 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
             revert SignedSelectorTombstoned(signedSel);
         }
         if (classes[signedSel].interfaceTag != bytes4(0)) {
-            // Signed a class id — any entry under that class is acceptable.
-            if (sealClassId != signedSel) revert SignedClassMismatch(signedSel, sealClassId);
-            return;
+            // Signed a class id — the fast paths already proved sealClassId != signedSel.
+            revert SignedClassMismatch(signedSel, sealClassId);
         }
         if (entries[signedSel].impl != address(0)) {
-            // Signed a specific entry selector — the seal must match exactly.
-            if (sealSel != signedSel) revert SignedEntryMismatch(signedSel, sealSel);
-            return;
+            // Signed a specific entry selector — the fast paths already proved
+            // sealSel != signedSel.
+            revert SignedEntryMismatch(signedSel, sealSel);
         }
         // Signed bytes4 resolves to nothing — never registered, not tombstoned.
         revert SignedSelectorUnknown(signedSel);
