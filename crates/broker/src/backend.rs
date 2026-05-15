@@ -21,20 +21,22 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use alloy::primitives::{Address, FixedBytes};
-use alloy::sol_types::SolValue;
+use alloy::sol_types::{SolStruct, SolValue};
 use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
     contracts::{
-        eip712_domain, encode_seal, AssessorCallback, AssessorJournal, AssessorSelector,
-        FulfillmentData, PredicateType, UNSPECIFIED_SELECTOR,
+        eip712_domain, encode_seal, AssessorCallback, AssessorJournal, AssessorReceipt,
+        AssessorSelector, EIP712DomainSaltless, Fulfillment as MarketFulfillment, FulfillmentData,
+        FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType, ProofRequest,
+        UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
 };
 use hex::FromHex;
-use risc0_aggregation::GuestState;
+use risc0_aggregation::{GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
@@ -169,25 +171,31 @@ mod tests {
             Ok(cmd.proof_id.into_bytes())
         }
 
-        async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>> {
+        async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
             self.ensure_backend_id(&cmd.backend_id)?;
-            Ok(cmd.proof_id.into_bytes())
-        }
-
-        fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest> {
-            self.ensure_backend_id(&cmd.backend_id)?;
-            Ok(ClaimDigest(cmd.program_id))
-        }
-
-        async fn fetch_assessor_receipt(
-            &self,
-            cmd: FetchAssessorReceipt,
-        ) -> Result<AssessorArtifact> {
-            self.ensure_backend_id(&cmd.backend_id)?;
-            Ok(AssessorArtifact {
-                claim_digest: ClaimDigest::from(Digest::ZERO),
-                selectors: Vec::new(),
-                callbacks: Vec::new(),
+            Ok(FulfillmentArtifacts {
+                orders: cmd
+                    .orders
+                    .into_iter()
+                    .map(|order| OrderFulfillmentArtifact {
+                        order_id: order.order_id,
+                        fulfillment: MarketFulfillment {
+                            id: alloy::primitives::U256::ZERO,
+                            requestDigest: Default::default(),
+                            fulfillmentData: Default::default(),
+                            fulfillmentDataType: FulfillmentDataType::None,
+                            claimDigest: Default::default(),
+                            seal: Default::default(),
+                        },
+                    })
+                    .map(OrderFulfillmentResult::Fulfilled)
+                    .collect(),
+                assessor_receipt: AssessorReceipt {
+                    seal: Default::default(),
+                    selectors: Vec::new(),
+                    prover: cmd.prover_address,
+                    callbacks: Vec::new(),
+                },
             })
         }
     }
@@ -392,23 +400,6 @@ pub struct EncodeBatchSeal {
     pub proof_id: String,
 }
 
-pub struct EncodeOrderSeal {
-    pub backend_id: BackendId,
-    pub selector: FixedBytes<4>,
-    pub proof_id: String,
-}
-
-pub struct ComputeClaimDigest {
-    pub backend_id: BackendId,
-    pub program_id: [u8; 32],
-    pub public_output_digest: [u8; 32],
-}
-
-pub struct FetchAssessorReceipt {
-    pub backend_id: BackendId,
-    pub proof_id: String,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClaimDigest(pub [u8; 32]);
 
@@ -440,6 +431,44 @@ pub struct AssessorArtifact {
     pub claim_digest: ClaimDigest,
     pub selectors: Vec<AssessorSelector>,
     pub callbacks: Vec<AssessorCallback>,
+}
+
+pub struct FulfillmentOrder {
+    pub order_id: String,
+    pub request: ProofRequest,
+    pub proof_id: String,
+    pub compressed_proof_id: Option<String>,
+    pub program_id: [u8; 32],
+}
+
+pub struct FulfillmentBatch {
+    pub backend_id: BackendId,
+    pub aggregation_state: AggregationState,
+    pub assessor_proof_id: String,
+    pub set_builder_program_id: [u8; 32],
+    pub eip712_domain: EIP712DomainSaltless,
+    pub prover_address: Address,
+    pub orders: Vec<FulfillmentOrder>,
+}
+
+pub struct OrderFulfillmentArtifact {
+    pub order_id: String,
+    pub fulfillment: MarketFulfillment,
+}
+
+pub struct OrderFulfillmentFailure {
+    pub order_id: String,
+    pub error: anyhow::Error,
+}
+
+pub enum OrderFulfillmentResult {
+    Fulfilled(OrderFulfillmentArtifact),
+    Failed(OrderFulfillmentFailure),
+}
+
+pub struct FulfillmentArtifacts {
+    pub orders: Vec<OrderFulfillmentResult>,
+    pub assessor_receipt: AssessorReceipt,
 }
 
 #[derive(Clone, Debug)]
@@ -497,11 +526,7 @@ pub trait Backend: Send + Sync {
 
     async fn encode_batch_seal(&self, cmd: EncodeBatchSeal) -> Result<Vec<u8>>;
 
-    async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>>;
-
-    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest>;
-
-    async fn fetch_assessor_receipt(&self, cmd: FetchAssessorReceipt) -> Result<AssessorArtifact>;
+    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts>;
 }
 
 pub type BackendObj = Arc<dyn Backend>;
@@ -628,19 +653,9 @@ impl Backend for BackendRouter {
         backend.encode_batch_seal(cmd).await
     }
 
-    async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>> {
+    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
-        backend.encode_order_seal(cmd).await
-    }
-
-    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest> {
-        let backend = self.backend_for_id(&cmd.backend_id)?;
-        backend.compute_claim_digest(cmd)
-    }
-
-    async fn fetch_assessor_receipt(&self, cmd: FetchAssessorReceipt) -> Result<AssessorArtifact> {
-        let backend = self.backend_for_id(&cmd.backend_id)?;
-        backend.fetch_assessor_receipt(cmd).await
+        backend.build_fulfillments(cmd).await
     }
 }
 
@@ -830,38 +845,180 @@ impl Backend for Risc0Backend {
         Risc0Submission::new(self.snark_prover.clone()).encode_groth16_seal(&cmd.proof_id).await
     }
 
-    async fn encode_order_seal(&self, cmd: EncodeOrderSeal) -> Result<Vec<u8>> {
+    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
         anyhow::ensure!(
             cmd.backend_id == self.id,
-            "backend {} cannot encode order seal for backend {}",
+            "backend {} cannot build fulfillments for backend {}",
             self.id,
             cmd.backend_id
         );
-        Risc0Submission::new(self.snark_prover.clone())
-            .encode_seal_for_selector(cmd.selector, &cmd.proof_id)
-            .await
-    }
 
-    fn compute_claim_digest(&self, cmd: ComputeClaimDigest) -> Result<ClaimDigest> {
-        anyhow::ensure!(
-            cmd.backend_id == self.id,
-            "backend {} cannot compute claim digest for backend {}",
-            self.id,
-            cmd.backend_id
-        );
-        Ok(Risc0Submission::new(self.snark_prover.clone())
-            .claim_digest(Digest::from(cmd.program_id), Digest::from(cmd.public_output_digest))
-            .into())
-    }
+        let submission = Risc0Submission::new(self.snark_prover.clone());
+        let inclusion_params = SetInclusionReceiptVerifierParameters {
+            image_id: Digest::from(cmd.set_builder_program_id),
+        };
 
-    async fn fetch_assessor_receipt(&self, cmd: FetchAssessorReceipt) -> Result<AssessorArtifact> {
-        anyhow::ensure!(
-            cmd.backend_id == self.id,
-            "backend {} cannot fetch assessor receipt for backend {}",
-            self.id,
-            cmd.backend_id
+        let mut orders = Vec::with_capacity(cmd.orders.len());
+        for order in cmd.orders {
+            let order_id = order.order_id.clone();
+            let res = async {
+                let order_img_id = Digest::from(order.program_id);
+                let order_journal = self
+                    .prover
+                    .get_journal(&order.proof_id)
+                    .await
+                    .context("Failed to get order journal from prover")?
+                    .context("Order proof Journal missing")?;
+                let order_journal_digest = order_journal.digest();
+                let order_claim_digest =
+                    submission.claim_digest(order_img_id, order_journal_digest);
+
+                let seal = if is_groth16_selector(order.request.requirements.selector)
+                    || is_blake3_groth16_selector(order.request.requirements.selector)
+                {
+                    let compressed_proof_id = order.compressed_proof_id.with_context(|| {
+                        format!(
+                            "Order {} missing compressed proof ID for submission",
+                            order.order_id
+                        )
+                    })?;
+                    submission
+                        .encode_seal_for_selector(
+                            order.request.requirements.selector,
+                            &compressed_proof_id,
+                        )
+                        .await
+                        .with_context(|| {
+                            format!("Failed to encode seal for order {}", order.order_id)
+                        })?
+                } else {
+                    let order_claim =
+                        ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal_digest));
+                    let order_claim_index = cmd
+                        .aggregation_state
+                        .claim_digests
+                        .iter()
+                        .position(|claim| *claim == order_claim_digest)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Failed to find order claim {order_claim:x?} in aggregated claims"
+                            )
+                        })?;
+                    let order_path = risc0_aggregation::merkle_path(
+                        &cmd.aggregation_state.claim_digests,
+                        order_claim_index,
+                    );
+                    tracing::debug!(
+                        "Merkle path for order {} : {:x?} : {order_path:x?}",
+                        order.order_id,
+                        order_claim_digest
+                    );
+                    let set_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
+                        order_claim,
+                        order_path,
+                        inclusion_params.digest(),
+                    );
+                    set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
+                };
+
+                tracing::debug!(
+                    "Seal for order {} : {}",
+                    order.order_id,
+                    hex::encode(seal.clone())
+                );
+
+                let request_digest =
+                    order.request.eip712_signing_hash(&cmd.eip712_domain.alloy_struct());
+                let request_id = order.request.id;
+                let predicate_type = order.request.requirements.predicate.predicateType;
+
+                let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
+                    PredicateType::ClaimDigestMatch => (
+                        ClaimDigest(
+                            order
+                                .request
+                                .requirements
+                                .predicate
+                                .data
+                                .0
+                                .as_ref()
+                                .try_into()
+                                .context("claim digest predicate has invalid length")?,
+                        ),
+                        vec![],
+                        FulfillmentDataType::None,
+                    ),
+                    PredicateType::PrefixMatch | PredicateType::DigestMatch => (
+                        ClaimDigest::from(order_claim_digest),
+                        FulfillmentDataImageIdAndJournal {
+                            imageId: <[u8; 32]>::from(order_img_id).into(),
+                            journal: order_journal.into(),
+                        }
+                        .abi_encode(),
+                        FulfillmentDataType::ImageIdAndJournal,
+                    ),
+                    _ => anyhow::bail!("Invalid predicate type: {predicate_type:?}"),
+                };
+
+                Ok(OrderFulfillmentArtifact {
+                    order_id: order.order_id,
+                    fulfillment: MarketFulfillment {
+                        id: request_id,
+                        requestDigest: request_digest,
+                        fulfillmentData: fulfillment_data.into(),
+                        fulfillmentDataType: fulfillment_data_type,
+                        claimDigest: <[u8; 32]>::from(claim_digest).into(),
+                        seal: seal.into(),
+                    },
+                })
+            }
+            .await;
+
+            orders.push(match res {
+                Ok(artifact) => OrderFulfillmentResult::Fulfilled(artifact),
+                Err(error) => {
+                    OrderFulfillmentResult::Failed(OrderFulfillmentFailure { order_id, error })
+                }
+            });
+        }
+
+        let assessor = submission.assessor_receipt(&cmd.assessor_proof_id).await?;
+        let assessor_claim = Digest::from(assessor.claim_digest);
+        let assessor_claim_index = cmd
+            .aggregation_state
+            .claim_digests
+            .iter()
+            .position(|claim| *claim == assessor_claim)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Failed to find order claim assessor claim in aggregated claims")
+            })?;
+        let assessor_path = risc0_aggregation::merkle_path(
+            &cmd.aggregation_state.claim_digests,
+            assessor_claim_index,
         );
-        Risc0Submission::new(self.snark_prover.clone()).assessor_receipt(&cmd.proof_id).await
+        tracing::debug!("Merkle path for assessor : {:x?} : {assessor_path:x?}", assessor_claim);
+
+        let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
+            // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
+            // derived from the claim. So instead of constructing the journal, we simply use the
+            // zero digest. We should either plumb through the data for the assessor journal, or we
+            // should make an explicit way to encode an inclusion proof without the claim.
+            ReceiptClaim::ok(Digest::ZERO, MaybePruned::Pruned(Digest::ZERO)),
+            assessor_path,
+            inclusion_params.digest(),
+        );
+        let assessor_seal =
+            assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
+
+        Ok(FulfillmentArtifacts {
+            orders,
+            assessor_receipt: AssessorReceipt {
+                seal: assessor_seal.into(),
+                selectors: assessor.selectors,
+                prover: cmd.prover_address,
+                callbacks: assessor.callbacks,
+            },
+        })
     }
 }
 

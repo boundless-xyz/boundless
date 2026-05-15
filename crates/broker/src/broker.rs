@@ -913,7 +913,6 @@ impl Broker {
             let submitter = Arc::new(submitter::Submitter::new(
                 db.clone(),
                 config.clone(),
-                aggregation_prover.clone(),
                 backend_router.clone(),
                 provider.clone(),
                 deployment.set_verifier_address,
