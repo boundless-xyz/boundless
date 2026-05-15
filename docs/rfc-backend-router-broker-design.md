@@ -16,6 +16,47 @@ The central split is:
 - **Backend:** owns proving semantics, claim-digest computation, compression,
   seal encoding, aggregation, and assessor behavior.
 
+## Responsibility Boundary
+
+The design goal is clean ownership, not simply moving functions behind a trait.
+The broker owns orchestration. Backends own proof semantics. Contract adapters
+own transaction and ABI shape.
+
+```text
+Broker workers
+  - observe market/order-stream events
+  - decide whether to accept work
+  - enforce broker policy, capacity, pricing, allowlists, and deadlines
+  - persist order and batch lifecycle state
+  - decide when backend-specific batches close
+  - retry, cancel, and record telemetry
+  - submit transactions
+
+Backend implementations
+  - identify supported selectors
+  - evaluate backend-specific feasibility and cost signals
+  - produce per-order proof artifacts
+  - maintain backend-specific batch state
+  - compute backend-specific claim digests and seals
+  - produce batch/fulfillment artifacts consumed by submission
+
+Market submission adapters
+  - map backend artifacts to deployed contract calls
+  - bridge current market contracts and future verifier-router contracts
+  - compute market-domain request digests when needed by the contract path
+```
+
+This means broker workers may have names like `OrderEvaluator`,
+`OrderProcessor`, `AggregatorService`, and `Submitter`, but they are not backend
+implementations. The current Rust `ProvingService` name is transitional: its
+broker responsibility is order processing. It owns DB transitions,
+cancellation, retry, telemetry, fulfillment-event cancellation, and capacity
+slot completion, then delegates zkVM-specific proof work to `Backend`.
+
+`Submitter` remains the broker submission worker. It should eventually consume
+backend-prepared submission artifacts and use a market adapter, but it still
+owns transaction retry/classification and order completion side effects.
+
 ## Goals
 
 - Allow multiple backend registrations in one broker process.
@@ -577,7 +618,8 @@ Order pricer
     work_units / total_cycles
     fulfillment_data_bytes / journal_bytes
 
-Proving service
+Order processor worker
+  current Rust name: ProvingService
   process_order(ProcessOrder) -> OrderProcessProgress
   persists Running proof handles:
     Started.proof_id
@@ -591,8 +633,8 @@ Proving service
 
 Current implementation note: `ProvingService` depends on a `Backend` trait
 object. Broker startup registers the single current `Risc0Backend` behind
-`BackendRouter` for proving. The legacy constructor still builds a direct
-`Risc0Backend` for focused tests and compatibility call sites.
+`BackendRouter` for order processing. The legacy constructor still builds a
+direct `Risc0Backend` for focused tests and compatibility call sites.
 
 Aggregator service
   groups PendingBatch orders by BackendId
@@ -622,6 +664,17 @@ global broker capacity
 batch close timing
 transaction submission and retry policy
 order/batch DB schema
+```
+
+Conversely, the broker interface intentionally does not own:
+
+```text
+zkVM receipt construction or verification formulas
+selector-specific compression mechanics
+claim digest formulas
+set-builder / aggregation state semantics
+assessor proof construction and journal decoding
+seal encoding
 ```
 
 ## RISC Zero Adapter
