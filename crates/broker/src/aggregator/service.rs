@@ -22,7 +22,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    backend::Risc0BatchService,
+    backend::Risc0BatchProcessor,
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -40,7 +40,7 @@ pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
-    batch_backend: Risc0BatchService,
+    batch_backend: Risc0BatchProcessor,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -59,7 +59,7 @@ impl AggregatorService {
         prover: ProverObj,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
-        let batch_backend = Risc0BatchService::new(
+        let batch_backend = Risc0BatchProcessor::new(
             db.clone(),
             config.clone(),
             prover.clone(),

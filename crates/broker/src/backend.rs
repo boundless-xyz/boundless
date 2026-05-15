@@ -227,7 +227,7 @@ impl Backend for Risc0Backend {
 }
 
 #[derive(Clone)]
-pub struct Risc0BatchService {
+pub struct Risc0BatchProcessor {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
@@ -239,7 +239,7 @@ pub struct Risc0BatchService {
 }
 
 #[derive(Clone)]
-pub struct Risc0SubmissionService {
+pub struct Risc0SubmissionCodec {
     prover: ProverObj,
 }
 
@@ -248,7 +248,7 @@ pub struct Risc0AssessorReceipt {
     pub journal: AssessorJournal,
 }
 
-impl Risc0SubmissionService {
+impl Risc0SubmissionCodec {
     pub fn new(prover: ProverObj) -> Self {
         Self { prover }
     }
@@ -326,7 +326,7 @@ impl Risc0SubmissionService {
     }
 }
 
-impl Risc0BatchService {
+impl Risc0BatchProcessor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
