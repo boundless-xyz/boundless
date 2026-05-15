@@ -613,8 +613,14 @@ pub trait OrderPricingContext: RequestEvaluator {
             )
             .await?;
 
-        let (evaluation_id, cycle_count, program_id) = match preflight_result {
-            PreflightCacheValue::Success { evaluation_id, cycle_count, program_id, input_id } => {
+        let (cycle_count, program_id, journal) = match preflight_result {
+            PreflightCacheValue::Success {
+                evaluation_id,
+                cycle_count,
+                program_id,
+                input_id,
+                public_output,
+            } => {
                 tracing::debug!(
                     "Using request evaluation for {order_id}: evaluation id {} with {} mcycles",
                     evaluation_id,
@@ -625,7 +631,7 @@ pub trait OrderPricingContext: RequestEvaluator {
                 order.image_id = Some(program_id.clone());
                 order.input_id = Some(input_id.clone());
 
-                (evaluation_id, cycle_count, program_id)
+                (cycle_count, program_id, public_output)
             }
             PreflightCacheValue::LimitExceeded { limit } => {
                 return Ok(Skip {
@@ -728,7 +734,6 @@ pub trait OrderPricingContext: RequestEvaluator {
             }
         }
 
-        let journal = self.public_output(&evaluation_id).await?;
         let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)

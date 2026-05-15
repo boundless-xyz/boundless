@@ -82,7 +82,6 @@ Request evaluation:
 ```text
 RequestEvaluator
   evaluate_request(EvaluationRequest, EvaluationLimits) -> RequestEvaluation
-  public_output(evaluation_id) -> bytes
 
 EvaluationLimits
   max_cycles
@@ -95,7 +94,7 @@ EvaluationRequest
   client_address
 
 RequestEvaluation
-  Success { evaluation_id, cycle_count, program_id, input_id }
+  Success { evaluation_id, cycle_count, program_id, input_id, public_output }
   LimitExceeded { limit }
   GuestFailed
 ```

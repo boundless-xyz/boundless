@@ -31,8 +31,16 @@ use crate::{
 /// Result of executing a request far enough to learn backend-specific facts needed by pricing.
 #[derive(Clone, Debug)]
 pub enum RequestEvaluation {
-    Success { evaluation_id: String, cycle_count: u64, program_id: String, input_id: String },
-    LimitExceeded { limit: EvaluationLimits },
+    Success {
+        evaluation_id: String,
+        cycle_count: u64,
+        program_id: String,
+        input_id: String,
+        public_output: Vec<u8>,
+    },
+    LimitExceeded {
+        limit: EvaluationLimits,
+    },
     GuestFailed,
 }
 
@@ -135,8 +143,6 @@ pub trait RequestEvaluator {
         request: EvaluationRequest,
         limits: EvaluationLimits,
     ) -> Result<RequestEvaluation, OrderPricingError>;
-
-    async fn public_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError>;
 }
 
 /// RISC0-backed request evaluation hooks.
@@ -224,16 +230,29 @@ where
                                     "Preflight execution of {request_id} succeeded but stats are missing"
                                 )))
                             })?;
+                            let evaluation_id = res.id;
+                            let public_output = Risc0RequestEvaluatorContext::prover(self)
+                                .get_preflight_journal(&evaluation_id)
+                                .await
+                                .map_err(|e| {
+                                    OrderPricingError::UnexpectedErr(Arc::new(e.into()))
+                                })?
+                                .ok_or_else(|| {
+                                    OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                                        "Preflight journal not found"
+                                    )))
+                                })?;
                             tracing::debug!(
                                 "Preflight execution of {request_id} with session id {} and {} mcycles completed",
-                                res.id,
+                                evaluation_id,
                                 stats.total_cycles / 1_000_000
                             );
                             Ok(RequestEvaluation::Success {
-                                evaluation_id: res.id,
+                                evaluation_id,
                                 cycle_count: stats.total_cycles,
                                 program_id: image_id,
                                 input_id,
+                                public_output,
                             })
                         }
                         Err(err) => {
@@ -274,18 +293,6 @@ where
 
             return Ok(result);
         }
-    }
-
-    async fn public_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError> {
-        Risc0RequestEvaluatorContext::prover(self)
-            .get_preflight_journal(evaluation_id)
-            .await
-            .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
-            .ok_or_else(|| {
-                OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                    "Preflight journal not found"
-                )))
-            })
     }
 }
 
