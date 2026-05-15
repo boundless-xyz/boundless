@@ -862,15 +862,16 @@ impl Broker {
                     .context("Failed to register RISC0 backend selectors")?,
             );
 
-            let order_processor = Arc::new(order_processor::OrderProcessor::new_with_backend(
-                db.clone(),
-                backend_router.clone(),
-                config.clone(),
-                order_state_tx.clone(),
-                market.clone(),
-                chain_id,
-                proving_completion_tx.clone(),
-            ));
+            let order_processor =
+                Arc::new(order_processor::OrderProcessor::new_with_backend_router(
+                    db.clone(),
+                    backend_router.clone(),
+                    config.clone(),
+                    order_state_tx.clone(),
+                    market.clone(),
+                    chain_id,
+                    proving_completion_tx.clone(),
+                ));
 
             runner.spawn_in_span(
                 order_processor,

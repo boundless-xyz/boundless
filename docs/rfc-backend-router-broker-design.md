@@ -85,45 +85,47 @@ PublicOutput       opaque execution output bytes
 ClaimDigest        opaque 32-byte claim digest
 ProofId            opaque backend primitive proof handle
 CompressedProofId  opaque backend compressed proof handle
-BackendId          stable broker-side backend identity, e.g. "risc0_v1"
+BackendId          stable broker-side backend identity, e.g. "risc0_v3"
 ```
 
 Broker-facing backend:
 
 ```text
 Backend
-  resolve(selector) -> BackendId
-  evaluate_order(EvaluateOrder) -> OrderEvaluation
   process_order(ProcessOrder) -> OrderProcessProgress
-  update_batch(UpdateBatch) -> BatchProgress
-  close_batch(CloseBatch) -> CloseBatchProgress
+  cancel_order(Order) -> ()
+  estimate_batch_size(order_ids) -> BatchSizeEstimate
+  update_batch(UpdateBatch) -> BatchUpdate
+  close_batch(CloseBatch) -> BatchClose
+  build_fulfillments(FulfillmentBatch) -> FulfillmentArtifacts
 ```
 
-The broker depends only on `Backend`. A single backend and a multi-backend
-router can both implement this same interface:
+Broker services depend on `BackendRouter`. `BackendRouter` is the registry and
+selector router: it owns the backend objects, resolves selector/order-routed
+calls, and exposes router methods keyed by `BackendId` for per-backend batch
+processing.
 
 ```text
-Broker -> Backend
-            |
-            +--> Risc0Backend
-            |
-            +--> BackendRouter -> BackendEntry -> backend implementation
+OrderProcessor  -> BackendRouter -> Backend
+Aggregator      -> BackendRouter -> Backend
+Submitter       -> BackendRouter -> Backend
 ```
 
-Backend registration owns router metadata and optional internal capabilities:
+Backend registration owns only router metadata plus the backend object:
 
 ```text
 BackendEntry
   id
   selectors
   backend
-  batch_processor?
 ```
 
-`BackendEntry` is the internal registration record. The broker only needs the
-resolved `BackendId` to compute backend-specific policy limits, group batches,
-and route later backend calls. Proof type, if needed, is derived from the input
-`VerifierSelector`; it is not duplicated in `BackendEntry`.
+`BackendEntry` is the internal registration record. Batch processing is a
+backend capability, not a second object registered beside the backend. The
+broker keeps the resolved `BackendId` to compute backend-specific policy
+limits, group batches, and route later backend calls. Proof type, if needed, is
+derived from the input `VerifierSelector`; it is not duplicated in
+`BackendEntry`.
 
 Order evaluation uses minimal broker-provided limits:
 
@@ -400,8 +402,8 @@ Assessment is the final backend proof over the batch fulfillment envelope.
 Per-backend batches are tracked with `Batch.backend_id`.
 
 ```text
-BackendId("risc0_v1") -> Batch #10 -> orders [...]
-BackendId("risc0_v2") -> Batch #11 -> orders [...]
+BackendId("risc0_v3") -> Batch #10 -> orders [...]
+BackendId("risc0_v4") -> Batch #11 -> orders [...]
 BackendId("other")    -> Batch #12 -> orders [...]
 ```
 
@@ -619,8 +621,8 @@ Order pricer
     fulfillment_data_bytes / journal_bytes
 
 Order processor worker
-  current Rust name: ProvingService
   process_order(ProcessOrder) -> OrderProcessProgress
+  cancel_order(Order) on broker cancellation
   persists Running proof handles:
     Started.proof_id
     Compressed.compressed_proof_id
@@ -631,23 +633,23 @@ Order processor worker
     claim_digest
   moves order to PendingBatch
 
-Current implementation note: `ProvingService` depends on a `Backend` trait
-object. Broker startup registers the single current `Risc0Backend` behind
-`BackendRouter` for order processing. The legacy constructor still builds a
-direct `Risc0Backend` for focused tests and compatibility call sites.
+Current implementation note: broker startup registers the single current
+`Risc0Backend` behind `BackendRouter`. `OrderProcessor` and `Submitter` hold the
+router as a `Backend` trait object for selector/backend-id dispatch.
+`AggregatorService` asks the router for resolved backend objects and then calls
+batch methods directly on each backend.
 
 Aggregator service
   groups PendingBatch orders by BackendId
+  estimate_batch_size(order_ids) -> BatchSizeEstimate
   update_batch(UpdateBatch) -> BatchProgress
   persists backend BatchState
-  fails rejected_orders individually
   broker decides when the batch closes from:
     size, time, fees, deadlines, journal/fulfillment-data size
 
 Submitter / batch closer
-  close_batch(CloseBatch) -> CloseBatchProgress
-  persists Running BatchState and retries after restart
-  on Closed, submits:
+  build_fulfillments(FulfillmentBatch) -> FulfillmentArtifacts
+  submits:
     optional root submission
     fulfillment sub-batches
   marks fulfilled orders complete
@@ -700,8 +702,8 @@ Two RISC Zero versions should normally be two registrations of the same
 implementation with different config behind a router:
 
 ```text
-BackendEntry("risc0_v1", selectors_v1, Risc0Backend(config_v1), Risc0BatchProcessor(config_v1))
-BackendEntry("risc0_v2", selectors_v2, Risc0Backend(config_v2), Risc0BatchProcessor(config_v2))
+BackendEntry("risc0_v3", selectors_v3, Risc0Backend(config_v3), Risc0BatchProcessor(config_v3))
+BackendEntry("risc0_v4", selectors_v4, Risc0Backend(config_v4), Risc0BatchProcessor(config_v4))
 ```
 
 If two versions require incompatible native RISC Zero crate versions in the

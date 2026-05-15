@@ -24,7 +24,7 @@ use crate::{
     ConfigurableDownloader,
 };
 use crate::{
-    backend::{BackendObj, OrderProcessProgress, ProcessOrder, ProcessedOrder},
+    backend::{BackendRouter, OrderProcessProgress, ProcessOrder, ProcessedOrder},
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -46,7 +46,7 @@ use super::error::ProvingErr;
 #[derive(Clone)]
 pub struct OrderProcessor {
     db: DbObj,
-    backend: BackendObj,
+    backend: Arc<BackendRouter>,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
@@ -77,10 +77,21 @@ impl OrderProcessor {
             downloader,
             priority_requestors,
         ));
+        let backend_router = Arc::new(
+            BackendRouter::new()
+                .register_backend(crate::backend::BackendEntry::new(
+                    boundless_market::selector::SupportedSelectors::default()
+                        .selectors
+                        .keys()
+                        .copied(),
+                    backend,
+                ))
+                .expect("static RISC0 backend registration is valid"),
+        );
 
-        Self::new_with_backend(
+        Self::new_with_backend_router(
             db,
-            backend,
+            backend_router,
             config,
             order_state_tx,
             fulfillment_market,
@@ -90,9 +101,9 @@ impl OrderProcessor {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn new_with_backend(
+    pub fn new_with_backend_router(
         db: DbObj,
-        backend: BackendObj,
+        backend: Arc<BackendRouter>,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,

@@ -34,7 +34,7 @@ use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::{BackendObj, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult},
+    backend::{BackendRouter, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult},
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
@@ -50,7 +50,7 @@ use super::error::SubmitterErr;
 #[derive(Clone)]
 pub struct Submitter<P> {
     db: DbObj,
-    backend: BackendObj,
+    backend: Arc<BackendRouter>,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
@@ -69,7 +69,7 @@ where
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        backend: BackendObj,
+        backend: Arc<BackendRouter>,
         provider: Arc<P>,
         set_verifier_addr: Address,
         market_addr: Address,

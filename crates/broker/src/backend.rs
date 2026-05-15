@@ -263,7 +263,6 @@ mod tests {
             .register_backend(BackendEntry::new(vec![selector(1)], backend.clone()))
             .unwrap();
 
-        assert!(router.supports(selector(1)));
         let progress =
             router.process_order(ProcessOrder { order: test_order(selector(1)) }).await.unwrap();
 
@@ -543,7 +542,7 @@ pub trait Backend: Send + Sync {
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts>;
 }
 
-pub type BackendObj = Arc<dyn Backend>;
+type BackendObj = Arc<dyn Backend>;
 
 #[derive(Clone, Default)]
 pub struct BackendRouter {
@@ -601,72 +600,69 @@ impl BackendRouter {
         Ok(self)
     }
 
-    fn backend_for_order(&self, order: &Order) -> Result<BackendObj> {
+    fn backend_for_order(&self, order: &Order) -> Result<&BackendObj> {
         let selector = order.request.requirements.selector;
         let backend_id = self
             .routes
             .get(&selector)
-            .cloned()
             .with_context(|| format!("no backend registered for selector {selector:?}"))?;
         self.backends
-            .get(&backend_id)
-            .map(|entry| entry.backend.clone())
+            .get(backend_id)
+            .map(|entry| &entry.backend)
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
-    fn backend_for_id(&self, backend_id: &BackendId) -> Result<BackendObj> {
+    fn backend_for_id(&self, backend_id: &BackendId) -> Result<&BackendObj> {
         self.backends
             .get(backend_id)
-            .map(|entry| entry.backend.clone())
+            .map(|entry| &entry.backend)
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
-    pub fn backends(&self) -> Vec<(BackendId, BackendObj)> {
-        self.backends.values().map(|entry| (entry.id.clone(), entry.backend.clone())).collect()
-    }
-}
-
-#[async_trait]
-impl Backend for BackendRouter {
-    fn id(&self) -> &BackendId {
-        static ROUTER_ID: std::sync::OnceLock<BackendId> = std::sync::OnceLock::new();
-        ROUTER_ID.get_or_init(|| BackendId::new("backend_router").expect("static backend id"))
+    pub fn backend_ids(&self) -> Vec<BackendId> {
+        self.backends.keys().cloned().collect()
     }
 
-    fn supports(&self, selector: FixedBytes<4>) -> bool {
-        self.routes.contains_key(&selector)
-    }
-
-    async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
+    pub async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
         let backend = self.backend_for_order(&cmd.order)?;
         backend.process_order(cmd).await
     }
 
-    async fn cancel_order(&self, order: &Order) -> Result<()> {
+    pub async fn cancel_order(&self, order: &Order) -> Result<()> {
         let backend = self.backend_for_order(order)?;
         backend.cancel_order(order).await
     }
 
-    async fn estimate_batch_size(&self, _order_ids: &[String]) -> Result<BatchSizeEstimate> {
-        anyhow::bail!(
-            "BackendRouter cannot estimate batch size without a backend id; call the resolved backend"
-        )
+    pub async fn estimate_batch_size(
+        &self,
+        backend_id: &BackendId,
+        order_ids: &[String],
+    ) -> Result<BatchSizeEstimate> {
+        let backend = self.backend_for_id(backend_id)?;
+        backend.estimate_batch_size(order_ids).await
     }
 
-    async fn update_batch(&self, _cmd: UpdateBatch) -> Result<BatchUpdate> {
-        anyhow::bail!(
-            "BackendRouter cannot update a batch without a backend id; call the resolved backend"
-        )
+    pub async fn update_batch(
+        &self,
+        backend_id: &BackendId,
+        cmd: UpdateBatch,
+    ) -> Result<BatchUpdate> {
+        let backend = self.backend_for_id(backend_id)?;
+        backend.update_batch(cmd).await
     }
 
-    async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
-        Err(provers::ProverError::ProverInternalError(
-            "BackendRouter cannot close a batch without a backend id; call the resolved backend"
-                .to_string(),
-        ))
+    pub async fn close_batch(
+        &self,
+        backend_id: &BackendId,
+        cmd: CloseBatch,
+    ) -> Result<BatchClose, provers::ProverError> {
+        let backend = self
+            .backend_for_id(backend_id)
+            .map_err(|err| provers::ProverError::ProverInternalError(err.to_string()))?;
+        backend.close_batch(cmd).await
     }
 
-    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
+    pub async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
         backend.build_fulfillments(cmd).await
     }
