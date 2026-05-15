@@ -24,10 +24,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-#[cfg(test)]
-use crate::{backend::Risc0BatchProcessor, provers::ProverObj};
 use crate::{
-    backend::{BackendId, BackendRouter, BatchProcessorObj, BatchUpdate, CloseBatch, UpdateBatch},
+    backend::{BackendId, BackendObj, BackendRouter, BatchUpdate, CloseBatch, UpdateBatch},
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -35,13 +33,20 @@ use crate::{
     task::{BrokerService, SupervisorErr},
     Batch, BatchStatus, FulfillmentType,
 };
+#[cfg(test)]
+use crate::{
+    backend::{Risc0Backend, Risc0BatchProcessor},
+    provers::ProverObj,
+    requestor_monitor::PriorityRequestors,
+    ConfigurableDownloader,
+};
 
 use super::error::AggregatorErr;
 #[derive(Clone)]
 pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
-    batch_backends: Vec<(BackendId, BatchProcessorObj)>,
+    batch_backends: Vec<(BackendId, BackendObj)>,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -73,14 +78,27 @@ impl AggregatorService {
             chain_id,
         ));
 
-        Ok(Self::new_with_batch_processor(
+        let downloader = ConfigurableDownloader::new(config.clone()).await?;
+        let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
+        let backend = Arc::new(
+            Risc0Backend::new(
+                backend_id.clone(),
+                prover.clone(),
+                prover,
+                downloader,
+                priority_requestors,
+            )
+            .with_set_builder_program_id(set_builder_guest_id)
+            .with_batch_processor(batch_processor),
+        );
+
+        Ok(Self {
             db,
             config,
-            backend_id,
-            batch_processor,
+            batch_backends: vec![(backend_id, backend)],
             chain_id,
             proving_completion_tx,
-        ))
+        })
     }
 
     pub fn new_with_backend_router(
@@ -93,28 +111,10 @@ impl AggregatorService {
         Ok(Self {
             db,
             config,
-            batch_backends: backend_router.batch_processors()?,
+            batch_backends: backend_router.backends(),
             chain_id,
             proving_completion_tx,
         })
-    }
-
-    #[cfg(test)]
-    pub fn new_with_batch_processor(
-        db: DbObj,
-        config: ConfigLock,
-        backend_id: BackendId,
-        batch_processor: BatchProcessorObj,
-        chain_id: u64,
-        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
-    ) -> Self {
-        Self {
-            db,
-            config,
-            batch_backends: vec![(backend_id, batch_processor)],
-            chain_id,
-            proving_completion_tx,
-        }
     }
 
     /// Check if we should finalize the batch
@@ -122,7 +122,7 @@ impl AggregatorService {
     /// Checks current min-deadline, batch timer, and current block.
     async fn check_finalize(
         &self,
-        batch_backend: &BatchProcessorObj,
+        batch_backend: &BackendObj,
         batch_id: usize,
         batch: &Batch,
         pending_orders: &[AggregationOrder],
@@ -369,7 +369,7 @@ impl AggregatorService {
 
     async fn aggregate_proofs(
         &self,
-        batch_backend: &BatchProcessorObj,
+        batch_backend: &BackendObj,
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
@@ -411,7 +411,7 @@ impl AggregatorService {
     async fn aggregate_backend(
         &self,
         backend_id: &BackendId,
-        batch_backend: &BatchProcessorObj,
+        batch_backend: &BackendObj,
     ) -> Result<(), AggregatorErr> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.

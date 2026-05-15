@@ -831,16 +831,6 @@ impl Broker {
             let assessor_img_id = self
                 .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
                 .await?;
-            let risc0_backend = Arc::new(
-                Risc0Backend::new(
-                    risc0_backend_id.clone(),
-                    prover.clone(),
-                    aggregation_prover.clone(),
-                    self.downloader.clone(),
-                    priority_requestors.clone(),
-                )
-                .with_set_builder_program_id(set_builder_img_id),
-            );
             let risc0_batch_processor = Arc::new(Risc0BatchProcessor::new(
                 db.clone(),
                 config.clone(),
@@ -851,16 +841,24 @@ impl Broker {
                 prover_addr,
                 chain_id,
             ));
+            let risc0_backend = Arc::new(
+                Risc0Backend::new(
+                    risc0_backend_id.clone(),
+                    prover.clone(),
+                    aggregation_prover.clone(),
+                    self.downloader.clone(),
+                    priority_requestors.clone(),
+                )
+                .with_set_builder_program_id(set_builder_img_id)
+                .with_batch_processor(risc0_batch_processor),
+            );
 
             let backend_router = Arc::new(
                 BackendRouter::new()
-                    .register_backend(
-                        BackendEntry::new(
-                            SupportedSelectors::default().selectors.keys().copied(),
-                            risc0_backend,
-                        )
-                        .with_batch_processor(risc0_batch_processor),
-                    )
+                    .register_backend(BackendEntry::new(
+                        SupportedSelectors::default().selectors.keys().copied(),
+                        risc0_backend,
+                    ))
                     .context("Failed to register RISC0 backend selectors")?,
             );
 

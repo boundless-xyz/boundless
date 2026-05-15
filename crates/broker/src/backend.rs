@@ -166,6 +166,20 @@ mod tests {
             Ok(())
         }
 
+        async fn estimate_batch_size(&self, _order_ids: &[String]) -> Result<BatchSizeEstimate> {
+            Ok(BatchSizeEstimate { size: 0 })
+        }
+
+        async fn update_batch(&self, _cmd: UpdateBatch) -> Result<BatchUpdate> {
+            anyhow::bail!("mock backend does not update batches")
+        }
+
+        async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+            Err(provers::ProverError::ProverInternalError(
+                "mock backend does not close batches".to_string(),
+            ))
+        }
+
         async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
             self.ensure_backend_id(&cmd.backend_id)?;
             Ok(FulfillmentArtifacts {
@@ -500,7 +514,7 @@ pub struct BatchClose {
 }
 
 #[async_trait]
-pub trait BatchProcessor: Send + Sync {
+pub(crate) trait BatchProcessor: Send + Sync {
     async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate>;
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
@@ -508,7 +522,7 @@ pub trait BatchProcessor: Send + Sync {
     async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError>;
 }
 
-pub type BatchProcessorObj = Arc<dyn BatchProcessor>;
+pub(crate) type BatchProcessorObj = Arc<dyn BatchProcessor>;
 
 #[async_trait]
 pub trait Backend: Send + Sync {
@@ -519,6 +533,12 @@ pub trait Backend: Send + Sync {
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 
     async fn cancel_order(&self, order: &Order) -> Result<()>;
+
+    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate>;
+
+    async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
+
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError>;
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts>;
 }
@@ -536,18 +556,12 @@ pub struct BackendEntry {
     id: BackendId,
     selectors: Vec<FixedBytes<4>>,
     backend: BackendObj,
-    batch_processor: Option<BatchProcessorObj>,
 }
 
 impl BackendEntry {
     pub fn new(selectors: impl IntoIterator<Item = FixedBytes<4>>, backend: BackendObj) -> Self {
         let id = backend.id().clone();
-        Self { id, selectors: selectors.into_iter().collect(), backend, batch_processor: None }
-    }
-
-    pub fn with_batch_processor(mut self, batch_processor: BatchProcessorObj) -> Self {
-        self.batch_processor = Some(batch_processor);
-        self
+        Self { id, selectors: selectors.into_iter().collect(), backend }
     }
 
     pub fn id(&self) -> &BackendId {
@@ -607,17 +621,8 @@ impl BackendRouter {
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
-    pub fn batch_processors(&self) -> Result<Vec<(BackendId, BatchProcessorObj)>> {
-        self.backends
-            .values()
-            .map(|entry| {
-                let batch_processor = entry
-                    .batch_processor
-                    .clone()
-                    .with_context(|| format!("backend {} has no batch processor", entry.id()))?;
-                Ok((entry.id.clone(), batch_processor))
-            })
-            .collect()
+    pub fn backends(&self) -> Vec<(BackendId, BackendObj)> {
+        self.backends.values().map(|entry| (entry.id.clone(), entry.backend.clone())).collect()
     }
 }
 
@@ -642,6 +647,25 @@ impl Backend for BackendRouter {
         backend.cancel_order(order).await
     }
 
+    async fn estimate_batch_size(&self, _order_ids: &[String]) -> Result<BatchSizeEstimate> {
+        anyhow::bail!(
+            "BackendRouter cannot estimate batch size without a backend id; call the resolved backend"
+        )
+    }
+
+    async fn update_batch(&self, _cmd: UpdateBatch) -> Result<BatchUpdate> {
+        anyhow::bail!(
+            "BackendRouter cannot update a batch without a backend id; call the resolved backend"
+        )
+    }
+
+    async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+        Err(provers::ProverError::ProverInternalError(
+            "BackendRouter cannot close a batch without a backend id; call the resolved backend"
+                .to_string(),
+        ))
+    }
+
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
         backend.build_fulfillments(cmd).await
@@ -656,6 +680,7 @@ pub struct Risc0Backend {
     downloader: ConfigurableDownloader,
     priority_requestors: PriorityRequestors,
     set_builder_program_id: Option<Digest>,
+    batch_processor: Option<BatchProcessorObj>,
 }
 
 impl Risc0Backend {
@@ -673,12 +698,22 @@ impl Risc0Backend {
             downloader,
             priority_requestors,
             set_builder_program_id: None,
+            batch_processor: None,
         }
     }
 
     pub fn with_set_builder_program_id(mut self, set_builder_program_id: Digest) -> Self {
         self.set_builder_program_id = Some(set_builder_program_id);
         self
+    }
+
+    pub(crate) fn with_batch_processor(mut self, batch_processor: BatchProcessorObj) -> Self {
+        self.batch_processor = Some(batch_processor);
+        self
+    }
+
+    fn batch_processor(&self) -> Result<&BatchProcessorObj> {
+        self.batch_processor.as_ref().context("RISC0 backend is missing batch processor")
     }
 
     async fn start_order(&self, order: &Order) -> Result<String> {
@@ -835,6 +870,21 @@ impl Backend for Risc0Backend {
         }
 
         Ok(())
+    }
+
+    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
+        self.batch_processor()?.estimate_batch_size(order_ids).await
+    }
+
+    async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
+        self.batch_processor()?.update_batch(cmd).await
+    }
+
+    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
+        match self.batch_processor() {
+            Ok(batch_processor) => batch_processor.close_batch(cmd).await,
+            Err(err) => Err(provers::ProverError::ProverInternalError(err.to_string())),
+        }
     }
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
