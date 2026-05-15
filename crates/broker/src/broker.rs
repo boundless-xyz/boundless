@@ -861,13 +861,10 @@ impl Broker {
                     )
                     .context("Failed to register RISC0 backend selectors")?,
             );
-            let batch_processor = backend_router
-                .batch_processor(&risc0_backend_id)
-                .context("Failed to load RISC0 batch processor")?;
 
             let order_processor = Arc::new(order_processor::OrderProcessor::new_with_backend(
                 db.clone(),
-                backend_router,
+                backend_router.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 market.clone(),
@@ -882,14 +879,13 @@ impl Broker {
                 chain_span.clone(),
             );
 
-            let aggregator = Arc::new(aggregator::AggregatorService::new_with_batch_processor(
+            let aggregator = Arc::new(aggregator::AggregatorService::new_with_backend_router(
                 db.clone(),
                 config.clone(),
-                risc0_backend_id.clone(),
-                batch_processor,
+                backend_router,
                 chain_id,
                 proving_completion_tx.clone(),
-            ));
+            )?);
 
             runner.spawn_in_span(
                 aggregator,

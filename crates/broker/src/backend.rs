@@ -486,13 +486,17 @@ impl BackendRouter {
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
-    pub fn batch_processor(&self, backend_id: &BackendId) -> Result<BatchProcessorObj> {
+    pub fn batch_processors(&self) -> Result<Vec<(BackendId, BatchProcessorObj)>> {
         self.backends
-            .get(backend_id)
-            .with_context(|| format!("backend {backend_id} is not registered"))?
-            .batch_processor
-            .clone()
-            .with_context(|| format!("backend {backend_id} has no batch processor"))
+            .values()
+            .map(|entry| {
+                let batch_processor = entry
+                    .batch_processor
+                    .clone()
+                    .with_context(|| format!("backend {} has no batch processor", entry.id()))?;
+                Ok((entry.id.clone(), batch_processor))
+            })
+            .collect()
     }
 }
 

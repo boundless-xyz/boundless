@@ -19,7 +19,6 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 #[cfg(test)]
 use risc0_zkvm::sha::Digest;
-#[cfg(test)]
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -28,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 #[cfg(test)]
 use crate::{backend::Risc0BatchProcessor, provers::ProverObj};
 use crate::{
-    backend::{BackendId, BatchProcessorObj, BatchUpdate, CloseBatch, UpdateBatch},
+    backend::{BackendId, BackendRouter, BatchProcessorObj, BatchUpdate, CloseBatch, UpdateBatch},
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -42,8 +41,7 @@ use super::error::AggregatorErr;
 pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
-    backend_id: BackendId,
-    batch_backend: BatchProcessorObj,
+    batch_backends: Vec<(BackendId, BatchProcessorObj)>,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -64,7 +62,7 @@ impl AggregatorService {
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         let backend_id = BackendId::new("risc0_v3")?;
-        let batch_backend = Arc::new(Risc0BatchProcessor::new(
+        let batch_processor = Arc::new(Risc0BatchProcessor::new(
             db.clone(),
             config.clone(),
             prover.clone(),
@@ -79,21 +77,44 @@ impl AggregatorService {
             db,
             config,
             backend_id,
-            batch_backend,
+            batch_processor,
             chain_id,
             proving_completion_tx,
         ))
     }
 
+    pub fn new_with_backend_router(
+        db: DbObj,
+        config: ConfigLock,
+        backend_router: Arc<BackendRouter>,
+        chain_id: u64,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
+    ) -> Result<Self> {
+        Ok(Self {
+            db,
+            config,
+            batch_backends: backend_router.batch_processors()?,
+            chain_id,
+            proving_completion_tx,
+        })
+    }
+
+    #[cfg(test)]
     pub fn new_with_batch_processor(
         db: DbObj,
         config: ConfigLock,
         backend_id: BackendId,
-        batch_backend: BatchProcessorObj,
+        batch_processor: BatchProcessorObj,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
-        Self { db, config, backend_id, batch_backend, chain_id, proving_completion_tx }
+        Self {
+            db,
+            config,
+            batch_backends: vec![(backend_id, batch_processor)],
+            chain_id,
+            proving_completion_tx,
+        }
     }
 
     /// Check if we should finalize the batch
@@ -101,6 +122,7 @@ impl AggregatorService {
     /// Checks current min-deadline, batch timer, and current block.
     async fn check_finalize(
         &self,
+        batch_backend: &BatchProcessorObj,
         batch_id: usize,
         batch: &Batch,
         pending_orders: &[AggregationOrder],
@@ -170,10 +192,10 @@ impl AggregatorService {
 
         // Historical config name: for RISC0 this estimate is journal bytes. More generally this is
         // a backend-estimated batch size used to cap submission payload growth.
-        let batch_size_estimate = self.batch_backend.estimate_batch_size(&batch.orders).await?.size;
+        let batch_size_estimate = batch_backend.estimate_batch_size(&batch.orders).await?.size;
         let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
         let pending_size_estimate =
-            self.batch_backend.estimate_batch_size(&pending_order_ids).await?.size;
+            batch_backend.estimate_batch_size(&pending_order_ids).await?.size;
         let total_size_estimate = batch_size_estimate + pending_size_estimate;
         if total_size_estimate >= conf_max_journal_bytes {
             tracing::debug!(
@@ -324,20 +346,18 @@ impl AggregatorService {
     /// Get all pending proofs, filter expired orders, and return both aggregation and groth16 proofs separately
     async fn get_filtered_pending_proofs(
         &self,
+        backend_id: &BackendId,
     ) -> Result<(Vec<AggregationOrder>, Vec<AggregationOrder>), AggregatorErr> {
         let current_time = crate::now_timestamp();
 
         // Get both types of proofs
         let new_proofs = self
             .db
-            .get_aggregation_proofs(&self.backend_id)
+            .get_aggregation_proofs(backend_id)
             .await
             .context("Failed to get aggregation proofs")?;
-        let groth16_proofs = self
-            .db
-            .get_groth16_proofs(&self.backend_id)
-            .await
-            .context("Failed to get groth16 proofs")?;
+        let groth16_proofs =
+            self.db.get_groth16_proofs(backend_id).await.context("Failed to get groth16 proofs")?;
 
         // Filter expired orders from both lists
         let valid_new_proofs = self.filter_non_actionable_orders(new_proofs, current_time).await?;
@@ -349,14 +369,14 @@ impl AggregatorService {
 
     async fn aggregate_proofs(
         &self,
+        batch_backend: &BatchProcessorObj,
         batch_id: usize,
         batch: &Batch,
         new_proofs: &[AggregationOrder],
         new_groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<BatchUpdate> {
-        let update = self
-            .batch_backend
+        let update = batch_backend
             .update_batch(UpdateBatch {
                 batch_id,
                 existing_order_ids: batch.orders.clone(),
@@ -388,14 +408,15 @@ impl AggregatorService {
         Ok(update)
     }
 
-    async fn aggregate(&self) -> Result<(), AggregatorErr> {
+    async fn aggregate_backend(
+        &self,
+        backend_id: &BackendId,
+        batch_backend: &BatchProcessorObj,
+    ) -> Result<(), AggregatorErr> {
         // Get the current batch. This aggregator service works on one batch at a time, including
         // any proofs ready for aggregation into the current batch.
-        let batch_id = self
-            .db
-            .get_current_batch(&self.backend_id)
-            .await
-            .context("Failed to get current batch")?;
+        let batch_id =
+            self.db.get_current_batch(backend_id).await.context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
         let (aggregation_proof_id, compress, set_builder_proving_secs, assessor_proving_secs) =
@@ -403,12 +424,13 @@ impl AggregatorService {
                 BatchStatus::Aggregating => {
                     // Get and filter all pending proofs
                     let (new_proofs, new_groth16_proofs) =
-                        self.get_filtered_pending_proofs().await?;
+                        self.get_filtered_pending_proofs(backend_id).await?;
 
                     // Finalize the current batch before adding any new orders if the finalization conditions
                     // are already met.
                     let finalize = self
                         .check_finalize(
+                            batch_backend,
                             batch_id,
                             &batch,
                             &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
@@ -423,6 +445,7 @@ impl AggregatorService {
 
                     let result = self
                         .aggregate_proofs(
+                            batch_backend,
                             batch_id,
                             &batch,
                             &new_proofs,
@@ -456,8 +479,7 @@ impl AggregatorService {
             let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
             tracing::debug!("Closing batch {batch_id} with orders {:?}", batch.orders);
 
-            let close = match self
-                .batch_backend
+            let close = match batch_backend
                 .close_batch(CloseBatch {
                     batch_id,
                     aggregation_proof_id,
@@ -493,6 +515,14 @@ impl AggregatorService {
                     )
                 },
             )?;
+        }
+
+        Ok(())
+    }
+
+    async fn aggregate(&self) -> Result<(), AggregatorErr> {
+        for (backend_id, batch_backend) in &self.batch_backends {
+            self.aggregate_backend(backend_id, batch_backend).await?;
         }
 
         Ok(())
