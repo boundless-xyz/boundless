@@ -34,7 +34,9 @@ use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::prover_utils::apply_secondary_fulfillment_discount;
 use boundless_market::telemetry::EvalOutcome;
 use boundless_market::{
-    prover_utils::estimate_erc1271_gas, selector::SupportedSelectors, storage::StorageDownloader,
+    prover_utils::{estimate_erc1271_gas, Risc0RequestEvaluatorContext},
+    selector::SupportedSelectors,
+    storage::StorageDownloader,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -230,10 +232,6 @@ where
 
     fn supported_selectors(&self) -> &SupportedSelectors {
         &self.supported_selectors
-    }
-
-    fn preflight_cache(&self) -> &PreflightCache {
-        &self.preflight_cache
     }
 
     fn collateral_token_decimals(&self) -> u8 {
@@ -459,12 +457,25 @@ where
             )))
         })
     }
+}
 
+impl<P> Risc0RequestEvaluatorContext for OrderPricer<P>
+where
+    P: Provider<Ethereum> + 'static + Clone + WalletProvider,
+{
     fn prover(&self) -> &ProverObj {
         &self.prover
     }
 
     fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
         Arc::new(self.downloader.clone())
+    }
+
+    fn preflight_cache(&self) -> &PreflightCache {
+        &self.preflight_cache
+    }
+
+    fn is_priority_requestor(&self, client_addr: &Address) -> bool {
+        OrderPricingContext::is_priority_requestor(self, client_addr)
     }
 }

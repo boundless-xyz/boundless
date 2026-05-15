@@ -341,12 +341,15 @@ pub enum OrderPricingOutcome {
     Skip { code: &'static str, reason: String },
 }
 
-/// Value type for preflight cache.
+/// Result of executing a request far enough to learn backend-specific facts needed by pricing.
 #[derive(Clone, Debug)]
-pub enum PreflightCacheValue {
+pub enum RequestEvaluation {
     Success { exec_session_id: String, cycle_count: u64, image_id: String, input_id: String },
     Skip { cached_limit: u64 },
 }
+
+/// Value type for preflight cache.
+pub type PreflightCacheValue = RequestEvaluation;
 
 /// Input type for preflight cache.
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
@@ -368,6 +371,153 @@ pub struct PreflightCacheKey {
 
 /// Cache for preflight results to avoid duplicate computations.
 pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
+
+/// Executes request preflight for pricing without making broker policy decisions.
+///
+/// This is the narrow backend-facing part of request evaluation. It returns execution facts
+/// and output bytes; profitability, collateral, deadlines, and capacity remain in
+/// [`OrderPricingContext`].
+#[allow(async_fn_in_trait)]
+pub trait RequestEvaluator {
+    async fn evaluate_request(
+        &self,
+        order: &OrderRequest,
+        exec_limit_cycles: u64,
+        cache_key: PreflightCacheKey,
+    ) -> Result<RequestEvaluation, OrderPricingError>;
+
+    async fn evaluation_output(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError>;
+
+    async fn invalidate_evaluation(&self, _cache_key: &PreflightCacheKey) {}
+}
+
+/// RISC0-backed request evaluation hooks.
+///
+/// Implementors provide the execution dependencies; the blanket [`RequestEvaluator`]
+/// implementation below handles upload, cache coalescing, bounded preflight, and
+/// journal retrieval exactly as the existing RISC0 path does.
+pub trait Risc0RequestEvaluatorContext {
+    /// Access to the prover for preflight operations.
+    fn prover(&self) -> &ProverObj;
+
+    /// Access to the downloader for fetching images and inputs.
+    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync>;
+
+    /// Cache for coalescing and reusing preflight results.
+    fn preflight_cache(&self) -> &PreflightCache;
+
+    /// Whether requestor-specific limits should be bypassed for this client.
+    fn is_priority_requestor(&self, client_addr: &Address) -> bool;
+}
+
+impl<T> RequestEvaluator for T
+where
+    T: Risc0RequestEvaluatorContext + Sync,
+{
+    async fn evaluate_request(
+        &self,
+        order: &OrderRequest,
+        exec_limit_cycles: u64,
+        cache_key: PreflightCacheKey,
+    ) -> Result<RequestEvaluation, OrderPricingError> {
+        let order_id = order.id();
+
+        let prover = Risc0RequestEvaluatorContext::prover(self).clone();
+        let downloader = Risc0RequestEvaluatorContext::downloader(self);
+        let cache = Risc0RequestEvaluatorContext::preflight_cache(self).clone();
+        let image_url = order.request.imageUrl.clone();
+        let predicate = order.request.requirements.predicate.clone();
+        let input_type = order.request.input.inputType;
+        let input_data = order.request.input.data.clone();
+        let order_id_clone = order_id.clone();
+        let is_priority = Risc0RequestEvaluatorContext::is_priority_requestor(
+            self,
+            &order.request.client_address(),
+        );
+
+        // Multiple concurrent calls of this coalesce into a single execution.
+        // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
+        let result = cache
+            .try_get_with(cache_key, async move {
+                tracing::trace!(
+                    "Starting preflight execution of {order_id_clone} with limit of {exec_limit_cycles} cycles"
+                );
+
+                let image_id =
+                    upload_image_with_downloader(&prover, &image_url, &predicate, downloader.as_ref())
+                        .await
+                        .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?;
+
+                let input_id =
+                    upload_input_with_downloader(&prover, input_type, &input_data, downloader.as_ref(), is_priority)
+                        .await
+                        .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?;
+
+                match prover
+                    .preflight(&image_id, &input_id, vec![], Some(exec_limit_cycles), &order_id_clone)
+                    .await
+                {
+                    Ok(res) => {
+                        let stats = res.stats.ok_or_else(|| {
+                            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                                "Preflight execution of {order_id_clone} succeeded but stats are missing"
+                            )))
+                        })?;
+                        tracing::debug!(
+                            "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed",
+                            res.id,
+                            stats.total_cycles / 1_000_000
+                        );
+                        Ok(RequestEvaluation::Success {
+                            exec_session_id: res.id,
+                            cycle_count: stats.total_cycles,
+                            image_id,
+                            input_id,
+                        })
+                    }
+                    Err(err) => {
+                        let err_msg = err.to_string();
+                        if err_msg.contains("Session limit exceeded")
+                            || err_msg.contains("Execution stopped intentionally due to session limit")
+                        {
+                            tracing::debug!(
+                                "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}"
+                            );
+                            Ok(RequestEvaluation::Skip { cached_limit: exec_limit_cycles })
+                        } else if err_msg.contains("Guest panicked") || err_msg.contains("GuestPanic") {
+                            tracing::debug!(
+                                "Skipping order {order_id_clone} due to guest panic: {}",
+                                err_msg
+                            );
+                            Ok(RequestEvaluation::Skip { cached_limit: u64::MAX })
+                        } else {
+                            Err(OrderPricingError::UnexpectedErr(Arc::new(err.into())))
+                        }
+                    }
+                }
+            })
+            .await
+            .map_err(|e| (*e).clone())?;
+
+        Ok(result)
+    }
+
+    async fn evaluation_output(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError> {
+        Risc0RequestEvaluatorContext::prover(self)
+            .get_preflight_journal(exec_session_id)
+            .await
+            .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
+            .ok_or_else(|| {
+                OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                    "Preflight journal not found"
+                )))
+            })
+    }
+
+    async fn invalidate_evaluation(&self, cache_key: &PreflightCacheKey) {
+        Risc0RequestEvaluatorContext::preflight_cache(self).invalidate(cache_key).await;
+    }
+}
 
 /// Cache for ERC1271 `isValidSignature` gas estimates, keyed by wallet contract address.
 ///
@@ -469,10 +619,9 @@ async fn upload_input_with_downloader(
 
 /// Context required by order pricing.
 #[allow(async_fn_in_trait)]
-pub trait OrderPricingContext {
+pub trait OrderPricingContext: RequestEvaluator {
     fn market_config(&self) -> Result<MarketConfig, OrderPricingError>;
     fn supported_selectors(&self) -> &SupportedSelectors;
-    fn preflight_cache(&self) -> &PreflightCache;
     fn collateral_token_decimals(&self) -> u8;
     fn format_collateral(&self, value: U256) -> String {
         format_units(value, self.collateral_token_decimals()).unwrap_or_else(|_| "?".to_string())
@@ -521,17 +670,13 @@ pub trait OrderPricingContext {
     /// Convert an Amount to ZKC using the price oracle.
     async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
 
-    /// Access to the prover for preflight operations.
-    fn prover(&self) -> &ProverObj;
-
-    /// Access to the downloader for fetching images and inputs.
-    /// Returns an Arc so it can be cloned into async closures.
-    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync>;
-
     /// Fetch data from a URI using the downloader.
     #[cfg(feature = "prover_utils")]
-    async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, OrderPricingError> {
-        self.downloader()
+    async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, OrderPricingError>
+    where
+        Self: Risc0RequestEvaluatorContext,
+    {
+        Risc0RequestEvaluatorContext::downloader(self)
             .download(url)
             .await
             .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e.into())))
@@ -543,12 +688,15 @@ pub trait OrderPricingContext {
         &self,
         image_url: &str,
         predicate: &crate::contracts::RequestPredicate,
-    ) -> Result<String, OrderPricingError> {
+    ) -> Result<String, OrderPricingError>
+    where
+        Self: Risc0RequestEvaluatorContext,
+    {
         upload_image_with_downloader(
-            self.prover(),
+            Risc0RequestEvaluatorContext::prover(self),
             image_url,
             predicate,
-            self.downloader().as_ref(),
+            Risc0RequestEvaluatorContext::downloader(self).as_ref(),
         )
         .await
         .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
@@ -556,119 +704,21 @@ pub trait OrderPricingContext {
 
     /// Upload input data to the prover (from inline data or URL) using the downloader.
     #[cfg(feature = "prover_utils")]
-    async fn upload_input(&self, order: &OrderRequest) -> Result<String, OrderPricingError> {
-        let is_priority = self.is_priority_requestor(&order.request.client_address());
+    async fn upload_input(&self, order: &OrderRequest) -> Result<String, OrderPricingError>
+    where
+        Self: Risc0RequestEvaluatorContext,
+    {
+        let is_priority =
+            OrderPricingContext::is_priority_requestor(self, &order.request.client_address());
         upload_input_with_downloader(
-            self.prover(),
+            Risc0RequestEvaluatorContext::prover(self),
             order.request.input.inputType,
             &order.request.input.data,
-            self.downloader().as_ref(),
+            Risc0RequestEvaluatorContext::downloader(self).as_ref(),
             is_priority,
         )
         .await
         .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))
-    }
-
-    /// Execute preflight for an order.
-    async fn preflight_execute(
-        &self,
-        order: &OrderRequest,
-        exec_limit_cycles: u64,
-        cache_key: PreflightCacheKey,
-    ) -> Result<PreflightCacheValue, OrderPricingError> {
-        let order_id = order.id();
-
-        // Clone all data needed inside the closure
-        let prover = self.prover().clone();
-        let downloader = self.downloader();
-        let cache = self.preflight_cache().clone();
-        let image_url = order.request.imageUrl.clone();
-        let predicate = order.request.requirements.predicate.clone();
-        let input_type = order.request.input.inputType;
-        let input_data = order.request.input.data.clone();
-        let order_id_clone = order_id.clone();
-        let is_priority = self.is_priority_requestor(&order.request.client_address());
-
-        // Multiple concurrent calls of this coalesce into a single execution.
-        // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
-        let result = cache
-            .try_get_with(cache_key, async move {
-                tracing::trace!(
-                    "Starting preflight execution of {order_id_clone} with limit of {exec_limit_cycles} cycles"
-                );
-
-                // Upload image from URL using downloader
-                let image_id =
-                    upload_image_with_downloader(&prover, &image_url, &predicate, downloader.as_ref())
-                        .await
-                        .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?;
-
-                // Upload input using downloader
-                let input_id =
-                    upload_input_with_downloader(&prover, input_type, &input_data, downloader.as_ref(), is_priority)
-                        .await
-                        .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?;
-
-                match prover
-                    .preflight(&image_id, &input_id, vec![], Some(exec_limit_cycles), &order_id_clone)
-                    .await
-                {
-                    Ok(res) => {
-                        let stats = res.stats.ok_or_else(|| {
-                            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                                "Preflight execution of {order_id_clone} succeeded but stats are missing"
-                            )))
-                        })?;
-                        tracing::debug!(
-                            "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed",
-                            res.id,
-                            stats.total_cycles / 1_000_000
-                        );
-                        Ok(PreflightCacheValue::Success {
-                            exec_session_id: res.id,
-                            cycle_count: stats.total_cycles,
-                            image_id,
-                            input_id,
-                        })
-                    }
-                    Err(err) => {
-                        let err_msg = err.to_string();
-                        if err_msg.contains("Session limit exceeded")
-                            || err_msg.contains("Execution stopped intentionally due to session limit")
-                        {
-                            tracing::debug!(
-                                "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}"
-                            );
-                            Ok(PreflightCacheValue::Skip { cached_limit: exec_limit_cycles })
-                        } else if err_msg.contains("Guest panicked") || err_msg.contains("GuestPanic") {
-                            tracing::debug!(
-                                "Skipping order {order_id_clone} due to guest panic: {}",
-                                err_msg
-                            );
-                            Ok(PreflightCacheValue::Skip { cached_limit: u64::MAX })
-                        } else {
-                            Err(OrderPricingError::UnexpectedErr(Arc::new(err.into())))
-                        }
-                    }
-                }
-            })
-            .await
-            .map_err(|e| (*e).clone())?;
-
-        Ok(result)
-    }
-
-    /// Fetch the journal from a preflight execution.
-    async fn preflight_journal(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError> {
-        self.prover()
-            .get_preflight_journal(exec_session_id)
-            .await
-            .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
-            .ok_or_else(|| {
-                OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                    "Preflight journal not found"
-                )))
-            })
     }
     async fn price_order(
         &self,
@@ -850,11 +900,10 @@ pub trait OrderPricingContext {
         };
 
         let preflight_result = loop {
-            let result =
-                self.preflight_execute(order, exec_limit_cycles, cache_key.clone()).await?;
+            let result = self.evaluate_request(order, exec_limit_cycles, cache_key.clone()).await?;
             if let PreflightCacheValue::Skip { cached_limit } = result {
                 if cached_limit < exec_limit_cycles {
-                    self.preflight_cache().invalidate(&cache_key).await;
+                    self.invalidate_evaluation(&cache_key).await;
                     continue;
                 }
             }
@@ -969,7 +1018,7 @@ pub trait OrderPricingContext {
             }
         }
 
-        let journal = self.preflight_journal(&exec_session_id).await?;
+        let journal = self.evaluation_output(&exec_session_id).await?;
         let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)

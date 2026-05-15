@@ -12,6 +12,10 @@ Backends own proof semantics: supported selectors, per-order proof processing,
 optional aggregation, assessor behavior, compression, claim-digest/seal
 construction, and fulfillment artifacts.
 
+Request evaluation is a smaller shared surface. It executes/preflights a request
+and returns facts; broker pricing still decides whether to accept, skip, lock,
+or defer an order.
+
 The broker talks to `BackendRouter`, not directly to backend trait objects.
 `BackendRouter` owns registrations and routes by selector or `BackendId`.
 
@@ -72,6 +76,25 @@ boundary does not expose `Receipt`, `GuestState`, `Digest`, journals, or
 set-builder types.
 
 ## Interfaces
+
+Request evaluation:
+
+```text
+RequestEvaluator
+  evaluate_request(order, exec_limit_cycles, cache_key) -> RequestEvaluation
+  evaluation_output(exec_session_id) -> bytes
+  invalidate_evaluation(cache_key) -> ()
+
+RequestEvaluation
+  Success { exec_session_id, cycle_count, program_id/input_id }
+  Skip { cached_limit }
+```
+
+Today the only implementation is RISC0-backed. `OrderPricingContext` consumes
+`RequestEvaluator`; profitability, collateral, deadline, capacity, and
+allow/deny-list policy stay outside the evaluator. This keeps a small trait that
+can later be shared with the requestor SDK without making the broker backend
+router responsible for pricing.
 
 Single backend implementation:
 
@@ -313,6 +336,7 @@ packaging problem, not a broker routing problem.
 - Rename old DB/query concepts like `get_aggregation_proofs` and
   `get_groth16_proofs` to neutral batch-ready terminology.
 - Extract current-market submission adaptation out of `Submitter`.
-- Revisit request evaluation/preflight as part of the SDK/requestor API design.
+- Move request evaluation to its final SDK module once the requestor API design
+  is settled.
 - Decide where third-party backend crates should live once the trait surface is
   stable enough for out-of-tree implementations.

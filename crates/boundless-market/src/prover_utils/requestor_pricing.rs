@@ -35,7 +35,7 @@ use super::local_executor::LocalExecutor;
 use super::prover::ProverObj;
 use super::{
     Erc1271GasCache, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
-    OrderPricingOutcome, OrderRequest, PreflightCache,
+    OrderPricingOutcome, OrderRequest, PreflightCache, Risc0RequestEvaluatorContext,
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
@@ -252,10 +252,6 @@ where
         &self.supported_selectors
     }
 
-    fn preflight_cache(&self) -> &PreflightCache {
-        &self.preflight_cache
-    }
-
     fn collateral_token_decimals(&self) -> u8 {
         self.collateral_token_decimals
     }
@@ -345,12 +341,25 @@ where
             )))
         })
     }
+}
 
+impl<P> Risc0RequestEvaluatorContext for RequestorPricingContext<P>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     fn prover(&self) -> &ProverObj {
         &self.prover
     }
 
     fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
         self.downloader.clone()
+    }
+
+    fn preflight_cache(&self) -> &PreflightCache {
+        &self.preflight_cache
+    }
+
+    fn is_priority_requestor(&self, _client_addr: &Address) -> bool {
+        OrderPricingContext::is_priority_requestor(self, _client_addr)
     }
 }
