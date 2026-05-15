@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use alloy::primitives::{Address, Bytes};
+use alloy::primitives::{Address, Bytes, FixedBytes};
 use anyhow::Context;
 use hex::FromHex;
 use moka::future::Cache;
@@ -62,6 +62,10 @@ pub enum InputCacheKey {
 /// Key type for the preflight cache.
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct PreflightCacheKey {
+    /// The resolved program identity.
+    pub program_id: String,
+    /// The requested verifier selector.
+    pub selector: FixedBytes<4>,
     /// The predicate data.
     pub predicate_data: Vec<u8>,
     /// The input cache key.
@@ -76,6 +80,7 @@ pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 pub struct EvaluationRequest {
     pub request_id: String,
     pub program_url: String,
+    pub selector: FixedBytes<4>,
     pub predicate: crate::contracts::RequestPredicate,
     pub input_type: crate::contracts::RequestInputType,
     pub input_data: Bytes,
@@ -87,6 +92,7 @@ impl EvaluationRequest {
         Self {
             request_id: order.id(),
             program_url: order.request.imageUrl.clone(),
+            selector: order.request.requirements.selector,
             predicate: order.request.requirements.predicate.clone(),
             input_type: order.request.input.inputType,
             input_data: order.request.input.data.clone(),
@@ -94,7 +100,7 @@ impl EvaluationRequest {
         }
     }
 
-    fn cache_key(&self) -> Result<PreflightCacheKey, OrderPricingError> {
+    fn cache_key(&self, program_id: String) -> Result<PreflightCacheKey, OrderPricingError> {
         let predicate_data = self.predicate.data.to_vec();
         let input = match self.input_type {
             RequestInputType::Url => {
@@ -117,7 +123,7 @@ impl EvaluationRequest {
             }
         };
 
-        Ok(PreflightCacheKey { predicate_data, input })
+        Ok(PreflightCacheKey { program_id, selector: self.selector, predicate_data, input })
     }
 }
 
@@ -177,19 +183,24 @@ where
         limits: EvaluationLimits,
     ) -> Result<RequestEvaluation, OrderPricingError> {
         let max_cycles = limits.max_cycles;
-        let cache_key = request.cache_key()?;
         let prover = Risc0RequestEvaluatorContext::prover(self).clone();
         let downloader = Risc0RequestEvaluatorContext::downloader(self);
         let cache = Risc0RequestEvaluatorContext::preflight_cache(self).clone();
-        let request_id = request.request_id;
-        let program_url = request.program_url;
-        let predicate = request.predicate;
+        let request_id = request.request_id.clone();
+        let program_url = request.program_url.clone();
+        let predicate = request.predicate.clone();
+        let cache_key = request.cache_key(
+            upload_image_with_downloader(&prover, &program_url, &predicate, downloader.as_ref())
+                .await
+                .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?,
+        )?;
         let input_type = request.input_type;
         let input_data = request.input_data;
         let is_priority =
             Risc0RequestEvaluatorContext::is_priority_requestor(self, &request.client_address);
 
         loop {
+            let program_id = cache_key.program_id.clone();
             // Multiple concurrent calls of this coalesce into a single execution.
             // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
             let result = cache
@@ -197,15 +208,6 @@ where
                     tracing::trace!(
                         "Starting preflight execution of {request_id} with limit of {max_cycles} cycles"
                     );
-
-                    let image_id = upload_image_with_downloader(
-                        &prover,
-                        &program_url,
-                        &predicate,
-                        downloader.as_ref(),
-                    )
-                    .await
-                    .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?;
 
                     let input_id = upload_input_with_downloader(
                         &prover,
@@ -219,7 +221,7 @@ where
 
                     match prover
                         .preflight(
-                            &image_id,
+                            &program_id,
                             &input_id,
                             vec![],
                             Some(max_cycles),
@@ -253,7 +255,7 @@ where
                             Ok(RequestEvaluation::Success {
                                 evaluation_id,
                                 cycle_count: stats.total_cycles,
-                                program_id: image_id,
+                                program_id,
                                 input_id,
                                 public_output,
                             })
