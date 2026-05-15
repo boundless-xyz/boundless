@@ -50,11 +50,11 @@ use crate::{
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
     is_dev_mode, market_monitor, offchain_market_monitor, order_committer, order_evaluator,
-    order_locker, order_pricer,
+    order_locker, order_pricer, order_processor,
     order_types::OrderStateChange,
     provers,
     provers::ProverObj,
-    proving, reaper, requestor_monitor, service_runner,
+    reaper, requestor_monitor, service_runner,
     service_runner::ServiceRunner,
     storage::ConfigurableDownloader,
     submitter, telemetry, version_check,
@@ -358,7 +358,7 @@ impl Broker {
             channels::shared_channel(COMPLETION_CHANNEL_CAPACITY);
         // Shared broadcast for on-chain lock/fulfill events. Each chain's MarketMonitor sends into
         // this channel, and both global singletons (OrderEvaluator, OrderCommitter) and per-chain
-        // components (OrderPricer, ProvingService) subscribe. Per-chain subscribers must filter by
+        // components (OrderPricer, OrderProcessor) subscribe. Per-chain subscribers must filter by
         // chain_id since they receive events from all chains.
         let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
         let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
@@ -841,7 +841,7 @@ impl Broker {
                     .context("Failed to register RISC0 backend selectors")?,
             );
 
-            let proving_service = Arc::new(proving::ProvingService::new_with_backend(
+            let order_processor = Arc::new(order_processor::OrderProcessor::new_with_backend(
                 db.clone(),
                 prover.clone(),
                 backend_router,
@@ -853,9 +853,9 @@ impl Broker {
             ));
 
             runner.spawn_in_span(
-                proving_service,
+                order_processor,
                 service_runner::Criticality::Critical,
-                "proving service",
+                "order processor",
                 chain_span.clone(),
             );
 

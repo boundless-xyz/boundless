@@ -25,7 +25,7 @@ pub(crate) enum CommitmentOutcome {
     Skipped,
     /// Order was proven, aggregated, and fulfilled on-chain by the Submitter.
     ProvingCompleted,
-    /// Order failed somewhere in the proving pipeline (ProvingService, Aggregator,
+    /// Order failed somewhere in the proving pipeline (OrderProcessor, Aggregator,
     /// Submitter, or ReaperTask).
     ProvingFailed,
 }

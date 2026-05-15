@@ -898,7 +898,7 @@ mod tests {
 
     /// Two-phase shutdown contract: the broker uses `non_critical_cancel_token`
     /// for tasks like OrderPricer/OrderLocker (Phase 1, immediate cancel) and
-    /// `critical_cancel_token` for tasks like ProvingService/Submitter (Phase 2,
+    /// `critical_cancel_token` for tasks like OrderProcessor/Submitter (Phase 2,
     /// waited up to 2 h while in-flight orders drain).
     ///
     /// Telemetry must be bound to the **critical** token so monitoring keeps

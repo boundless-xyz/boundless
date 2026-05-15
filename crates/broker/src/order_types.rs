@@ -57,7 +57,7 @@ pub enum OrderStatus {
 }
 
 /// On-chain order state change broadcast from MarketMonitor to all unified components
-/// (OrderEvaluator, OrderPricer, OrderCommitter) and the ProvingService.
+/// (OrderEvaluator, OrderPricer, OrderCommitter) and the OrderProcessor.
 ///
 /// Each variant carries `chain_id` to ensure that events on one chain don't affect
 /// pending orders for other chains that may share the same `request_id`.

@@ -44,7 +44,7 @@ use tracing::{Instrument, Span};
 use super::error::ProvingErr;
 
 #[derive(Clone)]
-pub struct ProvingService {
+pub struct OrderProcessor {
     db: DbObj,
     prover: ProverObj,
     backend: BackendObj,
@@ -56,7 +56,7 @@ pub struct ProvingService {
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
-impl ProvingService {
+impl OrderProcessor {
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -507,11 +507,11 @@ impl ProvingService {
     }
 }
 
-impl BrokerService for ProvingService {
+impl BrokerService for OrderProcessor {
     type Error = ProvingErr;
 
     async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
-        tracing::info!("Starting proving service");
+        tracing::info!("Starting order processor");
 
         // First search the DB for any existing dangling proofs and kick off their concurrent
         // monitors
@@ -698,7 +698,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let (proving_completion_tx, _proving_completion_rx) =
             mpsc::channel::<CommitmentComplete>(100);
-        let proving_service = ProvingService::new(
+        let order_processor = OrderProcessor::new(
             db.clone(),
             prover.clone(),
             prover.clone(),
@@ -722,7 +722,7 @@ mod tests {
 
         db.add_order(&order).await.unwrap();
 
-        proving_service.prove_and_update_db(order.clone()).await;
+        order_processor.prove_and_update_db(order.clone()).await;
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
@@ -732,7 +732,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let (proving_completion_tx, _proving_completion_rx) =
             mpsc::channel::<CommitmentComplete>(100);
-        let proving_service_with_fulfillment = ProvingService::new(
+        let order_processor_with_fulfillment = OrderProcessor::new(
             db.clone(),
             prover.clone(),
             prover.clone(),
@@ -768,7 +768,7 @@ mod tests {
             .await
         });
 
-        proving_service_with_fulfillment.prove_and_update_db(lock_and_fulfill_order.clone()).await;
+        order_processor_with_fulfillment.prove_and_update_db(lock_and_fulfill_order.clone()).await;
 
         let final_order = db.get_order(&lock_and_fulfill_order.id()).await.unwrap().unwrap();
         assert_eq!(final_order.status, OrderStatus::PendingAgg);
@@ -798,7 +798,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let (proving_completion_tx, _proving_completion_rx) =
             mpsc::channel::<CommitmentComplete>(100);
-        let proving_service = ProvingService::new(
+        let order_processor = OrderProcessor::new(
             db.clone(),
             prover.clone(),
             prover,
@@ -859,7 +859,7 @@ mod tests {
         };
         db.add_order(&order).await.unwrap();
 
-        proving_service.find_and_monitor_proofs().await.unwrap();
+        order_processor.find_and_monitor_proofs().await.unwrap();
 
         // Sleep long enough for the tokio tasks to pickup and complete the order in the DB
         loop {
@@ -897,7 +897,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let (proving_completion_tx, _proving_completion_rx) =
             mpsc::channel::<CommitmentComplete>(100);
-        let proving_service = ProvingService::new(
+        let order_processor = OrderProcessor::new(
             db.clone(),
             prover.clone(),
             prover.clone(),
@@ -925,10 +925,10 @@ mod tests {
 
         db.add_order(&order).await.unwrap();
 
-        let proving_service_clone = proving_service.clone();
+        let order_processor_clone = order_processor.clone();
         let order_clone = order.clone();
         let monitor_task = tokio::spawn(async move {
-            proving_service_clone.monitor_proof_with_timeout(order_clone).await
+            order_processor_clone.monitor_proof_with_timeout(order_clone).await
         });
 
         // Send fulfillment event - should wait for proof completion (default config)
@@ -958,10 +958,10 @@ mod tests {
 
         db.add_order(&order_2).await.unwrap();
 
-        let proving_service_clone_2 = proving_service.clone();
+        let order_processor_clone_2 = order_processor.clone();
         let order_clone_2 = order_2.clone();
         let monitor_task_2 = tokio::spawn(async move {
-            proving_service_clone_2.monitor_proof_with_timeout(order_clone_2).await
+            order_processor_clone_2.monitor_proof_with_timeout(order_clone_2).await
         });
 
         // Send fulfillment event for different request ID - should be ignored

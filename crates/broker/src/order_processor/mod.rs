@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Per-chain proving service — picks committed orders out of the DB and
-//! drives them through the prover backend (Bento or Bonsai), recording the
-//! resulting proof IDs and emitting capacity completions back to the
-//! OrderCommitter.
+//! Per-chain order processor — picks committed orders out of the DB and
+//! drives them through the registered backend, recording the resulting proof
+//! IDs and emitting capacity completions back to the OrderCommitter.
 //!
 //! Layout:
-//! - [`service`] — the [`ProvingService`] struct, its constructor, and the
+//! - [`service`] — the [`OrderProcessor`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
 //! - `error` — [`ProvingErr`] enum and its `completion_outcome` mapping to
 //!   `boundless_market::telemetry::CompletionOutcome`.
@@ -26,4 +25,4 @@
 mod error;
 mod service;
 
-pub(crate) use service::ProvingService;
+pub(crate) use service::OrderProcessor;
