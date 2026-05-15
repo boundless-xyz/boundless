@@ -344,7 +344,7 @@ pub enum OrderPricingOutcome {
 /// Result of executing a request far enough to learn backend-specific facts needed by pricing.
 #[derive(Clone, Debug)]
 pub enum RequestEvaluation {
-    Success { exec_session_id: String, cycle_count: u64, image_id: String, input_id: String },
+    Success { evaluation_id: String, cycle_count: u64, program_id: String, input_id: String },
     Skip { cached_limit: u64 },
 }
 
@@ -386,7 +386,7 @@ pub trait RequestEvaluator {
         cache_key: PreflightCacheKey,
     ) -> Result<RequestEvaluation, OrderPricingError>;
 
-    async fn evaluation_output(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError>;
+    async fn evaluation_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError>;
 
     async fn invalidate_evaluation(&self, _cache_key: &PreflightCacheKey) {}
 }
@@ -469,9 +469,9 @@ where
                             stats.total_cycles / 1_000_000
                         );
                         Ok(RequestEvaluation::Success {
-                            exec_session_id: res.id,
+                            evaluation_id: res.id,
                             cycle_count: stats.total_cycles,
-                            image_id,
+                            program_id: image_id,
                             input_id,
                         })
                     }
@@ -502,9 +502,9 @@ where
         Ok(result)
     }
 
-    async fn evaluation_output(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError> {
+    async fn evaluation_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError> {
         Risc0RequestEvaluatorContext::prover(self)
-            .get_preflight_journal(exec_session_id)
+            .get_preflight_journal(evaluation_id)
             .await
             .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
             .ok_or_else(|| {
@@ -910,19 +910,19 @@ pub trait OrderPricingContext: RequestEvaluator {
             break result;
         };
 
-        let (exec_session_id, cycle_count, image_id) = match preflight_result {
-            PreflightCacheValue::Success { exec_session_id, cycle_count, image_id, input_id } => {
+        let (evaluation_id, cycle_count, program_id) = match preflight_result {
+            PreflightCacheValue::Success { evaluation_id, cycle_count, program_id, input_id } => {
                 tracing::debug!(
-                    "Using preflight result for {order_id}: session id {} with {} mcycles",
-                    exec_session_id,
+                    "Using request evaluation for {order_id}: evaluation id {} with {} mcycles",
+                    evaluation_id,
                     cycle_count / 1_000_000
                 );
 
                 // Update order with the uploaded IDs
-                order.image_id = Some(image_id.clone());
+                order.image_id = Some(program_id.clone());
                 order.input_id = Some(input_id.clone());
 
-                (exec_session_id, cycle_count, image_id)
+                (evaluation_id, cycle_count, program_id)
             }
             PreflightCacheValue::Skip { cached_limit } => {
                 return Ok(Skip {
@@ -1018,7 +1018,7 @@ pub trait OrderPricingContext: RequestEvaluator {
             }
         }
 
-        let journal = self.evaluation_output(&exec_session_id).await?;
+        let journal = self.evaluation_output(&evaluation_id).await?;
         let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)
@@ -1071,7 +1071,7 @@ pub trait OrderPricingContext: RequestEvaluator {
             FulfillmentData::None
         } else {
             FulfillmentData::from_image_id_and_journal(
-                Risc0Digest::from_hex(image_id).context("Failed to parse image ID")?,
+                Risc0Digest::from_hex(program_id).context("Failed to parse image ID")?,
                 journal,
             )
         };
