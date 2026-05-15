@@ -474,13 +474,13 @@ Done
 ```text
 BatchStatus:
 
-Open                         currently BatchStatus::Aggregating
+Open
   |
   v
 PendingCompression
   |
   v
-ReadyToSubmit                currently BatchStatus::Complete
+ReadyToSubmit
   |
   v
 PendingSubmission
@@ -491,16 +491,14 @@ Submitted
 Failed
 ```
 
-`BatchStatus::Aggregating` is the current database name for an open broker
-batch. It does not imply that every order in the batch needs set-builder
-aggregation. A backend may accept some orders into aggregation state and route
-others directly to the assessor/submission envelope. The common broker meaning
-is "this batch can still receive backend updates or be finalized." A later
-migration should rename this persisted status to `Open` or equivalent.
+`BatchStatus::Open` means an open broker batch. It does not imply that every
+order in the batch needs set-builder aggregation. A backend may accept some
+orders into aggregation state and route others directly to the
+assessor/submission envelope. The common broker meaning is "this batch can
+still receive backend updates or be finalized."
 
-`BatchStatus::Complete` currently means "backend artifacts are ready and the
-batch is waiting to be claimed by the submitter." A later migration should
-rename this to `ReadyToSubmit` or equivalent.
+`BatchStatus::ReadyToSubmit` means backend artifacts are ready and the batch is
+waiting to be claimed by the submitter.
 
 `PendingCompression` means the backend has finalized/assessed the batch and the
 final proof artifact must be compressed before submission.
@@ -729,9 +727,6 @@ The stable requirement is that any request builder produces protocol-valid
 
 - Should `BatchCandidate.status` remain visible to the aggregator service, or
   should the service only receive neutral candidate data?
-- Should persisted `BatchStatus` variants be renamed from RISC Zero-shaped
-  lifecycle names to broker-neutral names (`Aggregating` -> `Open`,
-  `Complete` -> `ReadyToSubmit`) in a migration-aware cleanup?
 - Should telemetry preserve old field names for compatibility, or migrate fully
   to `aggregation_secs`, `assessor_secs`, and
   `batch_compression_secs`?

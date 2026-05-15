@@ -593,7 +593,7 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(BatchStatus::Complete)
+        .bind(BatchStatus::ReadyToSubmit)
         .bind(g16_proof_id)
         .bind(batch_id as i64)
         .execute(&self.pool)
@@ -622,7 +622,7 @@ impl BrokerDb for SqliteDb {
             "#,
         )
         .bind(BatchStatus::PendingSubmission)
-        .bind(BatchStatus::Complete)
+        .bind(BatchStatus::ReadyToSubmit)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -692,7 +692,7 @@ impl BrokerDb for SqliteDb {
             let cur_batch: Option<DbBatch> = sqlx::query_as(
                 "SELECT * FROM batches WHERE data->>'status' IN ($1, $2) AND data->>'backend_id' = $3 LIMIT 1",
             )
-            .bind(BatchStatus::Aggregating)
+            .bind(BatchStatus::Open)
             .bind(BatchStatus::PendingCompression)
             .bind(backend_id.to_string())
             .fetch_optional(&self.pool)
@@ -1252,7 +1252,7 @@ mod tests {
 
         let batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(batch.backend_id, test_backend_id());
-        assert_eq!(batch.status, BatchStatus::Aggregating);
+        assert_eq!(batch.status, BatchStatus::Open);
 
         let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         assert_eq!(batch_id, 1);
@@ -1281,7 +1281,7 @@ mod tests {
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let batch = db.get_batch(batch_id).await.unwrap();
-        assert_eq!(batch.status, BatchStatus::Aggregating);
+        assert_eq!(batch.status, BatchStatus::Open);
     }
 
     #[sqlx::test]
@@ -1305,7 +1305,7 @@ mod tests {
         db.complete_batch(batch_id, g16_proof_id).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
-        assert_eq!(db_batch.status, BatchStatus::Complete);
+        assert_eq!(db_batch.status, BatchStatus::ReadyToSubmit);
         assert_eq!(db_batch.aggregation_state.unwrap().groth16_proof_id.unwrap(), g16_proof_id);
     }
 
@@ -1314,8 +1314,10 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let batch =
-            Batch { status: BatchStatus::Complete, ..Batch::new(test_backend_id(), Utc::now()) };
+        let batch = Batch {
+            status: BatchStatus::ReadyToSubmit,
+            ..Batch::new(test_backend_id(), Utc::now())
+        };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 

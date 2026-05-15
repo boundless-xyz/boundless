@@ -426,7 +426,7 @@ impl AggregatorService {
 
         let (aggregation_proof_id, compress, set_builder_proving_secs, assessor_proving_secs) =
             match batch.status {
-                BatchStatus::Aggregating => {
+                BatchStatus::Open => {
                     // Get and filter all pending proofs
                     let (new_proofs, new_groth16_proofs) =
                         self.get_filtered_pending_proofs(backend_id).await?;

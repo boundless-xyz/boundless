@@ -25,9 +25,9 @@ use crate::backend::BackendId;
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BatchStatus {
     #[default]
-    Aggregating,
+    Open,
     PendingCompression,
-    Complete,
+    ReadyToSubmit,
     PendingSubmission,
     Submitted,
     Failed,
@@ -74,7 +74,7 @@ impl Batch {
     pub fn new(backend_id: BackendId, start_time: DateTime<Utc>) -> Self {
         Self {
             backend_id,
-            status: BatchStatus::Aggregating,
+            status: BatchStatus::Open,
             orders: Vec::new(),
             assessor_proof_id: None,
             aggregation_state: None,

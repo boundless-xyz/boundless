@@ -783,7 +783,7 @@ mod tests {
         let batch_id = 0;
         let batch = Batch {
             backend_id: BackendId::new("risc0_v3").unwrap(),
-            status: BatchStatus::Complete,
+            status: BatchStatus::ReadyToSubmit,
             assessor_proof_id: Some(assessor_proof.id),
             orders: vec![order_id],
             fees: U256::ZERO,
