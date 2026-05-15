@@ -27,8 +27,8 @@ pub use config::{
     OrderPricingPriority, PricingOverrides, ProverConfig, RpcMode, TelemetryMode,
 };
 pub use request_evaluator::{
-    EvaluationRequest, InputCacheKey, PreflightCache, PreflightCacheKey, PreflightCacheValue,
-    RequestEvaluation, RequestEvaluator, Risc0RequestEvaluatorContext,
+    EvaluationLimits, EvaluationRequest, InputCacheKey, PreflightCache, PreflightCacheKey,
+    PreflightCacheValue, RequestEvaluation, RequestEvaluator, Risc0RequestEvaluatorContext,
 };
 
 use crate::{
@@ -606,8 +606,12 @@ pub trait OrderPricingContext: RequestEvaluator {
             exec_limit_cycles / 1_000_000
         );
 
-        let preflight_result =
-            self.evaluate_request(EvaluationRequest::from_order(order), exec_limit_cycles).await?;
+        let preflight_result = self
+            .evaluate_request(
+                EvaluationRequest::from_order(order),
+                EvaluationLimits::new(exec_limit_cycles),
+            )
+            .await?;
 
         let (evaluation_id, cycle_count, program_id) = match preflight_result {
             PreflightCacheValue::Success { evaluation_id, cycle_count, program_id, input_id } => {

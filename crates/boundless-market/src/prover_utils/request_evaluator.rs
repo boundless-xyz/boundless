@@ -109,6 +109,19 @@ impl EvaluationRequest {
     }
 }
 
+/// Resource limits to apply while evaluating a request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct EvaluationLimits {
+    pub max_cycles: u64,
+}
+
+impl EvaluationLimits {
+    pub fn new(max_cycles: u64) -> Self {
+        Self { max_cycles }
+    }
+}
+
 /// Executes request preflight for pricing without making broker policy decisions.
 ///
 /// This is the narrow backend-facing part of request evaluation. It returns execution facts
@@ -119,7 +132,7 @@ pub trait RequestEvaluator {
     async fn evaluate_request(
         &self,
         request: EvaluationRequest,
-        exec_limit_cycles: u64,
+        limits: EvaluationLimits,
     ) -> Result<RequestEvaluation, OrderPricingError>;
 
     async fn evaluation_output(&self, evaluation_id: &str) -> Result<Vec<u8>, OrderPricingError>;
@@ -151,8 +164,9 @@ where
     async fn evaluate_request(
         &self,
         request: EvaluationRequest,
-        exec_limit_cycles: u64,
+        limits: EvaluationLimits,
     ) -> Result<RequestEvaluation, OrderPricingError> {
+        let max_cycles = limits.max_cycles;
         let cache_key = request.cache_key()?;
         let prover = Risc0RequestEvaluatorContext::prover(self).clone();
         let downloader = Risc0RequestEvaluatorContext::downloader(self);
@@ -171,7 +185,7 @@ where
             let result = cache
                 .try_get_with(cache_key.clone(), async {
                     tracing::trace!(
-                        "Starting preflight execution of {request_id} with limit of {exec_limit_cycles} cycles"
+                        "Starting preflight execution of {request_id} with limit of {max_cycles} cycles"
                     );
 
                     let image_id = upload_image_with_downloader(
@@ -198,7 +212,7 @@ where
                             &image_id,
                             &input_id,
                             vec![],
-                            Some(exec_limit_cycles),
+                            Some(max_cycles),
                             &request_id,
                         )
                         .await
@@ -229,9 +243,9 @@ where
                                 )
                             {
                                 tracing::debug!(
-                                    "Skipping order {request_id} due to intentional execution limit of {exec_limit_cycles}"
+                                    "Skipping order {request_id} due to intentional execution limit of {max_cycles}"
                                 );
-                                Ok(RequestEvaluation::Skip { cached_limit: exec_limit_cycles })
+                                Ok(RequestEvaluation::Skip { cached_limit: max_cycles })
                             } else if err_msg.contains("Guest panicked")
                                 || err_msg.contains("GuestPanic")
                             {
@@ -250,7 +264,7 @@ where
                 .map_err(|e| (*e).clone())?;
 
             if let RequestEvaluation::Skip { cached_limit } = result {
-                if cached_limit < exec_limit_cycles {
+                if cached_limit < max_cycles {
                     cache.invalidate(&cache_key).await;
                     continue;
                 }

@@ -81,8 +81,11 @@ Request evaluation:
 
 ```text
 RequestEvaluator
-  evaluate_request(EvaluationRequest, exec_limit_cycles) -> RequestEvaluation
+  evaluate_request(EvaluationRequest, EvaluationLimits) -> RequestEvaluation
   evaluation_output(evaluation_id) -> bytes
+
+EvaluationLimits
+  max_cycles
 
 EvaluationRequest
   request_id
