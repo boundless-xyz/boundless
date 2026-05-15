@@ -335,6 +335,11 @@ pub struct ProcessedOrder {
     pub next_status: OrderStatus,
 }
 
+#[derive(Clone, Debug)]
+pub struct BatchSizeEstimate {
+    pub size: usize,
+}
+
 #[async_trait]
 pub trait Backend: Send + Sync {
     fn id(&self) -> &BackendId;
@@ -760,6 +765,38 @@ impl Risc0BatchProcessor {
             .with_context(|| format!("Failed to extract claim value for {proof_id}"))?;
 
         Ok(prune_receipt_claim_journal(claim))
+    }
+
+    pub async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
+        let mut size = 0;
+        for order_id in order_ids {
+            let order = self
+                .db
+                .get_order(order_id)
+                .await
+                .with_context(|| format!("Failed to get order {order_id}"))?
+                .with_context(|| format!("Order {order_id} missing from DB"))?;
+
+            let proof_id =
+                order.proof_id.with_context(|| format!("Missing proof_id for order {order_id}"))?;
+
+            let journal = self
+                .prover
+                .get_journal(&proof_id)
+                .await
+                .with_context(|| format!("Failed to get journal for {proof_id}"))?
+                .with_context(|| format!("Journal for {proof_id} missing"))?;
+
+            // For RISC0 claim-digest match orders, the journal is not included in calldata.
+            if !matches!(
+                order.request.requirements.predicate.predicateType,
+                PredicateType::ClaimDigestMatch
+            ) {
+                size += journal.len();
+            }
+        }
+
+        Ok(BatchSizeEstimate { size })
     }
 
     pub async fn prove_set_builder(

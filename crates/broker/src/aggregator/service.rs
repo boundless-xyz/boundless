@@ -14,7 +14,6 @@
 
 use alloy::primitives::{utils, Address};
 use anyhow::{Context, Result};
-use boundless_market::contracts::PredicateType;
 use chrono::Utc;
 use risc0_zkvm::sha::Digest;
 
@@ -39,7 +38,6 @@ use super::types::AggregateProofsResult;
 pub struct AggregatorService {
     db: DbObj,
     config: ConfigLock,
-    prover: ProverObj,
     batch_backend: Risc0BatchProcessor,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the global proving capacity slot.
@@ -70,40 +68,7 @@ impl AggregatorService {
             chain_id,
         );
 
-        Ok(Self { db, config, prover, batch_backend, chain_id, proving_completion_tx })
-    }
-
-    /// Get the sum of the size of the journals for proofs in a batch
-    async fn get_combined_journal_size(&self, order_ids: &[String]) -> Result<usize> {
-        let mut journal_size = 0;
-        for order_id in order_ids {
-            let order = self
-                .db
-                .get_order(order_id)
-                .await
-                .with_context(|| format!("Failed to get order {order_id}"))?
-                .with_context(|| format!("Order {order_id} missing from DB"))?;
-
-            let proof_id =
-                order.proof_id.with_context(|| format!("Missing proof_id for order {order_id}"))?;
-
-            let journal = self
-                .prover
-                .get_journal(&proof_id)
-                .await
-                .with_context(|| format!("Failed to get journal for {proof_id}"))?
-                .with_context(|| format!("Journal for {proof_id} missing"))?;
-
-            // For claim digest match predicate orders, the journal is not included in the calldata.
-            if !matches!(
-                order.request.requirements.predicate.predicateType,
-                PredicateType::ClaimDigestMatch
-            ) {
-                journal_size += journal.len();
-            }
-        }
-
-        Ok(journal_size)
+        Ok(Self { db, config, batch_backend, chain_id, proving_completion_tx })
     }
 
     /// Check if we should finalize the batch
@@ -178,22 +143,24 @@ impl AggregatorService {
             );
         }
 
-        // Finalize the batch if the journal size is already above the max
-        let batch_journal_size = self.get_combined_journal_size(&batch.orders).await?;
+        // Historical config name: for RISC0 this estimate is journal bytes. More generally this is
+        // a backend-estimated batch size used to cap submission payload growth.
+        let batch_size_estimate = self.batch_backend.estimate_batch_size(&batch.orders).await?.size;
         let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
-        let pending_journal_size = self.get_combined_journal_size(&pending_order_ids).await?;
-        let journal_size = batch_journal_size + pending_journal_size;
-        if journal_size >= conf_max_journal_bytes {
+        let pending_size_estimate =
+            self.batch_backend.estimate_batch_size(&pending_order_ids).await?.size;
+        let total_size_estimate = batch_size_estimate + pending_size_estimate;
+        if total_size_estimate >= conf_max_journal_bytes {
             tracing::debug!(
-                "Finalizing batch {batch_id}: journal size target hit {} >= {}",
-                journal_size,
+                "Finalizing batch {batch_id}: batch size target hit {} >= {}",
+                total_size_estimate,
                 conf_max_journal_bytes
             );
             return Ok(true);
         } else {
             tracing::debug!(
-                "Batch {batch_id} journal size below limit {} < {}",
-                journal_size,
+                "Batch {batch_id} size estimate below limit {} < {}",
+                total_size_estimate,
                 conf_max_journal_bytes
             );
         }
@@ -1293,7 +1260,7 @@ mod tests {
         // add first order and aggregate
         db.add_order(&order).await.unwrap();
         aggregator.aggregate().await.unwrap();
-        assert!(logs_contain("journal size below limit 20 < 30"));
+        assert!(logs_contain("size estimate below limit 20 < 30"));
 
         let batch_res = db.get_complete_batch().await.unwrap();
         assert!(batch_res.is_none());
@@ -1333,7 +1300,7 @@ mod tests {
 
         db.add_order(&order2).await.unwrap();
         aggregator.aggregate().await.unwrap();
-        assert!(logs_contain("journal size target hit 40 >= 30"));
+        assert!(logs_contain("batch size target hit 40 >= 30"));
 
         let (_, batch) = db.get_complete_batch().await.unwrap().unwrap();
         assert_eq!(batch.orders.len(), 2);
