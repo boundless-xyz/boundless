@@ -156,8 +156,8 @@ mod tests {
     use alloy::primitives::{Address, Bytes, U256};
     use async_trait::async_trait;
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment as MarketFulfillment, FulfillmentDataType, Offer, Predicate,
-        ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+        Fulfillment as MarketFulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
+        RequestId, RequestInput, RequestInputType, Requirements,
     };
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
@@ -217,7 +217,7 @@ mod tests {
             Ok(OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: self.id.clone(),
                 order_id: cmd.order.id(),
-                proof_id: "proof".to_string(),
+                proof_id: "proof".try_into().unwrap(),
                 compressed_proof_id: None,
                 next_status: OrderStatus::PendingAgg,
             }))
@@ -262,10 +262,9 @@ mod tests {
                     })
                     .map(OrderFulfillmentResult::Fulfilled)
                     .collect(),
-                assessor_receipt: AssessorReceipt {
+                assessor: super::super::types::SubmissionAssessorArtifact {
                     seal: Default::default(),
                     selectors: Vec::new(),
-                    prover: cmd.prover_address,
                     callbacks: Vec::new(),
                 },
             })
@@ -334,7 +333,7 @@ mod tests {
             OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: BackendId::new("mock_a").unwrap(),
                 order_id: test_order(selector(1)).id(),
-                proof_id: "proof".to_string(),
+                proof_id: "proof".try_into().unwrap(),
                 compressed_proof_id: None,
                 next_status: OrderStatus::PendingAgg,
             })

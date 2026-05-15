@@ -25,7 +25,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    backend::{BackendId, BackendRouter, BatchUpdate, CloseBatch, UpdateBatch},
+    backend::{
+        BackendId, BackendRouter, BatchOrder, BatchUpdate, CloseBatch, CompressedProofId, ProofId,
+        UpdateBatch,
+    },
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -42,6 +45,23 @@ use crate::{
 };
 
 use super::error::AggregatorErr;
+
+fn batch_order_from_aggregation_order(
+    order: AggregationOrder,
+    compressed_proof_id: Option<CompressedProofId>,
+) -> Result<BatchOrder> {
+    Ok(BatchOrder {
+        order_id: order.order_id,
+        proof_id: ProofId::new(order.proof_id)?,
+        compressed_proof_id,
+        expiration: order.expiration,
+        fee: order.fee,
+        fulfillment_type: order.fulfillment_type,
+        request_id: order.request_id,
+        lock_expiration: order.lock_expiration,
+    })
+}
+
 #[derive(Clone)]
 pub struct AggregatorService {
     db: DbObj,
@@ -170,8 +190,7 @@ impl AggregatorService {
         };
 
         // Skip finalization checks if we have nothing in this batch
-        let is_initial_state =
-            batch.aggregation_state.as_ref().map(|s| s.guest_state.is_initial()).unwrap_or(true);
+        let is_initial_state = batch.backend_state.is_none();
         if is_initial_state && pending_orders.is_empty() {
             return Ok(false);
         }
@@ -381,6 +400,17 @@ impl AggregatorService {
         new_groth16_proofs: &[AggregationOrder],
         finalize: bool,
     ) -> Result<BatchUpdate> {
+        let new_orders = new_proofs
+            .iter()
+            .cloned()
+            .map(|order| batch_order_from_aggregation_order(order, None))
+            .chain(new_groth16_proofs.iter().cloned().map(|order| {
+                let compressed_proof_id = CompressedProofId::new(order.proof_id.clone())
+                    .expect("database returned empty compressed proof id");
+                batch_order_from_aggregation_order(order, Some(compressed_proof_id))
+            }))
+            .collect::<Result<Vec<_>, _>>()?;
+
         let update = self
             .backend
             .update_batch(
@@ -388,9 +418,8 @@ impl AggregatorService {
                 UpdateBatch {
                     batch_id,
                     existing_order_ids: batch.orders.clone(),
-                    aggregation_state: batch.aggregation_state.clone(),
-                    new_proofs: new_proofs.to_vec(),
-                    new_compressed_proofs: new_groth16_proofs.to_vec(),
+                    state: batch.backend_state.clone(),
+                    new_orders,
                     finalize,
                 },
             )
@@ -402,7 +431,7 @@ impl AggregatorService {
         self.db
             .update_batch(
                 batch_id,
-                &update.aggregation_state,
+                &update.state,
                 &[new_proofs, new_groth16_proofs].concat(),
                 update.assessor_proof_id.clone(),
             )
@@ -463,15 +492,28 @@ impl AggregatorService {
                             batch.orders
                         ))?;
                     (
-                        result.aggregation_state.proof_id,
+                        result
+                            .state
+                            .proof_id
+                            .clone()
+                            .context("backend finalized batch without proof id")?,
                         finalize,
                         result.set_builder_proving_secs,
                         result.assessor_proving_secs,
                     )
                 }
                 BatchStatus::PendingCompression => {
-                    let aggregation_state = batch.aggregation_state.with_context(|| format!("Batch {batch_id} in inconsistent state: status is PendingCompression but aggregation_state is None"))?;
-                    (aggregation_state.proof_id, true, None, None)
+                    let backend_state = batch.backend_state.with_context(|| {
+                        format!(
+                            "Batch {batch_id} in inconsistent state: status is PendingCompression but backend_state is None"
+                        )
+                    })?;
+                    let proof_id = backend_state.proof_id.with_context(|| {
+                        format!(
+                            "Batch {batch_id} in inconsistent state: status is PendingCompression but proof_id is None"
+                        )
+                    })?;
+                    (proof_id, true, None, None)
                 }
                 status => {
                     return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
@@ -488,7 +530,11 @@ impl AggregatorService {
                 .backend
                 .close_batch(
                     backend_id,
-                    CloseBatch { batch_id, aggregation_proof_id, order_ids: batch.orders.clone() },
+                    CloseBatch {
+                        batch_id,
+                        proof_id: aggregation_proof_id,
+                        order_ids: batch.orders.clone(),
+                    },
                 )
                 .await
             {
@@ -881,8 +927,10 @@ mod tests {
             db.get_current_batch(&BackendId::new("risc0_v3").unwrap()).await.unwrap();
         let aggregating_batch = db.get_batch(aggregating_batch_id).await.unwrap();
         assert_eq!(aggregating_batch.orders, vec![order.id()]);
-        assert!(aggregating_batch.aggregation_state.is_some());
-        assert!(!aggregating_batch.aggregation_state.unwrap().guest_state.mmr.is_finalized());
+        let backend_state = aggregating_batch.backend_state.unwrap();
+        let guest_state: risc0_aggregation::GuestState =
+            serde_json::from_value(backend_state.data["guest_state"].clone()).unwrap();
+        assert!(!guest_state.mmr.is_finalized());
 
         // Second order
         let order_request = ProofRequest::new(

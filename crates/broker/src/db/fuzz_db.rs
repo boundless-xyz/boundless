@@ -27,9 +27,9 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
-use crate::backend::BackendId;
+use crate::backend::{AssessorProofId, BackendBatchState, BackendId, CompressedProofId, ProofId};
 use crate::FulfillmentType;
-use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
+use crate::{db::AggregationOrder, Order, OrderStatus};
 
 use super::{BrokerDb, SqliteDb};
 
@@ -39,6 +39,18 @@ use boundless_market::contracts::{
 
 fn test_backend_id() -> BackendId {
     BackendId::new("risc0_v3").unwrap()
+}
+
+fn test_backend_state(proof_id: String) -> BackendBatchState {
+    BackendBatchState {
+        data: serde_json::json!({
+            "guest_state": GuestState::initial([1u32; 8]),
+            "claim_digests": Vec::<Digest>::new(),
+        }),
+        proof_id: Some(ProofId::new(proof_id).unwrap()),
+        compressed_proof_id: None,
+        selector: None,
+    }
 }
 
 // Add new state tracking structure
@@ -234,8 +246,10 @@ proptest! {
                                     BatchOperation::CompleteBatch { g16_proof_id } => {
                                         let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                         let batch = db.get_batch(batch_id).await.unwrap();
-                                        if batch.aggregation_state.is_some() {
-                                            db.complete_batch(batch_id, &g16_proof_id).await.unwrap();
+                                        if batch.backend_state.is_some() {
+                                            let compressed_proof_id =
+                                                CompressedProofId::new(g16_proof_id).unwrap();
+                                            db.complete_batch(batch_id, &compressed_proof_id).await.unwrap();
                                             state.completed_batch.store(true, Ordering::SeqCst);
                                         }
                                     },
@@ -277,18 +291,13 @@ proptest! {
                                                 });
                                             }
 
-                                            let agg_state = AggregationState {
-                                                guest_state: GuestState::initial([1u32; 8]),
-                                                claim_digests: vec![],
-                                                groth16_proof_id: None,
-                                                proof_id,
-                                            };
+                                            let backend_state = test_backend_state(proof_id);
 
                                             db.update_batch(
                                                 batch_id,
-                                                &agg_state,
+                                                &backend_state,
                                                 &orders,
-                                                Some("proof_id".to_string()),
+                                                Some(AssessorProofId::new("proof_id").unwrap()),
                                             ).await.unwrap();
                                         }
                                     },

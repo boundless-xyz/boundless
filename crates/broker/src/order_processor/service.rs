@@ -132,23 +132,23 @@ impl OrderProcessor {
             match progress {
                 OrderProcessProgress::Started { proof_id } => {
                     let order_id = order.id();
-                    self.db.set_order_proof_id(&order_id, &proof_id).await.with_context(|| {
-                        format!("Failed to set order {order_id} proof id: {proof_id}")
-                    })?;
-                    order.proof_id = Some(proof_id);
+                    self.db.set_order_proof_id(&order_id, proof_id.as_str()).await.with_context(
+                        || format!("Failed to set order {order_id} proof id: {proof_id}"),
+                    )?;
+                    order.proof_id = Some(proof_id.into_string());
                 }
                 OrderProcessProgress::Compressed { proof_id, compressed_proof_id } => {
                     let order_id = order.id();
                     self.db
-                        .set_order_compressed_proof_id(&order_id, &compressed_proof_id)
+                        .set_order_compressed_proof_id(&order_id, compressed_proof_id.as_str())
                         .await
                         .with_context(|| {
                             format!(
                                 "Failed to set order {order_id} compressed proof id: {compressed_proof_id}"
                             )
                         })?;
-                    order.proof_id = Some(proof_id);
-                    order.compressed_proof_id = Some(compressed_proof_id);
+                    order.proof_id = Some(proof_id.into_string());
+                    order.compressed_proof_id = Some(compressed_proof_id.into_string());
                 }
                 OrderProcessProgress::Completed(processed) => return Ok(processed),
             }
@@ -337,7 +337,7 @@ impl OrderProcessor {
                 )
                 .await
                 {
-                    Ok(proof_id) => proof_id,
+                    Ok(proof_id) => proof_id.into_string(),
                     Err(err) => {
                         let proving_err = ProvingErr::ProvingFailed(err);
                         tracing::error!(

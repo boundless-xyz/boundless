@@ -19,8 +19,7 @@
 //! Layout:
 //! - [`service`] — the [`AggregatorService`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
-//! - [`types`] — public batch types ([`Batch`], [`BatchStatus`],
-//!   [`AggregationState`]).
+//! - [`types`] — public batch types ([`Batch`], [`BatchStatus`]).
 //! - [`error`] — [`AggregatorErr`] enum.
 
 mod error;
@@ -28,4 +27,4 @@ mod service;
 mod types;
 
 pub(crate) use service::AggregatorService;
-pub(crate) use types::{AggregationState, Batch, BatchStatus};
+pub(crate) use types::{Batch, BatchStatus};

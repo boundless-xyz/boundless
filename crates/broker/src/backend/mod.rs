@@ -24,6 +24,7 @@ mod types;
 pub use risc0::{Risc0Backend, Risc0BatchProcessor};
 pub use router::{BackendEntry, BackendRouter};
 pub use types::{
-    BackendId, BatchUpdate, CloseBatch, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult,
-    OrderProcessProgress, ProcessOrder, ProcessedOrder, UpdateBatch,
+    AssessorProofId, BackendBatchState, BackendId, BatchOrder, BatchUpdate, CloseBatch,
+    CompressedProofId, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult,
+    OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, UpdateBatch,
 };

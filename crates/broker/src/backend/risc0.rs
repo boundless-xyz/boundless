@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{Address, FixedBytes, B256};
+use alloy::primitives::{Address, FixedBytes, B256, U256};
 use alloy::sol_types::{SolStruct, SolValue};
 use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
     contracts::{
-        eip712_domain, encode_seal, AssessorJournal, AssessorReceipt,
-        Fulfillment as MarketFulfillment, FulfillmentData, FulfillmentDataImageIdAndJournal,
-        FulfillmentDataType, PredicateType, UNSPECIFIED_SELECTOR,
+        eip712_domain, encode_seal, AssessorJournal, Fulfillment as MarketFulfillment,
+        FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
+        UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
@@ -32,6 +32,7 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     config::ConfigLock,
@@ -42,16 +43,42 @@ use crate::{
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     utils::prune_receipt_claim_journal,
-    AggregationState, CompressionType, ConfigurableDownloader, Order, OrderStatus,
+    CompressionType, ConfigurableDownloader, Order, OrderStatus,
 };
 use anyhow::{Context, Result};
 
 use super::types::{
-    AssessorArtifact, Backend, BackendId, BatchClose, BatchProcessor, BatchProcessorObj,
-    BatchSizeEstimate, BatchUpdate, ClaimDigest, CloseBatch, FulfillmentArtifacts,
-    FulfillmentBatch, OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
-    OrderProcessProgress, ProcessOrder, ProcessedOrder, RootSubmission, UpdateBatch,
+    AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendId, BatchClose,
+    BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchUpdate, ClaimDigest, CloseBatch,
+    CompressedProofId, FulfillmentArtifacts, FulfillmentBatch, OrderFulfillmentArtifact,
+    OrderFulfillmentFailure, OrderFulfillmentResult, OrderProcessProgress, ProcessOrder,
+    ProcessedOrder, ProofId, RootSubmission, SubmissionAssessorArtifact, UpdateBatch,
 };
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Risc0BatchState {
+    guest_state: GuestState,
+    claim_digests: Vec<Digest>,
+}
+
+impl Risc0BatchState {
+    fn from_backend_state(state: &BackendBatchState) -> Result<Self> {
+        serde_json::from_value(state.data.clone()).context("Failed to decode RISC0 batch state")
+    }
+
+    fn into_backend_state(
+        self,
+        proof_id: ProofId,
+        compressed_proof_id: Option<CompressedProofId>,
+    ) -> Result<BackendBatchState> {
+        Ok(BackendBatchState {
+            data: serde_json::to_value(self).context("Failed to encode RISC0 batch state")?,
+            proof_id: Some(proof_id),
+            compressed_proof_id,
+            selector: None,
+        })
+    }
+}
 
 pub struct Risc0Backend {
     id: BackendId,
@@ -192,7 +219,9 @@ impl Backend for Risc0Backend {
         let order_id = order.id();
 
         let Some(stark_proof_id) = order.proof_id.clone() else {
-            return Ok(OrderProcessProgress::Started { proof_id: self.start_order(&order).await? });
+            return Ok(OrderProcessProgress::Started {
+                proof_id: ProofId::new(self.start_order(&order).await?)?,
+            });
         };
 
         let proof_res = self
@@ -211,8 +240,8 @@ impl Backend for Risc0Backend {
             let compressed_proof_id =
                 self.compress_order_proof(&order_id, &stark_proof_id, compression_type).await?;
             return Ok(OrderProcessProgress::Compressed {
-                proof_id: stark_proof_id,
-                compressed_proof_id,
+                proof_id: ProofId::new(stark_proof_id)?,
+                compressed_proof_id: CompressedProofId::new(compressed_proof_id)?,
             });
         }
 
@@ -232,8 +261,11 @@ impl Backend for Risc0Backend {
         Ok(OrderProcessProgress::Completed(ProcessedOrder {
             backend_id: self.id.clone(),
             order_id,
-            proof_id: stark_proof_id,
-            compressed_proof_id: order.compressed_proof_id,
+            proof_id: ProofId::new(stark_proof_id)?,
+            compressed_proof_id: order
+                .compressed_proof_id
+                .map(CompressedProofId::new)
+                .transpose()?,
             next_status,
         }))
     }
@@ -275,10 +307,9 @@ impl Backend for Risc0Backend {
             cmd.backend_id
         );
 
-        let aggregation_state = cmd
-            .aggregation_state
-            .as_ref()
-            .context("Cannot submit batch with no recorded aggregation state")?;
+        let backend_state =
+            cmd.state.as_ref().context("Cannot submit batch with no recorded backend state")?;
+        let aggregation_state = Risc0BatchState::from_backend_state(backend_state)?;
         let assessor_proof_id = cmd
             .assessor_proof_id
             .as_ref()
@@ -290,8 +321,8 @@ impl Backend for Risc0Backend {
         let submission = Risc0Submission::new(self.snark_prover.clone());
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: set_builder_program_id };
-        let groth16_proof_id = aggregation_state
-            .groth16_proof_id
+        let groth16_proof_id = backend_state
+            .compressed_proof_id
             .as_ref()
             .context("Cannot submit batch with no recorded Groth16 proof ID")?;
         anyhow::ensure!(
@@ -310,17 +341,17 @@ impl Backend for Risc0Backend {
         );
         let root_submission = RootSubmission {
             root: B256::from_slice(batch_root.as_bytes()),
-            seal: submission.encode_groth16_seal(groth16_proof_id).await?.into(),
+            seal: submission.encode_groth16_seal(groth16_proof_id.as_str()).await?.into(),
         };
 
         let mut orders = Vec::with_capacity(cmd.orders.len());
         for order in cmd.orders {
             let order_id = order.order_id.clone();
             let res = async {
-                let order_img_id = Digest::from(order.program_id);
+                let order_img_id = Digest::from(<[u8; 32]>::from(order.program_id));
                 let order_journal = self
                     .prover
-                    .get_journal(&order.proof_id)
+                    .get_journal(order.proof_id.as_str())
                     .await
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
@@ -340,7 +371,7 @@ impl Backend for Risc0Backend {
                     submission
                         .encode_seal_for_selector(
                             order.request.requirements.selector,
-                            &compressed_proof_id,
+                            compressed_proof_id.as_str(),
                         )
                         .await
                         .with_context(|| {
@@ -436,7 +467,7 @@ impl Backend for Risc0Backend {
             });
         }
 
-        let assessor = submission.assessor_receipt(assessor_proof_id).await?;
+        let assessor = submission.assessor_receipt(assessor_proof_id.as_str()).await?;
         let assessor_claim = Digest::from(assessor.claim_digest);
         let assessor_claim_index = aggregation_state
             .claim_digests
@@ -464,10 +495,9 @@ impl Backend for Risc0Backend {
         Ok(FulfillmentArtifacts {
             root_submission: Some(root_submission),
             orders,
-            assessor_receipt: AssessorReceipt {
+            assessor: SubmissionAssessorArtifact {
                 seal: assessor_seal.into(),
                 selectors: assessor.selectors,
-                prover: cmd.prover_address,
                 callbacks: assessor.callbacks,
             },
         })
@@ -620,19 +650,21 @@ impl Risc0BatchProcessor {
 
     pub async fn prove_set_builder(
         &self,
-        aggregation_state: Option<&AggregationState>,
-        proofs: &[String],
+        backend_state: Option<&BackendBatchState>,
+        proofs: &[ProofId],
         finalize: bool,
         all_orders: &[String],
-    ) -> Result<AggregationState> {
+    ) -> Result<BackendBatchState> {
+        let aggregation_state =
+            backend_state.map(Risc0BatchState::from_backend_state).transpose()?;
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
         let mut valid_proof_ids = Vec::<String>::with_capacity(proofs.len());
 
         for proof_id in proofs {
-            match self.validate_and_extract_claim(proof_id).await {
+            match self.validate_and_extract_claim(proof_id.as_str()).await {
                 Ok(claim) => {
                     claims.push(claim);
-                    valid_proof_ids.push(proof_id.clone());
+                    valid_proof_ids.push(proof_id.as_str().to_string());
                 }
                 Err(e) => {
                     tracing::error!(
@@ -658,12 +690,15 @@ impl Risc0BatchProcessor {
         }
 
         let input = aggregation_state
+            .as_ref()
             .map_or(GuestState::initial(self.set_builder_guest_id), |s| s.guest_state.clone())
             .into_input(claims.clone(), finalize)
             .context("Failed to build set builder input")?;
 
         let assumption_ids: Vec<String> = aggregation_state
-            .map(|s| s.proof_id.clone())
+            .as_ref()
+            .and_then(|_| backend_state.and_then(|s| s.proof_id.as_ref()))
+            .map(|proof_id| proof_id.as_str().to_string())
             .into_iter()
             .chain(valid_proof_ids.iter().cloned())
             .collect();
@@ -747,12 +782,8 @@ impl Risc0BatchProcessor {
             .chain(claims.into_iter().map(|claim| claim.digest()))
             .collect();
 
-        Ok(AggregationState {
-            guest_state,
-            proof_id: proof_res.id,
-            claim_digests,
-            groth16_proof_id: None,
-        })
+        Risc0BatchState { guest_state, claim_digests }
+            .into_backend_state(ProofId::new(proof_res.id)?, None)
     }
 
     pub async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
@@ -891,10 +922,25 @@ impl BatchProcessor for Risc0BatchProcessor {
         let all_orders: Vec<String> = cmd
             .existing_order_ids
             .iter()
-            .chain(cmd.new_proofs.iter().map(|p| &p.order_id))
-            .chain(cmd.new_compressed_proofs.iter().map(|p| &p.order_id))
+            .chain(cmd.new_orders.iter().map(|p| &p.order_id))
             .cloned()
             .collect();
+        let new_order_fee = cmd.new_orders.iter().fold(U256::ZERO, |sum, order| sum + order.fee);
+        let earliest_expiration = cmd.new_orders.iter().map(|order| order.expiration).min();
+        let earliest_lock_expiration =
+            cmd.new_orders.iter().map(|order| order.lock_expiration).min();
+        let request_ids = cmd.new_orders.iter().map(|order| order.request_id).collect::<Vec<_>>();
+        let fulfillment_types =
+            cmd.new_orders.iter().map(|order| order.fulfillment_type).collect::<Vec<_>>();
+        tracing::trace!(
+            "Updating RISC0 batch {} with {} new orders, fee {new_order_fee}, earliest_expiration {:?}, earliest_lock_expiration {:?}, request_ids {:?}, fulfillment_types {:?}",
+            cmd.batch_id,
+            cmd.new_orders.len(),
+            earliest_expiration,
+            earliest_lock_expiration,
+            request_ids,
+            fulfillment_types,
+        );
 
         let mut assessor_proving_secs = None;
         let assessor_proof_id = if cmd.finalize {
@@ -918,32 +964,31 @@ impl BatchProcessor for Risc0BatchProcessor {
                 assessor_proof_id
             );
 
-            Some(assessor_proof_id)
+            Some(AssessorProofId::new(assessor_proof_id)?)
         } else {
             None
         };
 
-        let proof_ids: Vec<String> = cmd
-            .new_proofs
+        let proof_ids: Vec<ProofId> = cmd
+            .new_orders
             .iter()
+            .filter(|order| order.compressed_proof_id.is_none())
             .map(|proof| proof.proof_id.clone())
-            .chain(assessor_proof_id.iter().cloned())
+            .chain(assessor_proof_id.iter().map(|proof_id| {
+                ProofId::new(proof_id.as_str().to_string())
+                    .expect("assessor proof id should be a valid proof id")
+            }))
             .collect();
 
         tracing::debug!(
             "Running set builder for batch {} of orders {:?} and proofs {:?}",
             cmd.batch_id,
             all_orders,
-            proof_ids
+            proof_ids.iter().map(|proof_id| proof_id.as_str()).collect::<Vec<_>>()
         );
         let set_builder_start = std::time::Instant::now();
         let aggregation_state = self
-            .prove_set_builder(
-                cmd.aggregation_state.as_ref(),
-                &proof_ids,
-                cmd.finalize,
-                &all_orders,
-            )
+            .prove_set_builder(cmd.state.as_ref(), &proof_ids, cmd.finalize, &all_orders)
             .await
             .with_context(|| {
                 format!(
@@ -957,11 +1002,11 @@ impl BatchProcessor for Risc0BatchProcessor {
             "Completed aggregation into batch {} of orders {:?} and proofs {:?}",
             cmd.batch_id,
             all_orders,
-            proof_ids
+            proof_ids.iter().map(|proof_id| proof_id.as_str()).collect::<Vec<_>>()
         );
 
         Ok(BatchUpdate {
-            aggregation_state,
+            state: aggregation_state,
             assessor_proof_id,
             set_builder_proving_secs,
             assessor_proving_secs,
@@ -970,10 +1015,13 @@ impl BatchProcessor for Risc0BatchProcessor {
 
     async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, provers::ProverError> {
         let start = std::time::Instant::now();
-        let compressed_proof_id = self
-            .compress_batch_proof(cmd.batch_id, &cmd.aggregation_proof_id, &cmd.order_ids)
-            .await?;
+        let compressed_proof_id =
+            self.compress_batch_proof(cmd.batch_id, cmd.proof_id.as_str(), &cmd.order_ids).await?;
 
-        Ok(BatchClose { compressed_proof_id, compression_secs: start.elapsed().as_secs_f64() })
+        Ok(BatchClose {
+            compressed_proof_id: CompressedProofId::new(compressed_proof_id)
+                .map_err(|err| provers::ProverError::ProverInternalError(err.to_string()))?,
+            compression_secs: start.elapsed().as_secs_f64(),
+        })
     }
 }

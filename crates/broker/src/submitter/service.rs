@@ -27,6 +27,7 @@ use boundless_market::{
     contracts::boundless_market::{
         BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest,
     },
+    contracts::AssessorReceipt,
     telemetry::CompletionOutcome,
 };
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -178,9 +179,9 @@ where
                 fulfillment_orders.push(FulfillmentOrder {
                     order_id: order_id.clone(),
                     request: order_request,
-                    proof_id: order_proof_id,
-                    compressed_proof_id,
-                    program_id: order_img_id,
+                    proof_id: order_proof_id.try_into()?,
+                    compressed_proof_id: compressed_proof_id.map(TryInto::try_into).transpose()?,
+                    program_id: order_img_id.into(),
                 });
                 anyhow::Ok(())
             };
@@ -216,10 +217,9 @@ where
             .backend
             .build_fulfillments(FulfillmentBatch {
                 backend_id: batch.backend_id.clone(),
-                aggregation_state: batch.aggregation_state.clone(),
+                state: batch.backend_state.clone(),
                 assessor_proof_id: batch.assessor_proof_id.clone(),
                 eip712_domain: self.market.eip712_domain().await?,
-                prover_address: self.prover_address,
                 orders: fulfillment_orders,
             })
             .await?;
@@ -264,10 +264,15 @@ where
             (config.batcher.single_txn_fulfill, config.batcher.withdraw)
         };
 
-        let mut fulfillment_tx =
-            FulfillmentTx::new(fulfillments.clone(), artifacts.assessor_receipt)
-                .with_withdraw(withdraw)
-                .with_unlocked_requests(requests_to_price);
+        let assessor_receipt = AssessorReceipt {
+            seal: artifacts.assessor.seal,
+            callbacks: artifacts.assessor.callbacks,
+            selectors: artifacts.assessor.selectors,
+            prover: self.prover_address,
+        };
+        let mut fulfillment_tx = FulfillmentTx::new(fulfillments.clone(), assessor_receipt)
+            .with_withdraw(withdraw)
+            .with_unlocked_requests(requests_to_price);
         if let Some(root_submission) = artifacts.root_submission {
             if single_txn_fulfill {
                 fulfillment_tx = fulfillment_tx.with_submit_root(
@@ -546,12 +551,15 @@ where
 mod tests {
     use super::*;
     use crate::{
-        backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend},
+        backend::{
+            AssessorProofId, BackendBatchState, BackendEntry, BackendId, BackendRouter,
+            CompressedProofId, ProofId, Risc0Backend,
+        },
         db::SqliteDb,
         now_timestamp,
         provers::{encode_input, DefaultProver, ProverObj},
         requestor_monitor::PriorityRequestors,
-        AggregationState, Batch, BatchStatus, ConfigurableDownloader, Order, OrderStatus,
+        Batch, BatchStatus, ConfigurableDownloader, Order, OrderStatus,
     };
     use alloy::{
         network::EthereumWallet,
@@ -784,20 +792,23 @@ mod tests {
         let batch = Batch {
             backend_id: BackendId::new("risc0_v3").unwrap(),
             status: BatchStatus::ReadyToSubmit,
-            assessor_proof_id: Some(assessor_proof.id),
+            assessor_proof_id: Some(AssessorProofId::new(assessor_proof.id).unwrap()),
             orders: vec![order_id],
             fees: U256::ZERO,
             start_time: Utc::now(),
             deadline: Some(order.request.offer.rampUpStart + order.request.offer.timeout as u64),
             error_msg: None,
-            aggregation_state: Some(AggregationState {
-                guest_state: batch_guest_state,
-                proof_id: aggregation_proof.id,
-                groth16_proof_id: Some(batch_g16),
-                claim_digests: vec![
-                    echo_receipt.claim().unwrap().digest(),
-                    assessor_receipt.claim().unwrap().digest(),
-                ],
+            backend_state: Some(BackendBatchState {
+                data: serde_json::json!({
+                    "guest_state": batch_guest_state,
+                    "claim_digests": vec![
+                        echo_receipt.claim().unwrap().digest(),
+                        assessor_receipt.claim().unwrap().digest(),
+                    ],
+                }),
+                proof_id: Some(ProofId::new(aggregation_proof.id).unwrap()),
+                compressed_proof_id: Some(CompressedProofId::new(batch_g16).unwrap()),
+                selector: None,
             }),
         };
         db.add_batch(batch_id, batch).await.unwrap();

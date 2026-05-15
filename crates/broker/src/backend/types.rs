@@ -14,15 +14,16 @@
 
 use std::{fmt, str::FromStr, sync::Arc};
 
-use alloy::primitives::{Address, Bytes, FixedBytes, B256};
+use alloy::primitives::{Bytes, FixedBytes, B256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorCallback, AssessorReceipt, AssessorSelector, EIP712DomainSaltless,
-    Fulfillment as MarketFulfillment, ProofRequest,
+    AssessorCallback, AssessorSelector, EIP712DomainSaltless, Fulfillment as MarketFulfillment,
+    ProofRequest,
 };
 use risc0_zkvm::sha::Digest;
+use serde::{Deserialize, Serialize};
 
-use crate::{db::AggregationOrder, provers, AggregationState, Order, OrderStatus};
+use crate::{provers, FulfillmentType, Order, OrderStatus};
 use anyhow::Result;
 
 /// Stable broker-side identity for a backend registration.
@@ -91,6 +92,87 @@ impl TryFrom<&str> for BackendId {
     }
 }
 
+macro_rules! string_id {
+    ($name:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        pub struct $name(String);
+
+        impl $name {
+            pub fn new(value: impl Into<String>) -> Result<Self> {
+                let value = value.into();
+                if value.trim().is_empty() {
+                    anyhow::bail!(concat!(stringify!($name), " cannot be empty"));
+                }
+                Ok(Self(value))
+            }
+
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+
+            pub fn into_string(self) -> String {
+                self.0
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+
+        impl FromStr for $name {
+            type Err = anyhow::Error;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                Self::new(value)
+            }
+        }
+
+        impl TryFrom<String> for $name {
+            type Error = anyhow::Error;
+
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                Self::new(value)
+            }
+        }
+
+        impl TryFrom<&str> for $name {
+            type Error = anyhow::Error;
+
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                Self::new(value)
+            }
+        }
+    };
+}
+
+string_id!(ProofId, "Durable backend proof handle.");
+string_id!(CompressedProofId, "Durable backend compressed proof handle.");
+string_id!(AssessorProofId, "Durable backend assessor proof handle.");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProgramId(pub [u8; 32]);
+
+impl ProgramId {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl From<[u8; 32]> for ProgramId {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+}
+
+impl From<ProgramId> for [u8; 32] {
+    fn from(value: ProgramId) -> Self {
+        value.0
+    }
+}
+
 /// Command for processing one accepted broker order.
 #[derive(Clone, Debug)]
 pub struct ProcessOrder {
@@ -100,8 +182,8 @@ pub struct ProcessOrder {
 /// Durable progress returned while an order is being processed.
 #[derive(Clone, Debug, PartialEq)]
 pub enum OrderProcessProgress {
-    Started { proof_id: String },
-    Compressed { proof_id: String, compressed_proof_id: String },
+    Started { proof_id: ProofId },
+    Compressed { proof_id: ProofId, compressed_proof_id: CompressedProofId },
     Completed(ProcessedOrder),
 }
 
@@ -110,12 +192,12 @@ pub enum OrderProcessProgress {
 pub struct ProcessedOrder {
     pub backend_id: BackendId,
     pub order_id: String,
-    pub proof_id: String,
-    pub compressed_proof_id: Option<String>,
+    pub proof_id: ProofId,
+    pub compressed_proof_id: Option<CompressedProofId>,
     pub next_status: OrderStatus,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ClaimDigest(pub [u8; 32]);
 
 impl ClaimDigest {
@@ -151,17 +233,16 @@ pub struct AssessorArtifact {
 pub struct FulfillmentOrder {
     pub order_id: String,
     pub request: ProofRequest,
-    pub proof_id: String,
-    pub compressed_proof_id: Option<String>,
-    pub program_id: [u8; 32],
+    pub proof_id: ProofId,
+    pub compressed_proof_id: Option<CompressedProofId>,
+    pub program_id: ProgramId,
 }
 
 pub struct FulfillmentBatch {
     pub backend_id: BackendId,
-    pub aggregation_state: Option<AggregationState>,
-    pub assessor_proof_id: Option<String>,
+    pub state: Option<BackendBatchState>,
+    pub assessor_proof_id: Option<AssessorProofId>,
     pub eip712_domain: EIP712DomainSaltless,
-    pub prover_address: Address,
     pub orders: Vec<FulfillmentOrder>,
 }
 
@@ -188,7 +269,7 @@ pub enum OrderFulfillmentResult {
 pub struct FulfillmentArtifacts {
     pub root_submission: Option<RootSubmission>,
     pub orders: Vec<OrderFulfillmentResult>,
-    pub assessor_receipt: AssessorReceipt,
+    pub assessor: SubmissionAssessorArtifact,
 }
 
 #[derive(Clone, Debug)]
@@ -196,31 +277,56 @@ pub struct BatchSizeEstimate {
     pub size: usize,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackendBatchState {
+    pub data: serde_json::Value,
+    pub proof_id: Option<ProofId>,
+    pub compressed_proof_id: Option<CompressedProofId>,
+    pub selector: Option<FixedBytes<4>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BatchOrder {
+    pub order_id: String,
+    pub proof_id: ProofId,
+    pub compressed_proof_id: Option<CompressedProofId>,
+    pub expiration: u64,
+    pub fee: alloy::primitives::U256,
+    pub fulfillment_type: FulfillmentType,
+    pub request_id: alloy::primitives::U256,
+    pub lock_expiration: u64,
+}
+
 pub struct UpdateBatch {
     pub batch_id: usize,
     pub existing_order_ids: Vec<String>,
-    pub aggregation_state: Option<AggregationState>,
-    pub new_proofs: Vec<AggregationOrder>,
-    pub new_compressed_proofs: Vec<AggregationOrder>,
+    pub state: Option<BackendBatchState>,
+    pub new_orders: Vec<BatchOrder>,
     pub finalize: bool,
 }
 
 pub struct BatchUpdate {
-    pub aggregation_state: AggregationState,
-    pub assessor_proof_id: Option<String>,
+    pub state: BackendBatchState,
+    pub assessor_proof_id: Option<AssessorProofId>,
     pub set_builder_proving_secs: Option<f64>,
     pub assessor_proving_secs: Option<f64>,
 }
 
 pub struct CloseBatch {
     pub batch_id: usize,
-    pub aggregation_proof_id: String,
+    pub proof_id: ProofId,
     pub order_ids: Vec<String>,
 }
 
 pub struct BatchClose {
-    pub compressed_proof_id: String,
+    pub compressed_proof_id: CompressedProofId,
     pub compression_secs: f64,
+}
+
+pub struct SubmissionAssessorArtifact {
+    pub seal: Bytes,
+    pub selectors: Vec<AssessorSelector>,
+    pub callbacks: Vec<AssessorCallback>,
 }
 
 #[async_trait]

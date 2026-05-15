@@ -27,8 +27,8 @@ use async_trait::async_trait;
 #[cfg(test)]
 use crate::BatchStatus;
 use crate::{
-    backend::BackendId, AggregationState, Batch, FulfillmentType, Order, OrderRequest, OrderStatus,
-    ProofRequest,
+    backend::{AssessorProofId, BackendBatchState, BackendId, CompressedProofId},
+    Batch, FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
 };
 
 mod error;
@@ -86,7 +86,11 @@ pub trait BrokerDb {
         &self,
         backend_id: &BackendId,
     ) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError>;
+    async fn complete_batch(
+        &self,
+        batch_id: usize,
+        compressed_proof_id: &CompressedProofId,
+    ) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError>;
@@ -110,14 +114,14 @@ pub trait BrokerDb {
     async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError>;
     /// Update a batch with the results of an aggregation step.
     ///
-    /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
+    /// Sets the backend state, and adds the given orders to the batch, updating the batch fees
     /// and deadline. During finalization, the assessor_proof_id is recorded as well.
     async fn update_batch(
         &self,
         batch_id: usize,
-        aggreagtion_state: &AggregationState,
+        backend_state: &BackendBatchState,
         orders: &[AggregationOrder],
-        assessor_proof_id: Option<String>,
+        assessor_proof_id: Option<AssessorProofId>,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 

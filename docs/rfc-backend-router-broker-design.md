@@ -84,7 +84,9 @@ PublicOutput       opaque execution output bytes
 ClaimDigest        opaque 32-byte claim digest
 ProofId            opaque backend primitive proof handle
 CompressedProofId  opaque backend compressed proof handle
+AssessorProofId    opaque backend assessor proof handle
 BackendId          stable broker-side backend identity, e.g. "risc0_v3"
+BackendBatchState  opaque backend-defined persisted batch state
 ```
 
 Single-backend implementation contract:
@@ -185,20 +187,29 @@ ProcessedOrder
 UpdateBatch
   batch_id
   existing_order_ids
-  aggregation_state?
-  new_proofs
-  new_compressed_proofs
+  state?
+  new_orders
   finalize
 
+BatchOrder
+  order_id
+  proof_id
+  compressed_proof_id?
+  expiration
+  fee
+  fulfillment_type
+  request_id
+  lock_expiration
+
 BatchUpdate
-  aggregation_state
+  state
   assessor_proof_id?
   set_builder_proving_secs?
   assessor_proving_secs?
 
 CloseBatch
   batch_id
-  aggregation_proof_id
+  proof_id
   order_ids
 
 BatchClose
@@ -207,16 +218,15 @@ BatchClose
 
 FulfillmentBatch
   backend_id
-  aggregation_state?
+  state?
   assessor_proof_id?
   eip712_domain
-  prover_address
   orders
 
 FulfillmentArtifacts
   root_submission?
   fulfillments
-  assessor_receipt
+  assessor
 ```
 
 This evaluation boundary is not fully implemented in the current broker MVP.
@@ -251,15 +261,15 @@ details behind `Backend`, not broker dependencies.
 owns batch lifecycle and decides when a backend-specific batch closes.
 `BatchProcessor` is the backend-owned interpreter for the proof work inside that
 broker batch.
-`BatchState` is passive persisted data; it does not own prover handles or know
-how to evolve itself.
+`BackendBatchState` is passive persisted data; it does not own prover handles or
+know how to evolve itself.
 
 The backend interface separates batch operations into:
 
 ```text
 ----------------------+-----------------------------------------------+
 | Batch size          | estimate_batch_size                           |
-| Aggregation state   | update_batch                                  |
+| Backend state       | update_batch                                  |
 | Root compression    | close_batch                                   |
 | Fulfillment build   | build_fulfillments                            |
 +----------------------+-----------------------------------------------+
@@ -274,13 +284,12 @@ Assessor journal/public-output fetching and decoding stays internal to the
 backend. The broker should not need a generic `assessor_journal` method or an
 assessor program id just to submit a batch.
 
-Backend batch state carries backend proof handles:
+Backend batch state carries backend-defined data plus proof handles:
 
 ```text
-BatchState
-  state                 backend-defined persisted bytes
+BackendBatchState
+  data                  backend-defined persisted JSON
   proof_id              optional proof to compress for root/assessor seal
-  assessor_proof_id     optional proof for the assessor output
   compressed_proof_id   optional compressed proof used for submission
   selector              optional selector used for compressed proof/seal
 ```
@@ -429,9 +438,8 @@ both lists to the backend:
 BackendRouter.update_batch(backend_id, UpdateBatch {
   batch_id,
   existing_order_ids,
-  aggregation_state?,
-  new_proofs,
-  new_compressed_proofs,
+  state?,
+  new_orders,
   finalize,
 })
 ```
@@ -446,7 +454,7 @@ selector C -> fail inside backend if inconsistent with registration
 
 This keeps selector-specific aggregation policy out of broker orchestration.
 
-`update_batch` returns the new backend aggregation state and optionally an
+`update_batch` returns the new opaque backend batch state and optionally an
 assessor proof id when the broker asked the backend to finalize. The broker
 persists that state and associates the successfully processed proof rows with
 the broker batch.
@@ -508,7 +516,7 @@ Closing a batch is the explicit finalization call:
 ```text
 BackendRouter.close_batch(backend_id, CloseBatch {
   batch_id,
-  aggregation_proof_id,
+  proof_id,
   order_ids,
 })
     |
@@ -533,10 +541,9 @@ submission adapter remains a later cleanup.
 ```text
 FulfillmentBatch
   backend_id
-  aggregation_state?
+  state?
   assessor_proof_id?
   eip712_domain
-  prover_address
   orders
 ```
 
@@ -546,7 +553,7 @@ Batch complete
     v
 BackendRouter.build_fulfillments(FulfillmentBatch {
   backend_id,
-  aggregation_state,
+  state,
   assessor_proof_id,
   orders,
 })
@@ -557,7 +564,10 @@ BackendRouter.build_fulfillments(FulfillmentBatch {
     |
     +--> fulfillments keyed by order id
     |
-    +--> legacy AssessorReceipt for current market contract
+    +--> neutral assessor artifact
+            seal
+            selectors
+            callbacks
 ```
 
 `build_fulfillments` receives completed orders and optional persisted backend
@@ -638,7 +648,7 @@ Aggregator service
   BackendRouter.estimate_batch_size(backend_id, order_ids) -> BatchSizeEstimate
   BackendRouter.update_batch(backend_id, UpdateBatch) -> BatchUpdate
   BackendRouter.close_batch(backend_id, CloseBatch) -> BatchClose
-  persists AggregationState and assessor_proof_id on Batch
+  persists BackendBatchState and assessor_proof_id on Batch
   broker decides when the batch closes from:
     size, time, fees, deadlines, journal/fulfillment-data size
 

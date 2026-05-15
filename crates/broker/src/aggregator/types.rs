@@ -17,10 +17,9 @@
 
 use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
-use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
-use crate::backend::BackendId;
+use crate::backend::{AssessorProofId, BackendBatchState, BackendId};
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BatchStatus {
@@ -34,19 +33,6 @@ pub enum BatchStatus {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct AggregationState {
-    pub guest_state: risc0_aggregation::GuestState,
-    /// All claim digests in this aggregation.
-    /// This collection can be used to construct the aggregation Merkle tree and Merkle paths.
-    pub claim_digests: Vec<Digest>,
-    /// Proof ID for the STARK proof that compresses the root of the aggregation tree.
-    pub proof_id: String,
-    /// Proof ID for the Groth16 proof that compresses the root of the aggregation tree.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub groth16_proof_id: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
 pub struct Batch {
     /// Backend responsible for this batch's aggregation and assessment semantics.
     pub backend_id: BackendId,
@@ -54,11 +40,10 @@ pub struct Batch {
     /// Orders from the market that are included in this batch.
     pub orders: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assessor_proof_id: Option<String>,
-    /// Tuple of the current aggregation state, as committed by the set builder guest, and the
-    /// proof ID for the receipt that attests to the correctness of this state.
+    pub assessor_proof_id: Option<AssessorProofId>,
+    /// Opaque backend batch state persisted by the broker between lifecycle steps.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub aggregation_state: Option<AggregationState>,
+    pub backend_state: Option<BackendBatchState>,
     /// When the batch was initially created.
     pub start_time: DateTime<Utc>,
     /// The deadline for the batch, which is the earliest deadline for any order in the batch.
@@ -77,7 +62,7 @@ impl Batch {
             status: BatchStatus::Open,
             orders: Vec::new(),
             assessor_proof_id: None,
-            aggregation_state: None,
+            backend_state: None,
             start_time,
             deadline: None,
             fees: U256::ZERO,
