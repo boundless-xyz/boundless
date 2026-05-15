@@ -18,24 +18,28 @@
 //! The broker keeps DB state, retry policy, cancellation, and batch lifecycle
 //! orchestration; the backend service owns zkVM-specific proof processing.
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, FixedBytes};
+use alloy::sol_types::SolValue;
 use async_trait::async_trait;
+use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
-    contracts::{eip712_domain, FulfillmentData, PredicateType},
+    contracts::{eip712_domain, encode_seal, AssessorJournal, FulfillmentData, PredicateType},
     input::GuestEnv,
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
 };
 use hex::FromHex;
 use risc0_aggregation::GuestState;
 use risc0_zkvm::{
     sha::{Digest, Digestible},
-    ReceiptClaim,
+    MaybePruned, Receipt, ReceiptClaim,
 };
 
 use crate::{
     config::ConfigLock,
     db::DbObj,
     futures_retry::retry_with_context,
+    is_dev_mode,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
@@ -232,6 +236,94 @@ pub struct Risc0BatchService {
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
+}
+
+#[derive(Clone)]
+pub struct Risc0SubmissionService {
+    prover: ProverObj,
+}
+
+pub struct Risc0AssessorReceipt {
+    pub claim_digest: Digest,
+    pub journal: AssessorJournal,
+}
+
+impl Risc0SubmissionService {
+    pub fn new(prover: ProverObj) -> Self {
+        Self { prover }
+    }
+
+    pub async fn encode_seal_for_selector(
+        &self,
+        selector: FixedBytes<4>,
+        proof_id: &str,
+    ) -> Result<Vec<u8>> {
+        if is_groth16_selector(selector) {
+            self.encode_groth16_seal(proof_id).await
+        } else if is_blake3_groth16_selector(selector) {
+            self.encode_blake3_groth16_seal(proof_id).await
+        } else {
+            anyhow::bail!("selector {selector:?} does not identify a compressed proof seal")
+        }
+    }
+
+    pub async fn encode_groth16_seal(&self, proof_id: &str) -> Result<Vec<u8>> {
+        let groth16_receipt = self
+            .prover
+            .get_compressed_receipt(proof_id)
+            .await
+            .context("Failed to fetch g16 receipt")?
+            .context("Groth16 receipt missing")?;
+
+        let groth16_receipt: Receipt =
+            bincode::deserialize(&groth16_receipt).context("Failed to deserialize g16 receipt")?;
+
+        encode_seal(&groth16_receipt).context("Failed to encode g16 receipt seal")
+    }
+
+    pub async fn encode_blake3_groth16_seal(&self, proof_id: &str) -> Result<Vec<u8>> {
+        let blake3_receipt = self
+            .prover
+            .get_blake3_groth16_receipt(proof_id)
+            .await
+            .context("Failed to fetch blake3 groth16 receipt")?
+            .context("Blake3 Groth16 receipt missing")?;
+
+        let blake3_receipt: Blake3Groth16Receipt = bincode::deserialize(&blake3_receipt)
+            .context("Failed to deserialize Blake3 Groth16 receipt")?;
+
+        let mut encoded_seal = encode_seal(&blake3_receipt.into())
+            .context("Failed to encode Blake3 Groth16 receipt seal")?;
+        if is_dev_mode() {
+            let fake_selector = &[0xFFu8, 0xFF, 0x00, 0x00];
+            encoded_seal.splice(0..4, fake_selector.iter().cloned());
+        }
+
+        Ok(encoded_seal)
+    }
+
+    pub fn claim_digest(&self, image_id: Digest, journal_digest: Digest) -> Digest {
+        ReceiptClaim::ok(image_id, MaybePruned::Pruned(journal_digest)).digest()
+    }
+
+    pub async fn assessor_receipt(&self, proof_id: &str) -> Result<Risc0AssessorReceipt> {
+        let receipt = self
+            .prover
+            .get_receipt(proof_id)
+            .await
+            .context("Failed to get assessor receipt")?
+            .context("Assessor receipt missing")?;
+        let claim_digest = receipt
+            .claim()
+            .with_context(|| format!("Receipt for assessor {proof_id} missing claim"))?
+            .value()
+            .with_context(|| format!("Receipt for assessor {proof_id} claims pruned"))?
+            .digest();
+        let journal = AssessorJournal::abi_decode(&receipt.journal.bytes)
+            .with_context(|| format!("Failed to decode assessor journal for {proof_id}"))?;
+
+        Ok(Risc0AssessorReceipt { claim_digest, journal })
+    }
 }
 
 impl Risc0BatchService {

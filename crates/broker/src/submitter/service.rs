@@ -24,12 +24,11 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
-use blake3_groth16::Blake3Groth16Receipt;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
-        encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
-        FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
+        AssessorReceipt, Fulfillment, FulfillmentDataImageIdAndJournal, FulfillmentDataType,
+        PredicateType,
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector},
     telemetry::CompletionOutcome,
@@ -37,18 +36,16 @@ use boundless_market::{
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-use risc0_zkvm::{
-    sha::{Digest, Digestible},
-    MaybePruned, Receipt, ReceiptClaim,
-};
+use risc0_zkvm::sha::{Digest, Digestible};
 
 use tokio::sync::mpsc;
 
 use crate::{
+    backend_service::Risc0SubmissionService,
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
-    is_dev_mode, now_timestamp,
+    now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     provers::ProverObj,
     task::{BrokerService, SupervisorErr},
@@ -62,6 +59,7 @@ use super::error::SubmitterErr;
 pub struct Submitter<P> {
     db: DbObj,
     prover: ProverObj,
+    submission_backend: Risc0SubmissionService,
     market: BoundlessMarketService<Arc<P>>,
     set_verifier: SetVerifierService<Arc<P>>,
     set_verifier_addr: Address,
@@ -114,6 +112,7 @@ where
 
         Ok(Self {
             db,
+            submission_backend: Risc0SubmissionService::new(prover.clone()),
             prover,
             market,
             set_verifier,
@@ -124,46 +123,6 @@ where
             chain_id,
             proving_completion_tx,
         })
-    }
-
-    async fn fetch_encode_g16(&self, g16_proof_id: &str) -> Result<Vec<u8>> {
-        let groth16_receipt = self
-            .prover
-            .get_compressed_receipt(g16_proof_id)
-            .await
-            .context("Failed to fetch g16 receipt")?
-            .context("Groth16 receipt missing")?;
-
-        let groth16_receipt: Receipt =
-            bincode::deserialize(&groth16_receipt).context("Failed to deserialize g16 receipt")?;
-
-        let encoded_seal =
-            encode_seal(&groth16_receipt).context("Failed to encode g16 receipt seal")?;
-
-        Ok(encoded_seal)
-    }
-
-    async fn fetch_encode_b3_g16(&self, b3_g16_proof_id: &str) -> Result<Vec<u8>> {
-        let blake3_receipt = self
-            .prover
-            .get_blake3_groth16_receipt(b3_g16_proof_id)
-            .await
-            .context("Failed to fetch blake3 groth16 receipt")?
-            .context("Blake3 Groth16 receipt missing")?;
-
-        let blake3_receipt: Blake3Groth16Receipt = bincode::deserialize(&blake3_receipt)
-            .context("Failed to deserialize Blake3 Groth16 receipt")?;
-
-        let mut encoded_seal = encode_seal(&blake3_receipt.into())
-            .context("Failed to encode Blake3 Groth16 receipt seal")?;
-        if is_dev_mode() {
-            // In dev mode, we use the fake selector for Blake3 Groth16 proofs.
-            let fake_selector = &[0xFFu8, 0xFF, 0x00, 0x00];
-            // Replace the first 4 bytes with the fake selector
-            encoded_seal.splice(0..4, fake_selector.iter().cloned());
-        }
-
-        Ok(encoded_seal)
     }
 
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
@@ -210,7 +169,7 @@ where
         }
 
         // Collect the needed parts for the new merkle root:
-        let batch_seal = self.fetch_encode_g16(groth16_proof_id).await?;
+        let batch_seal = self.submission_backend.encode_groth16_seal(groth16_proof_id).await?;
         let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
         let root = B256::from_slice(batch_root.as_bytes());
 
@@ -222,20 +181,7 @@ where
 
         // Collect the needed parts for the fulfillBatch:
         let assessor_proof_id = &batch.assessor_proof_id.clone().unwrap();
-        let assessor_receipt = self
-            .prover
-            .get_receipt(assessor_proof_id)
-            .await
-            .context("Failed to get assessor receipt")?
-            .context("Assessor receipt missing")?;
-        let assessor_claim_digest = assessor_receipt
-            .claim()
-            .with_context(|| format!("Receipt for assessor {assessor_proof_id} missing claim"))?
-            .value()
-            .with_context(|| format!("Receipt for assessor {assessor_proof_id} claims pruned"))?
-            .digest();
-        let assessor_journal = AssessorJournal::abi_decode(&assessor_receipt.journal.bytes)
-            .context("Failed to decode assessor journal for {assessor_proof_id}")?;
+        let assessor_receipt = self.submission_backend.assessor_receipt(assessor_proof_id).await?;
 
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: self.set_builder_img_id };
@@ -285,16 +231,19 @@ where
                     .context("Failed to get order journal from prover")?
                     .context("Order proof Journal missing")?;
 
-                // NOTE: We assume here that the order execution ended with exit code 0.
-                let order_claim =
-                    ReceiptClaim::ok(order_img_id, MaybePruned::Pruned(order_journal.digest()));
-                let order_claim_digest = order_claim.digest();
+                let order_journal_digest = order_journal.digest();
+                let order_claim_digest =
+                    self.submission_backend.claim_digest(order_img_id, order_journal_digest);
                 let seal = if is_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
-                    self.fetch_encode_g16(&compressed_proof_id)
+                    self.submission_backend
+                        .encode_seal_for_selector(
+                            order_request.requirements.selector,
+                            &compressed_proof_id,
+                        )
                         .await
                         .context("Failed to fetch and encode g16 proof")?
                 } else if is_blake3_groth16_selector(order_request.requirements.selector) {
@@ -302,10 +251,19 @@ where
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
-                    self.fetch_encode_b3_g16(&compressed_proof_id)
+                    self.submission_backend
+                        .encode_seal_for_selector(
+                            order_request.requirements.selector,
+                            &compressed_proof_id,
+                        )
                         .await
                         .context("Failed to fetch and encode blake3 groth16 proof")?
                 } else {
+                    // NOTE: We assume here that the order execution ended with exit code 0.
+                    let order_claim = risc0_zkvm::ReceiptClaim::ok(
+                        order_img_id,
+                        risc0_zkvm::MaybePruned::Pruned(order_journal_digest),
+                    );
                     let order_claim_index = aggregation_state
                         .claim_digests
                         .iter()
@@ -400,13 +358,13 @@ where
         let assessor_claim_index = aggregation_state
             .claim_digests
             .iter()
-            .position(|claim| *claim == assessor_claim_digest)
+            .position(|claim| *claim == assessor_receipt.claim_digest)
             .ok_or(anyhow!("Failed to find order claim assessor claim in aggregated claims"))?;
         let assessor_path =
             risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
         tracing::debug!(
             "Merkle path for assessor : {:x?} : {assessor_path:x?}",
-            assessor_claim_digest
+            assessor_receipt.claim_digest
         );
 
         let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
@@ -414,7 +372,10 @@ where
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
             // should make an explicit way to encode an inclusion proof without the claim.
-            ReceiptClaim::ok(Digest::ZERO, MaybePruned::Pruned(Digest::ZERO)),
+            risc0_zkvm::ReceiptClaim::ok(
+                Digest::ZERO,
+                risc0_zkvm::MaybePruned::Pruned(Digest::ZERO),
+            ),
             assessor_path,
             inclusion_params.digest(),
         );
@@ -423,9 +384,9 @@ where
 
         let assessor_receipt = AssessorReceipt {
             seal: assessor_seal.into(),
-            selectors: assessor_journal.selectors,
+            selectors: assessor_receipt.journal.selectors,
             prover: self.prover_address,
-            callbacks: assessor_journal.callbacks,
+            callbacks: assessor_receipt.journal.callbacks,
         };
 
         let (single_txn_fulfill, withdraw) = {
