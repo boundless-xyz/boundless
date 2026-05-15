@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    backend::Risc0BatchProcessor,
+    backend::{BatchUpdate, Risc0BatchProcessor, UpdateBatch},
     config::ConfigLock,
     db::{AggregationOrder, DbObj},
     now_timestamp,
@@ -32,8 +32,6 @@ use crate::{
 };
 
 use super::error::AggregatorErr;
-use super::types::AggregateProofsResult;
-
 #[derive(Clone)]
 pub struct AggregatorService {
     db: DbObj,
@@ -323,88 +321,38 @@ impl AggregatorService {
         new_proofs: &[AggregationOrder],
         new_groth16_proofs: &[AggregationOrder],
         finalize: bool,
-    ) -> Result<AggregateProofsResult> {
-        let all_orders: Vec<String> = batch
-            .orders
-            .iter()
-            .chain(new_proofs.iter().map(|p| &p.order_id))
-            .chain(new_groth16_proofs.iter().map(|p| &p.order_id))
-            .cloned()
-            .collect();
-
-        let mut assessor_proving_secs = None;
-        let assessor_proof_id = if finalize {
-            let assessor_order_ids: Vec<String> = all_orders.clone();
-
-            tracing::debug!(
-                "Running assessor for batch {batch_id} with orders {:?}",
-                assessor_order_ids
-            );
-
-            let assessor_start = std::time::Instant::now();
-            let assessor_proof_id =
-                self.batch_backend.prove_assessor(&assessor_order_ids).await.with_context(
-                    || format!("Failed to prove assessor with orders {assessor_order_ids:?}"),
-                )?;
-            assessor_proving_secs = Some(assessor_start.elapsed().as_secs_f64());
-
-            tracing::debug!(
-                "Assessor proof complete for batch {batch_id} with orders {:?}, proof id: {}",
-                assessor_order_ids,
-                assessor_proof_id
-            );
-
-            Some(assessor_proof_id)
-        } else {
-            None
-        };
-
-        let proof_ids: Vec<String> = new_proofs
-            .iter()
-            .cloned()
-            .map(|proof| proof.proof_id.clone())
-            .chain(assessor_proof_id.iter().cloned())
-            .collect();
-
-        tracing::debug!(
-            "Running set builder for batch {batch_id} of orders {:?} and proofs {:?}",
-            all_orders,
-            proof_ids
-        );
-        let set_builder_start = std::time::Instant::now();
-        let aggregation_state = self
+    ) -> Result<BatchUpdate> {
+        let update = self
             .batch_backend
-            .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize, &all_orders)
+            .update_batch(UpdateBatch {
+                batch_id,
+                existing_order_ids: batch.orders.clone(),
+                aggregation_state: batch.aggregation_state.clone(),
+                new_proofs: new_proofs.to_vec(),
+                new_compressed_proofs: new_groth16_proofs.to_vec(),
+                finalize,
+            })
             .await
-            .context(format!(
-                "Failed to prove set builder for batch {batch_id} with orders {:?}",
-                all_orders
-            ))?;
-        let set_builder_proving_secs = Some(set_builder_start.elapsed().as_secs_f64());
-
-        tracing::debug!(
-            "Completed aggregation into batch {batch_id} of orders {:?} and proofs {:?}",
-            all_orders,
-            proof_ids
-        );
+            .with_context(|| {
+                format!("Failed to update backend batch {batch_id} with orders {:?}", batch.orders)
+            })?;
 
         self.db
             .update_batch(
                 batch_id,
-                &aggregation_state,
+                &update.aggregation_state,
                 &[new_proofs, new_groth16_proofs].concat(),
-                assessor_proof_id,
+                update.assessor_proof_id.clone(),
             )
             .await
             .with_context(|| {
-                format!("Failed to update batch {batch_id} with orders {:?} in the DB", all_orders)
+                format!(
+                    "Failed to update batch {batch_id} with orders {:?} in the DB",
+                    batch.orders
+                )
             })?;
 
-        Ok(AggregateProofsResult {
-            proof_id: aggregation_state.proof_id,
-            set_builder_proving_secs,
-            assessor_proving_secs,
-        })
+        Ok(update)
     }
 
     async fn aggregate(&self) -> Result<(), AggregatorErr> {
@@ -450,7 +398,7 @@ impl AggregatorService {
                             batch.orders
                         ))?;
                     (
-                        result.proof_id,
+                        result.aggregation_state.proof_id,
                         finalize,
                         result.set_builder_proving_secs,
                         result.assessor_proving_secs,

@@ -20,7 +20,7 @@
 //! - [`service`] — the [`AggregatorService`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
 //! - [`types`] — public batch types ([`Batch`], [`BatchStatus`],
-//!   [`AggregationState`]) and the internal `AggregateProofsResult`.
+//!   [`AggregationState`]).
 //! - [`error`] — [`AggregatorErr`] enum.
 
 mod error;

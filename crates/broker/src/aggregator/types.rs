@@ -65,9 +65,3 @@ pub struct Batch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_msg: Option<String>,
 }
-
-pub(crate) struct AggregateProofsResult {
-    pub(crate) proof_id: String,
-    pub(crate) set_builder_proving_secs: Option<f64>,
-    pub(crate) assessor_proving_secs: Option<f64>,
-}

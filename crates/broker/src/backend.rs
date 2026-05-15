@@ -42,7 +42,7 @@ use risc0_zkvm::{
 
 use crate::{
     config::ConfigLock,
-    db::DbObj,
+    db::{AggregationOrder, DbObj},
     futures_retry::retry_with_context,
     is_dev_mode,
     provers::{self, ProverObj},
@@ -338,6 +338,22 @@ pub struct ProcessedOrder {
 #[derive(Clone, Debug)]
 pub struct BatchSizeEstimate {
     pub size: usize,
+}
+
+pub struct UpdateBatch {
+    pub batch_id: usize,
+    pub existing_order_ids: Vec<String>,
+    pub aggregation_state: Option<AggregationState>,
+    pub new_proofs: Vec<AggregationOrder>,
+    pub new_compressed_proofs: Vec<AggregationOrder>,
+    pub finalize: bool,
+}
+
+pub struct BatchUpdate {
+    pub aggregation_state: AggregationState,
+    pub assessor_proof_id: Option<String>,
+    pub set_builder_proving_secs: Option<f64>,
+    pub assessor_proving_secs: Option<f64>,
 }
 
 #[async_trait]
@@ -1003,6 +1019,87 @@ impl Risc0BatchProcessor {
         );
 
         Ok(proof_res.id)
+    }
+
+    pub async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
+        let all_orders: Vec<String> = cmd
+            .existing_order_ids
+            .iter()
+            .chain(cmd.new_proofs.iter().map(|p| &p.order_id))
+            .chain(cmd.new_compressed_proofs.iter().map(|p| &p.order_id))
+            .cloned()
+            .collect();
+
+        let mut assessor_proving_secs = None;
+        let assessor_proof_id = if cmd.finalize {
+            tracing::debug!(
+                "Running assessor for batch {} with orders {:?}",
+                cmd.batch_id,
+                all_orders
+            );
+
+            let assessor_start = std::time::Instant::now();
+            let assessor_proof_id = self
+                .prove_assessor(&all_orders)
+                .await
+                .with_context(|| format!("Failed to prove assessor with orders {all_orders:?}"))?;
+            assessor_proving_secs = Some(assessor_start.elapsed().as_secs_f64());
+
+            tracing::debug!(
+                "Assessor proof complete for batch {} with orders {:?}, proof id: {}",
+                cmd.batch_id,
+                all_orders,
+                assessor_proof_id
+            );
+
+            Some(assessor_proof_id)
+        } else {
+            None
+        };
+
+        let proof_ids: Vec<String> = cmd
+            .new_proofs
+            .iter()
+            .map(|proof| proof.proof_id.clone())
+            .chain(assessor_proof_id.iter().cloned())
+            .collect();
+
+        tracing::debug!(
+            "Running set builder for batch {} of orders {:?} and proofs {:?}",
+            cmd.batch_id,
+            all_orders,
+            proof_ids
+        );
+        let set_builder_start = std::time::Instant::now();
+        let aggregation_state = self
+            .prove_set_builder(
+                cmd.aggregation_state.as_ref(),
+                &proof_ids,
+                cmd.finalize,
+                &all_orders,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to prove set builder for batch {} with orders {:?}",
+                    cmd.batch_id, all_orders
+                )
+            })?;
+        let set_builder_proving_secs = Some(set_builder_start.elapsed().as_secs_f64());
+
+        tracing::debug!(
+            "Completed aggregation into batch {} of orders {:?} and proofs {:?}",
+            cmd.batch_id,
+            all_orders,
+            proof_ids
+        );
+
+        Ok(BatchUpdate {
+            aggregation_state,
+            assessor_proof_id,
+            set_builder_proving_secs,
+            assessor_proving_secs,
+        })
     }
 
     pub async fn compress_batch_proof(
