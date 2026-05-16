@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Aggregator service — bundles fulfillments into a Merkle batch, runs the
-//! set-builder + assessor guests, and writes the resulting batch state to the
-//! database for later submission.
+//! Batcher service — owns broker batch lifecycle and delegates backend-specific
+//! batch updates, assessor artifact creation, and batch compression to the
+//! selected backend.
 //!
 //! Layout:
-//! - [`service`] — the [`AggregatorService`] struct, its constructor, and the
+//! - [`service`] — the [`BatcherService`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
 //! - [`types`] — public batch types ([`Batch`], [`BatchStatus`]).
-//! - [`error`] — [`AggregatorErr`] enum.
+//! - [`error`] — [`BatcherErr`] enum.
 
 mod error;
 mod service;
 mod types;
 
-pub(crate) use service::AggregatorService;
+pub(crate) use service::BatcherService;
 pub(crate) use types::{Batch, BatchStatus};

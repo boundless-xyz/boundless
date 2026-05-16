@@ -44,7 +44,7 @@ use crate::{
     ConfigurableDownloader,
 };
 
-use super::error::AggregatorErr;
+use super::error::BatcherErr;
 
 fn batch_order_from_batch_ready_order(
     order: BatchReadyOrder,
@@ -63,7 +63,7 @@ fn batch_order_from_batch_ready_order(
 }
 
 #[derive(Clone)]
-pub struct AggregatorService {
+pub struct BatcherService {
     db: DbObj,
     config: ConfigLock,
     backend: Arc<BackendRouter>,
@@ -72,7 +72,7 @@ pub struct AggregatorService {
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
 }
 
-impl AggregatorService {
+impl BatcherService {
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
@@ -297,7 +297,7 @@ impl AggregatorService {
         &self,
         orders: Vec<BatchReadyOrder>,
         current_time: u64,
-    ) -> Result<Vec<BatchReadyOrder>, AggregatorErr> {
+    ) -> Result<Vec<BatchReadyOrder>, BatcherErr> {
         let mut valid_orders = Vec::with_capacity(orders.len());
 
         for order in orders {
@@ -377,7 +377,7 @@ impl AggregatorService {
     async fn get_filtered_batch_ready_orders(
         &self,
         backend_id: &BackendId,
-    ) -> Result<(Vec<BatchReadyOrder>, Vec<BatchReadyOrder>), AggregatorErr> {
+    ) -> Result<(Vec<BatchReadyOrder>, Vec<BatchReadyOrder>), BatcherErr> {
         let current_time = crate::now_timestamp();
 
         let batch_update_orders = self
@@ -454,7 +454,7 @@ impl AggregatorService {
         Ok(update)
     }
 
-    async fn aggregate_backend(&self, backend_id: &BackendId) -> Result<(), AggregatorErr> {
+    async fn process_backend_batch(&self, backend_id: &BackendId) -> Result<(), BatcherErr> {
         // Get the current batch. This service works on one backend-owned broker batch at a time,
         // including any newly backend-ready orders that can be added to the current batch.
         let batch_id =
@@ -525,7 +525,7 @@ impl AggregatorService {
                 (proof_id, true, None, None)
             }
             status => {
-                return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
+                return Err(BatcherErr::UnexpectedErr(anyhow::anyhow!(
                     "Unexpected batch status {status:?}"
                 )))
             }
@@ -552,8 +552,8 @@ impl AggregatorService {
                     self.db
                         .set_batch_failure(batch_id, err.to_string())
                         .await
-                        .map_err(|e| AggregatorErr::UnexpectedErr(e.into()))?;
-                    return Err(AggregatorErr::CompressionErr(err));
+                        .map_err(|e| BatcherErr::UnexpectedErr(e.into()))?;
+                    return Err(BatcherErr::CompressionErr(err));
                 }
             };
             tracing::debug!("Closed batch {batch_id} with orders {:?}", batch.orders);
@@ -580,23 +580,23 @@ impl AggregatorService {
         Ok(())
     }
 
-    async fn aggregate(&self) -> Result<(), AggregatorErr> {
+    async fn process_batches(&self) -> Result<(), BatcherErr> {
         for backend_id in self.backend.backend_ids() {
-            self.aggregate_backend(&backend_id).await?;
+            self.process_backend_batch(&backend_id).await?;
         }
 
         Ok(())
     }
 }
 
-impl BrokerService for AggregatorService {
-    type Error = AggregatorErr;
+impl BrokerService for BatcherService {
+    type Error = BatcherErr;
 
     async fn run(self, cancel_token: CancellationToken) -> Result<(), SupervisorErr<Self::Error>> {
-        tracing::debug!("Starting Aggregator service");
+        tracing::debug!("Starting Batcher service");
         loop {
             if cancel_token.is_cancelled() {
-                tracing::debug!("Aggregator service received cancellation");
+                tracing::debug!("Batcher service received cancellation");
                 break;
             }
 
@@ -605,12 +605,12 @@ impl BrokerService for AggregatorService {
                     .config
                     .lock_all()
                     .context("Failed to lock config")
-                    .map_err(AggregatorErr::UnexpectedErr)
+                    .map_err(BatcherErr::UnexpectedErr)
                     .map_err(SupervisorErr::Recover)?;
                 config.batcher.batch_poll_time_ms.unwrap_or(1000)
             };
 
-            self.aggregate().await.map_err(SupervisorErr::Recover)?;
+            self.process_batches().await.map_err(SupervisorErr::Recover)?;
             tokio::time::sleep(tokio::time::Duration::from_millis(conf_poll_time_ms)).await;
         }
 
@@ -693,7 +693,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let aggregator = AggregatorService::new(
+        let batcher = BatcherService::new(
             db.clone(),
             chain_id,
             set_builder_id,
@@ -804,7 +804,7 @@ mod tests {
         };
         db.add_order(&order).await.unwrap();
 
-        aggregator.aggregate().await.unwrap();
+        batcher.process_batches().await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -858,7 +858,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let aggregator = AggregatorService::new(
+        let batcher = BatcherService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
@@ -924,7 +924,7 @@ mod tests {
         db.add_order(&order).await.unwrap();
 
         // Aggregate the first order. Should not finalize.
-        aggregator.aggregate().await.unwrap();
+        batcher.process_batches().await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -988,7 +988,7 @@ mod tests {
         };
         db.add_order(&order).await.unwrap();
 
-        aggregator.aggregate().await.unwrap();
+        batcher.process_batches().await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -1036,7 +1036,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let aggregator = AggregatorService::new(
+        let batcher = BatcherService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
@@ -1100,7 +1100,7 @@ mod tests {
         };
         db.add_order(&order).await.unwrap();
 
-        aggregator.aggregate().await.unwrap();
+        batcher.process_batches().await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -1154,7 +1154,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let aggregator = AggregatorService::new(
+        let batcher = BatcherService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
@@ -1220,7 +1220,7 @@ mod tests {
 
         provider.anvil_mine(Some(51), Some(2)).await.unwrap();
 
-        aggregator.aggregate().await.unwrap();
+        batcher.process_batches().await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::PendingSubmission);
@@ -1280,7 +1280,7 @@ mod tests {
         prover.upload_image(&set_builder_id.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         let assessor_id = Digest::from(ASSESSOR_GUEST_ID);
         prover.upload_image(&assessor_id.to_string(), ASSESSOR_GUEST_ELF.to_vec()).await.unwrap();
-        let aggregator = AggregatorService::new(
+        let batcher = BatcherService::new(
             db.clone(),
             provider.get_chain_id().await.unwrap(),
             set_builder_id,
@@ -1345,7 +1345,7 @@ mod tests {
 
         // add first order and aggregate
         db.add_order(&order).await.unwrap();
-        aggregator.aggregate().await.unwrap();
+        batcher.process_batches().await.unwrap();
         assert!(logs_contain("size estimate below limit 20 < 30"));
 
         let batch_res = db.get_complete_batch().await.unwrap();
@@ -1386,7 +1386,7 @@ mod tests {
         };
 
         db.add_order(&order2).await.unwrap();
-        aggregator.aggregate().await.unwrap();
+        batcher.process_batches().await.unwrap();
         assert!(logs_contain("batch size target hit 40 >= 30"));
 
         let (_, batch) = db.get_complete_batch().await.unwrap().unwrap();
@@ -1453,11 +1453,11 @@ mod tests {
         }
     }
 
-    async fn setup_aggregator(db: DbObj) -> AggregatorService {
+    async fn setup_batcher(db: DbObj) -> BatcherService {
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
 
-        AggregatorService::new(
+        BatcherService::new(
             db,
             1,
             Digest::ZERO,
@@ -1476,7 +1476,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_orders_expired() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
 
         let current_time = crate::now_timestamp();
 
@@ -1506,7 +1506,7 @@ mod tests {
             vec![batch_ready_order_from(&expired_order), batch_ready_order_from(&valid_order)];
 
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         assert_eq!(valid_orders.len(), 1);
         assert_eq!(valid_orders[0].order_id, valid_order.id());
@@ -1529,7 +1529,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_fulfill_after_lock_expire_fulfilled() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // FulfillAfterLockExpire order that has been fulfilled externally
@@ -1549,7 +1549,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be filtered out — fulfilled externally
         assert_eq!(valid_orders.len(), 0);
@@ -1566,7 +1566,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_fulfill_after_lock_expire_not_fulfilled() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // FulfillAfterLockExpire order that has NOT been fulfilled
@@ -1583,7 +1583,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be kept — not fulfilled
         assert_eq!(valid_orders.len(), 1);
@@ -1594,7 +1594,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_lock_and_fulfill_fulfilled_lock_expired() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // LockAndFulfill with lock already expired but request still valid:
@@ -1617,7 +1617,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be filtered out — fulfilled AND lock expired
         assert_eq!(valid_orders.len(), 0);
@@ -1634,7 +1634,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_lock_and_fulfill_fulfilled_lock_not_expired() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // LockAndFulfill with lock still active:
@@ -1656,7 +1656,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be KEPT — lock still active, we must continue to avoid slashing
         assert_eq!(valid_orders.len(), 1);
@@ -1667,7 +1667,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_lock_and_fulfill_not_fulfilled() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // LockAndFulfill NOT fulfilled
@@ -1684,7 +1684,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be kept — not fulfilled
         assert_eq!(valid_orders.len(), 1);
@@ -1695,7 +1695,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_fulfill_without_locking_fulfilled() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // rampUpStart=current_time, timeout=500 → expires_at()=current_time+500 (future)
@@ -1714,7 +1714,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be filtered out — fulfilled externally
         assert_eq!(valid_orders.len(), 0);
@@ -1731,7 +1731,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_fulfill_without_locking_not_fulfilled() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // rampUpStart=current_time, timeout=500 → expires_at()=current_time+500 (future)
@@ -1747,7 +1747,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be kept — not fulfilled
         assert_eq!(valid_orders.len(), 1);
@@ -1758,7 +1758,7 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_lock_and_fulfill_lock_expired_request_valid() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let aggregator_service = setup_aggregator(db.clone()).await;
+        let batcher_service = setup_batcher(db.clone()).await;
         let current_time = crate::now_timestamp();
 
         // Lock expired but request still valid, NOT fulfilled — this is the key scenario
@@ -1778,7 +1778,7 @@ mod tests {
 
         let orders = vec![batch_ready_order_from(&order)];
         let valid =
-            aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
+            batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be KEPT — lock expired but request still valid and not fulfilled
         assert_eq!(valid.len(), 1);

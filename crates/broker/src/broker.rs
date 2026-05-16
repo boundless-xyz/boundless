@@ -43,10 +43,9 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::{
-    aggregator,
     args::{ChainPipeline, CoreArgs},
     backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend, Risc0BatchProcessor},
-    chain_monitor_v2, channels,
+    batcher, chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
     is_dev_mode, market_monitor, offchain_market_monitor, order_committer, order_evaluator,
@@ -296,14 +295,14 @@ impl Broker {
 
     fn build_provers(&self, config: &ConfigLock) -> Result<(ProverObj, ProverObj)> {
         let prover: ProverObj;
-        let aggregation_prover: ProverObj;
+        let batch_prover: ProverObj;
         if is_dev_mode() {
             tracing::warn!(
                 "WARNING: Running the Broker in dev mode does not generate valid receipts. \
                  Receipts generated from this process are invalid and should never be used in production."
             );
             prover = Arc::new(provers::DefaultProver::new());
-            aggregation_prover = Arc::clone(&prover);
+            batch_prover = Arc::clone(&prover);
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
@@ -312,23 +311,23 @@ impl Broker {
                 provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
                     .context("Failed to construct Bonsai client")?,
             );
-            aggregation_prover = Arc::clone(&prover);
+            batch_prover = Arc::clone(&prover);
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
             prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
             );
-            // Initialize aggregation/snark prover with a higher reserved key to prioritize
-            aggregation_prover = Arc::new(
+            // Initialize batch/SNARK prover with a higher reserved key to prioritize
+            batch_prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
                     .context("Failed to initialize Bento client")?,
             );
         } else {
             prover = Arc::new(provers::DefaultProver::new());
-            aggregation_prover = Arc::clone(&prover);
+            batch_prover = Arc::clone(&prover);
         }
-        Ok((prover, aggregation_prover))
+        Ok((prover, batch_prover))
     }
 
     pub async fn start_service<P>(&self, chains: Vec<ChainPipeline<P>>) -> Result<()>
@@ -344,7 +343,7 @@ impl Broker {
         }
 
         let base_config = self.config_watcher.config.clone();
-        let (prover, aggregation_prover) = self.build_provers(&base_config)?;
+        let (prover, batch_prover) = self.build_provers(&base_config)?;
 
         let mut runner = ServiceRunner::new(base_config.clone());
 
@@ -396,7 +395,7 @@ impl Broker {
             self.start_chain_pipeline(
                 chain,
                 prover.clone(),
-                aggregation_prover.clone(),
+                batch_prover.clone(),
                 evaluator_order_tx.clone(),
                 pricer_rx,
                 pricing_completion_tx.clone(),
@@ -505,7 +504,7 @@ impl Broker {
         &self,
         chain: &ChainPipeline<P>,
         prover: ProverObj,
-        aggregation_prover: ProverObj,
+        batch_prover: ProverObj,
         evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pricer_rx: channels::SharedReceiver<Box<OrderRequest>>,
         pricing_completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
@@ -834,7 +833,7 @@ impl Broker {
             let risc0_batch_processor = Arc::new(Risc0BatchProcessor::new(
                 db.clone(),
                 config.clone(),
-                aggregation_prover.clone(),
+                batch_prover.clone(),
                 set_builder_img_id,
                 assessor_img_id,
                 deployment.boundless_market_address,
@@ -845,7 +844,7 @@ impl Broker {
                 Risc0Backend::new(
                     risc0_backend_id.clone(),
                     prover.clone(),
-                    aggregation_prover.clone(),
+                    batch_prover.clone(),
                     self.downloader.clone(),
                     priority_requestors.clone(),
                 )
@@ -881,7 +880,7 @@ impl Broker {
                 chain_span.clone(),
             );
 
-            let aggregator = Arc::new(aggregator::AggregatorService::new_with_backend_router(
+            let batcher = Arc::new(batcher::BatcherService::new_with_backend_router(
                 db.clone(),
                 config.clone(),
                 backend_router.clone(),
@@ -890,9 +889,9 @@ impl Broker {
             )?);
 
             runner.spawn_in_span(
-                aggregator,
+                batcher,
                 service_runner::Criticality::CriticalWithFastRetry,
-                "aggregator service",
+                "batcher service",
                 chain_span.clone(),
             );
 

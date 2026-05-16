@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Public batch/aggregation types and a small internal helper used by the
-//! aggregator service.
+//! Public broker batch types and a small internal helper used by the batcher
+//! service.
 
 use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
@@ -34,7 +34,7 @@ pub enum BatchStatus {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Batch {
-    /// Backend responsible for this batch's aggregation and assessment semantics.
+    /// Backend responsible for this batch's processing and assessment semantics.
     pub backend_id: BackendId,
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.

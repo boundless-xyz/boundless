@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Error type for the aggregator service.
+//! Error type for the batcher service.
 
 use thiserror::Error;
 
@@ -20,14 +20,14 @@ use crate::coded_error_impl;
 use crate::errors::CodedError;
 
 #[derive(Error)]
-pub enum AggregatorErr {
+pub enum BatcherErr {
     #[error("{code} Compression error: {0}", code = self.code())]
     CompressionErr(crate::backend::BackendError),
     #[error("{code} Unexpected error: {0:?}", code = self.code())]
     UnexpectedErr(#[from] anyhow::Error),
 }
 
-coded_error_impl!(AggregatorErr, "AGG",
+coded_error_impl!(BatcherErr, "AGG",
     UnexpectedErr(..)  => "500",
     CompressionErr(..) => "400",
 );

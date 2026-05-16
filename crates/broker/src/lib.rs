@@ -18,8 +18,8 @@ pub use config::ConfigLock;
 pub use rpc_retry_policy::CustomRetryPolicy;
 pub(crate) use storage::ConfigurableDownloader;
 
-pub(crate) mod aggregator;
-pub(crate) use aggregator::{Batch, BatchStatus};
+pub(crate) mod batcher;
+pub(crate) use batcher::{Batch, BatchStatus};
 pub mod args;
 pub(crate) mod backend;
 mod broker;

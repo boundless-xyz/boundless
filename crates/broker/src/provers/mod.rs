@@ -35,7 +35,7 @@ pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Er
 /// Verify a Groth16 compressed receipt
 ///
 /// This helper fetches the compressed receipt, deserializes it, and verifies its integrity.
-/// Used by both aggregator and order processors to validate Groth16 proofs before submission.
+/// Used by both batcher and order processors to validate Groth16 proofs before submission.
 pub(crate) async fn verify_groth16_receipt(
     prover: &ProverObj,
     proof_id: &str,
@@ -62,7 +62,7 @@ pub(crate) async fn verify_groth16_receipt(
 /// Verify a blake3 Groth16 compressed receipt
 ///
 /// This helper fetches the compressed receipt, deserializes it, and verifies its integrity.
-/// Used by both aggregator and order processors to validate Groth16 proofs before submission.
+/// Used by both batcher and order processors to validate Groth16 proofs before submission.
 pub(crate) async fn verify_blake3_groth16_receipt(
     prover: &ProverObj,
     proof_id: &str,

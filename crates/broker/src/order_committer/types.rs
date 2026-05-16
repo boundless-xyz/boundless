@@ -23,9 +23,9 @@ pub(crate) enum CommitmentOutcome {
     /// Order failed validation or locking in the OrderLocker and never entered the
     /// proving pipeline. Capacity is freed immediately.
     Skipped,
-    /// Order was proven, aggregated, and fulfilled on-chain by the Submitter.
+    /// Order was proven, batched if needed, and fulfilled on-chain by the Submitter.
     ProvingCompleted,
-    /// Order failed somewhere in the proving pipeline (OrderProcessor, Aggregator,
+    /// Order failed somewhere in the proving pipeline (OrderProcessor, Batcher,
     /// Submitter, or ReaperTask).
     ProvingFailed,
 }
