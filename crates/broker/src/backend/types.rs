@@ -266,8 +266,12 @@ pub struct FulfillmentBatch {
     pub orders: Vec<FulfillmentOrder>,
 }
 
+/// Verifier-side work that the broker must execute before or alongside fulfillment submission.
+///
+/// This is intentionally shaped around the current market contracts. Backends produce the
+/// verifier artifacts, while the broker owns transaction orchestration.
 pub enum VerifierUpdate {
-    SubmitRoot { verifier: Address, root: B256, seal: Bytes },
+    SubmitMerkleRoot { verifier: Address, root: B256, seal: Bytes },
 }
 
 pub struct OrderFulfillmentArtifact {

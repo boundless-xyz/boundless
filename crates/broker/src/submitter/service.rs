@@ -277,7 +277,7 @@ where
             .with_unlocked_requests(requests_to_price);
         for verifier_update in artifacts.verifier_updates {
             match verifier_update {
-                VerifierUpdate::SubmitRoot { verifier, root, seal } => {
+                VerifierUpdate::SubmitMerkleRoot { verifier, root, seal } => {
                     if verifier != self.set_verifier_addr {
                         return Err(SubmitterErr::UnexpectedErr(anyhow!(
                             "backend returned verifier update for unsupported verifier {verifier}; submitter is configured for {}",

@@ -380,7 +380,7 @@ impl Backend for Risc0Backend {
             aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
             "Guest state finalized root is inconsistent with claim digests"
         );
-        let verifier_update = VerifierUpdate::SubmitRoot {
+        let verifier_update = VerifierUpdate::SubmitMerkleRoot {
             verifier: set_verifier_addr,
             root: B256::from_slice(batch_root.as_bytes()),
             seal: submission.encode_groth16_seal(groth16_proof_id.as_str()).await?.into(),
