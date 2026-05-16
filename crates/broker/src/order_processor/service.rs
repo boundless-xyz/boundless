@@ -433,14 +433,14 @@ impl OrderProcessor {
 
                 if let Err(e) = self
                     .db
-                    .set_aggregation_status(
+                    .set_order_batch_status(
                         &order_id,
                         processed.next_status,
                         Some(&processed.backend_id),
                     )
                     .await
                 {
-                    tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
+                    tracing::error!("Failed to set order batch status for order {order_id}: {e:?}");
                 }
             }
             Err(ref err @ (ProvingErr::CancelFulfilledByAnother | ProvingErr::CancelExpired)) => {

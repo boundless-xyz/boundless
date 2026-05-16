@@ -39,7 +39,7 @@ mod types;
 
 pub use error::DbError;
 pub use sqlite::{broker_sqlite_url_for_chain, SqliteDb};
-pub use types::AggregationOrder;
+pub use types::BatchReadyOrder;
 
 #[async_trait]
 pub trait BrokerDb {
@@ -72,20 +72,20 @@ pub trait BrokerDb {
         order_id: &str,
         proof_id: &str,
     ) -> Result<(), DbError>;
-    async fn set_aggregation_status(
+    async fn set_order_batch_status(
         &self,
         id: &str,
         status: OrderStatus,
         backend_id: Option<&BackendId>,
     ) -> Result<(), DbError>;
-    async fn get_aggregation_proofs(
+    async fn get_pending_batch_orders(
         &self,
         backend_id: &BackendId,
-    ) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn get_groth16_proofs(
+    ) -> Result<Vec<BatchReadyOrder>, DbError>;
+    async fn get_pending_direct_submission_orders(
         &self,
         backend_id: &BackendId,
-    ) -> Result<Vec<AggregationOrder>, DbError>;
+    ) -> Result<Vec<BatchReadyOrder>, DbError>;
     async fn complete_batch(
         &self,
         batch_id: usize,
@@ -112,7 +112,7 @@ pub trait BrokerDb {
     async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError>;
     // Checks the locked table for the given request_id
     async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError>;
-    /// Update a batch with the results of an aggregation step.
+    /// Update a broker batch with backend state and newly claimed orders.
     ///
     /// Sets the backend state, and adds the given orders to the batch, updating the batch fees
     /// and deadline. During finalization, the assessor_proof_id is recorded as well.
@@ -120,7 +120,7 @@ pub trait BrokerDb {
         &self,
         batch_id: usize,
         backend_state: &BackendBatchState,
-        orders: &[AggregationOrder],
+        orders: &[BatchReadyOrder],
         assessor_proof_id: Option<AssessorProofId>,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;

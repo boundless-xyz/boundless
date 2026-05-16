@@ -29,7 +29,7 @@ use tokio::runtime::Builder;
 
 use crate::backend::{AssessorProofId, BackendBatchState, BackendId, CompressedProofId, ProofId};
 use crate::FulfillmentType;
-use crate::{db::AggregationOrder, Order, OrderStatus};
+use crate::{db::BatchReadyOrder, Order, OrderStatus};
 
 use super::{BrokerDb, SqliteDb};
 
@@ -67,7 +67,7 @@ enum DbOperation {
     BatchOperation(BatchOperation),
     GetProvingOrder,
     GetActiveProofs,
-    GetAggregationProofs,
+    GetPendingBatchOrders,
     GetBatch(u32),
 }
 
@@ -225,7 +225,7 @@ proptest! {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_aggregation_status(id, OrderStatus::PendingAgg, Some(&test_backend_id())).await.unwrap();
+                                        db.set_order_batch_status(id, OrderStatus::PendingAgg, Some(&test_backend_id())).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();
@@ -280,7 +280,7 @@ proptest! {
                                                 let random_index: usize = rand::rng().random_range(0..len);
                                                 let id = state.added_orders.get(random_index).unwrap();
 
-                                                orders.push(AggregationOrder {
+                                                orders.push(BatchReadyOrder {
                                                     order_id: id.to_string(),
                                                     proof_id: format!("proof_{id}"),
                                                     expiration: 1000,
@@ -311,8 +311,8 @@ proptest! {
                                 db.get_active_proofs().await.unwrap();
                             },
 
-                            DbOperation::GetAggregationProofs => {
-                                db.get_aggregation_proofs(&test_backend_id()).await.unwrap();
+                            DbOperation::GetPendingBatchOrders => {
+                                db.get_pending_batch_orders(&test_backend_id()).await.unwrap();
                             },
                             DbOperation::GetBatch(batch_id) => {
                                 let current_batch = db.get_current_batch(&test_backend_id()).await.unwrap();

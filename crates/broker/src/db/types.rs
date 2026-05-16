@@ -14,7 +14,7 @@
 
 //! Plain data types stored in or returned from the broker database.
 //!
-//! [`AggregationOrder`] is the public projection used by the aggregator service.
+//! [`BatchReadyOrder`] is the public projection used by the broker batch worker.
 //! [`DbOrder`] / [`DbBatch`] / [`DbLockedRequest`] are crate-private row shapes
 //! used by the SQLite-backed implementation in `db/sqlite.rs`.
 
@@ -22,9 +22,9 @@ use alloy::primitives::U256;
 
 use crate::{Batch, FulfillmentType, Order};
 
-/// Struct containing the information about an order used by the aggregation worker.
+/// Order projection claimed by the batch worker and passed to a backend batch update.
 #[derive(Clone, Debug)]
-pub struct AggregationOrder {
+pub struct BatchReadyOrder {
     pub order_id: String,
     pub proof_id: String,
     pub expiration: u64,

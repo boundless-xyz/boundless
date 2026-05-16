@@ -40,7 +40,7 @@ use crate::{
     backend::{AssessorProofId, BackendBatchState, BackendId, CompressedProofId},
     db::{
         error::DbError,
-        types::{AggregationOrder, DbBatch, DbLockedRequest, DbOrder},
+        types::{BatchReadyOrder, DbBatch, DbLockedRequest, DbOrder},
         BrokerDb,
     },
     proving_order_from_request, Batch, BatchStatus, FulfillmentType, Order, OrderRequest,
@@ -446,7 +446,7 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_aggregation_status(
+    async fn set_order_batch_status(
         &self,
         id: &str,
         status: OrderStatus,
@@ -480,10 +480,10 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_aggregation_proofs(
+    async fn get_pending_batch_orders(
         &self,
         backend_id: &BackendId,
-    ) -> Result<Vec<AggregationOrder>, DbError> {
+    ) -> Result<Vec<BatchReadyOrder>, DbError> {
         let backend_id = backend_id.to_string();
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
@@ -506,9 +506,9 @@ impl BrokerDb for SqliteDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut agg_orders = vec![];
+        let mut batch_ready_orders = vec![];
         for order in orders.into_iter() {
-            agg_orders.push(AggregationOrder {
+            batch_ready_orders.push(BatchReadyOrder {
                 order_id: order.id.clone(),
                 // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
                 proof_id: order
@@ -526,14 +526,14 @@ impl BrokerDb for SqliteDb {
             })
         }
 
-        Ok(agg_orders)
+        Ok(batch_ready_orders)
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_groth16_proofs(
+    async fn get_pending_direct_submission_orders(
         &self,
         backend_id: &BackendId,
-    ) -> Result<Vec<AggregationOrder>, DbError> {
+    ) -> Result<Vec<BatchReadyOrder>, DbError> {
         let backend_id = backend_id.to_string();
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
@@ -555,9 +555,9 @@ impl BrokerDb for SqliteDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut agg_orders = vec![];
+        let mut batch_ready_orders = vec![];
         for order in orders.into_iter() {
-            agg_orders.push(AggregationOrder {
+            batch_ready_orders.push(BatchReadyOrder {
                 order_id: order.id.clone(),
                 // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
                 proof_id: order
@@ -575,7 +575,7 @@ impl BrokerDb for SqliteDb {
             })
         }
 
-        Ok(agg_orders)
+        Ok(batch_ready_orders)
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -586,7 +586,7 @@ impl BrokerDb for SqliteDb {
     ) -> Result<(), DbError> {
         let batch = self.get_batch(batch_id).await?;
         if batch.backend_state.is_none() {
-            return Err(DbError::BatchAggregationStateIsNone(batch_id));
+            return Err(DbError::BatchBackendStateIsNone(batch_id));
         }
 
         let res = sqlx::query(
@@ -717,7 +717,7 @@ impl BrokerDb for SqliteDb {
         &self,
         batch_id: usize,
         backend_state: &BackendBatchState,
-        orders: &[AggregationOrder],
+        orders: &[BatchReadyOrder],
         assessor_proof_id: Option<AssessorProofId>,
     ) -> Result<(), DbError> {
         let mut txn = self.pool.begin().await?;
@@ -1177,7 +1177,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn set_aggregation_status(pool: SqlitePool) {
+    async fn set_order_batch_status(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let id = U256::ZERO;
@@ -1185,7 +1185,7 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        db.set_aggregation_status(&order.id(), OrderStatus::PendingAgg, None).await.unwrap();
+        db.set_order_batch_status(&order.id(), OrderStatus::PendingAgg, None).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
@@ -1193,7 +1193,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn get_aggregation_proofs(pool: SqlitePool) {
+    async fn get_pending_batch_orders_claims_by_backend(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let mut orders = [
@@ -1240,31 +1240,32 @@ mod tests {
             db.add_order(order).await.unwrap();
         }
 
-        let agg_proofs = db.get_aggregation_proofs(&test_backend_id()).await.unwrap();
+        let batch_orders = db.get_pending_batch_orders(&test_backend_id()).await.unwrap();
 
-        assert_eq!(agg_proofs.len(), 2);
+        assert_eq!(batch_orders.len(), 2);
 
-        let agg_proof = &agg_proofs[0];
-        assert_eq!(agg_proof.order_id, orders[1].id());
-        assert_eq!(agg_proof.proof_id, "test_id1");
+        let batch_order = &batch_orders[0];
+        assert_eq!(batch_order.order_id, orders[1].id());
+        assert_eq!(batch_order.proof_id, "test_id1");
         // expiration is now derived from request.expires_at() (rampUpStart + timeout = 0 + 100)
-        assert_eq!(agg_proof.expiration, orders[1].request.expires_at());
-        assert_eq!(agg_proof.fee, U256::from(10u64));
+        assert_eq!(batch_order.expiration, orders[1].request.expires_at());
+        assert_eq!(batch_order.fee, U256::from(10u64));
 
-        let agg_proof = &agg_proofs[1];
-        assert_eq!(agg_proof.order_id, orders[2].id());
-        assert_eq!(agg_proof.proof_id, "test_id2");
-        assert_eq!(agg_proof.expiration, orders[2].request.expires_at());
-        assert_eq!(agg_proof.fee, U256::from(10u64));
+        let batch_order = &batch_orders[1];
+        assert_eq!(batch_order.order_id, orders[2].id());
+        assert_eq!(batch_order.proof_id, "test_id2");
+        assert_eq!(batch_order.expiration, orders[2].request.expires_at());
+        assert_eq!(batch_order.fee, U256::from(10u64));
 
-        let db_order = db.get_order(&agg_proofs[0].order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&batch_orders[0].order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Aggregating);
-        let db_order = db.get_order(&agg_proofs[1].order_id).await.unwrap().unwrap();
+        let db_order = db.get_order(&batch_orders[1].order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Aggregating);
 
-        let other_agg_proofs = db.get_aggregation_proofs(&other_backend_id()).await.unwrap();
-        assert_eq!(other_agg_proofs.len(), 1);
-        assert_eq!(other_agg_proofs[0].order_id, orders[4].id());
+        let other_backend_batch_orders =
+            db.get_pending_batch_orders(&other_backend_id()).await.unwrap();
+        assert_eq!(other_backend_batch_orders.len(), 1);
+        assert_eq!(other_backend_batch_orders[0].order_id, orders[4].id());
     }
 
     #[sqlx::test]
@@ -1398,8 +1399,8 @@ mod tests {
         db.add_order(&order2).await.unwrap();
 
         let batch_id = 1;
-        let agg_proofs = [
-            AggregationOrder {
+        let batch_orders = [
+            BatchReadyOrder {
                 proof_id: "a".to_string(),
                 order_id: order1.id(),
                 expiration: 20,
@@ -1408,7 +1409,7 @@ mod tests {
                 request_id: order1.request.id,
                 lock_expiration: order1.request.lock_expires_at(),
             },
-            AggregationOrder {
+            BatchReadyOrder {
                 proof_id: "b".to_string(),
                 order_id: order2.id(),
                 expiration: 25,
@@ -1436,7 +1437,7 @@ mod tests {
         db.update_batch(
             batch_id,
             &backend_state,
-            &agg_proofs,
+            &batch_orders,
             Some(AssessorProofId::new("proof_id").unwrap()),
         )
         .await

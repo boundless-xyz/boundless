@@ -30,7 +30,7 @@ use crate::{
         UpdateBatch,
     },
     config::ConfigLock,
-    db::{AggregationOrder, DbObj},
+    db::{BatchReadyOrder, DbObj},
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
@@ -46,8 +46,8 @@ use crate::{
 
 use super::error::AggregatorErr;
 
-fn batch_order_from_aggregation_order(
-    order: AggregationOrder,
+fn batch_order_from_batch_ready_order(
+    order: BatchReadyOrder,
     compressed_proof_id: Option<CompressedProofId>,
 ) -> Result<BatchOrder> {
     Ok(BatchOrder {
@@ -149,7 +149,7 @@ impl AggregatorService {
         backend_id: &BackendId,
         batch_id: usize,
         batch: &Batch,
-        pending_orders: &[AggregationOrder],
+        pending_orders: &[BatchReadyOrder],
     ) -> Result<bool> {
         let (
             conf_batch_size,
@@ -295,23 +295,25 @@ impl AggregatorService {
     /// Filter out non-actionable orders (expired or already fulfilled) and mark them as failed.
     async fn filter_non_actionable_orders(
         &self,
-        orders: Vec<AggregationOrder>,
+        orders: Vec<BatchReadyOrder>,
         current_time: u64,
-    ) -> Result<Vec<AggregationOrder>, AggregatorErr> {
+    ) -> Result<Vec<BatchReadyOrder>, AggregatorErr> {
         let mut valid_orders = Vec::with_capacity(orders.len());
 
         for order in orders {
             if order.expiration < current_time {
                 tracing::warn!(
-                    "[B-AGG-600] Order {} has expired during aggregation, marking as failed",
+                    "[B-AGG-600] Order {} expired before backend batch processing, marking as failed",
                     order.order_id
                 );
 
-                if let Err(err) =
-                    self.db.set_order_failure(&order.order_id, "Expired before aggregation").await
+                if let Err(err) = self
+                    .db
+                    .set_order_failure(&order.order_id, "Expired before backend batch processing")
+                    .await
                 {
                     tracing::error!(
-                        "Failed to set order {} as failed before aggregation: {err}",
+                        "Failed to set order {} as failed before backend batch processing: {err}",
                         order.order_id,
                     );
                 }
@@ -341,11 +343,14 @@ impl AggregatorService {
                         );
                         if let Err(err) = self
                             .db
-                            .set_order_failure(&order.order_id, "Fulfilled before aggregation")
+                            .set_order_failure(
+                                &order.order_id,
+                                "Fulfilled before backend batch processing",
+                            )
                             .await
                         {
                             tracing::error!(
-                                "Failed to set order {} as failed: {err}",
+                                "Failed to set order {} as failed before backend batch processing: {err}",
                                 order.order_id
                             );
                         }
@@ -367,47 +372,50 @@ impl AggregatorService {
         Ok(valid_orders)
     }
 
-    /// Get all pending proofs, filter expired orders, and return both aggregation and groth16 proofs separately
-    async fn get_filtered_pending_proofs(
+    /// Claim backend-ready orders, filter non-actionable orders, and keep direct-submit
+    /// orders separate so their existing compressed proof handle can be passed to the backend.
+    async fn get_filtered_batch_ready_orders(
         &self,
         backend_id: &BackendId,
-    ) -> Result<(Vec<AggregationOrder>, Vec<AggregationOrder>), AggregatorErr> {
+    ) -> Result<(Vec<BatchReadyOrder>, Vec<BatchReadyOrder>), AggregatorErr> {
         let current_time = crate::now_timestamp();
 
-        // Get both types of proofs
-        let new_proofs = self
+        let batch_update_orders = self
             .db
-            .get_aggregation_proofs(backend_id)
+            .get_pending_batch_orders(backend_id)
             .await
-            .context("Failed to get aggregation proofs")?;
-        let groth16_proofs =
-            self.db.get_groth16_proofs(backend_id).await.context("Failed to get groth16 proofs")?;
+            .context("Failed to get pending backend batch orders")?;
+        let direct_submit_orders = self
+            .db
+            .get_pending_direct_submission_orders(backend_id)
+            .await
+            .context("Failed to get pending direct-submit orders")?;
 
-        // Filter expired orders from both lists
-        let valid_new_proofs = self.filter_non_actionable_orders(new_proofs, current_time).await?;
-        let valid_groth16_proofs =
-            self.filter_non_actionable_orders(groth16_proofs, current_time).await?;
+        let valid_batch_update_orders =
+            self.filter_non_actionable_orders(batch_update_orders, current_time).await?;
+        let valid_direct_submit_orders =
+            self.filter_non_actionable_orders(direct_submit_orders, current_time).await?;
 
-        Ok((valid_new_proofs, valid_groth16_proofs))
+        Ok((valid_batch_update_orders, valid_direct_submit_orders))
     }
 
-    async fn aggregate_proofs(
+    async fn update_backend_batch(
         &self,
         backend_id: &BackendId,
         batch_id: usize,
         batch: &Batch,
-        new_proofs: &[AggregationOrder],
-        new_groth16_proofs: &[AggregationOrder],
+        batch_update_orders: &[BatchReadyOrder],
+        direct_submit_orders: &[BatchReadyOrder],
         finalize: bool,
     ) -> Result<BatchUpdate> {
-        let new_orders = new_proofs
+        let new_orders = batch_update_orders
             .iter()
             .cloned()
-            .map(|order| batch_order_from_aggregation_order(order, None))
-            .chain(new_groth16_proofs.iter().cloned().map(|order| {
+            .map(|order| batch_order_from_batch_ready_order(order, None))
+            .chain(direct_submit_orders.iter().cloned().map(|order| {
                 let compressed_proof_id = CompressedProofId::new(order.proof_id.clone())
                     .expect("database returned empty compressed proof id");
-                batch_order_from_aggregation_order(order, Some(compressed_proof_id))
+                batch_order_from_batch_ready_order(order, Some(compressed_proof_id))
             }))
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -432,7 +440,7 @@ impl AggregatorService {
             .update_batch(
                 batch_id,
                 &update.state,
-                &[new_proofs, new_groth16_proofs].concat(),
+                &[batch_update_orders, direct_submit_orders].concat(),
                 update.assessor_proof_id.clone(),
             )
             .await
@@ -447,18 +455,18 @@ impl AggregatorService {
     }
 
     async fn aggregate_backend(&self, backend_id: &BackendId) -> Result<(), AggregatorErr> {
-        // Get the current batch. This aggregator service works on one batch at a time, including
-        // any proofs ready for aggregation into the current batch.
+        // Get the current batch. This service works on one backend-owned broker batch at a time,
+        // including any newly backend-ready orders that can be added to the current batch.
         let batch_id =
             self.db.get_current_batch(backend_id).await.context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
-        let (aggregation_proof_id, compress, set_builder_proving_secs, assessor_proving_secs) =
+        let (backend_proof_id, compress, set_builder_proving_secs, assessor_proving_secs) =
             match batch.status {
                 BatchStatus::Open => {
-                    // Get and filter all pending proofs
-                    let (new_proofs, new_groth16_proofs) =
-                        self.get_filtered_pending_proofs(backend_id).await?;
+                    // Claim and filter orders that are ready for backend batch processing.
+                    let (batch_update_orders, direct_submit_orders) =
+                        self.get_filtered_batch_ready_orders(backend_id).await?;
 
                     // Finalize the current batch before adding any new orders if the finalization conditions
                     // are already met.
@@ -467,28 +475,30 @@ impl AggregatorService {
                             backend_id,
                             batch_id,
                             &batch,
-                            &[new_proofs.clone(), new_groth16_proofs.clone()].concat(),
+                            &[batch_update_orders.clone(), direct_submit_orders.clone()].concat(),
                         )
                         .await?;
 
-                    // If we don't need to finalize, and there are no new proofs, there is no work to do.
-                    if !finalize && new_proofs.is_empty() {
-                        tracing::trace!("No aggregation work to do for batch {batch_id}");
+                    // If we don't need to finalize and there are no new backend batch-update
+                    // orders, there is no work to do. Direct-submit orders are picked up when the
+                    // backend batch is finalized.
+                    if !finalize && batch_update_orders.is_empty() {
+                        tracing::trace!("No backend batch work to do for batch {batch_id}");
                         return Ok(());
                     }
 
                     let result = self
-                        .aggregate_proofs(
+                        .update_backend_batch(
                             backend_id,
                             batch_id,
                             &batch,
-                            &new_proofs,
-                            &new_groth16_proofs,
+                            &batch_update_orders,
+                            &direct_submit_orders,
                             finalize,
                         )
                         .await
                         .context(format!(
-                            "Failed to aggregate proofs for batch {batch_id} with orders {:?}",
+                            "Failed to update backend batch {batch_id} with orders {:?}",
                             batch.orders
                         ))?;
                     (
@@ -532,7 +542,7 @@ impl AggregatorService {
                     backend_id,
                     CloseBatch {
                         batch_id,
-                        proof_id: aggregation_proof_id,
+                        proof_id: backend_proof_id,
                         order_ids: batch.orders.clone(),
                     },
                 )
@@ -1432,8 +1442,8 @@ mod tests {
         }
     }
 
-    fn agg_order_from(order: &Order) -> AggregationOrder {
-        AggregationOrder {
+    fn batch_ready_order_from(order: &Order) -> BatchReadyOrder {
+        BatchReadyOrder {
             order_id: order.id(),
             proof_id: "proof".to_string(),
             expiration: order.request.expires_at(),
@@ -1493,7 +1503,8 @@ mod tests {
         );
         db.add_order(&valid_order).await.unwrap();
 
-        let orders = vec![agg_order_from(&expired_order), agg_order_from(&valid_order)];
+        let orders =
+            vec![batch_ready_order_from(&expired_order), batch_ready_order_from(&valid_order)];
 
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
@@ -1504,7 +1515,10 @@ mod tests {
         // Check that expired order was marked as failed
         let db_expired_order = db.get_order(&expired_order.id()).await.unwrap().unwrap();
         assert_eq!(db_expired_order.status, OrderStatus::Failed);
-        assert_eq!(db_expired_order.error_msg, Some("Expired before aggregation".to_string()));
+        assert_eq!(
+            db_expired_order.error_msg,
+            Some("Expired before backend batch processing".to_string())
+        );
 
         // Check that valid order is unchanged
         let db_valid_order = db.get_order(&valid_order.id()).await.unwrap().unwrap();
@@ -1534,7 +1548,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1543,7 +1557,10 @@ mod tests {
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Failed);
-        assert_eq!(db_order.error_msg, Some("Fulfilled before aggregation".to_string()));
+        assert_eq!(
+            db_order.error_msg,
+            Some("Fulfilled before backend batch processing".to_string())
+        );
     }
 
     #[tokio::test]
@@ -1565,7 +1582,7 @@ mod tests {
         );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1599,7 +1616,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1608,7 +1625,10 @@ mod tests {
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Failed);
-        assert_eq!(db_order.error_msg, Some("Fulfilled before aggregation".to_string()));
+        assert_eq!(
+            db_order.error_msg,
+            Some("Fulfilled before backend batch processing".to_string())
+        );
     }
 
     #[tokio::test]
@@ -1635,7 +1655,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1663,7 +1683,7 @@ mod tests {
         );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1693,7 +1713,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1702,7 +1722,10 @@ mod tests {
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Failed);
-        assert_eq!(db_order.error_msg, Some("Fulfilled before aggregation".to_string()));
+        assert_eq!(
+            db_order.error_msg,
+            Some("Fulfilled before backend batch processing".to_string())
+        );
     }
 
     #[tokio::test]
@@ -1723,7 +1746,7 @@ mod tests {
         );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid_orders =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1754,7 +1777,7 @@ mod tests {
         assert!(order.request.lock_expires_at() < current_time);
         assert!(order.request.expires_at() > current_time);
 
-        let orders = vec![agg_order_from(&order)];
+        let orders = vec![batch_ready_order_from(&order)];
         let valid =
             aggregator_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
