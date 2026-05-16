@@ -995,7 +995,6 @@ mod tests {
             proof_id: Some(ProofId::new(proof_id).unwrap()),
             compressed_proof_id: compressed_proof_id
                 .map(|proof_id| CompressedProofId::new(proof_id).unwrap()),
-            selector: None,
         }
     }
 

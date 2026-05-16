@@ -269,7 +269,8 @@ pub struct FulfillmentBatch {
 /// Verifier-side work that the broker must execute before or alongside fulfillment submission.
 ///
 /// This is intentionally shaped around the current market contracts. Backends produce the
-/// verifier artifacts, while the broker owns transaction orchestration.
+/// verifier artifacts, while the broker owns transaction orchestration. More general verifier
+/// calls belong in the future verifier-router contract adapter rather than this MVP enum.
 pub enum VerifierUpdate {
     SubmitMerkleRoot { verifier: Address, root: B256, seal: Bytes },
 }
@@ -296,6 +297,16 @@ pub struct SubmissionPlan {
 }
 
 #[derive(Clone, Debug)]
+pub struct BatchSizeEstimateRequest {
+    /// Current backend-owned batch state, if a batch has already been started.
+    pub state: Option<BackendBatchState>,
+    /// Orders already recorded in the broker batch.
+    pub existing_order_ids: Vec<String>,
+    /// Candidate orders that would be added before checking the size limit.
+    pub pending_order_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
 pub struct BatchSizeEstimate {
     pub size: usize,
 }
@@ -305,7 +316,6 @@ pub struct BackendBatchState {
     pub data: serde_json::Value,
     pub proof_id: Option<ProofId>,
     pub compressed_proof_id: Option<CompressedProofId>,
-    pub selector: Option<FixedBytes<4>>,
 }
 
 #[derive(Clone, Debug)]
@@ -372,7 +382,8 @@ pub struct SubmissionAssessorArtifact {
 
 #[async_trait]
 pub(crate) trait BatchProcessor: Send + Sync {
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate>;
+    async fn estimate_batch_size(&self, cmd: BatchSizeEstimateRequest)
+        -> Result<BatchSizeEstimate>;
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
 
@@ -391,7 +402,8 @@ pub trait Backend: Send + Sync {
 
     async fn cancel_order(&self, order: &Order) -> Result<()>;
 
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate>;
+    async fn estimate_batch_size(&self, cmd: BatchSizeEstimateRequest)
+        -> Result<BatchSizeEstimate>;
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
 

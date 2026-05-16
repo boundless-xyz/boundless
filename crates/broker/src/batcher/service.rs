@@ -26,8 +26,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     backend::{
-        BackendId, BackendRouter, BatchOrder, BatchUpdate, CloseBatch, CompressedProofId, ProofId,
-        UpdateBatch,
+        BackendId, BackendRouter, BatchOrder, BatchSizeEstimateRequest, BatchUpdate, CloseBatch,
+        CompressedProofId, ProofId, UpdateBatch,
     },
     config::ConfigLock,
     db::{BatchReadyOrder, DbObj},
@@ -215,12 +215,19 @@ impl BatcherService {
 
         // Historical config name: for RISC0 this estimate is journal bytes. More generally this is
         // a backend-estimated batch size used to cap submission payload growth.
-        let batch_size_estimate =
-            self.backend.estimate_batch_size(backend_id, &batch.orders).await?.size;
         let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
-        let pending_size_estimate =
-            self.backend.estimate_batch_size(backend_id, &pending_order_ids).await?.size;
-        let total_size_estimate = batch_size_estimate + pending_size_estimate;
+        let total_size_estimate = self
+            .backend
+            .estimate_batch_size(
+                backend_id,
+                BatchSizeEstimateRequest {
+                    state: batch.backend_state.clone(),
+                    existing_order_ids: batch.orders.clone(),
+                    pending_order_ids,
+                },
+            )
+            .await?
+            .size;
         if total_size_estimate >= conf_max_journal_bytes {
             tracing::debug!(
                 "Finalizing batch {batch_id}: batch size target hit {} >= {}",
@@ -354,6 +361,11 @@ impl BatcherService {
                                 order.order_id
                             );
                         }
+                        let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                            order_id: order.order_id.clone(),
+                            chain_id: self.chain_id,
+                            outcome: CommitmentOutcome::ProvingFailed,
+                        });
                         continue;
                     }
                     Ok(false) => {}
@@ -1454,21 +1466,20 @@ mod tests {
     }
 
     async fn setup_batcher(db: DbObj) -> BatcherService {
-        let config = ConfigLock::default();
-        let prover: ProverObj = Arc::new(DefaultProver::new());
+        setup_batcher_with_completion_tx(db, mpsc::channel::<CommitmentComplete>(100).0).await
+    }
 
-        BatcherService::new(
+    async fn setup_batcher_with_completion_tx(
+        db: DbObj,
+        proving_completion_tx: mpsc::Sender<CommitmentComplete>,
+    ) -> BatcherService {
+        BatcherService::new_with_backend_router(
             db,
+            ConfigLock::default(),
+            Arc::new(BackendRouter::new()),
             1,
-            Digest::ZERO,
-            Digest::ZERO,
-            Address::ZERO,
-            Address::ZERO,
-            config,
-            prover,
-            mpsc::channel::<CommitmentComplete>(100).0,
+            proving_completion_tx,
         )
-        .await
         .unwrap()
     }
 
@@ -1529,7 +1540,8 @@ mod tests {
     #[traced_test]
     async fn filter_non_actionable_fulfill_after_lock_expire_fulfilled() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
-        let batcher_service = setup_batcher(db.clone()).await;
+        let (completion_tx, mut completion_rx) = mpsc::channel::<CommitmentComplete>(100);
+        let batcher_service = setup_batcher_with_completion_tx(db.clone(), completion_tx).await;
         let current_time = crate::now_timestamp();
 
         // FulfillAfterLockExpire order that has been fulfilled externally
@@ -1560,6 +1572,11 @@ mod tests {
             db_order.error_msg,
             Some("Fulfilled before backend batch processing".to_string())
         );
+
+        let completion = completion_rx.try_recv().expect("fulfilled order should free capacity");
+        assert_eq!(completion.order_id, order.id());
+        assert_eq!(completion.chain_id, 1);
+        assert!(matches!(completion.outcome, CommitmentOutcome::ProvingFailed));
     }
 
     #[tokio::test]

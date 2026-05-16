@@ -23,8 +23,9 @@ use anyhow::{Context, Result};
 use crate::Order;
 
 use super::types::{
-    Backend, BackendError, BackendId, BatchClose, BatchSizeEstimate, BatchUpdate, CloseBatch,
-    FulfillmentBatch, OrderProcessProgress, ProcessOrder, SubmissionPlan, UpdateBatch,
+    Backend, BackendError, BackendId, BatchClose, BatchSizeEstimate, BatchSizeEstimateRequest,
+    BatchUpdate, CloseBatch, FulfillmentBatch, OrderProcessProgress, ProcessOrder, SubmissionPlan,
+    UpdateBatch,
 };
 
 type BackendObj = Arc<dyn Backend>;
@@ -112,7 +113,9 @@ impl BackendRouter {
     }
 
     pub fn backend_ids(&self) -> Vec<BackendId> {
-        self.backends.keys().cloned().collect()
+        let mut ids: Vec<_> = self.backends.keys().cloned().collect();
+        ids.sort();
+        ids
     }
 
     pub async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
@@ -128,10 +131,10 @@ impl BackendRouter {
     pub async fn estimate_batch_size(
         &self,
         backend_id: &BackendId,
-        order_ids: &[String],
+        cmd: BatchSizeEstimateRequest,
     ) -> Result<BatchSizeEstimate> {
         let backend = self.backend_for_id(backend_id)?;
-        backend.estimate_batch_size(order_ids).await
+        backend.estimate_batch_size(cmd).await
     }
 
     pub async fn update_batch(
@@ -254,7 +257,10 @@ mod tests {
             Ok(())
         }
 
-        async fn estimate_batch_size(&self, _order_ids: &[String]) -> Result<BatchSizeEstimate> {
+        async fn estimate_batch_size(
+            &self,
+            _cmd: BatchSizeEstimateRequest,
+        ) -> Result<BatchSizeEstimate> {
             self.estimate_calls.fetch_add(1, Ordering::SeqCst);
             Ok(BatchSizeEstimate { size: 0 })
         }
@@ -269,7 +275,6 @@ mod tests {
                     }),
                     proof_id: None,
                     compressed_proof_id: None,
-                    selector: None,
                 },
                 assessor_proof_id: None,
                 batch_update_secs: None,
@@ -410,8 +415,28 @@ mod tests {
                 if backend_id == backend_b_id
         ));
 
-        router.estimate_batch_size(&backend_a_id, &["a1".to_string()]).await.unwrap();
-        router.estimate_batch_size(&backend_b_id, &["b1".to_string()]).await.unwrap();
+        router
+            .estimate_batch_size(
+                &backend_a_id,
+                BatchSizeEstimateRequest {
+                    state: None,
+                    existing_order_ids: Vec::new(),
+                    pending_order_ids: vec!["a1".to_string()],
+                },
+            )
+            .await
+            .unwrap();
+        router
+            .estimate_batch_size(
+                &backend_b_id,
+                BatchSizeEstimateRequest {
+                    state: None,
+                    existing_order_ids: Vec::new(),
+                    pending_order_ids: vec!["b1".to_string()],
+                },
+            )
+            .await
+            .unwrap();
         assert_eq!(backend_a.estimate_calls(), 1);
         assert_eq!(backend_b.estimate_calls(), 1);
 

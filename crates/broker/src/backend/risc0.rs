@@ -49,9 +49,9 @@ use anyhow::{Context, Result};
 
 use super::types::{
     AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
-    BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchUpdate, ClaimDigest,
-    CloseBatch, CompressedProofId, Digest as BackendDigest, FulfillmentBatch,
-    OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
+    BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
+    BatchUpdate, ClaimDigest, CloseBatch, CompressedProofId, Digest as BackendDigest,
+    FulfillmentBatch, OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
     OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact,
     SubmissionPlan, UpdateBatch, VerifierUpdate,
 };
@@ -100,7 +100,6 @@ impl Risc0BatchState {
             data: serde_json::to_value(self).context("Failed to encode RISC0 batch state")?,
             proof_id: Some(proof_id),
             compressed_proof_id,
-            selector: None,
         })
     }
 }
@@ -323,8 +322,11 @@ impl Backend for Risc0Backend {
         Ok(())
     }
 
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
-        self.batch_processor()?.estimate_batch_size(order_ids).await
+    async fn estimate_batch_size(
+        &self,
+        cmd: BatchSizeEstimateRequest,
+    ) -> Result<BatchSizeEstimate> {
+        self.batch_processor()?.estimate_batch_size(cmd).await
     }
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
@@ -923,8 +925,17 @@ impl Risc0BatchProcessor {
 
 #[async_trait]
 impl BatchProcessor for Risc0BatchProcessor {
-    async fn estimate_batch_size(&self, order_ids: &[String]) -> Result<BatchSizeEstimate> {
+    async fn estimate_batch_size(
+        &self,
+        cmd: BatchSizeEstimateRequest,
+    ) -> Result<BatchSizeEstimate> {
+        let BatchSizeEstimateRequest {
+            state: _current_state,
+            existing_order_ids,
+            pending_order_ids,
+        } = cmd;
         let mut size = 0;
+        let order_ids = existing_order_ids.iter().chain(pending_order_ids.iter());
         for order_id in order_ids {
             let order = self
                 .db

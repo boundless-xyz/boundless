@@ -49,7 +49,6 @@ fn test_backend_state(proof_id: String) -> BackendBatchState {
         }),
         proof_id: Some(ProofId::new(proof_id).unwrap()),
         compressed_proof_id: None,
-        selector: None,
     }
 }
 

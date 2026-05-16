@@ -810,7 +810,6 @@ mod tests {
                 }),
                 proof_id: Some(ProofId::new(aggregation_proof.id).unwrap()),
                 compressed_proof_id: Some(CompressedProofId::new(batch_g16).unwrap()),
-                selector: None,
             }),
         };
         db.add_batch(batch_id, batch).await.unwrap();
