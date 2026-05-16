@@ -164,8 +164,8 @@ mod tests {
     use alloy::primitives::{Address, Bytes, U256};
     use async_trait::async_trait;
     use boundless_market::contracts::{
-        Fulfillment as MarketFulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
-        RequestId, RequestInput, RequestInputType, Requirements,
+        eip712_domain, Fulfillment as MarketFulfillment, FulfillmentDataType, Offer, Predicate,
+        ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
@@ -184,6 +184,9 @@ mod tests {
         supported: Vec<FixedBytes<4>>,
         calls: AtomicUsize,
         cancel_calls: AtomicUsize,
+        estimate_calls: AtomicUsize,
+        update_calls: AtomicUsize,
+        fulfillment_calls: AtomicUsize,
     }
 
     impl MockBackend {
@@ -193,6 +196,9 @@ mod tests {
                 supported,
                 calls: AtomicUsize::new(0),
                 cancel_calls: AtomicUsize::new(0),
+                estimate_calls: AtomicUsize::new(0),
+                update_calls: AtomicUsize::new(0),
+                fulfillment_calls: AtomicUsize::new(0),
             }
         }
 
@@ -202,6 +208,18 @@ mod tests {
 
         fn cancel_calls(&self) -> usize {
             self.cancel_calls.load(Ordering::SeqCst)
+        }
+
+        fn estimate_calls(&self) -> usize {
+            self.estimate_calls.load(Ordering::SeqCst)
+        }
+
+        fn update_calls(&self) -> usize {
+            self.update_calls.load(Ordering::SeqCst)
+        }
+
+        fn fulfillment_calls(&self) -> usize {
+            self.fulfillment_calls.load(Ordering::SeqCst)
         }
 
         fn ensure_backend_id(&self, backend_id: &BackendId) -> Result<()> {
@@ -237,11 +255,26 @@ mod tests {
         }
 
         async fn estimate_batch_size(&self, _order_ids: &[String]) -> Result<BatchSizeEstimate> {
+            self.estimate_calls.fetch_add(1, Ordering::SeqCst);
             Ok(BatchSizeEstimate { size: 0 })
         }
 
-        async fn update_batch(&self, _cmd: UpdateBatch) -> Result<BatchUpdate> {
-            anyhow::bail!("mock backend does not update batches")
+        async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
+            self.update_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(BatchUpdate {
+                state: super::super::types::BackendBatchState {
+                    data: serde_json::json!({
+                        "backend_id": self.id.to_string(),
+                        "batch_id": cmd.batch_id,
+                    }),
+                    proof_id: None,
+                    compressed_proof_id: None,
+                    selector: None,
+                },
+                assessor_proof_id: None,
+                set_builder_proving_secs: None,
+                assessor_proving_secs: None,
+            })
         }
 
         async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, BackendError> {
@@ -250,6 +283,7 @@ mod tests {
 
         async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
             self.ensure_backend_id(&cmd.backend_id)?;
+            self.fulfillment_calls.fetch_add(1, Ordering::SeqCst);
             Ok(FulfillmentArtifacts {
                 root_submission: None,
                 orders: cmd
@@ -344,6 +378,96 @@ mod tests {
                 next_status: OrderStatus::PendingAgg,
             })
         );
+    }
+
+    #[tokio::test]
+    async fn router_keeps_backend_lifecycle_calls_separate() {
+        let backend_a = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let backend_b = Arc::new(MockBackend::new("mock_b", vec![selector(2)]));
+        let backend_a_id = BackendId::new("mock_a").unwrap();
+        let backend_b_id = BackendId::new("mock_b").unwrap();
+        let router = BackendRouter::new()
+            .register_backend(BackendEntry::new(vec![selector(1)], backend_a.clone()))
+            .unwrap()
+            .register_backend(BackendEntry::new(vec![selector(2)], backend_b.clone()))
+            .unwrap();
+
+        let progress_a =
+            router.process_order(ProcessOrder { order: test_order(selector(1)) }).await.unwrap();
+        let progress_b =
+            router.process_order(ProcessOrder { order: test_order(selector(2)) }).await.unwrap();
+
+        assert_eq!(backend_a.calls(), 1);
+        assert_eq!(backend_b.calls(), 1);
+        assert!(matches!(
+            progress_a,
+            OrderProcessProgress::Completed(ProcessedOrder { backend_id, .. })
+                if backend_id == backend_a_id
+        ));
+        assert!(matches!(
+            progress_b,
+            OrderProcessProgress::Completed(ProcessedOrder { backend_id, .. })
+                if backend_id == backend_b_id
+        ));
+
+        router.estimate_batch_size(&backend_a_id, &["a1".to_string()]).await.unwrap();
+        router.estimate_batch_size(&backend_b_id, &["b1".to_string()]).await.unwrap();
+        assert_eq!(backend_a.estimate_calls(), 1);
+        assert_eq!(backend_b.estimate_calls(), 1);
+
+        let update_a = router
+            .update_batch(
+                &backend_a_id,
+                UpdateBatch {
+                    batch_id: 10,
+                    existing_order_ids: Vec::new(),
+                    state: None,
+                    new_orders: Vec::new(),
+                    finalize: false,
+                },
+            )
+            .await
+            .unwrap();
+        let update_b = router
+            .update_batch(
+                &backend_b_id,
+                UpdateBatch {
+                    batch_id: 20,
+                    existing_order_ids: Vec::new(),
+                    state: None,
+                    new_orders: Vec::new(),
+                    finalize: false,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(backend_a.update_calls(), 1);
+        assert_eq!(backend_b.update_calls(), 1);
+        assert_eq!(update_a.state.data["backend_id"], "mock_a");
+        assert_eq!(update_b.state.data["backend_id"], "mock_b");
+
+        router
+            .build_fulfillments(FulfillmentBatch {
+                backend_id: backend_a_id.clone(),
+                state: None,
+                assessor_proof_id: None,
+                eip712_domain: eip712_domain(Address::ZERO, 1),
+                orders: Vec::new(),
+            })
+            .await
+            .unwrap();
+        router
+            .build_fulfillments(FulfillmentBatch {
+                backend_id: backend_b_id.clone(),
+                state: None,
+                assessor_proof_id: None,
+                eip712_domain: eip712_domain(Address::ZERO, 1),
+                orders: Vec::new(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(backend_a.fulfillment_calls(), 1);
+        assert_eq!(backend_b.fulfillment_calls(), 1);
     }
 
     #[tokio::test]
