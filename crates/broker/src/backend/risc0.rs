@@ -227,6 +227,20 @@ impl Risc0Backend {
     }
 }
 
+fn supports_risc0_selector(selector: FixedBytes<4>) -> bool {
+    selector == UNSPECIFIED_SELECTOR
+        || is_groth16_selector(selector)
+        || is_blake3_groth16_selector(selector)
+}
+
+fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
+    if is_groth16_selector(selector) || is_blake3_groth16_selector(selector) {
+        OrderStatus::SkipAggregation
+    } else {
+        OrderStatus::PendingAgg
+    }
+}
+
 #[async_trait]
 impl Backend for Risc0Backend {
     fn id(&self) -> &BackendId {
@@ -234,9 +248,7 @@ impl Backend for Risc0Backend {
     }
 
     fn supports(&self, selector: FixedBytes<4>) -> bool {
-        selector == UNSPECIFIED_SELECTOR
-            || is_groth16_selector(selector)
-            || is_blake3_groth16_selector(selector)
+        supports_risc0_selector(selector)
     }
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
@@ -270,12 +282,7 @@ impl Backend for Risc0Backend {
             });
         }
 
-        let next_status = match compression_type {
-            CompressionType::None => OrderStatus::PendingAgg,
-            CompressionType::Groth16 | CompressionType::Blake3Groth16 => {
-                OrderStatus::SkipAggregation
-            }
-        };
+        let next_status = next_status_for_risc0_selector(order.request.requirements.selector);
 
         tracing::info!(
             "Customer Proof complete for proof_id: {stark_proof_id}, order_id: {order_id} cycles: {:?} time: {}",
@@ -1045,5 +1052,38 @@ impl BatchProcessor for Risc0BatchProcessor {
                 .map_err(BackendError::operation)?,
             compression_secs: start.elapsed().as_secs_f64(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boundless_market::selector::SelectorExt;
+
+    fn selector_ext(selector: SelectorExt) -> FixedBytes<4> {
+        FixedBytes::from(selector as u32)
+    }
+
+    #[test]
+    fn risc0_supports_current_risc0_selectors() {
+        assert!(supports_risc0_selector(UNSPECIFIED_SELECTOR));
+        assert!(supports_risc0_selector(selector_ext(SelectorExt::groth16_latest())));
+        assert!(supports_risc0_selector(selector_ext(SelectorExt::blake3_groth16_latest())));
+        assert!(!supports_risc0_selector(FixedBytes::from([1, 2, 3, 4])));
+    }
+
+    #[test]
+    fn unspecified_selector_orders_enter_aggregation() {
+        assert_eq!(next_status_for_risc0_selector(UNSPECIFIED_SELECTOR), OrderStatus::PendingAgg);
+    }
+
+    #[test]
+    fn compressed_selector_orders_skip_aggregation() {
+        for selector in [
+            selector_ext(SelectorExt::groth16_latest()),
+            selector_ext(SelectorExt::blake3_groth16_latest()),
+        ] {
+            assert_eq!(next_status_for_risc0_selector(selector), OrderStatus::SkipAggregation);
+        }
     }
 }
