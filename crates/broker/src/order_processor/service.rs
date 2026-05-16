@@ -414,7 +414,7 @@ impl OrderProcessor {
                         .unwrap_or(false);
                     if is_fulfilled {
                         let err = ProvingErr::CancelFulfilledByAnother;
-                        tracing::warn!("Fulfillment event was missed, skipping aggregation for fulfilled order {order_id}");
+                        tracing::warn!("Fulfillment event was missed, using direct batch path for fulfilled order {order_id}");
                         handle_order_failure(
                             &self.db,
                             &order_id,
@@ -744,7 +744,7 @@ mod tests {
         order_processor.prove_and_update_db(order.clone()).await;
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::PendingAgg);
+        assert_eq!(order.status, OrderStatus::PendingBatch);
         assert_eq!(order.backend_id, Some(BackendId::new("risc0_v3").unwrap()));
 
         // Test that LockAndFulfill orders ignore fulfillment events
@@ -791,7 +791,7 @@ mod tests {
         order_processor_with_fulfillment.prove_and_update_db(lock_and_fulfill_order.clone()).await;
 
         let final_order = db.get_order(&lock_and_fulfill_order.id()).await.unwrap().unwrap();
-        assert_eq!(final_order.status, OrderStatus::PendingAgg);
+        assert_eq!(final_order.status, OrderStatus::PendingBatch);
     }
 
     #[tokio::test]
@@ -892,7 +892,7 @@ mod tests {
         }
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::PendingAgg);
+        assert_eq!(order.status, OrderStatus::PendingBatch);
         assert_eq!(order.proof_id, Some(proof_id));
 
         assert!(logs_contain("Found 1 proofs currently proving"));
@@ -994,7 +994,7 @@ mod tests {
 
         let result_2 = monitor_task_2.await.unwrap();
         assert!(result_2.is_ok());
-        assert_eq!(result_2.unwrap().next_status, OrderStatus::PendingAgg);
+        assert_eq!(result_2.unwrap().next_status, OrderStatus::PendingBatch);
 
         assert!(logs_contain("fulfilled externally"));
     }

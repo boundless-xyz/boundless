@@ -245,7 +245,7 @@ mod tests {
                 order_id: cmd.order.id(),
                 proof_id: "proof".try_into().unwrap(),
                 compressed_proof_id: None,
-                next_status: OrderStatus::PendingAgg,
+                next_status: OrderStatus::PendingBatch,
             }))
         }
 
@@ -375,7 +375,7 @@ mod tests {
                 order_id: test_order(selector(1)).id(),
                 proof_id: "proof".try_into().unwrap(),
                 compressed_proof_id: None,
-                next_status: OrderStatus::PendingAgg,
+                next_status: OrderStatus::PendingBatch,
             })
         );
     }

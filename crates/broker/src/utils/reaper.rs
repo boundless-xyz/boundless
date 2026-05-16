@@ -247,7 +247,7 @@ mod tests {
             Some(past_time),
         );
         let expired_order2 =
-            create_order_with_status_and_expiration(2, OrderStatus::PendingAgg, Some(past_time));
+            create_order_with_status_and_expiration(2, OrderStatus::PendingBatch, Some(past_time));
         let active_order =
             create_order_with_status_and_expiration(3, OrderStatus::Proving, Some(future_time));
         let done_order =
@@ -302,8 +302,8 @@ mod tests {
         let statuses = [
             OrderStatus::PendingProving,
             OrderStatus::Proving,
-            OrderStatus::PendingAgg,
-            OrderStatus::SkipAggregation,
+            OrderStatus::PendingBatch,
+            OrderStatus::PendingDirectBatch,
             OrderStatus::PendingSubmission,
         ];
 

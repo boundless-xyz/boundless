@@ -319,9 +319,9 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::PendingBatch)
+        .bind(OrderStatus::Batching)
+        .bind(OrderStatus::PendingDirectBatch)
         .bind(OrderStatus::PendingSubmission)
         .fetch_all(&self.pool)
         .await?;
@@ -343,8 +343,8 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::PendingBatch)
+        .bind(OrderStatus::PendingDirectBatch)
         .bind(OrderStatus::PendingSubmission)
         .bind(Utc::now().timestamp().saturating_sub(grace_period_secs))
         .fetch_all(&self.pool)
@@ -498,10 +498,10 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::Batching)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::PendingBatch)
+        .bind(OrderStatus::Batching)
         .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
@@ -548,9 +548,9 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::PendingDirectBatch)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::PendingDirectBatch)
         .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
@@ -1185,11 +1185,11 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        db.set_order_batch_status(&order.id(), OrderStatus::PendingAgg, None).await.unwrap();
+        db.set_order_batch_status(&order.id(), OrderStatus::PendingBatch, None).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
-        assert_eq!(db_order.status, OrderStatus::PendingAgg);
+        assert_eq!(db_order.status, OrderStatus::PendingBatch);
     }
 
     #[sqlx::test]
@@ -1205,14 +1205,14 @@ mod tests {
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
+                status: OrderStatus::PendingBatch,
                 proof_id: Some("test_id1".to_string()),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::Aggregating,
+                status: OrderStatus::Batching,
                 proof_id: Some("test_id2".to_string()),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
@@ -1226,7 +1226,7 @@ mod tests {
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
+                status: OrderStatus::PendingBatch,
                 proof_id: Some("test_id5".to_string()),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
@@ -1258,9 +1258,9 @@ mod tests {
         assert_eq!(batch_order.fee, U256::from(10u64));
 
         let db_order = db.get_order(&batch_orders[0].order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Aggregating);
+        assert_eq!(db_order.status, OrderStatus::Batching);
         let db_order = db.get_order(&batch_orders[1].order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Aggregating);
+        assert_eq!(db_order.status, OrderStatus::Batching);
 
         let other_backend_batch_orders =
             db.get_pending_batch_orders(&other_backend_id()).await.unwrap();
@@ -1521,12 +1521,12 @@ mod tests {
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
+                status: OrderStatus::PendingBatch,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::SkipAggregation,
+                status: OrderStatus::PendingDirectBatch,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
@@ -1537,7 +1537,7 @@ mod tests {
             },
             // Non-expired orders (should NOT be returned)
             Order {
-                status: OrderStatus::Aggregating,
+                status: OrderStatus::Batching,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
@@ -1587,8 +1587,8 @@ mod tests {
                 order.status,
                 OrderStatus::PendingProving
                     | OrderStatus::Proving
-                    | OrderStatus::PendingAgg
-                    | OrderStatus::SkipAggregation
+                    | OrderStatus::PendingBatch
+                    | OrderStatus::PendingDirectBatch
                     | OrderStatus::PendingSubmission
             ));
         }

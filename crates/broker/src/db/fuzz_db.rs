@@ -77,7 +77,7 @@ enum ExistingOrderOperation {
     SetOrderComplete,
     SetOrderFailure,
     SetOrderProofId { proof_id: String },
-    SetAggregationStatus,
+    SetOrderBatchStatus,
     GetSubmissionOrder,
 }
 
@@ -224,8 +224,8 @@ proptest! {
                                     ExistingOrderOperation::SetOrderProofId { proof_id } => {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();
                                     },
-                                    ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_order_batch_status(id, OrderStatus::PendingAgg, Some(&test_backend_id())).await.unwrap();
+                                    ExistingOrderOperation::SetOrderBatchStatus => {
+                                        db.set_order_batch_status(id, OrderStatus::PendingBatch, Some(&test_backend_id())).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();

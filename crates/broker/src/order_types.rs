@@ -42,12 +42,12 @@ pub enum OrderStatus {
     PendingProving,
     /// Order is actively ready for proving
     Proving,
-    /// Order is ready for aggregation
-    PendingAgg,
-    /// Order is in the process of Aggregation
-    Aggregating,
-    /// Unaggregated order is ready for submission
-    SkipAggregation,
+    /// Order is ready for backend batch processing
+    PendingBatch,
+    /// Order is in the process of broker batch processing
+    Batching,
+    /// Direct-proof order is ready for broker batch finalization
+    PendingDirectBatch,
     /// Pending on chain finalization
     PendingSubmission,
     /// Order has been completed
