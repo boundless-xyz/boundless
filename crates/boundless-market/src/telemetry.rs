@@ -193,8 +193,7 @@ pub enum CompletionOutcome {
 ///     Fields: stark_proving_secs, proof_compression_secs
 ///
 ///   Path B (inclusion / no selector):
-///     STARK proof -> aggregation (set builder + assessor) -> Groth16 compression
-///       of aggregation proof -> submit as batch
+///     STARK proof -> backend batch processing -> submit as batch
 ///     Fields: stark_proving_secs, set_builder_proving_secs, assessor_proving_secs,
 ///       assessor_compression_proof_secs
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -225,11 +224,11 @@ pub struct RequestCompleted {
     /// (includes optional per-order Groth16 compression for Groth16/Blake3Groth16 proof types).
     /// Calculated as: proving_completed_at - committed_at.
     pub committed_to_application_proof_duration_secs: Option<u64>,
-    /// Wall-clock seconds from ApplicationProvingCompleted to AggregationCompleted.
-    /// None for orders on Path A (individually compressed, skip aggregation).
+    /// Wall-clock seconds from ApplicationProvingCompleted to backend batch completion.
+    /// None for orders on Path A (individually compressed, skip backend batching).
     pub aggregation_duration_secs: Option<u64>,
-    /// Wall-clock seconds from AggregationCompleted (or ApplicationProvingCompleted for Path A)
-    /// to when the Fulfilled/Failed event was received.
+    /// Wall-clock seconds from backend batch completion (or ApplicationProvingCompleted for
+    /// Path A) to when the Fulfilled/Failed event was received.
     pub submission_duration_secs: Option<u64>,
     /// Total wall-clock duration from when the order was first received to when it
     /// reached a terminal state. Calculated as: now_unix() - received_at_timestamp.
@@ -240,7 +239,7 @@ pub struct RequestCompleted {
     pub estimated_proving_time_secs: Option<u64>,
     /// Wall-clock seconds from commitment to when all proofs completed.
     /// Path A (Groth16): committed_at to proving_completed_at (STARK + compression).
-    /// Path B (Merkle/batch): committed_at to aggregation_completed_at (STARK + set builder + assessor + batch compression).
+    /// Path B (Merkle/batch): committed_at to backend batch completion.
     pub actual_total_proving_time_secs: Option<u64>,
     /// Number of orders committed in the DB when this order entered the proving pipeline.
     /// Recorded by the OrderCommitment event at commit time.
@@ -261,16 +260,13 @@ pub struct RequestCompleted {
     /// customer STARK proof. Only set on Path A; None for merkle inclusion orders.
     /// Reported by ApplicationProvingCompleted.
     pub proof_compression_secs: Option<f64>,
-    /// Wall-clock seconds for the set-builder STARK proof that merges multiple
-    /// order claim digests into an aggregation tree. Path B only.
-    /// Reported by AggregationCompleted.
+    /// Wall-clock seconds for backend batch state update/finalization. Path B only.
+    /// Historical field name retained for telemetry compatibility.
     pub set_builder_proving_secs: Option<f64>,
-    /// Wall-clock seconds for the assessor STARK proof that validates the batch
-    /// fulfillments. Path B only. Reported by AggregationCompleted.
+    /// Wall-clock seconds for backend assessor artifact generation. Path B only.
     pub assessor_proving_secs: Option<f64>,
-    /// Wall-clock seconds for compressing the aggregation STARK proof into Groth16
-    /// for on-chain verification. Shared across all orders in the same batch.
-    /// Path B only. Reported by AggregationCompleted.
+    /// Wall-clock seconds for compressing the backend batch artifact for on-chain verification.
+    /// Shared across all orders in the same batch. Path B only.
     pub assessor_compression_proof_secs: Option<f64>,
 
     /// Unix timestamp (seconds) when the broker first received this request from the network.

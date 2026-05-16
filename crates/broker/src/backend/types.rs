@@ -327,8 +327,8 @@ pub struct UpdateBatch {
 pub struct BatchUpdate {
     pub state: BackendBatchState,
     pub assessor_proof_id: Option<AssessorProofId>,
-    pub set_builder_proving_secs: Option<f64>,
-    pub assessor_proving_secs: Option<f64>,
+    pub batch_update_secs: Option<f64>,
+    pub assessor_secs: Option<f64>,
 }
 
 pub struct CloseBatch {

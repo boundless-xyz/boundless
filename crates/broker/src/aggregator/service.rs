@@ -461,76 +461,75 @@ impl AggregatorService {
             self.db.get_current_batch(backend_id).await.context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
-        let (backend_proof_id, compress, set_builder_proving_secs, assessor_proving_secs) =
-            match batch.status {
-                BatchStatus::Open => {
-                    // Claim and filter orders that are ready for backend batch processing.
-                    let (batch_update_orders, direct_submit_orders) =
-                        self.get_filtered_batch_ready_orders(backend_id).await?;
+        let (backend_proof_id, compress, batch_update_secs, assessor_secs) = match batch.status {
+            BatchStatus::Open => {
+                // Claim and filter orders that are ready for backend batch processing.
+                let (batch_update_orders, direct_submit_orders) =
+                    self.get_filtered_batch_ready_orders(backend_id).await?;
 
-                    // Finalize the current batch before adding any new orders if the finalization conditions
-                    // are already met.
-                    let finalize = self
-                        .check_finalize(
-                            backend_id,
-                            batch_id,
-                            &batch,
-                            &[batch_update_orders.clone(), direct_submit_orders.clone()].concat(),
-                        )
-                        .await?;
-
-                    // If we don't need to finalize and there are no new backend batch-update
-                    // orders, there is no work to do. Direct-submit orders are picked up when the
-                    // backend batch is finalized.
-                    if !finalize && batch_update_orders.is_empty() {
-                        tracing::trace!("No backend batch work to do for batch {batch_id}");
-                        return Ok(());
-                    }
-
-                    let result = self
-                        .update_backend_batch(
-                            backend_id,
-                            batch_id,
-                            &batch,
-                            &batch_update_orders,
-                            &direct_submit_orders,
-                            finalize,
-                        )
-                        .await
-                        .context(format!(
-                            "Failed to update backend batch {batch_id} with orders {:?}",
-                            batch.orders
-                        ))?;
-                    (
-                        result
-                            .state
-                            .proof_id
-                            .clone()
-                            .context("backend finalized batch without proof id")?,
-                        finalize,
-                        result.set_builder_proving_secs,
-                        result.assessor_proving_secs,
+                // Finalize the current batch before adding any new orders if the finalization conditions
+                // are already met.
+                let finalize = self
+                    .check_finalize(
+                        backend_id,
+                        batch_id,
+                        &batch,
+                        &[batch_update_orders.clone(), direct_submit_orders.clone()].concat(),
                     )
+                    .await?;
+
+                // If we don't need to finalize and there are no new backend batch-update
+                // orders, there is no work to do. Direct-submit orders are picked up when the
+                // backend batch is finalized.
+                if !finalize && batch_update_orders.is_empty() {
+                    tracing::trace!("No backend batch work to do for batch {batch_id}");
+                    return Ok(());
                 }
-                BatchStatus::PendingCompression => {
-                    let backend_state = batch.backend_state.with_context(|| {
+
+                let result = self
+                    .update_backend_batch(
+                        backend_id,
+                        batch_id,
+                        &batch,
+                        &batch_update_orders,
+                        &direct_submit_orders,
+                        finalize,
+                    )
+                    .await
+                    .context(format!(
+                        "Failed to update backend batch {batch_id} with orders {:?}",
+                        batch.orders
+                    ))?;
+                (
+                    result
+                        .state
+                        .proof_id
+                        .clone()
+                        .context("backend finalized batch without proof id")?,
+                    finalize,
+                    result.batch_update_secs,
+                    result.assessor_secs,
+                )
+            }
+            BatchStatus::PendingCompression => {
+                let backend_state = batch.backend_state.with_context(|| {
                         format!(
                             "Batch {batch_id} in inconsistent state: status is PendingCompression but backend_state is None"
                         )
                     })?;
-                    let proof_id = backend_state.proof_id.with_context(|| {
+                let proof_id = backend_state.proof_id.with_context(|| {
                         format!(
                             "Batch {batch_id} in inconsistent state: status is PendingCompression but proof_id is None"
                         )
                     })?;
-                    (proof_id, true, None, None)
-                }
-                status => {
-                    return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
-                        "Unexpected batch status {status:?}"
-                    )))
-                }
-            };
+                (proof_id, true, None, None)
+            }
+            status => {
+                return Err(AggregatorErr::UnexpectedErr(anyhow::anyhow!(
+                    "Unexpected batch status {status:?}"
+                )))
+            }
+        };
 
         if compress {
             let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
@@ -560,10 +559,10 @@ impl AggregatorService {
             tracing::debug!("Closed batch {batch_id} with orders {:?}", batch.orders);
 
             for order_id_str in &batch.orders {
-                crate::telemetry::telemetry(self.chain_id).record_aggregation_completed(
+                crate::telemetry::telemetry(self.chain_id).record_backend_batch_completed(
                     order_id_str,
-                    set_builder_proving_secs,
-                    assessor_proving_secs,
+                    batch_update_secs,
+                    assessor_secs,
                     Some(close.compression_secs),
                 );
             }

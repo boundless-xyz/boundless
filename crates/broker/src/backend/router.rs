@@ -272,8 +272,8 @@ mod tests {
                     selector: None,
                 },
                 assessor_proof_id: None,
-                set_builder_proving_secs: None,
-                assessor_proving_secs: None,
+                batch_update_secs: None,
+                assessor_secs: None,
             })
         }
 

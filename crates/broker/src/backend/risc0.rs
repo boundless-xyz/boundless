@@ -979,7 +979,7 @@ impl BatchProcessor for Risc0BatchProcessor {
             fulfillment_types,
         );
 
-        let mut assessor_proving_secs = None;
+        let mut assessor_secs = None;
         let assessor_proof_id = if cmd.finalize {
             tracing::debug!(
                 "Running assessor for batch {} with orders {:?}",
@@ -992,7 +992,7 @@ impl BatchProcessor for Risc0BatchProcessor {
                 .prove_assessor(&all_orders)
                 .await
                 .with_context(|| format!("Failed to prove assessor with orders {all_orders:?}"))?;
-            assessor_proving_secs = Some(assessor_start.elapsed().as_secs_f64());
+            assessor_secs = Some(assessor_start.elapsed().as_secs_f64());
 
             tracing::debug!(
                 "Assessor proof complete for batch {} with orders {:?}, proof id: {}",
@@ -1033,7 +1033,7 @@ impl BatchProcessor for Risc0BatchProcessor {
                     cmd.batch_id, all_orders
                 )
             })?;
-        let set_builder_proving_secs = Some(set_builder_start.elapsed().as_secs_f64());
+        let batch_update_secs = Some(set_builder_start.elapsed().as_secs_f64());
 
         tracing::debug!(
             "Completed aggregation into batch {} of orders {:?} and proofs {:?}",
@@ -1045,8 +1045,8 @@ impl BatchProcessor for Risc0BatchProcessor {
         Ok(BatchUpdate {
             state: aggregation_state,
             assessor_proof_id,
-            set_builder_proving_secs,
-            assessor_proving_secs,
+            batch_update_secs,
+            assessor_secs,
         })
     }
 
