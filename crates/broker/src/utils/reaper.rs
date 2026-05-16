@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -23,12 +23,12 @@ use boundless_market::telemetry::CompletionOutcome;
 use tokio::sync::mpsc;
 
 use crate::{
+    backend::BackendRouter,
     coded_error_impl,
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
-    errors::{cancel_proof_and_fail, BrokerFailure, CodedError},
+    errors::{handle_order_failure, BrokerFailure, CodedError},
     order_committer::CommitmentComplete,
-    provers::ProverObj,
     task::{BrokerService, SupervisorErr},
 };
 
@@ -50,7 +50,7 @@ coded_error_impl!(ReaperError, "REAP",
 pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
-    prover: ProverObj,
+    backend: Arc<BackendRouter>,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the capacity slot for expired orders.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -60,11 +60,11 @@ impl ReaperTask {
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
+        backend: Arc<BackendRouter>,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
-        Self { db, config, prover, chain_id, proving_completion_tx }
+        Self { db, config, backend, chain_id, proving_completion_tx }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -82,16 +82,28 @@ impl ReaperTask {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
-                cancel_proof_and_fail(
-                    &self.prover,
+                let failure = BrokerFailure::new(
+                    "[B-REAP-003]",
+                    "Order expired in reaper",
+                    CompletionOutcome::ExpiredWhileProving,
+                );
+
+                let should_cancel = {
+                    let config = self.config.lock_all()?;
+                    config.market.cancel_proving_expired_orders
+                };
+                if should_cancel {
+                    if let Err(err) = self.backend.cancel_order(&order).await {
+                        warn!(
+                            "[B-REAP-004] Failed to cancel backend processing for expired order {order_id}: {err:?}"
+                        );
+                    }
+                }
+
+                handle_order_failure(
                     &self.db,
-                    &self.config,
-                    &order,
-                    &BrokerFailure::new(
-                        "[B-REAP-003]",
-                        "Order expired in reaper",
-                        CompletionOutcome::ExpiredWhileProving,
-                    ),
+                    &order_id,
+                    &failure,
                     self.chain_id,
                     &self.proving_completion_tx,
                 )
@@ -136,9 +148,7 @@ impl BrokerService for ReaperTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus,
-    };
+    use crate::{db::SqliteDb, now_timestamp, FulfillmentType, Order, OrderStatus};
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
@@ -191,14 +201,18 @@ mod tests {
         }
     }
 
+    fn test_backend_router() -> Arc<BackendRouter> {
+        Arc::new(BackendRouter::new())
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn test_check_expired_orders_no_expired() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backend_router(), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -233,9 +247,9 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
-        let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backend_router(), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -291,9 +305,9 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
-        let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backend_router(), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;

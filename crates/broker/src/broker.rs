@@ -900,7 +900,7 @@ impl Broker {
             let reaper = Arc::new(reaper::ReaperTask::new(
                 db.clone(),
                 config.clone(),
-                prover.clone(),
+                backend_router.clone(),
                 chain_id,
                 proving_completion_tx.clone(),
             ));
