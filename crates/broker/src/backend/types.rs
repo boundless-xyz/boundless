@@ -14,7 +14,7 @@
 
 use std::{fmt, str::FromStr, sync::Arc};
 
-use alloy::primitives::{Bytes, FixedBytes, B256};
+use alloy::primitives::{Address, Bytes, FixedBytes, B256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
     AssessorCallback, AssessorSelector, EIP712DomainSaltless, Fulfillment as MarketFulfillment,
@@ -266,9 +266,8 @@ pub struct FulfillmentBatch {
     pub orders: Vec<FulfillmentOrder>,
 }
 
-pub struct RootSubmission {
-    pub root: B256,
-    pub seal: Bytes,
+pub enum VerifierUpdate {
+    SubmitRoot { verifier: Address, root: B256, seal: Bytes },
 }
 
 pub struct OrderFulfillmentArtifact {
@@ -286,8 +285,8 @@ pub enum OrderFulfillmentResult {
     Failed(OrderFulfillmentFailure),
 }
 
-pub struct FulfillmentArtifacts {
-    pub root_submission: Option<RootSubmission>,
+pub struct SubmissionPlan {
+    pub verifier_updates: Vec<VerifierUpdate>,
     pub orders: Vec<OrderFulfillmentResult>,
     pub assessor: SubmissionAssessorArtifact,
 }
@@ -394,5 +393,5 @@ pub trait Backend: Send + Sync {
 
     async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError>;
 
-    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts>;
+    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan>;
 }

@@ -24,7 +24,7 @@ use crate::Order;
 
 use super::types::{
     Backend, BackendError, BackendId, BatchClose, BatchSizeEstimate, BatchUpdate, CloseBatch,
-    FulfillmentArtifacts, FulfillmentBatch, OrderProcessProgress, ProcessOrder, UpdateBatch,
+    FulfillmentBatch, OrderProcessProgress, ProcessOrder, SubmissionPlan, UpdateBatch,
 };
 
 type BackendObj = Arc<dyn Backend>;
@@ -152,7 +152,7 @@ impl BackendRouter {
         backend.close_batch(cmd).await
     }
 
-    pub async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
+    pub async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
         backend.build_fulfillments(cmd).await
     }
@@ -281,11 +281,11 @@ mod tests {
             Err(BackendError::operation(anyhow::anyhow!("mock backend does not close batches")))
         }
 
-        async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
+        async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
             self.ensure_backend_id(&cmd.backend_id)?;
             self.fulfillment_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(FulfillmentArtifacts {
-                root_submission: None,
+            Ok(SubmissionPlan {
+                verifier_updates: Vec::new(),
                 orders: cmd
                     .orders
                     .into_iter()

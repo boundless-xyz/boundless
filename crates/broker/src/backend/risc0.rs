@@ -50,10 +50,10 @@ use anyhow::{Context, Result};
 use super::types::{
     AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchUpdate, ClaimDigest,
-    CloseBatch, CompressedProofId, Digest as BackendDigest, FulfillmentArtifacts, FulfillmentBatch,
+    CloseBatch, CompressedProofId, Digest as BackendDigest, FulfillmentBatch,
     OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
-    OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, RootSubmission,
-    SubmissionAssessorArtifact, UpdateBatch,
+    OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact,
+    SubmissionPlan, UpdateBatch, VerifierUpdate,
 };
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -112,6 +112,7 @@ pub struct Risc0Backend {
     downloader: ConfigurableDownloader,
     priority_requestors: PriorityRequestors,
     set_builder_program_id: Option<Risc0Digest>,
+    set_verifier_addr: Option<Address>,
     batch_processor: Option<BatchProcessorObj>,
 }
 
@@ -130,12 +131,18 @@ impl Risc0Backend {
             downloader,
             priority_requestors,
             set_builder_program_id: None,
+            set_verifier_addr: None,
             batch_processor: None,
         }
     }
 
     pub fn with_set_builder_program_id(mut self, set_builder_program_id: Risc0Digest) -> Self {
         self.set_builder_program_id = Some(set_builder_program_id);
+        self
+    }
+
+    pub fn with_set_verifier_addr(mut self, set_verifier_addr: Address) -> Self {
+        self.set_verifier_addr = Some(set_verifier_addr);
         self
     }
 
@@ -331,7 +338,7 @@ impl Backend for Risc0Backend {
         }
     }
 
-    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<FulfillmentArtifacts> {
+    async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
         anyhow::ensure!(
             cmd.backend_id == self.id,
             "backend {} cannot build fulfillments for backend {}",
@@ -349,6 +356,8 @@ impl Backend for Risc0Backend {
         let set_builder_program_id = self
             .set_builder_program_id
             .context("RISC0 backend is missing set-builder program id")?;
+        let set_verifier_addr =
+            self.set_verifier_addr.context("RISC0 backend is missing set-verifier address")?;
 
         let submission = Risc0Submission::new(self.snark_prover.clone());
         let inclusion_params =
@@ -371,7 +380,8 @@ impl Backend for Risc0Backend {
             aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
             "Guest state finalized root is inconsistent with claim digests"
         );
-        let root_submission = RootSubmission {
+        let verifier_update = VerifierUpdate::SubmitRoot {
+            verifier: set_verifier_addr,
             root: B256::from_slice(batch_root.as_bytes()),
             seal: submission.encode_groth16_seal(groth16_proof_id.as_str()).await?.into(),
         };
@@ -519,8 +529,8 @@ impl Backend for Risc0Backend {
         let assessor_seal =
             assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
 
-        Ok(FulfillmentArtifacts {
-            root_submission: Some(root_submission),
+        Ok(SubmissionPlan {
+            verifier_updates: vec![verifier_update],
             orders,
             assessor: SubmissionAssessorArtifact {
                 seal: assessor_seal.into(),

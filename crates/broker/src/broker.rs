@@ -850,6 +850,7 @@ impl Broker {
                     priority_requestors.clone(),
                 )
                 .with_set_builder_program_id(set_builder_img_id)
+                .with_set_verifier_addr(deployment.set_verifier_address)
                 .with_batch_processor(risc0_batch_processor),
             );
 

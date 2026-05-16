@@ -35,7 +35,9 @@ use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::{BackendRouter, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult},
+    backend::{
+        BackendRouter, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult, VerifierUpdate,
+    },
     config::ConfigLock,
     db::DbObj,
     errors::{handle_order_failure, BrokerFailure, CodedError},
@@ -273,61 +275,61 @@ where
         let mut fulfillment_tx = FulfillmentTx::new(fulfillments.clone(), assessor_receipt)
             .with_withdraw(withdraw)
             .with_unlocked_requests(requests_to_price);
-        if let Some(root_submission) = artifacts.root_submission {
-            if single_txn_fulfill {
-                fulfillment_tx = fulfillment_tx.with_submit_root(
-                    self.set_verifier_addr,
-                    root_submission.root,
-                    root_submission.seal,
-                );
-            } else {
-                let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
-                let contains_root = match self
-                    .set_verifier
-                    .contains_root(root_submission.root)
-                    .await
-                {
-                    Ok(res) => {
-                        tracing::info!("Checked if set-verifier contains the root for batch {batch_id} with requests {:?}: {res:?}", request_ids);
-                        res
+        for verifier_update in artifacts.verifier_updates {
+            match verifier_update {
+                VerifierUpdate::SubmitRoot { verifier, root, seal } => {
+                    if verifier != self.set_verifier_addr {
+                        return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                            "backend returned verifier update for unsupported verifier {verifier}; submitter is configured for {}",
+                            self.set_verifier_addr
+                        )));
                     }
-                    Err(err) => {
-                        tracing::warn!("Failed to query if set-verifier contains the new root for batch {batch_id} with requests {:?}, trying to submit anyway {err:?}", request_ids);
-                        false
-                    }
-                };
-                if !contains_root {
-                    tracing::info!(
-                        "Submitting app merkle root: {} for batch {batch_id} with requests {:?}",
-                        root_submission.root,
-                        request_ids
-                    );
-                    if let Err(err) = self
-                        .set_verifier
-                        .submit_merkle_root(root_submission.root, root_submission.seal)
-                        .await
-                    {
-                        let order_ids: Vec<&str> = fulfillments
-                            .iter()
-                            .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
-                            .collect();
-                        tracing::warn!(
-                            "Failed to submit app merkle root for orders: {order_ids:?}"
-                        );
 
-                        // Map the error from the R0 Contracts crate to an error type from BoundlessMarket
-                        let market_err = if err.to_string().contains("failed to confirm tx") {
-                            MarketError::TxnConfirmationError(err)
-                        } else {
-                            MarketError::Error(err)
+                    if single_txn_fulfill {
+                        fulfillment_tx = fulfillment_tx.with_submit_root(verifier, root, seal);
+                    } else {
+                        let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
+                        let contains_root = match self.set_verifier.contains_root(root).await {
+                            Ok(res) => {
+                                tracing::info!("Checked if verifier {verifier} contains the root for batch {batch_id} with requests {:?}: {res:?}", request_ids);
+                                res
+                            }
+                            Err(err) => {
+                                tracing::warn!("Failed to query if verifier {verifier} contains the new root for batch {batch_id} with requests {:?}, trying to submit anyway {err:?}", request_ids);
+                                false
+                            }
                         };
-                        return Err(Self::classify_fulfillment_error(market_err, batch_id));
+                        if !contains_root {
+                            tracing::info!(
+                                "Submitting verifier root: {root} to {verifier} for batch {batch_id} with requests {:?}",
+                                request_ids
+                            );
+                            if let Err(err) = self.set_verifier.submit_merkle_root(root, seal).await
+                            {
+                                let order_ids: Vec<&str> = fulfillments
+                                    .iter()
+                                    .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
+                                    .collect();
+                                tracing::warn!(
+                                    "Failed to submit verifier root for orders: {order_ids:?}"
+                                );
+
+                                // Map the error from the R0 Contracts crate to an error type from BoundlessMarket
+                                let market_err = if err.to_string().contains("failed to confirm tx")
+                                {
+                                    MarketError::TxnConfirmationError(err)
+                                } else {
+                                    MarketError::Error(err)
+                                };
+                                return Err(Self::classify_fulfillment_error(market_err, batch_id));
+                            }
+                        } else {
+                            tracing::info!("Verifier {verifier} already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
+                        }
                     }
-                } else {
-                    tracing::info!("Contract already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
                 }
             }
-        };
+        }
 
         if let Err(err) = self.market.fulfill(fulfillment_tx).await {
             let order_ids: Vec<&str> = fulfillments
@@ -827,7 +829,8 @@ mod tests {
                 downloader,
                 priority_requestors,
             )
-            .with_set_builder_program_id(set_builder_id),
+            .with_set_builder_program_id(set_builder_id)
+            .with_set_verifier_addr(set_verifier),
         );
         let backend_router = Arc::new(
             BackendRouter::new()
