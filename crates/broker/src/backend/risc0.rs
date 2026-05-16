@@ -242,9 +242,9 @@ fn supports_risc0_selector(selector: FixedBytes<4>) -> bool {
 
 fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
     if is_groth16_selector(selector) || is_blake3_groth16_selector(selector) {
-        OrderStatus::PendingDirectBatch
+        OrderStatus::SkipAggregation
     } else {
-        OrderStatus::PendingBatch
+        OrderStatus::PendingAgg
     }
 }
 
@@ -895,7 +895,7 @@ impl Risc0BatchProcessor {
     pub async fn compress_batch_proof(
         &self,
         batch_id: usize,
-        batch_proof_id: &str,
+        aggregation_proof_id: &str,
         orders: &[String],
     ) -> Result<String, provers::ProverError> {
         let (retry_count, sleep_ms) = {
@@ -910,7 +910,7 @@ impl Risc0BatchProcessor {
             retry_count,
             sleep_ms,
             || async {
-                let proof_id = self.prover.compress_high(batch_proof_id).await?;
+                let proof_id = self.prover.compress_high(aggregation_proof_id).await?;
                 provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
                 Ok::<String, provers::ProverError>(proof_id)
             },
@@ -1036,7 +1036,7 @@ impl BatchProcessor for Risc0BatchProcessor {
         let batch_update_secs = Some(set_builder_start.elapsed().as_secs_f64());
 
         tracing::debug!(
-            "Completed backend batch update {} of orders {:?} and proofs {:?}",
+            "Completed aggregation into batch {} of orders {:?} and proofs {:?}",
             cmd.batch_id,
             all_orders,
             proof_ids.iter().map(|proof_id| proof_id.as_str()).collect::<Vec<_>>()
@@ -1083,17 +1083,17 @@ mod tests {
     }
 
     #[test]
-    fn unspecified_selector_orders_enter_batching() {
-        assert_eq!(next_status_for_risc0_selector(UNSPECIFIED_SELECTOR), OrderStatus::PendingBatch);
+    fn unspecified_selector_orders_enter_aggregation() {
+        assert_eq!(next_status_for_risc0_selector(UNSPECIFIED_SELECTOR), OrderStatus::PendingAgg);
     }
 
     #[test]
-    fn compressed_selector_orders_direct_batch() {
+    fn compressed_selector_orders_skip_aggregation() {
         for selector in [
             selector_ext(SelectorExt::groth16_latest()),
             selector_ext(SelectorExt::blake3_groth16_latest()),
         ] {
-            assert_eq!(next_status_for_risc0_selector(selector), OrderStatus::PendingDirectBatch);
+            assert_eq!(next_status_for_risc0_selector(selector), OrderStatus::SkipAggregation);
         }
     }
 }

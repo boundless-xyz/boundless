@@ -651,7 +651,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn batch_order_one_shot() {
+    async fn aggregate_order_one_shot() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let prover_addr = signer.address();
@@ -734,7 +734,7 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
@@ -781,7 +781,7 @@ mod tests {
             .as_bytes()
             .into();
         let order = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
@@ -816,7 +816,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn batch_order_incremental() {
+    async fn aggregate_order_incremental() {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let prover_addr = signer.address();
@@ -900,7 +900,7 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             image_id: Some(image_id_str.clone()),
@@ -965,7 +965,7 @@ mod tests {
             .as_bytes()
             .into();
         let order = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             image_id: Some(image_id_str),
@@ -1077,7 +1077,7 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
@@ -1195,7 +1195,7 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
@@ -1321,7 +1321,7 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request.clone(),
@@ -1343,7 +1343,7 @@ mod tests {
             cached_id: Default::default(),
         };
 
-        // add first order and process batch
+        // add first order and aggregate
         db.add_order(&order).await.unwrap();
         batcher.process_batches().await.unwrap();
         assert!(logs_contain("size estimate below limit 20 < 30"));
@@ -1363,7 +1363,7 @@ mod tests {
             .as_bytes();
 
         let order2 = Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request_2,
@@ -1404,7 +1404,7 @@ mod tests {
         timeout: u32,
     ) -> Order {
         Order {
-            status: OrderStatus::PendingBatch,
+            status: OrderStatus::PendingAgg,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: ProofRequest::new(
@@ -1521,7 +1521,7 @@ mod tests {
 
         // Check that valid order is unchanged
         let db_valid_order = db.get_order(&valid_order.id()).await.unwrap().unwrap();
-        assert_eq!(db_valid_order.status, OrderStatus::PendingBatch);
+        assert_eq!(db_valid_order.status, OrderStatus::PendingAgg);
         assert!(db_valid_order.error_msg.is_none());
     }
 
