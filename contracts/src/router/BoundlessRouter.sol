@@ -473,9 +473,13 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
             if (asEntry.classId != required) {
                 revert AssessorClassMismatch(required, asEntry.classId);
             }
-            IBoundlessAssessor(asEntry.impl).verifyAssessor{gas: asEntry.gasLimit}(
-                requests, fills, requestDigests, prover, assessorSeal
-            );
+            // The assessor's `verifyAssessor(SlimRequest[], Fulfillment[], bytes32[],
+            // address, bytes)` calldata tail is byte-identical to `verifyBatch`'s, so we
+            // forward our own calldata payload verbatim with the assessor's selector
+            // prepended. ABI stability between the two signatures is load-bearing: if
+            // either drifts, the OnChainAssessor / R0BoundlessAssessorAdapter end-to-end
+            // tests will fail because the adapter sees garbled calldata.
+            _forwardCalldataAsStaticCall(asEntry.impl, asEntry.gasLimit, IBoundlessAssessor.verifyAssessor.selector);
         } else {
             // Joint class: no assessor seam — caller must signal that with an empty seal.
             if (assessorSeal.length != 0) revert AssessorMustBeAbsent();
@@ -581,6 +585,38 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
             return ok;
         } catch {
             return false;
+        }
+    }
+
+    /// @dev Tail-call the current message-call's calldata into `impl.<selector>(…)` via
+    ///      a gas-bounded `staticcall`, bubbling any revert reason verbatim.
+    ///
+    ///      Gas: the body never copies or re-encodes the args. It only writes a single
+    ///      4-byte selector word into scratch memory, then `calldatacopy`s the rest
+    ///      directly from calldata into the call's input region. This skips the entire
+    ///      ABI-encoder Solidity would otherwise run to assemble the outgoing call.
+    ///
+    ///      Why this works inside an internal helper: in the EVM, calldata belongs to
+    ///      the current message-call frame, not to a Solidity function. A new frame is
+    ///      only created by CALL / STATICCALL / DELEGATECALL / CREATE(2). Internal
+    ///      Solidity calls are JUMPs within the same frame, so `calldatasize()` /
+    ///      `calldatacopy` here still see the *outer* (entry-point) calldata — which is
+    ///      exactly the bytes we want to forward.
+    ///
+    ///      Invariant the caller must uphold: `selector` must belong to a sibling method
+    ///      whose post-selector ABI is byte-identical to the entry-point's calldata
+    ///      tail. Otherwise the callee will decode garbage. Read this call site as
+    ///      "tail-call to a sibling with the same args".
+    function _forwardCalldataAsStaticCall(address impl, uint256 gasLimit, bytes4 selector) internal view {
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            mstore(p, selector)
+            calldatacopy(add(p, 0x04), 0x04, sub(calldatasize(), 0x04))
+            if iszero(staticcall(gasLimit, impl, p, calldatasize(), 0, 0)) {
+                let rds := returndatasize()
+                returndatacopy(p, 0, rds)
+                revert(p, rds)
+            }
         }
     }
 }
