@@ -9,12 +9,10 @@ pragma solidity ^0.8.26;
 import {console2} from "forge-std/console2.sol";
 
 import {BenchBase} from "./BenchBase.sol";
-import {OnChainAssessor} from "../../src/router/adapters/OnChainAssessor.sol";
 import {ProofRequest} from "../../src/types/ProofRequest.sol";
 import {Fulfillment} from "../../src/types/Fulfillment.sol";
-import {FulfillmentDataType, FulfillmentDataImageIdAndJournal} from "../../src/types/FulfillmentData.sol";
 import {PredicateType} from "../../src/types/Predicate.sol";
-import {SlimRequest, SlimRequestLibrary} from "../../src/types/SlimRequest.sol";
+import {SlimRequest} from "../../src/types/SlimRequest.sol";
 
 /// @title AdapterBench — measures individual assessor adapters.
 ///
@@ -104,60 +102,4 @@ contract AdapterBench is BenchBase {
         }
     }
 
-    // ─── Sanity ───────────────────────────────────────────────────────────
-
-    function test_slim_reconstructionMatchesFullDigest() external view {
-        (ProofRequest[] memory rd,) = _buildBatch(3, PredicateType.DigestMatch);
-        for (uint256 i = 0; i < rd.length; i++) {
-            SlimRequest memory slim = _toSlim(rd[i]);
-            assertEq(SlimRequestLibrary.reconstructRequestDigest(slim), rd[i].eip712Digest());
-        }
-    }
-
-    function test_onChain_singleFill_passes() external {
-        (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
-        (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
-        bytes memory seal = _buildOnChainSeal(s, f);
-        directOnChain.measure(s, f, rd, proverAddr, seal);
-    }
-
-    function test_r0_singleFill_passes() external {
-        (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
-        (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
-        bytes memory seal = _buildR0Seal();
-        directR0.measure(s, f, rd, proverAddr, seal);
-    }
-
-    function test_predicateFailureReverts() external {
-        (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
-        (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
-        // Tamper with fulfillment journal — predicate eval should fail before
-        // the signature check, so the seal contents don't matter.
-        bytes memory wrongJournal = bytes("not-the-journal");
-        (bytes32 imageId,) = _imageAndJournal(0);
-        f[0].fulfillmentData =
-            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: wrongJournal}));
-        bytes memory seal = _buildOnChainSeal(s, f);
-
-        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.PredicateFailed.selector, uint256(0)));
-        directOnChain.measure(s, f, rd, proverAddr, seal);
-    }
-
-    function test_proverSignatureMismatchReverts() external {
-        (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
-        (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
-        bytes memory seal = _buildOnChainSeal(s, f);
-        vm.expectPartialRevert(OnChainAssessor.ProverSignatureMismatch.selector);
-        directOnChain.measure(s, f, rd, address(0xDEAD), seal);
-    }
-
-    function test_claimDigestMismatchReverts() external {
-        (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
-        (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
-        // Predicate eval passes (fulfillmentData intact), but claim digest is broken.
-        f[0].claimDigest = bytes32(uint256(f[0].claimDigest) ^ 1);
-        bytes memory seal = _buildOnChainSeal(s, f);
-        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.ClaimDigestMismatch.selector, uint256(0)));
-        directOnChain.measure(s, f, rd, proverAddr, seal);
-    }
 }

@@ -8,8 +8,7 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import {IRiscZeroVerifier, ReceiptClaim, ReceiptClaimLib, Receipt} from "risc0/IRiscZeroVerifier.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 
 import {OnChainAssessor} from "../../src/router/adapters/OnChainAssessor.sol";
 import {R0BoundlessAssessorAdapter} from "../../src/router/adapters/R0BoundlessAssessorAdapter.sol";
@@ -28,43 +27,7 @@ import {Fulfillment} from "../../src/types/Fulfillment.sol";
 import {FulfillmentDataType, FulfillmentDataImageIdAndJournal} from "../../src/types/FulfillmentData.sol";
 import {SlimRequest, SlimRequestLibrary} from "../../src/types/SlimRequest.sol";
 
-// ─── Mocks ────────────────────────────────────────────────────────────────
-
-/// @notice Always-passing `IBoundlessVerifier`. Isolates router/assessor cost
-///         from any real verifier work.
-contract NullVerifier is IBoundlessVerifier, IERC165 {
-    function verify(bytes calldata, bytes32) external pure {}
-
-    function supportsInterface(bytes4 id) external pure returns (bool) {
-        return id == type(IBoundlessVerifier).interfaceId || id == type(IERC165).interfaceId;
-    }
-}
-
-/// @notice Always-passing `IBoundlessAssessor`. Isolates router-overhead cost
-///         from any real assessor work. Returns immediately.
-contract NullAssessor is IBoundlessAssessor, IERC165 {
-    function verifyAssessor(
-        SlimRequest[] calldata,
-        Fulfillment[] calldata,
-        bytes32[] calldata,
-        address,
-        bytes calldata
-    ) external pure {}
-
-    function supportsInterface(bytes4 id) external pure returns (bool) {
-        return id == type(IBoundlessAssessor).interfaceId || id == type(IERC165).interfaceId;
-    }
-}
-
-/// @notice Always-passing `IRiscZeroVerifier`. Lets the R0 assessor adapter
-///         run end-to-end in `forge test` without producing a real Groth16
-///         proof. The analytical Groth16 verify cost is added back in the
-///         report (`R0_GROTH16_VERIFY_GAS`).
-contract NullRiscZeroVerifier is IRiscZeroVerifier {
-    function verify(bytes calldata, bytes32, bytes32) external view {}
-
-    function verifyIntegrity(Receipt calldata) external view {}
-}
+import {NullVerifier, NullAssessor, NullRiscZeroVerifier} from "../mocks/RouterMocks.sol";
 
 // ─── Harnesses ────────────────────────────────────────────────────────────
 

@@ -89,13 +89,4 @@ contract RouterBench is BenchBase {
             console2.log("           cold-only delta=%d", cold - warm);
         }
     }
-
-    // ─── Sanity ───────────────────────────────────────────────────────────
-
-    function test_router_singleFill_passes() external view {
-        (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
-        (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
-        bytes memory seal = _buildNullSeal();
-        routerHarness.measure(s, f, rd, proverAddr, seal);
-    }
 }
