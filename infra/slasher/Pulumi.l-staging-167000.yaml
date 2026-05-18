@@ -8,7 +8,7 @@ config:
     secure: v1:dgBSqqwnln6uWdfX:gaakuvEDJfSSRDlVYT0IAWCu7S7IsUjT/FswYo1gMx5pzejD5cRmndgzBC480uzflPp1hMyq4PZuUxZJWjBwlibRz/xQHunCnSaABj+RIjunUQvbXcqGQqjBa9qQvA2G2fyuejQYZlrR1fl9CB9Du9rtIMWwQe4jqIBQ+f5wjA==
   slasher:DOCKER_DIR: ../../
   slasher:DOCKER_TAG: latest
-  slasher:ERROR_BALANCE_BELOW: "0.002"
+  slasher:ERROR_BALANCE_BELOW: "0.005"
   slasher:GH_TOKEN_SECRET:
     secure: v1:eBSeWVs9S2OBBLKk:gaJpwmYz7yUhBTR2uzDtQNgLc6pgUDrkogddbZsbLiQnRSTEItSH+ejUbMBVDFcHgJY+SSQoQJpmJdmiXLlRg1gpZUjrySrO5XIe1TKTDB1xYy4u5x2eWUdkTOZ8cHYNl5cCqlF1arDHyWnBOQ==
   slasher:INTERVAL: "60"
@@ -23,7 +23,7 @@ config:
   slasher:SKIP_ADDRESSES: ""
   slasher:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   slasher:TX_TIMEOUT: "120"
-  slasher:WARN_BALANCE_BELOW: "0.004"
+  slasher:WARN_BALANCE_BELOW: "0.01"
   slasher:ETH_RPC_URL:
     secure: v1:HDKwjizWEgLIvfyk:kHIpu5ZOBWZszdKbCI04ScMGluPIJV1gv6RmhnPbiHk36oN1pCThSaLQ6vsZ
   slasher:START_BLOCK: "4819525"
