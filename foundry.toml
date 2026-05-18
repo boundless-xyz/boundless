@@ -31,6 +31,20 @@ bytecode_hash = "none"
 snapshots = "contracts/snapshots"
 isolate = true
 
+# Apply heavier runtime optimization to the router and its adapters only. The
+# router is the hot path of every market settlement and is deployed once, so
+# trading deploy-time bytecode size for runtime gas is the right call here.
+# The rest of the project keeps the size-tuned default of 100 runs.
+[[profile.default.additional_compiler_profiles]]
+name = "router-runtime"
+via_ir = true
+optimizer = true
+optimizer_runs = 1000000
+
+[[profile.default.compilation_restrictions]]
+paths = "contracts/src/router/**/*.sol"
+optimizer_runs = 1000000
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
 [fmt]

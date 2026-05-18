@@ -19,26 +19,18 @@ library TestUtils {
 
     bytes8 internal constant LEAF_TAG = bytes8("LEAF_TAG");
 
+    // NOTE: `mockAssessor` was tied to the legacy `Fulfillment.{id, requestDigest}` fields
+    // and the off-chain STARK assessor envelope. Both went away with the slim-payload
+    // refactor; the on-chain assessor doesn't need a mock STARK journal. The shim below
+    // exists only so unrelated TestUtils callers keep compiling.
     function mockAssessor(
-        Fulfillment[] memory fills,
+        Fulfillment[] memory, /* fills */
         bytes32 assessorImageId,
-        Selector[] memory selectors,
-        AssessorCallback[] memory callbacks,
-        address prover
+        Selector[] memory, /* selectors */
+        AssessorCallback[] memory, /* callbacks */
+        address /* prover */
     ) internal pure returns (ReceiptClaim memory) {
-        bytes32[] memory leaves = new bytes32[](fills.length);
-
-        for (uint256 i = 0; i < fills.length; i++) {
-            leaves[i] = AssessorCommitment(
-                    i, fills[i].id, fills[i].requestDigest, fills[i].claimDigest, fills[i].fulfillmentDataDigest()
-                ).eip712Digest();
-        }
-
-        bytes32 root = MerkleProofish.processTree(leaves);
-
-        bytes memory journal =
-            abi.encode(AssessorJournal({root: root, selectors: selectors, callbacks: callbacks, prover: prover}));
-        return ReceiptClaimLib.ok(assessorImageId, sha256(journal));
+        return ReceiptClaimLib.ok(assessorImageId, bytes32(0));
     }
 
     function mockAssessorSeal(RiscZeroSetVerifier setVerifier, bytes32 claimDigest)

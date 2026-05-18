@@ -15,39 +15,30 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {
-    IRiscZeroVerifier,
-    Receipt,
-    ReceiptClaim,
-    ReceiptClaimLib,
-    VerificationFailed
-} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
 import {IBoundlessMarketCallback} from "./IBoundlessMarketCallback.sol";
 import {Account} from "./types/Account.sol";
-import {AssessorJournal} from "./types/AssessorJournal.sol";
-import {AssessorCallback} from "./types/AssessorCallback.sol";
-import {AssessorCommitment} from "./types/AssessorCommitment.sol";
 import {Fulfillment} from "./types/Fulfillment.sol";
 import {FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
-import {AssessorReceipt} from "./types/AssessorReceipt.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {RequestLock} from "./types/RequestLock.sol";
+import {ProofRequestBatch} from "./types/ProofRequestBatch.sol";
+import {SlimRequest, SlimRequestLibrary} from "./types/SlimRequest.sol";
+import {FulfillmentBatch} from "./types/FulfillmentBatch.sol";
 import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";
 
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
-import {MerkleProofish} from "./libraries/MerkleProofish.sol";
 
-error InvalidVerifier();
-error InvalidApplicationVerifier();
-error InvalidAssessorImage();
-error InvalidDeprecatedAssessorImage();
+import {BoundlessRouter} from "./router/BoundlessRouter.sol";
+
+error InvalidRouter();
 error InvalidCollateralToken();
 error InvalidInitialOwner();
+error MismatchedRequestId(uint256 expected, uint256 received);
 
 contract BoundlessMarket is
     IBoundlessMarket,
@@ -56,7 +47,6 @@ contract BoundlessMarket is
     AccessControlUpgradeable,
     UUPSUpgradeable
 {
-    using ReceiptClaimLib for ReceiptClaim;
     using SafeCast for int256;
     using SafeCast for uint256;
     using SafeTransferLib for ERC20;
@@ -71,25 +61,21 @@ contract BoundlessMarket is
     mapping(RequestId => RequestLock) public requestLocks;
     /// Mapping of address to account state.
     mapping(address => Account) internal accounts;
-
-    // Using immutable here means the image ID and verifier address is linked to the implementation
-    // contract, and not to the proxy. Any deployment that wants to update these values must deploy
-    // a new implementation contract.
-    /// @dev Risc0 verifier router used for assessor seals.
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    IRiscZeroVerifier public immutable VERIFIER;
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bytes32 public immutable ASSESSOR_ID;
+    /// @dev Held the assessor guest URL in earlier implementations. The market
+    ///      no longer reads or writes this field; the slot is preserved so the
+    ///      storage layout doesn't shift across upgrades. Kept under its
+    ///      original name so the OZ storage-layout check accepts the upgrade
+    ///      without a rename annotation.
     string private imageUrl;
+
+    /// @notice The verification engine. The market calls `ROUTER.verifyBatch`
+    ///         once per fulfillment batch and trusts whatever per-class adapter the
+    ///         router dispatches to.
+    /// @dev    Set in the constructor; pinned per implementation contract.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    BoundlessRouter public immutable ROUTER;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable COLLATERAL_TOKEN_CONTRACT;
-
-    /// @notice Max gas allowed for verification of an application proof, when selector is default.
-    /// @dev If no selector is specified as part of the request's requirements, the prover must
-    /// provide a proof that can be verified with at most the amount of gas specified by this
-    /// constant. This requirement exists to ensure that by default, the client can then post the
-    /// given proof in a new transaction as part of the application.
-    uint256 public constant DEFAULT_MAX_GAS_FOR_VERIFY = 50000;
 
     /// @notice Max gas allowed for ERC1271 smart contract signature checks used for client auth.
     /// @dev This constraint is applied to smart contract signatures used for authorizing proof
@@ -109,65 +95,18 @@ contract BoundlessMarket is
     /// gas of an SLOAD. Can only be changed via contract upgrade.
     uint96 public constant MARKET_FEE_BPS = 0;
 
-    /// @notice The ID of the deprecated assessor image.
-    /// @dev After a contract upgrade, the ASSESSOR_ID might change, so this value is used to
-    /// keep active the previous version of the assessor until its expiration. In this way,
-    /// contract upgrades can be performed without disrupting ongoing fulfillments.
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bytes32 public immutable DEPRECATED_ASSESSOR_ID;
-
-    /// @notice The expiration timestamp of the deprecated assessor.
-    /// @dev This value is used to determine when the previous version of the assessor is no longer
-    /// active. Any assessor seals that were created with the deprecated image ID must be fulfilled
-    /// before this timestamp.
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint64 public immutable DEPRECATED_ASSESSOR_EXPIRES_AT;
-
-    // Using immutable here means the application verifier address is linked to the implementation
-    // contract, and not to the proxy. Any deployment that wants to update this value must deploy
-    // a new implementation contract.
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    IRiscZeroVerifier public immutable APPLICATION_VERIFIER;
-
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        IRiscZeroVerifier verifier,
-        IRiscZeroVerifier applicationVerifier,
-        bytes32 assessorId,
-        bytes32 deprecatedAssessorId,
-        uint32 deprecatedAssessorDuration,
-        address collateralTokenContract
-    ) {
-        // Validate non-zero critical params
-        if (address(verifier) == address(0)) {
-            revert InvalidVerifier();
-        }
-        if (address(applicationVerifier) == address(0)) {
-            revert InvalidApplicationVerifier();
-        }
-        if (assessorId == bytes32(0)) {
-            revert InvalidAssessorImage();
-        }
-        if (collateralTokenContract == address(0)) {
-            revert InvalidCollateralToken();
-        }
-        if (deprecatedAssessorDuration > 0) {
-            if (deprecatedAssessorId == bytes32(0)) {
-                revert InvalidDeprecatedAssessorImage();
-            }
-        }
+    constructor(BoundlessRouter router, address collateralTokenContract) {
+        if (address(router) == address(0)) revert InvalidRouter();
+        if (collateralTokenContract == address(0)) revert InvalidCollateralToken();
 
-        VERIFIER = verifier;
-        APPLICATION_VERIFIER = applicationVerifier;
-        ASSESSOR_ID = assessorId;
+        ROUTER = router;
         COLLATERAL_TOKEN_CONTRACT = collateralTokenContract;
-        DEPRECATED_ASSESSOR_ID = deprecatedAssessorId;
-        DEPRECATED_ASSESSOR_EXPIRES_AT = uint64(block.timestamp) + deprecatedAssessorDuration;
 
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, string calldata _imageUrl) external initializer {
+    function initialize(address initialOwner) external initializer {
         if (initialOwner == address(0)) {
             revert InvalidInitialOwner();
         }
@@ -175,11 +114,6 @@ contract BoundlessMarket is
         __UUPSUpgradeable_init();
         __EIP712_init(BoundlessMarketLib.EIP712_DOMAIN, BoundlessMarketLib.EIP712_DOMAIN_VERSION);
         _grantRole(ADMIN_ROLE, initialOwner);
-        imageUrl = _imageUrl;
-    }
-
-    function setImageUrl(string calldata _imageUrl) external onlyRole(ADMIN_ROLE) {
-        imageUrl = _imageUrl;
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
@@ -294,167 +228,164 @@ contract BoundlessMarket is
         FulfillmentContext({valid: true, expired: expired, price: price}).store(requestHash);
     }
 
-    /// @inheritdoc IBoundlessMarket
-    function verifyDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) public view {
-        // TODO(#242): Figure out how much the memory here is costing. If it's significant, we can do some tricks to reduce memory pressure.
-        // We can't handle more than 65535 fills in a single batch.
-        // This is a limitation of the current Selector implementation,
-        // that uses a uint16 for the index, and can be increased in the future.
-        if (fills.length > type(uint16).max) {
-            revert BatchSizeExceedsLimit(fills.length, type(uint16).max);
+    /// @dev Assert that the supplied `requestDigest` matches either the stored
+    ///      lock digest or a valid `FulfillmentContext` entry from
+    ///      `priceRequest`. Once this passes, the slim payload that produced
+    ///      `requestDigest` is bound to a client-signed request and downstream
+    ///      consumers (router, assessor adapter, callback dispatch) can trust
+    ///      its fields without re-verification.
+    ///
+    ///      `requestDigest` is the domain-bound digest (`_hashTypedDataV4` of
+    ///      the EIP-712 struct hash produced by
+    ///      `SlimRequestLibrary.reconstructRequestDigest`). `_lockRequest` and
+    ///      `priceRequest` both write this same domain-bound value into
+    ///      storage, so this function can compare without further hashing.
+    function _verifyBinding(RequestId id, bytes32 requestDigest) internal view {
+        if (requestLocks[id].requestDigest == requestDigest) {
+            return;
         }
-        bytes32[] memory leaves = new bytes32[](fills.length);
-        bool[] memory hasSelector = new bool[](fills.length);
-
-        // Check the selector constraints.
-        // NOTE: The assessor guest adds non-zero selector values to the list.
-        uint256 selectorsLength = assessorReceipt.selectors.length;
-        for (uint256 i = 0; i < selectorsLength; i++) {
-            bytes4 expected = assessorReceipt.selectors[i].value;
-            bytes4 received = bytes4(fills[assessorReceipt.selectors[i].index].seal[0:4]);
-            hasSelector[assessorReceipt.selectors[i].index] = true;
-            if (expected != received) {
-                revert SelectorMismatch(expected, received);
-            }
+        if (FulfillmentContextLibrary.load(requestDigest).valid) {
+            return;
         }
+        revert RequestIsNotLockedOrPriced(id);
+    }
 
-        // Verify the application receipts.
-        for (uint256 i = 0; i < fills.length; i++) {
-            Fulfillment calldata fill = fills[i];
-            bytes32 fulfillmentDataDigest = fill.fulfillmentDataDigest();
-
-            leaves[i] = AssessorCommitment(i, fill.id, fill.requestDigest, fill.claimDigest, fulfillmentDataDigest)
-                .eip712Digest();
-
-            // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
-            // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
-            if (!hasSelector[i]) {
-                APPLICATION_VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(
-                    Receipt(fill.seal, fill.claimDigest)
-                );
-            } else {
-                APPLICATION_VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
-            }
-        }
-
-        bytes32 batchRoot = MerkleProofish.processTree(leaves);
-
-        // Verify the assessor, which ensures the application proof fulfills a valid request with the given ID.
-        // NOTE: Signature checks and recursive verification happen inside the assessor.
-        bytes32 assessorJournalDigest = sha256(
-            abi.encode(
-                AssessorJournal({
-                    root: batchRoot,
-                    callbacks: assessorReceipt.callbacks,
-                    selectors: assessorReceipt.selectors,
-                    prover: assessorReceipt.prover
-                })
-            )
-        );
-        // Verification of the assessor seal does not need to comply with DEFAULT_MAX_GAS_FOR_VERIFY.
-        try VERIFIER.verify(assessorReceipt.seal, ASSESSOR_ID, assessorJournalDigest) {}
-        catch {
-            if (block.timestamp > DEPRECATED_ASSESSOR_EXPIRES_AT) {
-                revert VerificationFailed();
-            }
-            VERIFIER.verify(assessorReceipt.seal, DEPRECATED_ASSESSOR_ID, assessorJournalDigest);
+    /// @dev Per-batch helper: reconstruct each request's domain-bound digest,
+    ///      verify the binding, and collect into an array for the router and assessor.
+    function _bindAndCollectDigests(SlimRequest[] calldata requests)
+        internal
+        view
+        returns (bytes32[] memory requestDigests)
+    {
+        uint256 n = requests.length;
+        requestDigests = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) {
+            bytes32 requestDigest = _hashTypedDataV4(SlimRequestLibrary.reconstructRequestDigest(requests[i]));
+            _verifyBinding(requests[i].id, requestDigest);
+            requestDigests[i] = requestDigest;
         }
     }
 
     /// @inheritdoc IBoundlessMarket
-    function priceAndFulfill(
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
-    ) public returns (bytes[] memory paymentError) {
-        for (uint256 i = 0; i < requests.length; i++) {
-            priceRequest(requests[i], clientSignatures[i]);
-        }
-        paymentError = fulfill(fills, assessorReceipt);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function fulfill(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
+    function priceAndFulfill(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
         public
         returns (bytes[] memory paymentError)
     {
-        verifyDelivery(fills, assessorReceipt);
+        _priceAll(requestBatches);
+        paymentError = fulfill(fulfillmentBatches);
+    }
 
-        paymentError = new bytes[](fills.length);
-
-        // Create reverse lookup index for fills to any associated callback.
-        uint256[] memory fillToCallbackIndexPlusOne = new uint256[](fills.length);
-        uint256 callbacksLength = assessorReceipt.callbacks.length;
-        for (uint256 i = 0; i < callbacksLength; i++) {
-            AssessorCallback calldata callback = assessorReceipt.callbacks[i];
-            // Add one to the index such that zero indicates no callback.
-            fillToCallbackIndexPlusOne[callback.index] = i + 1;
+    /// @inheritdoc IBoundlessMarket
+    function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) public returns (bytes[] memory paymentError) {
+        // Flatten payment-error output across fulfillment batches.
+        uint256 totalFills = 0;
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            totalFills += fulfillmentBatches[j].fills.length;
         }
+        paymentError = new bytes[](totalFills);
 
-        // NOTE: It could be slightly more efficient to keep balances and request flags in memory until a single
-        // batch update to storage. However, updating the same storage slot twice only costs 100 gas, so
-        // this savings is marginal, and will be outweighed by complicated memory management if not careful.
-        for (uint256 i = 0; i < fills.length; i++) {
-            Fulfillment calldata fill = fills[i];
+        uint256 outIdx = 0;
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            FulfillmentBatch calldata batch = fulfillmentBatches[j];
+            uint256 n = batch.fills.length;
+            if (n == 0) continue;
+            if (n > type(uint16).max) revert BatchSizeExceedsLimit(n, type(uint16).max);
+            if (batch.requests.length != n) revert BatchSizeExceedsLimit(batch.requests.length, n);
+
+            // Bind every slim payload to a client-signed request (lock or
+            // priced), then dispatch verifier + assessor through the router
+            // and settle each fill.
+            bytes32[] memory requestDigests = _bindAndCollectDigests(batch.requests);
+            ROUTER.verifyBatch(batch.requests, batch.fills, requestDigests, batch.prover, batch.assessorSeal);
+            outIdx = _settleBatch(batch, requestDigests, paymentError, outIdx);
+        }
+    }
+
+    /// @dev Per-fill settle pass for one already-verified `FulfillmentBatch`.
+    ///      Walks every fill, charges/credits accounts via `_fulfillAndPay`,
+    ///      and dispatches callbacks. Returns the updated flat-output index so
+    ///      `fulfill` can keep packing payment errors across batches.
+    function _settleBatch(
+        FulfillmentBatch calldata batch,
+        bytes32[] memory requestDigests,
+        bytes[] memory paymentError,
+        uint256 outIdx
+    ) internal returns (uint256) {
+        address prover = batch.prover;
+        uint256 n = batch.fills.length;
+        for (uint256 i = 0; i < n; i++) {
+            Fulfillment calldata fill = batch.fills[i];
+            SlimRequest calldata slim = batch.requests[i];
             bool expired;
-            (paymentError[i], expired) = _fulfillAndPay(fill, assessorReceipt.prover);
+            (paymentError[outIdx], expired) = _fulfillAndPay(fill, slim.id, requestDigests[i], prover);
 
-            // Skip the callback if this fulfillment is related to an unlocked request. See the note
-            // in _fulfillAndPay for more details. This check could potentially be optimized, as it
-            // is duplicated in _fulfillAndPay.
-            if (expired) {
-                continue;
-            }
-
-            uint256 callbackIndexPlusOne = fillToCallbackIndexPlusOne[i];
-            if (callbackIndexPlusOne > 0) {
+            if (!expired && slim.callback.addr != address(0)) {
                 if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
                     (bytes32 imageId, bytes calldata journal) =
                         FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
-                    AssessorCallback calldata callback = assessorReceipt.callbacks[callbackIndexPlusOne - 1];
-                    _executeCallback(fill.id, callback.addr, callback.gasLimit, imageId, journal, fill.seal);
+                    _executeCallback(
+                        slim.id, slim.callback.addr, slim.callback.gasLimit, imageId, journal, fill.seal
+                    );
                 } else {
-                    // A callback was requested, but it cannot be fulfilled, so revert.
                     revert UnfulfillableCallback();
                 }
+            }
+            outIdx++;
+        }
+        return outIdx;
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function priceAndFulfillAndWithdraw(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
+        public
+        returns (bytes[] memory paymentError)
+    {
+        _priceAll(requestBatches);
+        paymentError = fulfillAndWithdraw(fulfillmentBatches);
+    }
+
+    /// @inheritdoc IBoundlessMarket
+    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches) public returns (bytes[] memory paymentError) {
+        paymentError = fulfill(fulfillmentBatches);
+
+        // Withdraw any remaining balance from each fulfillment batch's prover.
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            address prover = fulfillmentBatches[j].prover;
+            uint256 balance = accounts[prover].balance;
+            if (balance > 0) {
+                _withdraw(prover, balance);
             }
         }
     }
 
-    /// @inheritdoc IBoundlessMarket
-    function priceAndFulfillAndWithdraw(
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
-    ) public returns (bytes[] memory paymentError) {
-        for (uint256 i = 0; i < requests.length; i++) {
-            priceRequest(requests[i], clientSignatures[i]);
-        }
-        paymentError = fulfillAndWithdraw(fills, assessorReceipt);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function fulfillAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
-        public
-        returns (bytes[] memory paymentError)
-    {
-        paymentError = fulfill(fills, assessorReceipt);
-
-        // Withdraw any remaining balance from the prover account.
-        uint256 balance = accounts[assessorReceipt.prover].balance;
-        if (balance > 0) {
-            _withdraw(assessorReceipt.prover, balance);
+    /// @dev Price every request in every group. Each `ProofRequestBatch`
+    ///      carries the requests and matching client signatures that need
+    ///      pricing — typically only the un-locked entries. Verified client
+    ///      signatures populate `FulfillmentContext` keyed by `requestHash`,
+    ///      which the subsequent `fulfill` step looks up via the slim
+    ///      payload's reconstructed digest.
+    function _priceAll(ProofRequestBatch[] calldata requestBatches) internal {
+        for (uint256 j = 0; j < requestBatches.length; j++) {
+            ProofRequest[] calldata requests = requestBatches[j].requests;
+            bytes[] calldata sigs = requestBatches[j].signatures;
+            if (sigs.length != requests.length) {
+                revert BatchSizeExceedsLimit(sigs.length, requests.length);
+            }
+            for (uint256 i = 0; i < requests.length; i++) {
+                priceRequest(requests[i], sigs[i]);
+            }
         }
     }
 
-    /// Complete the fulfillment logic after having verified the app and assessor receipts.
-    function _fulfillAndPay(Fulfillment calldata fill, address prover)
+    /// Complete the fulfillment logic after having verified the app and assessor
+    /// receipts. `requestDigest` is the verified EIP-712 digest reconstructed
+    /// from the slim payload; the caller has already asserted it matches the
+    /// stored binding via `_verifyBinding`. `id` comes from the trusted slim
+    /// payload (positionally paired with `fill`).
+    function _fulfillAndPay(Fulfillment calldata fill, RequestId id, bytes32 requestDigest, address prover)
         internal
         returns (bytes memory paymentError, bool expired)
     {
-        RequestId id = fill.id;
         (address client, uint32 idx) = id.clientAndIndex();
         Account storage clientAccount = accounts[client];
         (bool locked, bool fulfilled) = clientAccount.requestFlags(idx);
@@ -465,7 +396,7 @@ contract BoundlessMarket is
         if (locked) {
             lock = requestLocks[id];
         }
-        FulfillmentContext memory context = FulfillmentContextLibrary.load(fill.requestDigest);
+        FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
 
         // First, check whether the request is known to be a valid signed request, and whether it is
         // expired. If the request cannot be authenticated, revert.
@@ -480,7 +411,7 @@ contract BoundlessMarket is
                 emit PaymentRequirementsFailed(paymentError);
                 return (paymentError, true);
             }
-        } else if (locked && lock.requestDigest == fill.requestDigest) {
+        } else if (locked && lock.requestDigest == requestDigest) {
             // Request was validated in lockRequest, check whether the request is fully expired.
             if (lock.deadline() < block.timestamp) {
                 paymentError = abi.encodeWithSelector(RequestIsExpired.selector, RequestId.unwrap(id));
@@ -502,21 +433,22 @@ contract BoundlessMarket is
         // callback is called) the fulfilled flag is set.
         if (locked) {
             if (lock.lockDeadline >= block.timestamp) {
-                paymentError = _fulfillAndPayLocked(lock, id, client, idx, fill, fulfilled, prover);
+                paymentError = _fulfillAndPayLocked(lock, id, client, idx, requestDigest, fulfilled, prover);
             } else {
                 // NOTE: If the request is not priced, the context will be all zeroes. We will have
                 // only reached this point if the request digest matches the lock, which is expired.
                 // In this case, the price will be zero, which is correct.
-                paymentError = _fulfillAndPayWasLocked(lock, id, client, idx, context.price, fill, fulfilled, prover);
+                paymentError =
+                    _fulfillAndPayWasLocked(lock, id, client, idx, context.price, requestDigest, fulfilled, prover);
             }
         } else {
-            paymentError = _fulfillAndPayNeverLocked(id, client, idx, context.price, fill, fulfilled, prover);
+            paymentError = _fulfillAndPayNeverLocked(id, client, idx, context.price, requestDigest, fulfilled, prover);
         }
 
         if (paymentError.length > 0) {
             emit PaymentRequirementsFailed(paymentError);
         }
-        emit ProofDelivered(fill.id, prover, fill);
+        emit ProofDelivered(id, prover, fill);
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
@@ -527,7 +459,7 @@ contract BoundlessMarket is
         RequestId id,
         address client,
         uint32 idx,
-        Fulfillment calldata fill,
+        bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
@@ -538,13 +470,13 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
+            emit RequestFulfilled(id, assessorProver, requestDigest);
         }
 
         // At this point the request has been fulfilled. The remaining logic determines whether
         // payment should be sent and to whom.
         // While the request is locked, only the locker is eligible for payment, and only for the request that was locked.
-        if (lock.prover != assessorProver || lock.requestDigest != fill.requestDigest) {
+        if (lock.prover != assessorProver || lock.requestDigest != requestDigest) {
             return abi.encodeWithSelector(RequestIsLocked.selector, RequestId.unwrap(id));
         }
         requestLocks[id].setProverPaidBeforeLockDeadline();
@@ -568,7 +500,7 @@ contract BoundlessMarket is
         address client,
         uint32 idx,
         uint96 price,
-        Fulfillment calldata fill,
+        bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
@@ -579,7 +511,7 @@ contract BoundlessMarket is
 
         if (!fulfilled) {
             accounts[client].setRequestFulfilled(idx);
-            emit RequestFulfilled(id, assessorProver, fill.requestDigest);
+            emit RequestFulfilled(id, assessorProver, requestDigest);
         }
 
         // Deduct any additionally owned funds from client account. The client was already charged
@@ -635,7 +567,7 @@ contract BoundlessMarket is
         address client,
         uint32 idx,
         uint96 price,
-        Fulfillment calldata fill,
+        bytes32 requestDigest,
         bool fulfilled,
         address assessorProver
     ) internal returns (bytes memory paymentError) {
@@ -648,7 +580,7 @@ contract BoundlessMarket is
 
         Account storage clientAccount = accounts[client];
         clientAccount.setRequestFulfilled(idx);
-        emit RequestFulfilled(id, assessorProver, fill.requestDigest);
+        emit RequestFulfilled(id, assessorProver, requestDigest);
 
         // Deduct the funds from client account.
         // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the
@@ -708,11 +640,10 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfill(fills, assessorReceipt);
+        paymentError = fulfill(fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -720,11 +651,10 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = fulfillAndWithdraw(fills, assessorReceipt);
+        paymentError = fulfillAndWithdraw(fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -732,13 +662,11 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        paymentError = priceAndFulfill(requestBatches, fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -746,13 +674,11 @@ contract BoundlessMarket is
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
         IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
-        paymentError = priceAndFulfillAndWithdraw(requests, clientSignatures, fills, assessorReceipt);
+        paymentError = priceAndFulfillAndWithdraw(requestBatches, fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -803,11 +729,6 @@ contract BoundlessMarket is
         ERC20(COLLATERAL_TOKEN_CONTRACT).transfer(address(0xdEaD), burnValue);
         (burnValue);
         emit ProverSlashed(requestId, burnValue, transferValue, collateralRecipient);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function imageInfo() external view returns (bytes32, string memory) {
-        return (ASSESSOR_ID, imageUrl);
     }
 
     /// @inheritdoc IBoundlessMarket
