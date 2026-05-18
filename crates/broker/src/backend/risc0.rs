@@ -21,10 +21,9 @@ use boundless_market::{
     contracts::{
         eip712_domain, encode_seal, AssessorJournal, Fulfillment as MarketFulfillment,
         FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
-        UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
-    selector::{is_blake3_groth16_selector, is_groth16_selector},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
 };
 use hex::FromHex;
 use risc0_aggregation::{GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -233,8 +232,9 @@ impl Risc0Backend {
     }
 }
 
+#[cfg(test)]
 fn supports_risc0_selector(selector: FixedBytes<4>) -> bool {
-    selector == UNSPECIFIED_SELECTOR
+    selector == boundless_market::contracts::UNSPECIFIED_SELECTOR
         || is_groth16_selector(selector)
         || is_blake3_groth16_selector(selector)
 }
@@ -253,8 +253,8 @@ impl Backend for Risc0Backend {
         &self.id
     }
 
-    fn supports(&self, selector: FixedBytes<4>) -> bool {
-        supports_risc0_selector(selector)
+    fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
+        SupportedSelectors::default().selectors.keys().copied().collect()
     }
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
@@ -1079,6 +1079,7 @@ impl BatchProcessor for Risc0BatchProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boundless_market::contracts::UNSPECIFIED_SELECTOR;
     use boundless_market::selector::SelectorExt;
 
     fn selector_ext(selector: SelectorExt) -> FixedBytes<4> {

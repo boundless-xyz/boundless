@@ -577,7 +577,6 @@ mod tests {
             RequestId, RequestInput, RequestInputType, Requirements,
         },
         input::GuestEnv,
-        selector::SupportedSelectors,
     };
     use boundless_test_utils::{
         guests::{
@@ -832,12 +831,7 @@ mod tests {
             .with_set_verifier_addr(set_verifier),
         );
         let backend_router = Arc::new(
-            BackendRouter::new()
-                .register_backend(BackendEntry::new(
-                    SupportedSelectors::default().selectors.keys().copied(),
-                    risc0_backend,
-                ))
-                .unwrap(),
+            BackendRouter::new().register_backend(BackendEntry::new(risc0_backend)).unwrap(),
         );
         let submitter = Submitter::new(
             db.clone(),

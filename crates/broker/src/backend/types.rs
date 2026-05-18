@@ -396,7 +396,7 @@ pub(crate) type BatchProcessorObj = Arc<dyn BatchProcessor>;
 pub trait Backend: Send + Sync {
     fn id(&self) -> &BackendId;
 
-    fn supports(&self, selector: FixedBytes<4>) -> bool;
+    fn supported_selectors(&self) -> Vec<FixedBytes<4>>;
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 

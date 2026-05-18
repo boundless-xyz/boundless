@@ -32,7 +32,6 @@ use boundless_market::{
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
-    selector::SupportedSelectors,
     storage::StorageDownloader,
     Deployment,
 };
@@ -855,10 +854,7 @@ impl Broker {
 
             let backend_router = Arc::new(
                 BackendRouter::new()
-                    .register_backend(BackendEntry::new(
-                        SupportedSelectors::default().selectors.keys().copied(),
-                        risc0_backend,
-                    ))
+                    .register_backend(BackendEntry::new(risc0_backend))
                     .context("Failed to register RISC0 backend selectors")?,
             );
 

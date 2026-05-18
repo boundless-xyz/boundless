@@ -44,9 +44,10 @@ pub struct BackendEntry {
 }
 
 impl BackendEntry {
-    pub fn new(selectors: impl IntoIterator<Item = FixedBytes<4>>, backend: BackendObj) -> Self {
+    pub fn new(backend: BackendObj) -> Self {
         let id = backend.id().clone();
-        Self { id, selectors: selectors.into_iter().collect(), backend }
+        let selectors = backend.supported_selectors();
+        Self { id, selectors, backend }
     }
 
     pub fn id(&self) -> &BackendId {
@@ -75,9 +76,6 @@ impl BackendRouter {
                     "selector {selector:?} is listed more than once for backend {}",
                     entry.id()
                 );
-            }
-            if !entry.backend.supports(*selector) {
-                anyhow::bail!("backend {} does not support selector {selector:?}", entry.id());
             }
             if let Some(existing_backend) = self.routes.get(selector) {
                 anyhow::bail!(
@@ -237,8 +235,8 @@ mod tests {
             &self.id
         }
 
-        fn supports(&self, selector: FixedBytes<4>) -> bool {
-            self.supported.contains(&selector)
+        fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
+            self.supported.clone()
         }
 
         async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
@@ -365,9 +363,8 @@ mod tests {
     #[tokio::test]
     async fn router_routes_supported_selector() {
         let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
-        let router = BackendRouter::new()
-            .register_backend(BackendEntry::new(vec![selector(1)], backend.clone()))
-            .unwrap();
+        let router =
+            BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap();
 
         let progress =
             router.process_order(ProcessOrder { order: test_order(selector(1)) }).await.unwrap();
@@ -392,9 +389,9 @@ mod tests {
         let backend_a_id = BackendId::new("mock_a").unwrap();
         let backend_b_id = BackendId::new("mock_b").unwrap();
         let router = BackendRouter::new()
-            .register_backend(BackendEntry::new(vec![selector(1)], backend_a.clone()))
+            .register_backend(BackendEntry::new(backend_a.clone()))
             .unwrap()
-            .register_backend(BackendEntry::new(vec![selector(2)], backend_b.clone()))
+            .register_backend(BackendEntry::new(backend_b.clone()))
             .unwrap();
 
         let progress_a =
@@ -498,9 +495,8 @@ mod tests {
     #[tokio::test]
     async fn router_rejects_unsupported_selector_before_backend_call() {
         let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
-        let router = BackendRouter::new()
-            .register_backend(BackendEntry::new(vec![selector(1)], backend.clone()))
-            .unwrap();
+        let router =
+            BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap();
 
         let err = router
             .process_order(ProcessOrder { order: test_order(selector(2)) })
@@ -514,9 +510,8 @@ mod tests {
     #[tokio::test]
     async fn router_routes_cancellation() {
         let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
-        let router = BackendRouter::new()
-            .register_backend(BackendEntry::new(vec![selector(1)], backend.clone()))
-            .unwrap();
+        let router =
+            BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap();
 
         router.cancel_order(&test_order(selector(1))).await.unwrap();
 
@@ -529,9 +524,9 @@ mod tests {
         let backend_b = Arc::new(MockBackend::new("mock_a", vec![selector(2)]));
 
         let err = BackendRouter::new()
-            .register_backend(BackendEntry::new(vec![selector(1)], backend_a))
+            .register_backend(BackendEntry::new(backend_a))
             .unwrap()
-            .register_backend(BackendEntry::new(vec![selector(2)], backend_b))
+            .register_backend(BackendEntry::new(backend_b))
             .err()
             .unwrap();
 
@@ -544,9 +539,9 @@ mod tests {
         let backend_b = Arc::new(MockBackend::new("mock_b", vec![selector(1)]));
 
         let err = BackendRouter::new()
-            .register_backend(BackendEntry::new(vec![selector(1)], backend_a))
+            .register_backend(BackendEntry::new(backend_a))
             .unwrap()
-            .register_backend(BackendEntry::new(vec![selector(1)], backend_b))
+            .register_backend(BackendEntry::new(backend_b))
             .err()
             .unwrap();
 
@@ -555,12 +550,9 @@ mod tests {
 
     #[test]
     fn router_rejects_duplicate_selector_inside_backend_entry() {
-        let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1), selector(1)]));
 
-        let err = BackendRouter::new()
-            .register_backend(BackendEntry::new(vec![selector(1), selector(1)], backend))
-            .err()
-            .unwrap();
+        let err = BackendRouter::new().register_backend(BackendEntry::new(backend)).err().unwrap();
 
         assert!(err.to_string().contains("is listed more than once for backend mock_a"));
     }
@@ -569,10 +561,7 @@ mod tests {
     fn router_rejects_empty_selector_set() {
         let backend = Arc::new(MockBackend::new("mock_a", vec![]));
 
-        let err = BackendRouter::new()
-            .register_backend(BackendEntry::new(Vec::<FixedBytes<4>>::new(), backend))
-            .err()
-            .unwrap();
+        let err = BackendRouter::new().register_backend(BackendEntry::new(backend)).err().unwrap();
 
         assert!(err.to_string().contains("must register at least one selector"));
     }

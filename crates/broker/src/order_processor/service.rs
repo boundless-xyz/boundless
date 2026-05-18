@@ -79,13 +79,7 @@ impl OrderProcessor {
         ));
         let backend_router = Arc::new(
             BackendRouter::new()
-                .register_backend(crate::backend::BackendEntry::new(
-                    boundless_market::selector::SupportedSelectors::default()
-                        .selectors
-                        .keys()
-                        .copied(),
-                    backend,
-                ))
+                .register_backend(crate::backend::BackendEntry::new(backend))
                 .expect("static RISC0 backend registration is valid"),
         );
 
