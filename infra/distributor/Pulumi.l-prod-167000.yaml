@@ -7,15 +7,15 @@ config:
   distributor:CI_CACHE_SECRET:
     secure: v1:m0ejIbEQ+qoHgAcI:d/Yo/GESHuZCzWkOBqYbE0Aa0+WSkPwfGHZb1EzGoPwKSnCkezizP1TR3WrKLAik6afzT/UOL/v8F1zFq9fdGx2hW0mFM+6X4ME2BWojghOEdS17uW13oRztElQ64/qckkPpI3cMzn8+2N6jyDMTihEGWV3tmWE9dlFK6Ebiig==
   distributor:DISTRIBUTOR_ADDRESS: 0xd79A4B9D713e70De8b0B820eBB7B5a18B7F07d4A
-  distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.5"
+  distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.1"
   distributor:DISTRIBUTOR_PRIVATE_KEY:
     secure: v1:ghDNMiyKO2f78xbp:WNq0KZ6PbKl72eWuCiig3yw9YJsOw5z7V2NhM3KjSiWepcPEg8SY6yVanKK7usNDLP8lXKGOmsZTNk6cJbjnGzzDDYgWEHN+wvyXnzWrTww=
   distributor:DISTRIBUTOR_STAKE_ALERT_THRESHOLD: "200.0"
   distributor:DOCKER_DIR: ../../
   distributor:DOCKER_TAG: latest
   distributor:ENABLE_EXTERNAL_TOPUP: "false"
-  distributor:ETH_THRESHOLD: "0.008"
-  distributor:ETH_TOP_UP_AMOUNT: "0.02"
+  distributor:ETH_THRESHOLD: "0.005"
+  distributor:ETH_TOP_UP_AMOUNT: "0.01"
   distributor:EXTERNAL_COLLATERAL_THRESHOLD: "50"
   distributor:EXTERNAL_LIFETIME_ALLOWANCE: "100"
   distributor:EXTERNAL_PER_TOP_UP_AMOUNT: "50"

@@ -25,7 +25,7 @@ config:
   order-generator-base:SET_VERIFIER_ADDR: 0x6135DC08D14EF8a44496B009e2181426628B8ebd
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   order-generator-base:TX_TIMEOUT: "90"
-  order-generator-evm-requestor:AUTO_DEPOSIT: "0.015"
+  order-generator-evm-requestor:AUTO_DEPOSIT: "0.01"
   order-generator-evm-requestor:ERROR_BALANCE_BELOW: "0.005"
   order-generator-evm-requestor:EXEC_RATE_KHZ: "1000"
   order-generator-evm-requestor:INPUT_MAX_MCYCLES: "3000"
@@ -42,7 +42,7 @@ config:
   order-generator-evm-requestor:WARN_BALANCE_BELOW: "0.01"
   order-generator-load-test:PRIVATE_KEY:
     secure: v1:6v5Wm0Z4ZIIUlI3F:GUwq7fTXGh/TO+NM42jh5HLB9NucpJo7rCDqpLdtba6zN6Xxmgo/kSZPWgfAvIk9cqWMC69K/8D/Nc1Y0W43SgGL66OqwzGoQEwajoLfwzU=
-  order-generator-offchain:AUTO_DEPOSIT: "0.015"
+  order-generator-offchain:AUTO_DEPOSIT: "0.01"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:EXEC_RATE_KHZ: "1000"
   order-generator-offchain:INPUT_MAX_MCYCLES: "2000"
@@ -58,7 +58,7 @@ config:
   order-generator-offchain:SECONDS_PER_MCYCLE: "7"
   order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
-  order-generator-onchain:AUTO_DEPOSIT: "0.015"
+  order-generator-onchain:AUTO_DEPOSIT: "0.01"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "1000"
   order-generator-onchain:INPUT_MAX_MCYCLES: "4000"
@@ -84,7 +84,7 @@ config:
   order-generator-random-requestor:PRIVATE_KEY:
     secure: v1:L6X2rqDXhNLyGChG:RADX+x5yqxbM4835BuSyslAHqs7s2Sx2JNJU50FKliMqJgnzNBKrE/Byodp2LuI+XTLoF8AIjBvCyeIF+Qj0pvGSTN6u0PtGPTqckXmDHnk=
   order-generator-random-requestor:RAMP_UP_SECONDS_PER_MCYCLE: "2"
-  order-generator-random-requestor:SCHEDULE_EXPRESSION: rate(24 hours)
+  order-generator-random-requestor:SCHEDULE_EXPRESSION: rate(48 hours)
   order-generator-random-requestor:SECONDS_PER_MCYCLE: "7"
   order-generator-random-requestor:TIMEOUT: "1800"
   order-generator-random-requestor:WARN_BALANCE_BELOW: "0.01"
