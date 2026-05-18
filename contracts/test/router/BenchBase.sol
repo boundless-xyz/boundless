@@ -170,8 +170,9 @@ abstract contract BenchBase is Test {
         verifier = new NullVerifier();
 
         BoundlessRouter implementation = new BoundlessRouter();
-        address proxy =
-            UnsafeUpgrades.deployUUPSProxy(address(implementation), abi.encodeCall(BoundlessRouter.initialize, (ADMIN)));
+        address proxy = UnsafeUpgrades.deployUUPSProxy(
+            address(implementation), abi.encodeCall(BoundlessRouter.initialize, (ADMIN))
+        );
         router = BoundlessRouter(proxy);
 
         vm.startPrank(ADMIN);
@@ -234,7 +235,10 @@ abstract contract BenchBase is Test {
     /// @dev Build a deterministic `(imageId, journal)` pair where the journal
     ///      is `journalBytes` long. The first 16 bytes mirror the
     ///      order-generator's `(input || nonce)` layout; the tail (when
-    ///      `journalBytes > 16`) is zero-padded.
+    ///      `journalBytes > 16`) is filled with a deterministic non-zero
+    ///      pattern so tx-intrinsic calldata cost (4 vs 16 gas per byte)
+    ///      reflects real-traffic shape rather than getting the zero-byte
+    ///      discount on the padding.
     function _imageAndJournal(uint256 i, uint256 journalBytes)
         internal
         pure
@@ -251,7 +255,11 @@ abstract contract BenchBase is Test {
         for (uint256 k = 0; k < 8 && 8 + k < journalBytes; k++) {
             journal[8 + k] = bytes1(uint8(nonce >> (8 * k)));
         }
-        // Tail (k > 16) stays zero.
+        // Non-zero tail: OR-ing with 0x80 keeps the high bit set so every
+        // byte is in 0x80..0xff regardless of `k`'s low byte.
+        for (uint256 k = 16; k < journalBytes; k++) {
+            journal[k] = bytes1(uint8(k) | 0x80);
+        }
     }
 
     function _defaultOffer() internal view returns (Offer memory) {
@@ -301,20 +309,29 @@ abstract contract BenchBase is Test {
         req = ProofRequest({
             id: RequestIdLibrary.from(CLIENT, uint32(i + 1)),
             requirements: Requirements({
-                callback: Callback({addr: address(0), gasLimit: 0}),
-                predicate: predicate,
-                selector: VERIFIER_ENTRY_SEL
+                callback: Callback({addr: address(0), gasLimit: 0}), predicate: predicate, selector: VERIFIER_ENTRY_SEL
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
             offer: _defaultOffer()
         });
 
-        bytes memory fulfillmentData =
-            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: journal}));
+        // For ClaimDigestMatch the journal is not posted on-chain — the claim
+        // digest itself is the binding, and the assessor never reads the
+        // fulfillment data. Modeling it as `None` makes ClaimDigestMatch
+        // calldata journal-independent, matching real-traffic shape.
+        FulfillmentDataType dataType;
+        bytes memory fulfillmentData;
+        if (ptype == PredicateType.ClaimDigestMatch) {
+            dataType = FulfillmentDataType.None;
+            fulfillmentData = "";
+        } else {
+            dataType = FulfillmentDataType.ImageIdAndJournal;
+            fulfillmentData = abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: journal}));
+        }
         fill = Fulfillment({
             claimDigest: claimDigest,
-            fulfillmentDataType: FulfillmentDataType.ImageIdAndJournal,
+            fulfillmentDataType: dataType,
             fulfillmentData: fulfillmentData,
             seal: abi.encodePacked(VERIFIER_ENTRY_SEL, hex"deadbeef")
         });

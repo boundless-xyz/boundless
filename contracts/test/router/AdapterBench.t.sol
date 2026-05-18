@@ -24,12 +24,12 @@ contract AdapterBench is BenchBase {
     /// @notice A) Compare adapters apples-to-apples by direct call. Uses the
     ///         order-generator-sized 16-byte journal (~80% of Base traffic).
     function test_bench_adapters() external view {
-        uint256[5] memory sizes = [uint256(1), 5, 10, 50, 100];
+        uint256[6] memory sizes = [uint256(1), 2, 5, 10, 50, 100];
 
         console2.log("");
         console2.log("=== Adapter comparison: DigestMatch, 16-byte journal, per-fill gas ===");
         console2.log(
-            "    R0 column excludes the underlying Groth16 verify; add %d gas/batch for the real cost.",
+            "    R0 column excludes the underlying Groth16 verify; add %d gas/batch for the real cost if not using set builder.",
             R0_GROTH16_VERIFY_GAS
         );
         for (uint256 k = 0; k < sizes.length; k++) {
@@ -46,7 +46,7 @@ contract AdapterBench is BenchBase {
         }
 
         console2.log("");
-        console2.log("=== Adapter comparison: ClaimDigestMatch, 16-byte journal, per-fill gas ===");
+        console2.log("=== Adapter comparison: ClaimDigestMatch, per-fill gas ===");
         for (uint256 k = 0; k < sizes.length; k++) {
             uint256 n = sizes[k];
             (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(n, PredicateType.ClaimDigestMatch);
