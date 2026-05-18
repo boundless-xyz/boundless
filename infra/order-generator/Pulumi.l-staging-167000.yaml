@@ -26,7 +26,7 @@ config:
   order-generator-base:SET_VERIFIER_ADDR: 0x6135DC08D14EF8a44496B009e2181426628B8ebd
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   order-generator-base:TX_TIMEOUT: "300"
-  order-generator-evm-requestor:AUTO_DEPOSIT: "0.015"
+  order-generator-evm-requestor:AUTO_DEPOSIT: "0.01"
   order-generator-evm-requestor:ERROR_BALANCE_BELOW: "0.01"
   order-generator-evm-requestor:EXEC_RATE_KHZ: "1000"
   order-generator-evm-requestor:INPUT_MAX_MCYCLES: "1000"
@@ -41,7 +41,7 @@ config:
   order-generator-evm-requestor:WARN_BALANCE_BELOW: "0.01"
   order-generator-load-test:PRIVATE_KEY:
     secure: v1:rAloqVxoc6EKRzx+:JH5weMSqdXyYMF4lHkc5xxmNDrma+8hHaTfzIZPwiE4xYKngMrvNGTg7o8OPonKh5sS2STGU/OLCOa6j79pk/jNoVxjSDsgjscPxWVkEDac=
-  order-generator-offchain:AUTO_DEPOSIT: "0.015"
+  order-generator-offchain:AUTO_DEPOSIT: "0.01"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:EXEC_RATE_KHZ: "500"
   order-generator-offchain:INPUT_MAX_MCYCLES: "10"
@@ -53,7 +53,7 @@ config:
   order-generator-offchain:SECONDS_PER_MCYCLE: "0"
   order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
-  order-generator-onchain:AUTO_DEPOSIT: "0.015"
+  order-generator-onchain:AUTO_DEPOSIT: "0.01"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:INPUT_MAX_MCYCLES: "10"
@@ -69,7 +69,7 @@ config:
   order-generator-random-requestor:INPUT_MAX_MCYCLES: "100"
   order-generator-random-requestor:PRIVATE_KEY:
     secure: v1:AAAVxQWIxbmfO0Z2:nVh+b/2hnSIA7txnkTva6kNNflotcqdSBBP2DyI1QPCp5Qcq0E7wmnd250ioO8BLh+TbkYzlpIoUav8i/R0cezcTUsh1qvdSvyFMev0hKRk=
-  order-generator-random-requestor:SCHEDULE_EXPRESSION: rate(4 hours)
+  order-generator-random-requestor:SCHEDULE_EXPRESSION: rate(48 hours)
   order-generator:CI_CACHE_SECRET:
     secure: v1:E8q2Dlw+CaL5J4yF:OeTsiMNliITIEykUETaxMb7iQUOmdiTi0K5TZ4s8huAcIBPtys6HN4s/ujHC039wD2K3LNq9BD6qpETRAj1z0Etz/XcRP+YkFcC/GXhs+qJJv1e60pHHS7QEiV7t+wUVtMkBm/4uydEulU7qvpOV9nLihW5iAfl9wKbp3jrchw==
   order-generator-base:ETH_RPC_URL:
