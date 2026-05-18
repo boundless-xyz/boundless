@@ -675,7 +675,7 @@ contract BoundlessMarketTest is Test {
 // tombstoning) should be moved to the router-level test files when they
 // land there, or deleted with a justification in the commit message.
 // =============================================================================
-/*
+
 contract BoundlessMarketBasicTest is BoundlessMarketTest {
     using ReceiptClaimLib for ReceiptClaim;
     using BoundlessMarketLib for Offer;
@@ -685,6 +685,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function _stringEquals(string memory a, string memory b) private pure returns (bool) {
         return keccak256(abi.encodePacked(a)) == keccak256(abi.encodePacked(b));
     }
+
+    // ─── Ported tests ────────────────────────────────────────────────────
+    // (incrementally unwrapped from the TODO(MIGRATE-MARKET) block below)
 
     function testBytecodeSize() public {
         vm.snapshotValue("bytecode size proxy", address(proxy).code.length);
@@ -1074,15 +1077,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Prover signs the incorrect request.
         bytes memory badProverSignature = testProver.signLockRequest(LockRequest({request: client.request(2)}));
 
-        // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
-        // It should be random and never correspond to a real account.
-        // TODO: This address will need to change anytime we change the ProofRequest struct or
-        // the way it is hashed for signatures. Find a good way to avoid this.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x013a129A6254FDb452a94b92385645b7959A7c5A)
-            )
-        );
+        // Error is "InsufficientBalance" because we will recover _some_ address.
+        // It should be random and never correspond to a real account. We use
+        // expectPartialRevert so the recovered-signer address can change
+        // freely with contract layout / deploy nonce / EIP-712 domain shifts
+        // without breaking this regression test.
+        vm.expectPartialRevert(IBoundlessMarket.InsufficientBalance.selector);
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
 
         client.expectBalanceChange(0 ether);
@@ -1098,15 +1098,12 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // NOTE: This was how the contract worked in a previous version. This is included as a regression test.
         bytes memory badProverSignature = testProver.sign(request);
 
-        // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
-        // It should be random and never correspond to a real account.
-        // TODO: This address will need to change anytime we change the ProofRequest struct or
-        // the way it is hashed for signatures. Find a good way to avoid this.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x2949a308c21BD8bC839EFeCD4465cBebdE3F7388)
-            )
-        );
+        // Error is "InsufficientBalance" because we will recover _some_ address.
+        // It should be random and never correspond to a real account. We use
+        // expectPartialRevert so the recovered-signer address can change
+        // freely with contract layout / deploy nonce / EIP-712 domain shifts
+        // without breaking this regression test.
+        vm.expectPartialRevert(IBoundlessMarket.InsufficientBalance.selector);
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
 
         client.expectBalanceChange(0 ether);
@@ -1294,6 +1291,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return _testLockRequestInvalidRequest2(false);
     }
 
+    // ─── TODO(MIGRATE-MARKET): tests still to port ──────────────────────
+    /*
     enum LockRequestMethod {
         LockRequest,
         LockRequestWithSig,
@@ -4276,8 +4275,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
-}
+    */
+} // <-- closes BoundlessMarketBasicTest
 
+// ─── TODO(MIGRATE-MARKET): port bench + upgrade contracts ───────────────
+/*
 contract BoundlessMarketBench is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 
