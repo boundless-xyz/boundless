@@ -29,7 +29,7 @@ using SlimRequestLibrary for SlimRequest global;
 ///         `offerDigest` from the original `ProofRequest`. The market verifies
 ///         the binding by:
 ///
-///             requestDigest = hash(
+///             structHash = hash(
 ///                 PROOF_REQUEST_TYPEHASH,
 ///                 slim.id,
 ///                 hash(REQ_TYPEHASH,
@@ -40,7 +40,13 @@ using SlimRequestLibrary for SlimRequest global;
 ///                 slim.inputDigest,
 ///                 slim.offerDigest
 ///             )
+///             requestDigest = _hashTypedDataV4(structHash)
 ///             assert requestDigest == requestLocks[slim.id].requestDigest;
+///
+///         The struct hash is what `reconstructRequestDigest` returns; the
+///         market wraps it with `_hashTypedDataV4` before comparing to the
+///         domain-bound value stored at lock time (or written to
+///         `FulfillmentContext` by `priceRequest`).
 ///
 ///         Once this assertion passes, every field of `SlimRequest` is bound to
 ///         the client's signed request. Downstream consumers (assessor adapter,
@@ -63,10 +69,14 @@ struct SlimRequest {
 }
 
 library SlimRequestLibrary {
-    /// @notice Reconstruct the EIP-712 `requestDigest` from a `SlimRequest`.
+    /// @notice Reconstruct the EIP-712 struct hash of the original
+    ///         `ProofRequest` from a `SlimRequest`.
     /// @dev    Must produce a byte-identical result to
     ///         `ProofRequestLibrary.eip712Digest(ProofRequest)` when the slim
-    ///         fields are derived from a real `ProofRequest`.
+    ///         fields are derived from a real `ProofRequest`. The caller is
+    ///         responsible for domain-binding via `_hashTypedDataV4` when a
+    ///         `requestDigest` comparable to the market's lock storage is
+    ///         needed.
     function reconstructRequestDigest(SlimRequest memory slim) internal pure returns (bytes32) {
         bytes32 callbackDigest = CallbackLibrary.eip712Digest(slim.callback);
         bytes32 predicateDigest = PredicateLibrary.eip712Digest(slim.predicate);

@@ -228,21 +228,42 @@ contract BoundlessMarket is
         FulfillmentContext({valid: true, expired: expired, price: price}).store(requestHash);
     }
 
-    /// @dev Reconstruct each fill's `requestDigest` from the slim payload and
-    ///      assert that the result matches either the stored lock digest or
-    ///      a valid `FulfillmentContext` entry from `priceRequest`. Once this
-    ///      passes, the slim payload is bound to a client-signed request and
-    ///      downstream consumers (router, assessor adapter, callback dispatch)
-    ///      can trust its fields without re-verification.
+    /// @dev Assert that the supplied `requestDigest` matches either the stored
+    ///      lock digest or a valid `FulfillmentContext` entry from
+    ///      `priceRequest`. Once this passes, the slim payload that produced
+    ///      `requestDigest` is bound to a client-signed request and downstream
+    ///      consumers (router, assessor adapter, callback dispatch) can trust
+    ///      its fields without re-verification.
+    ///
+    ///      `requestDigest` is the domain-bound digest (`_hashTypedDataV4` of
+    ///      the EIP-712 struct hash produced by
+    ///      `SlimRequestLibrary.reconstructRequestDigest`). `_lockRequest` and
+    ///      `priceRequest` both write this same domain-bound value into
+    ///      storage, so this function can compare without further hashing.
     function _verifyBinding(RequestId id, bytes32 requestDigest) internal view {
         if (requestLocks[id].requestDigest == requestDigest) {
             return;
         }
-        bytes32 requestHash = _hashTypedDataV4(requestDigest);
-        if (FulfillmentContextLibrary.load(requestHash).valid) {
+        if (FulfillmentContextLibrary.load(requestDigest).valid) {
             return;
         }
         revert RequestIsNotLockedOrPriced(id);
+    }
+
+    /// @dev Per-batch helper: reconstruct each request's domain-bound digest,
+    ///      verify the binding, and collect into an array for the router and assessor.
+    function _bindAndCollectDigests(SlimRequest[] calldata requests)
+        internal
+        view
+        returns (bytes32[] memory requestDigests)
+    {
+        uint256 n = requests.length;
+        requestDigests = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) {
+            bytes32 requestDigest = _hashTypedDataV4(SlimRequestLibrary.reconstructRequestDigest(requests[i]));
+            _verifyBinding(requests[i].id, requestDigest);
+            requestDigests[i] = requestDigest;
+        }
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -271,45 +292,47 @@ contract BoundlessMarket is
             if (n > type(uint16).max) revert BatchSizeExceedsLimit(n, type(uint16).max);
             if (batch.requests.length != n) revert BatchSizeExceedsLimit(batch.requests.length, n);
 
-            // Bind every slim payload to a client-signed request (lock or priced) by reconstructing
-            // the digest and asserting it matches the stored lock or transient context.
-            bytes32[] memory requestDigests = new bytes32[](n);
-            for (uint256 i = 0; i < n; i++) {
-                bytes32 requestDigest = SlimRequestLibrary.reconstructRequestDigest(batch.requests[i]);
-                _verifyBinding(batch.requests[i].id, requestDigest);
-                requestDigests[i] = requestDigest;
-            }
-
-            // Dispatch through the router: per-fill verifier + per-batch assessor.
+            // Bind every slim payload to a client-signed request (lock or
+            // priced), then dispatch verifier + assessor through the router
+            // and settle each fill.
+            bytes32[] memory requestDigests = _bindAndCollectDigests(batch.requests);
             ROUTER.verifyBatch(batch.requests, batch.fills, requestDigests, batch.prover, batch.assessorSeal);
-
-            // Settle each fill.
-            address prover = batch.prover;
-            for (uint256 i = 0; i < n; i++) {
-                Fulfillment calldata fill = batch.fills[i];
-                SlimRequest calldata slim = batch.requests[i];
-                bool expired;
-                (paymentError[outIdx], expired) = _fulfillAndPay(fill, slim.id, requestDigests[i], prover);
-
-                if (expired) {
-                    outIdx++;
-                    continue;
-                }
-
-                if (slim.callback.addr != address(0)) {
-                    if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-                        (bytes32 imageId, bytes calldata journal) =
-                            FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
-                        _executeCallback(
-                            slim.id, slim.callback.addr, slim.callback.gasLimit, imageId, journal, fill.seal
-                        );
-                    } else {
-                        revert UnfulfillableCallback();
-                    }
-                }
-                outIdx++;
-            }
+            outIdx = _settleBatch(batch, requestDigests, paymentError, outIdx);
         }
+    }
+
+    /// @dev Per-fill settle pass for one already-verified `FulfillmentBatch`.
+    ///      Walks every fill, charges/credits accounts via `_fulfillAndPay`,
+    ///      and dispatches callbacks. Returns the updated flat-output index so
+    ///      `fulfill` can keep packing payment errors across batches.
+    function _settleBatch(
+        FulfillmentBatch calldata batch,
+        bytes32[] memory requestDigests,
+        bytes[] memory paymentError,
+        uint256 outIdx
+    ) internal returns (uint256) {
+        address prover = batch.prover;
+        uint256 n = batch.fills.length;
+        for (uint256 i = 0; i < n; i++) {
+            Fulfillment calldata fill = batch.fills[i];
+            SlimRequest calldata slim = batch.requests[i];
+            bool expired;
+            (paymentError[outIdx], expired) = _fulfillAndPay(fill, slim.id, requestDigests[i], prover);
+
+            if (!expired && slim.callback.addr != address(0)) {
+                if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
+                    (bytes32 imageId, bytes calldata journal) =
+                        FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
+                    _executeCallback(
+                        slim.id, slim.callback.addr, slim.callback.gasLimit, imageId, journal, fill.seal
+                    );
+                } else {
+                    revert UnfulfillableCallback();
+                }
+            }
+            outIdx++;
+        }
+        return outIdx;
     }
 
     /// @inheritdoc IBoundlessMarket

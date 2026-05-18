@@ -46,6 +46,7 @@ import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {LockRequest} from "../src/types/LockRequest.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
 import {FulfillmentBatch} from "../src/types/FulfillmentBatch.sol";
+import {ProofRequestBatch} from "../src/types/ProofRequestBatch.sol";
 import {SlimRequest, SlimRequestLibrary} from "../src/types/SlimRequest.sol";
 import {Offer} from "../src/types/Offer.sol";
 import {Requirements} from "../src/types/Requirements.sol";
@@ -391,22 +392,132 @@ contract BoundlessMarketTest is Test {
         return client;
     }
 
-    // =========================================================================
-    // TODO(MIGRATE-MARKET): replace these helpers.
+    // ─── New helpers (slim/router architecture) ──────────────────────────
     //
-    // The old helpers built an `AssessorReceipt` over a merkle tree of fills,
-    // submitted the batch root to a `RiscZeroSetVerifier`, and produced
-    // inclusion-proof seals per fill. None of that infrastructure is needed
-    // when fulfilling through a `NullAssessor`: the `assessorSeal` is just
-    // `ASSESSOR_NULL_SEL`, and the per-fill `seal` only needs its first 4
-    // bytes to resolve to a registered verifier entry.
+    // The market state-machine tests build a `FulfillmentBatch` for the
+    // registered `NullAssessor`. The assessor seal is just the 4-byte
+    // selector — no merkle root, no inclusion proofs, no set-builder. The
+    // per-fill `seal` only needs its first 4 bytes to resolve to a
+    // registered verifier entry; `NullVerifier` accepts any bytes after.
     //
-    // New helpers (TODO): a single `createFulfillmentBatch(requests, journals,
-    // prover) returns (FulfillmentBatch memory)` that builds the slim payload
-    // + fills directly, with no set-builder root involved. Tests that
-    // exercise `submitRoot*` paths will need a different helper that does
-    // post a set-builder root, but for now leave them commented out and
-    // introduce that helper when the first such test is restored.
+    // Tests that need a set-builder root (the `submitRoot*` path) will get
+    // their own helper introduced when the first such test is restored.
+
+    /// @dev Single-request convenience wrapper around `createFulfillmentBatch`.
+    function createFulfillmentBatch(ProofRequest memory request, bytes memory journal, address prover)
+        internal
+        view
+        returns (FulfillmentBatch memory)
+    {
+        ProofRequest[] memory requests = new ProofRequest[](1);
+        requests[0] = request;
+        bytes[] memory journals = new bytes[](1);
+        journals[0] = journal;
+        return createFulfillmentBatch(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal);
+    }
+
+    /// @dev Builds a `FulfillmentBatch` ready to feed to `fulfill(...)`. The
+    ///      assessor seal carries only `ASSESSOR_NULL_SEL`; `NullAssessor`
+    ///      reads nothing else. Each per-fill `seal` starts with
+    ///      `VERIFIER_ENTRY_SEL` so the router dispatches to `NullVerifier`.
+    function createFulfillmentBatch(ProofRequest[] memory requests, bytes[] memory journals, address prover)
+        internal
+        view
+        returns (FulfillmentBatch memory)
+    {
+        return createFulfillmentBatch(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal);
+    }
+
+    function createFulfillmentBatch(
+        ProofRequest[] memory requests,
+        bytes[] memory journals,
+        address prover,
+        FulfillmentDataType fillType
+    ) internal view returns (FulfillmentBatch memory batch) {
+        uint256 n = requests.length;
+        SlimRequest[] memory slim = new SlimRequest[](n);
+        Fulfillment[] memory fills = new Fulfillment[](n);
+        for (uint256 i = 0; i < n; i++) {
+            // Derive claimDigest from the predicate. For DigestMatch and
+            // PrefixMatch the first 32 bytes of predicate.data are the imageId;
+            // for ClaimDigestMatch the predicate.data IS the claimDigest.
+            bytes32 claimDigest;
+            bytes32 imageId;
+            PredicateType ptype = requests[i].requirements.predicate.predicateType;
+            if (ptype != PredicateType.ClaimDigestMatch) {
+                imageId = bytesToBytes32(requests[i].requirements.predicate.data);
+                claimDigest = ReceiptClaimLib.ok(imageId, sha256(journals[i])).digest();
+            } else {
+                imageId = APP_IMAGE_ID;
+                claimDigest = bytesToBytes32(requests[i].requirements.predicate.data);
+            }
+
+            bytes memory fulfillmentData;
+            if (fillType == FulfillmentDataType.ImageIdAndJournal) {
+                fulfillmentData =
+                    abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: journals[i]}));
+            }
+
+            fills[i] = Fulfillment({
+                claimDigest: claimDigest,
+                fulfillmentDataType: fillType,
+                fulfillmentData: fulfillmentData,
+                seal: abi.encodePacked(VERIFIER_ENTRY_SEL, hex"deadbeef")
+            });
+            slim[i] = _toSlim(requests[i]);
+        }
+        batch = FulfillmentBatch({
+            requests: slim,
+            fills: fills,
+            assessorSeal: abi.encodePacked(ASSESSOR_NULL_SEL),
+            prover: prover
+        });
+    }
+
+    /// @dev Build a `SlimRequest` from a `ProofRequest` for the harness.
+    function _toSlim(ProofRequest memory req) internal pure returns (SlimRequest memory) {
+        return SlimRequest({
+            id: req.id,
+            predicate: req.requirements.predicate,
+            callback: req.requirements.callback,
+            selector: req.requirements.selector,
+            imageUrlHash: keccak256(bytes(req.imageUrl)),
+            inputDigest: req.input.eip712Digest(),
+            offerDigest: req.offer.eip712Digest()
+        });
+    }
+
+    /// @dev Wrap a single `FulfillmentBatch` in a length-1 array (the shape
+    ///      `boundlessMarket.fulfill(...)` takes).
+    function _asArray(FulfillmentBatch memory batch) internal pure returns (FulfillmentBatch[] memory arr) {
+        arr = new FulfillmentBatch[](1);
+        arr[0] = batch;
+    }
+
+    /// @dev Wrap a single `ProofRequestBatch` in a length-1 array (the shape
+    ///      `priceAndFulfill(...)` takes).
+    function _asArray(ProofRequestBatch memory rb) internal pure returns (ProofRequestBatch[] memory arr) {
+        arr = new ProofRequestBatch[](1);
+        arr[0] = rb;
+    }
+
+    /// @dev Wrap a single `ProofRequest` in a length-1 array.
+    function _asArray(ProofRequest memory request) internal pure returns (ProofRequest[] memory arr) {
+        arr = new ProofRequest[](1);
+        arr[0] = request;
+    }
+
+    /// @dev Wrap a single signature (`bytes`) in a length-1 array.
+    function _asArray(bytes memory signature) internal pure returns (bytes[] memory arr) {
+        arr = new bytes[](1);
+        arr[0] = signature;
+    }
+
+    // ─── TODO(MIGRATE-MARKET): replace these helpers (set-builder path) ─
+    //
+    // Tests that exercise `submitRoot*` still need a helper that produces a
+    // set-builder root + assessor leaf. Restore when the first such test is
+    // ported.
     /*
     function submitRoot(bytes32 root) internal {
         boundlessMarket.submitRoot(
@@ -1291,8 +1402,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return _testLockRequestInvalidRequest2(false);
     }
 
-    // ─── TODO(MIGRATE-MARKET): tests still to port ──────────────────────
-    /*
     enum LockRequestMethod {
         LockRequest,
         LockRequestWithSig,
@@ -1306,7 +1415,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return _testFulfillSameBlock(requestIdx, lockinMethod, "");
     }
 
-    // Base for fulfillment tests with different methods for lock, including none. All paths should yield the same result.
+    /// @dev Base for fulfillment tests with different methods for lock,
+    ///      including none. All three paths must yield the same result.
     function _testFulfillSameBlock(uint32 requestIdx, LockRequestMethod lockinMethod, string memory snapshot)
         private
         returns (Client, ProofRequest memory)
@@ -1327,40 +1437,29 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             );
         }
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        FulfillmentBatch memory batch = createFulfillmentBatch(request, APP_JOURNAL, testProverAddress);
+        // `RequestFulfilled` emits the domain-bound digest the market computes
+        // from the slim request via `_hashTypedDataV4`.
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
 
         if (lockinMethod == LockRequestMethod.None) {
-            // Annoying boilerplate for creating singleton lists.
-            ProofRequest[] memory requests = new ProofRequest[](1);
-            requests[0] = request;
-            bytes[] memory clientSignatures = new bytes[](1);
-            clientSignatures[0] = client.sign(request);
-
-            vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fills[0].requestDigest);
-            vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
-            boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
-            if (!_stringEquals(snapshot, "")) {
-                vm.snapshotGasLastCall(snapshot);
-            }
+            // Build a `ProofRequestBatch` for the un-locked request so the
+            // priced-path leg can verify its signature inside `priceAndFulfill`.
+            boundlessMarket.priceAndFulfill(_asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})), _asArray(batch));
         } else {
-            vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fills[0].requestDigest);
-            vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
-            boundlessMarket.fulfill(fills, assessorReceipt);
-            if (!_stringEquals(snapshot, "")) {
-                vm.snapshotGasLastCall(snapshot);
-            }
+            boundlessMarket.fulfill(_asArray(batch));
+        }
+        if (!_stringEquals(snapshot, "")) {
+            vm.snapshotGasLastCall(snapshot);
         }
 
-        // Check that the proof was submitted
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
@@ -1369,6 +1468,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
+    // ─── TODO(MIGRATE-MARKET): tests still to port ──────────────────────
+    /*
     // Base for fulfillment tests with deprecated assessor.
     function _testFulfillDeprecatedAssessor(uint32 requestIdx) private {
         Client client = getClient(1);
@@ -1619,14 +1720,17 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         return (client, request);
     }
+    */
 
     function testFulfillLockedRequest() public {
         _testFulfillSameBlock(1, LockRequestMethod.LockRequest, "fulfill: a locked request");
     }
 
+    /*
     function testFulfillAndWithdrawLockedRequest() public {
         _testFulfillAndWithdrawSameBlock(1, LockRequestMethod.LockRequest, "fulfillAndWithdraw: a locked request");
     }
+    */
 
     function testFulfillLockedRequestWithSig() public {
         _testFulfillSameBlock(
@@ -1634,6 +1738,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
     }
 
+    /*
     function testFulfillDeprecatedAssessor() public {
         _testFulfillDeprecatedAssessor(1);
         // Warp past the deprecated assessor expiration time
@@ -2568,11 +2673,13 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testProver.expectBalanceChange(0 ether);
         expectMarketBalanceUnchanged();
     }
+    */
 
     function testFulfillNeverLocked() public {
         _testFulfillSameBlock(1, LockRequestMethod.None, "priceAndFulfill: a single request that was not locked");
     }
 
+    /*
     /// Fulfill without locking should still work even if the prover does not have stake.
     function testFulfillNeverLockedProverNoStake() public {
         vm.prank(testProverAddress);
