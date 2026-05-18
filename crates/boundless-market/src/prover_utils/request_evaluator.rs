@@ -33,7 +33,7 @@ use crate::{
 pub enum RequestEvaluation {
     Success {
         evaluation_id: String,
-        cycle_count: u64,
+        metrics: EvaluationMetrics,
         program_id: String,
         input_id: String,
         public_output: Vec<u8>,
@@ -42,6 +42,52 @@ pub enum RequestEvaluation {
         limit: EvaluationLimits,
     },
     GuestFailed,
+}
+
+/// Backend-native work observed during request evaluation.
+///
+/// The unit is defined by the evaluator implementation. For the current RISC0
+/// evaluator this is the reported cycle count.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct NativeWork {
+    pub units: u64,
+}
+
+impl NativeWork {
+    pub fn new(units: u64) -> Self {
+        Self { units }
+    }
+}
+
+/// Broker-comparable work units derived from backend-native evaluation output.
+///
+/// Broker pricing and capacity policy consume this value. Backend evaluators are
+/// responsible for mapping their native work model into this normalized unit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct NormalizedWork {
+    pub units: u64,
+}
+
+impl NormalizedWork {
+    pub fn new(units: u64) -> Self {
+        Self { units }
+    }
+}
+
+/// Request evaluation metrics returned by a backend.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct EvaluationMetrics {
+    pub native: NativeWork,
+    pub normalized: NormalizedWork,
+}
+
+impl EvaluationMetrics {
+    pub fn new(native: NativeWork, normalized: NormalizedWork) -> Self {
+        Self { native, normalized }
+    }
 }
 
 /// Value type for preflight cache.
@@ -254,7 +300,10 @@ where
                             );
                             Ok(RequestEvaluation::Success {
                                 evaluation_id,
-                                cycle_count: stats.total_cycles,
+                                metrics: EvaluationMetrics::new(
+                                    NativeWork::new(stats.total_cycles),
+                                    NormalizedWork::new(stats.total_cycles),
+                                ),
                                 program_id,
                                 input_id,
                                 public_output,

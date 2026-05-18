@@ -26,9 +26,11 @@ pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
     OrderPricingPriority, PricingOverrides, ProverConfig, RpcMode, TelemetryMode,
 };
+#[allow(unused_imports)]
 pub use request_evaluator::{
-    EvaluationLimits, EvaluationRequest, InputCacheKey, PreflightCache, PreflightCacheKey,
-    PreflightCacheValue, RequestEvaluation, RequestEvaluator, Risc0RequestEvaluatorContext,
+    EvaluationLimits, EvaluationMetrics, EvaluationRequest, InputCacheKey, NativeWork,
+    NormalizedWork, PreflightCache, PreflightCacheKey, PreflightCacheValue, RequestEvaluation,
+    RequestEvaluator, Risc0RequestEvaluatorContext,
 };
 
 use crate::{
@@ -51,6 +53,7 @@ use alloy::{
 use anyhow::Context;
 use hex::FromHex;
 use moka::future::Cache;
+#[cfg(feature = "prover_utils")]
 use request_evaluator::{upload_image_with_downloader, upload_input_with_downloader};
 use risc0_zkvm::sha::Digest as Risc0Digest;
 use serde::{Deserialize, Serialize};
@@ -617,13 +620,14 @@ pub trait OrderPricingContext: RequestEvaluator {
         let (cycle_count, program_id, journal) = match preflight_result {
             PreflightCacheValue::Success {
                 evaluation_id,
-                cycle_count,
+                metrics,
                 program_id,
                 input_id,
                 public_output,
             } => {
+                let cycle_count = metrics.normalized.units;
                 tracing::debug!(
-                    "Using request evaluation for {order_id}: evaluation id {} with {} mcycles",
+                    "Using request evaluation for {order_id}: evaluation id {} with {} normalized mcycles",
                     evaluation_id,
                     cycle_count / 1_000_000
                 );
