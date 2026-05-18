@@ -88,6 +88,15 @@ impl ReaperTask {
                     CompletionOutcome::ExpiredWhileProving,
                 );
 
+                handle_order_failure(
+                    &self.db,
+                    &order_id,
+                    &failure,
+                    self.chain_id,
+                    &self.proving_completion_tx,
+                )
+                .await;
+
                 let should_cancel = {
                     let config = self.config.lock_all()?;
                     config.market.cancel_proving_expired_orders
@@ -99,15 +108,6 @@ impl ReaperTask {
                         );
                     }
                 }
-
-                handle_order_failure(
-                    &self.db,
-                    &order_id,
-                    &failure,
-                    self.chain_id,
-                    &self.proving_completion_tx,
-                )
-                .await;
             }
         }
 
@@ -148,15 +148,89 @@ impl BrokerService for ReaperTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::SqliteDb, now_timestamp, FulfillmentType, Order, OrderStatus};
-    use alloy::primitives::{Address, Bytes, U256};
+    use crate::{
+        backend::{
+            Backend, BackendEntry, BackendError, BatchClose, BatchSizeEstimate,
+            BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch,
+            OrderProcessProgress, ProcessOrder, SubmissionPlan, UpdateBatch,
+        },
+        db::SqliteDb,
+        now_timestamp, FulfillmentType, Order, OrderStatus,
+    };
+    use alloy::primitives::{Address, Bytes, FixedBytes, U256};
+    use async_trait::async_trait;
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
-    use std::sync::Arc;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use tracing_test::traced_test;
+
+    struct CancelBackend {
+        id: crate::backend::BackendId,
+        selectors: Vec<FixedBytes<4>>,
+        cancel_calls: AtomicUsize,
+    }
+
+    impl CancelBackend {
+        fn new(selector: FixedBytes<4>) -> Self {
+            Self {
+                id: crate::backend::BackendId::new("cancel_backend").unwrap(),
+                selectors: vec![selector],
+                cancel_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn cancel_calls(&self) -> usize {
+            self.cancel_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl Backend for CancelBackend {
+        fn id(&self) -> &crate::backend::BackendId {
+            &self.id
+        }
+
+        fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
+            self.selectors.clone()
+        }
+
+        async fn process_order(&self, _cmd: ProcessOrder) -> anyhow::Result<OrderProcessProgress> {
+            anyhow::bail!("cancel backend does not process orders")
+        }
+
+        async fn cancel_order(&self, _order: &Order) -> anyhow::Result<()> {
+            self.cancel_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn estimate_batch_size(
+            &self,
+            _cmd: BatchSizeEstimateRequest,
+        ) -> anyhow::Result<BatchSizeEstimate> {
+            anyhow::bail!("cancel backend does not estimate batches")
+        }
+
+        async fn update_batch(&self, _cmd: UpdateBatch) -> anyhow::Result<BatchUpdate> {
+            anyhow::bail!("cancel backend does not update batches")
+        }
+
+        async fn close_batch(&self, _cmd: CloseBatch) -> anyhow::Result<BatchClose, BackendError> {
+            Err(BackendError::operation(anyhow::anyhow!("cancel backend does not close batches")))
+        }
+
+        async fn build_fulfillments(
+            &self,
+            _cmd: FulfillmentBatch,
+        ) -> anyhow::Result<SubmissionPlan> {
+            anyhow::bail!("cancel backend does not build fulfillments")
+        }
+    }
 
     fn create_order_with_status_and_expiration(
         id: u64,
@@ -297,6 +371,41 @@ mod tests {
         assert!(stored_active.error_msg.is_none());
         assert_eq!(stored_done.status, OrderStatus::Done);
         assert!(stored_done.error_msg.is_none());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_expired_order_cancels_registered_backend() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut config = config.load_write().unwrap();
+            config.prover.reaper_grace_period_secs = 30;
+            config.market.cancel_proving_expired_orders = true;
+        }
+        let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
+
+        let current_time = now_timestamp();
+        let past_time = current_time - 100;
+        let order =
+            create_order_with_status_and_expiration(1, OrderStatus::Proving, Some(past_time));
+        let backend = Arc::new(CancelBackend::new(order.request.requirements.selector));
+        let router = Arc::new(
+            BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap(),
+        );
+        let reaper = ReaperTask::new(db.clone(), config, router, 1, proving_completion_tx);
+
+        db.add_order(&order).await.unwrap();
+
+        reaper.check_expired_orders().await.unwrap();
+
+        assert_eq!(backend.cancel_calls(), 1);
+        let stored_order = db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(stored_order.status, OrderStatus::Failed);
+        assert_eq!(
+            stored_order.error_msg,
+            Some("[B-REAP-003] Order expired in reaper".to_string())
+        );
     }
 
     #[tokio::test]

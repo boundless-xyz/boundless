@@ -171,23 +171,31 @@ where
 
                     if active_preflights.contains(&request_id, &order_id) {
                         tracing::debug!("Skipping order {order_id} - already being processed");
-                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                        if let Err(err) = self.pricing_completion_tx.try_send(PreflightComplete {
                             order_id,
                             request_id,
                             chain_id,
                             outcome: PreflightOutcome::Skipped,
-                        });
+                        }) {
+                            tracing::error!(
+                                "Failed to send preflight completion for duplicate active order; capacity tracking may be stale: {err}"
+                            );
+                        }
                         continue;
                     }
 
                     if self.order_cache.get(&order_id).await.is_some() {
                         tracing::debug!("Skipping duplicate order {order_id}, already being processed");
-                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                        if let Err(err) = self.pricing_completion_tx.try_send(PreflightComplete {
                             order_id,
                             request_id,
                             chain_id,
                             outcome: PreflightOutcome::Skipped,
-                        });
+                        }) {
+                            tracing::error!(
+                                "Failed to send preflight completion for duplicate cached order; capacity tracking may be stale: {err}"
+                            );
+                        }
                         continue;
                     }
 
@@ -232,12 +240,16 @@ where
                         Ok((order_id, request_id, outcome)) => {
                             active_preflights.remove(&request_id, &order_id);
 
-                            let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                            if let Err(err) = self.pricing_completion_tx.try_send(PreflightComplete {
                                 order_id: order_id.clone(),
                                 request_id,
                                 chain_id: self.chain_id,
                                 outcome,
-                            });
+                            }) {
+                                tracing::error!(
+                                    "Failed to send preflight completion for order {order_id}; capacity tracking may be stale: {err}"
+                                );
+                            }
 
                             tracing::trace!("Priced task for order {} (request 0x{:x}) completed with {outcome} ({} remaining)",
                                 order_id, request_id, tasks.len());

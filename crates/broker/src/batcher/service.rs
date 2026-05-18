@@ -318,11 +318,16 @@ impl BatcherService {
                         order.order_id,
                     );
                 }
-                let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                if let Err(err) = self.proving_completion_tx.try_send(CommitmentComplete {
                     order_id: order.order_id.clone(),
                     chain_id: self.chain_id,
                     outcome: CommitmentOutcome::ProvingFailed,
-                });
+                }) {
+                    tracing::error!(
+                        "Failed to send proving failure completion for order {}; capacity tracking may be stale: {err}",
+                        order.order_id
+                    );
+                }
                 continue;
             }
 
@@ -355,11 +360,16 @@ impl BatcherService {
                                 order.order_id
                             );
                         }
-                        let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+                        if let Err(err) = self.proving_completion_tx.try_send(CommitmentComplete {
                             order_id: order.order_id.clone(),
                             chain_id: self.chain_id,
                             outcome: CommitmentOutcome::ProvingFailed,
-                        });
+                        }) {
+                            tracing::error!(
+                                "Failed to send proving failure completion for order {}; capacity tracking may be stale: {err}",
+                                order.order_id
+                            );
+                        }
                         continue;
                     }
                     Ok(false) => {}

@@ -236,6 +236,9 @@ impl BrokerDb for SqliteDb {
     ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
+            if order.status != OrderStatus::PendingSubmission {
+                return Err(DbError::InvalidOrder(id.to_string(), "status"));
+            }
             Ok((
                 order.request.clone(),
                 order.client_sig.clone(),
@@ -450,9 +453,9 @@ impl BrokerDb for SqliteDb {
         &self,
         id: &str,
         status: OrderStatus,
-        backend_id: Option<&BackendId>,
+        backend_id: &BackendId,
     ) -> Result<(), DbError> {
-        let backend_id = backend_id.map(ToString::to_string);
+        let backend_id = backend_id.to_string();
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -1082,6 +1085,7 @@ mod tests {
     async fn get_submission_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let mut order = create_order();
+        order.status = OrderStatus::PendingSubmission;
         order.proof_id = Some("test".to_string());
         order.lock_price = Some(U256::from(10));
         db.add_order(&order).await.unwrap();
@@ -1184,11 +1188,14 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        db.set_order_batch_status(&order.id(), OrderStatus::PendingAgg, None).await.unwrap();
+        db.set_order_batch_status(&order.id(), OrderStatus::PendingAgg, &test_backend_id())
+            .await
+            .unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
         assert_eq!(db_order.status, OrderStatus::PendingAgg);
+        assert_eq!(db_order.backend_id, Some(test_backend_id()));
     }
 
     #[sqlx::test]

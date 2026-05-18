@@ -378,8 +378,14 @@ impl Backend for Risc0Backend {
         );
 
         let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
+        let finalized_root = aggregation_state
+            .guest_state
+            .mmr
+            .clone()
+            .finalized_root()
+            .expect("invariant: finalized MMR has a root");
         anyhow::ensure!(
-            aggregation_state.guest_state.mmr.clone().finalized_root().unwrap() == batch_root,
+            finalized_root == batch_root,
             "Guest state finalized root is inconsistent with claim digests"
         );
         let verifier_update = VerifierUpdate::SubmitMerkleRoot {
@@ -397,8 +403,10 @@ impl Backend for Risc0Backend {
                     .prover
                     .get_journal(order.proof_id.as_str())
                     .await
-                    .context("Failed to get order journal from prover")?
-                    .context("Order proof Journal missing")?;
+                    .with_context(|| {
+                        format!("Failed to get order journal from prover for {}", order.order_id)
+                    })?
+                    .with_context(|| format!("Order proof journal missing for {}", order.order_id))?;
                 let order_journal_digest = order_journal.digest();
                 let order_claim_digest =
                     submission.claim_digest(order_img_id, order_journal_digest);
@@ -430,7 +438,9 @@ impl Backend for Risc0Backend {
                         .position(|claim| *claim == order_claim_digest)
                         .ok_or_else(|| {
                             anyhow::anyhow!(
-                                "Failed to find order claim {order_claim:x?} in aggregated claims"
+                                "Failed to find order claim {order_claim:x?} for order {} request {} in aggregated claims",
+                                order.order_id,
+                                order.request.id
                             )
                         })?;
                     let order_path = risc0_aggregation::merkle_path(
@@ -513,7 +523,9 @@ impl Backend for Risc0Backend {
             .iter()
             .position(|claim| *claim == assessor_claim)
             .ok_or_else(|| {
-                anyhow::anyhow!("Failed to find order claim assessor claim in aggregated claims")
+                anyhow::anyhow!(
+                    "Failed to find assessor claim {assessor_claim:x?} from proof {assessor_proof_id} in aggregated claims"
+                )
             })?;
         let assessor_path =
             risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);

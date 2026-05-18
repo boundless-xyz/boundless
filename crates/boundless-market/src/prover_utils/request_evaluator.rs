@@ -90,6 +90,24 @@ impl EvaluationMetrics {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreflightErrorKind {
+    LimitExceeded,
+    GuestPanicked,
+}
+
+fn classify_preflight_error(error: &str) -> Option<PreflightErrorKind> {
+    if error.contains("Session limit exceeded")
+        || error.contains("Execution stopped intentionally due to session limit")
+    {
+        Some(PreflightErrorKind::LimitExceeded)
+    } else if error.contains("Guest panicked") || error.contains("GuestPanic") {
+        Some(PreflightErrorKind::GuestPanicked)
+    } else {
+        None
+    }
+}
+
 /// Value type for preflight cache.
 ///
 /// Successful entries intentionally include the public output because pricing
@@ -311,25 +329,21 @@ where
                         }
                         Err(err) => {
                             let err_msg = err.to_string();
-                            if err_msg.contains("Session limit exceeded")
-                                || err_msg.contains(
-                                    "Execution stopped intentionally due to session limit",
-                                )
-                            {
-                                tracing::debug!(
-                                    "Skipping order {request_id} due to intentional execution limit of {max_cycles}"
-                                );
-                                Ok(RequestEvaluation::LimitExceeded { limit: limits })
-                            } else if err_msg.contains("Guest panicked")
-                                || err_msg.contains("GuestPanic")
-                            {
-                                tracing::debug!(
-                                    "Skipping order {request_id} due to guest panic: {}",
-                                    err_msg
-                                );
-                                Ok(RequestEvaluation::GuestFailed)
-                            } else {
-                                Err(OrderPricingError::UnexpectedErr(Arc::new(err.into())))
+                            match classify_preflight_error(&err_msg) {
+                                Some(PreflightErrorKind::LimitExceeded) => {
+                                    tracing::debug!(
+                                        "Skipping order {request_id} due to intentional execution limit of {max_cycles}"
+                                    );
+                                    Ok(RequestEvaluation::LimitExceeded { limit: limits })
+                                }
+                                Some(PreflightErrorKind::GuestPanicked) => {
+                                    tracing::debug!(
+                                        "Skipping order {request_id} due to guest panic: {}",
+                                        err_msg
+                                    );
+                                    Ok(RequestEvaluation::GuestFailed)
+                                }
+                                None => Err(OrderPricingError::UnexpectedErr(Arc::new(err.into()))),
                             }
                         }
                     }
@@ -437,5 +451,39 @@ pub(super) async fn upload_input_with_downloader(
         crate::contracts::RequestInputType::__Invalid => {
             anyhow::bail!("Invalid input type")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_preflight_limit_errors() {
+        assert_eq!(
+            classify_preflight_error("Session limit exceeded after 100 cycles"),
+            Some(PreflightErrorKind::LimitExceeded)
+        );
+        assert_eq!(
+            classify_preflight_error("Execution stopped intentionally due to session limit"),
+            Some(PreflightErrorKind::LimitExceeded)
+        );
+    }
+
+    #[test]
+    fn classifies_preflight_guest_panic_errors() {
+        assert_eq!(
+            classify_preflight_error("Guest panicked: assertion failed"),
+            Some(PreflightErrorKind::GuestPanicked)
+        );
+        assert_eq!(
+            classify_preflight_error("GuestPanic at pc 0x1234"),
+            Some(PreflightErrorKind::GuestPanicked)
+        );
+    }
+
+    #[test]
+    fn leaves_unknown_preflight_errors_unclassified() {
+        assert_eq!(classify_preflight_error("network unavailable"), None);
     }
 }

@@ -76,7 +76,7 @@ pub trait BrokerDb {
         &self,
         id: &str,
         status: OrderStatus,
-        backend_id: Option<&BackendId>,
+        backend_id: &BackendId,
     ) -> Result<(), DbError>;
     async fn get_pending_batch_orders(
         &self,

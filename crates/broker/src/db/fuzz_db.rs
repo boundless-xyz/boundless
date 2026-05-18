@@ -224,7 +224,7 @@ proptest! {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_order_batch_status(id, OrderStatus::PendingAgg, Some(&test_backend_id())).await.unwrap();
+                                        db.set_order_batch_status(id, OrderStatus::PendingAgg, &test_backend_id()).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();

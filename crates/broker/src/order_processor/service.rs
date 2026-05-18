@@ -427,11 +427,7 @@ impl OrderProcessor {
 
                 if let Err(e) = self
                     .db
-                    .set_order_batch_status(
-                        &order_id,
-                        processed.next_status,
-                        Some(&processed.backend_id),
-                    )
+                    .set_order_batch_status(&order_id, processed.next_status, &processed.backend_id)
                     .await
                 {
                     tracing::error!("Failed to set order batch status for order {order_id}: {e:?}");
@@ -578,11 +574,15 @@ async fn set_order_failure(
     if let Err(inner_err) = db.set_order_failure(order_id, failure_reason).await {
         tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
     }
-    let _ = proving_completion_tx.try_send(CommitmentComplete {
+    if let Err(err) = proving_completion_tx.try_send(CommitmentComplete {
         order_id: order_id.to_string(),
         chain_id,
         outcome: CommitmentOutcome::ProvingFailed,
-    });
+    }) {
+        tracing::error!(
+            "Failed to send proving failure completion for order {order_id}; capacity tracking may be stale: {err}"
+        );
+    }
 }
 
 #[cfg(test)]

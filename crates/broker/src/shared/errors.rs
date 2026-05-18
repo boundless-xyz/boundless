@@ -136,11 +136,15 @@ pub(crate) async fn handle_order_failure(
         tracing::error!("Failed to set order {order_id} failure: {e:?}");
     }
     crate::telemetry::telemetry(chain_id).record_failed(order_id, failure);
-    let _ = proving_completion_tx.try_send(CommitmentComplete {
+    if let Err(err) = proving_completion_tx.try_send(CommitmentComplete {
         order_id: order_id.to_string(),
         chain_id,
         outcome: CommitmentOutcome::ProvingFailed,
-    });
+    }) {
+        tracing::error!(
+            "Failed to send proving failure completion for order {order_id}; capacity tracking may be stale: {err}"
+        );
+    }
 }
 
 #[cfg(test)]

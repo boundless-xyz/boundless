@@ -29,3 +29,6 @@ pub use types::{
     FulfillmentOrder, OrderFulfillmentResult, OrderProcessProgress, ProcessOrder, ProcessedOrder,
     ProofId, UpdateBatch, VerifierUpdate,
 };
+
+#[cfg(test)]
+pub use types::{Backend, BatchClose, BatchSizeEstimate, SubmissionPlan};

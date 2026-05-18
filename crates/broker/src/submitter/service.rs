@@ -350,11 +350,15 @@ where
                 );
                 continue;
             }
-            let _ = self.proving_completion_tx.try_send(CommitmentComplete {
+            if let Err(err) = self.proving_completion_tx.try_send(CommitmentComplete {
                 order_id: order_id.to_string(),
                 chain_id: self.chain_id,
                 outcome: CommitmentOutcome::ProvingCompleted,
-            });
+            }) {
+                tracing::error!(
+                    "Failed to send proving completion for order {order_id}; capacity tracking may be stale: {err}"
+                );
+            }
 
             crate::telemetry::telemetry(self.chain_id).record_fulfilled(order_id);
             let order_price = order_prices
