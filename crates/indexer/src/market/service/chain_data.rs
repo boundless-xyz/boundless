@@ -14,7 +14,8 @@
 
 use super::{
     IndexerService, TransactionFetchStrategy, BLOCK_QUERY_SLEEP, GET_BLOCK_BY_NUMBER_CHUNK_SIZE,
-    GET_BLOCK_RECEIPTS_CHUNK_SIZE, MARKET_EVENT_SIGNATURES,
+    GET_BLOCK_RECEIPTS_CHUNK_SIZE, MARKET_EVENT_SIGNATURES, TX_FETCH_RETRY_COUNT,
+    TX_FETCH_RETRY_SLEEP_MS,
 };
 use crate::db::market::{IndexerDb, TxMetadata};
 use crate::market::ServiceError;
@@ -24,6 +25,7 @@ use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Filter, Log};
 use anyhow::{anyhow, Context};
+use broker::futures_retry::retry;
 use futures_util::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -414,7 +416,26 @@ where
                 .map(|&tx_hash| {
                     let provider = self.boundless_market.instance().provider();
                     async move {
-                        let tx = provider.get_transaction_by_hash(tx_hash).await?;
+                        let tx = retry(
+                            TX_FETCH_RETRY_COUNT,
+                            TX_FETCH_RETRY_SLEEP_MS,
+                            || async {
+                                let tx = provider.get_transaction_by_hash(tx_hash).await?;
+                                let tx = tx.ok_or_else(|| {
+                                    anyhow!("transaction {} not found by RPC", hex::encode(tx_hash))
+                                })?;
+                                if tx.block_number.is_none() {
+                                    return Err(anyhow!(
+                                        "transaction {} returned without block_number",
+                                        hex::encode(tx_hash)
+                                    ));
+                                }
+                                Ok(tx)
+                            },
+                            "get_transaction_by_hash",
+                        )
+                        .await
+                        .map_err(ServiceError::Error)?;
                         Ok::<_, ServiceError>((tx_hash, tx))
                     }
                 })
@@ -423,18 +444,8 @@ where
             let start = std::time::Instant::now();
             let results = try_join_all(futures).await?;
             tracing::debug!("Got {} transactions in {:?}", results.len(), start.elapsed());
-            for (tx_hash, tx_result) in results {
-                match tx_result {
-                    Some(tx) => {
-                        tx_map.insert(tx_hash, tx);
-                    }
-                    None => {
-                        return Err(ServiceError::Error(anyhow!(
-                            "Transaction {} not found",
-                            hex::encode(tx_hash)
-                        )));
-                    }
-                }
+            for (tx_hash, tx) in results {
+                tx_map.insert(tx_hash, tx);
             }
         }
 
@@ -504,7 +515,10 @@ where
 
         // Step 4: Build final map from tx_hash to TxMetadata and update service map
         for (tx_hash, tx) in tx_map {
-            let bn = tx.block_number.context("block number not found")?;
+            let bn = tx.block_number.context(anyhow!(
+                "block_number missing on transaction {} after eth_getTransactionByHash",
+                hex::encode(tx_hash)
+            ))?;
             let tx_index = tx.transaction_index.context(anyhow!(
                 "Transaction index not found for transaction {}",
                 hex::encode(tx_hash)
