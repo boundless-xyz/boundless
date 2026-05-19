@@ -32,11 +32,11 @@ const REQUIRED_SECRETS: SecretMapping[] = [
 
 const OPTIONAL_SECRETS: SecretMapping[] = [];
 
-/** Staggered schedules: one per minute 0–19 in each 20-minute window. */
-const SCHEDULE_COUNT = 20;
+const DEFAULT_SCHEDULE_COUNT = 20;
+const DEFAULT_SCHEDULE_WINDOW_MINUTES = 20;
 
 type StaggeredScheduleSpec = {
-    /** EventBridge cron minute (0–19); fires at :MM, :MM+20, :MM+40 each hour. */
+    /** EventBridge cron minute offset; fires at :MM, :MM+window, … each hour. */
     minute: number;
     /** Passed to the task as START_BLOCK_OFFSET → start_block = finalized - minute. */
     startBlockOffset: number;
@@ -44,16 +44,14 @@ type StaggeredScheduleSpec = {
     cronExpression: string;
 };
 
-function buildStaggeredSchedules(): StaggeredScheduleSpec[] {
-    return Array.from({ length: SCHEDULE_COUNT }, (_, minute) => ({
+function buildStaggeredSchedules(scheduleCount: number, windowMinutes: number): StaggeredScheduleSpec[] {
+    return Array.from({ length: scheduleCount }, (_, minute) => ({
         minute,
         startBlockOffset: minute,
         blockCount: minute % 2 === 0 ? "1" : "2",
-        cronExpression: `cron(${minute}/20 * * * ? *)`,
+        cronExpression: `cron(${minute}/${windowMinutes} * * * ? *)`,
     }));
 }
-
-const STAGGERED_SCHEDULES = buildStaggeredSchedules();
 
 export = () => {
     const config = new pulumi.Config();
@@ -77,6 +75,15 @@ export = () => {
     const assignPublicIp = config.getBoolean("ASSIGN_PUBLIC_IP") ?? false;
     const maxRunningTasks = config.getNumber("MAX_RUNNING_TASKS")
         ?? parseInt(config.get("NUM_CONCURRENT_PROVERS") ?? "3", 10);
+    const scheduleCount = config.getNumber("SCHEDULE_COUNT") ?? DEFAULT_SCHEDULE_COUNT;
+    const scheduleWindowMinutes = config.getNumber("SCHEDULE_WINDOW_MINUTES") ?? DEFAULT_SCHEDULE_WINDOW_MINUTES;
+    if (scheduleCount < 1) {
+        throw new Error("SCHEDULE_COUNT must be at least 1");
+    }
+    if (scheduleWindowMinutes < 1) {
+        throw new Error("SCHEDULE_WINDOW_MINUTES must be at least 1");
+    }
+    const staggeredSchedules = buildStaggeredSchedules(scheduleCount, scheduleWindowMinutes);
 
     const slackTopicArn = config.get("SLACK_ALERTS_TOPIC_ARN");
     const pagerdutyTopicArn = config.get("PAGERDUTY_ALERTS_TOPIC_ARN");
@@ -350,7 +357,7 @@ export = () => {
         })),
     });
 
-    for (const spec of STAGGERED_SCHEDULES) {
+    for (const spec of staggeredSchedules) {
         const { minute, startBlockOffset, blockCount, cronExpression } = spec;
         const schedulePayload = JSON.stringify({
             startBlockOffset,
@@ -450,7 +457,9 @@ export = () => {
         logsConsoleUrl: logGroup.name.apply(
             name => `https://${region}.console.aws.amazon.com/cloudwatch/home?region=${region}#logsV2:log-groups/log-group/${encodeURIComponent(name)}`,
         ),
-        schedules: STAGGERED_SCHEDULES,
+        scheduleCount,
+        scheduleWindowMinutes,
+        schedules: staggeredSchedules,
     };
 
     function resolveConfigKey(configKey: string, fallbackConfigKey?: string): string {

@@ -11,6 +11,8 @@ config:
   kailua-batch:LOG_RETENTION_DAYS: "30"
   # Set true if private subnets have no NAT and you need outbound internet for the task
   kailua-batch:ASSIGN_PUBLIC_IP: "false"
+  kailua-batch:SCHEDULE_COUNT: "20"
+  kailua-batch:SCHEDULE_WINDOW_MINUTES: "20"
   kailua-batch:MAX_RUNNING_TASKS: "20"
   kailua-batch:SKIP_AWAIT_PROOF: "true"
   kailua-batch:KAILUA_WORKDIR: /kailua
