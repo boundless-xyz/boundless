@@ -25,39 +25,44 @@ use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Filter, Log};
 use anyhow::{anyhow, Context};
-use broker::futures_retry::retry;
 use futures_util::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-/// Fetch a single transaction by hash, retrying when the RPC returns either no
-/// transaction or a transaction with `block_number = null`.
+/// Fetch a single transaction by hash, retrying only when the RPC call
+/// succeeded but returned either no transaction or a transaction with
+/// `block_number = null`. Real transport errors propagate immediately so the
+/// outer loop's exponential backoff can handle them.
 async fn get_transaction_with_retry<P>(
     provider: P,
     tx_hash: B256,
-) -> Result<<Ethereum as Network>::TransactionResponse, anyhow::Error>
+) -> Result<<Ethereum as Network>::TransactionResponse, ServiceError>
 where
     P: Provider<Ethereum>,
 {
-    retry(
-        TX_FETCH_RETRY_COUNT,
-        TX_FETCH_RETRY_SLEEP_MS,
-        || async {
-            let tx = provider
-                .get_transaction_by_hash(tx_hash)
-                .await?
-                .ok_or_else(|| anyhow!("transaction {} not found by RPC", hex::encode(tx_hash)))?;
-            if tx.block_number.is_none() {
-                return Err(anyhow!(
-                    "transaction {} returned without block_number",
-                    hex::encode(tx_hash)
-                ));
+    for attempt in 0..=TX_FETCH_RETRY_COUNT {
+        let tx_opt = provider.get_transaction_by_hash(tx_hash).await?;
+        if let Some(tx) = tx_opt {
+            if tx.block_number.is_some() {
+                return Ok(tx);
             }
-            Ok(tx)
-        },
-        "get_transaction_by_hash",
-    )
-    .await
+        }
+        if attempt == TX_FETCH_RETRY_COUNT {
+            return Err(ServiceError::Error(anyhow!(
+                "transaction {} not found or without block_number after {} retries",
+                hex::encode(tx_hash),
+                TX_FETCH_RETRY_COUNT
+            )));
+        }
+        tracing::warn!(
+            "get_transaction_by_hash for {} returned no tx or no block_number, retry {}/{}",
+            hex::encode(tx_hash),
+            attempt + 1,
+            TX_FETCH_RETRY_COUNT
+        );
+        tokio::time::sleep(Duration::from_millis(TX_FETCH_RETRY_SLEEP_MS)).await;
+    }
+    unreachable!()
 }
 
 impl<P, ANP> IndexerService<P, ANP>
@@ -446,9 +451,7 @@ where
                 .map(|&tx_hash| {
                     let provider = self.boundless_market.instance().provider();
                     async move {
-                        let tx = get_transaction_with_retry(provider, tx_hash)
-                            .await
-                            .map_err(ServiceError::Error)?;
+                        let tx = get_transaction_with_retry(provider, tx_hash).await?;
                         Ok::<_, ServiceError>((tx_hash, tx))
                     }
                 })
