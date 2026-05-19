@@ -361,7 +361,7 @@ impl BrokerDb for SqliteDb {
         let elm: Option<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
-            SET data = json_set(json_set(data, '$.status', $1), '$.update_at', $2)
+            SET data = json_set(json_set(data, '$.status', $1), '$.updated_at', $2)
             WHERE id =
                 (SELECT id
                 FROM orders
@@ -494,7 +494,7 @@ impl BrokerDb for SqliteDb {
             SET data = json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.update_at', $2)
+                       '$.updated_at', $2)
             WHERE
                 data->>'status' IN ($3, $4)
                 AND data->>'backend_id' = $5
@@ -544,9 +544,9 @@ impl BrokerDb for SqliteDb {
             SET data = json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.update_at', $2)
+                       '$.updated_at', $2)
             WHERE
-                data->>'status' == $3
+                data->>'status' = $3
                 AND data->>'backend_id' = $4
             RETURNING *
             "#,

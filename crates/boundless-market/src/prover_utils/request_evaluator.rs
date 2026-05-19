@@ -486,4 +486,196 @@ mod tests {
     fn leaves_unknown_preflight_errors_unclassified() {
         assert_eq!(classify_preflight_error("network unavailable"), None);
     }
+
+    use crate::{
+        prover_utils::prover::{ExecutorResp, ProofResult, Prover, ProverError},
+        storage::{StorageDownloader, StorageError},
+    };
+    use async_trait::async_trait;
+    use risc0_zkvm::{sha::Digest as Risc0Digest, Receipt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use url::Url;
+
+    struct StubProver {
+        preflight_calls: AtomicUsize,
+    }
+
+    impl StubProver {
+        fn new() -> Arc<Self> {
+            Arc::new(Self { preflight_calls: AtomicUsize::new(0) })
+        }
+    }
+
+    #[async_trait]
+    impl Prover for StubProver {
+        async fn has_image(&self, _: &str) -> Result<bool, ProverError> {
+            Ok(true)
+        }
+        async fn upload_input(&self, _: Vec<u8>) -> Result<String, ProverError> {
+            Ok("input-id".to_string())
+        }
+        async fn upload_image(&self, _: &str, _: Vec<u8>) -> Result<(), ProverError> {
+            unreachable!("has_image short-circuits the upload path")
+        }
+        async fn preflight(
+            &self,
+            _image_id: &str,
+            _input_id: &str,
+            _assumptions: Vec<String>,
+            _limit: Option<u64>,
+            _order_id: &str,
+        ) -> Result<ProofResult, ProverError> {
+            let call = self.preflight_calls.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                Err(ProverError::ProvingFailed("Session limit exceeded after 100 cycles".into()))
+            } else {
+                Ok(ProofResult {
+                    id: format!("eval-{call}"),
+                    stats: Some(ExecutorResp { total_cycles: 50, ..Default::default() }),
+                    elapsed_time: 0.0,
+                })
+            }
+        }
+        async fn prove_stark(
+            &self,
+            _: &str,
+            _: &str,
+            _: Vec<String>,
+        ) -> Result<String, ProverError> {
+            unreachable!()
+        }
+        async fn wait_for_stark(&self, _: &str) -> Result<ProofResult, ProverError> {
+            unreachable!()
+        }
+        async fn cancel_stark(&self, _: &str) -> Result<(), ProverError> {
+            unreachable!()
+        }
+        async fn get_receipt(&self, _: &str) -> Result<Option<Receipt>, ProverError> {
+            unreachable!()
+        }
+        async fn get_preflight_journal(&self, _: &str) -> Result<Option<Vec<u8>>, ProverError> {
+            Ok(Some(vec![]))
+        }
+        async fn get_journal(&self, _: &str) -> Result<Option<Vec<u8>>, ProverError> {
+            unreachable!()
+        }
+        async fn compress(&self, _: &str) -> Result<String, ProverError> {
+            unreachable!()
+        }
+        async fn get_compressed_receipt(&self, _: &str) -> Result<Option<Vec<u8>>, ProverError> {
+            unreachable!()
+        }
+        async fn compress_blake3_groth16(&self, _: &str) -> Result<String, ProverError> {
+            unreachable!()
+        }
+        async fn get_blake3_groth16_receipt(
+            &self,
+            _: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            unreachable!()
+        }
+    }
+
+    struct NoopDownloader;
+
+    #[async_trait]
+    impl StorageDownloader for NoopDownloader {
+        async fn download_url_with_limit(&self, _: Url, _: usize) -> Result<Vec<u8>, StorageError> {
+            unreachable!("inline input + cached image — downloader should never be called")
+        }
+        async fn download_url(&self, _: Url) -> Result<Vec<u8>, StorageError> {
+            unreachable!("inline input + cached image — downloader should never be called")
+        }
+    }
+
+    struct StubCtx {
+        prover: ProverObj,
+        downloader: Arc<dyn StorageDownloader + Send + Sync>,
+        cache: PreflightCache,
+    }
+
+    impl Risc0RequestEvaluatorContext for StubCtx {
+        fn prover(&self) -> &ProverObj {
+            &self.prover
+        }
+        fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
+            self.downloader.clone()
+        }
+        fn preflight_cache(&self) -> &PreflightCache {
+            &self.cache
+        }
+        fn is_priority_requestor(&self, _: &Address) -> bool {
+            false
+        }
+    }
+
+    fn test_request() -> EvaluationRequest {
+        let predicate: crate::contracts::RequestPredicate =
+            Predicate::DigestMatch(Risc0Digest::ZERO, Risc0Digest::ZERO).into();
+        let stdin = GuestEnv::builder().build_vec().unwrap();
+        EvaluationRequest {
+            request_id: "test-1".into(),
+            program_url: "file:///fake".into(),
+            selector: FixedBytes::ZERO,
+            predicate,
+            input_type: RequestInputType::Inline,
+            input_data: stdin.into(),
+            client_address: Address::ZERO,
+        }
+    }
+
+    #[tokio::test]
+    async fn invalidation_loop_retries_after_cached_limit_exceeded() {
+        let stub = StubProver::new();
+        let ctx = StubCtx {
+            prover: stub.clone(),
+            downloader: Arc::new(NoopDownloader),
+            cache: Arc::new(Cache::new(64)),
+        };
+
+        let r1 = ctx
+            .evaluate_request(test_request(), EvaluationLimits::new(100))
+            .await
+            .expect("first call should classify the prover error, not propagate it");
+        assert!(
+            matches!(r1, RequestEvaluation::LimitExceeded { limit } if limit.max_cycles == 100),
+            "expected LimitExceeded with cached limit=100, got {r1:?}"
+        );
+        assert_eq!(stub.preflight_calls.load(Ordering::SeqCst), 1);
+
+        let r2 = ctx
+            .evaluate_request(test_request(), EvaluationLimits::new(1_000_000))
+            .await
+            .expect("retry after invalidation should succeed");
+        assert!(
+            matches!(r2, RequestEvaluation::Success { .. }),
+            "expected Success after cache invalidation + retry, got {r2:?}"
+        );
+        assert_eq!(
+            stub.preflight_calls.load(Ordering::SeqCst),
+            2,
+            "the relaxed-limit call must re-run preflight, not return the cached LimitExceeded"
+        );
+    }
+
+    #[tokio::test]
+    async fn cached_limit_exceeded_returned_when_caller_limit_unchanged() {
+        let stub = StubProver::new();
+        let ctx = StubCtx {
+            prover: stub.clone(),
+            downloader: Arc::new(NoopDownloader),
+            cache: Arc::new(Cache::new(64)),
+        };
+
+        let r1 = ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();
+        assert!(matches!(r1, RequestEvaluation::LimitExceeded { .. }));
+
+        let r2 = ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();
+        assert!(matches!(r2, RequestEvaluation::LimitExceeded { .. }));
+        assert_eq!(
+            stub.preflight_calls.load(Ordering::SeqCst),
+            1,
+            "same-limit retry must hit the cache, not invalidate"
+        );
+    }
 }
