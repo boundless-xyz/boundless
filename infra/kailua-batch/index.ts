@@ -296,8 +296,10 @@ export = () => {
 
     const assignPublicIpValue = assignPublicIp ? "ENABLED" : "DISABLED";
 
+    // Custom name (not /aws/lambda/...) — Lambda auto-creates the default path on first run,
+    // which conflicts with Pulumi-managed LogGroups at that path.
     const triggerLambdaLogGroup = new aws.cloudwatch.LogGroup(`${serviceName}-trigger-logs`, {
-        name: pulumi.interpolate`/aws/lambda/${serviceName}-trigger`,
+        name: pulumi.interpolate`${serviceName}-trigger`,
         retentionInDays: logRetentionDays,
     });
 
