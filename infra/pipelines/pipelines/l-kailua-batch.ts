@@ -16,7 +16,8 @@ const config: LaunchPipelineConfig = {
     appName: "kailua-batch",
     buildTimeout: 75,
     computeType: "BUILD_GENERAL1_MEDIUM",
-    branchName: "main",
+    // TODO: switch back to "main" after INF-51 merges
+    branchName: "zeroecco/INF-51",
 };
 
 /** Staging/prod env stacks (Pulumi.staging.yaml, Pulumi.prod.yaml) — not per-chain. */
@@ -191,7 +192,7 @@ export class LKailuaBatchPipeline extends LaunchBasePipeline<LaunchPipelineConfi
       build:
         commands:
           - |
-            set -euo pipefail
+            set -e
             echo "Assuming deployment role $DEPLOYMENT_ROLE_ARN"
             ASSUMED_ROLE=$(aws sts assume-role --role-arn "$DEPLOYMENT_ROLE_ARN" --duration-seconds ${ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS} --role-session-name Deployment --output text | tail -1)
             export AWS_ACCESS_KEY_ID=$(echo "$ASSUMED_ROLE" | awk '{print $2}')
@@ -205,7 +206,7 @@ export class LKailuaBatchPipeline extends LaunchBasePipeline<LaunchPipelineConfi
             fi
             if [ ! -d "infra/$APP_NAME" ]; then
               echo "ERROR: infra/$APP_NAME is missing from this checkout (branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown), commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown))."
-              echo "Merge the kailua-batch Pulumi project to main before running this pipeline."
+              echo "Ensure infra/kailua-batch is committed on the pipeline source branch."
               echo "Top-level infra dirs:"
               ls -1 infra 2>/dev/null || ls -1
               exit 1
@@ -215,9 +216,10 @@ export class LKailuaBatchPipeline extends LaunchBasePipeline<LaunchPipelineConfi
             npm run build
             echo "DEPLOYING stack $STACK_NAME"
             pulumi stack select "$STACK_NAME"
-            pulumi cancel --yes
+            pulumi cancel --yes || true
             pulumi refresh --yes
             pulumi up --yes
+            echo "pulumi up completed for stack $STACK_NAME"
     `;
     }
 

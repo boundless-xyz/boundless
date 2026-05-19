@@ -296,12 +296,21 @@ export = () => {
 
     const assignPublicIpValue = assignPublicIp ? "ENABLED" : "DISABLED";
 
+    const triggerLambdaLogGroup = new aws.cloudwatch.LogGroup(`${serviceName}-trigger-logs`, {
+        name: pulumi.interpolate`/aws/lambda/${serviceName}-trigger`,
+        retentionInDays: logRetentionDays,
+    });
+
     const triggerLambda = new aws.lambda.Function(`${serviceName}-trigger`, {
         name: `${serviceName}-trigger`,
         role: triggerLambdaRole.arn,
         runtime: "nodejs20.x",
         handler: "index.handler",
         timeout: 30,
+        loggingConfig: {
+            logGroup: triggerLambdaLogGroup.name,
+            logFormat: "Text",
+        },
         code: new pulumi.asset.AssetArchive({
             ".": new pulumi.asset.FileArchive("trigger-lambda/build"),
         }),
@@ -317,7 +326,7 @@ export = () => {
                 MAX_RUNNING_TASKS: maxRunningTasks.toString(),
             },
         },
-    }, { dependsOn: [triggerLambdaRole, fargateTask] });
+    }, { dependsOn: [triggerLambdaRole, fargateTask, triggerLambdaLogGroup] });
 
     const schedulerRole = new aws.iam.Role(`${serviceName}-scheduler-role`, {
         assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
@@ -370,10 +379,9 @@ export = () => {
     createMetricFilter("bal-eth", "\"[B-BAL-ETH]\"", `${serviceName}-log-bal-eth`);
     createMetricFilter("bal-stk", "\"[B-BAL-STK]\"", `${serviceName}-log-bal-stk`);
 
-    const triggerLogGroupName = pulumi.interpolate`/aws/lambda/${triggerLambda.name}`;
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-task-skipped-filter`, {
         name: `${serviceName}-task-skipped-filter`,
-        logGroupName: triggerLogGroupName,
+        logGroupName: triggerLambdaLogGroup.name,
         metricTransformation: {
             namespace: metricsNamespace,
             name: `${serviceName}-task-skipped`,
@@ -381,7 +389,7 @@ export = () => {
             defaultValue: "0",
         },
         pattern: "KAILUA_TASK_SKIPPED",
-    }, { dependsOn: [triggerLambda] });
+    }, { dependsOn: [triggerLambda, triggerLambdaLogGroup] });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-not-running-alarm-${Severity.SEV2}`, {
         name: `${serviceName}-not-running-${Severity.SEV2}`,
