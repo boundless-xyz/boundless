@@ -4367,47 +4367,50 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 } // <-- closes BoundlessMarketBasicTest
 
 // ─── TODO(MIGRATE-MARKET): port bench + upgrade contracts ───────────────
-/*
 contract BoundlessMarketBench is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 
+    // Bench helpers run through the R0 proof-based assessor adapter so the
+    // numbers reflect what real users pay end-to-end (router + setVerifier
+    // per-fill + `R0BoundlessAssessorAdapter`). Snapshot labels carry a
+    // `:v2` suffix so the new numbers coexist with the legacy entries
+    // (captured against the old market in `BoundlessMarketBench.json`) for
+    // side-by-side review.
+
     function benchFulfill(uint256 batchSize, string memory snapshot) public {
         (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+        FulfillmentBatch memory batch = createFillsAndSubmitRootR0(requests, journals, testProverAddress);
 
-        boundlessMarket.fulfill(fills, assessorReceipt);
-        vm.snapshotGasLastCall(string.concat("fulfill: batch of ", snapshot));
+        boundlessMarket.fulfill(_asArray(batch));
+        vm.snapshotGasLastCall(string.concat("fulfill: batch of ", snapshot, ":v2"));
 
-        for (uint256 j = 0; j < fills.length; j++) {
-            expectRequestFulfilled(fills[j].id);
+        for (uint256 j = 0; j < requests.length; j++) {
+            expectRequestFulfilled(requests[j].id);
         }
     }
 
     function benchFulfillWithSelector(uint256 batchSize, string memory snapshot) public {
         (ProofRequest[] memory requests, bytes[] memory journals) =
             newBatchWithSelector(batchSize, setVerifier.SELECTOR());
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+        FulfillmentBatch memory batch = createFillsAndSubmitRootR0(requests, journals, testProverAddress);
 
-        boundlessMarket.fulfill(fills, assessorReceipt);
-        vm.snapshotGasLastCall(string.concat("fulfill (with selector): batch of ", snapshot));
+        boundlessMarket.fulfill(_asArray(batch));
+        vm.snapshotGasLastCall(string.concat("fulfill (with selector): batch of ", snapshot, ":v2"));
 
-        for (uint256 j = 0; j < fills.length; j++) {
-            expectRequestFulfilled(fills[j].id);
+        for (uint256 j = 0; j < requests.length; j++) {
+            expectRequestFulfilled(requests[j].id);
         }
     }
 
     function benchFulfillWithCallback(uint256 batchSize, string memory snapshot) public {
         (ProofRequest[] memory requests, bytes[] memory journals) = newBatchWithCallback(batchSize);
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+        FulfillmentBatch memory batch = createFillsAndSubmitRootR0(requests, journals, testProverAddress);
 
-        boundlessMarket.fulfill(fills, assessorReceipt);
-        vm.snapshotGasLastCall(string.concat("fulfill (with callback): batch of ", snapshot));
+        boundlessMarket.fulfill(_asArray(batch));
+        vm.snapshotGasLastCall(string.concat("fulfill (with callback): batch of ", snapshot, ":v2"));
 
-        for (uint256 j = 0; j < fills.length; j++) {
-            expectRequestFulfilled(fills[j].id);
+        for (uint256 j = 0; j < requests.length; j++) {
+            expectRequestFulfilled(requests[j].id);
         }
     }
 
@@ -4491,8 +4494,6 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         benchFulfillWithCallback(32, "032");
     }
 }
-
-*/
 
 contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
