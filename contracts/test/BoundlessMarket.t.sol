@@ -32,6 +32,7 @@ import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {IBoundlessVerifier} from "../src/router/interfaces/IBoundlessVerifier.sol";
 import {IBoundlessAssessor} from "../src/router/interfaces/IBoundlessAssessor.sol";
 import {NullVerifier, NullAssessor} from "./mocks/RouterMocks.sol";
+import {R0BoundlessVerifierAdapter} from "../src/router/adapters/R0BoundlessVerifierAdapter.sol";
 import {Callback} from "../src/types/Callback.sol";
 import {
     FulfillmentDataImageIdAndJournal,
@@ -89,6 +90,7 @@ contract BoundlessMarketTest is Test {
     BoundlessRouter internal router;
     NullVerifier internal nullVerifier;
     NullAssessor internal nullAssessor;
+    R0BoundlessVerifierAdapter internal setVerifierAdapter;
 
     address internal boundlessMarketSource;
     address internal proxy;
@@ -176,6 +178,14 @@ contract BoundlessMarketTest is Test {
         );
         router.instantiate(VERIFIER_ENTRY_SEL, address(nullVerifier), VERIFIER_CLASS_ID, 0);
 
+        // Also expose the real RiscZeroSetVerifier through the router under its
+        // own selector, wrapped in `R0BoundlessVerifierAdapter`. Tests that need
+        // set-builder inclusion-proof seals (callbacks, `submitRoot*`) sign
+        // `setVerifier.SELECTOR()` and dispatch through this entry; the seal
+        // produced is also valid for the callback's internal `verifyIntegrity`.
+        setVerifierAdapter = new R0BoundlessVerifierAdapter(setVerifier);
+        router.instantiate(setVerifier.SELECTOR(), address(setVerifierAdapter), VERIFIER_CLASS_ID, 0);
+
         // Deploy the UUPS proxy with the implementation
         boundlessMarketSource = address(new BoundlessMarket(router, address(collateralToken)));
         proxy = UnsafeUpgrades.deployUUPSProxy(
@@ -183,7 +193,6 @@ contract BoundlessMarketTest is Test {
         );
         boundlessMarket = BoundlessMarket(proxy);
 
-        // Initialize MockCallbacks
         mockCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 10_000);
         mockHighGasCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 250_000);
 
@@ -513,12 +522,19 @@ contract BoundlessMarketTest is Test {
         arr[0] = signature;
     }
 
-    // ─── TODO(MIGRATE-MARKET): replace these helpers (set-builder path) ─
+    // ─── Set-builder fixture (real setVerifier seals) ────────────────────
     //
-    // Tests that exercise `submitRoot*` still need a helper that produces a
-    // set-builder root + assessor leaf. Restore when the first such test is
-    // ported.
-    /*
+    // Used for tests where the per-fill seal must be valid against
+    // `RiscZeroSetVerifier.verifyIntegrity` — currently:
+    //   * callback tests (the `BoundlessMarketCallback` defense re-verify),
+    //   * `submitRoot*` tests (root submission side-channel).
+    //
+    // The harness builds the inclusion-proof seal off-chain via `TestUtils`,
+    // submits the merkle root to setVerifier, and asks each request to sign
+    // `setVerifier.SELECTOR()` so the router dispatches the fill through the
+    // `R0BoundlessVerifierAdapter` registered in `setUp`. The same seal flows
+    // unchanged to the callback's internal `verifyIntegrity`.
+
     function submitRoot(bytes32 root) internal {
         boundlessMarket.submitRoot(
             address(setVerifier),
@@ -532,7 +548,7 @@ contract BoundlessMarketTest is Test {
 
     function createFillAndSubmitRoot(ProofRequest memory request, bytes memory journal, address prover)
         internal
-        returns (Fulfillment memory, AssessorReceipt memory)
+        returns (FulfillmentBatch memory)
     {
         return createFillAndSubmitRoot(request, journal, prover, FulfillmentDataType.ImageIdAndJournal);
     }
@@ -542,32 +558,13 @@ contract BoundlessMarketTest is Test {
         bytes memory journal,
         address prover,
         FulfillmentDataType fillType
-    ) internal returns (Fulfillment memory, AssessorReceipt memory) {
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-        bytes[] memory journals = new bytes[](1);
-        journals[0] = journal;
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createFillsAndSubmitRoot(requests, journals, prover, fillType);
-        return (fills[0], assessorReceipt);
-    }
-
-    function createDeprecatedFillAndSubmitRoot(ProofRequest memory request, bytes memory journal, address prover)
-        internal
-        returns (Fulfillment memory, AssessorReceipt memory)
-    {
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-        bytes[] memory journals = new bytes[](1);
-        journals[0] = journal;
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createDeprecatedFillsAndSubmitRoot(requests, journals, prover);
-        return (fills[0], assessorReceipt);
+    ) internal returns (FulfillmentBatch memory) {
+        return createFillsAndSubmitRoot(_asArray(request), _asArray(journal), prover, fillType);
     }
 
     function createFillsAndSubmitRoot(ProofRequest[] memory requests, bytes[] memory journals, address prover)
         internal
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt)
+        returns (FulfillmentBatch memory)
     {
         return createFillsAndSubmitRoot(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal);
     }
@@ -577,37 +574,23 @@ contract BoundlessMarketTest is Test {
         bytes[] memory journals,
         address prover,
         FulfillmentDataType fillType
-    ) internal returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) {
+    ) internal returns (FulfillmentBatch memory batch) {
         bytes32 root;
-        (fills, assessorReceipt, root) = createFills(requests, journals, prover, fillType, ASSESSOR_IMAGE_ID);
+        (batch, root) = createFills(requests, journals, prover, fillType);
         // submit the root to the set verifier
         submitRoot(root);
-        return (fills, assessorReceipt);
-    }
-
-    function createDeprecatedFillsAndSubmitRoot(ProofRequest[] memory requests, bytes[] memory journals, address prover)
-        internal
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt)
-    {
-        bytes32 root;
-        (fills, assessorReceipt, root) = createDeprecatedFills(requests, journals, prover);
-        // submit the root to the set verifier
-        submitRoot(root);
-        return (fills, assessorReceipt);
     }
 
     function createFills(
         ProofRequest[] memory requests,
         bytes[] memory journals,
         address prover,
-        FulfillmentDataType fillType,
-        bytes32 assessorImageId
-    ) internal view returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) {
+        FulfillmentDataType fillType
+    ) internal view returns (FulfillmentBatch memory batch, bytes32 root) {
         // initialize the fullfillments; one for each request;
         // the seal is filled in later, by calling fillInclusionProof
-        fills = new Fulfillment[](requests.length);
-        Selector[] memory selectors = new Selector[](0);
-        AssessorCallback[] memory callbacks = new AssessorCallback[](0);
+        Fulfillment[] memory fills = new Fulfillment[](requests.length);
+        SlimRequest[] memory slim = new SlimRequest[](requests.length);
 
         for (uint8 i = 0; i < requests.length; i++) {
             bytes32 claimDigest;
@@ -627,71 +610,43 @@ contract BoundlessMarketTest is Test {
             if (fillType == FulfillmentDataType.ImageIdAndJournal) {
                 fulfillmentData = abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: journal}));
             }
-            Fulfillment memory fill = Fulfillment({
-                id: requests[i].id,
-                requestDigest: MessageHashUtils.toTypedDataHash(
-                    boundlessMarket.eip712DomainSeparator(), requests[i].eip712Digest()
-                ),
+            fills[i] = Fulfillment({
                 claimDigest: claimDigest,
                 fulfillmentData: fulfillmentData,
                 fulfillmentDataType: fillType,
                 seal: bytes("")
             });
-            fills[i] = fill;
-            if (requests[i].requirements.selector != bytes4(0)) {
-                selectors = selectors.addSelector(i, requests[i].requirements.selector);
-            }
-            if (requests[i].requirements.callback.addr != address(0)) {
-                callbacks = callbacks.addCallback(
-                    AssessorCallback({
-                        index: i,
-                        gasLimit: requests[i].requirements.callback.gasLimit,
-                        addr: requests[i].requirements.callback.addr
-                    })
-                );
-            }
+            // `SlimRequest` carries `selector` and `callback` per fill; the new
+            // assessor reads them directly, replacing the old per-batch
+            // `selectors[]` / `callbacks[]` aggregation that fed the off-chain
+            // STARK assessor journal.
+            slim[i] = _toSlim(requests[i]);
         }
 
-        // compute the assessor claim
-        ReceiptClaim memory assessorClaim = TestUtils.mockAssessor(fills, assessorImageId, selectors, callbacks, prover);
-        // compute the batchRoot of the batch Merkle Tree (without the assessor)
-        (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
-
-        bytes32 assessorLeaf = TestUtils.hashLeaf(assessorClaim.digest());
-        root = MerkleProofish._hashPair(batchRoot, assessorLeaf);
+        // compute the batchRoot of the batch Merkle Tree
+        bytes32[][] memory tree;
+        (root, tree) = TestUtils.mockSetBuilder(fills);
 
         // compute all the inclusion proofs for the fullfillments
-        TestUtils.fillInclusionProofs(setVerifier, fills, assessorLeaf, tree);
-        // compute the assessor fill
-        assessorReceipt = AssessorReceipt({
-            seal: TestUtils.mockAssessorSeal(setVerifier, batchRoot),
-            selectors: selectors,
-            callbacks: callbacks,
+        TestUtils.Proof[] memory proofs = TestUtils.computeProofs(tree);
+        for (uint256 i = 0; i < fills.length; i++) {
+            fills[i].seal = TestUtils.encodeSeal(setVerifier, proofs[i]);
+        }
+        batch = FulfillmentBatch({
+            requests: slim,
+            fills: fills,
+            assessorSeal: abi.encodePacked(ASSESSOR_NULL_SEL),
             prover: prover
         });
-
-        return (fills, assessorReceipt, root);
     }
 
     function createFills(ProofRequest[] memory requests, bytes[] memory journals, address prover)
         internal
         view
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
+        returns (FulfillmentBatch memory batch, bytes32 root)
     {
-        (fills, assessorReceipt, root) =
-            createFills(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal, ASSESSOR_IMAGE_ID);
+        (batch, root) = createFills(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal);
     }
-
-    function createDeprecatedFills(ProofRequest[] memory requests, bytes[] memory journals, address prover)
-        internal
-        view
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
-    {
-        (fills, assessorReceipt, root) = createFills(
-            requests, journals, prover, FulfillmentDataType.ImageIdAndJournal, DEPRECATED_ASSESSOR_IMAGE_ID
-        );
-    }
-    */
 
     function newBatch(uint256 batchSize) internal returns (ProofRequest[] memory requests, bytes[] memory journals) {
         requests = new ProofRequest[](batchSize);
@@ -2735,24 +2690,23 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testFulfillNeverLockedRequestMultipleRequestsSameIndex() public {
         _testFulfillRepeatIndex(LockRequestMethod.None);
     }
-    /*
 
     // Fulfill a batch of locked requests
     function testFulfillLockedRequests() public {
         // Provide a batch definition as an array of clients and how many requests each submits.
-        uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
+        uint256[5] memory batchSizes = [uint256(1), 2, 1, 3, 1];
         uint256 batchSize = 0;
-        for (uint256 i = 0; i < batch.length; i++) {
-            batchSize += batch[i];
+        for (uint256 i = 0; i < batchSizes.length; i++) {
+            batchSize += batchSizes[i];
         }
         ProofRequest[] memory requests = new ProofRequest[](batchSize);
         bytes[] memory journals = new bytes[](batchSize);
         uint256 expectedRevenue = 0;
         uint256 idx = 0;
-        for (uint256 i = 0; i < batch.length; i++) {
+        for (uint256 i = 0; i < batchSizes.length; i++) {
             Client client = getClient(i);
 
-            for (uint256 j = 0; j < batch[i]; j++) {
+            for (uint256 j = 0; j < batchSizes[i]; j++) {
                 ProofRequest memory request = client.request(uint32(j));
 
                 // TODO: This is a fragile part of this test. It should be improved.
@@ -2770,21 +2724,23 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             }
         }
 
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+        FulfillmentBatch memory batch = createFulfillmentBatch(requests, journals, testProverAddress);
 
-        for (uint256 i = 0; i < fills.length; i++) {
+        bytes32 domainSeparator = boundlessMarket.eip712DomainSeparator();
+        for (uint256 i = 0; i < batch.fills.length; i++) {
+            bytes32 expectedRequestDigest =
+                MessageHashUtils.toTypedDataHash(domainSeparator, requests[i].eip712Digest());
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(fills[i].id, testProverAddress, fills[i].requestDigest);
+            emit IBoundlessMarket.RequestFulfilled(requests[i].id, testProverAddress, expectedRequestDigest);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(fills[i].id, testProverAddress, fills[i]);
+            emit IBoundlessMarket.ProofDelivered(requests[i].id, testProverAddress, batch.fills[i]);
         }
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        boundlessMarket.fulfill(_asArray(batch));
         vm.snapshotGasLastCall(string.concat("fulfill: a batch of ", vm.toString(batchSize)));
 
-        for (uint256 i = 0; i < fills.length; i++) {
+        for (uint256 i = 0; i < requests.length; i++) {
             // Check that the proof was submitted
-            expectRequestFulfilled(fills[i].id);
+            expectRequestFulfilled(requests[i].id);
         }
 
         testProver.expectBalanceChange(int256(uint256(expectedRevenue)));
@@ -2794,20 +2750,20 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // Fulfill a batch of locked ClaimDigestMatch requests with no journal
     function testFulfillLockedRequestsNoJournal() public {
         // Provide a batch definition as an array of clients and how many requests each submits.
-        uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
+        uint256[5] memory batchSizes = [uint256(1), 2, 1, 3, 1];
         uint256 batchSize = 0;
-        for (uint256 i = 0; i < batch.length; i++) {
-            batchSize += batch[i];
+        for (uint256 i = 0; i < batchSizes.length; i++) {
+            batchSize += batchSizes[i];
         }
         ProofRequest[] memory requests = new ProofRequest[](batchSize);
         bytes[] memory journals = new bytes[](batchSize);
         uint256 expectedRevenue = 0;
         uint256 idx = 0;
 
-        for (uint256 i = 0; i < batch.length; i++) {
+        for (uint256 i = 0; i < batchSizes.length; i++) {
             Client client = getClient(i);
 
-            for (uint256 j = 0; j < batch[i]; j++) {
+            for (uint256 j = 0; j < batchSizes[i]; j++) {
                 ProofRequest memory request = client.request(uint32(j));
                 bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
 
@@ -2831,25 +2787,29 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             }
         }
 
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createFillsAndSubmitRoot(requests, journals, testProverAddress, FulfillmentDataType.None);
+        FulfillmentBatch memory batch =
+            createFulfillmentBatch(requests, journals, testProverAddress, FulfillmentDataType.None);
 
-        for (uint256 i = 0; i < fills.length; i++) {
+        bytes32 domainSeparator = boundlessMarket.eip712DomainSeparator();
+        for (uint256 i = 0; i < batch.fills.length; i++) {
+            bytes32 expectedRequestDigest =
+                MessageHashUtils.toTypedDataHash(domainSeparator, requests[i].eip712Digest());
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(fills[i].id, testProverAddress, fills[i].requestDigest);
+            emit IBoundlessMarket.RequestFulfilled(requests[i].id, testProverAddress, expectedRequestDigest);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(fills[i].id, testProverAddress, fills[i]);
+            emit IBoundlessMarket.ProofDelivered(requests[i].id, testProverAddress, batch.fills[i]);
         }
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        boundlessMarket.fulfill(_asArray(batch));
         vm.snapshotGasLastCall(string.concat("fulfill (no journal): a batch of ", vm.toString(batchSize)));
-        for (uint256 i = 0; i < fills.length; i++) {
+        for (uint256 i = 0; i < requests.length; i++) {
             // Check that the proof was submitted
-            expectRequestFulfilled(fills[i].id);
+            expectRequestFulfilled(requests[i].id);
         }
 
         testProver.expectBalanceChange(int256(uint256(expectedRevenue)));
         expectMarketBalanceUnchanged();
     }
+    /*
 
     // Testing that reordering request IDs in a batch will cause the fulfill to revert.
     function testFulfillShuffleIds() public {
@@ -2938,6 +2898,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    */
     // Test that a smart contract signature can be used to price a request.
     // The smart contract signature must be validated when a request is priced. This
     // ensures that the smart contract signature is checked in the never locked path,
@@ -2979,32 +2940,28 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testPriceAndFulfillSmartContractSignature() external {
         SmartContractClient client = getSmartContractClient(1);
         ProofRequest memory request = client.request(3);
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-
         bytes memory clientSignature = client.sign(request);
-        bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = clientSignature;
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
 
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill.requestDigest);
-        vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
-        // Expect isValidSignature to be called on the smart contract wallet
+        FulfillmentBatch memory batch = createFulfillmentBatch(request, APP_JOURNAL, testProverAddress);
         bytes32 requestHash =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, requestHash);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
+        // Expect isValidSignature to be called on the smart contract wallet
         vm.expectCall(
             client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSignature)
         );
 
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        boundlessMarket.priceAndFulfill(
+            _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
+            _asArray(batch)
+        );
         vm.snapshotGasLastCall("priceAndFulfill: a single request (smart contract signature)");
 
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
@@ -3014,20 +2971,20 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     // Fulfill a batch of locked requests and withdraw
     function testFulfillAndWithdrawLockedRequests() public {
         // Provide a batch definition as an array of clients and how many requests each submits.
-        uint256[5] memory batch = [uint256(1), 2, 1, 3, 1];
+        uint256[5] memory batchSizes = [uint256(1), 2, 1, 3, 1];
         uint256 batchSize = 0;
-        for (uint256 i = 0; i < batch.length; i++) {
-            batchSize += batch[i];
+        for (uint256 i = 0; i < batchSizes.length; i++) {
+            batchSize += batchSizes[i];
         }
 
         ProofRequest[] memory requests = new ProofRequest[](batchSize);
         bytes[] memory journals = new bytes[](batchSize);
         uint256 expectedRevenue = 0;
         uint256 idx = 0;
-        for (uint256 i = 0; i < batch.length; i++) {
+        for (uint256 i = 0; i < batchSizes.length; i++) {
             Client client = getClient(i);
 
-            for (uint256 j = 0; j < batch[i]; j++) {
+            for (uint256 j = 0; j < batchSizes[i]; j++) {
                 ProofRequest memory request = client.request(uint32(j));
 
                 // TODO: This is a fragile part of this test. It should be improved.
@@ -3045,23 +3002,25 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             }
         }
 
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createFillsAndSubmitRoot(requests, journals, testProverAddress);
+        FulfillmentBatch memory batch = createFulfillmentBatch(requests, journals, testProverAddress);
 
         uint256 initialBalance = testProverAddress.balance + boundlessMarket.balanceOf(testProverAddress);
 
-        for (uint256 i = 0; i < fills.length; i++) {
+        bytes32 domainSeparator = boundlessMarket.eip712DomainSeparator();
+        for (uint256 i = 0; i < batch.fills.length; i++) {
+            bytes32 expectedRequestDigest =
+                MessageHashUtils.toTypedDataHash(domainSeparator, requests[i].eip712Digest());
             vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(fills[i].id, testProverAddress, fills[i].requestDigest);
+            emit IBoundlessMarket.RequestFulfilled(requests[i].id, testProverAddress, expectedRequestDigest);
             vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(fills[i].id, testProverAddress, fills[i]);
+            emit IBoundlessMarket.ProofDelivered(requests[i].id, testProverAddress, batch.fills[i]);
         }
-        boundlessMarket.fulfillAndWithdraw(fills, assessorReceipt);
+        boundlessMarket.fulfillAndWithdraw(_asArray(batch));
         vm.snapshotGasLastCall(string.concat("fulfillAndWithdraw: a batch of ", vm.toString(batchSize)));
 
-        for (uint256 i = 0; i < fills.length; i++) {
+        for (uint256 i = 0; i < requests.length; i++) {
             // Check that the proof was submitted
-            expectRequestFulfilled(fills[i].id);
+            expectRequestFulfilled(requests[i].id);
         }
 
         assert(boundlessMarket.balanceOf(testProverAddress) == 0);
@@ -3071,30 +3030,29 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function testPriceAndFulfillLockedRequest() external {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
+        bytes memory clientSignature = client.sign(request);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-        bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = client.sign(request);
+        FulfillmentBatch memory batch = createFulfillmentBatch(request, APP_JOURNAL, testProverAddress);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
+        boundlessMarket.priceAndFulfill(
+            _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
+            _asArray(batch)
+        );
         vm.snapshotGasLastCall("priceAndFulfill: a single request");
 
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
 
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
+    /*
 
     function testSubmitRootAndPriceAndFulfillLockedRequest() external {
         Client client = getClient(1);
@@ -3705,7 +3663,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsSlashed.selector, request.id));
         boundlessMarket.slash(request.id);
     }
-    /*
 
     function testLockRequestSmartContractSignature() public {
         SmartContractClient client = getSmartContractClient(1);
@@ -3800,6 +3757,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Create request with low gas callback
         ProofRequest memory request = client.request(1);
         request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
+        request.requirements.selector = setVerifier.SELECTOR();
 
         bytes memory clientSignature = client.sign(request);
         client.snapshotBalance();
@@ -3809,25 +3767,24 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch = createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, false);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
-        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, fill.seal);
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify callback was called exactly once
         assertEq(mockCallback.getCallCount(), 1, "Callback should be called exactly once");
 
         // Verify request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
@@ -3848,13 +3805,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch = createFulfillmentBatch(request, APP_JOURNAL, testProverAddress);
 
         vm.expectRevert(IBoundlessMarket.InsufficientGas.selector);
-        boundlessMarket.fulfill{gas: 499_000}(fills, assessorReceipt);
+        boundlessMarket.fulfill{gas: 499_000}(_asArray(batch));
 
         // Verify callback was not called
         assertEq(mockCallback.getCallCount(), 0, "Callback should not be called");
@@ -3869,6 +3823,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Create request with high gas callback that will exceed limit
         ProofRequest memory request = client.request(1);
         request.requirements.callback = Callback({addr: address(mockHighGasCallback), gasLimit: 10_000});
+        request.requirements.selector = setVerifier.SELECTOR();
 
         bytes memory clientSignature = client.sign(request);
         client.snapshotBalance();
@@ -3878,24 +3833,23 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch = createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.CallbackFailed(request.id, address(mockHighGasCallback), "");
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify callback was attempted
         assertEq(mockHighGasCallback.getCallCount(), 0, "Callback not succeed");
 
         // Verify request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
@@ -3907,6 +3861,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Create request with low gas callback
         ProofRequest memory request = client.request(1);
         request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 100_000});
+        request.requirements.selector = setVerifier.SELECTOR();
 
         bytes memory clientSignature = client.sign(request);
 
@@ -3918,31 +3873,30 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Have otherProver fulfill without requiring payment
         Client otherProver = getProver(2);
         address otherProverAddress = otherProver.addr();
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch = createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
-                IBoundlessMarket.RequestIsLocked.selector, request.id
-            ));
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
+        );
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
-        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, fill.seal);
+        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
 
         vm.prank(otherProverAddress);
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify callback was called exactly once
         assertEq(mockCallback.getCallCount(), 1, "Callback should be called exactly once");
 
         // Verify request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         testProver.expectCollateralBalanceChange(-int256(uint256(request.offer.lockCollateral)));
         otherProver.expectBalanceChange(0);
         otherProver.expectCollateralBalanceChange(0);
@@ -3954,6 +3908,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         ProofRequest memory request = client.request(1);
         request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 100_000});
+        request.requirements.selector = setVerifier.SELECTOR();
 
         bytes memory clientSignature = client.sign(request);
 
@@ -3965,36 +3920,34 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Have otherProver fulfill without requiring payment
         Client otherProver = getProver(2);
         address otherProverAddress = address(otherProver);
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch = createFillAndSubmitRoot(request, APP_JOURNAL, otherProverAddress);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
-                IBoundlessMarket.RequestIsLocked.selector, request.id
-            ));
+        emit IBoundlessMarket.PaymentRequirementsFailed(
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
+        );
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
-        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, fill.seal);
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify callback was called exactly once
         assertEq(mockCallback.getCallCount(), 1, "Callback should be called exactly once");
 
         // Now have original locker fulfill to get payment
-        (fill, assessorReceipt) = createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        fills[0] = fill;
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        batch = createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify callback is called again
         assertEq(mockCallback.getCallCount(), 2, "Callback should be called twice");
 
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         testProver.expectBalanceChange(1 ether);
         testProver.expectCollateralBalanceChange(0 ether);
         otherProver.expectBalanceChange(0);
@@ -4019,12 +3972,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             })
         );
         request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 100_000});
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-
+        request.requirements.selector = setVerifier.SELECTOR();
         bytes memory clientSignature = client.sign(request);
-        bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = clientSignature;
 
         Client locker = getProver(1);
         Client otherProver = getProver(2);
@@ -4041,25 +3990,27 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Advance chain ahead to simulate lock timeout
         vm.warp(request.offer.lockDeadline() + 1);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, otherProver.addr());
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch = createFillAndSubmitRoot(request, APP_JOURNAL, otherProver.addr());
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, otherProver.addr(), fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, otherProver.addr(), expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, otherProver.addr(), fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, otherProver.addr(), batch.fills[0]);
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
-        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, fill.seal);
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
+        boundlessMarket.priceAndFulfill(
+            _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
+            _asArray(batch)
+        );
 
         // Verify callback was called exactly once
         assertEq(mockCallback.getCallCount(), 1, "Callback should be called exactly once");
 
         // Check request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         client.expectBalanceChange(0 ether);
         locker.expectBalanceChange(0 ether);
         locker.expectCollateralBalanceChange(-1 ether);
@@ -4082,6 +4033,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         });
         ProofRequest memory requestA = client.request(1, offerA);
         requestA.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 10_000});
+        requestA.requirements.selector = setVerifier.SELECTOR();
         bytes memory clientSignatureA = client.sign(requestA);
 
         // Create second request with same ID but different callback
@@ -4096,11 +4048,8 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         });
         ProofRequest memory requestB = client.request(1, offerB);
         requestB.requirements.callback = Callback({addr: address(mockHighGasCallback), gasLimit: 300_000});
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = requestB;
+        requestB.requirements.selector = setVerifier.SELECTOR();
         bytes memory clientSignatureB = client.sign(requestB);
-        bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = clientSignatureB;
 
         client.snapshotBalance();
         testProver.snapshotBalance();
@@ -4117,24 +4066,26 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Advance chain ahead to simulate request A lock timeout
         vm.warp(requestA.offer.lockDeadline() + 1);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch = createFillAndSubmitRoot(requestB, APP_JOURNAL, testProverAddress);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), requestB.eip712Digest());
 
         // Since the request being fulfilled is distinct from the one that was locked, the
         // transaction should revert if the request is not priced before fulfillment.
         vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestB.id));
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        boundlessMarket.fulfill(_asArray(batch));
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(requestB.id, testProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(requestB.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(requestB.id, testProverAddress, fill);
+        emit IBoundlessMarket.ProofDelivered(requestB.id, testProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(requestB.requirements.predicate.data);
-        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, fill.seal);
-        bytes[] memory errors = boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
+        bytes[] memory errors = boundlessMarket.priceAndFulfill(
+            _asArray(ProofRequestBatch({requests: _asArray(requestB), signatures: _asArray(clientSignatureB)})),
+            _asArray(batch)
+        );
         // Verify that the second request was partially payed
         assertEq(errors.length, 1, "Expected one error");
         assertEq(
@@ -4152,7 +4103,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.deposit{value: DEFAULT_BALANCE - 2 ether}();
 
         // Verify request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(requestB.id);
         client.expectBalanceChange(-2 ether);
         testProver.expectBalanceChange(2 ether);
         testProver.expectCollateralBalanceChange(-1 ether); // Lost stake from lock
@@ -4175,19 +4126,19 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress, FulfillmentDataType.ImageIdAndJournal);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch =
+            createFulfillmentBatch(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.ImageIdAndJournal);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
@@ -4209,19 +4160,19 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress, FulfillmentDataType.None);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch =
+            createFulfillmentBatch(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.None);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
@@ -4246,19 +4197,17 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress, FulfillmentDataType.None);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch =
+            createFulfillmentBatch(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.None);
 
         vm.expectRevert(IBoundlessMarket.UnfulfillableCallback.selector);
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        boundlessMarket.fulfill(_asArray(batch));
 
         // Verify callback was not called
         assertEq(mockCallback.getCallCount(), 0, "Callback should be called exactly 0 times");
 
         // Verify request state and balances
-        expectRequestNotFulfilled(fill.id);
+        expectRequestNotFulfilled(request.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(0 ether);
         expectMarketBalanceUnchanged();
@@ -4271,6 +4220,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         ProofRequest memory request = client.request(1);
         request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
         request.requirements.predicate = PredicateLibrary.createClaimDigestMatchPredicate(claimDigest);
+        request.requirements.selector = setVerifier.SELECTOR();
 
         bytes memory clientSignature = client.sign(request);
         client.snapshotBalance();
@@ -4280,29 +4230,28 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress, FulfillmentDataType.ImageIdAndJournal);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
+        FulfillmentBatch memory batch =
+            createFillsAndSubmitRoot(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.ImageIdAndJournal);
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fill.requestDigest);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, true);
-        emit MockCallback.MockCallbackCalled(APP_IMAGE_ID, APP_JOURNAL, fill.seal);
+        emit MockCallback.MockCallbackCalled(APP_IMAGE_ID, APP_JOURNAL, batch.fills[0].seal);
 
-        boundlessMarket.fulfill(fills, assessorReceipt);
+        boundlessMarket.fulfill(_asArray(batch));
 
         assertEq(mockCallback.getCallCount(), 1, "Callback should be called exactly 1 time");
 
         // Verify request state and balances
-        expectRequestFulfilled(fill.id);
+        expectRequestFulfilled(request.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
-    */
 } // <-- closes BoundlessMarketBasicTest
 
 // ─── TODO(MIGRATE-MARKET): port bench + upgrade contracts ───────────────
