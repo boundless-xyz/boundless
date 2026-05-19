@@ -11,6 +11,8 @@ publish = false
 release = false
 
 [features]
+default = ["gcs"]
+gcs = ["boundless-market/gcs"]
 test-utils = ["dep:boundless-test-utils"]
 prove = ["blake3_groth16/prove"]
 cuda = ["blake3_groth16/cuda"]
@@ -41,7 +43,7 @@ bincode = { workspace = true }
 blake3_groth16 = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
-boundless-market = { workspace = true, features = ["prover_utils", "gcs"] }
+boundless-market = { workspace = true, features = ["prover_utils"] }
 boundless-test-utils = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
