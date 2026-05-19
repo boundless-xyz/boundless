@@ -20,7 +20,7 @@ config:
   kailua-batch:AWS_REGION: auto
   kailua-batch:LOG_VERBOSITY: -vvv
   kailua-batch:BOUNDLESS_ORDER_STREAM_URL: https://eth-sepolia.boundless.network
-  kailua-batch:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  kailua-batch:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   kailua-batch:ENABLE_PAGERDUTY_ALERTS: "false"
   kailua-batch:L1_RPC:
     secure: v1:CZ4niHnsH82jY+K4:B78oU23pSX5Q8QeEiGZrMdDbrc4JsToI1DTalFRjCnI6ULo8VYggTLLo2+yEXmLqfXbtc27YXiASlpKC4IXbE80JN/QdyqJL+G60+avUKPbOHqkioaZq5ztYWitUnO1H
