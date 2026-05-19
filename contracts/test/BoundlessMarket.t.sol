@@ -4492,23 +4492,16 @@ contract BoundlessMarketBench is BoundlessMarketTest {
     }
 }
 
+*/
+
 contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 
     function testUnsafeUpgrade() public {
         vm.startPrank(ownerWallet.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new BoundlessMarket(
-                    setVerifier,
-                    setVerifier,
-                    ASSESSOR_IMAGE_ID,
-                    DEPRECATED_ASSESSOR_IMAGE_ID,
-                    DEPRECATED_ASSESSOR_DURATION,
-                    address(0x01)
-                )
-            ),
-            abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
+            address(new BoundlessMarket(router, address(collateralToken))),
+            abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr))
         );
         boundlessMarket = BoundlessMarket(proxy);
         address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
@@ -4517,28 +4510,12 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy,
-            address(
-                new BoundlessMarket(
-                    setVerifier,
-                    setVerifier,
-                    ASSESSOR_IMAGE_ID,
-                    DEPRECATED_ASSESSOR_IMAGE_ID,
-                    DEPRECATED_ASSESSOR_DURATION,
-                    address(0x01)
-                )
-            ),
-            "",
-            ownerWallet.addr
+            proxy, address(new BoundlessMarket(router, address(collateralToken))), "", ownerWallet.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);
 
         assertFalse(implAddressV2 == implAddressV1);
-
-        (bytes32 imageId, string memory imageUrl) = boundlessMarket.imageInfo();
-        assertEq(imageId, ASSESSOR_IMAGE_ID, "Image ID should be the same after upgrade");
-        assertEq(imageUrl, "https://assessor.dev.null", "Image URL should be the same after upgrade");
     }
 
     function testGrantAdminRole() public {
@@ -4552,4 +4529,3 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         assertTrue(boundlessMarket.hasRole(adminRole, ownerWallet.addr), "Original owner should still have admin role");
     }
 }
-*/
