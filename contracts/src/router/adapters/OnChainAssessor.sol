@@ -11,8 +11,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 
 import {IBoundlessAssessor} from "../interfaces/IBoundlessAssessor.sol";
-import {SlimRequest} from "../../types/SlimRequest.sol";
-import {Fulfillment} from "../../types/Fulfillment.sol";
+import {FulfillmentBatch} from "../../types/FulfillmentBatch.sol";
 import {FulfillmentDataLibrary, FulfillmentDataType} from "../../types/FulfillmentData.sol";
 import {PredicateType} from "../../types/Predicate.sol";
 
@@ -85,52 +84,45 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
     }
 
     /// @inheritdoc IBoundlessAssessor
-    function verifyAssessor(
-        SlimRequest[] calldata requests,
-        Fulfillment[] calldata fills,
-        bytes32[] calldata requestDigests,
-        address prover,
-        bytes calldata assessorSeal
-    ) external view {
-        uint256 n = requests.length;
-        if (fills.length != n || requestDigests.length != n) revert LengthMismatch();
+    function verifyAssessor(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests) external view {
+        uint256 n = batch.requests.length;
+        if (batch.fills.length != n || requestDigests.length != n) revert LengthMismatch();
 
         // Per-fill: predicate satisfaction + claim-digest binding. Collect
         // claimDigests for the per-batch signature hash.
         bytes32[] memory claimDigests = new bytes32[](n);
         for (uint256 i = 0; i < n; i++) {
-            PredicateType ptype = requests[i].predicate.predicateType;
+            PredicateType ptype = batch.requests[i].predicate.predicateType;
             if (ptype == PredicateType.ClaimDigestMatch) {
                 // Predicate.data == fill.claimDigest. This is itself the binding —
                 // the predicate's claim digest IS the value the verifier proved.
-                if (!requests[i].predicate.eval(fills[i].claimDigest)) {
+                if (!batch.requests[i].predicate.eval(batch.fills[i].claimDigest)) {
                     revert PredicateFailed(i);
                 }
             } else {
-                if (fills[i].fulfillmentDataType != FulfillmentDataType.ImageIdAndJournal) {
+                if (batch.fills[i].fulfillmentDataType != FulfillmentDataType.ImageIdAndJournal) {
                     revert MissingFulfillmentData(i);
                 }
                 (bytes32 imageId, bytes calldata journal) =
-                    FulfillmentDataLibrary.decodePackedImageIdAndJournal(fills[i].fulfillmentData);
+                    FulfillmentDataLibrary.decodePackedImageIdAndJournal(batch.fills[i].fulfillmentData);
 
                 // Predicate match: imageId + journal-prefix-or-digest matches what the client signed.
-                if (!requests[i].predicate.eval(imageId, journal)) {
+                if (!batch.requests[i].predicate.eval(imageId, journal)) {
                     revert PredicateFailed(i);
                 }
                 // Claim-digest binding: the (imageId, journal) the prover supplied must
                 // reconstruct to fill.claimDigest. Without this, the prover could submit
                 // a valid seal for a different computation entirely.
-                bytes32 reconstructed =
-                    ReceiptClaimLib.ok(imageId, sha256(abi.encode(journal))).digest();
-                if (reconstructed != fills[i].claimDigest) {
+                bytes32 reconstructed = ReceiptClaimLib.ok(imageId, sha256(abi.encode(journal))).digest();
+                if (reconstructed != batch.fills[i].claimDigest) {
                     revert ClaimDigestMismatch(i);
                 }
             }
-            claimDigests[i] = fills[i].claimDigest;
+            claimDigests[i] = batch.fills[i].claimDigest;
         }
 
         // Per batch: prover signature over (prover, requestDigests, claimDigests).
-        _verifyProverSignature(prover, requestDigests, claimDigests, assessorSeal);
+        _verifyProverSignature(batch.prover, requestDigests, claimDigests, batch.assessorSeal);
     }
 
     /// @dev Recover the signer from `assessorSeal` (the bytes after the 4-byte

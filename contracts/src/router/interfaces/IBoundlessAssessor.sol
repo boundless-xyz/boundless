@@ -6,8 +6,7 @@
 
 pragma solidity ^0.8.26;
 
-import {SlimRequest} from "../../types/SlimRequest.sol";
-import {Fulfillment} from "../../types/Fulfillment.sol";
+import {FulfillmentBatch} from "../../types/FulfillmentBatch.sol";
 
 /// @title IBoundlessAssessor — per-batch fulfillment-check seam.
 ///
@@ -42,22 +41,26 @@ import {Fulfillment} from "../../types/Fulfillment.sol";
 ///           selected as a verifier class.
 interface IBoundlessAssessor {
     /// @notice Verify per-fill predicate satisfaction.
-    /// @param requests        Per-fill slim payloads (pre-verified by caller).
-    /// @param fills           Per-fill `Fulfillment`s, same order.
-    /// @param requestDigests  Pre-computed `requestDigest` per fill, same order.
-    ///                        The market already reconstructed and binding-
-    ///                        checked these against the lock / `FulfillmentContext`,
-    ///                        so the adapter can use them directly. If a caller
-    ///                        bypassing the market passes bad values, the
-    ///                        adapter's binding mechanism (STARK journal /
-    ///                        prover signature) will detect the mismatch.
-    /// @param prover          Address the market credits / slashes.
-    /// @param assessorSeal    Adapter-specific envelope (empty for on-chain).
-    function verifyAssessor(
-        SlimRequest[] calldata requests,
-        Fulfillment[] calldata fills,
-        bytes32[] calldata requestDigests,
-        address prover,
-        bytes calldata assessorSeal
-    ) external view;
+    /// @param batch          The fulfillment batch (slim requests, fills,
+    ///                       assessor seal, prover). Caller has already
+    ///                       binding-checked each slim request against the
+    ///                       lock / `FulfillmentContext`. The adapter MUST
+    ///                       trust the supplied `batch.requests` as the
+    ///                       signed request payload. `batch.prover` is the
+    ///                       address the market credits / slashes; the
+    ///                       adapter binds it via its own mechanism (STARK
+    ///                       journal commitment, ECDSA signature, etc.).
+    ///                       `batch.assessorSeal`'s first 4 bytes are the
+    ///                       router selector; the adapter strips them and
+    ///                       interprets the rest.
+    /// @param requestDigests Pre-computed `requestDigest` per fill, same
+    ///                       order as `batch.requests`. The market already
+    ///                       reconstructed and binding-checked these; if a
+    ///                       caller bypassing the market passes bad values
+    ///                       the adapter's binding mechanism will detect
+    ///                       the mismatch.
+    /// @dev   Parameter layout matches `IBoundlessRouter.verifyBatch` so the
+    ///        router can forward its own calldata tail verbatim via
+    ///        `_forwardCalldataAsStaticCall`.
+    function verifyAssessor(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests) external view;
 }

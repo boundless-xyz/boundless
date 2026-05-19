@@ -24,6 +24,7 @@ import {Input, InputType, InputLibrary} from "../../src/types/Input.sol";
 import {Offer, OfferLibrary} from "../../src/types/Offer.sol";
 import {RequestId, RequestIdLibrary} from "../../src/types/RequestId.sol";
 import {Fulfillment} from "../../src/types/Fulfillment.sol";
+import {FulfillmentBatch} from "../../src/types/FulfillmentBatch.sol";
 import {FulfillmentDataType, FulfillmentDataImageIdAndJournal} from "../../src/types/FulfillmentData.sol";
 import {SlimRequest, SlimRequestLibrary} from "../../src/types/SlimRequest.sol";
 
@@ -42,15 +43,13 @@ contract DirectHarness {
         ADAPTER = adapter;
     }
 
-    function measure(
-        SlimRequest[] calldata requests,
-        Fulfillment[] calldata fills,
-        bytes32[] calldata requestDigests,
-        address prover,
-        bytes calldata assessorSeal
-    ) external view returns (uint256 gasUsed) {
+    function measure(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests)
+        external
+        view
+        returns (uint256 gasUsed)
+    {
         uint256 g0 = gasleft();
-        ADAPTER.verifyAssessor(requests, fills, requestDigests, prover, assessorSeal);
+        ADAPTER.verifyAssessor(batch, requestDigests);
         gasUsed = g0 - gasleft();
     }
 }
@@ -66,15 +65,13 @@ contract RouterHarness {
         ROUTER = router;
     }
 
-    function measure(
-        SlimRequest[] calldata requests,
-        Fulfillment[] calldata fills,
-        bytes32[] calldata requestDigests,
-        address prover,
-        bytes calldata assessorSeal
-    ) external view returns (uint256 gasUsed) {
+    function measure(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests)
+        external
+        view
+        returns (uint256 gasUsed)
+    {
         uint256 g0 = gasleft();
-        ROUTER.verifyBatch(requests, fills, requestDigests, prover, assessorSeal);
+        ROUTER.verifyBatch(batch, requestDigests);
         gasUsed = g0 - gasleft();
     }
 }
@@ -90,19 +87,17 @@ contract MultiCallRouterHarness {
         ROUTER = router;
     }
 
-    function measureColdWarm(
-        SlimRequest[] calldata requests,
-        Fulfillment[] calldata fills,
-        bytes32[] calldata requestDigests,
-        address prover,
-        bytes calldata assessorSeal
-    ) external view returns (uint256 coldGas, uint256 warmGas) {
+    function measureColdWarm(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests)
+        external
+        view
+        returns (uint256 coldGas, uint256 warmGas)
+    {
         uint256 g0 = gasleft();
-        ROUTER.verifyBatch(requests, fills, requestDigests, prover, assessorSeal);
+        ROUTER.verifyBatch(batch, requestDigests);
         coldGas = g0 - gasleft();
 
         uint256 g1 = gasleft();
-        ROUTER.verifyBatch(requests, fills, requestDigests, prover, assessorSeal);
+        ROUTER.verifyBatch(batch, requestDigests);
         warmGas = g1 - gasleft();
     }
 }
@@ -383,6 +378,17 @@ abstract contract BenchBase is Test {
             slimRequests[i] = _toSlim(fullRequests[i]);
             requestDigests[i] = SlimRequestLibrary.reconstructRequestDigest(slimRequests[i]);
         }
+    }
+
+    /// @dev Convenience wrapper that packs the harness's 4 raw inputs into the
+    ///      `FulfillmentBatch` struct the router and assessor adapters now take.
+    function _makeBatch(
+        SlimRequest[] memory slim,
+        Fulfillment[] memory fills,
+        address prover,
+        bytes memory assessorSeal
+    ) internal pure returns (FulfillmentBatch memory) {
+        return FulfillmentBatch({requests: slim, fills: fills, assessorSeal: assessorSeal, prover: prover});
     }
 
     // ─── Seal builders ────────────────────────────────────────────────────

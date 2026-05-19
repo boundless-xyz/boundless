@@ -296,7 +296,7 @@ contract BoundlessMarket is
             // priced), then dispatch verifier + assessor through the router
             // and settle each fill.
             bytes32[] memory requestDigests = _bindAndCollectDigests(batch.requests);
-            ROUTER.verifyBatch(batch.requests, batch.fills, requestDigests, batch.prover, batch.assessorSeal);
+            ROUTER.verifyBatch(batch, requestDigests);
             outIdx = _settleBatch(batch, requestDigests, paymentError, outIdx);
         }
     }

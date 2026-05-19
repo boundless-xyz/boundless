@@ -39,8 +39,8 @@ contract AdapterBench is BenchBase {
             bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
-            uint256 gOnChain = directOnChain.measure(s, f, rd, proverAddr, onChainSeal);
-            uint256 gR0 = directR0.measure(s, f, rd, proverAddr, r0Seal);
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
+            uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
             console2.log("  N=%d  onChain/fill=%d  R0/fill=%d", n, gOnChain / n, gR0 / n);
         }
@@ -54,8 +54,8 @@ contract AdapterBench is BenchBase {
             bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
-            uint256 gOnChain = directOnChain.measure(s, f, rd, proverAddr, onChainSeal);
-            uint256 gR0 = directR0.measure(s, f, rd, proverAddr, r0Seal);
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
+            uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
             console2.log("  N=%d  onChain/fill=%d  R0/fill=%d", n, gOnChain / n, gR0 / n);
         }
@@ -80,8 +80,8 @@ contract AdapterBench is BenchBase {
             bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
-            uint256 gOnChain = directOnChain.measure(s, f, rd, proverAddr, onChainSeal);
-            uint256 gR0 = directR0.measure(s, f, rd, proverAddr, r0Seal);
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
+            uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
             console2.log("  journal=%d bytes  onChain/fill=%d  R0/fill=%d", jbytes, gOnChain / n, gR0 / n);
         }
@@ -95,8 +95,8 @@ contract AdapterBench is BenchBase {
             bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
-            uint256 gOnChain = directOnChain.measure(s, f, rd, proverAddr, onChainSeal);
-            uint256 gR0 = directR0.measure(s, f, rd, proverAddr, r0Seal);
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
+            uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
             console2.log("  journal=%d bytes  onChain/fill=%d  R0/fill=%d", jbytes, gOnChain / n, gR0 / n);
         }

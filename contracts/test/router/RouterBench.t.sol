@@ -61,8 +61,8 @@ contract RouterBench is BenchBase {
             (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
             bytes memory nullSeal = _buildNullSeal();
 
-            uint256 gDirect = directNull.measure(s, f, rd, proverAddr, nullSeal);
-            uint256 gRouter = routerHarness.measure(s, f, rd, proverAddr, nullSeal);
+            uint256 gDirect = directNull.measure(_makeBatch(s, f, proverAddr, nullSeal), rd);
+            uint256 gRouter = routerHarness.measure(_makeBatch(s, f, proverAddr, nullSeal), rd);
             uint256 overhead = gRouter - gDirect;
 
             console2.log("  N=%d  direct-null=%d  router-null=%d", n, gDirect, gRouter);
@@ -84,7 +84,7 @@ contract RouterBench is BenchBase {
             (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(n, PredicateType.DigestMatch);
             (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
             bytes memory nullSeal = _buildNullSeal();
-            (uint256 cold, uint256 warm) = multiCallHarness.measureColdWarm(s, f, rd, proverAddr, nullSeal);
+            (uint256 cold, uint256 warm) = multiCallHarness.measureColdWarm(_makeBatch(s, f, proverAddr, nullSeal), rd);
             console2.log("  N=%d  cold=%d  warm=%d", n, cold, warm);
             console2.log("           cold-only delta=%d", cold - warm);
         }

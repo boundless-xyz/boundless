@@ -38,14 +38,14 @@ contract OnChainAssessorTest is BenchBase {
         (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
         (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
         bytes memory seal = _buildOnChainSeal(s, f);
-        directOnChain.measure(s, f, rd, proverAddr, seal);
+        directOnChain.measure(_makeBatch(s, f, proverAddr, seal), rd);
     }
 
     function test_singleFill_claimDigestMatch_passes() external view {
         (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.ClaimDigestMatch);
         (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
         bytes memory seal = _buildOnChainSeal(s, f);
-        directOnChain.measure(s, f, rd, proverAddr, seal);
+        directOnChain.measure(_makeBatch(s, f, proverAddr, seal), rd);
     }
 
     function test_predicateFailure_reverts() external {
@@ -60,7 +60,7 @@ contract OnChainAssessorTest is BenchBase {
         bytes memory seal = _buildOnChainSeal(s, f);
 
         vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.PredicateFailed.selector, uint256(0)));
-        directOnChain.measure(s, f, rd, proverAddr, seal);
+        directOnChain.measure(_makeBatch(s, f, proverAddr, seal), rd);
     }
 
     function test_proverSignatureMismatch_reverts() external {
@@ -71,7 +71,7 @@ contract OnChainAssessorTest is BenchBase {
         // that the mismatch is detected (match on error selector only).
         bytes memory seal = _buildOnChainSeal(s, f);
         vm.expectPartialRevert(OnChainAssessor.ProverSignatureMismatch.selector);
-        directOnChain.measure(s, f, rd, address(0xDEAD), seal);
+        directOnChain.measure(_makeBatch(s, f, address(0xDEAD), seal), rd);
     }
 
     function test_claimDigestMismatch_reverts() external {
@@ -82,6 +82,6 @@ contract OnChainAssessorTest is BenchBase {
         f[0].claimDigest = bytes32(uint256(f[0].claimDigest) ^ 1);
         bytes memory seal = _buildOnChainSeal(s, f);
         vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.ClaimDigestMismatch.selector, uint256(0)));
-        directOnChain.measure(s, f, rd, proverAddr, seal);
+        directOnChain.measure(_makeBatch(s, f, proverAddr, seal), rd);
     }
 }

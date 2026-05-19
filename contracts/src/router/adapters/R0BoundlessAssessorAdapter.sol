@@ -13,9 +13,9 @@ import {IBoundlessAssessor} from "../interfaces/IBoundlessAssessor.sol";
 import {AssessorCallback} from "../../types/AssessorCallback.sol";
 import {AssessorCommitment} from "../../types/AssessorCommitment.sol";
 import {AssessorJournal} from "../../types/AssessorJournal.sol";
-import {Fulfillment, FulfillmentLibrary} from "../../types/Fulfillment.sol";
+import {FulfillmentLibrary} from "../../types/Fulfillment.sol";
+import {FulfillmentBatch} from "../../types/FulfillmentBatch.sol";
 import {Selector} from "../../types/Selector.sol";
-import {SlimRequest} from "../../types/SlimRequest.sol";
 import {MerkleProofish} from "../../libraries/MerkleProofish.sol";
 
 /// @title R0BoundlessAssessorAdapter — `IBoundlessAssessor` adapter wrapping the
@@ -101,27 +101,21 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
     }
 
     /// @inheritdoc IBoundlessAssessor
-    function verifyAssessor(
-        SlimRequest[] calldata requests,
-        Fulfillment[] calldata fills,
-        bytes32[] calldata requestDigests,
-        address prover,
-        bytes calldata assessorSeal
-    ) external view {
-        uint256 n = requests.length;
-        if (fills.length != n || requestDigests.length != n) revert LengthMismatch();
+    function verifyAssessor(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests) external view {
+        uint256 n = batch.requests.length;
+        if (batch.fills.length != n || requestDigests.length != n) revert LengthMismatch();
 
         // Strip the router's 4-byte selector prefix; the rest is the inner STARK seal.
-        if (assessorSeal.length < 4) revert MalformedSeal();
-        bytes calldata innerSeal = assessorSeal[4:];
+        if (batch.assessorSeal.length < 4) revert MalformedSeal();
+        bytes calldata innerSeal = batch.assessorSeal[4:];
 
         // Count sparse callback / selector entries so we can size memory arrays
         // exactly (Solidity memory arrays can't grow dynamically).
         uint256 cbCount;
         uint256 selCount;
         for (uint256 i = 0; i < n; i++) {
-            if (requests[i].callback.addr != address(0)) cbCount++;
-            if (requests[i].selector != bytes4(0)) selCount++;
+            if (batch.requests[i].callback.addr != address(0)) cbCount++;
+            if (batch.requests[i].selector != bytes4(0)) selCount++;
         }
         AssessorCallback[] memory callbacks = new AssessorCallback[](cbCount);
         Selector[] memory selectors = new Selector[](selCount);
@@ -131,25 +125,26 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
         uint256 cbIdx;
         uint256 selIdx;
         for (uint256 i = 0; i < n; i++) {
-            bytes32 fulfillmentDataDigest =
-                FulfillmentLibrary.fulfillmentDataDigest(fills[i].fulfillmentDataType, fills[i].fulfillmentData);
+            bytes32 fulfillmentDataDigest = FulfillmentLibrary.fulfillmentDataDigest(
+                batch.fills[i].fulfillmentDataType, batch.fills[i].fulfillmentData
+            );
             leaves[i] = AssessorCommitment({
                 index: i,
-                id: requests[i].id,
+                id: batch.requests[i].id,
                 requestDigest: requestDigests[i],
-                claimDigest: fills[i].claimDigest,
+                claimDigest: batch.fills[i].claimDigest,
                 fulfillmentDataDigest: fulfillmentDataDigest
             }).eip712Digest();
 
-            if (requests[i].callback.addr != address(0)) {
+            if (batch.requests[i].callback.addr != address(0)) {
                 callbacks[cbIdx++] = AssessorCallback({
                     index: uint16(i),
-                    addr: requests[i].callback.addr,
-                    gasLimit: requests[i].callback.gasLimit
+                    addr: batch.requests[i].callback.addr,
+                    gasLimit: batch.requests[i].callback.gasLimit
                 });
             }
-            if (requests[i].selector != bytes4(0)) {
-                selectors[selIdx++] = Selector({index: uint16(i), value: requests[i].selector});
+            if (batch.requests[i].selector != bytes4(0)) {
+                selectors[selIdx++] = Selector({index: uint16(i), value: batch.requests[i].selector});
             }
         }
 
@@ -159,7 +154,9 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
         // `prover` arg is committed by the journal — the R0 STARK fails if the seal
         // was produced against a different prover than the one passed by the caller.
         bytes32 journalDigest = sha256(
-            abi.encode(AssessorJournal({root: batchRoot, callbacks: callbacks, selectors: selectors, prover: prover}))
+            abi.encode(
+                AssessorJournal({root: batchRoot, callbacks: callbacks, selectors: selectors, prover: batch.prover})
+            )
         );
 
         RISC_ZERO_VERIFIER.verify(innerSeal, ASSESSOR_IMAGE_ID, journalDigest);

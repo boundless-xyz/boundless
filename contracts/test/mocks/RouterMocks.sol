@@ -11,8 +11,7 @@ import {IRiscZeroVerifier, Receipt} from "risc0/IRiscZeroVerifier.sol";
 
 import {IBoundlessVerifier} from "../../src/router/interfaces/IBoundlessVerifier.sol";
 import {IBoundlessAssessor} from "../../src/router/interfaces/IBoundlessAssessor.sol";
-import {SlimRequest} from "../../src/types/SlimRequest.sol";
-import {Fulfillment} from "../../src/types/Fulfillment.sol";
+import {FulfillmentBatch} from "../../src/types/FulfillmentBatch.sol";
 
 /// @notice Always-passing `IBoundlessVerifier`. Used by tests and benches that
 ///         want to isolate router/assessor cost from any real verifier work.
@@ -29,13 +28,7 @@ contract NullVerifier is IBoundlessVerifier, IERC165 {
 ///         assessor implementation, and by benches that isolate router
 ///         overhead from assessor work.
 contract NullAssessor is IBoundlessAssessor, IERC165 {
-    function verifyAssessor(
-        SlimRequest[] calldata,
-        Fulfillment[] calldata,
-        bytes32[] calldata,
-        address,
-        bytes calldata
-    ) external pure {}
+    function verifyAssessor(FulfillmentBatch calldata, bytes32[] calldata) external pure {}
 
     function supportsInterface(bytes4 id) external pure returns (bool) {
         return id == type(IBoundlessAssessor).interfaceId || id == type(IERC165).interfaceId;
