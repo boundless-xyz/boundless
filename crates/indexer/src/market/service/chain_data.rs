@@ -42,24 +42,46 @@ where
 {
     for attempt in 0..=TX_FETCH_RETRY_COUNT {
         let tx_opt = provider.get_transaction_by_hash(tx_hash).await?;
-        if let Some(tx) = tx_opt {
+        if let Some(tx) = &tx_opt {
             if tx.block_number.is_some() {
-                return Ok(tx);
+                return Ok(tx_opt.unwrap());
             }
         }
-        if attempt == TX_FETCH_RETRY_COUNT {
-            return Err(ServiceError::Error(anyhow!(
-                "transaction {} not found or without block_number after {} retries",
-                hex::encode(tx_hash),
-                TX_FETCH_RETRY_COUNT
-            )));
+        let is_last_attempt = attempt == TX_FETCH_RETRY_COUNT;
+        match &tx_opt {
+            Some(tx) if is_last_attempt => {
+                return Err(ServiceError::Error(anyhow!(
+                    "transaction {} returned without block_number after {} retries; response: {:?}",
+                    hex::encode(tx_hash),
+                    TX_FETCH_RETRY_COUNT,
+                    tx
+                )));
+            }
+            Some(tx) => {
+                tracing::warn!(
+                    "get_transaction_by_hash for {} returned tx with null block_number, retry {}/{}; response: {:?}",
+                    hex::encode(tx_hash),
+                    attempt + 1,
+                    TX_FETCH_RETRY_COUNT,
+                    tx
+                );
+            }
+            None if is_last_attempt => {
+                return Err(ServiceError::Error(anyhow!(
+                    "transaction {} not found by RPC after {} retries",
+                    hex::encode(tx_hash),
+                    TX_FETCH_RETRY_COUNT
+                )));
+            }
+            None => {
+                tracing::warn!(
+                    "get_transaction_by_hash for {} returned no tx, retry {}/{}",
+                    hex::encode(tx_hash),
+                    attempt + 1,
+                    TX_FETCH_RETRY_COUNT
+                );
+            }
         }
-        tracing::warn!(
-            "get_transaction_by_hash for {} returned no tx or no block_number, retry {}/{}",
-            hex::encode(tx_hash),
-            attempt + 1,
-            TX_FETCH_RETRY_COUNT
-        );
         tokio::time::sleep(Duration::from_millis(TX_FETCH_RETRY_SLEEP_MS)).await;
     }
     unreachable!()
