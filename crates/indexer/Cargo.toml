@@ -45,7 +45,7 @@ boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
-broker = { workspace = true, default-features = false }
+broker = { workspace = true }
 bytemuck = { workspace = true }
 bytes = "1.10.1"
 chrono = { workspace = true }
