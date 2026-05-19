@@ -20,7 +20,7 @@ use super::{
 use crate::db::market::{IndexerDb, TxMetadata};
 use crate::market::ServiceError;
 use alloy::eips::{BlockId, BlockNumberOrTag};
-use alloy::network::{AnyNetwork, Ethereum};
+use alloy::network::{AnyNetwork, Ethereum, Network};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Filter, Log};
@@ -29,6 +29,36 @@ use broker::futures_retry::retry;
 use futures_util::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
+
+/// Fetch a single transaction by hash, retrying when the RPC returns either no
+/// transaction or a transaction with `block_number = null`.
+async fn get_transaction_with_retry<P>(
+    provider: P,
+    tx_hash: B256,
+) -> Result<<Ethereum as Network>::TransactionResponse, anyhow::Error>
+where
+    P: Provider<Ethereum>,
+{
+    retry(
+        TX_FETCH_RETRY_COUNT,
+        TX_FETCH_RETRY_SLEEP_MS,
+        || async {
+            let tx = provider
+                .get_transaction_by_hash(tx_hash)
+                .await?
+                .ok_or_else(|| anyhow!("transaction {} not found by RPC", hex::encode(tx_hash)))?;
+            if tx.block_number.is_none() {
+                return Err(anyhow!(
+                    "transaction {} returned without block_number",
+                    hex::encode(tx_hash)
+                ));
+            }
+            Ok(tx)
+        },
+        "get_transaction_by_hash",
+    )
+    .await
+}
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -416,26 +446,9 @@ where
                 .map(|&tx_hash| {
                     let provider = self.boundless_market.instance().provider();
                     async move {
-                        let tx = retry(
-                            TX_FETCH_RETRY_COUNT,
-                            TX_FETCH_RETRY_SLEEP_MS,
-                            || async {
-                                let tx = provider.get_transaction_by_hash(tx_hash).await?;
-                                let tx = tx.ok_or_else(|| {
-                                    anyhow!("transaction {} not found by RPC", hex::encode(tx_hash))
-                                })?;
-                                if tx.block_number.is_none() {
-                                    return Err(anyhow!(
-                                        "transaction {} returned without block_number",
-                                        hex::encode(tx_hash)
-                                    ));
-                                }
-                                Ok(tx)
-                            },
-                            "get_transaction_by_hash",
-                        )
-                        .await
-                        .map_err(ServiceError::Error)?;
+                        let tx = get_transaction_with_retry(provider, tx_hash)
+                            .await
+                            .map_err(ServiceError::Error)?;
                         Ok::<_, ServiceError>((tx_hash, tx))
                     }
                 })
@@ -515,21 +528,22 @@ where
 
         // Step 4: Build final map from tx_hash to TxMetadata and update service map
         for (tx_hash, tx) in tx_map {
-            let bn = tx.block_number.context(anyhow!(
-                "block_number missing on transaction {} after eth_getTransactionByHash",
-                hex::encode(tx_hash)
-            ))?;
-            let tx_index = tx.transaction_index.context(anyhow!(
-                "Transaction index not found for transaction {}",
-                hex::encode(tx_hash)
-            ))?;
+            let bn = tx.block_number.with_context(|| {
+                format!(
+                    "block_number missing on transaction {} after eth_getTransactionByHash",
+                    hex::encode(tx_hash)
+                )
+            })?;
+            let tx_index = tx.transaction_index.with_context(|| {
+                format!("Transaction index not found for transaction {}", hex::encode(tx_hash))
+            })?;
 
             // Get timestamp from service block_timestamps map
             let ts = self
                 .block_num_to_timestamp
                 .get(&bn)
                 .copied()
-                .context(anyhow!("Block {} timestamp not found in map", bn))?;
+                .with_context(|| format!("Block {} timestamp not found in map", bn))?;
 
             let from = tx.inner.signer();
             let meta = TxMetadata::new(tx_hash, from, bn, ts, tx_index);
