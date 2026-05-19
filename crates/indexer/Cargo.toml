@@ -39,7 +39,7 @@ async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 bonsai-sdk = { version = "1.4.1", features = ["non_blocking"] }
-boundless-market = { workspace = true }
+boundless-market = { workspace = true, features = ["gcs"] }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
