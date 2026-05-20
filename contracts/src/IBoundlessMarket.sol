@@ -19,7 +19,7 @@ import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {ProofRequestBatch} from "./types/ProofRequestBatch.sol";
 import {FulfillmentBatch} from "./types/FulfillmentBatch.sol";
-import {BoundlessRouter} from "./router/BoundlessRouter.sol";
+import {IBoundlessRouter} from "./router/interfaces/IBoundlessRouter.sol";
 
 interface IBoundlessMarket {
     /// @notice Event logged when a new proof request is submitted by a client.
@@ -299,7 +299,9 @@ interface IBoundlessMarket {
 
     /// @notice Fulfills fulfillment batches and withdraws the resulting balance for each
     ///         fulfillment batch's prover. See `fulfill` for the locked-only requirement.
-    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches) external returns (bytes[] memory paymentError);
+    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches)
+        external
+        returns (bytes[] memory paymentError);
 
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
@@ -315,14 +317,16 @@ interface IBoundlessMarket {
     ///         Each `ProofRequestBatch` carries the requests and matching
     ///         client signatures that need pricing in this tx (typically the
     ///         un-locked entries that the fulfillment batches will then settle).
-    function priceAndFulfill(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
-        external
-        returns (bytes[] memory paymentError);
+    function priceAndFulfill(
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
+    ) external returns (bytes[] memory paymentError);
 
     /// @notice A combined call to `priceRequest` (per request) and `fulfillAndWithdraw`.
-    function priceAndFulfillAndWithdraw(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
-        external
-        returns (bytes[] memory paymentError);
+    function priceAndFulfillAndWithdraw(
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
+    ) external returns (bytes[] memory paymentError);
 
     /// @notice Submit a new root to a set-verifier.
     /// @dev Consider using `submitRootAndFulfill` to submit the root and fulfill in one transaction.
@@ -382,5 +386,5 @@ interface IBoundlessMarket {
 
     /// Returns the BoundlessRouter that owns verification dispatch.
     // forge-lint: disable-next-item(mixed-case-function)
-    function ROUTER() external view returns (BoundlessRouter);
+    function ROUTER() external view returns (IBoundlessRouter);
 }

@@ -55,8 +55,7 @@ contract OnChainAssessorTest is BenchBase {
         // the signature check, so the seal contents don't matter.
         bytes memory wrongJournal = bytes("not-the-journal");
         (bytes32 imageId,) = _imageAndJournal(0);
-        f[0].fulfillmentData =
-            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: wrongJournal}));
+        f[0].fulfillmentData = abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: wrongJournal}));
         bytes memory seal = _buildOnChainSeal(s, f);
 
         vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.PredicateFailed.selector, uint256(0)));

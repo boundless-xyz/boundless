@@ -51,10 +51,7 @@ interface IBoundlessJointVerifierAssessor {
     ///                      binding-checked by the market against the lock /
     ///                      `FulfillmentContext`.
     /// @param prover        Address the market credits / slashes.
-    function verifyJoint(
-        SlimRequest calldata request,
-        Fulfillment calldata fill,
-        bytes32 requestDigest,
-        address prover
-    ) external view;
+    function verifyJoint(SlimRequest calldata request, Fulfillment calldata fill, bytes32 requestDigest, address prover)
+        external
+        view;
 }

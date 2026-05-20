@@ -33,7 +33,7 @@ import {FulfillmentContext, FulfillmentContextLibrary} from "./types/Fulfillment
 
 import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
 
-import {BoundlessRouter} from "./router/BoundlessRouter.sol";
+import {IBoundlessRouter} from "./router/interfaces/IBoundlessRouter.sol";
 
 error InvalidRouter();
 error InvalidCollateralToken();
@@ -73,7 +73,7 @@ contract BoundlessMarket is
     ///         router dispatches to.
     /// @dev    Set in the constructor; pinned per implementation contract.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    BoundlessRouter public immutable ROUTER;
+    IBoundlessRouter public immutable ROUTER;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable COLLATERAL_TOKEN_CONTRACT;
 
@@ -96,7 +96,7 @@ contract BoundlessMarket is
     uint96 public constant MARKET_FEE_BPS = 0;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(BoundlessRouter router, address collateralTokenContract) {
+    constructor(IBoundlessRouter router, address collateralTokenContract) {
         if (address(router) == address(0)) revert InvalidRouter();
         if (collateralTokenContract == address(0)) revert InvalidCollateralToken();
 
@@ -267,10 +267,10 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function priceAndFulfill(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
-        public
-        returns (bytes[] memory paymentError)
-    {
+    function priceAndFulfill(
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
+    ) public returns (bytes[] memory paymentError) {
         _priceAll(requestBatches);
         paymentError = fulfill(fulfillmentBatches);
     }
@@ -323,9 +323,7 @@ contract BoundlessMarket is
                 if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
                     (bytes32 imageId, bytes calldata journal) =
                         FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
-                    _executeCallback(
-                        slim.id, slim.callback.addr, slim.callback.gasLimit, imageId, journal, fill.seal
-                    );
+                    _executeCallback(slim.id, slim.callback.addr, slim.callback.gasLimit, imageId, journal, fill.seal);
                 } else {
                     revert UnfulfillableCallback();
                 }
@@ -336,16 +334,19 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function priceAndFulfillAndWithdraw(ProofRequestBatch[] calldata requestBatches, FulfillmentBatch[] calldata fulfillmentBatches)
-        public
-        returns (bytes[] memory paymentError)
-    {
+    function priceAndFulfillAndWithdraw(
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
+    ) public returns (bytes[] memory paymentError) {
         _priceAll(requestBatches);
         paymentError = fulfillAndWithdraw(fulfillmentBatches);
     }
 
     /// @inheritdoc IBoundlessMarket
-    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches) public returns (bytes[] memory paymentError) {
+    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches)
+        public
+        returns (bytes[] memory paymentError)
+    {
         paymentError = fulfill(fulfillmentBatches);
 
         // Withdraw any remaining balance from each fulfillment batch's prover.

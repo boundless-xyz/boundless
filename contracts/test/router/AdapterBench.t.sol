@@ -101,5 +101,4 @@ contract AdapterBench is BenchBase {
             console2.log("  journal=%d bytes  onChain/fill=%d  R0/fill=%d", jbytes, gOnChain / n, gR0 / n);
         }
     }
-
 }

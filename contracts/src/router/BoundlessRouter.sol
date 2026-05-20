@@ -11,6 +11,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
+import {IBoundlessRouter} from "./interfaces/IBoundlessRouter.sol";
 import {IBoundlessVerifier} from "./interfaces/IBoundlessVerifier.sol";
 import {IBoundlessJointVerifierAssessor} from "./interfaces/IBoundlessJointVerifierAssessor.sol";
 import {IBoundlessAssessor} from "./interfaces/IBoundlessAssessor.sol";
@@ -34,7 +35,7 @@ import {FulfillmentBatch} from "../types/FulfillmentBatch.sol";
 ///         mutual exclusion (no bytes4 in both maps), permanent tombstoning of removed
 ///         values, and the `0x00000000` reserved sentinel — so an EIP-712-signed request
 ///         can never be silently repointed by a later registration.
-contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
+contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgradeable, UUPSUpgradeable {
     /// @dev The version of the router contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
 
@@ -435,14 +436,17 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
             _matchSignedSelector(sealSel, batch.requests[i].selector, verifierClassId);
 
             if (isVerifier) {
-                try IBoundlessVerifier(e.impl).verify{gas: e.gasLimit}(batch.fills[i].seal, batch.fills[i].claimDigest)
-                {} catch {
+                try IBoundlessVerifier(e.impl).verify{gas: e.gasLimit}(
+                    batch.fills[i].seal, batch.fills[i].claimDigest
+                ) {}
+                catch {
                     revert VerifierFailed(i, sealSel);
                 }
             } else {
                 try IBoundlessJointVerifierAssessor(e.impl).verifyJoint{gas: e.gasLimit}(
                     batch.requests[i], batch.fills[i], requestDigests[i], batch.prover
-                ) {} catch {
+                ) {}
+                catch {
                     revert VerifierFailed(i, sealSel);
                 }
             }

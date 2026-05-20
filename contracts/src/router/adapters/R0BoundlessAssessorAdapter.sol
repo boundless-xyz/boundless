@@ -129,12 +129,12 @@ contract R0BoundlessAssessorAdapter is IBoundlessAssessor, IERC165 {
                 batch.fills[i].fulfillmentDataType, batch.fills[i].fulfillmentData
             );
             leaves[i] = AssessorCommitment({
-                index: i,
-                id: batch.requests[i].id,
-                requestDigest: requestDigests[i],
-                claimDigest: batch.fills[i].claimDigest,
-                fulfillmentDataDigest: fulfillmentDataDigest
-            }).eip712Digest();
+                    index: i,
+                    id: batch.requests[i].id,
+                    requestDigest: requestDigests[i],
+                    claimDigest: batch.fills[i].claimDigest,
+                    fulfillmentDataDigest: fulfillmentDataDigest
+                }).eip712Digest();
 
             if (batch.requests[i].callback.addr != address(0)) {
                 callbacks[cbIdx++] = AssessorCallback({

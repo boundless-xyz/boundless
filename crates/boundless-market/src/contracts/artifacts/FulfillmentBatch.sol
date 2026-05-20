@@ -1,0 +1,48 @@
+// Copyright 2026 Boundless Foundation, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+// SPDX-License-Identifier: BUSL-1.1
+
+pragma solidity ^0.8.26;
+
+import {Fulfillment} from "./Fulfillment.sol";
+import {SlimRequest} from "./SlimRequest.sol";
+
+/// @title FulfillmentBatch — single-class slice of a fulfillment transaction.
+///
+/// @notice A `FulfillmentBatch` carries the data the market and router need
+///         to verify and settle one verifier-class group of fills. One
+///         transaction can carry multiple `FulfillmentBatch`es of mixed
+///         classes; each is verified independently by the router and settles
+///         its own per-fill lifecycle.
+///
+///         All fills in a batch must share the same verifier class (the
+///         router enforces this via `MixedClassWithinBatch`). The optional
+///         assessor seam is per-batch: verifier-class batches carry a
+///         non-empty `assessorSeal`, joint-class batches must leave it empty.
+///
+///         The market reconstructs each request's EIP-712 digest from
+///         `requests[i]` and asserts integrity against the lock (locked
+///         path) or against the transient `FulfillmentContext` (priced
+///         path). The slim payload carries the predicate, callback, and
+///         selector in full plus pre-computed digests for `imageUrl`,
+///         `input`, and `offer` — enough to reconstruct the signed
+///         `requestDigest` but ~5x smaller than the full `ProofRequest`.
+struct FulfillmentBatch {
+    /// @notice Per-fill `SlimRequest` (one per `fills` entry, same order).
+    ///         The market reconstructs `requestDigest` from this and asserts
+    ///         integrity against the lock or `FulfillmentContext`.
+    SlimRequest[] requests;
+    /// @notice Per-fill `Fulfillment` (one per `requests` entry, same order).
+    Fulfillment[] fills;
+    /// @notice Bytes for the assessor call. First 4 bytes are the BoundlessRouter
+    ///         assessor selector; the rest is the per-class envelope. Must be
+    ///         empty for joint-class batches.
+    bytes assessorSeal;
+    /// @notice Address the market will credit / slash for this batch. The
+    ///         router forwards this to the assessor (or joint) adapter,
+    ///         which binds it via its own mechanism. The market trusts the
+    ///         resulting attested value.
+    address prover;
+}

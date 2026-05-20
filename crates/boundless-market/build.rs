@@ -15,8 +15,13 @@
 use std::{env, fs, path::Path, process::Command};
 
 // Contracts to copy to the artificats folder for. If the contract is a directory, all .sol files in the directory.
-const CONTRACTS_TO_COPY: [&str; 4] =
-    ["IBoundlessMarket.sol", "IHitPoints.sol", "IVersionRegistry.sol", "types"];
+const CONTRACTS_TO_COPY: [&str; 5] = [
+    "IBoundlessMarket.sol",
+    "IHitPoints.sol",
+    "IVersionRegistry.sol",
+    "router/interfaces/IBoundlessRouter.sol",
+    "types",
+];
 
 // Contracts to exclude from generating types for automatically.
 const EXCLUDE_CONTRACTS: [&str; 2] = [

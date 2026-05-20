@@ -479,8 +479,7 @@ contract BoundlessMarketTest is Test {
 
             bytes memory fulfillmentData;
             if (fillType == FulfillmentDataType.ImageIdAndJournal) {
-                fulfillmentData =
-                    abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: journals[i]}));
+                fulfillmentData = abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: journals[i]}));
             }
 
             fills[i] = Fulfillment({
@@ -492,10 +491,7 @@ contract BoundlessMarketTest is Test {
             slim[i] = _toSlim(requests[i]);
         }
         batch = FulfillmentBatch({
-            requests: slim,
-            fills: fills,
-            assessorSeal: abi.encodePacked(ASSESSOR_NULL_SEL),
-            prover: prover
+            requests: slim, fills: fills, assessorSeal: abi.encodePacked(ASSESSOR_NULL_SEL), prover: prover
         });
     }
 
@@ -618,10 +614,7 @@ contract BoundlessMarketTest is Test {
             fills[i].seal = TestUtils.encodeSeal(setVerifier, proofs[i]);
         }
         batch = FulfillmentBatch({
-            requests: slim,
-            fills: fills,
-            assessorSeal: abi.encodePacked(ASSESSOR_NULL_SEL),
-            prover: prover
+            requests: slim, fills: fills, assessorSeal: abi.encodePacked(ASSESSOR_NULL_SEL), prover: prover
         });
     }
 
@@ -695,11 +688,11 @@ contract BoundlessMarketTest is Test {
     ///      by the caller via the appropriate merkle inclusion proof), slim
     ///      payloads, and the domain-bound `requestDigests` the assessor
     ///      guest feeds into its journal.
-    function _buildFillsAndSlim(
-        ProofRequest[] memory requests,
-        bytes[] memory journals,
-        FulfillmentDataType fillType
-    ) internal view returns (Fulfillment[] memory fills, SlimRequest[] memory slim, bytes32[] memory requestDigests) {
+    function _buildFillsAndSlim(ProofRequest[] memory requests, bytes[] memory journals, FulfillmentDataType fillType)
+        internal
+        view
+        returns (Fulfillment[] memory fills, SlimRequest[] memory slim, bytes32[] memory requestDigests)
+    {
         uint256 n = requests.length;
         fills = new Fulfillment[](n);
         slim = new SlimRequest[](n);
@@ -750,12 +743,12 @@ contract BoundlessMarketTest is Test {
         for (uint256 i = 0; i < n; i++) {
             bytes32 fulfillmentDataDigest = FulfillmentLibrary.fulfillmentDataDigest(fills[i]);
             leaves[i] = AssessorCommitment({
-                index: i,
-                id: slim[i].id,
-                requestDigest: requestDigests[i],
-                claimDigest: fills[i].claimDigest,
-                fulfillmentDataDigest: fulfillmentDataDigest
-            }).eip712Digest();
+                    index: i,
+                    id: slim[i].id,
+                    requestDigest: requestDigests[i],
+                    claimDigest: fills[i].claimDigest,
+                    fulfillmentDataDigest: fulfillmentDataDigest
+                }).eip712Digest();
             if (slim[i].callback.addr != address(0)) cbCount++;
             if (slim[i].selector != bytes4(0)) selCount++;
         }
@@ -765,8 +758,9 @@ contract BoundlessMarketTest is Test {
         uint256 selIdx;
         for (uint256 i = 0; i < n; i++) {
             if (slim[i].callback.addr != address(0)) {
-                callbacks[cbIdx++] =
-                    AssessorCallback({index: uint16(i), addr: slim[i].callback.addr, gasLimit: slim[i].callback.gasLimit});
+                callbacks[cbIdx++] = AssessorCallback({
+                    index: uint16(i), addr: slim[i].callback.addr, gasLimit: slim[i].callback.gasLimit
+                });
             }
             if (slim[i].selector != bytes4(0)) {
                 selectors[selIdx++] = Selector({index: uint16(i), value: slim[i].selector});
@@ -1575,7 +1569,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         if (lockinMethod == LockRequestMethod.None) {
             // Build a `ProofRequestBatch` for the un-locked request so the
             // priced-path leg can verify its signature inside `priceAndFulfill`.
-            boundlessMarket.priceAndFulfill(_asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})), _asArray(batch));
+            boundlessMarket.priceAndFulfill(
+                _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
+                _asArray(batch)
+            );
         } else {
             boundlessMarket.fulfill(_asArray(batch));
         }
@@ -1922,9 +1919,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         FulfillmentBatch memory batch = createFulfillmentBatch(request, APP_JOURNAL, otherProverAddress);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsLocked.selector, request.id
+            ));
         boundlessMarket.fulfill(_asArray(batch));
         vm.snapshotGasLastCall("fulfill: another prover fulfills without payment");
 
@@ -1978,6 +1975,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         expectMarketBalanceUnchanged();
     }
+
     function testFulfillLockedRequestProverAddressNotMatchAssessorReceipt() public {
         Client client = getClient(1);
 
@@ -2349,7 +2347,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // Slash should revert as the original locked request has not yet fully expired.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IBoundlessMarket.RequestIsNotExpired.selector, requestB.id, uint64(block.timestamp) + uint64(offerA.timeout)
+                IBoundlessMarket.RequestIsNotExpired.selector,
+                requestB.id,
+                uint64(block.timestamp) + uint64(offerA.timeout)
             )
         );
         boundlessMarket.slash(requestB.id);
@@ -2551,9 +2551,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         );
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsFulfilled.selector, request.id
+            ));
         boundlessMarket.priceAndFulfill(
             _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
             _asArray(batch)
@@ -2596,9 +2596,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // But its already been fulfilled by the other prover.
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsFulfilled.selector, request.id
+            ));
 
         // The proof should still be delivered.
         vm.expectEmit(true, true, true, false);
@@ -2644,9 +2644,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // In this case the request has fully expired, so the proof should NOT be delivered,
         // however we should not revert (as this allows partial fulfillment of other requests in the batch)
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsExpired.selector, request.id
+            ));
 
         // The fulfillment should not revert, as we support multiple proofs being delivered for a single request.
         bytes[] memory paymentErrors = boundlessMarket.priceAndFulfill(
@@ -2721,7 +2721,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-
     function testFulfillNeverLocked() public {
         _testFulfillSameBlock(1, LockRequestMethod.None, "priceAndFulfill: a single request that was not locked");
     }
@@ -2737,6 +2736,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             "priceAndFulfill: a single request that was not locked fulfilled by prover not in allow-list"
         );
     }
+
     function testSubmitRootAndFulfillNeverLocked() public {
         _testSubmitRootAndFulfillSameBlock(
             1, LockRequestMethod.None, "submitRootAndPriceAndFulfill: a single request that was not locked"
@@ -2819,9 +2819,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // expect emit of payment requirement failed
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, clientAddress)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.InsufficientBalance.selector, clientAddress
+            ));
         vm.prank(clientAddress);
         boundlessMarket.priceAndFulfill(
             _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
@@ -2952,6 +2952,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testProver.expectBalanceChange(int256(uint256(expectedRevenue)));
         expectMarketBalanceUnchanged();
     }
+
     // Testing that reordering fill claim digests + data in a batch (so they
     // no longer line up with the assessor's per-fill leaves) causes the
     // fulfill to revert. Uses the R0 proof-based assessor fixture: the
@@ -3163,6 +3164,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
+
     function testSubmitRootAndPriceAndFulfillLockedRequest() external {
         Client client = getClient(1);
         ProofRequest memory request = client.request(3);
@@ -3391,9 +3393,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             // Here we price with request A and try to fill with request B.
             vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, requestA.id));
             boundlessMarket.priceAndFulfill(
-                _asArray(
-                    ProofRequestBatch({requests: _asArray(requestA), signatures: _asArray(clientSignatureA)})
-                ),
+                _asArray(ProofRequestBatch({requests: _asArray(requestA), signatures: _asArray(clientSignatureA)})),
                 _asArray(batchB)
             );
 
@@ -3424,6 +3424,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testProver.expectBalanceChange(0 ether);
         expectMarketBalanceUnchanged();
     }
+
     function testSubmitRootAndFulfill() public {
         (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(2);
         (FulfillmentBatch memory batch, bytes32 root) = createFills(requests, journals, testProverAddress);
@@ -3722,9 +3723,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // In this case the request has fully expired, so the proof should NOT be delivered,
         // however we should not revert (as this allows partial fulfillment of other requests in the batch)
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsExpired.selector, request.id
+            ));
 
         // The fulfillment should not revert, as we support multiple proofs being delivered for a single request.
         bytes[] memory paymentErrors = boundlessMarket.priceAndFulfill(
@@ -3992,9 +3993,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsLocked.selector, request.id
+            ));
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, true);
@@ -4039,9 +4040,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsLocked.selector, request.id
+            ));
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, batch.fills[0]);
         vm.expectEmit(true, true, true, true);
@@ -4238,8 +4239,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        FulfillmentBatch memory batch =
-            createFulfillmentBatch(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.ImageIdAndJournal);
+        FulfillmentBatch memory batch = createFulfillmentBatch(
+            _asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.ImageIdAndJournal
+        );
         bytes32 expectedRequestDigest =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
@@ -4272,8 +4274,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        FulfillmentBatch memory batch =
-            createFulfillmentBatch(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.None);
+        FulfillmentBatch memory batch = createFulfillmentBatch(
+            _asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.None
+        );
         bytes32 expectedRequestDigest =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
@@ -4309,8 +4312,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        FulfillmentBatch memory batch =
-            createFulfillmentBatch(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.None);
+        FulfillmentBatch memory batch = createFulfillmentBatch(
+            _asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.None
+        );
 
         vm.expectRevert(IBoundlessMarket.UnfulfillableCallback.selector);
         boundlessMarket.fulfill(_asArray(batch));
@@ -4342,8 +4346,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
 
-        FulfillmentBatch memory batch =
-            createFillsAndSubmitRoot(_asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.ImageIdAndJournal);
+        FulfillmentBatch memory batch = createFillsAndSubmitRoot(
+            _asArray(request), _asArray(APP_JOURNAL), testProverAddress, FulfillmentDataType.ImageIdAndJournal
+        );
         bytes32 expectedRequestDigest =
             MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
 
