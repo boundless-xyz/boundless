@@ -34,23 +34,37 @@ const OPTIONAL_SECRETS: SecretMapping[] = [];
 
 const DEFAULT_SCHEDULE_COUNT = 20;
 const DEFAULT_SCHEDULE_WINDOW_MINUTES = 20;
+const DEFAULT_TASKS_PER_MINUTE = 2;
 
 type StaggeredScheduleSpec = {
-    /** EventBridge cron minute offset; fires at :MM, :MM+window, … each hour. */
+    /** EventBridge cron minute slot; fires at :MM, :MM+window, … each hour. */
     minute: number;
-    /** Passed to the task as START_BLOCK_OFFSET → start_block = finalized - minute. */
+    /** 0 = BLOCK_COUNT 1, 1 = BLOCK_COUNT 2 within the minute slot. */
+    taskIndex: number;
     startBlockOffset: number;
     blockCount: string;
     cronExpression: string;
 };
 
-function buildStaggeredSchedules(scheduleCount: number, windowMinutes: number): StaggeredScheduleSpec[] {
-    return Array.from({ length: scheduleCount }, (_, minute) => ({
-        minute,
-        startBlockOffset: minute,
-        blockCount: minute % 2 === 0 ? "1" : "2",
-        cronExpression: `cron(${minute}/${windowMinutes} * * * ? *)`,
-    }));
+/** Each minute slot runs two tasks: (bc=1, off=2m), (bc=2, off=2m+1). */
+function buildStaggeredSchedules(
+    scheduleCount: number,
+    windowMinutes: number,
+    tasksPerMinute: number,
+): StaggeredScheduleSpec[] {
+    const specs: StaggeredScheduleSpec[] = [];
+    for (let minute = 0; minute < scheduleCount; minute++) {
+        for (let taskIndex = 0; taskIndex < tasksPerMinute; taskIndex++) {
+            specs.push({
+                minute,
+                taskIndex,
+                startBlockOffset: minute * tasksPerMinute + taskIndex,
+                blockCount: String(taskIndex + 1),
+                cronExpression: `cron(${minute}/${windowMinutes} * * * ? *)`,
+            });
+        }
+    }
+    return specs;
 }
 
 export = () => {
@@ -77,13 +91,17 @@ export = () => {
         ?? parseInt(config.get("NUM_CONCURRENT_PROVERS") ?? "3", 10);
     const scheduleCount = config.getNumber("SCHEDULE_COUNT") ?? DEFAULT_SCHEDULE_COUNT;
     const scheduleWindowMinutes = config.getNumber("SCHEDULE_WINDOW_MINUTES") ?? DEFAULT_SCHEDULE_WINDOW_MINUTES;
+    const tasksPerMinute = config.getNumber("TASKS_PER_MINUTE") ?? DEFAULT_TASKS_PER_MINUTE;
     if (scheduleCount < 1) {
         throw new Error("SCHEDULE_COUNT must be at least 1");
     }
     if (scheduleWindowMinutes < 1) {
         throw new Error("SCHEDULE_WINDOW_MINUTES must be at least 1");
     }
-    const staggeredSchedules = buildStaggeredSchedules(scheduleCount, scheduleWindowMinutes);
+    if (tasksPerMinute < 1) {
+        throw new Error("TASKS_PER_MINUTE must be at least 1");
+    }
+    const staggeredSchedules = buildStaggeredSchedules(scheduleCount, scheduleWindowMinutes, tasksPerMinute);
 
     const slackTopicArn = config.get("SLACK_ALERTS_TOPIC_ARN");
     const pagerdutyTopicArn = config.get("PAGERDUTY_ALERTS_TOPIC_ARN");
@@ -358,14 +376,14 @@ export = () => {
     });
 
     for (const spec of staggeredSchedules) {
-        const { minute, startBlockOffset, blockCount, cronExpression } = spec;
+        const { minute, taskIndex, startBlockOffset, blockCount, cronExpression } = spec;
         const schedulePayload = JSON.stringify({
             startBlockOffset,
             blockCount,
         });
-        new aws.scheduler.Schedule(`${serviceName}-minute-${minute}`, {
-            name: `${serviceName}-minute-${minute}`,
-            description: `Minute ${minute}: START_BLOCK_OFFSET=${startBlockOffset}, BLOCK_COUNT=${blockCount}`,
+        new aws.scheduler.Schedule(`${serviceName}-m${minute}-t${taskIndex}`, {
+            name: `${serviceName}-m${minute}-t${taskIndex}`,
+            description: `Minute ${minute} task ${taskIndex}: START_BLOCK_OFFSET=${startBlockOffset}, BLOCK_COUNT=${blockCount}`,
             flexibleTimeWindow: {
                 mode: "OFF",
             },
@@ -459,6 +477,7 @@ export = () => {
         ),
         scheduleCount,
         scheduleWindowMinutes,
+        tasksPerMinute,
         schedules: staggeredSchedules,
     };
 

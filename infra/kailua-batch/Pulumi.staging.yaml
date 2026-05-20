@@ -12,7 +12,8 @@ config:
   kailua-batch:ASSIGN_PUBLIC_IP: "false"
   kailua-batch:SCHEDULE_COUNT: "1"
   kailua-batch:SCHEDULE_WINDOW_MINUTES: "20"
-  kailua-batch:MAX_RUNNING_TASKS: "2"
+  kailua-batch:TASKS_PER_MINUTE: "2"
+  kailua-batch:MAX_RUNNING_TASKS: "4"
   kailua-batch:SKIP_AWAIT_PROOF: "true"
   kailua-batch:KAILUA_WORKDIR: /kailua
   kailua-batch:MODE: debug
