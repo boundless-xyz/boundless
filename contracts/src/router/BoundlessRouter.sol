@@ -441,7 +441,7 @@ contract BoundlessRouter is Initializable, AccessControlUpgradeable, UUPSUpgrade
                 }
             } else {
                 try IBoundlessJointVerifierAssessor(e.impl).verifyJoint{gas: e.gasLimit}(
-                    requestDigests[i], batch.fills[i].claimDigest, batch.prover, batch.fills[i].seal
+                    batch.requests[i], batch.fills[i], requestDigests[i], batch.prover
                 ) {} catch {
                     revert VerifierFailed(i, sealSel);
                 }
