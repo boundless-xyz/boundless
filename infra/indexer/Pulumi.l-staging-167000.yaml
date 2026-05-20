@@ -8,7 +8,7 @@ config:
     secure: v1:QB2wYXLYL8YMFjKv:0Wor/wkwEKeWIgw/AIUl8DfOejQclWoCMnWcSZKlPgB5/I+h4A8Fp5Irq0fXQQpyvy41FHE3+bWAxg==
   indexer:BENTO_API_URL:
     secure: v1:yQHv6Mz2ADMBiSw6:6oLhPyTbT4OEe5KQ1xB6k3PDSggTEbDIVW32eUIZRSvUHDmUPRG6+K9z9D0OWyoeLUrPBQnpIdvnRuE=
-  indexer:BLOCK_DELAY: "10"
+  indexer:BLOCK_DELAY: "30"
   indexer:BOUNDLESS_ADDRESS: 0x60d11ef5d4608bab18a663fd486d3b9f162172cf
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:CHAIN_ID: "167000"
