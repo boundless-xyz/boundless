@@ -15,12 +15,15 @@ import {FulfillmentBatch} from "../../types/FulfillmentBatch.sol";
 ///         `predicate`. The adapter does NOT verify request authenticity —
 ///         that is the market's job (binding check before dispatch).
 ///
-///         One adapter ships in v1: `R0BoundlessAssessorAdapter` — verifies
-///         an off-chain merkle commitment proof produced by the R0 assessor
-///         guest. Fixed ~280k Groth16 verify per call, amortized across all
-///         fills in the batch.
+///         Two adapters are expected at v1:
+///           * Native Solidity (`OnChainAssessor`) — evaluates each predicate
+///             directly on-chain. Cheap per-fill (~1-2k gas) but pays for the
+///             slim-payload calldata.
+///           * R0 STARK (`R0BoundlessAssessorAdapter`) — verifies an off-chain
+///             merkle commitment proof. Fixed ~280k Groth16 verify per call,
+///             amortized across all fills in the batch.
 ///
-///         Brokers select an adapter by setting the first 4 bytes of
+///         Brokers choose between them by setting the first 4 bytes of
 ///         `assessorSeal` to the registered adapter's selector. The router
 ///         dispatches accordingly; the market is unchanged.
 ///
@@ -31,7 +34,8 @@ import {FulfillmentBatch} from "../../types/FulfillmentBatch.sol";
 ///         - `prover` is a universal arg: the market needs a trusted prover
 ///           for crediting / slashing; the adapter binds it via its own
 ///           mechanism (R0 STARK journal commitment; future signature payload;
-///           etc.).
+///           etc.). Native on-chain adapter trusts `msg.sender`-equivalent at
+///           the market layer.
 ///         - Terminal seam. Classes with this `interfaceTag` are referenced
 ///           by other classes' `requiredAssessorClass` and MUST never be
 ///           selected as a verifier class.
