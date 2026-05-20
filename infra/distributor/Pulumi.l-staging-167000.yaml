@@ -9,15 +9,15 @@ config:
     secure: v1:8BTs0xpu016Gn0dn:JqqxlgmdxwYiuqLp6OQdPV3OyCywFBgEfbuwwTp0FUhw/wK5X1YjVzSaYWvQXr9HDoynfXp9MWfIL1imGRus2r+0UFMasHch/obxvuXnFswmuPtVXZIV9j+1JTzgMtPUnUqrqSYQvuAzuMhFa7l8Pe/kMSKMDSLVnKBtOqg4dA==
   distributor:COLLATERAL_TOKEN_ADDR: 0xC284A781072442cC1882a8Db4573990B7B49DaC4
   distributor:DISTRIBUTOR_ADDRESS: 0x59Ad086d983014858a87487af3B1f90A7A31BBf1
-  distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.5"
+  distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.1"
   distributor:DISTRIBUTOR_PRIVATE_KEY:
     secure: v1:IQDZawyZgXm/p3Gt:weaUrEWHJ7L2VG/ZkYj8crtdN5Bs9yQvcJvjYntxYNiSK5cEooWmPA4N82svWht6cwDVAYGj/wrJ5zzM/o0G3lzvRw0KjTxaZZtPfog1OwE=
   distributor:DISTRIBUTOR_STAKE_ALERT_THRESHOLD: "200.0"
   distributor:DOCKER_DIR: ../../
   distributor:DOCKER_TAG: latest
   distributor:ENABLE_EXTERNAL_TOPUP: "false"
-  distributor:ETH_THRESHOLD: "0.008"
-  distributor:ETH_TOP_UP_AMOUNT: "0.02"
+  distributor:ETH_THRESHOLD: "0.005"
+  distributor:ETH_TOP_UP_AMOUNT: "0.01"
   distributor:EXTERNAL_COLLATERAL_THRESHOLD: "50"
   distributor:EXTERNAL_LIFETIME_ALLOWANCE: "100"
   distributor:EXTERNAL_PER_TOP_UP_AMOUNT: "50"
@@ -28,7 +28,7 @@ config:
   distributor:LOG_LEVEL: info,boundless_market=debug
   distributor:MIN_BCYCLES_THRESHOLD: "100"
   distributor:ORDER_GENERATOR_KEYS:
-    secure: v1:cgFbnETQoySqs0jo:x17dGakW/ymvvbVtP3NrhzCOWfKYkkLdoz6Yw8+d2iGfeELfZMtJtaKPlTfI0ComWiS1WLILzY37hCGKBRp5LF/igEiXpThlBDow1FDPEko/zg8HcAAiN9iKD9NE+9xyWrcuCdqUVV+qcVjXWmiABDSzrVTUHnOS1eiDaqwVm9jJwLQWOhSQUGcoG6jsBAOfE8scqhUO7Lr1HdLhvg+tATH51lRmHKIKPZ6NqHnjk0tGDiKSLB7aBK/DlCvOTagF+i3N8afsWVlfdP6CmJ04idfyuXrSYsFLdrofJ1ICGf7Bi9e6Am653VM5UXYtR2hZJj8Ez3roRCt2rFVLI2fgtlks8OT+B1hAhaktr928JOykeouiUxA2CZbDabdWPzFnh2Sos0Do8UMAD8pEzCi7oJgAATclaPTB7fAKYUUXTAjQgftCoVtMwdKpW6BjtK1h3+X6wDBFyP7Pcce0Aj4g77sNyXXpz7YPTRpU9ptgfuD6CzjCkXQQ/aGyD37d/id7NQvRCXDPyVK9W/qoAEnxtYThei3Rv5FKVY2WZSnvPAdhRnLzT7k1AgN0Vu8nSFeC1klfFSMIB3Gymp7Gn8sF4uiqiHGoJcQ+k2f5NWKGLyeeTTSZr9tudQM7R54xJNFJwVMfv5lfzqX2lYVfSqUYxaaOx8qdPyJIZdyu2tI4YLBh0fvfLZqEXP2LJ04EmN3qR83Ht2Zr0w==
+    secure: v1:5TUiytnLfSYZ2JNX:hzs2hdLGzM93KgnpgTMGR1B5sdD5Bvc9YF9JZdwNdCPNxLmtzk+nzULGa8OX27WZlZbmAAMoJNXIdEno5cnv8tBhlMT+z2TzUXbkgHc3vI6gdCHTm0/nqJxgn30L4Jx3fzA+MEpQMKs763gfWQFNgK/KAIdUCQU02T2tVHDG6HG+kaBQult5jTTM+2xxlSfbW22MflwE6hJ9lO2/SbyzvKLr6vmagBPTGbbeitWCB7HhocKDrANlpvOgRpuHwl4B1onkkcvsjHAhal1yxzWHhIqTBdJGsP0ifTPSnkpQr7242Y6BUqcA7ZHJgT0EGfmNvVbrVDDiX6zrYwzKMiLvro35BfRjvZCEN6yM3C4YglsFF9M=
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   distributor:PROVER_ETH_DONATE_THRESHOLD: "0.2"
   distributor:PROVER_KEYS:
@@ -45,4 +45,4 @@ config:
     secure: v1:aEd+iCjLWIJt5/cD:F3Ilj+X1vTUH88QaW6uUZXTz8TxSmBy/jfyGdnLoT1IXAQGUOaIRTHY7Em0/
   distributor:CHAINALYSIS_API_KEY:
     secure: v1:EwnWzq+sLC1goQEA:goaoWUUx3rNoKBr7nrlcQdZlqwSiYFSymnOr0StAd/9KiQaMQeJUP3F3mGdHcjjO5X3FZEe3q9BN/3cDPIs4TFaLHUWlj3Ao6OjRbOQcZk0=
-  distributor:USE_GHCR: true
+  distributor:USE_GHCR: "true"
