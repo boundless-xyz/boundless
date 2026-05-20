@@ -470,8 +470,8 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
             // tail is byte-identical to `verifyBatch`'s, so we forward our own
             // calldata payload verbatim with the assessor's selector prepended.
             // ABI stability between the two signatures is load-bearing: if
-            // either drifts, the `R0BoundlessAssessorAdapter` end-to-end tests
-            // will fail because the adapter sees garbled calldata.
+            // either drifts, the OnChainAssessor / R0BoundlessAssessorAdapter
+            // end-to-end tests will fail because the adapter sees garbled calldata.
             _forwardCalldataAsStaticCall(asEntry.impl, asEntry.gasLimit, IBoundlessAssessor.verifyAssessor.selector);
         } else {
             // Joint class: no assessor seam — caller must signal that with an empty seal.

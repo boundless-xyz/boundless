@@ -14,50 +14,57 @@ import {Fulfillment} from "../../src/types/Fulfillment.sol";
 import {PredicateType} from "../../src/types/Predicate.sol";
 import {SlimRequest} from "../../src/types/SlimRequest.sol";
 
-/// @title AdapterBench — measures the R0 proof-based assessor adapter.
+/// @title AdapterBench — measures individual assessor adapters.
 ///
-/// @notice Benchmarks the assessor adapter via direct call (no router). Each
-///         row reports the adapter's own gas: STARK verification wrapping,
-///         claim-digest binding, etc. The market binding check and the router
-///         dispatch are out of scope here.
+/// @notice Benchmarks the assessor adapters via direct call (no router). Each
+///         row reports the adapter's own gas: predicate evaluation,
+///         signature/STARK verification, claim-digest binding, etc. The market
+///         binding check and the router dispatch are out of scope here.
 contract AdapterBench is BenchBase {
-    /// @notice A) Per-fill gas for the R0 adapter across batch sizes. Uses
-    ///         the order-generator-sized 16-byte journal (~80% of Base traffic).
+    /// @notice A) Compare adapters apples-to-apples by direct call. Uses the
+    ///         order-generator-sized 16-byte journal (~80% of Base traffic).
     function test_bench_adapters() external view {
         uint256[6] memory sizes = [uint256(1), 2, 5, 10, 50, 100];
 
         console2.log("");
-        console2.log("=== R0 adapter: DigestMatch, 16-byte journal, per-fill gas ===");
+        console2.log("=== Adapter comparison: DigestMatch, 16-byte journal, per-fill gas ===");
         console2.log(
-            "    Excludes the underlying Groth16 verify; add %d gas/batch for the real cost if not using set builder.",
+            "    R0 column excludes the underlying Groth16 verify; add %d gas/batch for the real cost if not using set builder.",
             R0_GROTH16_VERIFY_GAS
         );
         for (uint256 k = 0; k < sizes.length; k++) {
             uint256 n = sizes[k];
             (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(n, PredicateType.DigestMatch);
             (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
+            bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
             uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
-            console2.log("  N=%d  R0/fill=%d", n, gR0 / n);
+            console2.log("  N=%d  onChain/fill=%d  R0/fill=%d", n, gOnChain / n, gR0 / n);
         }
 
         console2.log("");
-        console2.log("=== R0 adapter: ClaimDigestMatch, per-fill gas ===");
+        console2.log("=== Adapter comparison: ClaimDigestMatch, per-fill gas ===");
         for (uint256 k = 0; k < sizes.length; k++) {
             uint256 n = sizes[k];
             (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(n, PredicateType.ClaimDigestMatch);
             (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
+            bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
             uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
-            console2.log("  N=%d  R0/fill=%d", n, gR0 / n);
+            console2.log("  N=%d  onChain/fill=%d  R0/fill=%d", n, gOnChain / n, gR0 / n);
         }
     }
 
-    /// @notice Show how journal size affects per-fill cost. R0 hashes the
+    /// @notice Show how journal size affects per-fill cost. The on-chain
+    ///         DigestMatch path does `sha256(abi.encode(journal))` twice per
+    ///         fill (once for predicate eval, once for claim-digest binding),
+    ///         so its cost grows linearly with journal length. R0 hashes the
     ///         journal once when computing `fulfillmentDataDigest`. The
     ///         ClaimDigestMatch path doesn't touch the journal at all.
     function test_bench_journalSize() external view {
@@ -70,11 +77,13 @@ contract AdapterBench is BenchBase {
             uint256 jbytes = journalSizes[k];
             (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(n, PredicateType.DigestMatch, jbytes);
             (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
+            bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
             uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
-            console2.log("  journal=%d bytes  R0/fill=%d", jbytes, gR0 / n);
+            console2.log("  journal=%d bytes  onChain/fill=%d  R0/fill=%d", jbytes, gOnChain / n, gR0 / n);
         }
 
         console2.log("");
@@ -83,11 +92,13 @@ contract AdapterBench is BenchBase {
             uint256 jbytes = journalSizes[k];
             (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(n, PredicateType.ClaimDigestMatch, jbytes);
             (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
+            bytes memory onChainSeal = _buildOnChainSeal(s, f);
             bytes memory r0Seal = _buildR0Seal();
 
+            uint256 gOnChain = directOnChain.measure(_makeBatch(s, f, proverAddr, onChainSeal), rd);
             uint256 gR0 = directR0.measure(_makeBatch(s, f, proverAddr, r0Seal), rd);
 
-            console2.log("  journal=%d bytes  R0/fill=%d", jbytes, gR0 / n);
+            console2.log("  journal=%d bytes  onChain/fill=%d  R0/fill=%d", jbytes, gOnChain / n, gR0 / n);
         }
     }
 }
