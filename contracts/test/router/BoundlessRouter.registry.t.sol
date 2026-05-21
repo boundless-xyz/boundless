@@ -471,23 +471,47 @@ contract BoundlessRouterRegistryTest is RouterTestBase {
         router.removeClass(A_CLASS);
     }
 
-    function test_removeClass_doesNotRemoveExistingEntries() public {
+    function test_removeClass_revertsWhenEntriesStillPinned() public {
         _addAssessorClass(A_CLASS, false);
-        address impl = address(new NullAssessor());
-        _instantiateAsAdmin(A_ENTRY, impl, A_CLASS);
+        _instantiateAsAdmin(A_ENTRY, address(new NullAssessor()), A_CLASS);
+
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.ClassHasEntries.selector, A_CLASS, uint256(1)));
+        router.removeClass(A_CLASS);
+    }
+
+    function test_removeClass_succeedsAfterAllEntriesRemoved() public {
+        _addAssessorClass(A_CLASS, false);
+        _instantiateAsAdmin(A_ENTRY, address(new NullAssessor()), A_CLASS);
+        assertEq(router.entriesPerClass(A_CLASS), uint256(1));
+
+        vm.prank(ADMIN);
+        router.removeEntry(A_ENTRY);
+        assertEq(router.entriesPerClass(A_CLASS), uint256(0));
 
         vm.prank(ADMIN);
         router.removeClass(A_CLASS);
+        assertTrue(router.tombstoned(A_CLASS));
+    }
 
-        // entries[A_ENTRY] still pins the impl. The dispatch path will refuse
-        // to use it because the parent class is gone (covered in Section B);
-        // here we only assert the row survives.
-        // TODO: does that make sense though? Should removing a class also remove its entries?
-        //  Or at least prevent deletion if there's impls so impls need to be deleted explicitly?
-        //  otherwise how can a impl be used without a class?
-        (address storedImpl, bytes4 storedClassId,) = router.entries(A_ENTRY);
-        assertEq(storedImpl, impl);
-        assertEq(storedClassId, A_CLASS);
+    function test_entriesPerClass_tracksInstantiateAndRemoveEntry() public {
+        _addAssessorClass(A_CLASS, false);
+        assertEq(router.entriesPerClass(A_CLASS), uint256(0));
+
+        _instantiateAsAdmin(A_ENTRY, address(new NullAssessor()), A_CLASS);
+        assertEq(router.entriesPerClass(A_CLASS), uint256(1));
+
+        bytes4 secondEntry = 0x0000_0029;
+        _instantiateAsAdmin(secondEntry, address(new NullAssessor()), A_CLASS);
+        assertEq(router.entriesPerClass(A_CLASS), uint256(2));
+
+        vm.prank(ADMIN);
+        router.removeEntry(A_ENTRY);
+        assertEq(router.entriesPerClass(A_CLASS), uint256(1));
+
+        vm.prank(ADMIN);
+        router.removeEntry(secondEntry);
+        assertEq(router.entriesPerClass(A_CLASS), uint256(0));
     }
 
     // ─── A.6 instantiate happy paths ──────────────────────────────────────

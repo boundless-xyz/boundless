@@ -109,6 +109,10 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     /// @notice Cached chain-default class id for O(1) lookup. Mirrors whichever class has
     ///         `isDefault == true`. `0x00000000` if none.
     bytes4 public defaultClassId;
+    /// @notice Live-entry count per class. Maintained on `instantiate` and `removeEntry`
+    ///         so `removeClass` can refuse to tombstone a class that still has reachable
+    ///         entries — admins must remove the entries first.
+    mapping(bytes4 => uint256) public entriesPerClass;
 
     // ─── Errors ────────────────────────────────────────────────────────────
 
@@ -242,6 +246,10 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///         or seal. Joint classes have no assessor seam — both fields must be zero.
     error AssessorMustBeAbsent();
 
+    /// @notice `removeClass` was called on a class that still has live entries. Admins must
+    ///         `removeEntry` each pinned impl before tombstoning the class.
+    error ClassHasEntries(bytes4 classId, uint256 liveEntries);
+
     // ─── Events ────────────────────────────────────────────────────────────
 
     event ClassAdded(bytes4 indexed classId, ClassMetadata metadata);
@@ -307,12 +315,14 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
 
     /// @notice Remove a class. Governance-only. Tombstones the class id so it can never
     ///         be re-registered in either namespace.
-    /// @dev    Removing a class does NOT remove its existing `entries`. Brokers and
-    ///         clients should treat any entry whose `classId` resolves to a removed
-    ///         class as unusable; the router's per-fill loop guards against this via the
-    ///         class-existence check inside `_classTagOf`.
+    /// @dev    Reverts with `ClassHasEntries` if the class still has live entries; admins
+    ///         must `removeEntry` each pinned impl first. This keeps the entry map free
+    ///         of rows pointing at non-live classes and forces explicit acknowledgement
+    ///         of the impls being orphaned.
     function removeClass(bytes4 classId) external onlyRole(ADMIN_ROLE) {
         if (classes[classId].interfaceTag == bytes4(0)) revert ClassUnknown(classId);
+        uint256 live = entriesPerClass[classId];
+        if (live != 0) revert ClassHasEntries(classId, live);
         if (defaultClassId == classId) {
             defaultClassId = bytes4(0);
             emit DefaultClassChanged(classId, bytes4(0));
@@ -355,13 +365,16 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
 
         uint64 effectiveGas = gasLimit == 0 ? pc.defaultGasLimit : gasLimit;
         entries[selector] = Entry({impl: impl, classId: parentClassId, gasLimit: effectiveGas});
+        entriesPerClass[parentClassId]++;
         emit EntryAdded(selector, impl, parentClassId, effectiveGas);
     }
 
     /// @notice Remove an entry. Governance-only. Tombstones the selector.
     function removeEntry(bytes4 selector) external onlyRole(ADMIN_ROLE) {
-        if (entries[selector].impl == address(0)) revert EntryUnknown(selector);
+        Entry memory e = entries[selector];
+        if (e.impl == address(0)) revert EntryUnknown(selector);
         delete entries[selector];
+        entriesPerClass[e.classId]--;
         tombstoned[selector] = true;
         emit EntryTombstoned(selector);
     }
@@ -424,7 +437,7 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
         //    lookup, not N — the common case when one verifier serves a whole batch.
         Entry memory e = firstEntry;
         bytes4 sealSel = firstSel;
-        for (uint256 i = 0; i < n;) {
+        for (uint256 i = 0; i < n; i++) {
             if (i != 0) {
                 bytes4 nextSel = _sealSelector(batch.fills[i].seal);
                 if (nextSel != sealSel) {
@@ -449,9 +462,6 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
                 catch {
                     revert VerifierFailed(i, sealSel);
                 }
-            }
-            unchecked {
-                ++i;
             }
         }
 

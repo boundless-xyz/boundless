@@ -204,18 +204,10 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
         router.verifyBatch(batch, digests);
     }
 
-    function test_verifyBatch_revertsWhenClassWasRemoved() public {
-        _setupVerifierEcosystem();
-        // TODO: maybe we should prevent this case from admin side. still good that it will fail here though
-        // Tombstone the parent class while the entry still pins it.
-        vm.prank(ADMIN);
-        router.removeClass(V_CLASS);
-
-        FulfillmentBatch memory batch = _verifierBatch(1);
-        bytes32[] memory digests = new bytes32[](1);
-        vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.ClassRemoved.selector, V_CLASS));
-        router.verifyBatch(batch, digests);
-    }
+    // The dispatch-side `ClassRemoved` branch in `_classTagOf` is now
+    // unreachable via the public API — `removeClass` requires the class to
+    // have no live entries, so an entry whose `classId` resolves to a
+    // tombstoned class cannot exist. The branch remains as defense in depth.
 
     function test_verifyBatch_revertsOnTerminalAssessorAsVerifier() public {
         _setupVerifierEcosystem();
