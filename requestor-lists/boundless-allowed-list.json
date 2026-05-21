@@ -11,14 +11,6 @@
   },
   "requestors": [
     {
-      "address": "0x371479ca8a23b662f5b08d137bb21a4850861aca",
-      "chainId": 8453,
-      "name": "Allowed Requestor",
-      "description": "",
-      "tags": [],
-      "extensions": {}
-    },
-    {
       "address": "0x067D62CBCC72bBb02358cEB85aBE817249AB616b",
       "chainId": 8453,
       "name": "Allowed Requestor",
