@@ -208,7 +208,7 @@ mod tests {
             boundless_market::prover_utils::RequestEvaluation,
             boundless_market::prover_utils::OrderPricingError,
         > {
-            anyhow::bail!("cancel backend does not evaluate requests")
+            Err(anyhow::anyhow!("cancel backend does not evaluate requests").into())
         }
 
         async fn process_order(&self, _cmd: ProcessOrder) -> anyhow::Result<OrderProcessProgress> {

@@ -271,11 +271,11 @@ pub(crate) mod tests {
     use crate::config::{defaults, MarketConfig};
     use crate::order_pricer::types::ActivePreflights;
     use crate::{
-        backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend},
+        backend::{BackendEntry, BackendRouter, Risc0Backend},
         chain_monitor_v2::ChainMonitorService,
         db::SqliteDb,
-        provers::{DefaultProver, ProofResult, Prover, ProverError},
-        FulfillmentType,
+        provers::{DefaultProver, ProofResult, Prover, ProverError, ProverObj},
+        ConfigurableDownloader, FulfillmentType,
     };
     use crate::{now_timestamp, OrderPricingContext, OrderPricingOutcome};
     use alloy::{

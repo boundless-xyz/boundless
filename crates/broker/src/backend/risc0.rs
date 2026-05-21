@@ -12,16 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{Address, FixedBytes, B256, U256};
+use std::{path::PathBuf, sync::Arc};
+
 use alloy::sol_types::{SolStruct, SolValue};
+use alloy::{
+    network::Ethereum,
+    primitives::{Address, FixedBytes, B256, U256},
+    providers::Provider,
+};
 use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
     contracts::{
-        eip712_domain, encode_seal, AssessorJournal, Fulfillment as MarketFulfillment,
-        FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
-        UNSPECIFIED_SELECTOR,
+        boundless_market::BoundlessMarketService, eip712_domain, encode_seal, AssessorJournal,
+        Fulfillment as MarketFulfillment, FulfillmentData, FulfillmentDataImageIdAndJournal,
+        FulfillmentDataType, PredicateType, UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     prover_utils::{
@@ -30,10 +36,13 @@ use boundless_market::{
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector, SelectorExt},
     storage::StorageDownloader,
+    Deployment,
 };
 use hex::FromHex;
 use risc0_aggregation::{GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
+use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
+    compute_image_id,
     sha::{Digest as Risc0Digest, Digestible},
     MaybePruned, Receipt, ReceiptClaim,
 };
@@ -169,23 +178,208 @@ impl Risc0Backend {
         selectors
     }
 
+    #[cfg(test)]
     pub fn with_set_builder_program_id(mut self, set_builder_program_id: Risc0Digest) -> Self {
         self.set_builder_program_id = Some(set_builder_program_id);
         self
     }
 
+    #[cfg(test)]
     pub fn with_set_verifier_addr(mut self, set_verifier_addr: Address) -> Self {
         self.set_verifier_addr = Some(set_verifier_addr);
         self
     }
 
+    #[cfg(test)]
     pub(crate) fn with_batch_processor(mut self, batch_processor: BatchProcessorObj) -> Self {
         self.batch_processor = Some(batch_processor);
         self
     }
 
+    pub async fn with_batch_processor_from_deployment<P>(
+        mut self,
+        db: DbObj,
+        config: ConfigLock,
+        provider: &Arc<P>,
+        deployment: &Deployment,
+        prover_addr: Address,
+        chain_id: u64,
+    ) -> Result<Self>
+    where
+        P: Provider<Ethereum> + Clone + 'static,
+    {
+        let set_builder_img_id =
+            self.fetch_and_upload_set_builder_image(provider, deployment, &config).await?;
+        let assessor_img_id =
+            self.fetch_and_upload_assessor_image(provider, deployment, &config).await?;
+
+        let batch_processor = Arc::new(Risc0BatchProcessor::new(
+            db,
+            config,
+            self.snark_prover.clone(),
+            set_builder_img_id,
+            assessor_img_id,
+            deployment.boundless_market_address,
+            prover_addr,
+            chain_id,
+        ));
+
+        self.set_builder_program_id = Some(set_builder_img_id);
+        self.set_verifier_addr = Some(deployment.set_verifier_address);
+        self.batch_processor = Some(batch_processor);
+        Ok(self)
+    }
+
     fn batch_processor(&self) -> Result<&BatchProcessorObj> {
         self.batch_processor.as_ref().context("RISC0 backend is missing batch processor")
+    }
+
+    async fn fetch_and_upload_set_builder_image<P>(
+        &self,
+        provider: &Arc<P>,
+        deployment: &Deployment,
+        config: &ConfigLock,
+    ) -> Result<Risc0Digest>
+    where
+        P: Provider<Ethereum> + Clone + 'static,
+    {
+        let set_verifier_contract = SetVerifierService::new(
+            deployment.set_verifier_address,
+            provider.clone(),
+            Address::ZERO,
+        );
+
+        let (image_id, image_url_str) = set_verifier_contract
+            .image_info()
+            .await
+            .context("Failed to get set builder image_info")?;
+        let image_id = Risc0Digest::from_bytes(image_id.0);
+        let (path, default_url) = {
+            let config = config.lock_all().context("Failed to lock config")?;
+            (
+                config.prover.set_builder_guest_path.clone(),
+                config.market.set_builder_default_image_url.clone(),
+            )
+        };
+
+        self.fetch_and_upload_image("set builder", image_id, image_url_str, path, default_url)
+            .await
+            .context("uploading set builder image")?;
+        Ok(image_id)
+    }
+
+    async fn fetch_and_upload_assessor_image<P>(
+        &self,
+        provider: &Arc<P>,
+        deployment: &Deployment,
+        config: &ConfigLock,
+    ) -> Result<Risc0Digest>
+    where
+        P: Provider<Ethereum> + Clone + 'static,
+    {
+        let boundless_market = BoundlessMarketService::new_for_broker(
+            deployment.boundless_market_address,
+            provider.clone(),
+            Address::ZERO,
+        );
+        let (image_id, image_url_str) =
+            boundless_market.image_info().await.context("Failed to get assessor image_info")?;
+        let image_id = Risc0Digest::from_bytes(image_id.0);
+
+        let (path, default_url) = {
+            let config = config.lock_all().context("Failed to lock config")?;
+            (
+                config.prover.assessor_set_guest_path.clone(),
+                config.market.assessor_default_image_url.clone(),
+            )
+        };
+
+        self.fetch_and_upload_image("assessor", image_id, image_url_str, path, default_url)
+            .await
+            .context("uploading assessor image")?;
+        Ok(image_id)
+    }
+
+    async fn fetch_and_upload_image(
+        &self,
+        image_label: &'static str,
+        image_id: Risc0Digest,
+        contract_url: String,
+        program_path: Option<PathBuf>,
+        default_url: String,
+    ) -> Result<()> {
+        if self.snark_prover.has_image(&image_id.to_string()).await? {
+            tracing::debug!("{} image {} already uploaded, skipping pull", image_label, image_id);
+            return Ok(());
+        }
+
+        tracing::debug!("Fetching {} image", image_label);
+        let program_bytes = if let Some(path) = program_path {
+            tokio::fs::read(&path)
+                .await
+                .with_context(|| format!("Failed to read program file: {}", path.display()))?
+        } else {
+            match self.download_image(&default_url, "default").await {
+                Ok(bytes) => {
+                    let computed_id =
+                        compute_image_id(&bytes).context("Failed to compute image ID")?;
+                    if computed_id == image_id {
+                        tracing::debug!(
+                            "Successfully verified {} image from default URL",
+                            image_label
+                        );
+                        bytes
+                    } else {
+                        tracing::warn!(
+                            "{} image ID mismatch from default URL: expected {}, got {}, falling back to contract URL",
+                            image_label,
+                            image_id,
+                            computed_id
+                        );
+                        self.download_image(&contract_url, "contract").await?
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to download {} image from default URL: {}, falling back to contract URL",
+                        image_label,
+                        e
+                    );
+                    self.download_image(&contract_url, "contract").await?
+                }
+            }
+        };
+
+        let computed_id = compute_image_id(&program_bytes).context("Failed to compute image ID")?;
+
+        if computed_id != image_id {
+            anyhow::bail!(
+                "{} image ID mismatch: expected {}, got {}",
+                image_label,
+                image_id,
+                computed_id
+            );
+        }
+
+        tracing::debug!("Uploading {} image to bento", image_label);
+        self.snark_prover
+            .upload_image(&image_id.to_string(), program_bytes)
+            .await
+            .with_context(|| format!("Failed to upload {} image to prover", image_label))?;
+        Ok(())
+    }
+
+    async fn download_image(&self, url: &str, source_name: &str) -> Result<Vec<u8>> {
+        tracing::trace!("Attempting to download image from {}: {}", source_name, url);
+
+        let bytes = self
+            .downloader
+            .download(url)
+            .await
+            .with_context(|| format!("Failed to download image from {}", source_name))?;
+
+        tracing::trace!("Successfully downloaded image from {}", source_name);
+        Ok(bytes)
     }
 
     async fn start_order(&self, order: &Order) -> Result<String> {

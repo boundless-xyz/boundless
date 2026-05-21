@@ -196,7 +196,9 @@ mod tests {
 
     use crate::OrderStatus;
 
-    use super::super::types::{OrderFulfillmentArtifact, OrderFulfillmentResult, ProcessedOrder};
+    use super::super::types::{
+        Backend, OrderFulfillmentArtifact, OrderFulfillmentResult, ProcessedOrder,
+    };
 
     #[derive(Debug)]
     struct MockBackend {
@@ -263,7 +265,7 @@ mod tests {
             _request: EvaluationRequest,
             _limits: EvaluationLimits,
         ) -> Result<RequestEvaluation, OrderPricingError> {
-            anyhow::bail!("mock backend does not evaluate requests")
+            Err(anyhow::anyhow!("mock backend does not evaluate requests").into())
         }
 
         async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {

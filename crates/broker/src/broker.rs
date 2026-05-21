@@ -19,11 +19,10 @@
 //! private `validate_deployment_config` it delegates to). Everything here used
 //! to live in `lib.rs`.
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::Ethereum,
-    primitives::Address,
     providers::{DynProvider, Provider, WalletProvider},
 };
 use alloy_chains::NamedChain;
@@ -32,18 +31,15 @@ use boundless_market::{
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
-    storage::StorageDownloader,
     Deployment,
 };
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-use risc0_zkvm::sha::Digest;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::{
     args::{ChainPipeline, CoreArgs},
-    backend::{BackendEntry, BackendRouter, Risc0Backend, Risc0BatchProcessor},
+    backend::{BackendEntry, BackendRouter, Risc0Backend},
     batcher, chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
@@ -103,168 +99,6 @@ impl Broker {
             .context("Failed to initialize downloader")?;
 
         Ok(Self { args, config_watcher, downloader })
-    }
-
-    async fn fetch_and_upload_set_builder_image<P>(
-        &self,
-        prover: &ProverObj,
-        provider: &Arc<P>,
-        deployment: &Deployment,
-        config: &ConfigLock,
-    ) -> Result<Digest>
-    where
-        P: Provider<Ethereum> + Clone + 'static,
-    {
-        let set_verifier_contract = SetVerifierService::new(
-            deployment.set_verifier_address,
-            provider.clone(),
-            Address::ZERO,
-        );
-
-        let (image_id, image_url_str) = set_verifier_contract
-            .image_info()
-            .await
-            .context("Failed to get set builder image_info")?;
-        let image_id = Digest::from_bytes(image_id.0);
-        let (path, default_url) = {
-            let config = config.lock_all().context("Failed to lock config")?;
-            (
-                config.prover.set_builder_guest_path.clone(),
-                config.market.set_builder_default_image_url.clone(),
-            )
-        };
-
-        self.fetch_and_upload_image(
-            "set builder",
-            prover,
-            image_id,
-            image_url_str,
-            path,
-            default_url,
-        )
-        .await
-        .context("uploading set builder image")?;
-        Ok(image_id)
-    }
-
-    async fn fetch_and_upload_assessor_image<P>(
-        &self,
-        prover: &ProverObj,
-        provider: &Arc<P>,
-        deployment: &Deployment,
-        config: &ConfigLock,
-    ) -> Result<Digest>
-    where
-        P: Provider<Ethereum> + Clone + 'static,
-    {
-        let boundless_market = BoundlessMarketService::new_for_broker(
-            deployment.boundless_market_address,
-            provider.clone(),
-            Address::ZERO,
-        );
-        let (image_id, image_url_str) =
-            boundless_market.image_info().await.context("Failed to get assessor image_info")?;
-        let image_id = Digest::from_bytes(image_id.0);
-
-        let (path, default_url) = {
-            let config = config.lock_all().context("Failed to lock config")?;
-            (
-                config.prover.assessor_set_guest_path.clone(),
-                config.market.assessor_default_image_url.clone(),
-            )
-        };
-
-        self.fetch_and_upload_image("assessor", prover, image_id, image_url_str, path, default_url)
-            .await
-            .context("uploading assessor image")?;
-        Ok(image_id)
-    }
-
-    async fn fetch_and_upload_image(
-        &self,
-        image_label: &'static str,
-        prover: &ProverObj,
-        image_id: Digest,
-        contract_url: String,
-        program_path: Option<PathBuf>,
-        default_url: String,
-    ) -> Result<()> {
-        if prover.has_image(&image_id.to_string()).await? {
-            tracing::debug!("{} image {} already uploaded, skipping pull", image_label, image_id);
-            return Ok(());
-        }
-
-        tracing::debug!("Fetching {} image", image_label);
-        let program_bytes = if let Some(path) = program_path {
-            // Read from local file if provided
-            tokio::fs::read(&path)
-                .await
-                .with_context(|| format!("Failed to read program file: {}", path.display()))?
-        } else {
-            // Try default URL first, fall back to contract URL if it fails or ID doesn't match
-            match self.download_image(&default_url, "default").await {
-                Ok(bytes) => {
-                    let computed_id = risc0_zkvm::compute_image_id(&bytes)
-                        .context("Failed to compute image ID")?;
-                    if computed_id == image_id {
-                        tracing::debug!(
-                            "Successfully verified {} image from default URL",
-                            image_label
-                        );
-                        bytes
-                    } else {
-                        tracing::warn!(
-                            "{} image ID mismatch from default URL: expected {}, got {}, falling back to contract URL",
-                            image_label,
-                            image_id,
-                            computed_id
-                        );
-                        self.download_image(&contract_url, "contract").await?
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to download {} image from default URL: {}, falling back to contract URL",
-                        image_label,
-                        e
-                    );
-                    self.download_image(&contract_url, "contract").await?
-                }
-            }
-        };
-
-        // Final verification - ensure we have the correct image
-        let computed_id =
-            risc0_zkvm::compute_image_id(&program_bytes).context("Failed to compute image ID")?;
-
-        if computed_id != image_id {
-            anyhow::bail!(
-                "{} image ID mismatch: expected {}, got {}",
-                image_label,
-                image_id,
-                computed_id
-            );
-        }
-
-        tracing::debug!("Uploading {} image to bento", image_label);
-        prover
-            .upload_image(&image_id.to_string(), program_bytes)
-            .await
-            .with_context(|| format!("Failed to upload {} image to prover", image_label))?;
-        Ok(())
-    }
-
-    async fn download_image(&self, url: &str, source_name: &str) -> Result<Vec<u8>> {
-        tracing::trace!("Attempting to download image from {}: {}", source_name, url);
-
-        let bytes = self
-            .downloader
-            .download(url)
-            .await
-            .with_context(|| format!("Failed to download image from {}", source_name))?;
-
-        tracing::trace!("Successfully downloaded image from {}", source_name);
-        Ok(bytes)
     }
 
     fn handle_join_result(
@@ -776,26 +610,16 @@ impl Broker {
         );
 
         if !self.args.listen_only {
-            let set_builder_img_id = self
-                .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
-                .await?;
-            let assessor_img_id = self
-                .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
-                .await?;
-            let risc0_batch_processor = Arc::new(Risc0BatchProcessor::new(
-                db.clone(),
-                config.clone(),
-                batch_prover.clone(),
-                set_builder_img_id,
-                assessor_img_id,
-                deployment.boundless_market_address,
-                prover_addr,
-                chain_id,
-            ));
             risc0_backend = risc0_backend
-                .with_set_builder_program_id(set_builder_img_id)
-                .with_set_verifier_addr(deployment.set_verifier_address)
-                .with_batch_processor(risc0_batch_processor);
+                .with_batch_processor_from_deployment(
+                    db.clone(),
+                    config.clone(),
+                    &provider,
+                    deployment,
+                    prover_addr,
+                    chain_id,
+                )
+                .await?;
         }
 
         let backend_router = Arc::new(

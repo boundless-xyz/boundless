@@ -21,7 +21,7 @@ mod risc0;
 mod router;
 mod types;
 
-pub use risc0::{Risc0Backend, Risc0BatchProcessor};
+pub use risc0::Risc0Backend;
 pub use router::{BackendEntry, BackendRouter};
 pub use types::{
     AssessorProofId, BackendBatchState, BackendError, BackendId, BatchOrder,
@@ -30,5 +30,7 @@ pub use types::{
     ProofId, UpdateBatch, VerifierUpdate,
 };
 
+#[cfg(test)]
+pub use risc0::Risc0BatchProcessor;
 #[cfg(test)]
 pub use types::{Backend, BatchClose, BatchSizeEstimate, SubmissionPlan};
