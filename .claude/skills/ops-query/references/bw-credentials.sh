@@ -13,20 +13,46 @@
 # fuzzy substring matching — `boundless-ops-indexer-prod_base` would also
 # match `boundless-ops-indexer-prod_base_sepolia`. We require an exact match.
 
-# Verify bw is installed and unlocked enough to read items. `bw status` is
-# unreliable on some recent versions (see GH bitwarden/clients#20703), so we
-# probe with a cheap real read instead. Fails loud; never prompts.
+# Verify bw is installed and the vault is unlocked. Uses `bw status` (JSON)
+# rather than a `bw list` probe because a locked vault makes `bw` prompt for
+# the master password interactively; with stdin closed the readline call
+# crashes but `bw` still exits 0, so the probe would falsely report ready.
+# `bw status` is reliable on the pinned 2026.2.0; the regression referenced
+# in GH bitwarden/clients#20703 only affects 2026.3.x / 2026.4.x, which this
+# setup explicitly refuses to support.
 bw_ensure_ready() {
   if ! command -v bw >/dev/null 2>&1; then
-    echo "bw not installed. brew install bitwarden-cli" >&2
-    echo "Then: bw login && export BW_SESSION=\"\$(bw unlock --raw)\"" >&2
+    echo "bw not installed. Pin to 2026.2.0 (Homebrew ships a broken release):" >&2
+    echo "  npm install -g @bitwarden/cli@2026.2.0" >&2
+    echo "Then: bw login" >&2
     return 1
   fi
-  if ! bw list items --search '__bw_ensure_ready_probe__' </dev/null >/dev/null 2>&1; then
-    echo "Bitwarden vault is locked or session is invalid. Run:" >&2
-    echo "  export BW_SESSION=\"\$(bw unlock --raw)\"" >&2
-    return 1
+  # Note: zsh reserves `status` as a read-only alias for $?, so use a
+  # different name when sourcing in either bash or zsh.
+  local vault_state; vault_state="$(bw status 2>/dev/null | jq -r '.status // "unknown"')"
+  case "$vault_state" in
+    unlocked) return 0 ;;
+    locked|unauthenticated) ;;
+    *) echo "bw status returned '$vault_state'. Try \`bw login\` in a terminal and re-run." >&2; return 1 ;;
+  esac
+
+  # Locked and unauthenticated share the same recovery flow; the only
+  # difference is whether the user needs `bw login` first.
+  # Note: a no-restart "paste !export BW_SESSION=… into the prompt" path
+  # does NOT work here. Claude Code's Bash tool spawns a fresh subprocess
+  # for each call, so an export from the prompt's shell isn't visible to
+  # subsequent tool calls. BW_SESSION must be in the parent shell's
+  # environment when `claude` launches, so the subprocesses inherit it.
+  local prefix=""
+  if [ "$vault_state" = "unauthenticated" ]; then
+    echo "Bitwarden is not logged in. Exit Claude Code, then in the same shell run:" >&2
+    prefix="bw login && "
+  else
+    echo "Bitwarden vault is locked. Exit Claude Code, then in the same shell run:" >&2
   fi
+  echo "  ${prefix}export BW_SESSION=\"\$(bw unlock --raw)\"" >&2
+  echo "Re-launch \`claude\` so the child process inherits BW_SESSION." >&2
+  return 1
 }
 
 # Fetch a single item by exact name. Echoes the item JSON on stdout.

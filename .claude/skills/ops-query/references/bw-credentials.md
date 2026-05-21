@@ -83,9 +83,9 @@ The full item schema (exact field names per item type) lives in [`bw-migrate-fro
 
 ## Troubleshooting
 
-- **`bw_ensure_ready` says "vault is locked"** — re-run `export BW_SESSION="$(bw unlock --raw)"`. The previous session probably expired or you opened a new shell.
+- **`bw_ensure_ready` says "vault is locked"** — exit Claude Code, then in the same shell run `export BW_SESSION="$(bw unlock --raw)"` and re-launch `claude`. The child process inherits `BW_SESSION`. (A no-restart "paste `!export BW_SESSION=…` into the prompt" path *seems* like it should work but doesn't: Claude Code's Bash tool spawns a fresh subprocess per call, so an export from the prompt's shell isn't visible to subsequent tool calls.)
+- **`bw_ensure_ready` says "not logged in"** — same recovery, but `bw login &&` before the export.
 - **`bw get item` returns nothing** — the item name is wrong. Use `bw list items --search boundless-ops-` to see what's actually there. Names are case-sensitive.
-- **`bw status` shows `unauthenticated`** — you need `bw login` again. Happens after `bw logout` or master-password rotation.
 - **A custom field is missing** — Bitwarden lets you add fields via the web/desktop UI under "Custom fields"; pick **Text** for `db_url`, `chain`, `environment`, and **Hidden** for any secret you add.
 - **Stale data after a rotation** — run `bw sync` to fetch the latest vault contents from the server.
 
