@@ -71,7 +71,7 @@ impl OrderProcessor {
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
         let backend = Arc::new(Risc0Backend::new(
-            BackendId::new("risc0_v3").expect("static backend id is valid"),
+            Risc0Backend::default_id(),
             prover.clone(),
             snark_prover,
             downloader,

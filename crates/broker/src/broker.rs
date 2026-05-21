@@ -43,7 +43,7 @@ use url::Url;
 
 use crate::{
     args::{ChainPipeline, CoreArgs},
-    backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend, Risc0BatchProcessor},
+    backend::{BackendEntry, BackendRouter, Risc0Backend, Risc0BatchProcessor},
     batcher, chain_monitor_v2, channels,
     config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
@@ -766,7 +766,7 @@ impl Broker {
                 .build(),
         );
 
-        let risc0_backend_id = BackendId::new("risc0_v3")?;
+        let risc0_backend_id = Risc0Backend::default_id();
         let mut risc0_backend = Risc0Backend::new(
             risc0_backend_id.clone(),
             prover.clone(),

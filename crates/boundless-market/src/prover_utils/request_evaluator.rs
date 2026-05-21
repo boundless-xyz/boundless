@@ -72,6 +72,8 @@ pub struct NormalizedWork {
 
 impl NormalizedWork {
     pub fn new(units: u64) -> Self {
+        // TODO: define the cross-backend normalization policy once another backend lands.
+        // The current RISC0 evaluator maps normalized work 1:1 to total cycles.
         Self { units }
     }
 }

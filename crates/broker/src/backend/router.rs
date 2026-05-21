@@ -26,12 +26,10 @@ use boundless_market::prover_utils::{
 use crate::Order;
 
 use super::types::{
-    Backend, BackendError, BackendId, BatchClose, BatchSizeEstimate, BatchSizeEstimateRequest,
+    BackendError, BackendId, BackendObj, BatchClose, BatchSizeEstimate, BatchSizeEstimateRequest,
     BatchUpdate, CloseBatch, FulfillmentBatch, OrderProcessProgress, ProcessOrder, SubmissionPlan,
     UpdateBatch,
 };
-
-type BackendObj = Arc<dyn Backend>;
 
 #[derive(Clone, Default)]
 pub struct BackendRouter {
@@ -85,16 +83,13 @@ impl BackendRouter {
                     "selector {selector:?} is already registered to backend {existing_backend}"
                 );
             }
-        }
-
-        for selector in &entry.selectors {
             self.routes.insert(*selector, entry.id.clone());
         }
         self.backends.insert(entry.id.clone(), entry);
         Ok(self)
     }
 
-    fn backend_for_order(&self, order: &Order) -> Result<&BackendObj> {
+    fn backend_for_order(&self, order: &Order) -> Result<BackendObj> {
         let selector = order.request.requirements.selector;
         let backend_id = self
             .routes
@@ -102,14 +97,14 @@ impl BackendRouter {
             .with_context(|| format!("no backend registered for selector {selector:?}"))?;
         self.backends
             .get(backend_id)
-            .map(|entry| &entry.backend)
+            .map(|entry| entry.backend.clone())
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
-    fn backend_for_id(&self, backend_id: &BackendId) -> Result<&BackendObj> {
+    fn backend_for_id(&self, backend_id: &BackendId) -> Result<BackendObj> {
         self.backends
             .get(backend_id)
-            .map(|entry| &entry.backend)
+            .map(|entry| entry.backend.clone())
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
@@ -131,7 +126,7 @@ impl BackendRouter {
             )))
         })?;
         let backend =
-            self.backends.get(backend_id).map(|entry| &entry.backend).ok_or_else(|| {
+            self.backends.get(backend_id).map(|entry| entry.backend.clone()).ok_or_else(|| {
                 OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
                     "backend {backend_id} is not registered"
                 )))

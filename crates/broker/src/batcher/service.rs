@@ -86,7 +86,7 @@ impl BatcherService {
         prover: ProverObj,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
-        let backend_id = BackendId::new("risc0_v3")?;
+        let backend_id = Risc0Backend::default_id();
         let batch_processor = Arc::new(Risc0BatchProcessor::new(
             db.clone(),
             config.clone(),

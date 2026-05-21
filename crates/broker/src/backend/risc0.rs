@@ -21,13 +21,14 @@ use boundless_market::{
     contracts::{
         eip712_domain, encode_seal, AssessorJournal, Fulfillment as MarketFulfillment,
         FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
+        UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     prover_utils::{
         EvaluationLimits, EvaluationRequest, OrderPricingError, PreflightCache, RequestEvaluation,
         RequestEvaluator, Risc0RequestEvaluatorContext,
     },
-    selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, SelectorExt},
     storage::StorageDownloader,
 };
 use hex::FromHex;
@@ -40,6 +41,7 @@ use serde::{Deserialize, Serialize};
 
 const PREFLIGHT_CACHE_SIZE: u64 = 5000;
 const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60;
+const RISC0_V3_BACKEND_ID: &str = "risc0_v3";
 
 use crate::{
     config::ConfigLock,
@@ -124,6 +126,10 @@ pub struct Risc0Backend {
 }
 
 impl Risc0Backend {
+    pub fn default_id() -> BackendId {
+        BackendId::new(RISC0_V3_BACKEND_ID).expect("static RISC0 backend id is valid")
+    }
+
     pub fn new(
         id: BackendId,
         prover: ProverObj,
@@ -148,6 +154,19 @@ impl Risc0Backend {
             set_verifier_addr: None,
             batch_processor: None,
         }
+    }
+
+    fn selectors() -> Vec<FixedBytes<4>> {
+        let mut selectors = vec![
+            UNSPECIFIED_SELECTOR,
+            FixedBytes::from(SelectorExt::Groth16V3_0 as u32),
+            FixedBytes::from(SelectorExt::Blake3Groth16V0_1 as u32),
+        ];
+        if is_dev_mode() {
+            selectors.push(FixedBytes::from(SelectorExt::FakeReceipt as u32));
+            selectors.push(FixedBytes::from(SelectorExt::FakeBlake3Groth16 as u32));
+        }
+        selectors
     }
 
     pub fn with_set_builder_program_id(mut self, set_builder_program_id: Risc0Digest) -> Self {
@@ -288,7 +307,7 @@ impl Backend for Risc0Backend {
     }
 
     fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
-        SupportedSelectors::default().selectors.keys().copied().collect()
+        Self::selectors()
     }
 
     async fn evaluate_request(

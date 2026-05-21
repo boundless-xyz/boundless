@@ -28,76 +28,10 @@ use serde::{Deserialize, Serialize};
 use crate::{provers, FulfillmentType, Order, OrderStatus};
 use anyhow::Result;
 
-/// Stable broker-side identity for a backend registration.
-///
-/// This is intentionally distinct from a verifier selector: many selectors may
-/// route to the same backend, and broker policy/batching is keyed by backend.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct BackendId(String);
-
-impl BackendId {
-    pub fn new(value: impl Into<String>) -> Result<Self> {
-        let value = value.into();
-        if value.trim().is_empty() {
-            anyhow::bail!("backend id cannot be empty");
-        }
-        Ok(Self(value))
-    }
-}
-
-impl serde::Serialize for BackendId {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.0)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for BackendId {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
-        Self::new(value).map_err(serde::de::Error::custom)
-    }
-}
-
-impl fmt::Display for BackendId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl FromStr for BackendId {
-    type Err = anyhow::Error;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::new(value)
-    }
-}
-
-impl TryFrom<String> for BackendId {
-    type Error = anyhow::Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl TryFrom<&str> for BackendId {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
 macro_rules! string_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct $name(String);
 
         impl $name {
@@ -121,6 +55,25 @@ macro_rules! string_id {
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str(&self.0)
+            }
+        }
+
+        impl serde::Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_str(&self.0)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+                Self::new(value).map_err(serde::de::Error::custom)
             }
         }
 
@@ -150,6 +103,10 @@ macro_rules! string_id {
     };
 }
 
+string_id!(
+    BackendId,
+    "Stable broker-side identity for a backend registration. This is distinct from a verifier selector: many selectors may route to the same backend, and broker policy/batching is keyed by backend."
+);
 string_id!(ProofId, "Durable backend proof handle.");
 string_id!(CompressedProofId, "Durable backend compressed proof handle.");
 string_id!(AssessorProofId, "Durable backend assessor proof handle.");
@@ -273,7 +230,10 @@ pub struct FulfillmentBatch {
 ///
 /// This is intentionally shaped around the current market contracts. Backends produce the
 /// verifier artifacts, while the broker owns transaction orchestration. More general verifier
-/// calls belong in the future verifier-router contract adapter rather than this MVP enum.
+/// calls belong in the future verifier-router contract adapter rather than this MVP enum. For
+/// example, joint-verifier or on-chain-assessor flows should become additional backend-produced
+/// submission artifacts once the contract interface supports them; today the only required
+/// verifier-side preparation is submitting an RISC0 set-verifier root.
 pub enum VerifierUpdate {
     SubmitMerkleRoot { verifier: Address, root: B256, seal: Bytes },
 }
@@ -420,3 +380,5 @@ pub trait Backend: Send + Sync {
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan>;
 }
+
+pub(crate) type BackendObj = Arc<dyn Backend>;
