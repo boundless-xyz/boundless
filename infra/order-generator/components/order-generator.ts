@@ -168,6 +168,12 @@ export class OrderGenerator extends pulumi.ComponentResource {
         name: 'INDEXER_URL',
         valueFrom: indexerUrlSecret.arn,
       },
+      {
+        // Distinct env var because Deployment::indexer_url already binds
+        // INDEXER_URL; the throttle field uses a non-colliding name.
+        name: 'THROTTLE_INDEXER_URL',
+        valueFrom: indexerUrlSecret.arn,
+      },
     ];
 
     if (args.autoDeposit) {
