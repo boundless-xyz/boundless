@@ -25,7 +25,7 @@ config:
   kailua-batch:LOG_VERBOSITY: -vvv
   kailua-batch:BOUNDLESS_ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
   kailua-batch:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch"
-  kailua-batch:ENABLE_PAGERDUTY_ALERTS: "false"
+  kailua-batch:ENABLE_PAGERDUTY_ALERTS: "true"
   kailua-batch:L1_RPC:
     secure: v1:exme7EEt73SJRNrx:S1VivX/+bq73Bw2fbW4k890zKkd885QXXqduKFaoBT8X/aRu79pZ4no6tW0dhVt7qYzq8eBfuX63kKTW1l51PsKpbKjhRigHwUQ4KwNtH1m1V0z5oB1/NVw/mqbo34zD
   kailua-batch:L2_RPC:
