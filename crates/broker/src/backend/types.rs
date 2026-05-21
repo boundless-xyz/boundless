@@ -20,6 +20,9 @@ use boundless_market::contracts::{
     AssessorCallback, AssessorSelector, EIP712DomainSaltless, Fulfillment as MarketFulfillment,
     ProofRequest,
 };
+use boundless_market::prover_utils::{
+    EvaluationLimits, EvaluationRequest, OrderPricingError, RequestEvaluation,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{provers, FulfillmentType, Order, OrderStatus};
@@ -397,6 +400,12 @@ pub trait Backend: Send + Sync {
     fn id(&self) -> &BackendId;
 
     fn supported_selectors(&self) -> Vec<FixedBytes<4>>;
+
+    async fn evaluate_request(
+        &self,
+        request: EvaluationRequest,
+        limits: EvaluationLimits,
+    ) -> Result<RequestEvaluation, OrderPricingError>;
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 

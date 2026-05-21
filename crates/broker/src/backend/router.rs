@@ -19,6 +19,9 @@ use std::{
 
 use alloy::primitives::FixedBytes;
 use anyhow::{Context, Result};
+use boundless_market::prover_utils::{
+    EvaluationLimits, EvaluationRequest, OrderPricingError, RequestEvaluation,
+};
 
 use crate::Order;
 
@@ -114,6 +117,27 @@ impl BackendRouter {
         let mut ids: Vec<_> = self.backends.keys().cloned().collect();
         ids.sort();
         ids
+    }
+
+    pub async fn evaluate_request(
+        &self,
+        request: EvaluationRequest,
+        limits: EvaluationLimits,
+    ) -> Result<RequestEvaluation, OrderPricingError> {
+        let selector = request.selector;
+        let backend_id = self.routes.get(&selector).ok_or_else(|| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "no backend registered for selector {selector:?}"
+            )))
+        })?;
+        let backend =
+            self.backends.get(backend_id).map(|entry| &entry.backend).ok_or_else(|| {
+                OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                    "backend {backend_id} is not registered"
+                )))
+            })?;
+
+        backend.evaluate_request(request, limits).await
     }
 
     pub async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
@@ -237,6 +261,14 @@ mod tests {
 
         fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
             self.supported.clone()
+        }
+
+        async fn evaluate_request(
+            &self,
+            _request: EvaluationRequest,
+            _limits: EvaluationLimits,
+        ) -> Result<RequestEvaluation, OrderPricingError> {
+            anyhow::bail!("mock backend does not evaluate requests")
         }
 
         async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {

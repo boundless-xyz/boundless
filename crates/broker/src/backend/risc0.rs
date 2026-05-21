@@ -23,7 +23,12 @@ use boundless_market::{
         FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
     input::GuestEnv,
+    prover_utils::{
+        EvaluationLimits, EvaluationRequest, OrderPricingError, PreflightCache, RequestEvaluation,
+        RequestEvaluator, Risc0RequestEvaluatorContext,
+    },
     selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
+    storage::StorageDownloader,
 };
 use hex::FromHex;
 use risc0_aggregation::{GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -32,6 +37,9 @@ use risc0_zkvm::{
     MaybePruned, Receipt, ReceiptClaim,
 };
 use serde::{Deserialize, Serialize};
+
+const PREFLIGHT_CACHE_SIZE: u64 = 5000;
+const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60;
 
 use crate::{
     config::ConfigLock,
@@ -108,6 +116,7 @@ pub struct Risc0Backend {
     prover: ProverObj,
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
+    preflight_cache: PreflightCache,
     priority_requestors: PriorityRequestors,
     set_builder_program_id: Option<Risc0Digest>,
     set_verifier_addr: Option<Address>,
@@ -127,6 +136,13 @@ impl Risc0Backend {
             prover,
             snark_prover,
             downloader,
+            preflight_cache: std::sync::Arc::new(
+                moka::future::Cache::builder()
+                    .eviction_policy(moka::policy::EvictionPolicy::lru())
+                    .max_capacity(PREFLIGHT_CACHE_SIZE)
+                    .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
+                    .build(),
+            ),
             priority_requestors,
             set_builder_program_id: None,
             set_verifier_addr: None,
@@ -247,6 +263,24 @@ fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
     }
 }
 
+impl Risc0RequestEvaluatorContext for Risc0Backend {
+    fn prover(&self) -> &ProverObj {
+        &self.prover
+    }
+
+    fn downloader(&self) -> std::sync::Arc<dyn StorageDownloader + Send + Sync> {
+        std::sync::Arc::new(self.downloader.clone())
+    }
+
+    fn preflight_cache(&self) -> &PreflightCache {
+        &self.preflight_cache
+    }
+
+    fn is_priority_requestor(&self, client_addr: &Address) -> bool {
+        self.priority_requestors.is_priority_requestor(client_addr)
+    }
+}
+
 #[async_trait]
 impl Backend for Risc0Backend {
     fn id(&self) -> &BackendId {
@@ -255,6 +289,14 @@ impl Backend for Risc0Backend {
 
     fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
         SupportedSelectors::default().selectors.keys().copied().collect()
+    }
+
+    async fn evaluate_request(
+        &self,
+        request: EvaluationRequest,
+        limits: EvaluationLimits,
+    ) -> Result<RequestEvaluation, OrderPricingError> {
+        RequestEvaluator::evaluate_request(self, request, limits).await
     }
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {

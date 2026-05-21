@@ -200,6 +200,17 @@ mod tests {
             self.selectors.clone()
         }
 
+        async fn evaluate_request(
+            &self,
+            _request: boundless_market::prover_utils::EvaluationRequest,
+            _limits: boundless_market::prover_utils::EvaluationLimits,
+        ) -> Result<
+            boundless_market::prover_utils::RequestEvaluation,
+            boundless_market::prover_utils::OrderPricingError,
+        > {
+            anyhow::bail!("cancel backend does not evaluate requests")
+        }
+
         async fn process_order(&self, _cmd: ProcessOrder) -> anyhow::Result<OrderProcessProgress> {
             anyhow::bail!("cancel backend does not process orders")
         }

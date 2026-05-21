@@ -16,15 +16,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
+    backend::BackendRouter,
     chain_monitor_v2::ChainMonitorObj,
     channels::SharedReceiver,
     config::ConfigLock,
     db::DbObj,
     order_evaluator::{PreflightComplete, PreflightOutcome},
-    provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
     task::{BrokerService, SupervisorErr},
-    ConfigurableDownloader, Erc1271GasCache, OrderRequest, OrderStateChange, PreflightCache,
+    Erc1271GasCache, OrderRequest, OrderStateChange,
 };
 use alloy::{
     network::Ethereum,
@@ -45,10 +45,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, Span};
 
 use super::error::OrderPricerErr;
-use super::types::{
-    ActivePreflights, OrderCache, ORDER_DEDUP_CACHE_SIZE, PREFLIGHT_CACHE_SIZE,
-    PREFLIGHT_CACHE_TTL_SECS,
-};
+use super::types::{ActivePreflights, OrderCache, ORDER_DEDUP_CACHE_SIZE};
 
 const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -56,7 +53,7 @@ const LOG_INTERVAL: Duration = Duration::from_secs(5);
 pub struct OrderPricer<P> {
     pub(super) db: DbObj,
     pub(super) config: ConfigLock,
-    pub(super) prover: ProverObj,
+    pub(super) backend: Arc<BackendRouter>,
     pub(super) provider: Arc<P>,
     pub(super) chain_monitor: ChainMonitorObj,
     pub(super) market: BoundlessMarketService<Arc<P>>,
@@ -65,12 +62,10 @@ pub struct OrderPricer<P> {
     pub(super) priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     pub(super) collateral_token_decimals: u8,
     pub(super) order_cache: OrderCache,
-    pub(super) preflight_cache: PreflightCache,
     pub(super) erc1271_gas_cache: Erc1271GasCache,
     pub(super) order_state_tx: broadcast::Sender<OrderStateChange>,
     pub(super) priority_requestors: PriorityRequestors,
     pub(super) allow_requestors: AllowRequestors,
-    pub(super) downloader: ConfigurableDownloader,
     pub(super) price_oracle: Arc<PriceOracleManager>,
     pub(super) listen_only: bool,
     pub(super) chain_id: u64,
@@ -85,7 +80,7 @@ where
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
+        backend: Arc<BackendRouter>,
         market_addr: Address,
         provider: Arc<P>,
         chain_monitor: ChainMonitorObj,
@@ -95,7 +90,6 @@ where
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
         allow_requestors: AllowRequestors,
-        downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
@@ -111,7 +105,7 @@ where
         Self {
             db,
             config,
-            prover,
+            backend,
             provider,
             chain_monitor,
             market,
@@ -126,18 +120,10 @@ where
                     .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
                     .build(),
             ),
-            preflight_cache: Arc::new(
-                Cache::builder()
-                    .eviction_policy(EvictionPolicy::lru())
-                    .max_capacity(PREFLIGHT_CACHE_SIZE)
-                    .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
-                    .build(),
-            ),
             erc1271_gas_cache,
             order_state_tx,
             priority_requestors,
             allow_requestors,
-            downloader,
             price_oracle,
             listen_only,
             chain_id,
@@ -285,6 +271,7 @@ pub(crate) mod tests {
     use crate::config::{defaults, MarketConfig};
     use crate::order_pricer::types::ActivePreflights;
     use crate::{
+        backend::{BackendEntry, BackendId, BackendRouter, Risc0Backend},
         chain_monitor_v2::ChainMonitorService,
         db::SqliteDb,
         provers::{DefaultProver, ProofResult, Prover, ProverError},
@@ -552,6 +539,17 @@ pub(crate) mod tests {
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
             let allow_requestors = AllowRequestors::new(config.clone(), chain_id);
             let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
+            let backend_router = Arc::new(
+                BackendRouter::new()
+                    .register_backend(BackendEntry::new(Arc::new(Risc0Backend::new(
+                        BackendId::new("risc0_v3").unwrap(),
+                        prover,
+                        Arc::new(DefaultProver::new()),
+                        downloader,
+                        priority_requestors.clone(),
+                    ))))
+                    .unwrap(),
+            );
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) =
@@ -563,7 +561,7 @@ pub(crate) mod tests {
             let pricer = OrderPricer::new(
                 db.clone(),
                 config,
-                prover,
+                backend_router,
                 market_address,
                 provider.clone(),
                 chain_monitor,
@@ -573,7 +571,6 @@ pub(crate) mod tests {
                 order_state_tx,
                 priority_requestors,
                 allow_requestors,
-                downloader,
                 create_test_price_oracle(),
                 Arc::new(Cache::builder().build()),
                 false,

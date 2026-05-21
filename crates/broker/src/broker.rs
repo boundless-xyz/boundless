@@ -766,10 +766,48 @@ impl Broker {
                 .build(),
         );
 
+        let risc0_backend_id = BackendId::new("risc0_v3")?;
+        let mut risc0_backend = Risc0Backend::new(
+            risc0_backend_id.clone(),
+            prover.clone(),
+            batch_prover.clone(),
+            self.downloader.clone(),
+            priority_requestors.clone(),
+        );
+
+        if !self.args.listen_only {
+            let set_builder_img_id = self
+                .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
+                .await?;
+            let assessor_img_id = self
+                .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
+                .await?;
+            let risc0_batch_processor = Arc::new(Risc0BatchProcessor::new(
+                db.clone(),
+                config.clone(),
+                batch_prover.clone(),
+                set_builder_img_id,
+                assessor_img_id,
+                deployment.boundless_market_address,
+                prover_addr,
+                chain_id,
+            ));
+            risc0_backend = risc0_backend
+                .with_set_builder_program_id(set_builder_img_id)
+                .with_set_verifier_addr(deployment.set_verifier_address)
+                .with_batch_processor(risc0_batch_processor);
+        }
+
+        let backend_router = Arc::new(
+            BackendRouter::new()
+                .register_backend(BackendEntry::new(Arc::new(risc0_backend)))
+                .context("Failed to register RISC0 backend selectors")?,
+        );
+
         let order_pricer = Arc::new(order_pricer::OrderPricer::new(
             db.clone(),
             config.clone(),
-            prover.clone(),
+            backend_router.clone(),
             deployment.boundless_market_address,
             provider.clone(),
             chain_monitor.clone(),
@@ -779,7 +817,6 @@ impl Broker {
             order_state_tx.clone(),
             priority_requestors.clone(),
             allow_requestors.clone(),
-            self.downloader.clone(),
             price_oracle.clone(),
             erc1271_gas_cache.clone(),
             self.args.listen_only,
@@ -822,42 +859,6 @@ impl Broker {
         );
 
         if !self.args.listen_only {
-            let risc0_backend_id = BackendId::new("risc0_v3")?;
-            let set_builder_img_id = self
-                .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
-                .await?;
-            let assessor_img_id = self
-                .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
-                .await?;
-            let risc0_batch_processor = Arc::new(Risc0BatchProcessor::new(
-                db.clone(),
-                config.clone(),
-                batch_prover.clone(),
-                set_builder_img_id,
-                assessor_img_id,
-                deployment.boundless_market_address,
-                prover_addr,
-                chain_id,
-            ));
-            let risc0_backend = Arc::new(
-                Risc0Backend::new(
-                    risc0_backend_id.clone(),
-                    prover.clone(),
-                    batch_prover.clone(),
-                    self.downloader.clone(),
-                    priority_requestors.clone(),
-                )
-                .with_set_builder_program_id(set_builder_img_id)
-                .with_set_verifier_addr(deployment.set_verifier_address)
-                .with_batch_processor(risc0_batch_processor),
-            );
-
-            let backend_router = Arc::new(
-                BackendRouter::new()
-                    .register_backend(BackendEntry::new(risc0_backend))
-                    .context("Failed to register RISC0 backend selectors")?,
-            );
-
             let order_processor =
                 Arc::new(order_processor::OrderProcessor::new_with_backend_router(
                     db.clone(),
