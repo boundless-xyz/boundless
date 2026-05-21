@@ -309,19 +309,6 @@ export const alarmConfig: ChainStageAlarms = {
                 datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
-            },
-            {
-              description: "less than 50% success rate for six 30 minute periods within 4 hours from og_offchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 1800
-              },
-              alarmConfig: {
-                threshold: 0.50,
-                evaluationPeriods: 8,
-                datapointsToAlarm: 6,
-                comparisonOperator: "LessThanThreshold"
-              }
             }
           ],
           expiredRequests: []
@@ -359,24 +346,7 @@ export const alarmConfig: ChainStageAlarms = {
               }
             }
           ],
-          successRate: [
-            // Onchain orders are large orders that can take variable lengths of time to fulfill,
-            // so we set a more lenient success rate threshold, since there may be periods where
-            // fewer proofs get fulfilled due to variant proof lengths.
-            {
-              description: "less than 50% success rate for two consecutive hours from og_onchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.50,
-                evaluationPeriods: 2,
-                datapointsToAlarm: 2,
-                comparisonOperator: "LessThanThreshold"
-              }
-            }
-          ],
+          successRate: [],
           expiredRequests: []
         },
         {
