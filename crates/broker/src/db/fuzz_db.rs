@@ -229,7 +229,9 @@ proptest! {
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();
                                         if let Some(order) = order {
-                                            if order.proof_id.is_some() && order.lock_price.is_some() && order.image_id.is_some() {
+                                            // `get_submission_order` now requires the order to be in
+                                            // `PendingSubmission`; match that precondition here.
+                                            if order.status == OrderStatus::PendingSubmission && order.proof_id.is_some() && order.lock_price.is_some() && order.image_id.is_some() {
                                                 db.get_submission_order(id).await.unwrap();
                                             }
                                         }
