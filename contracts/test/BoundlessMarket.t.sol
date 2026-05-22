@@ -2771,7 +2771,10 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     /// cause `_verifyBinding` to revert. If any mutation slips through,
     /// `SlimRequestLibrary.reconstructRequestDigest` has drifted from
     /// `ProofRequestLibrary.eip712Digest` — silently letting a prover swap
-    /// the field on a client-signed request.
+    /// the field on a client-signed request. The `slim.id` case (last)
+    /// additionally pins that the binding check compares against the
+    /// stored digest, not just lock existence: a regression checking
+    /// `requestLocks[id].requestDigest != 0` would accept an id swap.
     function testFulfillRevertsOnAnyMutatedSlimField() public {
         Client client = getClient(1);
         // Give the request a non-default selector and predicate so the selector
@@ -2787,6 +2790,18 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         bytes memory clientSignature = client.sign(request);
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(request, clientSignature);
+
+        // Second locked request — different id AND different other fields so
+        // its stored digest naturally differs from the first request's. Used
+        // by the slim.id-swap case (9, below) to exercise the binding check
+        // against a real second lock rather than a never-locked id.
+        ProofRequest memory secondRequest = client.request(2);
+        secondRequest.requirements.selector = VERIFIER_ENTRY_SEL;
+        secondRequest.requirements.predicate =
+            PredicateLibrary.createPrefixMatchPredicate(APP_IMAGE_ID, bytes("other-prefix"));
+        bytes memory secondClientSignature = client.sign(secondRequest);
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(secondRequest, secondClientSignature);
 
         bytes memory expectedRevert =
             abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, request.id);
@@ -2843,6 +2858,18 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
         b.requests[0].offerDigest = b.requests[0].offerDigest ^ bytes32(uint256(1));
         vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 9. id — swap to another locked request's id. The lookup finds a
+        // real lock (non-zero digest), so a regression that only checked
+        // existence would silently accept this. The digest reconstructed
+        // from request's non-id fields under secondRequest.id doesn't
+        // match secondRequest's stored digest (different other fields),
+        // so the digest comparison still rejects. The revert id matches
+        // the (swapped) slim id, not request.id.
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].id = secondRequest.id;
+        vm.expectRevert(abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, secondRequest.id));
         boundlessMarket.fulfill(_asArray(b));
 
         // Sanity: an un-mutated batch fulfills successfully — confirms the
