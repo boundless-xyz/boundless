@@ -136,6 +136,9 @@ pub struct PreflightCacheKey {
     pub predicate_data: Vec<u8>,
     /// The input cache key.
     pub input: InputCacheKey,
+    /// The cycle limit the evaluation ran under. Keyed so a `LimitExceeded` result cached
+    /// for a low limit is never reused by a caller running under a higher limit.
+    pub max_cycles: u64,
 }
 
 /// Cache for preflight results to avoid duplicate computations.
@@ -166,7 +169,11 @@ impl EvaluationRequest {
         }
     }
 
-    fn cache_key(&self, program_id: String) -> Result<PreflightCacheKey, OrderPricingError> {
+    fn cache_key(
+        &self,
+        program_id: String,
+        max_cycles: u64,
+    ) -> Result<PreflightCacheKey, OrderPricingError> {
         let predicate_data = self.predicate.data.to_vec();
         let input = match self.input_type {
             RequestInputType::Url => {
@@ -189,7 +196,13 @@ impl EvaluationRequest {
             }
         };
 
-        Ok(PreflightCacheKey { program_id, selector: self.selector, predicate_data, input })
+        Ok(PreflightCacheKey {
+            program_id,
+            selector: self.selector,
+            predicate_data,
+            input,
+            max_cycles,
+        })
     }
 }
 
@@ -259,18 +272,21 @@ where
             upload_image_with_downloader(&prover, &program_url, &predicate, downloader.as_ref())
                 .await
                 .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?,
+            max_cycles,
         )?;
         let input_type = request.input_type;
         let input_data = request.input_data;
         let is_priority =
             Risc0RequestEvaluatorContext::is_priority_requestor(self, &request.client_address);
 
-        loop {
-            let program_id = cache_key.program_id.clone();
-            // Multiple concurrent calls of this coalesce into a single execution.
-            // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
-            let result = cache
-                .try_get_with(cache_key.clone(), async {
+        let program_id = cache_key.program_id.clone();
+        // `max_cycles` is part of the cache key, so a `LimitExceeded` result is only ever
+        // shared with callers that ran under the same limit; a higher-limit caller misses
+        // the cache and re-runs preflight rather than reusing a stale skip. Multiple
+        // concurrent calls on the same key coalesce into a single execution.
+        // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
+        cache
+            .try_get_with(cache_key, async {
                     tracing::trace!(
                         "Starting preflight execution of {request_id} with limit of {max_cycles} cycles"
                     );
@@ -349,20 +365,9 @@ where
                             }
                         }
                     }
-                })
-                .await
-                .map_err(|e| (*e).clone())?;
-
-            if let RequestEvaluation::LimitExceeded { limit } = result {
-                if limit.max_cycles < max_cycles {
-                    cache.invalidate(&cache_key).await;
-                    continue;
-                }
-                return Ok(RequestEvaluation::LimitExceeded { limit });
-            }
-
-            return Ok(result);
-        }
+            })
+            .await
+            .map_err(|e| (*e).clone())
     }
 }
 
@@ -626,8 +631,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn cache_key_includes_max_cycles() {
+        // Regression guard for the unbounded invalidate/retry loop: a `LimitExceeded`
+        // result cached under a low limit must key differently from a higher-limit
+        // evaluation, so the higher-limit caller misses the cache instead of reusing
+        // the stale skip (or spinning to invalidate it).
+        let request = test_request();
+        let low = request.cache_key("program".into(), 100).unwrap();
+        let high = request.cache_key("program".into(), 1_000_000).unwrap();
+        assert_ne!(low, high, "max_cycles must be part of the preflight cache key");
+        assert_eq!(low, request.cache_key("program".into(), 100).unwrap());
+    }
+
     #[tokio::test]
-    async fn invalidation_loop_retries_after_cached_limit_exceeded() {
+    async fn higher_limit_caller_reevaluates_past_cached_limit_exceeded() {
         let stub = StubProver::new();
         let ctx = StubCtx {
             prover: stub.clone(),
@@ -648,7 +666,7 @@ mod tests {
         let r2 = ctx
             .evaluate_request(test_request(), EvaluationLimits::new(1_000_000))
             .await
-            .expect("retry after invalidation should succeed");
+            .expect("higher-limit call should miss the cache and re-evaluate");
         assert!(
             matches!(r2, RequestEvaluation::Success { .. }),
             "expected Success after cache invalidation + retry, got {r2:?}"
