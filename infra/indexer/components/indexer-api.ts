@@ -182,7 +182,7 @@ export class IndexerApi extends pulumi.ComponentResource {
         value: '1',
         defaultValue: '0',
       },
-      pattern: '?ERROR ?error ?Error',
+      pattern: '{ $.level = "ERROR" }',
     }, { dependsOn: [this.lambdaFunction], parent: this });
 
     const stackName = pulumi.getStack();
