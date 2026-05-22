@@ -728,7 +728,6 @@ contract BoundlessMarketTest is Test {
         }
     }
 
-
     function newBatch(uint256 batchSize) internal returns (ProofRequest[] memory requests, bytes[] memory journals) {
         requests = new ProofRequest[](batchSize);
         journals = new bytes[](batchSize);

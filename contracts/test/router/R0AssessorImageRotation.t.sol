@@ -115,8 +115,7 @@ contract R0AssessorImageRotationTest is BoundlessMarketTest {
         // old selector. The router's `_entryOf(assessorSel)` hits the
         // tombstone branch and reverts; the market's `fulfill` bubbles
         // the revert without settling anything.
-        FulfillmentBatch memory oldBatch =
-            _buildBatchFor(request, APP_JOURNAL, ASSESSOR_IMAGE_ID, ASSESSOR_R0_SEL);
+        FulfillmentBatch memory oldBatch = _buildBatchFor(request, APP_JOURNAL, ASSESSOR_IMAGE_ID, ASSESSOR_R0_SEL);
         vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.EntryRemoved.selector, ASSESSOR_R0_SEL));
         boundlessMarket.fulfill(_asArray(oldBatch));
         expectRequestNotFulfilled(request.id);
@@ -126,8 +125,7 @@ contract R0AssessorImageRotationTest is BoundlessMarketTest {
         // same client — only the assessor seal differs. The request
         // settles, confirming the broker holding the lock is not
         // stranded by the tombstone.
-        FulfillmentBatch memory newBatch =
-            _buildBatchFor(request, APP_JOURNAL, IMAGE_ID_NEW, ASSESSOR_R0_NEW_SEL);
+        FulfillmentBatch memory newBatch = _buildBatchFor(request, APP_JOURNAL, IMAGE_ID_NEW, ASSESSOR_R0_NEW_SEL);
         boundlessMarket.fulfill(_asArray(newBatch));
         expectRequestFulfilled(request.id);
     }
@@ -140,12 +138,10 @@ contract R0AssessorImageRotationTest is BoundlessMarketTest {
     ///      whose set-builder root commits to a claim under `imageId`. The
     ///      two are parameters so this same helper can produce batches for
     ///      either the OLD or the NEW adapter.
-    function _buildBatchFor(
-        ProofRequest memory request,
-        bytes memory journal,
-        bytes32 imageId,
-        bytes4 assessorSelector
-    ) internal returns (FulfillmentBatch memory batch) {
+    function _buildBatchFor(ProofRequest memory request, bytes memory journal, bytes32 imageId, bytes4 assessorSelector)
+        internal
+        returns (FulfillmentBatch memory batch)
+    {
         ProofRequest[] memory requests = new ProofRequest[](1);
         requests[0] = request;
         bytes[] memory journals = new bytes[](1);

@@ -221,14 +221,13 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
         vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.TerminalAssessorAsVerifier.selector, A_CLASS));
         router.verifyBatch(batch, digests);
     }
-// TODO: where do we test _matchSignedSelector in depth?
+    // TODO: where do we test _matchSignedSelector in depth?
     // ─── B.3 Per-fill verifier-class dispatch ─────────────────────────────
 
     function test_verifier_singleFill_callsVerifierAndAssessor() public {
         _setupVerifierEcosystem();
         FulfillmentBatch memory batch = _verifierBatch(1);
         bytes32[] memory digests = new bytes32[](1);
-
 
         // TODO: cant we do test_verifier_forwardsSealAndClaimDigestVerbatim basically here?
         // Verifier called once with the seal + claimDigest.

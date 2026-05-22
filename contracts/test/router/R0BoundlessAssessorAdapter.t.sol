@@ -149,8 +149,7 @@ contract R0BoundlessAssessorAdapterTest is Test {
     function test_verifyAssessor_sparseArrays_allOfThree() public {
         FulfillmentBatch memory batch = _baselineBatch(3);
         for (uint256 i = 0; i < 3; i++) {
-            batch.requests[i].callback =
-                Callback({addr: address(uint160(0xC0FFEE + i)), gasLimit: uint96(10_000 + i)});
+            batch.requests[i].callback = Callback({addr: address(uint160(0xC0FFEE + i)), gasLimit: uint96(10_000 + i)});
             batch.requests[i].selector = bytes4(uint32(0xA0000001 + uint32(i)));
         }
         bytes32[] memory digests = _baselineDigests(3);

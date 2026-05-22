@@ -261,12 +261,12 @@ library TestUtils {
         for (uint256 i = 0; i < n; i++) {
             bytes32 fulfillmentDataDigest = FulfillmentLibrary.fulfillmentDataDigest(fills[i]);
             leaves[i] = AssessorCommitment({
-                index: i,
-                id: slim[i].id,
-                requestDigest: requestDigests[i],
-                claimDigest: fills[i].claimDigest,
-                fulfillmentDataDigest: fulfillmentDataDigest
-            }).eip712Digest();
+                    index: i,
+                    id: slim[i].id,
+                    requestDigest: requestDigests[i],
+                    claimDigest: fills[i].claimDigest,
+                    fulfillmentDataDigest: fulfillmentDataDigest
+                }).eip712Digest();
             if (slim[i].callback.addr != address(0)) cbCount++;
             if (slim[i].selector != bytes4(0)) selCount++;
         }
@@ -277,9 +277,7 @@ library TestUtils {
         for (uint256 i = 0; i < n; i++) {
             if (slim[i].callback.addr != address(0)) {
                 callbacks[cbIdx++] = AssessorCallback({
-                    index: uint16(i),
-                    addr: slim[i].callback.addr,
-                    gasLimit: slim[i].callback.gasLimit
+                    index: uint16(i), addr: slim[i].callback.addr, gasLimit: slim[i].callback.gasLimit
                 });
             }
             if (slim[i].selector != bytes4(0)) {
