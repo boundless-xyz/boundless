@@ -27,7 +27,7 @@ use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService, eip712_domain, encode_seal, AssessorJournal,
         Fulfillment as MarketFulfillment, FulfillmentData, FulfillmentDataImageIdAndJournal,
-        FulfillmentDataType, PredicateType, UNSPECIFIED_SELECTOR,
+        FulfillmentDataType, Predicate, PredicateType, RequestInputType, UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     prover_utils::{
@@ -58,7 +58,6 @@ use crate::{
     is_dev_mode,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
-    storage::{upload_image_uri, upload_input_uri},
     utils::prune_receipt_claim_journal,
     CompressionType, ConfigurableDownloader, Order, OrderStatus,
 };
@@ -358,6 +357,96 @@ impl Risc0Backend {
         Ok(bytes)
     }
 
+    async fn upload_order_image(&self, request: &crate::ProofRequest) -> Result<String> {
+        let predicate = Predicate::try_from(request.requirements.predicate.clone())
+            .with_context(|| format!("Failed to parse predicate for request {:x}", request.id))?;
+
+        let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
+
+        // Claim-digest predicates do not carry an image id, so the image must be downloaded before
+        // the RISC0 image id can be computed and uploaded.
+        if let Some(ref image_id_str) = image_id_str {
+            if self.prover.has_image(image_id_str).await? {
+                tracing::debug!(
+                    "Skipping program upload for cached image ID: {image_id_str} for request {:x}",
+                    request.id
+                );
+                return Ok(image_id_str.clone());
+            }
+        }
+
+        tracing::debug!(
+            "Fetching program for request {:x} with image ID {image_id_str:?} from URI {}",
+            request.id,
+            request.imageUrl
+        );
+        let image_data = self
+            .downloader
+            .download(&request.imageUrl)
+            .await
+            .with_context(|| format!("Failed to fetch image URI: {}", request.imageUrl))?;
+
+        let image_id = compute_image_id(&image_data)
+            .with_context(|| format!("Failed to compute image ID for request {:x}", request.id))?;
+
+        if let Some(ref image_id_str) = image_id_str {
+            let required_image_id = Risc0Digest::from_hex(image_id_str)?;
+            anyhow::ensure!(
+                image_id == required_image_id,
+                "image ID does not match requirements; expect {}, got {}",
+                required_image_id,
+                image_id
+            );
+        }
+
+        let image_id_str = image_id.to_string();
+
+        tracing::debug!(
+            "Uploading program for request {:x} with image ID {image_id_str} to prover",
+            request.id
+        );
+        self.prover
+            .upload_image(&image_id_str, image_data)
+            .await
+            .context("Failed to upload image to prover")?;
+
+        Ok(image_id_str)
+    }
+
+    async fn upload_order_input(&self, request: &crate::ProofRequest) -> Result<String> {
+        Ok(match request.input.inputType {
+            RequestInputType::Inline => self
+                .prover
+                .upload_input(
+                    GuestEnv::decode(&request.input.data)
+                        .with_context(|| "Failed to decode input")?
+                        .stdin,
+                )
+                .await
+                .context("Failed to upload input data")?,
+
+            RequestInputType::Url => {
+                let input_uri_str =
+                    std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
+                tracing::debug!("Input URI string: {input_uri_str}");
+
+                let client_addr = request.client_address();
+                let input = if self.priority_requestors.is_priority_requestor(&client_addr) {
+                    self.downloader.download_with_limit(input_uri_str, usize::MAX).await
+                } else {
+                    self.downloader.download(input_uri_str).await
+                }
+                .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?;
+                let input_data = GuestEnv::decode(&input)
+                    .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
+                    .stdin;
+
+                self.prover.upload_input(input_data).await.context("Failed to upload input")?
+            }
+            _ => anyhow::bail!("Invalid input type: {:?}", request.input.inputType),
+        })
+    }
+
     async fn start_order(&self, order: &Order) -> Result<String> {
         let order_id = order.id();
 
@@ -370,21 +459,18 @@ impl Risc0Backend {
 
         let image_id = match order.image_id.as_ref() {
             Some(val) => val.clone(),
-            None => upload_image_uri(&self.prover, &order.request, &self.downloader)
+            None => self
+                .upload_order_image(&order.request)
                 .await
                 .with_context(|| format!("Failed to upload image for order {order_id}"))?,
         };
 
         let input_id = match order.input_id.as_ref() {
             Some(val) => val.clone(),
-            None => upload_input_uri(
-                &self.prover,
-                &order.request,
-                &self.downloader,
-                &self.priority_requestors,
-            )
-            .await
-            .with_context(|| format!("Failed to upload input for order {order_id}"))?,
+            None => self
+                .upload_order_input(&order.request)
+                .await
+                .with_context(|| format!("Failed to upload input for order {order_id}"))?,
         };
 
         let proof_id = self
