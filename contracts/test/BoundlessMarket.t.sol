@@ -31,7 +31,8 @@ import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {IBoundlessVerifier} from "../src/router/interfaces/IBoundlessVerifier.sol";
 import {IBoundlessAssessor} from "../src/router/interfaces/IBoundlessAssessor.sol";
-import {NullVerifier, NullAssessor, RevertingVerifier} from "./mocks/RouterMocks.sol";
+import {IBoundlessJointVerifierAssessor} from "../src/router/interfaces/IBoundlessJointVerifierAssessor.sol";
+import {NullVerifier, NullAssessor, NullJoint, RevertingVerifier} from "./mocks/RouterMocks.sol";
 import {R0BoundlessVerifierAdapter} from "../src/router/adapters/R0BoundlessVerifierAdapter.sol";
 import {R0BoundlessAssessorAdapter} from "../src/router/adapters/R0BoundlessAssessorAdapter.sol";
 import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
@@ -3346,6 +3347,92 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         clientA.expectBalanceChange(0 ether);
         clientB.expectBalanceChange(0 ether);
         testProver.expectBalanceChange(0 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    /// @dev Multi-batch fulfill where each batch lands on a different
+    ///      adapter pair. Locks three requests, then settles them all in
+    ///      a single `fulfill()` call:
+    ///        * batch A — NullVerifier + NullAssessor (mock dispatch path).
+    ///        * batch B — R0 setVerifier + R0 assessor (production path).
+    ///        * batch C — NullJoint (joint-class dispatch; no assessor seam).
+    function testFulfillMultiBatchHeterogeneousAdaptersAllSettle() public {
+        // Register a joint class + NullJoint entry. Joint dispatch isn't
+        // exercised by any production adapter today, so the path needs a
+        // mock entry to drive.
+        bytes4 jointClassId = 0x00000030;
+        bytes4 jointEntrySel = 0x00000031;
+        NullJoint nullJoint = new NullJoint();
+        vm.startPrank(ownerWallet.addr);
+        router.addClass(
+            jointClassId,
+            BoundlessRouter.ClassMetadata({
+                interfaceTag: type(IBoundlessJointVerifierAssessor).interfaceId,
+                permissionlessInstantiate: false,
+                isDefault: false,
+                requiredAssessorClass: bytes4(0),
+                schemaArtifact: bytes32(0),
+                schemaArtifactUrl: "",
+                defaultGasLimit: 100_000,
+                label: ""
+            })
+        );
+        router.instantiate(jointEntrySel, address(nullJoint), jointClassId, 0);
+        vm.stopPrank();
+
+        Client clientA = getClient(1);
+        Client clientB = getClient(2);
+        Client clientC = getClient(3);
+        ProofRequest memory requestA = clientA.request(1);
+        ProofRequest memory requestB = clientB.request(2);
+        ProofRequest memory requestC = clientC.request(3);
+        // batch C's requestor signs against the joint CLASS id so the
+        // signed-selector check matches whichever entry resolves under
+        // that class. Signing chain-default (the zero sentinel) would
+        // route to the verifier-class default instead.
+        requestC.requirements.selector = jointClassId;
+
+        boundlessMarket.lockRequestWithSignature(
+            requestA, clientA.sign(requestA), testProver.signLockRequest(LockRequest({request: requestA}))
+        );
+        boundlessMarket.lockRequestWithSignature(
+            requestB, clientB.sign(requestB), testProver.signLockRequest(LockRequest({request: requestB}))
+        );
+        boundlessMarket.lockRequestWithSignature(
+            requestC, clientC.sign(requestC), testProver.signLockRequest(LockRequest({request: requestC}))
+        );
+
+        // batch A: NullVerifier + NullAssessor — default seal selectors
+        // from `createFulfillmentBatch`.
+        FulfillmentBatch memory batchA = createFulfillmentBatch(requestA, APP_JOURNAL, testProverAddress);
+
+        // batch B: production R0 path — set-builder inclusion-proof
+        // per-fill seal, R0 assessor seal.
+        FulfillmentBatch memory batchB =
+            createFillsAndSubmitRootR0(_asArray(requestB), _asArray(APP_JOURNAL), testProverAddress);
+
+        // batch C: joint class. Repoint the per-fill seal to the
+        // NullJoint entry and clear the assessor seal — the router
+        // enforces `assessorSeal.length == 0` for joint classes.
+        FulfillmentBatch memory batchC = createFulfillmentBatch(requestC, APP_JOURNAL, testProverAddress);
+        batchC.fills[0].seal = abi.encodePacked(jointEntrySel, hex"deadbeef");
+        batchC.assessorSeal = "";
+
+        FulfillmentBatch[] memory batches = new FulfillmentBatch[](3);
+        batches[0] = batchA;
+        batches[1] = batchB;
+        batches[2] = batchC;
+
+        boundlessMarket.fulfill(batches);
+
+        expectRequestFulfilled(requestA.id);
+        expectRequestFulfilled(requestB.id);
+        expectRequestFulfilled(requestC.id);
+
+        clientA.expectBalanceChange(-1 ether);
+        clientB.expectBalanceChange(-1 ether);
+        clientC.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(3 ether);
         expectMarketBalanceUnchanged();
     }
 
