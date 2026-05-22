@@ -184,6 +184,11 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///         conform to the class interface" — including the `address(0)` case.
     error Erc165CheckFailed(address impl, bytes4 expectedInterfaceId);
 
+    /// @notice `addClass` was called with `defaultGasLimit == 0`. A zero default would
+    ///         silently produce dead entries via the `instantiate` fallback path (any
+    ///         `gasLimit == 0` caller would pin a `staticcall{gas: 0}` that always OOGs).
+    error InvalidGasLimit();
+
     /// @notice `verifyBatch` was called with no fills.
     error EmptyBatch();
 
@@ -284,6 +289,7 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
         if (tombstoned[classId]) revert ClassRemoved(classId);
         if (classes[classId].interfaceTag != bytes4(0)) revert ClassInUse(classId);
         if (entries[classId].impl != address(0)) revert EntryInUse(classId);
+        if (metadata.defaultGasLimit == 0) revert InvalidGasLimit();
 
         bytes4 tag = metadata.interfaceTag;
         if (!_isVerifierTag(tag) && !_isJointTag(tag) && !_isAssessorTag(tag)) {

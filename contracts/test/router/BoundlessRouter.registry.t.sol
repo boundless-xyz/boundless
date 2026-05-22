@@ -297,6 +297,14 @@ contract BoundlessRouterRegistryTest is RouterTestBase {
         router.addClass(A_CLASS, meta);
     }
 
+    function test_addClass_revertsOnZeroDefaultGasLimit() public {
+        BoundlessRouter.ClassMetadata memory meta = _assessorMeta();
+        meta.defaultGasLimit = 0;
+        vm.prank(ADMIN);
+        vm.expectRevert(BoundlessRouter.InvalidGasLimit.selector);
+        router.addClass(A_CLASS, meta);
+    }
+
     function test_addClass_verifier_revertsOnZeroAssessorClass() public {
         vm.prank(ADMIN);
         vm.expectRevert(BoundlessRouter.AssessorClassRequired.selector);
