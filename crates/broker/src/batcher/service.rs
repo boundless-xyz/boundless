@@ -593,8 +593,12 @@ impl BatcherService {
     }
 
     async fn process_batches(&self) -> Result<(), BatcherErr> {
+        // Isolate per-backend failures: an error on one backend must not skip the
+        // remaining backends for this poll cycle. The batcher loop retries next tick.
         for backend_id in self.backend.backend_ids() {
-            self.process_backend_batch(&backend_id).await?;
+            if let Err(err) = self.process_backend_batch(&backend_id).await {
+                tracing::warn!("Failed to process batch for backend {backend_id}: {err:?}");
+            }
         }
 
         Ok(())
