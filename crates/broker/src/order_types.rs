@@ -15,10 +15,9 @@
 //! Order types and helpers shared across broker services.
 //!
 //! Defines the persistent [`Order`] domain object and its lifecycle status
-//! ([`OrderStatus`]), the on-chain state change events ([`OrderStateChange`])
-//! broadcast from chain monitors, and the compression-type discriminator
-//! ([`CompressionType`]) derived from a request's selector. Plus the small
-//! helpers that build an [`Order`] from a fresh [`OrderRequest`].
+//! ([`OrderStatus`]) and the on-chain state change events ([`OrderStateChange`])
+//! broadcast from chain monitors. Plus the small helpers that build an
+//! [`Order`] from a fresh [`OrderRequest`].
 
 use std::sync::OnceLock;
 

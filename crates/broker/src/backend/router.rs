@@ -29,7 +29,7 @@ use crate::Order;
 use super::types::{
     BackendError, BackendId, BackendObj, BatchClose, BatchProcessorObj, BatchSizeEstimate,
     BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch, OrderProcessProgress,
-    ProcessOrder, SubmissionPlan, UpdateBatch, VerifierUpdate,
+    ProcessOrder, SubmissionPlan, UpdateBatch, VerifierUpdate, VerifierUpdateError,
 };
 
 #[derive(Clone, Default)]
@@ -213,8 +213,8 @@ impl BackendRouter {
         &self,
         backend_id: &BackendId,
         update: &VerifierUpdate,
-    ) -> Result<()> {
-        let backend = self.backend_for_id(backend_id)?;
+    ) -> Result<(), VerifierUpdateError> {
+        let backend = self.backend_for_id(backend_id).map_err(VerifierUpdateError::Other)?;
         backend.apply_verifier_update(update).await
     }
 }
@@ -449,7 +449,10 @@ mod tests {
             Ok(false)
         }
 
-        async fn apply_verifier_update(&self, _update: &VerifierUpdate) -> Result<()> {
+        async fn apply_verifier_update(
+            &self,
+            _update: &VerifierUpdate,
+        ) -> Result<(), VerifierUpdateError> {
             Ok(())
         }
     }

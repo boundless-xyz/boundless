@@ -32,8 +32,24 @@ fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
     claim
 }
 
+/// Current schema version of the serialized [`Risc0BatchState`].
+///
+/// This state is persisted (as opaque JSON inside [`BackendBatchState`]) and read back by a
+/// possibly newer broker after a deploy. Bump this whenever the serialized shape changes
+/// incompatibly, and handle the older shape in [`Risc0BatchState::from_backend_state`].
+/// State written before versioning existed has no `version` field; `serde(default)` decodes
+/// it as version 1, which is exactly its shape.
+const RISC0_BATCH_STATE_VERSION: u32 = 1;
+
+fn risc0_batch_state_version() -> u32 {
+    RISC0_BATCH_STATE_VERSION
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Risc0BatchState {
+    /// Schema version of the persisted state. See [`RISC0_BATCH_STATE_VERSION`].
+    #[serde(default = "risc0_batch_state_version")]
+    version: u32,
     pub(super) guest_state: GuestState,
     pub(super) claim_digests: Vec<Risc0Digest>,
 }
@@ -64,7 +80,16 @@ impl From<ClaimDigest> for Risc0Digest {
 
 impl Risc0BatchState {
     pub(super) fn from_backend_state(state: &BackendBatchState) -> Result<Self> {
-        serde_json::from_value(state.data.clone()).context("Failed to decode RISC0 batch state")
+        let decoded: Self = serde_json::from_value(state.data.clone())
+            .context("Failed to decode RISC0 batch state")?;
+        anyhow::ensure!(
+            decoded.version <= RISC0_BATCH_STATE_VERSION,
+            "RISC0 batch state schema version {} is newer than this broker supports ({}); \
+             the broker may have been downgraded while a batch was in flight",
+            decoded.version,
+            RISC0_BATCH_STATE_VERSION,
+        );
+        Ok(decoded)
     }
 
     pub(super) fn into_backend_state(
@@ -358,7 +383,7 @@ impl Risc0BatchProcessor {
             .chain(claims.into_iter().map(|claim| claim.digest()))
             .collect();
 
-        Risc0BatchState { guest_state, claim_digests }
+        Risc0BatchState { version: RISC0_BATCH_STATE_VERSION, guest_state, claim_digests }
             .into_backend_state(ProofId::new(proof_res.id)?, None)
     }
 
@@ -610,5 +635,56 @@ impl BatchProcessor for Risc0BatchProcessor {
                 .map_err(BackendError::operation)?,
             compression_secs: start.elapsed().as_secs_f64(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_state() -> Risc0BatchState {
+        Risc0BatchState {
+            version: RISC0_BATCH_STATE_VERSION,
+            guest_state: GuestState::initial(Risc0Digest::ZERO),
+            claim_digests: vec![],
+        }
+    }
+
+    fn backend_state(data: serde_json::Value) -> BackendBatchState {
+        BackendBatchState { data, proof_id: None, compressed_proof_id: None }
+    }
+
+    #[test]
+    fn from_backend_state_accepts_current_version() {
+        let state = backend_state(serde_json::to_value(sample_state()).unwrap());
+        let decoded = Risc0BatchState::from_backend_state(&state).unwrap();
+        assert_eq!(decoded.version, RISC0_BATCH_STATE_VERSION);
+    }
+
+    #[test]
+    fn from_backend_state_defaults_missing_version() {
+        // State persisted before the `version` field existed: the broker must still decode it.
+        let data = serde_json::json!({
+            "guest_state": GuestState::initial(Risc0Digest::ZERO),
+            "claim_digests": Vec::<Risc0Digest>::new(),
+        });
+        let decoded = Risc0BatchState::from_backend_state(&backend_state(data)).unwrap();
+        assert_eq!(decoded.version, RISC0_BATCH_STATE_VERSION);
+    }
+
+    #[test]
+    fn from_backend_state_rejects_future_version() {
+        // A newer broker wrote this state; a downgraded broker must fail loudly, not silently
+        // misread a changed schema.
+        let mut data = serde_json::to_value(sample_state()).unwrap();
+        data["version"] = serde_json::json!(RISC0_BATCH_STATE_VERSION + 1);
+        let err = match Risc0BatchState::from_backend_state(&backend_state(data)) {
+            Ok(_) => panic!("future schema version must be rejected"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("newer than this broker supports"),
+            "unexpected error: {err}"
+        );
     }
 }

@@ -27,7 +27,7 @@ pub use types::{
     AssessorProofId, BackendBatchState, BackendError, BackendId, BatchOrder,
     BatchSizeEstimateRequest, BatchUpdate, CloseBatch, CompressedProofId, FulfillmentBatch,
     FulfillmentOrder, OrderFulfillmentResult, OrderProcessProgress, ProcessOrder, ProcessedOrder,
-    ProofId, UpdateBatch, VerifierUpdate,
+    ProofId, UpdateBatch, VerifierUpdate, VerifierUpdateError,
 };
 
 #[cfg(test)]

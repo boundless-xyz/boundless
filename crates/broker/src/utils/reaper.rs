@@ -239,8 +239,13 @@ mod tests {
             anyhow::bail!("cancel backend does not query verifier updates")
         }
 
-        async fn apply_verifier_update(&self, _update: &VerifierUpdate) -> anyhow::Result<()> {
-            anyhow::bail!("cancel backend does not apply verifier updates")
+        async fn apply_verifier_update(
+            &self,
+            _update: &VerifierUpdate,
+        ) -> Result<(), crate::backend::VerifierUpdateError> {
+            Err(crate::backend::VerifierUpdateError::Other(anyhow::anyhow!(
+                "cancel backend does not apply verifier updates"
+            )))
         }
     }
 

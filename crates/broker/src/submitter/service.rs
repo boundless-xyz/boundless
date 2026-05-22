@@ -35,6 +35,7 @@ use tokio::sync::mpsc;
 use crate::{
     backend::{
         BackendRouter, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult, VerifierUpdate,
+        VerifierUpdateError,
     },
     config::ConfigLock,
     db::DbObj,
@@ -303,11 +304,14 @@ where
                     .collect();
                 tracing::warn!("Failed to submit verifier update for orders: {order_ids:?}");
 
-                // Map the backend error to an error type from BoundlessMarket.
-                let market_err = if err.to_string().contains("failed to confirm tx") {
-                    MarketError::TxnConfirmationError(err)
-                } else {
-                    MarketError::Error(err)
+                // The backend already classified the failure; map it onto the BoundlessMarket
+                // error taxonomy. This `match` is exhaustive, so a new `VerifierUpdateError`
+                // variant is a compile error here rather than a silent misclassification.
+                let market_err = match err {
+                    VerifierUpdateError::TxnConfirmation(err) => {
+                        MarketError::TxnConfirmationError(err)
+                    }
+                    VerifierUpdateError::Other(err) => MarketError::Error(err),
                 };
                 return Err(Self::classify_fulfillment_error(market_err, batch_id));
             }
@@ -552,7 +556,7 @@ mod tests {
     use alloy::{
         network::EthereumWallet,
         node_bindings::{Anvil, AnvilInstance},
-        primitives::{Bytes, U256},
+        primitives::{Address, Bytes, U256},
         providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
     };
@@ -577,6 +581,13 @@ mod tests {
     use risc0_zkvm::sha::{Digest, Digestible};
     use tracing_test::traced_test;
 
+    #[derive(Clone, Default)]
+    struct BatchHarnessOptions {
+        /// Add a second order to the batch whose DB row has no proof id, so the submitter
+        /// fails it during submission preparation while still submitting the real order.
+        with_failing_order: bool,
+    }
+
     async fn build_submitter_and_batch(
         config: ConfigLock,
     ) -> (
@@ -585,6 +596,22 @@ mod tests {
         DbObj,
         usize,
         mpsc::Receiver<CommitmentComplete>,
+    ) {
+        let (anvil, submitter, db, batch_id, rx, _failing) =
+            build_submitter_and_batch_with_options(config, BatchHarnessOptions::default()).await;
+        (anvil, submitter, db, batch_id, rx)
+    }
+
+    async fn build_submitter_and_batch_with_options(
+        config: ConfigLock,
+        options: BatchHarnessOptions,
+    ) -> (
+        AnvilInstance,
+        Submitter<impl Provider + WalletProvider + Clone + 'static>,
+        DbObj,
+        usize,
+        mpsc::Receiver<CommitmentComplete>,
+        Option<String>,
     ) {
         let anvil = Anvil::new().spawn();
         let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
@@ -775,12 +802,64 @@ mod tests {
         let order_id = order.id();
         db.add_order(&order).await.unwrap();
 
+        // Optionally add a second order the submitter cannot prepare (its DB row has no proof
+        // id, so `get_submission_order` fails). It exercises partial-batch failure: the good
+        // order must still submit, and each order must emit exactly one CommitmentComplete.
+        let failing_order_id = if options.with_failing_order {
+            let failing_request = ProofRequest::new(
+                RequestId::new(Address::repeat_byte(0xBB), 1),
+                Requirements::new(Predicate::prefix_match(echo_id, Bytes::default())),
+                "http://risczero.com/image",
+                RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
+                Offer {
+                    minPrice: U256::from(2),
+                    maxPrice: U256::from(4),
+                    rampUpStart: now_timestamp(),
+                    timeout: 100,
+                    lockTimeout: 100,
+                    rampUpPeriod: 1,
+                    lockCollateral: U256::from(10),
+                },
+            );
+            let failing_order = Order {
+                status: OrderStatus::PendingSubmission,
+                updated_at: Utc::now(),
+                target_timestamp: Some(0),
+                request: failing_request,
+                image_id: None,
+                input_id: None,
+                proof_id: None,
+                compressed_proof_id: None,
+                backend_id: None,
+                expire_timestamp: Some(now_timestamp() + 100),
+                client_sig: Bytes::new(),
+                lock_price: Some(U256::ZERO),
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                error_msg: None,
+                boundless_market_address: market_address,
+                chain_id,
+                total_cycles: None,
+                journal_bytes: None,
+                proving_started_at: None,
+                cached_id: Default::default(),
+            };
+            let failing_order_id = failing_order.id();
+            db.add_order(&failing_order).await.unwrap();
+            Some(failing_order_id)
+        } else {
+            None
+        };
+
         let batch_id = 0;
+        let mut batch_orders = vec![order_id];
+        if let Some(failing) = failing_order_id.clone() {
+            batch_orders.push(failing);
+        }
         let batch = Batch {
             backend_id: BackendId::new("risc0_v3").unwrap(),
             status: BatchStatus::ReadyToSubmit,
             assessor_proof_id: Some(AssessorProofId::new(assessor_proof.id).unwrap()),
-            orders: vec![order_id],
+            orders: batch_orders,
             fees: U256::ZERO,
             start_time: Utc::now(),
             deadline: Some(order.request.offer.rampUpStart + order.request.offer.timeout as u64),
@@ -830,7 +909,7 @@ mod tests {
         )
         .unwrap();
 
-        (anvil, submitter, db, batch_id, commitment_rx)
+        (anvil, submitter, db, batch_id, commitment_rx, failing_order_id)
     }
 
     async fn process_next_batch<P>(submitter: Submitter<P>, db: DbObj, batch_id: usize)
@@ -961,5 +1040,59 @@ mod tests {
             ),
             "Expected BatchSubmissionFailed wrapping AllRequestsExpiredBeforeSubmission but got: {res:?}"
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch_partial_failure() {
+        let config = ConfigLock::default();
+        let (_anvil, submitter, db, batch_id, mut commitment_rx, failing_order_id) =
+            build_submitter_and_batch_with_options(
+                config,
+                BatchHarnessOptions { with_failing_order: true },
+            )
+            .await;
+        let failing_order_id = failing_order_id.expect("harness added a failing order");
+
+        let batch = db.get_batch(batch_id).await.unwrap();
+        let good_order_id = batch
+            .orders
+            .iter()
+            .find(|id| **id != failing_order_id)
+            .expect("batch has a submittable order")
+            .clone();
+
+        // One order cannot be prepared for submission. The batch must still submit the good
+        // order on-chain, and BOTH orders must each emit exactly one CommitmentComplete — a
+        // missed completion leaks an OrderCommitter capacity slot and silently halts dispatch.
+        submitter.process_next_batch().await.unwrap();
+
+        let final_batch = db.get_batch(batch_id).await.unwrap();
+        assert_eq!(final_batch.status, BatchStatus::Submitted);
+
+        let good = db.get_order(&good_order_id).await.unwrap().expect("good order exists");
+        assert_eq!(good.status, OrderStatus::Done, "submitted order should be Done");
+        let failed = db.get_order(&failing_order_id).await.unwrap().expect("failing order exists");
+        assert_eq!(failed.status, OrderStatus::Failed, "unprepared order should be Failed");
+
+        let mut completed_for: Vec<String> = Vec::new();
+        let mut failed_for: Vec<String> = Vec::new();
+        for _ in 0..2 {
+            let event = commitment_rx
+                .recv()
+                .await
+                .expect("every batch order must emit a CommitmentComplete");
+            match event.outcome {
+                CommitmentOutcome::ProvingCompleted => completed_for.push(event.order_id),
+                CommitmentOutcome::ProvingFailed => failed_for.push(event.order_id),
+                other => panic!("unexpected commitment outcome: {other:?}"),
+            }
+        }
+        assert!(
+            commitment_rx.try_recv().is_err(),
+            "each order must emit exactly one CommitmentComplete, no more"
+        );
+        assert_eq!(completed_for, vec![good_order_id], "good order completes exactly once");
+        assert_eq!(failed_for, vec![failing_order_id], "failing order fails exactly once");
     }
 }

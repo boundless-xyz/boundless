@@ -340,6 +340,22 @@ impl From<provers::ProverError> for BackendError {
     }
 }
 
+/// Failure from applying a [`VerifierUpdate`].
+///
+/// The variants carry enough structure for the submitter to classify the failure for its
+/// retry/alarm policy without string-matching an error message — a backend that adds context
+/// around the underlying error cannot silently break that classification.
+#[derive(Debug, thiserror::Error)]
+pub enum VerifierUpdateError {
+    /// The verifier-update transaction was broadcast but its confirmation could not be
+    /// observed (e.g. it timed out waiting for inclusion). Transient — safe to retry.
+    #[error("verifier update transaction confirmation failed: {0:#}")]
+    TxnConfirmation(#[source] anyhow::Error),
+    /// Any other failure while applying the verifier update.
+    #[error("verifier update failed: {0:#}")]
+    Other(#[source] anyhow::Error),
+}
+
 pub struct SubmissionAssessorArtifact {
     pub seal: Bytes,
     pub selectors: Vec<AssessorSelector>,
@@ -386,7 +402,10 @@ pub trait Backend: Send + Sync {
     async fn verifier_update_applied(&self, update: &VerifierUpdate) -> Result<bool>;
 
     /// Applies `update` to the verifier as a standalone transaction.
-    async fn apply_verifier_update(&self, update: &VerifierUpdate) -> Result<()>;
+    async fn apply_verifier_update(
+        &self,
+        update: &VerifierUpdate,
+    ) -> Result<(), VerifierUpdateError>;
 }
 
 pub(crate) type BackendObj = Arc<dyn Backend>;

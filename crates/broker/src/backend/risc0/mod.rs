@@ -68,7 +68,7 @@ use super::types::{
     BatchUpdate, ClaimDigest, CloseBatch, CompressedProofId, Digest as BackendDigest,
     FulfillmentBatch, OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
     OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact,
-    SubmissionPlan, UpdateBatch, VerifierUpdate,
+    SubmissionPlan, UpdateBatch, VerifierUpdate, VerifierUpdateError,
 };
 
 mod batch;
@@ -121,12 +121,18 @@ impl Risc0Backend {
     }
 
     fn selectors() -> Vec<FixedBytes<4>> {
+        Self::selectors_for(is_dev_mode())
+    }
+
+    /// Verifier selectors this backend serves. `dev_mode` adds the dev-only fake-proof
+    /// selectors; production selector routing uses only the non-dev set.
+    fn selectors_for(dev_mode: bool) -> Vec<FixedBytes<4>> {
         let mut selectors = vec![
             UNSPECIFIED_SELECTOR,
             FixedBytes::from(SelectorExt::Groth16V3_0 as u32),
             FixedBytes::from(SelectorExt::Blake3Groth16V0_1 as u32),
         ];
-        if is_dev_mode() {
+        if dev_mode {
             selectors.push(FixedBytes::from(SelectorExt::FakeReceipt as u32));
             selectors.push(FixedBytes::from(SelectorExt::FakeBlake3Groth16 as u32));
         }
@@ -560,6 +566,25 @@ fn supports_risc0_selector(selector: FixedBytes<4>) -> bool {
         || is_blake3_groth16_selector(selector)
 }
 
+/// Classifies a verifier selector into the proof type the RISC0 backend produces for it, or
+/// `None` if this backend does not serve the selector.
+///
+/// [`super::router::BackendRouter::register_backend`] rejects any registered selector this
+/// returns `None` for, so every selector in [`Risc0Backend::selectors_for`] must classify.
+fn proof_type_for_selector(selector: FixedBytes<4>) -> Option<ProofType> {
+    if selector == UNSPECIFIED_SELECTOR
+        || selector == FixedBytes::from(SelectorExt::FakeReceipt as u32)
+    {
+        Some(ProofType::Any)
+    } else if is_groth16_selector(selector) {
+        Some(ProofType::Groth16)
+    } else if is_blake3_groth16_selector(selector) {
+        Some(ProofType::Blake3Groth16)
+    } else {
+        None
+    }
+}
+
 fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
     if is_groth16_selector(selector) || is_blake3_groth16_selector(selector) {
         OrderStatus::SkipAggregation
@@ -574,6 +599,19 @@ enum CompressionType {
     None,
     Groth16,
     Blake3Groth16,
+}
+
+/// Classifies a set-verifier root-submission error for the submitter's retry/alarm policy.
+///
+/// [`SetVerifierService::submit_merkle_root`] reports a confirmation timeout with a
+/// `failed to confirm tx` context. The match is against the full cause chain (`{:#}`) so
+/// that added context cannot hide the keyword.
+fn classify_verifier_update_error(err: anyhow::Error) -> VerifierUpdateError {
+    if format!("{err:#}").contains("failed to confirm tx") {
+        VerifierUpdateError::TxnConfirmation(err)
+    } else {
+        VerifierUpdateError::Other(err)
+    }
 }
 
 fn compression_type_for_selector(selector: FixedBytes<4>) -> CompressionType {
@@ -615,17 +653,7 @@ impl Backend for Risc0Backend {
     }
 
     fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
-        if selector == UNSPECIFIED_SELECTOR
-            || selector == FixedBytes::from(SelectorExt::FakeReceipt as u32)
-        {
-            Some(ProofType::Any)
-        } else if is_groth16_selector(selector) {
-            Some(ProofType::Groth16)
-        } else if is_blake3_groth16_selector(selector) {
-            Some(ProofType::Blake3Groth16)
-        } else {
-            None
-        }
+        proof_type_for_selector(selector)
     }
 
     async fn evaluate_request(
@@ -931,14 +959,18 @@ impl Backend for Risc0Backend {
         }
     }
 
-    async fn apply_verifier_update(&self, update: &VerifierUpdate) -> Result<()> {
+    async fn apply_verifier_update(
+        &self,
+        update: &VerifierUpdate,
+    ) -> Result<(), VerifierUpdateError> {
         match update {
             VerifierUpdate::SubmitMerkleRoot { verifier, root, seal } => {
-                let set_verifier = self.require_set_verifier(*verifier)?;
+                let set_verifier =
+                    self.require_set_verifier(*verifier).map_err(VerifierUpdateError::Other)?;
                 set_verifier
                     .submit_merkle_root(*root, seal.clone())
                     .await
-                    .context("Failed to submit merkle root to set verifier")?;
+                    .map_err(classify_verifier_update_error)?;
                 Ok(())
             }
         }
@@ -976,5 +1008,121 @@ mod tests {
         ] {
             assert_eq!(next_status_for_risc0_selector(selector), OrderStatus::SkipAggregation);
         }
+    }
+
+    #[test]
+    fn every_supported_selector_is_classified() {
+        // `BackendRouter::register_backend` bails on any selector the backend cannot
+        // classify. This guards that invariant for both the dev and production sets, so a
+        // selector added to `selectors_for` without a `proof_type_for_selector` arm fails
+        // here rather than at broker startup.
+        for dev_mode in [false, true] {
+            for selector in Risc0Backend::selectors_for(dev_mode) {
+                assert!(
+                    proof_type_for_selector(selector).is_some(),
+                    "selector {selector:?} (dev_mode={dev_mode}) is served but not classified"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn production_selectors_exclude_dev_fakes() {
+        // The whole suite runs with RISC0_DEV_MODE=1, so without an explicit `dev_mode=false`
+        // case the production selector set is never exercised.
+        let prod = Risc0Backend::selectors_for(false);
+        let fake_receipt = selector_ext(SelectorExt::FakeReceipt);
+        let fake_blake3 = selector_ext(SelectorExt::FakeBlake3Groth16);
+        assert!(prod.contains(&UNSPECIFIED_SELECTOR));
+        assert!(!prod.contains(&fake_receipt), "production set must not include FakeReceipt");
+        assert!(!prod.contains(&fake_blake3), "production set must not include FakeBlake3Groth16");
+
+        // The dev set is a strict superset of the production set.
+        let dev = Risc0Backend::selectors_for(true);
+        for selector in &prod {
+            assert!(dev.contains(selector), "dev set is missing production selector {selector:?}");
+        }
+        assert!(dev.contains(&fake_receipt) && dev.contains(&fake_blake3));
+    }
+
+    async fn guard_test_backend() -> Risc0Backend {
+        let config = ConfigLock::default();
+        let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
+        let priority_requestors = PriorityRequestors::new(config, 1);
+        let prover: ProverObj = std::sync::Arc::new(provers::DefaultProver::new());
+        Risc0Backend::new(
+            Risc0Backend::default_id(),
+            prover.clone(),
+            prover,
+            downloader,
+            priority_requestors,
+        )
+    }
+
+    fn guard_fulfillment_batch(
+        backend_id: BackendId,
+        state: Option<BackendBatchState>,
+        assessor_proof_id: Option<AssessorProofId>,
+    ) -> FulfillmentBatch {
+        FulfillmentBatch {
+            backend_id,
+            state,
+            assessor_proof_id,
+            eip712_domain: eip712_domain(Address::ZERO, 1),
+            orders: vec![],
+        }
+    }
+
+    fn decodable_backend_state() -> BackendBatchState {
+        BackendBatchState {
+            data: serde_json::json!({
+                "guest_state": GuestState::initial(Risc0Digest::ZERO),
+                "claim_digests": Vec::<Risc0Digest>::new(),
+            }),
+            proof_id: None,
+            compressed_proof_id: None,
+        }
+    }
+
+    // `SubmissionPlan` is intentionally not `Debug`, so `unwrap_err` is unavailable here.
+    async fn expect_build_fulfillments_err(
+        backend: &Risc0Backend,
+        cmd: FulfillmentBatch,
+    ) -> anyhow::Error {
+        match backend.build_fulfillments(cmd).await {
+            Ok(_) => panic!("expected build_fulfillments to fail"),
+            Err(err) => err,
+        }
+    }
+
+    #[tokio::test]
+    async fn build_fulfillments_rejects_mismatched_backend_id() {
+        let backend = guard_test_backend().await;
+        let cmd = guard_fulfillment_batch(BackendId::new("other_backend").unwrap(), None, None);
+        let err = expect_build_fulfillments_err(&backend, cmd).await;
+        assert!(
+            err.to_string().contains("cannot build fulfillments for backend"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_fulfillments_requires_backend_state() {
+        let backend = guard_test_backend().await;
+        let cmd = guard_fulfillment_batch(Risc0Backend::default_id(), None, None);
+        let err = expect_build_fulfillments_err(&backend, cmd).await;
+        assert!(err.to_string().contains("no recorded backend state"), "unexpected error: {err:#}");
+    }
+
+    #[tokio::test]
+    async fn build_fulfillments_requires_assessor_receipt() {
+        let backend = guard_test_backend().await;
+        let cmd = guard_fulfillment_batch(
+            Risc0Backend::default_id(),
+            Some(decodable_backend_state()),
+            None,
+        );
+        let err = expect_build_fulfillments_err(&backend, cmd).await;
+        assert!(err.to_string().contains("no assessor receipt"), "unexpected error: {err:#}");
     }
 }
