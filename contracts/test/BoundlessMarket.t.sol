@@ -2767,6 +2767,103 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
+    /// Every EIP-712-bound field in `SlimRequest` must, when mutated alone,
+    /// cause `_verifyBinding` to revert. If any mutation slips through,
+    /// `SlimRequestLibrary.reconstructRequestDigest` has drifted from
+    /// `ProofRequestLibrary.eip712Digest` — silently letting a prover swap
+    /// the field on a client-signed request.
+    function testFulfillRevertsOnAnyMutatedSlimField() public {
+        Client client = getClient(1);
+        // Give the request a non-default selector and predicate so the selector
+        // and predicate mutations below are real edits. Leave the callback at
+        // its zero default — every Callback field is still bound by the
+        // typehash, so mutating either field still changes the reconstructed
+        // digest. Skipping a real callback addr also keeps the sanity-fulfill
+        // below from attempting an external call.
+        ProofRequest memory request = client.request(1);
+        request.requirements.selector = VERIFIER_ENTRY_SEL;
+        request.requirements.predicate = PredicateLibrary.createPrefixMatchPredicate(APP_IMAGE_ID, bytes("prefix"));
+
+        bytes memory clientSignature = client.sign(request);
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        bytes memory expectedRevert =
+            abi.encodeWithSelector(IBoundlessMarket.RequestIsNotLockedOrPriced.selector, request.id);
+        FulfillmentBatch memory b;
+
+        // Each iteration clones `request` via ABI roundtrip so the mutation
+        // can't leak back through the shared memory pointers Solidity uses
+        // for `bytes` / nested-struct fields (a `Predicate memory` literal
+        // copies the pointer to `.data`, not the bytes themselves).
+
+        // 1. selector
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].selector = bytes4(0xdeadbeef);
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 2. callback.addr
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].callback.addr = address(0xCAFE);
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 3. callback.gasLimit
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].callback.gasLimit = b.requests[0].callback.gasLimit + 1;
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 4. predicate.predicateType
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].predicate.predicateType = PredicateType.DigestMatch; // baseline is PrefixMatch
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 5. predicate.data
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].predicate.data = abi.encodePacked(b.requests[0].predicate.data, hex"00");
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 6. imageUrlHash
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].imageUrlHash = b.requests[0].imageUrlHash ^ bytes32(uint256(1));
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 7. inputDigest
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].inputDigest = b.requests[0].inputDigest ^ bytes32(uint256(1));
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // 8. offerDigest
+        b = createFulfillmentBatch(_clone(request), APP_JOURNAL, testProverAddress);
+        b.requests[0].offerDigest = b.requests[0].offerDigest ^ bytes32(uint256(1));
+        vm.expectRevert(expectedRevert);
+        boundlessMarket.fulfill(_asArray(b));
+
+        // Sanity: an un-mutated batch fulfills successfully — confirms the
+        // slim payload reconstructs to the digest stored at lock time, so
+        // the revert-on-mutation assertions above aren't trivially satisfied
+        // by some unrelated revert in the baseline fixture.
+        FulfillmentBatch memory sanity = createFulfillmentBatch(request, APP_JOURNAL, testProverAddress);
+        boundlessMarket.fulfill(_asArray(sanity));
+        expectRequestFulfilled(request.id);
+    }
+
+    /// @dev Deep-copy a `ProofRequest` via ABI roundtrip. Solidity's
+    ///      memory-to-memory struct assignment copies reference-typed fields
+    ///      (`bytes`, nested structs containing `bytes`) by pointer, so
+    ///      mutating a "copy" silently mutates the original. ABI encode +
+    ///      decode forces a fresh allocation for every reference at every
+    ///      depth.
+    function _clone(ProofRequest memory r) internal pure returns (ProofRequest memory) {
+        return abi.decode(abi.encode(r), (ProofRequest));
+    }
+
     // Should revert as you can not fulfill a request twice, except for in the case covered by:
     // `testFulfillLockedRequestAlreadyFulfilledByOtherProver`
     function testFulfillNeverLockedAlreadyFulfilledAndPaid() public {
