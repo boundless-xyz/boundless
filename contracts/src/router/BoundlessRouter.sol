@@ -486,12 +486,9 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
             if (asEntry.classId != required) {
                 revert AssessorClassMismatch(required, asEntry.classId);
             }
-            // The assessor's `verifyAssessor(FulfillmentBatch, bytes32[])` calldata
-            // tail is byte-identical to `verifyBatch`'s, so we forward our own
-            // calldata payload verbatim with the assessor's selector prepended.
-            // ABI stability between the two signatures is load-bearing: if
-            // either drifts, the `R0BoundlessAssessorAdapter` end-to-end tests
-            // will fail because the adapter sees garbled calldata.
+            // Forward the entry-point calldata tail to the assessor with its own
+            // selector prepended. See `_forwardCalldataAsStaticCall` for the
+            // ABI-equality invariant this depends on.
             _forwardCalldataAsStaticCall(asEntry.impl, asEntry.gasLimit, IBoundlessAssessor.verifyAssessor.selector);
         } else {
             // Joint class: no assessor seam — caller must signal that with an empty seal.
@@ -616,10 +613,15 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///      `calldatacopy` here still see the *outer* (entry-point) calldata — which is
     ///      exactly the bytes we want to forward.
     ///
-    ///      Invariant the caller must uphold: `selector` must belong to a sibling method
-    ///      whose post-selector ABI is byte-identical to the entry-point's calldata
-    ///      tail. Otherwise the callee will decode garbage. Read this call site as
-    ///      "tail-call to a sibling with the same args".
+    ///      `selector` must belong to a sibling method whose
+    ///      post-selector ABI is byte-identical to the entry-point's calldata tail.
+    ///      Otherwise the callee will decode garbage (or, worse, silently interpret
+    ///      bytes that happen to align). At time of writing the only call site is
+    ///      `verifyBatch` forwarding to `IBoundlessAssessor.verifyAssessor`; both
+    ///      signatures are `(FulfillmentBatch, bytes32[])`. The byte-equality is
+    ///      pinned by a unit test that encodes both signatures and compares the
+    ///      tails — any drift trips the test. Read any call site as "tail-call to a
+    ///      sibling with the same args".
     function _forwardCalldataAsStaticCall(address impl, uint256 gasLimit, bytes4 selector) internal view {
         assembly ("memory-safe") {
             let p := mload(0x40)
