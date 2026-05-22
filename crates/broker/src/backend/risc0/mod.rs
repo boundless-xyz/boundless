@@ -58,7 +58,6 @@ use crate::{
     is_dev_mode,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
-    utils::prune_receipt_claim_journal,
     CompressionType, ConfigurableDownloader, Order, OrderStatus,
 };
 use anyhow::{Context, Result};

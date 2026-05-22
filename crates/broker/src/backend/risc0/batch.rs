@@ -12,9 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use risc0_zkvm::sha::Sha256;
 use serde::{Deserialize, Serialize};
 
 use super::*;
+
+fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
+    if let MaybePruned::Value(Some(output)) = &mut claim.output {
+        let digest = match &output.journal {
+            MaybePruned::Value(bytes) => Some(*risc0_zkvm::sha::Impl::hash_bytes(bytes)),
+            MaybePruned::Pruned(_) => None,
+        };
+
+        if let Some(digest) = digest {
+            output.journal = MaybePruned::Pruned(digest);
+        }
+    }
+
+    claim
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Risc0BatchState {

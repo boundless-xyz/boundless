@@ -13,8 +13,8 @@
 // limitations under the License.
 
 //! Cross-service utilities: retry helpers, RPC layers, storage helpers,
-//! the reaper task, and small misc helpers (gas estimation, receipt
-//! claim journal pruning).
+//! the reaper task, and small misc helpers (gas estimation, timestamps,
+//! and expiry formatting).
 
 pub mod futures_retry;
 mod helpers;
@@ -23,11 +23,8 @@ pub(crate) mod rpc_retry_policy;
 pub mod rpcmetrics;
 pub mod sequential_fallback;
 pub(crate) mod storage;
-// Re-export the standalone helpers (claim pruning, gas estimation, the
-// tiny dev-mode / timestamp / expiry-formatting helpers) at the
-// `crate::utils` root so callers keep using `utils::prune_receipt_claim_journal`
-// etc. without a redundant intermediate path component.
-pub use helpers::prune_receipt_claim_journal;
+// Re-export the standalone helpers at the `crate::utils` root so callers
+// keep using `utils::...` without a redundant intermediate path component.
 pub(crate) use helpers::{
     estimate_gas_to_fulfill, estimate_gas_to_lock, format_expiries, is_dev_mode, now_timestamp,
 };
