@@ -321,9 +321,10 @@ impl OrderProcessor {
                         {
                             OrderProcessProgress::Started { proof_id } => Ok(proof_id),
                             OrderProcessProgress::Compressed { .. }
-                            | OrderProcessProgress::Completed(_) => {
-                                unreachable!("new order cannot complete before proof start")
-                            }
+                            | OrderProcessProgress::Completed(_) => Err(anyhow::anyhow!(
+                                "backend reported order {order_id} complete before proof \
+                                 start; expected Started"
+                            )),
                         }
                     },
                     "process_order_start",
