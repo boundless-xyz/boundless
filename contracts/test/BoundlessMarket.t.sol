@@ -133,7 +133,7 @@ contract BoundlessMarketTest is Test {
     MockCallback internal mockCallback;
     MockCallback internal mockHighGasCallback;
 
-    function setUp() public {
+    function setUp() public virtual {
         vm.deal(ownerWallet.addr, DEFAULT_BALANCE);
 
         vm.startPrank(ownerWallet.addr);
@@ -658,7 +658,7 @@ contract BoundlessMarketTest is Test {
             _buildFillsAndSlim(requests, journals, FulfillmentDataType.ImageIdAndJournal);
         // Step 2: stand in for the assessor guest — produce the
         // `AssessorJournal` commitment the guest would have signed.
-        bytes32 journalDigest = _r0JournalDigest(slim, fills, requestDigests, prover);
+        bytes32 journalDigest = TestUtils.r0JournalDigest(slim, fills, requestDigests, prover);
         // The assessor's STARK receipt commits to `(ASSESSOR_IMAGE_ID,
         // journalDigest)`; that claim digest is what setVerifier requires
         // to be included in the submitted set-builder root.
@@ -727,89 +727,6 @@ contract BoundlessMarketTest is Test {
         }
     }
 
-    /// @dev Stand-in for the R0 assessor guest program — builds the
-    ///      `AssessorJournal` it would commit to in its STARK proof, given
-    ///      the broker's per-fill inputs.
-    function _r0JournalDigest(
-        SlimRequest[] memory slim,
-        Fulfillment[] memory fills,
-        bytes32[] memory requestDigests,
-        address prover
-    ) internal pure returns (bytes32) {
-        uint256 n = slim.length;
-        bytes32[] memory leaves = new bytes32[](n);
-        uint256 cbCount;
-        uint256 selCount;
-        for (uint256 i = 0; i < n; i++) {
-            bytes32 fulfillmentDataDigest = FulfillmentLibrary.fulfillmentDataDigest(fills[i]);
-            leaves[i] = AssessorCommitment({
-                    index: i,
-                    id: slim[i].id,
-                    requestDigest: requestDigests[i],
-                    claimDigest: fills[i].claimDigest,
-                    fulfillmentDataDigest: fulfillmentDataDigest
-                }).eip712Digest();
-            if (slim[i].callback.addr != address(0)) cbCount++;
-            if (slim[i].selector != bytes4(0)) selCount++;
-        }
-        AssessorCallback[] memory callbacks = new AssessorCallback[](cbCount);
-        Selector[] memory selectors = new Selector[](selCount);
-        uint256 cbIdx;
-        uint256 selIdx;
-        for (uint256 i = 0; i < n; i++) {
-            if (slim[i].callback.addr != address(0)) {
-                callbacks[cbIdx++] = AssessorCallback({
-                    index: uint16(i), addr: slim[i].callback.addr, gasLimit: slim[i].callback.gasLimit
-                });
-            }
-            if (slim[i].selector != bytes4(0)) {
-                selectors[selIdx++] = Selector({index: uint16(i), value: slim[i].selector});
-            }
-        }
-        bytes32 batchRoot = MerkleProofish.processTree(leaves);
-        return sha256(
-            abi.encode(AssessorJournal({root: batchRoot, callbacks: callbacks, selectors: selectors, prover: prover}))
-        );
-    }
-
-    /*
-    // Wrapped: the deprecated-assessor concept is now handled by router
-    // tombstones (see BoundlessRouter tests). Kept here until equivalent
-    // coverage exists at the component level so we have a paper trail.
-    function createDeprecatedFillAndSubmitRoot(ProofRequest memory request, bytes memory journal, address prover)
-        internal
-        returns (Fulfillment memory, AssessorReceipt memory)
-    {
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-        bytes[] memory journals = new bytes[](1);
-        journals[0] = journal;
-        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt) =
-            createDeprecatedFillsAndSubmitRoot(requests, journals, prover);
-        return (fills[0], assessorReceipt);
-    }
-
-    function createDeprecatedFillsAndSubmitRoot(ProofRequest[] memory requests, bytes[] memory journals, address prover)
-        internal
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt)
-    {
-        bytes32 root;
-        (fills, assessorReceipt, root) = createDeprecatedFills(requests, journals, prover);
-        // submit the root to the set verifier
-        submitRoot(root);
-        return (fills, assessorReceipt);
-    }
-
-    function createDeprecatedFills(ProofRequest[] memory requests, bytes[] memory journals, address prover)
-        internal
-        view
-        returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
-    {
-        (fills, assessorReceipt, root) = createFills(
-            requests, journals, prover, FulfillmentDataType.ImageIdAndJournal, DEPRECATED_ASSESSOR_IMAGE_ID
-        );
-    }
-    */
 
     function newBatch(uint256 batchSize) internal returns (ProofRequest[] memory requests, bytes[] memory journals) {
         requests = new ProofRequest[](batchSize);
@@ -880,31 +797,6 @@ contract BoundlessMarketTest is Test {
     }
 }
 
-// =============================================================================
-// TODO(MIGRATE-MARKET): port these tests to the new architecture.
-//
-// The router/assessor refactor changed:
-//   * `BoundlessMarket` constructor: now `(BoundlessRouter, collateralToken)`,
-//     no R0 verifier / assessor image-id args.
-//   * `Fulfillment` lost `id` and `requestDigest`; they live on the paired
-//     `SlimRequest` in `FulfillmentBatch.requests`.
-//   * `AssessorReceipt` is gone; the `bytes assessorSeal` lives directly on
-//     `FulfillmentBatch`. First 4 bytes pick the assessor entry; remainder is
-//     the adapter-specific envelope (none for `NullAssessor`).
-//   * `fulfill(Fulfillment[], AssessorReceipt)` → `fulfill(FulfillmentBatch[])`.
-//   * `priceAndFulfill*` takes a parallel `ProofRequestBatch[]` for the
-//     pricing leg.
-//
-// Test bodies below are commented out wholesale. Port them incrementally:
-// uncomment one test, rewire its call sites to the new helpers
-// (`createFulfillmentBatch`, etc.), confirm it passes, then move on.
-//
-// Tests that don't translate (e.g. `testFulfillDeprecatedAssessor`, which
-// tested an assessor fallback that is now handled at the router-level via
-// tombstoning) should be moved to the router-level test files when they
-// land there, or deleted with a justification in the commit message.
-// =============================================================================
-
 contract BoundlessMarketBasicTest is BoundlessMarketTest {
     using ReceiptClaimLib for ReceiptClaim;
     using BoundlessMarketLib for Offer;
@@ -914,9 +806,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     function _stringEquals(string memory a, string memory b) private pure returns (bool) {
         return keccak256(abi.encodePacked(a)) == keccak256(abi.encodePacked(b));
     }
-
-    // ─── Ported tests ────────────────────────────────────────────────────
-    // (incrementally unwrapped from the TODO(MIGRATE-MARKET) block below)
 
     function testBytecodeSize() public {
         vm.snapshotValue("bytecode size proxy", address(proxy).code.length);
@@ -1589,46 +1478,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         return (client, request);
     }
 
-    // ─── TODO(MIGRATE-MARKET): tests still to port ──────────────────────
-    /*
-    // Base for fulfillment tests with deprecated assessor.
-    function _testFulfillDeprecatedAssessor(uint32 requestIdx) private {
-        Client client = getClient(1);
-        ProofRequest memory request = client.request(requestIdx);
-        bytes memory clientSignature = client.sign(request);
-
-        client.snapshotBalance();
-        testProver.snapshotBalance();
-
-        vm.prank(testProverAddress);
-        boundlessMarket.lockRequest(request, clientSignature);
-
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createDeprecatedFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
-
-        if (block.timestamp <= boundlessMarket.DEPRECATED_ASSESSOR_EXPIRES_AT()) {
-            vm.expectEmit(true, true, true, true);
-            emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, fills[0].requestDigest);
-            vm.expectEmit(true, true, true, false);
-            emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, fill);
-            boundlessMarket.fulfill(fills, assessorReceipt);
-
-            expectRequestFulfilled(fill.id);
-
-            client.expectBalanceChange(-1 ether);
-            testProver.expectBalanceChange(1 ether);
-        } else {
-            vm.expectRevert(VerificationFailed.selector);
-            boundlessMarket.fulfill(fills, assessorReceipt);
-        }
-
-        expectMarketBalanceUnchanged();
-    }
-    */
-
     /// @dev Base for fulfillmentAndWithdraw tests with different methods for
     ///      lock, including none. All three paths must yield the same result.
     function _testFulfillAndWithdrawSameBlock(uint32 requestIdx, LockRequestMethod lockinMethod, string memory snapshot)
@@ -1824,15 +1673,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             1, LockRequestMethod.LockRequestWithSig, "fulfill: a locked request (locked via prover signature)"
         );
     }
-
-    /*
-    function testFulfillDeprecatedAssessor() public {
-        _testFulfillDeprecatedAssessor(1);
-        // Warp past the deprecated assessor expiration time
-        vm.warp(block.timestamp + DEPRECATED_ASSESSOR_DURATION + 1 minutes);
-        _testFulfillDeprecatedAssessor(2);
-    }
-    */
 
     function testSubmitRootAndFulfillLockedRequest() public {
         _testSubmitRootAndFulfillSameBlock(1, LockRequestMethod.LockRequest, "submitRootAndFulfill: a locked request");
@@ -3378,113 +3218,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 
-    // testFulfillRequestWrongSelector + the two ApplicationVerificationGasLimit
-    // tests below are router-level concerns now: signed-selector mismatch is
-    // enforced by `BoundlessRouter._matchSignedSelector`, and the per-fill
-    // gas budget is the router entry's `gasLimit`. Kept wrapped pending the
-    // equivalent coverage in `BoundlessRouter.t.sol`.
-    /*
-    function testFulfillRequestWrongSelector() public {
-        Client client = getClient(1);
-        ProofRequest memory request = client.request(1);
-        request.requirements.selector = setVerifier.SELECTOR();
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-        bytes memory clientSignature = client.sign(request);
-        bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = clientSignature;
-
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
-
-        // Attempt to fulfill a request with wrong selector.
-        assessorReceipt.selectors[0] = Selector({index: 0, value: bytes4(0xdeadbeef)});
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IBoundlessMarket.SelectorMismatch.selector, bytes4(0xdeadbeef), setVerifier.SELECTOR()
-            )
-        );
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
-
-        expectMarketBalanceUnchanged();
-    }
-
-    function testFulfillApplicationVerificationGasLimit() public {
-        Client client = getClient(1);
-        ProofRequest memory request = client.request(3);
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
-
-        bytes memory clientSignature = client.sign(request);
-        bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = clientSignature;
-
-        FulfillmentDataImageIdAndJournal memory fulfillmentData =
-            FulfillmentDataLibrary.decodeFulfillmentDataImageIdAndJournal(fill.fulfillmentData);
-        bytes32 claimDigest = ReceiptClaimLib.ok(fulfillmentData.imageId, sha256(fulfillmentData.journal)).digest();
-
-        // If no selector is specified, we expect the call to verifyIntegrity to use the default
-        // gas limit when verifying the application.
-        vm.expectCall(
-            address(setVerifier),
-            0,
-            uint64(EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY),
-            abi.encodeWithSelector(IRiscZeroVerifier.verifyIntegrity.selector, RiscZeroReceipt(fill.seal, claimDigest))
-        );
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
-
-        expectRequestFulfilled(fill.id);
-
-        client.expectBalanceChange(-1 ether);
-        testProver.expectBalanceChange(1 ether);
-        expectMarketBalanceUnchanged();
-    }
-
-    function testFulfillVerificationGasLimitForSelector() public {
-        Client client = getClient(1);
-        ProofRequest memory request = client.request(3);
-        request.requirements.selector = setVerifier.SELECTOR();
-        ProofRequest[] memory requests = new ProofRequest[](1);
-        requests[0] = request;
-
-        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
-            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
-        Fulfillment[] memory fills = new Fulfillment[](1);
-        fills[0] = fill;
-
-        bytes memory clientSignature = client.sign(request);
-        bytes[] memory clientSignatures = new bytes[](1);
-        clientSignatures[0] = clientSignature;
-
-        FulfillmentDataImageIdAndJournal memory fulfillmentData =
-            FulfillmentDataLibrary.decodeFulfillmentDataImageIdAndJournal(fill.fulfillmentData);
-        bytes32 claimDigest = ReceiptClaimLib.ok(fulfillmentData.imageId, sha256(fulfillmentData.journal)).digest();
-
-        // If a selector is specified, we expect the call to verifyIntegrity to not use the default
-        // gas limit, so the minimum gas it should have should exceed it.
-        vm.expectCallMinGas(
-            address(setVerifier),
-            0,
-            uint64(EXPECTED_DEFAULT_MAX_GAS_FOR_VERIFY + 1),
-            abi.encodeWithSelector(IRiscZeroVerifier.verifyIntegrity.selector, RiscZeroReceipt(fill.seal, claimDigest))
-        );
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
-
-        expectRequestFulfilled(fill.id);
-
-        client.expectBalanceChange(-1 ether);
-        testProver.expectBalanceChange(1 ether);
-        expectMarketBalanceUnchanged();
-    }
-
-    */
     function _testFulfillRepeatIndex(LockRequestMethod lockinMethod) private {
         Client client = getClient(1);
 
@@ -4562,7 +4295,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
     }
 } // <-- closes BoundlessMarketBasicTest
 
-// ─── TODO(MIGRATE-MARKET): port bench + upgrade contracts ───────────────
 contract BoundlessMarketBench is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 

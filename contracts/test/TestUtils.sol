@@ -11,7 +11,8 @@ import {Selector} from "../src/types/Selector.sol";
 import {AssessorCallback} from "../src/types/AssessorCallback.sol";
 import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
-import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {Fulfillment, FulfillmentLibrary} from "../src/types/Fulfillment.sol";
+import {SlimRequest} from "../src/types/SlimRequest.sol";
 import {MerkleProofish} from "../src/libraries/MerkleProofish.sol";
 
 library TestUtils {
@@ -236,5 +237,58 @@ library TestUtils {
         }
         newCallbacks[self.length] = callback;
         return newCallbacks;
+    }
+
+    /// @notice Reference reconstruction of the journal digest that
+    ///         `R0BoundlessAssessorAdapter.verifyAssessor` will pass to the
+    ///         underlying `IRiscZeroVerifier.verify`. Stands in for the
+    ///         off-chain R0 assessor guest: builds the per-fill merkle leaves
+    ///         from the slim payload + fills + caller-supplied digests, walks
+    ///         the same sparse-array construction the adapter does for
+    ///         `callbacks` / `selectors`, then sha256's the resulting
+    ///         `AssessorJournal`. Adapter unit tests and market fixtures
+    ///         depend on byte-identical output to the adapter.
+    function r0JournalDigest(
+        SlimRequest[] memory slim,
+        Fulfillment[] memory fills,
+        bytes32[] memory requestDigests,
+        address prover
+    ) internal pure returns (bytes32) {
+        uint256 n = slim.length;
+        bytes32[] memory leaves = new bytes32[](n);
+        uint256 cbCount;
+        uint256 selCount;
+        for (uint256 i = 0; i < n; i++) {
+            bytes32 fulfillmentDataDigest = FulfillmentLibrary.fulfillmentDataDigest(fills[i]);
+            leaves[i] = AssessorCommitment({
+                index: i,
+                id: slim[i].id,
+                requestDigest: requestDigests[i],
+                claimDigest: fills[i].claimDigest,
+                fulfillmentDataDigest: fulfillmentDataDigest
+            }).eip712Digest();
+            if (slim[i].callback.addr != address(0)) cbCount++;
+            if (slim[i].selector != bytes4(0)) selCount++;
+        }
+        AssessorCallback[] memory callbacks = new AssessorCallback[](cbCount);
+        Selector[] memory selectors = new Selector[](selCount);
+        uint256 cbIdx;
+        uint256 selIdx;
+        for (uint256 i = 0; i < n; i++) {
+            if (slim[i].callback.addr != address(0)) {
+                callbacks[cbIdx++] = AssessorCallback({
+                    index: uint16(i),
+                    addr: slim[i].callback.addr,
+                    gasLimit: slim[i].callback.gasLimit
+                });
+            }
+            if (slim[i].selector != bytes4(0)) {
+                selectors[selIdx++] = Selector({index: uint16(i), value: slim[i].selector});
+            }
+        }
+        bytes32 batchRoot = MerkleProofish.processTree(leaves);
+        return sha256(
+            abi.encode(AssessorJournal({root: batchRoot, callbacks: callbacks, selectors: selectors, prover: prover}))
+        );
     }
 }
