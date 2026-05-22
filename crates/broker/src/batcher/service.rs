@@ -24,6 +24,11 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+#[cfg(test)]
+use crate::{
+    backend::Risc0Backend, provers::ProverObj, requestor_monitor::PriorityRequestors,
+    ConfigurableDownloader,
+};
 use crate::{
     backend::{
         BackendId, BackendRouter, BatchOrder, BatchSizeEstimateRequest, BatchUpdate, CloseBatch,
@@ -35,13 +40,6 @@ use crate::{
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
     Batch, BatchStatus, FulfillmentType,
-};
-#[cfg(test)]
-use crate::{
-    backend::{Risc0Backend, Risc0BatchProcessor},
-    provers::ProverObj,
-    requestor_monitor::PriorityRequestors,
-    ConfigurableDownloader,
 };
 
 use super::error::BatcherErr;
@@ -87,29 +85,27 @@ impl BatcherService {
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
         let backend_id = Risc0Backend::default_id();
-        let batch_processor = Arc::new(Risc0BatchProcessor::new(
-            db.clone(),
-            config.clone(),
-            prover.clone(),
-            set_builder_guest_id,
-            assessor_guest_id,
-            market_addr,
-            prover_addr,
-            chain_id,
-        ));
-
         let downloader = ConfigurableDownloader::new(config.clone()).await?;
         let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
         let backend = Arc::new(
             Risc0Backend::new(
                 backend_id.clone(),
                 prover.clone(),
-                prover,
+                prover.clone(),
                 downloader,
                 priority_requestors,
             )
             .with_set_builder_program_id(set_builder_guest_id)
-            .with_batch_processor(batch_processor),
+            .with_test_batch_processor(
+                db.clone(),
+                config.clone(),
+                prover.clone(),
+                set_builder_guest_id,
+                assessor_guest_id,
+                market_addr,
+                prover_addr,
+                chain_id,
+            ),
         );
 
         Ok(Self {

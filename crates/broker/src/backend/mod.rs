@@ -31,6 +31,4 @@ pub use types::{
 };
 
 #[cfg(test)]
-pub use risc0::Risc0BatchProcessor;
-#[cfg(test)]
 pub use types::{Backend, BatchClose, BatchSizeEstimate, SubmissionPlan};

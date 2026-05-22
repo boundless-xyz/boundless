@@ -65,7 +65,7 @@ impl Risc0BatchState {
 }
 
 #[derive(Clone)]
-pub struct Risc0BatchProcessor {
+pub(super) struct Risc0BatchProcessor {
     db: DbObj,
     config: ConfigLock,
     prover: ProverObj,

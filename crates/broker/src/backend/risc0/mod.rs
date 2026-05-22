@@ -75,8 +75,7 @@ use super::types::{
 
 mod batch;
 
-pub use batch::Risc0BatchProcessor;
-use batch::{Risc0BatchState, Risc0Submission};
+use batch::{Risc0BatchProcessor, Risc0BatchState, Risc0Submission};
 
 pub struct Risc0Backend {
     id: BackendId,
@@ -147,7 +146,28 @@ impl Risc0Backend {
     }
 
     #[cfg(test)]
-    pub(crate) fn with_batch_processor(mut self, batch_processor: BatchProcessorObj) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn with_test_batch_processor(
+        mut self,
+        db: DbObj,
+        config: ConfigLock,
+        prover: ProverObj,
+        set_builder_guest_id: Risc0Digest,
+        assessor_guest_id: Risc0Digest,
+        market_addr: Address,
+        prover_addr: Address,
+        chain_id: u64,
+    ) -> Self {
+        let batch_processor = Arc::new(Risc0BatchProcessor::new(
+            db,
+            config,
+            prover,
+            set_builder_guest_id,
+            assessor_guest_id,
+            market_addr,
+            prover_addr,
+            chain_id,
+        ));
         self.batch_processor = Some(batch_processor);
         self
     }
