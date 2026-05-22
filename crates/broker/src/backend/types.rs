@@ -246,19 +246,12 @@ pub struct OrderFulfillmentArtifact {
     pub fulfillment: MarketFulfillment,
 }
 
-pub struct OrderFulfillmentFailure {
-    pub order_id: String,
-    pub error: anyhow::Error,
-}
-
-pub enum OrderFulfillmentResult {
-    Fulfilled(OrderFulfillmentArtifact),
-    Failed(OrderFulfillmentFailure),
-}
-
 pub struct SubmissionPlan {
     pub verifier_updates: Vec<VerifierUpdate>,
-    pub orders: Vec<OrderFulfillmentResult>,
+    /// Fulfillment artifacts for every order in the batch. `build_fulfillments` is
+    /// all-or-nothing: the assessor receipt's selectors/callbacks are positionally
+    /// indexed over the full order set, so a partial set cannot be submitted.
+    pub orders: Vec<OrderFulfillmentArtifact>,
     pub assessor: SubmissionAssessorArtifact,
 }
 

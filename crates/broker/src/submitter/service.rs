@@ -34,8 +34,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     backend::{
-        BackendRouter, FulfillmentBatch, FulfillmentOrder, OrderFulfillmentResult, VerifierUpdate,
-        VerifierUpdateError,
+        BackendRouter, FulfillmentBatch, FulfillmentOrder, VerifierUpdate, VerifierUpdateError,
     },
     config::ConfigLock,
     db::DbObj,
@@ -211,39 +210,12 @@ where
             })
             .await?;
 
-        for result in artifacts.orders {
-            match result {
-                OrderFulfillmentResult::Fulfilled(artifact) => {
-                    fulfillment_to_order_id.insert(artifact.fulfillment.id, artifact.order_id);
-                    fulfillments.push(artifact.fulfillment);
-                }
-                OrderFulfillmentResult::Failed(failure) => {
-                    tracing::error!("Failed to submit {}: {:?}", failure.order_id, failure.error);
-                    handle_order_failure(
-                        &self.db,
-                        &failure.order_id,
-                        &BrokerFailure::new(
-                            SubmitterErr::UnexpectedErr(failure.error).code(),
-                            "Failed to submit",
-                            CompletionOutcome::ProvingFailed,
-                        ),
-                        self.chain_id,
-                        &self.proving_completion_tx,
-                    )
-                    .await;
-                }
-            }
-        }
-
-        // No valid fulfillments, skip on-chain submission attempt.
-        if fulfillments.is_empty() {
-            tracing::error!(
-                "All orders in batch {batch_id} failed during submission preparation. \
-                 Skipping on-chain submission."
-            );
-            return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                "No fulfillments to submit for batch {batch_id}"
-            )));
+        // `build_fulfillments` is all-or-nothing: it either returns an artifact for every
+        // order or fails the whole batch. A partial set cannot be submitted because the
+        // assessor receipt is indexed over the full order set.
+        for artifact in artifacts.orders {
+            fulfillment_to_order_id.insert(artifact.fulfillment.id, artifact.order_id);
+            fulfillments.push(artifact.fulfillment);
         }
 
         let (single_txn_fulfill, withdraw) = {

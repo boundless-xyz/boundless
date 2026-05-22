@@ -26,7 +26,7 @@ pub use router::{BackendEntry, BackendRouter};
 pub use types::{
     AssessorProofId, BackendBatchState, BackendError, BackendId, BatchOrder,
     BatchSizeEstimateRequest, BatchUpdate, CloseBatch, CompressedProofId, FulfillmentBatch,
-    FulfillmentOrder, OrderFulfillmentResult, OrderProcessProgress, ProcessOrder, ProcessedOrder,
+    FulfillmentOrder, OrderProcessProgress, ProcessOrder, ProcessedOrder,
     ProofId, UpdateBatch, VerifierUpdate, VerifierUpdateError,
 };
 

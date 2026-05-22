@@ -66,7 +66,7 @@ use super::types::{
     AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
     BatchUpdate, ClaimDigest, CloseBatch, CompressedProofId, Digest as BackendDigest,
-    FulfillmentBatch, OrderFulfillmentArtifact, OrderFulfillmentFailure, OrderFulfillmentResult,
+    FulfillmentBatch, OrderFulfillmentArtifact,
     OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact,
     SubmissionPlan, UpdateBatch, VerifierUpdate, VerifierUpdateError,
 };
@@ -902,12 +902,17 @@ impl Backend for Risc0Backend {
             }
             .await;
 
-            orders.push(match res {
-                Ok(artifact) => OrderFulfillmentResult::Fulfilled(artifact),
+            match res {
+                Ok(artifact) => orders.push(artifact),
                 Err(error) => {
-                    OrderFulfillmentResult::Failed(OrderFulfillmentFailure { order_id, error })
+                    // The assessor receipt's selectors/callbacks (and its journal) are
+                    // positionally indexed over the full order set. Dropping any one order
+                    // here would desync those indices and revert the whole batch on-chain,
+                    // so fail the batch atomically rather than submit a partial set.
+                    return Err(error
+                        .context(format!("Failed to build fulfillment for order {order_id}")));
                 }
-            });
+            }
         }
 
         let assessor = submission.assessor_receipt(assessor_proof_id.as_str()).await?;

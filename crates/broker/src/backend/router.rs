@@ -243,7 +243,7 @@ mod tests {
 
     use super::super::types::{
         Backend, BackendBatchState, BatchProcessor, BatchProcessorObj, OrderFulfillmentArtifact,
-        OrderFulfillmentResult, ProcessedOrder,
+        ProcessedOrder,
     };
 
     #[derive(Debug)]
@@ -435,7 +435,6 @@ mod tests {
                             seal: Default::default(),
                         },
                     })
-                    .map(OrderFulfillmentResult::Fulfilled)
                     .collect(),
                 assessor: super::super::types::SubmissionAssessorArtifact {
                     seal: Default::default(),
