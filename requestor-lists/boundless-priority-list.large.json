@@ -67,6 +67,9 @@
       "description": "",
       "tags": [],
       "extensions": {
+        "priority": {
+          "level": 100
+        },
         "requestEstimates": {
           "estimatedMcycleCountMin": 170,
           "estimatedMcycleCountMax": 10000,
@@ -81,6 +84,9 @@
       "description": "",
       "tags": [],
       "extensions": {
+        "priority": {
+          "level": 100
+        },
         "requestEstimates": {
           "estimatedMcycleCountMin": 170,
           "estimatedMcycleCountMax": 10000,
