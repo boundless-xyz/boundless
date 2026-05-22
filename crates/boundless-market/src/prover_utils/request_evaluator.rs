@@ -144,6 +144,30 @@ pub struct PreflightCacheKey {
 /// Cache for preflight results to avoid duplicate computations.
 pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 
+/// Key for the image-upload coalescing cache.
+///
+/// Identical `(program_url, predicate)` pairs upload to the same program, so concurrent
+/// evaluations can share one image download + upload instead of each repeating it.
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+pub struct ImageUploadCacheKey {
+    program_url: String,
+    predicate_type: u8,
+    predicate_data: Vec<u8>,
+}
+
+impl ImageUploadCacheKey {
+    fn new(program_url: &str, predicate: &crate::contracts::RequestPredicate) -> Self {
+        Self {
+            program_url: program_url.to_string(),
+            predicate_type: predicate.predicateType as u8,
+            predicate_data: predicate.data.to_vec(),
+        }
+    }
+}
+
+/// Cache that coalesces concurrent image uploads, keyed by [`ImageUploadCacheKey`].
+pub type ImageUploadCache = Arc<Cache<ImageUploadCacheKey, String>>;
+
 /// Backend-neutral request data needed to execute an evaluation/preflight.
 #[derive(Clone, Debug)]
 pub struct EvaluationRequest {
@@ -250,6 +274,45 @@ pub trait Risc0RequestEvaluatorContext {
 
     /// Whether requestor-specific limits should be bypassed for this client.
     fn is_priority_requestor(&self, client_addr: &Address) -> bool;
+
+    /// Cache used to coalesce concurrent image uploads for identical requests.
+    ///
+    /// Defaults to `None`, which uploads without coalescing. Contexts that see burst
+    /// load (the broker) should return `Some` so N concurrent evaluations of the same
+    /// request share a single image download + upload.
+    fn image_upload_cache(&self) -> Option<&ImageUploadCache> {
+        None
+    }
+}
+
+/// Upload the request's image, coalescing concurrent uploads of identical requests
+/// through the context's [`ImageUploadCache`] when one is available.
+async fn resolve_program_id<T: Risc0RequestEvaluatorContext>(
+    ctx: &T,
+    prover: &ProverObj,
+    program_url: &str,
+    predicate: &crate::contracts::RequestPredicate,
+    downloader: Arc<dyn StorageDownloader + Send + Sync>,
+) -> Result<String, OrderPricingError> {
+    let Some(cache) = Risc0RequestEvaluatorContext::image_upload_cache(ctx) else {
+        return upload_image_with_downloader(prover, program_url, predicate, downloader.as_ref())
+            .await
+            .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)));
+    };
+    // Multiple concurrent calls on the same key coalesce into a single upload.
+    // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
+    let key = ImageUploadCacheKey::new(program_url, predicate);
+    let prover = prover.clone();
+    let program_url = program_url.to_string();
+    let predicate = predicate.clone();
+    cache
+        .try_get_with(key, async move {
+            upload_image_with_downloader(&prover, &program_url, &predicate, downloader.as_ref())
+                .await
+                .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
+        })
+        .await
+        .map_err(|e| (*e).clone())
 }
 
 impl<T> RequestEvaluator for T
@@ -268,12 +331,9 @@ where
         let request_id = request.request_id.clone();
         let program_url = request.program_url.clone();
         let predicate = request.predicate.clone();
-        let cache_key = request.cache_key(
-            upload_image_with_downloader(&prover, &program_url, &predicate, downloader.as_ref())
-                .await
-                .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?,
-            max_cycles,
-        )?;
+        let program_id =
+            resolve_program_id(self, &prover, &program_url, &predicate, downloader.clone()).await?;
+        let cache_key = request.cache_key(program_id, max_cycles)?;
         let input_type = request.input_type;
         let input_data = request.input_data;
         let is_priority =
@@ -505,17 +565,22 @@ mod tests {
 
     struct StubProver {
         preflight_calls: AtomicUsize,
+        has_image_calls: AtomicUsize,
     }
 
     impl StubProver {
         fn new() -> Arc<Self> {
-            Arc::new(Self { preflight_calls: AtomicUsize::new(0) })
+            Arc::new(Self {
+                preflight_calls: AtomicUsize::new(0),
+                has_image_calls: AtomicUsize::new(0),
+            })
         }
     }
 
     #[async_trait]
     impl Prover for StubProver {
         async fn has_image(&self, _: &str) -> Result<bool, ProverError> {
+            self.has_image_calls.fetch_add(1, Ordering::SeqCst);
             Ok(true)
         }
         async fn upload_input(&self, _: Vec<u8>) -> Result<String, ProverError> {
@@ -599,6 +664,23 @@ mod tests {
         prover: ProverObj,
         downloader: Arc<dyn StorageDownloader + Send + Sync>,
         cache: PreflightCache,
+        image_cache: Option<ImageUploadCache>,
+    }
+
+    impl StubCtx {
+        fn new(prover: ProverObj) -> Self {
+            Self {
+                prover,
+                downloader: Arc::new(NoopDownloader),
+                cache: Arc::new(Cache::new(64)),
+                image_cache: None,
+            }
+        }
+
+        fn with_image_cache(mut self) -> Self {
+            self.image_cache = Some(Arc::new(Cache::new(64)));
+            self
+        }
     }
 
     impl Risc0RequestEvaluatorContext for StubCtx {
@@ -613,6 +695,9 @@ mod tests {
         }
         fn is_priority_requestor(&self, _: &Address) -> bool {
             false
+        }
+        fn image_upload_cache(&self) -> Option<&ImageUploadCache> {
+            self.image_cache.as_ref()
         }
     }
 
@@ -647,11 +732,7 @@ mod tests {
     #[tokio::test]
     async fn higher_limit_caller_reevaluates_past_cached_limit_exceeded() {
         let stub = StubProver::new();
-        let ctx = StubCtx {
-            prover: stub.clone(),
-            downloader: Arc::new(NoopDownloader),
-            cache: Arc::new(Cache::new(64)),
-        };
+        let ctx = StubCtx::new(stub.clone());
 
         let r1 = ctx
             .evaluate_request(test_request(), EvaluationLimits::new(100))
@@ -681,11 +762,7 @@ mod tests {
     #[tokio::test]
     async fn cached_limit_exceeded_returned_when_caller_limit_unchanged() {
         let stub = StubProver::new();
-        let ctx = StubCtx {
-            prover: stub.clone(),
-            downloader: Arc::new(NoopDownloader),
-            cache: Arc::new(Cache::new(64)),
-        };
+        let ctx = StubCtx::new(stub.clone());
 
         let r1 = ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();
         assert!(matches!(r1, RequestEvaluation::LimitExceeded { .. }));
@@ -697,5 +774,38 @@ mod tests {
             1,
             "same-limit retry must hit the cache, not invalidate"
         );
+    }
+
+    #[tokio::test]
+    async fn image_upload_cache_coalesces_repeated_evaluations() {
+        // With an image-upload cache, identical requests resolve their program once: a
+        // repeated (or concurrent) evaluation reuses the cached upload instead of
+        // downloading and uploading the image again.
+        let stub = StubProver::new();
+        let ctx = StubCtx::new(stub.clone()).with_image_cache();
+
+        for _ in 0..3 {
+            ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();
+        }
+
+        assert_eq!(
+            stub.has_image_calls.load(Ordering::SeqCst),
+            1,
+            "image upload must be coalesced across identical evaluations"
+        );
+    }
+
+    #[tokio::test]
+    async fn image_upload_runs_per_call_without_a_cache() {
+        // Contrast for the test above: with no image-upload cache every evaluation
+        // uploads independently, so the cache is what provides the coalescing.
+        let stub = StubProver::new();
+        let ctx = StubCtx::new(stub.clone());
+
+        for _ in 0..3 {
+            ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();
+        }
+
+        assert_eq!(stub.has_image_calls.load(Ordering::SeqCst), 3);
     }
 }

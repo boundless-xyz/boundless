@@ -31,8 +31,8 @@ use boundless_market::{
     },
     input::GuestEnv,
     prover_utils::{
-        EvaluationLimits, EvaluationRequest, OrderPricingError, PreflightCache, RequestEvaluation,
-        RequestEvaluator, Risc0RequestEvaluatorContext,
+        EvaluationLimits, EvaluationRequest, ImageUploadCache, OrderPricingError, PreflightCache,
+        RequestEvaluation, RequestEvaluator, Risc0RequestEvaluatorContext,
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
     storage::StorageDownloader,
@@ -49,6 +49,7 @@ use risc0_zkvm::{
 
 const PREFLIGHT_CACHE_SIZE: u64 = 5000;
 const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60;
+const IMAGE_UPLOAD_CACHE_SIZE: u64 = 1000;
 const RISC0_V3_BACKEND_ID: &str = "risc0_v3";
 
 use crate::{
@@ -66,9 +67,9 @@ use super::types::{
     AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
     BatchUpdate, ClaimDigest, CloseBatch, CompressedProofId, Digest as BackendDigest,
-    FulfillmentBatch, OrderFulfillmentArtifact,
-    OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact,
-    SubmissionPlan, UpdateBatch, VerifierUpdate, VerifierUpdateError,
+    FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress, ProcessOrder, ProcessedOrder,
+    ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch, VerifierUpdate,
+    VerifierUpdateError,
 };
 
 mod batch;
@@ -82,6 +83,7 @@ pub struct Risc0Backend {
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
     preflight_cache: PreflightCache,
+    image_upload_cache: ImageUploadCache,
     priority_requestors: PriorityRequestors,
     set_builder_program_id: Option<Risc0Digest>,
     set_verifier_addr: Option<Address>,
@@ -110,6 +112,13 @@ impl Risc0Backend {
                 moka::future::Cache::builder()
                     .eviction_policy(moka::policy::EvictionPolicy::lru())
                     .max_capacity(PREFLIGHT_CACHE_SIZE)
+                    .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
+                    .build(),
+            ),
+            image_upload_cache: std::sync::Arc::new(
+                moka::future::Cache::builder()
+                    .eviction_policy(moka::policy::EvictionPolicy::lru())
+                    .max_capacity(IMAGE_UPLOAD_CACHE_SIZE)
                     .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
                     .build(),
             ),
@@ -641,6 +650,10 @@ impl Risc0RequestEvaluatorContext for Risc0Backend {
     fn is_priority_requestor(&self, client_addr: &Address) -> bool {
         self.priority_requestors.is_priority_requestor(client_addr)
     }
+
+    fn image_upload_cache(&self) -> Option<&ImageUploadCache> {
+        Some(&self.image_upload_cache)
+    }
 }
 
 #[async_trait]
@@ -909,8 +922,9 @@ impl Backend for Risc0Backend {
                     // positionally indexed over the full order set. Dropping any one order
                     // here would desync those indices and revert the whole batch on-chain,
                     // so fail the batch atomically rather than submit a partial set.
-                    return Err(error
-                        .context(format!("Failed to build fulfillment for order {order_id}")));
+                    return Err(
+                        error.context(format!("Failed to build fulfillment for order {order_id}"))
+                    );
                 }
             }
         }

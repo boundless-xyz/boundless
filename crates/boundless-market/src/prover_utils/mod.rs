@@ -28,9 +28,9 @@ pub use config::{
 };
 #[allow(unused_imports)]
 pub use request_evaluator::{
-    EvaluationLimits, EvaluationMetrics, EvaluationRequest, InputCacheKey, NativeWork,
-    NormalizedWork, PreflightCache, PreflightCacheKey, PreflightCacheValue, RequestEvaluation,
-    RequestEvaluator, Risc0RequestEvaluatorContext,
+    EvaluationLimits, EvaluationMetrics, EvaluationRequest, ImageUploadCache, ImageUploadCacheKey,
+    InputCacheKey, NativeWork, NormalizedWork, PreflightCache, PreflightCacheKey,
+    PreflightCacheValue, RequestEvaluation, RequestEvaluator, Risc0RequestEvaluatorContext,
 };
 
 use crate::{
