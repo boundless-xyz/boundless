@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     channels::SharedReceiver,
     config::ConfigLock,
-    prioritization::prioritize_orders_to_evaluate,
+    prioritization::{prioritize_orders_to_evaluate, DEFAULT_PRIORITY_LEVEL},
     requestor_monitor::PriorityRequestors,
     task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
@@ -86,13 +86,24 @@ impl OrderEvaluator {
         ))
     }
 
-    fn collect_priority_addresses(
+    /// Builds the priority-level map: static `priority_requestor_addresses` entries
+    /// at [`DEFAULT_PRIORITY_LEVEL`], merged with remote-list entries (which may carry
+    /// an explicit level). When an address appears in both, the higher level wins.
+    fn collect_priority_levels(
         &self,
         static_addresses: Option<Vec<alloy::primitives::Address>>,
-    ) -> Vec<alloy::primitives::Address> {
-        let mut merged = static_addresses.unwrap_or_default();
+    ) -> HashMap<alloy::primitives::Address, i32> {
+        let mut merged: HashMap<alloy::primitives::Address, i32> = HashMap::new();
+        for address in static_addresses.unwrap_or_default() {
+            merged.insert(address, DEFAULT_PRIORITY_LEVEL);
+        }
         for pr in self.priority_requestors.values() {
-            merged.extend(pr.dynamic_addresses());
+            for (address, level) in pr.dynamic_levels() {
+                merged
+                    .entry(address)
+                    .and_modify(|existing| *existing = (*existing).max(level))
+                    .or_insert(level);
+            }
         }
         merged
     }
@@ -119,19 +130,17 @@ impl OrderEvaluator {
         in_flight: &mut HashMap<String, Instant>,
         max_concurrent_preflights: usize,
         priority_mode: boundless_market::prover_utils::config::OrderPricingPriority,
-        priority_addresses: &[alloy::primitives::Address],
+        priority_levels: &HashMap<alloy::primitives::Address, i32>,
     ) {
         if pending_orders.is_empty() || in_flight.len() >= max_concurrent_preflights {
             return;
         }
 
         let available_capacity = max_concurrent_preflights - in_flight.len();
-        let priority_ref =
-            if priority_addresses.is_empty() { None } else { Some(priority_addresses) };
         let selected = prioritize_orders_to_evaluate(
             pending_orders,
             priority_mode,
-            priority_ref,
+            Some(priority_levels),
             available_capacity,
         );
 
@@ -210,7 +219,7 @@ impl BrokerService for OrderEvaluator {
 
         let (mut max_concurrent_preflights, mut priority_mode, static_addresses) =
             self.read_config().map_err(SupervisorErr::Fault)?;
-        let mut priority_addresses = self.collect_priority_addresses(static_addresses);
+        let mut priority_levels = self.collect_priority_levels(static_addresses);
 
         let mut order_rx = self.new_order_rx.lock().await;
         let mut pricing_completion_rx = self.pricing_completion_rx.lock().await;
@@ -315,8 +324,7 @@ impl BrokerService for OrderEvaluator {
                         );
                         priority_mode = new_priority;
                     }
-                    priority_addresses =
-                        self.collect_priority_addresses(new_static_addresses);
+                    priority_levels = self.collect_priority_levels(new_static_addresses);
 
                     Self::reap_stale_capacity(
                         &mut in_flight,
@@ -337,7 +345,7 @@ impl BrokerService for OrderEvaluator {
                 &mut in_flight,
                 max_concurrent_preflights,
                 priority_mode,
-                &priority_addresses,
+                &priority_levels,
             );
         }
 

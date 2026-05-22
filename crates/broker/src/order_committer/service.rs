@@ -47,7 +47,7 @@ use crate::{
     config::ConfigLock,
     now_timestamp,
     order_locker::OrderCommitmentMeta,
-    prioritization::prioritize_orders_to_commit,
+    prioritization::{prioritize_orders_to_commit, DEFAULT_PRIORITY_LEVEL},
     requestor_monitor::PriorityRequestors,
     task::{BrokerService, SupervisorErr},
     FulfillmentType, OrderRequest, OrderStateChange,
@@ -143,10 +143,24 @@ impl OrderCommitter {
         })
     }
 
-    fn collect_priority_addresses(&self, static_addresses: Option<Vec<Address>>) -> Vec<Address> {
-        let mut merged = static_addresses.unwrap_or_default();
+    /// Builds the priority-level map: static `priority_requestor_addresses` entries
+    /// at [`DEFAULT_PRIORITY_LEVEL`], merged with remote-list entries (which may carry
+    /// an explicit level). When an address appears in both, the higher level wins.
+    fn collect_priority_levels(
+        &self,
+        static_addresses: Option<Vec<Address>>,
+    ) -> HashMap<Address, i32> {
+        let mut merged: HashMap<Address, i32> = HashMap::new();
+        for address in static_addresses.unwrap_or_default() {
+            merged.insert(address, DEFAULT_PRIORITY_LEVEL);
+        }
         for pr in self.priority_requestors.values() {
-            merged.extend(pr.dynamic_addresses());
+            for (address, level) in pr.dynamic_levels() {
+                merged
+                    .entry(address)
+                    .and_modify(|existing| *existing = (*existing).max(level))
+                    .or_insert(level);
+            }
         }
         merged
     }
@@ -214,7 +228,7 @@ impl OrderCommitter {
         pending_orders: &mut Vec<Box<OrderRequest>>,
         in_flight: &mut HashMap<String, InFlightOrder>,
         committer_config: &CommitterConfig,
-        priority_addresses: &[Address],
+        priority_levels: &HashMap<Address, i32>,
     ) {
         if pending_orders.is_empty() {
             return;
@@ -246,12 +260,10 @@ impl OrderCommitter {
             .saturating_sub(in_flight.len())
             .min(MAX_PROVING_BATCH_SIZE);
 
-        let priority_ref =
-            if priority_addresses.is_empty() { None } else { Some(priority_addresses) };
         let mut selected = prioritize_orders_to_commit(
             &mut ready,
             committer_config.order_commitment_priority,
-            priority_ref,
+            Some(priority_levels),
             available_capacity,
             committer_config.peak_prove_khz,
         );
@@ -415,8 +427,8 @@ impl BrokerService for OrderCommitter {
         tracing::info!("Starting order committer");
 
         let mut committer_config = self.read_config().map_err(SupervisorErr::Fault)?;
-        let mut priority_addresses =
-            self.collect_priority_addresses(committer_config.priority_addresses.take());
+        let mut priority_levels =
+            self.collect_priority_levels(committer_config.priority_addresses.take());
 
         let mut priced_order_rx = self.priced_order_rx.lock().await;
         let mut proving_completion_rx = self.proving_completion_rx.lock().await;
@@ -526,8 +538,8 @@ impl BrokerService for OrderCommitter {
                     }
 
                     committer_config = new_config;
-                    priority_addresses = self
-                        .collect_priority_addresses(committer_config.priority_addresses.take());
+                    priority_levels = self
+                        .collect_priority_levels(committer_config.priority_addresses.take());
 
                     Self::reap_stale_capacity(
                         &mut in_flight,
@@ -545,7 +557,7 @@ impl BrokerService for OrderCommitter {
                 &mut pending_orders,
                 &mut in_flight,
                 &committer_config,
-                &priority_addresses,
+                &priority_levels,
             );
         }
 
