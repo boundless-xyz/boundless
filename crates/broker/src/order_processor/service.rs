@@ -301,10 +301,19 @@ impl OrderProcessor {
         let request_id = order.request.id;
         let proving_start = std::time::Instant::now();
 
-        let (proof_retry_count, proof_retry_sleep_ms) = {
-            let config = self.config.lock_all().unwrap();
-            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-        };
+        let (proof_retry_count, proof_retry_sleep_ms) = self
+            .config
+            .lock_all()
+            .map(|config| (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms))
+            .unwrap_or_else(|err| {
+                tracing::warn!(
+                    "Failed to read config for order {order_id}; using default retry policy: {err:?}"
+                );
+                (
+                    crate::config::defaults::proof_retry_count(),
+                    crate::config::defaults::proof_retry_sleep_ms(),
+                )
+            });
 
         let context = format!("order {order_id}");
         let proof_id = match order.proof_id.clone() {
