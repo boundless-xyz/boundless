@@ -206,9 +206,12 @@ mod tests {
     use boundless_market::selector::ProofType;
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        OnceLock,
+    use std::{
+        collections::HashMap,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            OnceLock,
+        },
     };
 
     use crate::OrderStatus;
@@ -221,6 +224,7 @@ mod tests {
     struct MockBackend {
         id: BackendId,
         supported: Vec<FixedBytes<4>>,
+        proof_types: HashMap<FixedBytes<4>, ProofType>,
         calls: AtomicUsize,
         cancel_calls: AtomicUsize,
         estimate_calls: AtomicUsize,
@@ -232,7 +236,25 @@ mod tests {
         fn new(id: &str, supported: Vec<FixedBytes<4>>) -> Self {
             Self {
                 id: BackendId::new(id).unwrap(),
+                proof_types: supported
+                    .iter()
+                    .copied()
+                    .map(|selector| (selector, ProofType::Any))
+                    .collect(),
                 supported,
+                calls: AtomicUsize::new(0),
+                cancel_calls: AtomicUsize::new(0),
+                estimate_calls: AtomicUsize::new(0),
+                update_calls: AtomicUsize::new(0),
+                fulfillment_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn with_proof_types(id: &str, proof_types: Vec<(FixedBytes<4>, ProofType)>) -> Self {
+            Self {
+                id: BackendId::new(id).unwrap(),
+                supported: proof_types.iter().map(|(selector, _)| *selector).collect(),
+                proof_types: proof_types.into_iter().collect(),
                 calls: AtomicUsize::new(0),
                 cancel_calls: AtomicUsize::new(0),
                 estimate_calls: AtomicUsize::new(0),
@@ -278,7 +300,7 @@ mod tests {
         }
 
         fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
-            self.supported.contains(&selector).then_some(ProofType::Any)
+            self.proof_types.get(&selector).copied()
         }
 
         async fn evaluate_request(
@@ -614,5 +636,27 @@ mod tests {
         let err = BackendRouter::new().register_backend(BackendEntry::new(backend)).err().unwrap();
 
         assert!(err.to_string().contains("must register at least one selector"));
+    }
+
+    #[test]
+    fn router_derives_supported_selector_metadata_from_backends() {
+        let router = BackendRouter::new()
+            .register_backend(BackendEntry::new(Arc::new(MockBackend::with_proof_types(
+                "mock_a",
+                vec![(selector(1), ProofType::Any), (selector(2), ProofType::Groth16)],
+            ))))
+            .unwrap()
+            .register_backend(BackendEntry::new(Arc::new(MockBackend::with_proof_types(
+                "mock_b",
+                vec![(selector(3), ProofType::Blake3Groth16)],
+            ))))
+            .unwrap();
+
+        let supported = router.supported_selectors();
+
+        assert_eq!(supported.proof_type(selector(1)), Some(ProofType::Any));
+        assert_eq!(supported.proof_type(selector(2)), Some(ProofType::Groth16));
+        assert_eq!(supported.proof_type(selector(3)), Some(ProofType::Blake3Groth16));
+        assert_eq!(supported.proof_type(selector(4)), None);
     }
 }
