@@ -391,8 +391,14 @@ abstract contract BenchBase is Test {
     ///      ~200 bytes of set-inclusion proof — we use 200 zero bytes to keep
     ///      calldata cost realistic.
     function _buildR0Seal() internal pure returns (bytes memory) {
+        // Fill with non-zero bytes — EVM charges 16 gas / non-zero calldata
+        // byte vs 4 gas / zero byte, and production seals are essentially
+        // random bytes, so zero-filling here would understate calldata gas
+        // by ~4x for this slice.
         bytes memory innerSeal = new bytes(200);
-        // TODO: we should make this nonzero to make calldata cost realistic
+        for (uint256 i = 0; i < innerSeal.length; i++) {
+            innerSeal[i] = 0xAA;
+        }
         return abi.encodePacked(ASSESSOR_R0_SEL, innerSeal);
     }
 

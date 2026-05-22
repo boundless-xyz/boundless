@@ -221,7 +221,7 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
         vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.TerminalAssessorAsVerifier.selector, A_CLASS));
         router.verifyBatch(batch, digests);
     }
-    // TODO: where do we test _matchSignedSelector in depth?
+
     // ─── B.3 Per-fill verifier-class dispatch ─────────────────────────────
 
     function test_verifier_singleFill_callsVerifierAndAssessor() public {
@@ -229,16 +229,14 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
         FulfillmentBatch memory batch = _verifierBatch(1);
         bytes32[] memory digests = new bytes32[](1);
 
-        // TODO: cant we do test_verifier_forwardsSealAndClaimDigestVerbatim basically here?
-        // Verifier called once with the seal + claimDigest.
+        // Verifier called once with the seal + claimDigest forwarded verbatim.
         vm.expectCall(
             verifierImpl,
             abi.encodeCall(IBoundlessVerifier.verify, (batch.fills[0].seal, batch.fills[0].claimDigest)),
             1
         );
-        // Assessor called once (calldata equality covered in §B.9; here we
+        // Assessor called once (full calldata equality covered in §B.9; here we
         // only assert the call happened).
-        // TODO: why not compare equality here as well?
         vm.expectCall(assessorImpl, abi.encodeWithSelector(IBoundlessAssessor.verifyAssessor.selector), 1);
 
         router.verifyBatch(batch, digests);
@@ -332,7 +330,9 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
         bytes32[] memory digests = new bytes32[](1);
         digests[0] = keccak256("req-digest-0");
 
-        // TODO: let's verify that the calldata is correctly forwarded with some random data not empty
+        // Joint adapter called once with the full slim/fill/digest/prover tuple
+        // forwarded verbatim. Per-property assertions (empty-seal acceptance,
+        // no-assessor-call) live in their own tests below.
         vm.expectCall(
             jointImpl,
             abi.encodeCall(
@@ -342,9 +342,6 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
             1
         );
         router.verifyBatch(batch, digests);
-
-        // TODO: test_joint_succeedsWithEmptyAssessorSeal can be verified in here no?
-        // TODO: test_joint_doesNotCallAnyAssessor can also be verfied in here
     }
 
     function test_joint_revertsOnNonEmptyAssessorSeal() public {
@@ -409,7 +406,10 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
         batch.requests[1].selector = verifierEntry2;
         bytes32[] memory digests = new bytes32[](2);
 
-        // TODO: technically it would be okay for verifier class to be the same if the assessor class is the same?
+        // Single-class-per-batch is structural: the router hoists the dispatch
+        // interface tag out of the per-fill loop. Mixing verifier classes —
+        // even if they share an assessor class — breaks that hoist, so the
+        // router rejects the batch.
         vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.MixedClassWithinBatch.selector, V_CLASS, verifierClass2));
         router.verifyBatch(batch, digests);
     }
@@ -546,8 +546,8 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
     function test_jointWithBadAssessorSeal_perFillStillRuns() public {
         // Joint dispatch runs per-fill first, then checks assessorSeal is empty.
         // Confirm the joint impl IS called before the AssessorMustBeAbsent revert.
-
-        // TODO: let's test this with 2 different joint entries. does this still work? or it needs to be the same joint selector?
+        // Mixed entries within the same joint class are exercised by
+        // test_joint_revertingAdapter_yieldsVerifierFailedAtCorrectIndex.
         _setupJointEcosystem();
         FulfillmentBatch memory batch = _jointBatch(2);
         batch.assessorSeal = hex"deadbeef";
@@ -649,24 +649,21 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
 
     function test_signedSelector_revertsOnSignedEntryMismatch() public {
         _setupVerifierEcosystem();
-        // Register a second verifier entry under V_CLASS so we have a valid
-        // entry id that differs from the seal's selector.
-        address impl2 = address(new NullVerifier());
-        bytes4 otherEntryInSameClass = 0x00000019;
         // The "Entry mismatch" path requires the signed bytes4 to resolve to a
-        // *different* entry — under V_CLASS the resolver matches the class id
-        // before checking, so use a separate verifier class to host the entry.
-        // TODO: this seems to contradict itself? it's not in the same class?
+        // live entry that is NOT the seal's entry AND NOT the seal's class id.
+        // An entry under V_CLASS would short-circuit on the class-match branch
+        // before reaching the entry-mismatch one, so the entry lives in a
+        // separate verifier class V_CLASS_2.
+        address impl2 = address(new NullVerifier());
+        bytes4 otherEntry = 0x00000019;
         bytes4 V_CLASS_2 = 0x00000013;
         _addVerifierClass(V_CLASS_2, A_CLASS, false, false);
-        _instantiateAsAdmin(otherEntryInSameClass, impl2, V_CLASS_2);
+        _instantiateAsAdmin(otherEntry, impl2, V_CLASS_2);
 
         FulfillmentBatch memory batch = _verifierBatch(1);
-        batch.requests[0].selector = otherEntryInSameClass;
+        batch.requests[0].selector = otherEntry;
         bytes32[] memory digests = new bytes32[](1);
-        vm.expectRevert(
-            abi.encodeWithSelector(BoundlessRouter.SignedEntryMismatch.selector, otherEntryInSameClass, V_ENTRY)
-        );
+        vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.SignedEntryMismatch.selector, otherEntry, V_ENTRY));
         router.verifyBatch(batch, digests);
     }
 
@@ -723,14 +720,12 @@ contract BoundlessRouterDispatchTest is RouterTestBase {
     ///      selector ∈ {V_ENTRY, V_CLASS} must pass; any other bytes4
     ///      (other than 0 — handled by a dedicated test above) must revert.
     function testFuzz_signedSelector_acceptsExactAndClass(bytes4 signed) public {
-        // TODO: how does this test work?
         _setupVerifierEcosystem();
 
         FulfillmentBatch memory batch = _verifierBatch(1);
         batch.requests[0].selector = signed;
         bytes32[] memory digests = new bytes32[](1);
 
-        // TODO: let's add a few more entries in this class
         if (signed == V_ENTRY || signed == V_CLASS) {
             // Happy path — must succeed.
             router.verifyBatch(batch, digests);

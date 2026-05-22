@@ -675,7 +675,11 @@ contract BoundlessRouterRegistryTest is RouterTestBase {
     }
 
     function test_instantiate_revertsForNonAdminOnReservedPrefix_permissionless() public {
-        // TODO: this is weird no? now we registered a class with a reserved prefix as permissionless?
+        // The reserved-prefix policy applies to entry selectors only — class
+        // ids are unrestricted, so a class id starting with 0x00 (here A_CLASS)
+        // can perfectly well be registered as permissionless. The check below
+        // exercises the entry-selector axis: even on a permissionless class,
+        // entry selectors in the reserved 0x00xxxxxx range stay admin-only.
         _addAssessorClass(A_CLASS, true);
         // A_ENTRY = 0x00000021 → starts with 0x00 → reserved-prefix → admin-only
         // even on a permissionless class.
