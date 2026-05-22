@@ -102,6 +102,8 @@ where
             provider.default_signer_address(),
         );
 
+        let supported_selectors = backend.supported_selectors();
+
         Self {
             db,
             config,
@@ -109,7 +111,7 @@ where
             provider,
             chain_monitor,
             market,
-            supported_selectors: SupportedSelectors::default(),
+            supported_selectors,
             new_order_rx,
             priced_orders_tx: order_result_tx,
             collateral_token_decimals,

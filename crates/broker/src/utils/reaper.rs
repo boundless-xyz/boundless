@@ -162,6 +162,7 @@ mod tests {
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
+    use boundless_market::selector::ProofType;
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
     use std::sync::{
@@ -198,6 +199,10 @@ mod tests {
 
         fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
             self.selectors.clone()
+        }
+
+        fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
+            self.selectors.contains(&selector).then_some(ProofType::Any)
         }
 
         async fn evaluate_request(

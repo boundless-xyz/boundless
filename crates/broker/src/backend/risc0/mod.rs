@@ -34,7 +34,7 @@ use boundless_market::{
         EvaluationLimits, EvaluationRequest, OrderPricingError, PreflightCache, RequestEvaluation,
         RequestEvaluator, Risc0RequestEvaluatorContext,
     },
-    selector::{is_blake3_groth16_selector, is_groth16_selector, SelectorExt},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
     storage::StorageDownloader,
     Deployment,
 };
@@ -564,6 +564,20 @@ impl Backend for Risc0Backend {
 
     fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
         Self::selectors()
+    }
+
+    fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
+        if selector == UNSPECIFIED_SELECTOR
+            || selector == FixedBytes::from(SelectorExt::FakeReceipt as u32)
+        {
+            Some(ProofType::Any)
+        } else if is_groth16_selector(selector) {
+            Some(ProofType::Groth16)
+        } else if is_blake3_groth16_selector(selector) {
+            Some(ProofType::Blake3Groth16)
+        } else {
+            None
+        }
     }
 
     async fn evaluate_request(

@@ -22,6 +22,7 @@ use anyhow::{Context, Result};
 use boundless_market::prover_utils::{
     EvaluationLimits, EvaluationRequest, OrderPricingError, RequestEvaluation,
 };
+use boundless_market::selector::SupportedSelectors;
 
 use crate::Order;
 
@@ -83,10 +84,25 @@ impl BackendRouter {
                     "selector {selector:?} is already registered to backend {existing_backend}"
                 );
             }
+            entry.backend.proof_type(*selector).with_context(|| {
+                format!("backend {} did not classify selector {selector:?}", entry.id())
+            })?;
             self.routes.insert(*selector, entry.id.clone());
         }
         self.backends.insert(entry.id.clone(), entry);
         Ok(self)
+    }
+
+    pub fn supported_selectors(&self) -> SupportedSelectors {
+        let mut supported = SupportedSelectors::new();
+        for (selector, backend_id) in &self.routes {
+            if let Some(entry) = self.backends.get(backend_id) {
+                if let Some(proof_type) = entry.backend.proof_type(*selector) {
+                    supported.add_selector(*selector, proof_type);
+                }
+            }
+        }
+        supported
     }
 
     fn backend_for_order(&self, order: &Order) -> Result<BackendObj> {
@@ -187,6 +203,7 @@ mod tests {
         eip712_domain, Fulfillment as MarketFulfillment, FulfillmentDataType, Offer, Predicate,
         ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
+    use boundless_market::selector::ProofType;
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
     use std::sync::{
@@ -258,6 +275,10 @@ mod tests {
 
         fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
             self.supported.clone()
+        }
+
+        fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
+            self.supported.contains(&selector).then_some(ProofType::Any)
         }
 
         async fn evaluate_request(

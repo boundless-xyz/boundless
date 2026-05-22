@@ -671,6 +671,7 @@ impl Broker {
             gas_priority_mode.clone(),
             gas_estimation_priority_mode,
             erc1271_gas_cache,
+            backend_router.supported_selectors(),
             self.args.listen_only,
             chain_id,
             proving_completion_tx.clone(),

@@ -16,12 +16,15 @@ use std::{fmt, str::FromStr, sync::Arc};
 
 use alloy::primitives::{Address, Bytes, FixedBytes, B256};
 use async_trait::async_trait;
-use boundless_market::contracts::{
-    AssessorCallback, AssessorSelector, EIP712DomainSaltless, Fulfillment as MarketFulfillment,
-    ProofRequest,
-};
 use boundless_market::prover_utils::{
     EvaluationLimits, EvaluationRequest, OrderPricingError, RequestEvaluation,
+};
+use boundless_market::{
+    contracts::{
+        AssessorCallback, AssessorSelector, EIP712DomainSaltless, Fulfillment as MarketFulfillment,
+        ProofRequest,
+    },
+    selector::ProofType,
 };
 use serde::{Deserialize, Serialize};
 
@@ -360,6 +363,8 @@ pub trait Backend: Send + Sync {
     fn id(&self) -> &BackendId;
 
     fn supported_selectors(&self) -> Vec<FixedBytes<4>>;
+
+    fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType>;
 
     async fn evaluate_request(
         &self,
