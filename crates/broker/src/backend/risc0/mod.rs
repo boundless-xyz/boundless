@@ -73,6 +73,7 @@ use super::types::{
 
 mod batch;
 
+pub use batch::prune_receipt_claim_journal;
 use batch::{Risc0BatchProcessor, Risc0BatchState, Risc0Submission};
 
 pub struct Risc0Backend {

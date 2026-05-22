@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
-fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
+/// Prunes the journal of a [`ReceiptClaim`] to its digest.
+pub fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
     if let MaybePruned::Value(Some(output)) = &mut claim.output {
         let digest = match &output.journal {
             MaybePruned::Value(bytes) => Some(*risc0_zkvm::sha::Impl::hash_bytes(bytes)),
