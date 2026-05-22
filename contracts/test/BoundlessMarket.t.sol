@@ -31,7 +31,7 @@ import {BoundlessMarket} from "../src/BoundlessMarket.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {IBoundlessVerifier} from "../src/router/interfaces/IBoundlessVerifier.sol";
 import {IBoundlessAssessor} from "../src/router/interfaces/IBoundlessAssessor.sol";
-import {NullVerifier, NullAssessor} from "./mocks/RouterMocks.sol";
+import {NullVerifier, NullAssessor, RevertingVerifier} from "./mocks/RouterMocks.sol";
 import {R0BoundlessVerifierAdapter} from "../src/router/adapters/R0BoundlessVerifierAdapter.sol";
 import {R0BoundlessAssessorAdapter} from "../src/router/adapters/R0BoundlessAssessorAdapter.sol";
 import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
@@ -3421,6 +3421,73 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // No balance changes should have occurred after lockin.
         client.expectBalanceChange(0 ether);
+        testProver.expectBalanceChange(0 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    /// @dev Pins the contract that one bad fill in any FulfillmentBatch
+    ///      reverts the entire `fulfill()` tx. The router's per-fill
+    ///      try/catch translates the adapter's revert into
+    ///      `VerifierFailed(i, sel)` but does NOT isolate sibling batches in
+    ///      the same tx — the market driver does not wrap `ROUTER.verifyBatch`
+    ///      in try/catch. If this contract ever changes (e.g. by wrapping verifyBatch in the market
+    ///      to settle sibling batches independently), this test must be
+    ///      updated or deleted to reflect the new behavior.
+    function testFulfillMultiBatchRevertingFillRevertsWholeTx() public {
+        // Register a `RevertingVerifier` under the existing verifier class at
+        // a fresh selector. The router treats it as a fully-conformant entry
+        // (ERC-165 supportsInterface returns true) until it's actually called,
+        // at which point it reverts with `Boom()`.
+        bytes4 revertingSel = 0x00000012;
+        address revertingImpl = address(new RevertingVerifier());
+        vm.prank(ownerWallet.addr);
+        router.instantiate(revertingSel, revertingImpl, VERIFIER_CLASS_ID, 0);
+
+        // Two distinct clients, two locked requests — distinct state per
+        // batch, so the only way batch B can fail is if the verifyBatch
+        // failure on batch A propagates out.
+        Client clientA = getClient(1);
+        Client clientB = getClient(2);
+        ProofRequest memory requestA = clientA.request(1);
+        ProofRequest memory requestB = clientB.request(2);
+        // Precompute signatures so the `vm.prank` below isn't consumed by
+        // `Client.sign`'s external call before the actual `lockRequest`.
+        bytes memory sigA = clientA.sign(requestA);
+        bytes memory sigB = clientB.sign(requestB);
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(requestA, sigA);
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(requestB, sigB);
+
+        clientA.snapshotBalance();
+        clientB.snapshotBalance();
+        testProver.snapshotBalance();
+
+        // Build the two batches. batchA's per-fill seal selector points to
+        // the reverting verifier; batchB stays on the working default
+        // (NullVerifier). Both batches share the same default verifier
+        // class, so signed `0x00000000` matches both.
+        FulfillmentBatch memory batchA = createFulfillmentBatch(requestA, APP_JOURNAL, testProverAddress);
+        FulfillmentBatch memory batchB = createFulfillmentBatch(requestB, APP_JOURNAL, testProverAddress);
+        batchA.fills[0].seal = abi.encodePacked(revertingSel, hex"deadbeef");
+
+        FulfillmentBatch[] memory batches = new FulfillmentBatch[](2);
+        batches[0] = batchA;
+        batches[1] = batchB;
+
+        // The per-fill try/catch wraps `RevertingVerifier.Boom()` into a
+        // structured `VerifierFailed(0, revertingSel)`. The router's
+        // verifyBatch reverts; the market does not wrap that call, so the
+        // whole tx reverts.
+        vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.VerifierFailed.selector, uint256(0), revertingSel));
+        boundlessMarket.fulfill(batches);
+
+        // Neither request settled — settlement state never advanced past the
+        // failing verifyBatch. The tx revert rolls back every state change.
+        expectRequestNotFulfilled(requestA.id);
+        expectRequestNotFulfilled(requestB.id);
+        clientA.expectBalanceChange(0 ether);
+        clientB.expectBalanceChange(0 ether);
         testProver.expectBalanceChange(0 ether);
         expectMarketBalanceUnchanged();
     }

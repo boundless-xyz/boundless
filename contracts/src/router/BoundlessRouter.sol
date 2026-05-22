@@ -61,9 +61,11 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
         /// @notice Class this entry belongs to. The class supplies the dispatch interface
         ///         tag and any binding metadata.
         bytes4 classId;
-        /// @notice Per-call gas cap for `staticcall`s into `impl`. A misbehaving adapter
-        ///         can self-rug its fulfillment batch on gas, but cannot starve settlement of
-        ///         sibling fulfillment batches in the same transaction.
+        /// @notice Per-call gas cap for `staticcall`s into `impl`. Bounds the gas a
+        ///         misbehaving adapter can burn per fill so a runaway impl cannot consume
+        ///         the entire transaction's gas before its revert is caught. Cross-batch
+        ///         isolation in a multi-batch fulfill() call is not provided by this cap —
+        ///         the enclosing `verifyBatch` still reverts on any per-fill failure.
         uint64 gasLimit;
     }
 
@@ -177,10 +179,6 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///         The default class must dispatch to `IBoundlessVerifier`.
     error DefaultMustBeVerifier();
 
-    /// @notice Reserved for future symmetry with curated/permissionless gating. Currently
-    ///         unused — non-permissionless paths revert via `AccessControl`.
-    error PermissionlessNotAllowed(bytes4 classId);
-
     /// @notice An `instantiate` impl either failed `IERC165.supportsInterface(tag)` or
     ///         reverted on the call. Used as a unified error for "this address does not
     ///         conform to the class interface" — including the `address(0)` case.
@@ -226,8 +224,11 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     error SignedSelectorTombstoned(bytes4 signed);
 
     /// @notice A per-fill verifier or joint adapter call reverted (or ran out of gas).
-    ///         The failure is isolated to the offending fill's fulfillment batch — sibling
-    ///         fulfillment batches in the same transaction still settle.
+    ///         The per-fill try/catch translates the adapter's revert (which may be empty,
+    ///         e.g. on gas exhaustion) into this structured error carrying the offending
+    ///         fill's index and resolved selector. The enclosing `verifyBatch` call still
+    ///         reverts; cross-batch isolation in a multi-batch fulfill() call is not
+    ///         provided here — the market driver does not wrap `verifyBatch` in try/catch.
     error VerifierFailed(uint256 index, bytes4 selector);
 
     /// @notice The assessor selector supplied in `verifyBatch` belongs to a class
@@ -402,10 +403,13 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///                        market builds this during the binding check;
     ///                        direct router callers must supply consistent values.
     ///
-    /// @dev    Per-fill calls are gas-bounded `staticcall`s wrapped in
-    ///         try/catch — a malicious adapter can self-rug its fulfillment batch but
-    ///         cannot starve settlement of sibling fulfillment batches. The function
-    ///         is `view` because all dispatched calls are `staticcall`-equivalent.
+    /// @dev    Per-fill calls are gas-bounded `staticcall`s wrapped in try/catch.
+    ///         The try/catch bounds the gas a misbehaving adapter can burn per fill
+    ///         and translates its revert into a structured `VerifierFailed(i, selector)`
+    ///         so the caller knows which fill caused the failure. The enclosing
+    ///         `verifyBatch` call still reverts on any per-fill failure; cross-batch
+    ///         isolation in a multi-batch fulfill() call is not provided here. The
+    ///         function is `view` because all dispatched calls are `staticcall`-equivalent.
     function verifyBatch(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests) external view {
         uint256 n = batch.fills.length;
         if (n == 0) revert EmptyBatch();
