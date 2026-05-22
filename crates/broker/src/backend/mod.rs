@@ -31,4 +31,6 @@ pub use types::{
 };
 
 #[cfg(test)]
-pub use types::{Backend, BatchClose, BatchSizeEstimate, SubmissionPlan};
+pub(crate) use types::BatchProcessorObj;
+#[cfg(test)]
+pub use types::{Backend, SubmissionPlan};

@@ -33,7 +33,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    CompressionType, FulfillmentType, Order, OrderStateChange,
+    FulfillmentType, Order, OrderStateChange,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
@@ -373,18 +373,17 @@ impl OrderProcessor {
 
         let stark_proving_secs = Some(proving_start.elapsed().as_secs_f64());
 
-        // Compression timing: only set when the request's selector requires Groth16 or
-        // Blake3Groth16. Currently measured as total proving wall-clock since STARK and
-        // compression happen inside the same monitor_proof_internal call.
-        let proof_compression_secs = if order.compression_type() != CompressionType::None {
-            Some(proving_start.elapsed().as_secs_f64())
-        } else {
-            None
-        };
-
         match result {
             Ok(processed) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
+
+                // Compression timing: set when the backend produced a compressed proof.
+                // Currently measured as total proving wall-clock since STARK and compression
+                // happen inside the same monitor_proof_internal call.
+                let proof_compression_secs = processed
+                    .compressed_proof_id
+                    .is_some()
+                    .then(|| proving_start.elapsed().as_secs_f64());
 
                 crate::telemetry::telemetry(self.chain_id).record_application_proving_completed(
                     &order_id,

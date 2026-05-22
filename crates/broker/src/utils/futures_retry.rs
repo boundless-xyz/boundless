@@ -69,8 +69,10 @@ where
                 }
 
                 if attempt < retry_count {
+                    // The retry status is placed before `{err:?}` so it stays on the first
+                    // log line even when the error's Debug output spans multiple lines.
                     tracing::warn!(
-                        "Operation [{}]{} failed: {err:?}, starting retry {}/{}",
+                        "Operation [{}]{} failed, starting retry {}/{}: {err:?}",
                         function_name,
                         context_prefix,
                         attempt + 1,
@@ -218,7 +220,7 @@ mod tests {
         assert_eq!(result.unwrap(), 2);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
         assert!(logs_contain(
-            "Operation [test operation] failed: \"Attempt failed\", starting retry 1/2"
+            "Operation [test operation] failed, starting retry 1/2: \"Attempt failed\""
         ));
     }
 
@@ -249,7 +251,7 @@ mod tests {
         assert_eq!(result.unwrap(), 1);
         assert_eq!(counter.load(Ordering::SeqCst), 2);
         assert!(logs_contain(
-            "Operation [test operation] failed: \"First attempt failed\", starting retry 1/1"
+            "Operation [test operation] failed, starting retry 1/1: \"First attempt failed\""
         ));
     }
 
@@ -276,7 +278,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 3);
         assert!(logs_contain(
-            "Operation [test operation] failed: \"Always fails\", starting retry 1/2"
+            "Operation [test operation] failed, starting retry 1/2: \"Always fails\""
         ));
     }
 
@@ -304,7 +306,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 2);
         assert!(logs_contain(
-            "Operation [test operation] (context: order_id=123) failed: \"Always fails\", starting retry 1/1"
+            "Operation [test operation] (context: order_id=123) failed, starting retry 1/1: \"Always fails\""
         ));
         assert!(logs_contain(
             "Operation [test operation] (context: order_id=123) failed after 1 retries, returning last error:"
@@ -338,7 +340,7 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 2);
-        assert!(logs_contain("Operation [test operation] failed: Retryable, starting retry 1/5"));
+        assert!(logs_contain("Operation [test operation] failed, starting retry 1/5: Retryable"));
         assert!(logs_contain("Operation [test operation] failed with non-retryable error: NonRetryable, not retrying"));
     }
 
@@ -370,7 +372,7 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 2);
-        assert!(logs_contain("Operation [test operation] (context: order_id=456) failed: Retryable, starting retry 1/5"));
+        assert!(logs_contain("Operation [test operation] (context: order_id=456) failed, starting retry 1/5: Retryable"));
         assert!(logs_contain("Operation [test operation] (context: order_id=456) failed with non-retryable error: NonRetryable, not retrying"));
     }
 }

@@ -27,9 +27,9 @@ use boundless_market::selector::SupportedSelectors;
 use crate::Order;
 
 use super::types::{
-    BackendError, BackendId, BackendObj, BatchClose, BatchSizeEstimate, BatchSizeEstimateRequest,
-    BatchUpdate, CloseBatch, FulfillmentBatch, OrderProcessProgress, ProcessOrder, SubmissionPlan,
-    UpdateBatch,
+    BackendError, BackendId, BackendObj, BatchClose, BatchProcessorObj, BatchSizeEstimate,
+    BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch, OrderProcessProgress,
+    ProcessOrder, SubmissionPlan, UpdateBatch, VerifierUpdate,
 };
 
 #[derive(Clone, Default)]
@@ -161,13 +161,19 @@ impl BackendRouter {
         backend.cancel_order(order).await
     }
 
+    fn batch_processor_for_id(&self, backend_id: &BackendId) -> Result<BatchProcessorObj> {
+        let backend = self.backend_for_id(backend_id)?;
+        backend
+            .batch_processor()
+            .with_context(|| format!("backend {backend_id} does not support batching"))
+    }
+
     pub async fn estimate_batch_size(
         &self,
         backend_id: &BackendId,
         cmd: BatchSizeEstimateRequest,
     ) -> Result<BatchSizeEstimate> {
-        let backend = self.backend_for_id(backend_id)?;
-        backend.estimate_batch_size(cmd).await
+        self.batch_processor_for_id(backend_id)?.estimate_batch_size(cmd).await
     }
 
     pub async fn update_batch(
@@ -175,8 +181,7 @@ impl BackendRouter {
         backend_id: &BackendId,
         cmd: UpdateBatch,
     ) -> Result<BatchUpdate> {
-        let backend = self.backend_for_id(backend_id)?;
-        backend.update_batch(cmd).await
+        self.batch_processor_for_id(backend_id)?.update_batch(cmd).await
     }
 
     pub async fn close_batch(
@@ -184,13 +189,33 @@ impl BackendRouter {
         backend_id: &BackendId,
         cmd: CloseBatch,
     ) -> Result<BatchClose, BackendError> {
-        let backend = self.backend_for_id(backend_id).map_err(BackendError::operation)?;
-        backend.close_batch(cmd).await
+        self.batch_processor_for_id(backend_id)
+            .map_err(BackendError::operation)?
+            .close_batch(cmd)
+            .await
     }
 
     pub async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
         backend.build_fulfillments(cmd).await
+    }
+
+    pub async fn verifier_update_applied(
+        &self,
+        backend_id: &BackendId,
+        update: &VerifierUpdate,
+    ) -> Result<bool> {
+        let backend = self.backend_for_id(backend_id)?;
+        backend.verifier_update_applied(update).await
+    }
+
+    pub async fn apply_verifier_update(
+        &self,
+        backend_id: &BackendId,
+        update: &VerifierUpdate,
+    ) -> Result<()> {
+        let backend = self.backend_for_id(backend_id)?;
+        backend.apply_verifier_update(update).await
     }
 }
 
@@ -217,8 +242,64 @@ mod tests {
     use crate::OrderStatus;
 
     use super::super::types::{
-        Backend, OrderFulfillmentArtifact, OrderFulfillmentResult, ProcessedOrder,
+        Backend, BackendBatchState, BatchProcessor, BatchProcessorObj, OrderFulfillmentArtifact,
+        OrderFulfillmentResult, ProcessedOrder,
     };
+
+    #[derive(Debug)]
+    struct MockBatchProcessor {
+        id: BackendId,
+        estimate_calls: AtomicUsize,
+        update_calls: AtomicUsize,
+    }
+
+    impl MockBatchProcessor {
+        fn new(id: BackendId) -> Self {
+            Self { id, estimate_calls: AtomicUsize::new(0), update_calls: AtomicUsize::new(0) }
+        }
+
+        fn estimate_calls(&self) -> usize {
+            self.estimate_calls.load(Ordering::SeqCst)
+        }
+
+        fn update_calls(&self) -> usize {
+            self.update_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl BatchProcessor for MockBatchProcessor {
+        async fn estimate_batch_size(
+            &self,
+            _cmd: BatchSizeEstimateRequest,
+        ) -> Result<BatchSizeEstimate> {
+            self.estimate_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(BatchSizeEstimate { size: 0 })
+        }
+
+        async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
+            self.update_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(BatchUpdate {
+                state: BackendBatchState {
+                    data: serde_json::json!({
+                        "backend_id": self.id.to_string(),
+                        "batch_id": cmd.batch_id,
+                    }),
+                    proof_id: None,
+                    compressed_proof_id: None,
+                },
+                assessor_proof_id: None,
+                batch_update_secs: None,
+                assessor_secs: None,
+            })
+        }
+
+        async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, BackendError> {
+            Err(BackendError::operation(anyhow::anyhow!(
+                "mock batch processor does not close batches"
+            )))
+        }
+    }
 
     #[derive(Debug)]
     struct MockBackend {
@@ -227,15 +308,14 @@ mod tests {
         proof_types: HashMap<FixedBytes<4>, ProofType>,
         calls: AtomicUsize,
         cancel_calls: AtomicUsize,
-        estimate_calls: AtomicUsize,
-        update_calls: AtomicUsize,
         fulfillment_calls: AtomicUsize,
+        batch_processor: Option<Arc<MockBatchProcessor>>,
     }
 
     impl MockBackend {
         fn new(id: &str, supported: Vec<FixedBytes<4>>) -> Self {
+            let id = BackendId::new(id).unwrap();
             Self {
-                id: BackendId::new(id).unwrap(),
                 proof_types: supported
                     .iter()
                     .copied()
@@ -244,22 +324,22 @@ mod tests {
                 supported,
                 calls: AtomicUsize::new(0),
                 cancel_calls: AtomicUsize::new(0),
-                estimate_calls: AtomicUsize::new(0),
-                update_calls: AtomicUsize::new(0),
                 fulfillment_calls: AtomicUsize::new(0),
+                batch_processor: Some(Arc::new(MockBatchProcessor::new(id.clone()))),
+                id,
             }
         }
 
         fn with_proof_types(id: &str, proof_types: Vec<(FixedBytes<4>, ProofType)>) -> Self {
+            let id = BackendId::new(id).unwrap();
             Self {
-                id: BackendId::new(id).unwrap(),
                 supported: proof_types.iter().map(|(selector, _)| *selector).collect(),
                 proof_types: proof_types.into_iter().collect(),
                 calls: AtomicUsize::new(0),
                 cancel_calls: AtomicUsize::new(0),
-                estimate_calls: AtomicUsize::new(0),
-                update_calls: AtomicUsize::new(0),
                 fulfillment_calls: AtomicUsize::new(0),
+                batch_processor: Some(Arc::new(MockBatchProcessor::new(id.clone()))),
+                id,
             }
         }
 
@@ -272,11 +352,16 @@ mod tests {
         }
 
         fn estimate_calls(&self) -> usize {
-            self.estimate_calls.load(Ordering::SeqCst)
+            self.batch_processor.as_ref().map(|p| p.estimate_calls()).unwrap_or(0)
         }
 
         fn update_calls(&self) -> usize {
-            self.update_calls.load(Ordering::SeqCst)
+            self.batch_processor.as_ref().map(|p| p.update_calls()).unwrap_or(0)
+        }
+
+        fn without_batch_processor(mut self) -> Self {
+            self.batch_processor = None;
+            self
         }
 
         fn fulfillment_calls(&self) -> usize {
@@ -327,33 +412,8 @@ mod tests {
             Ok(())
         }
 
-        async fn estimate_batch_size(
-            &self,
-            _cmd: BatchSizeEstimateRequest,
-        ) -> Result<BatchSizeEstimate> {
-            self.estimate_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(BatchSizeEstimate { size: 0 })
-        }
-
-        async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
-            self.update_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(BatchUpdate {
-                state: super::super::types::BackendBatchState {
-                    data: serde_json::json!({
-                        "backend_id": self.id.to_string(),
-                        "batch_id": cmd.batch_id,
-                    }),
-                    proof_id: None,
-                    compressed_proof_id: None,
-                },
-                assessor_proof_id: None,
-                batch_update_secs: None,
-                assessor_secs: None,
-            })
-        }
-
-        async fn close_batch(&self, _cmd: CloseBatch) -> Result<BatchClose, BackendError> {
-            Err(BackendError::operation(anyhow::anyhow!("mock backend does not close batches")))
+        fn batch_processor(&self) -> Option<BatchProcessorObj> {
+            self.batch_processor.clone().map(|p| -> BatchProcessorObj { p })
         }
 
         async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
@@ -383,6 +443,14 @@ mod tests {
                     callbacks: Vec::new(),
                 },
             })
+        }
+
+        async fn verifier_update_applied(&self, _update: &VerifierUpdate) -> Result<bool> {
+            Ok(false)
+        }
+
+        async fn apply_verifier_update(&self, _update: &VerifierUpdate) -> Result<()> {
+            Ok(())
         }
     }
 
@@ -588,6 +656,28 @@ mod tests {
         router.cancel_order(&test_order(selector(1))).await.unwrap();
 
         assert_eq!(backend.cancel_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn router_reports_missing_batch_processor() {
+        let backend =
+            Arc::new(MockBackend::new("mock_a", vec![selector(1)]).without_batch_processor());
+        let backend_id = BackendId::new("mock_a").unwrap();
+        let router = BackendRouter::new().register_backend(BackendEntry::new(backend)).unwrap();
+
+        let err = router
+            .estimate_batch_size(
+                &backend_id,
+                BatchSizeEstimateRequest {
+                    state: None,
+                    existing_order_ids: Vec::new(),
+                    pending_order_ids: Vec::new(),
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("does not support batching"));
     }
 
     #[test]

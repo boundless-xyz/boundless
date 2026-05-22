@@ -18,7 +18,7 @@ use alloy::sol_types::{SolStruct, SolValue};
 use alloy::{
     network::Ethereum,
     primitives::{Address, FixedBytes, B256, U256},
-    providers::Provider,
+    providers::{DynProvider, Provider},
 };
 use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
@@ -58,7 +58,7 @@ use crate::{
     is_dev_mode,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
-    CompressionType, ConfigurableDownloader, Order, OrderStatus,
+    ConfigurableDownloader, Order, OrderStatus,
 };
 use anyhow::{Context, Result};
 
@@ -84,6 +84,7 @@ pub struct Risc0Backend {
     priority_requestors: PriorityRequestors,
     set_builder_program_id: Option<Risc0Digest>,
     set_verifier_addr: Option<Address>,
+    set_verifier: Option<SetVerifierService<DynProvider>>,
     batch_processor: Option<BatchProcessorObj>,
 }
 
@@ -114,6 +115,7 @@ impl Risc0Backend {
             priority_requestors,
             set_builder_program_id: None,
             set_verifier_addr: None,
+            set_verifier: None,
             batch_processor: None,
         }
     }
@@ -138,8 +140,18 @@ impl Risc0Backend {
     }
 
     #[cfg(test)]
-    pub fn with_set_verifier_addr(mut self, set_verifier_addr: Address) -> Self {
+    pub fn with_set_verifier<P>(
+        mut self,
+        set_verifier_addr: Address,
+        provider: Arc<P>,
+        caller: Address,
+    ) -> Self
+    where
+        P: Provider<Ethereum> + Clone + 'static,
+    {
         self.set_verifier_addr = Some(set_verifier_addr);
+        self.set_verifier =
+            Some(SetVerifierService::new(set_verifier_addr, DynProvider::new(provider), caller));
         self
     }
 
@@ -187,6 +199,17 @@ impl Risc0Backend {
         let assessor_img_id =
             self.fetch_and_upload_assessor_image(provider, deployment, &config).await?;
 
+        let txn_timeout = {
+            let cfg = config.lock_all().context("Failed to lock config")?;
+            cfg.batcher.txn_timeout
+        };
+        let set_verifier = SetVerifierService::new(
+            deployment.set_verifier_address,
+            DynProvider::new(provider.clone()),
+            prover_addr,
+        )
+        .with_timeout(std::time::Duration::from_secs(txn_timeout));
+
         let batch_processor = Arc::new(Risc0BatchProcessor::new(
             db,
             config,
@@ -200,12 +223,20 @@ impl Risc0Backend {
 
         self.set_builder_program_id = Some(set_builder_img_id);
         self.set_verifier_addr = Some(deployment.set_verifier_address);
+        self.set_verifier = Some(set_verifier);
         self.batch_processor = Some(batch_processor);
         Ok(self)
     }
 
-    fn batch_processor(&self) -> Result<&BatchProcessorObj> {
-        self.batch_processor.as_ref().context("RISC0 backend is missing batch processor")
+    fn require_set_verifier(&self, verifier: Address) -> Result<&SetVerifierService<DynProvider>> {
+        let set_verifier =
+            self.set_verifier.as_ref().context("RISC0 backend is missing set verifier")?;
+        anyhow::ensure!(
+            self.set_verifier_addr == Some(verifier),
+            "verifier update targets {verifier}, but RISC0 backend is configured for {:?}",
+            self.set_verifier_addr,
+        );
+        Ok(set_verifier)
     }
 
     async fn fetch_and_upload_set_builder_image<P>(
@@ -537,6 +568,24 @@ fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
     }
 }
 
+/// Proof compression required by a RISC0 verifier selector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompressionType {
+    None,
+    Groth16,
+    Blake3Groth16,
+}
+
+fn compression_type_for_selector(selector: FixedBytes<4>) -> CompressionType {
+    if is_groth16_selector(selector) {
+        CompressionType::Groth16
+    } else if is_blake3_groth16_selector(selector) {
+        CompressionType::Blake3Groth16
+    } else {
+        CompressionType::None
+    }
+}
+
 impl Risc0RequestEvaluatorContext for Risc0Backend {
     fn prover(&self) -> &ProverObj {
         &self.prover
@@ -603,7 +652,7 @@ impl Backend for Risc0Backend {
             .await
             .context("Monitoring proof (stark) failed")?;
 
-        let compression_type = order.compression_type();
+        let compression_type = compression_type_for_selector(order.request.requirements.selector);
         tracing::debug!(
             "Order {order_id} has compression_type: {compression_type:?}, snark_proof_id: {:?}",
             order.compressed_proof_id
@@ -652,22 +701,8 @@ impl Backend for Risc0Backend {
         Ok(())
     }
 
-    async fn estimate_batch_size(
-        &self,
-        cmd: BatchSizeEstimateRequest,
-    ) -> Result<BatchSizeEstimate> {
-        self.batch_processor()?.estimate_batch_size(cmd).await
-    }
-
-    async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
-        self.batch_processor()?.update_batch(cmd).await
-    }
-
-    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError> {
-        match self.batch_processor() {
-            Ok(batch_processor) => batch_processor.close_batch(cmd).await,
-            Err(err) => Err(BackendError::operation(err)),
-        }
+    fn batch_processor(&self) -> Option<BatchProcessorObj> {
+        self.batch_processor.clone()
     }
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
@@ -882,6 +917,31 @@ impl Backend for Risc0Backend {
                 callbacks: assessor.callbacks,
             },
         })
+    }
+
+    async fn verifier_update_applied(&self, update: &VerifierUpdate) -> Result<bool> {
+        match update {
+            VerifierUpdate::SubmitMerkleRoot { verifier, root, .. } => {
+                let set_verifier = self.require_set_verifier(*verifier)?;
+                set_verifier
+                    .contains_root(*root)
+                    .await
+                    .context("Failed to query set verifier for merkle root")
+            }
+        }
+    }
+
+    async fn apply_verifier_update(&self, update: &VerifierUpdate) -> Result<()> {
+        match update {
+            VerifierUpdate::SubmitMerkleRoot { verifier, root, seal } => {
+                let set_verifier = self.require_set_verifier(*verifier)?;
+                set_verifier
+                    .submit_merkle_root(*root, seal.clone())
+                    .await
+                    .context("Failed to submit merkle root to set verifier")?;
+                Ok(())
+            }
+        }
     }
 }
 

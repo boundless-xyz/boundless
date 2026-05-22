@@ -30,8 +30,6 @@ use boundless_market::{
     contracts::AssessorReceipt,
     telemetry::CompletionOutcome,
 };
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-
 use tokio::sync::mpsc;
 
 use crate::{
@@ -55,8 +53,6 @@ pub struct Submitter<P> {
     db: DbObj,
     backend: Arc<BackendRouter>,
     market: BoundlessMarketService<Arc<P>>,
-    set_verifier: SetVerifierService<Arc<P>>,
-    set_verifier_addr: Address,
     prover_address: Address,
     config: ConfigLock,
     chain_id: u64,
@@ -74,7 +70,6 @@ where
         config: ConfigLock,
         backend: Arc<BackendRouter>,
         provider: Arc<P>,
-        set_verifier_addr: Address,
         market_addr: Address,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -92,27 +87,9 @@ where
         tracing::debug!("Setting market timeout to {}", txn_timeout_opt);
         market = market.with_timeout(Duration::from_secs(txn_timeout_opt));
 
-        let mut set_verifier = SetVerifierService::new(
-            set_verifier_addr,
-            provider.clone(),
-            provider.default_signer_address(),
-        );
-        tracing::debug!("Setting set verifier timeout to {}", txn_timeout_opt);
-        set_verifier = set_verifier.with_timeout(Duration::from_secs(txn_timeout_opt));
-
         let prover_address = provider.default_signer_address();
 
-        Ok(Self {
-            db,
-            backend,
-            market,
-            set_verifier,
-            set_verifier_addr,
-            prover_address,
-            config,
-            chain_id,
-            proving_completion_tx,
-        })
+        Ok(Self { db, backend, market, prover_address, config, chain_id, proving_completion_tx })
     }
 
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
@@ -276,58 +253,63 @@ where
             .with_withdraw(withdraw)
             .with_unlocked_requests(requests_to_price);
         for verifier_update in artifacts.verifier_updates {
-            match verifier_update {
-                VerifierUpdate::SubmitMerkleRoot { verifier, root, seal } => {
-                    if verifier != self.set_verifier_addr {
-                        return Err(SubmitterErr::UnexpectedErr(anyhow!(
-                            "backend returned verifier update for unsupported verifier {verifier}; submitter is configured for {}",
-                            self.set_verifier_addr
-                        )));
-                    }
-
-                    if single_txn_fulfill {
+            if single_txn_fulfill {
+                match verifier_update {
+                    VerifierUpdate::SubmitMerkleRoot { verifier, root, seal } => {
                         fulfillment_tx = fulfillment_tx.with_submit_root(verifier, root, seal);
-                    } else {
-                        let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
-                        let contains_root = match self.set_verifier.contains_root(root).await {
-                            Ok(res) => {
-                                tracing::info!("Checked if verifier {verifier} contains the root for batch {batch_id} with requests {:?}: {res:?}", request_ids);
-                                res
-                            }
-                            Err(err) => {
-                                tracing::warn!("Failed to query if verifier {verifier} contains the new root for batch {batch_id} with requests {:?}, trying to submit anyway {err:?}", request_ids);
-                                false
-                            }
-                        };
-                        if !contains_root {
-                            tracing::info!(
-                                "Submitting verifier root: {root} to {verifier} for batch {batch_id} with requests {:?}",
-                                request_ids
-                            );
-                            if let Err(err) = self.set_verifier.submit_merkle_root(root, seal).await
-                            {
-                                let order_ids: Vec<&str> = fulfillments
-                                    .iter()
-                                    .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
-                                    .collect();
-                                tracing::warn!(
-                                    "Failed to submit verifier root for orders: {order_ids:?}"
-                                );
-
-                                // Map the error from the R0 Contracts crate to an error type from BoundlessMarket
-                                let market_err = if err.to_string().contains("failed to confirm tx")
-                                {
-                                    MarketError::TxnConfirmationError(err)
-                                } else {
-                                    MarketError::Error(err)
-                                };
-                                return Err(Self::classify_fulfillment_error(market_err, batch_id));
-                            }
-                        } else {
-                            tracing::info!("Verifier {verifier} already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
-                        }
                     }
                 }
+                continue;
+            }
+
+            let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
+            let applied = match self
+                .backend
+                .verifier_update_applied(&batch.backend_id, &verifier_update)
+                .await
+            {
+                Ok(res) => {
+                    tracing::info!(
+                        "Checked if verifier update for batch {batch_id} with requests {:?} is already applied: {res:?}",
+                        request_ids
+                    );
+                    res
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to query verifier update status for batch {batch_id} with requests {:?}, trying to submit anyway {err:?}",
+                        request_ids
+                    );
+                    false
+                }
+            };
+            if applied {
+                tracing::info!(
+                    "Verifier already reflects update for batch {batch_id} with requests {:?}, skipping to fulfillment",
+                    request_ids
+                );
+                continue;
+            }
+            tracing::info!(
+                "Submitting verifier update for batch {batch_id} with requests {:?}",
+                request_ids
+            );
+            if let Err(err) =
+                self.backend.apply_verifier_update(&batch.backend_id, &verifier_update).await
+            {
+                let order_ids: Vec<&str> = fulfillments
+                    .iter()
+                    .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
+                    .collect();
+                tracing::warn!("Failed to submit verifier update for orders: {order_ids:?}");
+
+                // Map the backend error to an error type from BoundlessMarket.
+                let market_err = if err.to_string().contains("failed to confirm tx") {
+                    MarketError::TxnConfirmationError(err)
+                } else {
+                    MarketError::Error(err)
+                };
+                return Err(Self::classify_fulfillment_error(market_err, batch_id));
             }
         }
 
@@ -832,7 +814,7 @@ mod tests {
                 priority_requestors,
             )
             .with_set_builder_program_id(set_builder_id)
-            .with_set_verifier_addr(set_verifier),
+            .with_set_verifier(set_verifier, provider.clone(), prover_addr),
         );
         let backend_router = Arc::new(
             BackendRouter::new().register_backend(BackendEntry::new(risc0_backend)).unwrap(),
@@ -842,7 +824,6 @@ mod tests {
             config,
             backend_router,
             provider.clone(),
-            set_verifier,
             market_address,
             anvil.chain_id(),
             commitment_tx,
@@ -902,8 +883,9 @@ mod tests {
         drop(anvil); // drop anvil to simulate an RPC fault
 
         let res = submitter.process_next_batch().await;
-        // futures_retry emits this format on each failed attempt:
-        //   "Operation [submit_batch] (context: batch_id=0) failed: ..., starting retry 1/1"
+        // futures_retry emits this format on each failed attempt (retry status before the
+        // error so it survives multi-line error Debug output):
+        //   "Operation [submit_batch] (context: batch_id=0) failed, starting retry 1/1: ..."
         assert!(logs_contain("Operation [submit_batch] (context: batch_id=0)"));
         assert!(logs_contain("starting retry 1/1"));
         assert!(logs_contain(

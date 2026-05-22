@@ -376,14 +376,17 @@ pub trait Backend: Send + Sync {
 
     async fn cancel_order(&self, order: &Order) -> Result<()>;
 
-    async fn estimate_batch_size(&self, cmd: BatchSizeEstimateRequest)
-        -> Result<BatchSizeEstimate>;
-
-    async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate>;
-
-    async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError>;
+    /// Returns the batch processor for this backend, or `None` if the backend
+    /// does not support batching.
+    fn batch_processor(&self) -> Option<BatchProcessorObj>;
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan>;
+
+    /// Returns whether the verifier already reflects `update` (idempotency check).
+    async fn verifier_update_applied(&self, update: &VerifierUpdate) -> Result<bool>;
+
+    /// Applies `update` to the verifier as a standalone transaction.
+    async fn apply_verifier_update(&self, update: &VerifierUpdate) -> Result<()>;
 }
 
 pub(crate) type BackendObj = Arc<dyn Backend>;

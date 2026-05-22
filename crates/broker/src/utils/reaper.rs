@@ -150,9 +150,8 @@ mod tests {
     use super::*;
     use crate::{
         backend::{
-            Backend, BackendEntry, BackendError, BatchClose, BatchSizeEstimate,
-            BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch,
-            OrderProcessProgress, ProcessOrder, SubmissionPlan, UpdateBatch,
+            Backend, BackendEntry, BatchProcessorObj, FulfillmentBatch, OrderProcessProgress,
+            ProcessOrder, SubmissionPlan, VerifierUpdate,
         },
         db::SqliteDb,
         now_timestamp, FulfillmentType, Order, OrderStatus,
@@ -225,19 +224,8 @@ mod tests {
             Ok(())
         }
 
-        async fn estimate_batch_size(
-            &self,
-            _cmd: BatchSizeEstimateRequest,
-        ) -> anyhow::Result<BatchSizeEstimate> {
-            anyhow::bail!("cancel backend does not estimate batches")
-        }
-
-        async fn update_batch(&self, _cmd: UpdateBatch) -> anyhow::Result<BatchUpdate> {
-            anyhow::bail!("cancel backend does not update batches")
-        }
-
-        async fn close_batch(&self, _cmd: CloseBatch) -> anyhow::Result<BatchClose, BackendError> {
-            Err(BackendError::operation(anyhow::anyhow!("cancel backend does not close batches")))
+        fn batch_processor(&self) -> Option<BatchProcessorObj> {
+            None
         }
 
         async fn build_fulfillments(
@@ -245,6 +233,14 @@ mod tests {
             _cmd: FulfillmentBatch,
         ) -> anyhow::Result<SubmissionPlan> {
             anyhow::bail!("cancel backend does not build fulfillments")
+        }
+
+        async fn verifier_update_applied(&self, _update: &VerifierUpdate) -> anyhow::Result<bool> {
+            anyhow::bail!("cancel backend does not query verifier updates")
+        }
+
+        async fn apply_verifier_update(&self, _update: &VerifierUpdate) -> anyhow::Result<()> {
+            anyhow::bail!("cancel backend does not apply verifier updates")
         }
     }
 

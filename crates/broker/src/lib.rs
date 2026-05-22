@@ -57,7 +57,7 @@ pub use boundless_market::prover_utils::{
     ProveLimitReason,
 };
 pub(crate) use order_types::proving_order_from_request;
-pub use order_types::{CompressionType, Order, OrderStateChange, OrderStatus};
+pub use order_types::{Order, OrderStateChange, OrderStatus};
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils;

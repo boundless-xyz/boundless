@@ -26,7 +26,6 @@ use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use boundless_market::{
     contracts::ProofRequest,
     prover_utils::{FulfillmentType, OrderRequest},
-    selector::{is_blake3_groth16_selector, is_groth16_selector},
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -208,22 +207,6 @@ impl Order {
             })
             .clone()
     }
-
-    pub fn is_groth16(&self) -> bool {
-        is_groth16_selector(self.request.requirements.selector)
-    }
-    fn is_blake3_groth16(&self) -> bool {
-        is_blake3_groth16_selector(self.request.requirements.selector)
-    }
-    pub fn compression_type(&self) -> CompressionType {
-        if self.is_groth16() {
-            CompressionType::Groth16
-        } else if self.is_blake3_groth16() {
-            CompressionType::Blake3Groth16
-        } else {
-            CompressionType::None
-        }
-    }
 }
 
 impl std::fmt::Display for Order {
@@ -235,13 +218,6 @@ impl std::fmt::Display for Order {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, crate::format_expiries(&self.request))
     }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum CompressionType {
-    None,
-    Groth16,
-    Blake3Groth16,
 }
 
 #[cfg(test)]

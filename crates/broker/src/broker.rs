@@ -738,7 +738,6 @@ impl Broker {
                 config.clone(),
                 backend_router.clone(),
                 provider.clone(),
-                deployment.set_verifier_address,
                 deployment.boundless_market_address,
                 chain_id,
                 proving_completion_tx.clone(),
