@@ -43,7 +43,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    Batch, FulfillmentType, Order,
+    Batch, FulfillmentType, Order, OrderStatus,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -124,6 +124,13 @@ where
         let mut fulfillment_orders = Vec::with_capacity(batch.orders.len());
 
         for order_id in batch.orders.iter() {
+            // On a submit_batch retry after a partial on-chain success, an order may already
+            // have been finalized and advanced to Done. It must not be resubmitted, and the
+            // prep-failure path below must not flip an on-chain-fulfilled order back to Failed.
+            if orders_by_id.get(order_id).is_some_and(|order| order.status == OrderStatus::Done) {
+                tracing::info!("Order {order_id} already finalized, skipping resubmission");
+                continue;
+            }
             tracing::info!("Submitting order {order_id}");
 
             let res = async {
