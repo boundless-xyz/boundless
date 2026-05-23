@@ -121,6 +121,7 @@ where
         let orders_by_id: HashMap<String, Order> =
             orders.iter().map(|order| (order.id(), order.clone())).collect();
         let mut fulfillment_orders = Vec::with_capacity(batch.orders.len());
+        let mut skipped_done_orders = Vec::new();
 
         for order_id in batch.orders.iter() {
             // On a submit_batch retry after a partial on-chain success, an order may already
@@ -128,6 +129,7 @@ where
             // prep-failure path below must not flip an on-chain-fulfilled order back to Failed.
             if orders_by_id.get(order_id).is_some_and(|order| order.status == OrderStatus::Done) {
                 tracing::info!("Order {order_id} already finalized, skipping resubmission");
+                skipped_done_orders.push(order_id.clone());
                 continue;
             }
             tracing::info!("Submitting order {order_id}");
@@ -190,6 +192,12 @@ where
         }
 
         if fulfillment_orders.is_empty() {
+            if skipped_done_orders.len() == batch.orders.len() {
+                tracing::info!(
+                    "All orders in batch {batch_id} were already finalized; marking batch submitted"
+                );
+                return Ok(());
+            }
             tracing::error!(
                 "All orders in batch {batch_id} failed during submission preparation. \
                  Skipping on-chain submission."
@@ -476,6 +484,20 @@ where
         // `OrderCommitter::in_flight`, eventually exhausting `max_concurrent_proofs` and
         // silently halting dispatch on all chains.
         for order_id in batch.orders.iter() {
+            match self.db.get_order(order_id).await {
+                Ok(Some(order)) if order.status == OrderStatus::Done => {
+                    tracing::info!(
+                        "Order {order_id} already finalized after batch submission retry; skipping failure update"
+                    );
+                    continue;
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to check order {order_id} status before batch failure handling: {err:?}"
+                    );
+                }
+            }
             handle_order_failure(
                 &self.db,
                 order_id,
@@ -1095,5 +1117,70 @@ mod tests {
         failed_for.sort();
         assert_eq!(completed_for, vec![good_order_id], "good order should complete");
         assert_eq!(failed_for, vec![failing_order_id], "bad order should fail");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch_failure_does_not_fail_done_orders() {
+        let config = ConfigLock::default();
+        let (_anvil, submitter, db, batch_id, mut commitment_rx, failing_order_id) =
+            build_submitter_and_batch_with_options(
+                config,
+                BatchHarnessOptions { with_failing_order: true },
+            )
+            .await;
+        let failing_order_id = failing_order_id.expect("harness added a failing order");
+
+        let batch = db.get_batch(batch_id).await.unwrap();
+        let done_order_id = batch
+            .orders
+            .iter()
+            .find(|id| **id != failing_order_id)
+            .expect("batch has a submittable order")
+            .clone();
+        db.set_order_complete(&done_order_id).await.unwrap();
+
+        let res = submitter.process_next_batch().await;
+        assert!(matches!(res, Err(SubmitterErr::BatchSubmissionFailed(_))));
+
+        let done = db.get_order(&done_order_id).await.unwrap().expect("done order exists");
+        assert_eq!(done.status, OrderStatus::Done, "done order must not be failed");
+        let failed = db.get_order(&failing_order_id).await.unwrap().expect("failing order exists");
+        assert_eq!(failed.status, OrderStatus::Failed, "unprepared order should be Failed");
+
+        let event =
+            commitment_rx.recv().await.expect("failing order must emit a CommitmentComplete");
+        assert_eq!(event.order_id, failing_order_id);
+        assert!(matches!(event.outcome, CommitmentOutcome::ProvingFailed));
+        assert!(
+            commitment_rx.try_recv().is_err(),
+            "already-done order must not emit another CommitmentComplete"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn submit_batch_all_done_marks_batch_submitted() {
+        let config = ConfigLock::default();
+        let (_anvil, submitter, db, batch_id, mut commitment_rx) =
+            build_submitter_and_batch(config).await;
+
+        let batch = db.get_batch(batch_id).await.unwrap();
+        for order_id in &batch.orders {
+            db.set_order_complete(order_id).await.unwrap();
+        }
+
+        submitter.process_next_batch().await.unwrap();
+
+        let final_batch = db.get_batch(batch_id).await.unwrap();
+        assert_eq!(final_batch.status, BatchStatus::Submitted);
+        for order_id in &batch.orders {
+            let order = db.get_order(order_id).await.unwrap().expect("order exists");
+            assert_eq!(order.status, OrderStatus::Done);
+        }
+        assert!(
+            commitment_rx.try_recv().is_err(),
+            "already-done orders must not emit duplicate CommitmentComplete events"
+        );
     }
 }
