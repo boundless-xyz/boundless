@@ -36,15 +36,11 @@ use super::types::{
 pub struct BackendRouter {
     backends: HashMap<BackendId, BackendEntry>,
     routes: HashMap<FixedBytes<4>, BackendId>,
-    /// Historical backend ids that resolve to a currently-registered backend, so a batch
-    /// persisted before a backend-id rename still routes to its successor after a deploy.
-    aliases: HashMap<BackendId, BackendId>,
 }
 
 #[derive(Clone)]
 pub struct BackendEntry {
     id: BackendId,
-    aliases: Vec<BackendId>,
     selectors: Vec<FixedBytes<4>>,
     backend: BackendObj,
 }
@@ -53,19 +49,7 @@ impl BackendEntry {
     pub fn new(backend: BackendObj) -> Self {
         let id = backend.id().clone();
         let selectors = backend.supported_selectors();
-        Self { id, aliases: Vec::new(), selectors, backend }
-    }
-
-    /// Register historical ids that should still resolve to this backend. Use when a
-    /// backend's id is renamed across a deploy so batches persisted under the old id are
-    /// routed to the renamed backend rather than stranded.
-    ///
-    /// Not yet wired into production (no backend id has been renamed); kept as the
-    /// operator-facing seam for that migration and exercised by the router tests.
-    #[allow(dead_code)]
-    pub fn with_aliases(mut self, aliases: impl IntoIterator<Item = BackendId>) -> Self {
-        self.aliases.extend(aliases);
-        self
+        Self { id, selectors, backend }
     }
 
     pub fn id(&self) -> &BackendId {
@@ -86,27 +70,6 @@ impl BackendRouter {
         if self.backends.contains_key(entry.id()) {
             anyhow::bail!("backend {} is already registered", entry.id());
         }
-        if self.aliases.contains_key(entry.id()) {
-            anyhow::bail!("backend {} collides with an existing backend alias", entry.id());
-        }
-
-        for alias in &entry.aliases {
-            if *alias == entry.id {
-                anyhow::bail!("backend {} lists its own id as an alias", entry.id());
-            }
-            if self.backends.contains_key(alias) {
-                anyhow::bail!(
-                    "backend {} alias {alias} collides with a registered backend",
-                    entry.id()
-                );
-            }
-            if let Some(existing) = self.aliases.get(alias) {
-                anyhow::bail!(
-                    "backend {} alias {alias} is already an alias for backend {existing}",
-                    entry.id()
-                );
-            }
-        }
 
         let mut entry_selectors = HashSet::new();
         for selector in &entry.selectors {
@@ -125,9 +88,6 @@ impl BackendRouter {
                 format!("backend {} did not classify selector {selector:?}", entry.id())
             })?;
             self.routes.insert(*selector, entry.id.clone());
-        }
-        for alias in &entry.aliases {
-            self.aliases.insert(alias.clone(), entry.id.clone());
         }
         self.backends.insert(entry.id.clone(), entry);
         Ok(self)
@@ -157,19 +117,9 @@ impl BackendRouter {
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
 
-    /// Map a possibly-historical backend id to a currently-registered backend id.
-    fn resolve_backend_id<'a>(&'a self, backend_id: &'a BackendId) -> &'a BackendId {
-        if self.backends.contains_key(backend_id) {
-            backend_id
-        } else {
-            self.aliases.get(backend_id).unwrap_or(backend_id)
-        }
-    }
-
     fn backend_for_id(&self, backend_id: &BackendId) -> Result<BackendObj> {
-        let resolved = self.resolve_backend_id(backend_id);
         self.backends
-            .get(resolved)
+            .get(backend_id)
             .map(|entry| entry.backend.clone())
             .with_context(|| format!("backend {backend_id} is not registered"))
     }
@@ -247,8 +197,6 @@ impl BackendRouter {
 
     pub async fn build_fulfillments(&self, mut cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
-        // The persisted batch may carry a historical backend id; rewrite it to the
-        // resolved backend's canonical id so the backend's own id guard accepts it.
         cmd.backend_id = backend.id().clone();
         backend.build_fulfillments(cmd).await
     }
@@ -803,49 +751,5 @@ mod tests {
         assert_eq!(supported.proof_type(selector(2)), Some(ProofType::Groth16));
         assert_eq!(supported.proof_type(selector(3)), Some(ProofType::Blake3Groth16));
         assert_eq!(supported.proof_type(selector(4)), None);
-    }
-
-    #[tokio::test]
-    async fn build_fulfillments_resolves_a_renamed_backend_via_alias() {
-        // A batch persisted under the old id "mock_legacy" must still resolve after the
-        // backend is re-registered as "mock_current" with the old id as an alias —
-        // otherwise the finalized batch is permanently stranded.
-        let backend = Arc::new(MockBackend::new("mock_current", vec![selector(1)]));
-        let router = BackendRouter::new()
-            .register_backend(
-                BackendEntry::new(backend.clone())
-                    .with_aliases([BackendId::new("mock_legacy").unwrap()]),
-            )
-            .unwrap();
-
-        router
-            .build_fulfillments(FulfillmentBatch {
-                backend_id: BackendId::new("mock_legacy").unwrap(),
-                state: None,
-                assessor_proof_id: None,
-                eip712_domain: eip712_domain(Address::ZERO, 1),
-                orders: Vec::new(),
-            })
-            .await
-            .expect("alias should resolve to the renamed backend");
-
-        assert_eq!(backend.fulfillment_calls(), 1);
-    }
-
-    #[test]
-    fn router_rejects_alias_colliding_with_registered_backend() {
-        let backend_a = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
-        let backend_b = Arc::new(MockBackend::new("mock_b", vec![selector(2)]));
-
-        let err = BackendRouter::new()
-            .register_backend(BackendEntry::new(backend_a))
-            .unwrap()
-            .register_backend(
-                BackendEntry::new(backend_b).with_aliases([BackendId::new("mock_a").unwrap()]),
-            )
-            .err()
-            .unwrap();
-
-        assert!(err.to_string().contains("collides with a registered backend"));
     }
 }
