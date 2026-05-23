@@ -132,6 +132,15 @@ where
                 skipped_done_orders.push(order_id.clone());
                 continue;
             }
+            // An order that failed preparation in an earlier attempt is already terminal —
+            // re-running handle_order_failure here would emit a duplicate ProvingFailed
+            // CommitmentComplete and double-count the capacity release.
+            if orders_by_id.get(order_id).is_some_and(|order| order.status == OrderStatus::Failed) {
+                tracing::info!(
+                    "Order {order_id} already failed in a prior submit attempt, skipping"
+                );
+                continue;
+            }
             tracing::info!("Submitting order {order_id}");
 
             let res = async {
@@ -485,9 +494,12 @@ where
         // silently halting dispatch on all chains.
         for order_id in batch.orders.iter() {
             match self.db.get_order(order_id).await {
-                Ok(Some(order)) if order.status == OrderStatus::Done => {
+                Ok(Some(order))
+                    if matches!(order.status, OrderStatus::Done | OrderStatus::Failed) =>
+                {
                     tracing::info!(
-                        "Order {order_id} already finalized after batch submission retry; skipping failure update"
+                        "Order {order_id} already in terminal state {:?} after batch submission retry; skipping failure update",
+                        order.status
                     );
                     continue;
                 }
