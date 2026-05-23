@@ -67,9 +67,9 @@ use super::types::{
     AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
     BatchUpdate, ClaimDigest, CloseBatch, CompressedProofId, Digest as BackendDigest,
-    FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress, ProcessOrder, ProcessedOrder,
-    ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch, VerifierUpdate,
-    VerifierUpdateError,
+    FailedFulfillmentOrder, FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress,
+    ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch,
+    VerifierUpdate, VerifierUpdateError,
 };
 
 mod batch;
@@ -802,6 +802,7 @@ impl Backend for Risc0Backend {
         };
 
         let mut orders = Vec::with_capacity(cmd.orders.len());
+        let mut failed_orders = Vec::new();
         for order in cmd.orders {
             let order_id = order.order_id.clone();
             let res = async {
@@ -918,13 +919,11 @@ impl Backend for Risc0Backend {
             match res {
                 Ok(artifact) => orders.push(artifact),
                 Err(error) => {
-                    // The assessor receipt's selectors/callbacks (and its journal) are
-                    // positionally indexed over the full order set. Dropping any one order
-                    // here would desync those indices and revert the whole batch on-chain,
-                    // so fail the batch atomically rather than submit a partial set.
-                    return Err(
-                        error.context(format!("Failed to build fulfillment for order {order_id}"))
-                    );
+                    failed_orders.push(FailedFulfillmentOrder {
+                        order_id: order_id.clone(),
+                        error: error
+                            .context(format!("Failed to build fulfillment for order {order_id}")),
+                    });
                 }
             }
         }
@@ -958,6 +957,7 @@ impl Backend for Risc0Backend {
 
         Ok(SubmissionPlan {
             verifier_updates: vec![verifier_update],
+            failed_orders,
             orders,
             assessor: SubmissionAssessorArtifact {
                 seal: assessor_seal.into(),

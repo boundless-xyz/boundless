@@ -210,12 +210,35 @@ where
             })
             .await?;
 
-        // `build_fulfillments` is all-or-nothing: it either returns an artifact for every
-        // order or fails the whole batch. A partial set cannot be submitted because the
-        // assessor receipt is indexed over the full order set.
+        for failed in artifacts.failed_orders {
+            tracing::error!("Failed to submit {}: {:?}", failed.order_id, failed.error);
+            handle_order_failure(
+                &self.db,
+                &failed.order_id,
+                &BrokerFailure::new(
+                    SubmitterErr::UnexpectedErr(failed.error).code(),
+                    "Failed to submit",
+                    CompletionOutcome::ProvingFailed,
+                ),
+                self.chain_id,
+                &self.proving_completion_tx,
+            )
+            .await;
+        }
+
         for artifact in artifacts.orders {
             fulfillment_to_order_id.insert(artifact.fulfillment.id, artifact.order_id);
             fulfillments.push(artifact.fulfillment);
+        }
+
+        if fulfillments.is_empty() {
+            tracing::error!(
+                "All orders in batch {batch_id} failed during fulfillment preparation. \
+                 Skipping on-chain submission."
+            );
+            return Err(SubmitterErr::UnexpectedErr(anyhow!(
+                "No fulfillments to submit for batch {batch_id}"
+            )));
         }
 
         let (single_txn_fulfill, withdraw) = {
@@ -1023,7 +1046,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn submit_batch_partial_failure() {
+    async fn submit_batch_prep_failure_submits_remaining_orders() {
         let config = ConfigLock::default();
         let (_anvil, submitter, db, batch_id, mut commitment_rx, failing_order_id) =
             build_submitter_and_batch_with_options(
@@ -1041,21 +1064,18 @@ mod tests {
             .expect("batch has a submittable order")
             .clone();
 
-        // One order cannot be prepared for submission. The batch must still submit the good
-        // order on-chain, and BOTH orders must each emit exactly one CommitmentComplete — a
-        // missed completion leaks an OrderCommitter capacity slot and silently halts dispatch.
         submitter.process_next_batch().await.unwrap();
 
         let final_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(final_batch.status, BatchStatus::Submitted);
 
         let good = db.get_order(&good_order_id).await.unwrap().expect("good order exists");
-        assert_eq!(good.status, OrderStatus::Done, "submitted order should be Done");
+        assert_eq!(good.status, OrderStatus::Done, "good order should still submit");
         let failed = db.get_order(&failing_order_id).await.unwrap().expect("failing order exists");
         assert_eq!(failed.status, OrderStatus::Failed, "unprepared order should be Failed");
 
-        let mut completed_for: Vec<String> = Vec::new();
-        let mut failed_for: Vec<String> = Vec::new();
+        let mut completed_for = Vec::new();
+        let mut failed_for = Vec::new();
         for _ in 0..2 {
             let event = commitment_rx
                 .recv()
@@ -1071,7 +1091,9 @@ mod tests {
             commitment_rx.try_recv().is_err(),
             "each order must emit exactly one CommitmentComplete, no more"
         );
-        assert_eq!(completed_for, vec![good_order_id], "good order completes exactly once");
-        assert_eq!(failed_for, vec![failing_order_id], "failing order fails exactly once");
+        completed_for.sort();
+        failed_for.sort();
+        assert_eq!(completed_for, vec![good_order_id], "good order should complete");
+        assert_eq!(failed_for, vec![failing_order_id], "bad order should fail");
     }
 }

@@ -422,6 +422,7 @@ mod tests {
             self.fulfillment_calls.fetch_add(1, Ordering::SeqCst);
             Ok(SubmissionPlan {
                 verifier_updates: Vec::new(),
+                failed_orders: Vec::new(),
                 orders: cmd
                     .orders
                     .into_iter()
