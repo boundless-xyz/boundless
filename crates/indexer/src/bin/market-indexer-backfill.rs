@@ -216,7 +216,7 @@ async fn main() -> Result<()> {
     );
 
     if let Err(err) = backfill_service.run().await {
-        bail!("FATAL: Error running backfill: {err}");
+        bail!("FATAL: Error running backfill: {err:#}");
     }
 
     tracing::info!("Backfill completed successfully");

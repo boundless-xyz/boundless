@@ -223,7 +223,7 @@ async fn main() -> Result<()> {
     if args.end_block.is_some() {
         tracing::info!("Running indexer once (end-block specified)");
         if let Err(err) = indexer_service.run(args.start_block, args.end_block).await {
-            bail!("FATAL: Error running the indexer: {err}");
+            bail!("FATAL: Error running the indexer: {err:#}");
         }
         tracing::info!("Indexer completed successfully");
         return Ok(());
@@ -231,7 +231,7 @@ async fn main() -> Result<()> {
 
     // Otherwise, run in the normal loop (existing behavior)
     if let Err(err) = indexer_service.run(args.start_block, None).await {
-        bail!("FATAL: Error running the indexer: {err}");
+        bail!("FATAL: Error running the indexer: {err:#}");
     }
 
     Ok(())
