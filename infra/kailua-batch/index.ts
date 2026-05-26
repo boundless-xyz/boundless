@@ -36,37 +36,6 @@ const DEFAULT_SCHEDULE_COUNT = 20;
 const DEFAULT_SCHEDULE_WINDOW_MINUTES = 20;
 const DEFAULT_TASKS_PER_MINUTE = 2;
 
-type StaggeredScheduleSpec = {
-    /** EventBridge cron minute slot; fires at :MM, :MM+window, … each hour. */
-    minute: number;
-    /** 0 = BLOCK_COUNT 1, 1 = BLOCK_COUNT 2 within the minute slot. */
-    taskIndex: number;
-    startBlockOffset: number;
-    blockCount: string;
-    cronExpression: string;
-};
-
-/** Each minute slot runs two tasks: (bc=1, off=2m), (bc=2, off=2m+1). */
-function buildStaggeredSchedules(
-    scheduleCount: number,
-    windowMinutes: number,
-    tasksPerMinute: number,
-): StaggeredScheduleSpec[] {
-    const specs: StaggeredScheduleSpec[] = [];
-    for (let minute = 0; minute < scheduleCount; minute++) {
-        for (let taskIndex = 0; taskIndex < tasksPerMinute; taskIndex++) {
-            specs.push({
-                minute,
-                taskIndex,
-                startBlockOffset: minute * tasksPerMinute + taskIndex,
-                blockCount: String(taskIndex + 1),
-                cronExpression: `cron(${minute}/${windowMinutes} * * * ? *)`,
-            });
-        }
-    }
-    return specs;
-}
-
 export = () => {
     const config = new pulumi.Config();
     const awsConfig = new pulumi.Config("aws");
@@ -101,7 +70,9 @@ export = () => {
     if (tasksPerMinute < 1) {
         throw new Error("TASKS_PER_MINUTE must be at least 1");
     }
-    const staggeredSchedules = buildStaggeredSchedules(scheduleCount, scheduleWindowMinutes, tasksPerMinute);
+    if (scheduleCount > scheduleWindowMinutes) {
+        throw new Error("SCHEDULE_COUNT must be less than or equal to SCHEDULE_WINDOW_MINUTES");
+    }
 
     const slackTopicArn = config.get("SLACK_ALERTS_TOPIC_ARN");
     const pagerdutyTopicArn = config.get("PAGERDUTY_ALERTS_TOPIC_ARN");
@@ -351,6 +322,9 @@ export = () => {
                 SECURITY_GROUP_ID: securityGroup.id,
                 ASSIGN_PUBLIC_IP: assignPublicIpValue,
                 MAX_RUNNING_TASKS: maxRunningTasks.toString(),
+                SCHEDULE_COUNT: scheduleCount.toString(),
+                SCHEDULE_WINDOW_MINUTES: scheduleWindowMinutes.toString(),
+                TASKS_PER_MINUTE: tasksPerMinute.toString(),
             },
         },
     }, { dependsOn: [triggerLambdaRole, fargateTask, triggerLambdaLogGroup] });
@@ -375,30 +349,23 @@ export = () => {
         })),
     });
 
-    for (const spec of staggeredSchedules) {
-        const { minute, taskIndex, startBlockOffset, blockCount, cronExpression } = spec;
-        const schedulePayload = JSON.stringify({
-            startBlockOffset,
-            blockCount,
-        });
-        new aws.scheduler.Schedule(`${serviceName}-m${minute}-t${taskIndex}`, {
-            name: `${serviceName}-m${minute}-t${taskIndex}`,
-            description: `Minute ${minute} task ${taskIndex}: START_BLOCK_OFFSET=${startBlockOffset}, BLOCK_COUNT=${blockCount}`,
-            flexibleTimeWindow: {
-                mode: "OFF",
-            },
-            scheduleExpression: cronExpression,
-            target: {
-                arn: "arn:aws:scheduler:::aws-sdk:lambda:invoke",
-                roleArn: schedulerRole.arn,
-                input: triggerLambda.arn.apply(lambdaArn => JSON.stringify({
-                    FunctionName: lambdaArn,
-                    InvocationType: "Event",
-                    Payload: schedulePayload,
-                })),
-            },
-        }, { dependsOn: [triggerLambda] });
-    }
+    new aws.scheduler.Schedule(`${serviceName}-schedule`, {
+        name: `${serviceName}-schedule`,
+        description: `Every minute trigger; Lambda fans out ${tasksPerMinute} task(s) for ${scheduleCount}/${scheduleWindowMinutes} minute slots`,
+        flexibleTimeWindow: {
+            mode: "OFF",
+        },
+        scheduleExpression: "cron(* * * * ? *)",
+        target: {
+            arn: "arn:aws:scheduler:::aws-sdk:lambda:invoke",
+            roleArn: schedulerRole.arn,
+            input: triggerLambda.arn.apply(lambdaArn => JSON.stringify({
+                FunctionName: lambdaArn,
+                InvocationType: "Event",
+                Payload: "{}",
+            })),
+        },
+    }, { dependsOn: [triggerLambda] });
 
     const metricsNamespace = `Boundless/Services/${serviceName}`;
     createMetricFilter("running", "\"KAILUA_RUNNING\"", `${serviceName}-running`);
@@ -478,7 +445,7 @@ export = () => {
         scheduleCount,
         scheduleWindowMinutes,
         tasksPerMinute,
-        schedules: staggeredSchedules,
+        scheduleExpression: "cron(* * * * ? *)",
     };
 
     function resolveConfigKey(configKey: string, fallbackConfigKey?: string): string {
