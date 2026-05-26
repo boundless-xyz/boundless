@@ -8,6 +8,7 @@ pragma solidity ^0.8.26;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 
 import {IBoundlessAssessor} from "../interfaces/IBoundlessAssessor.sol";
@@ -51,9 +52,11 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
     using ReceiptClaimLib for ReceiptClaim;
 
     /// @notice EIP-712 type for the fulfillment-batch authorization signed by `prover`.
-    string internal constant FULFILLMENT_BATCH_AUTH_TYPE =
+    /// @dev    Exposed publicly so brokers, wallets, and tests can derive the
+    ///         same typehash the contract verifies against.
+    string public constant FULFILLMENT_BATCH_AUTH_TYPE =
         "FulfillmentBatchAuth(address prover,bytes32[] requestDigests,bytes32[] claimDigests)";
-    bytes32 internal constant FULFILLMENT_BATCH_AUTH_TYPEHASH = keccak256(bytes(FULFILLMENT_BATCH_AUTH_TYPE));
+    bytes32 public constant FULFILLMENT_BATCH_AUTH_TYPEHASH = keccak256(bytes(FULFILLMENT_BATCH_AUTH_TYPE));
 
     /// @notice EIP-712 domain pinned at deploy time (chain id + verifying contract).
     bytes32 public immutable DOMAIN_SEPARATOR;
@@ -164,7 +167,7 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
                 keccak256(abi.encodePacked(claimDigests))
             )
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        bytes32 digest = MessageHashUtils.toTypedDataHash(DOMAIN_SEPARATOR, structHash);
         address recovered = ECDSA.recover(digest, signature);
         if (recovered != prover) revert ProverSignatureMismatch(recovered, prover);
     }
