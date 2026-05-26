@@ -27,11 +27,17 @@ import {PredicateType} from "../../types/Predicate.sol";
 ///                * `ClaimDigestMatch` — `predicate.data == fill.claimDigest`.
 ///                * `DigestMatch` / `PrefixMatch` — decode `(imageId, journal)`
 ///                  from `fill.fulfillmentData` and run `PredicateLibrary.eval`.
-///           2. Claim-digest binding: the supplied `(imageId, journal)` must
-///              reconstruct to `fill.claimDigest` via
-///              `ReceiptClaimLib.ok(imageId, sha256(abi.encode(journal))).digest()`.
-///              Without this, a malicious prover could submit a valid seal for
-///              one computation and journal bytes from a different one.
+///           2. Claim-digest binding: whenever the prover attaches an
+///              `ImageIdAndJournal` payload (mandatory for `DigestMatch` /
+///              `PrefixMatch`, optional for `ClaimDigestMatch`), the supplied
+///              `(imageId, journal)` must reconstruct to `fill.claimDigest`
+///              via `ReceiptClaimLib.ok(imageId, sha256(journal)).digest()`.
+///              Without this, a malicious prover could submit a valid seal
+///              for one computation and journal bytes from a different one —
+///              the downstream callback dispatch would then receive unproven
+///              bytes. `ClaimDigestMatch` fills without `ImageIdAndJournal`
+///              (the common case — no callback needed) skip the
+///              reconstruction since no journal is being asserted.
 ///
 ///         Per batch:
 ///           3. Prover binding: `assessorSeal` carries an ECDSA signature by
@@ -99,6 +105,19 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
                 if (!batch.requests[i].predicate.eval(batch.fills[i].claimDigest)) {
                     revert PredicateFailed(i);
                 }
+                // If the prover also attached (imageId, journal) — typically because
+                // the request has a callback that needs them — assert they reconstruct
+                // to the proven claimDigest. The claimDigest alone does not pin which
+                // (imageId, journal) produced it, so without this check a callback
+                // would dispatch unproven bytes.
+                if (batch.fills[i].fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
+                    (bytes32 imageId, bytes calldata journal) =
+                        FulfillmentDataLibrary.decodePackedImageIdAndJournal(batch.fills[i].fulfillmentData);
+                    bytes32 reconstructed = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
+                    if (reconstructed != batch.fills[i].claimDigest) {
+                        revert ClaimDigestMismatch(i);
+                    }
+                }
             } else {
                 if (batch.fills[i].fulfillmentDataType != FulfillmentDataType.ImageIdAndJournal) {
                     revert MissingFulfillmentData(i);
@@ -113,7 +132,7 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
                 // Claim-digest binding: the (imageId, journal) the prover supplied must
                 // reconstruct to fill.claimDigest. Without this, the prover could submit
                 // a valid seal for a different computation entirely.
-                bytes32 reconstructed = ReceiptClaimLib.ok(imageId, sha256(abi.encode(journal))).digest();
+                bytes32 reconstructed = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
                 if (reconstructed != batch.fills[i].claimDigest) {
                     revert ClaimDigestMismatch(i);
                 }
