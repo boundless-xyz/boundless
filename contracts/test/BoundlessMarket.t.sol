@@ -35,6 +35,7 @@ import {IBoundlessJointVerifierAssessor} from "../src/router/interfaces/IBoundle
 import {NullVerifier, NullAssessor, NullJoint, RevertingVerifier} from "./mocks/RouterMocks.sol";
 import {R0BoundlessVerifierAdapter} from "../src/router/adapters/R0BoundlessVerifierAdapter.sol";
 import {R0BoundlessAssessorAdapter} from "../src/router/adapters/R0BoundlessAssessorAdapter.sol";
+import {OnChainAssessor} from "../src/router/adapters/OnChainAssessor.sol";
 import {AssessorCommitment} from "../src/types/AssessorCommitment.sol";
 import {AssessorJournal} from "../src/types/AssessorJournal.sol";
 import {FulfillmentLibrary} from "../src/types/Fulfillment.sol";
@@ -97,6 +98,7 @@ contract BoundlessMarketTest is Test {
     NullAssessor internal nullAssessor;
     R0BoundlessVerifierAdapter internal setVerifierAdapter;
     R0BoundlessAssessorAdapter internal r0AssessorAdapter;
+    OnChainAssessor internal onChainAssessor;
 
     address internal boundlessMarketSource;
     address internal proxy;
@@ -114,6 +116,10 @@ contract BoundlessMarketTest is Test {
     ///         adapter. Used by e2e tests that exercise journal reconstruction
     ///         + setVerifier inclusion (selector, prover-mismatch, fill tampering).
     bytes4 internal constant ASSESSOR_R0_SEL = 0x00000024;
+    /// @notice Router entry selector for the native Solidity `OnChainAssessor`.
+    ///         Used by e2e tests that exercise the predicate-evaluation +
+    ///         prover-ECDSA path through the production `fulfill` flow.
+    bytes4 internal constant ASSESSOR_ON_CHAIN_SEL = 0x00000026;
     mapping(uint256 => Client) internal clients;
     mapping(uint256 => Client) internal provers;
     mapping(uint256 => SmartContractClient) internal smartContractClients;
@@ -179,6 +185,12 @@ contract BoundlessMarketTest is Test {
         // entry via the set-builder R0 fixture.
         r0AssessorAdapter = new R0BoundlessAssessorAdapter(setVerifier, ASSESSOR_IMAGE_ID);
         router.instantiate(ASSESSOR_R0_SEL, address(r0AssessorAdapter), ASSESSOR_CLASS_ID, 0);
+
+        // Register the native Solidity `OnChainAssessor` as a third entry.
+        // Used by e2e tests that exercise the alternative-assessor path
+        // (predicate eval + prover ECDSA) through the production fulfill flow.
+        onChainAssessor = new OnChainAssessor();
+        router.instantiate(ASSESSOR_ON_CHAIN_SEL, address(onChainAssessor), ASSESSOR_CLASS_ID, 0);
 
         router.addClass(
             VERIFIER_CLASS_ID,
@@ -682,6 +694,114 @@ contract BoundlessMarketTest is Test {
             assessorSeal: abi.encodePacked(ASSESSOR_R0_SEL, TestUtils.mockAssessorSeal(setVerifier, batchRoot)),
             prover: prover
         });
+    }
+
+    // ─── Native on-chain assessor fixture ────────────────────────────────
+    //
+    // Simulates what a broker produces when fulfilling via the native
+    // Solidity `OnChainAssessor`: no STARK, no merkle root — just an
+    // EIP-712 ECDSA signature by the prover over the batch's
+    // `(prover, requestDigests, claimDigests)` tuple.
+    //
+    // Two variants, in shape parity with the existing helpers:
+    //   * `createFulfillmentBatchOnChain` — NullVerifier per-fill seals; the
+    //     fastest path through the market when the per-fill verifier isn't
+    //     under test.
+    //   * `createFillsAndSubmitRootOnChain` — real `RiscZeroSetVerifier`
+    //     per-fill seals; required when a downstream consumer
+    //     (`BoundlessMarketCallback`) re-verifies `(imageId, journal, seal)`.
+    //
+    // Both routes go through the SAME `OnChainAssessor` adapter — the only
+    // difference is what verifier the per-fill seal targets.
+
+    function createFulfillmentBatchOnChain(ProofRequest memory request, bytes memory journal, Vm.Wallet memory prover)
+        internal
+        view
+        returns (FulfillmentBatch memory)
+    {
+        return createFulfillmentBatchOnChain(_asArray(request), _asArray(journal), prover);
+    }
+
+    function createFulfillmentBatchOnChain(
+        ProofRequest[] memory requests,
+        bytes[] memory journals,
+        Vm.Wallet memory prover
+    ) internal view returns (FulfillmentBatch memory batch) {
+        (Fulfillment[] memory fills, SlimRequest[] memory slim, bytes32[] memory requestDigests) =
+            _buildFillsAndSlim(requests, journals, FulfillmentDataType.ImageIdAndJournal);
+        // Per-fill seal: NullVerifier entry — accepts any payload after the
+        // 4-byte selector. Callback tests should use the setVerifier variant
+        // instead.
+        for (uint256 i = 0; i < fills.length; i++) {
+            fills[i].seal = abi.encodePacked(VERIFIER_ENTRY_SEL, hex"deadbeef");
+        }
+        batch = FulfillmentBatch({
+            requests: slim,
+            fills: fills,
+            assessorSeal: _buildOnChainAssessorSeal(prover, fills, requestDigests),
+            prover: prover.addr
+        });
+    }
+
+    function createFillAndSubmitRootOnChain(ProofRequest memory request, bytes memory journal, Vm.Wallet memory prover)
+        internal
+        returns (FulfillmentBatch memory)
+    {
+        return createFillsAndSubmitRootOnChain(_asArray(request), _asArray(journal), prover);
+    }
+
+    function createFillsAndSubmitRootOnChain(
+        ProofRequest[] memory requests,
+        bytes[] memory journals,
+        Vm.Wallet memory prover
+    ) internal returns (FulfillmentBatch memory batch) {
+        (Fulfillment[] memory fills, SlimRequest[] memory slim, bytes32[] memory requestDigests) =
+            _buildFillsAndSlim(requests, journals, FulfillmentDataType.ImageIdAndJournal);
+        // Build a merkle tree over fill claim digests and submit the root to
+        // setVerifier. Per-fill seals are inclusion proofs against that root,
+        // signed against `setVerifier.SELECTOR()` — which is what callback
+        // tests' requests sign so the router dispatches through
+        // `R0BoundlessVerifierAdapter` → `RiscZeroSetVerifier`.
+        (bytes32 root, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
+        TestUtils.Proof[] memory proofs = TestUtils.computeProofs(tree);
+        for (uint256 i = 0; i < fills.length; i++) {
+            fills[i].seal = TestUtils.encodeSeal(setVerifier, proofs[i]);
+        }
+        submitRoot(root);
+        batch = FulfillmentBatch({
+            requests: slim,
+            fills: fills,
+            assessorSeal: _buildOnChainAssessorSeal(prover, fills, requestDigests),
+            prover: prover.addr
+        });
+    }
+
+    /// @dev Build the OnChainAssessor seal: selector || ECDSA signature by
+    ///      `prover` over the EIP-712 hash of
+    ///      `(prover, keccak(requestDigests), keccak(claimDigests))`.
+    function _buildOnChainAssessorSeal(
+        Vm.Wallet memory prover,
+        Fulfillment[] memory fills,
+        bytes32[] memory requestDigests
+    ) internal view returns (bytes memory) {
+        uint256 n = fills.length;
+        bytes32[] memory claimDigests = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) {
+            claimDigests[i] = fills[i].claimDigest;
+        }
+        bytes32 structHash = keccak256(
+            abi.encode(
+                onChainAssessor.FULFILLMENT_BATCH_AUTH_TYPEHASH(),
+                prover.addr,
+                keccak256(abi.encodePacked(requestDigests)),
+                keccak256(abi.encodePacked(claimDigests))
+            )
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(onChainAssessor.DOMAIN_SEPARATOR(), structHash);
+        // Use the (uint256 pk, bytes32 digest) overload — the Vm.Wallet form
+        // bumps the wallet's nonce and so is not view-compatible.
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(prover.privateKey, digest);
+        return abi.encodePacked(ASSESSOR_ON_CHAIN_SEL, r, s, v);
     }
 
     /// @dev Broker-side per-fill build, extracted from `createFills` so the
@@ -4380,6 +4500,200 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectMarketBalanceUnchanged();
     }
 } // <-- closes BoundlessMarketBasicTest
+
+/// @title BoundlessMarketOnChainAssessorTest — e2e through the native assessor.
+///
+/// @notice Mirrors the canonical fulfill / callback / slash scenarios that
+///         `BoundlessMarketBasicTest` exercises through `NullAssessor` /
+///         `R0BoundlessAssessorAdapter`, but routes every batch through
+///         `OnChainAssessor` instead.
+///
+///         The point is parity: the market's state transitions, balance
+///         changes, and event emissions must be identical regardless of
+///         which assessor adapter brokers selected. The on-chain adapter's
+///         job is to be drop-in compatible with the guest-based path; these
+///         tests pin that.
+///
+///         All requests here use `setVerifier.SELECTOR()` as the signed
+///         verifier selector — that's the production shape (per-fill seals
+///         are set-builder inclusion proofs) and also what callback tests
+///         require so `BoundlessMarketCallback`'s defense re-verify passes.
+contract BoundlessMarketOnChainAssessorTest is BoundlessMarketTest {
+    using ReceiptClaimLib for ReceiptClaim;
+    using BoundlessMarketLib for ProofRequest;
+    using BoundlessMarketLib for Offer;
+
+    /// @dev `Client.wallet` is `Vm.Wallet public` — Solidity's auto-getter
+    ///      returns the struct as a tuple, not as a `Vm.Wallet`. Rehydrate
+    ///      so the OnChainAssessor fixtures can take a typed wallet.
+    function _proverWallet(Client prover) internal view returns (Vm.Wallet memory w) {
+        (address a, uint256 x, uint256 y, uint256 p) = prover.wallet();
+        w.addr = a;
+        w.publicKeyX = x;
+        w.publicKeyY = y;
+        w.privateKey = p;
+    }
+
+    // ─── Happy paths ────────────────────────────────────────────────────
+
+    function testFulfillLockedRequest_OnChainAssessor() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        request.requirements.selector = setVerifier.SELECTOR();
+        bytes memory clientSignature = client.sign(request);
+
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        FulfillmentBatch memory batch = createFillAndSubmitRootOnChain(request, APP_JOURNAL, _proverWallet(testProver));
+        bytes32 expectedRequestDigest =
+            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest());
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
+        boundlessMarket.fulfill(_asArray(batch));
+
+        expectRequestFulfilled(request.id);
+        client.expectBalanceChange(-1 ether);
+        testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillBatch_OnChainAssessor() public {
+        uint256 batchSize = 3;
+        ProofRequest[] memory requests = new ProofRequest[](batchSize);
+        bytes[] memory journals = new bytes[](batchSize);
+
+        for (uint256 i = 0; i < batchSize; i++) {
+            Client client = getClient(i + 1);
+            ProofRequest memory request = client.request(uint32(i + 1));
+            request.requirements.selector = setVerifier.SELECTOR();
+            bytes memory sig = client.sign(request);
+            vm.prank(testProverAddress);
+            boundlessMarket.lockRequest(request, sig);
+            requests[i] = request;
+            journals[i] = APP_JOURNAL;
+        }
+
+        FulfillmentBatch memory batch = createFillsAndSubmitRootOnChain(requests, journals, _proverWallet(testProver));
+        boundlessMarket.fulfill(_asArray(batch));
+
+        for (uint256 i = 0; i < batchSize; i++) {
+            expectRequestFulfilled(requests[i].id);
+        }
+        expectMarketBalanceUnchanged();
+    }
+
+    /// @notice The scenario the OnChainAssessor's ClaimDigestMatch
+    ///         reconstruction guard exists for: predicate is
+    ///         `ClaimDigestMatch`, prover attaches `(imageId, journal)` so
+    ///         the callback can act on them, and a malicious prover would
+    ///         otherwise be free to attach bytes that don't match the
+    ///         proven claim.
+    ///
+    ///         Happy path: matching (imageId, journal) → fulfill + callback
+    ///         both succeed.
+    function testFulfillCallback_ClaimDigestMatch_OnChainAssessor_matchingBytes() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        bytes32 imageId = APP_IMAGE_ID;
+        bytes32 claimDigest = ReceiptClaimLib.ok(imageId, sha256(APP_JOURNAL)).digest();
+        request.requirements.predicate = PredicateLibrary.createClaimDigestMatchPredicate(claimDigest);
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
+        request.requirements.selector = setVerifier.SELECTOR();
+        bytes memory clientSignature = client.sign(request);
+
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        FulfillmentBatch memory batch = createFillAndSubmitRootOnChain(request, APP_JOURNAL, _proverWallet(testProver));
+        vm.expectEmit(true, true, true, false);
+        emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
+        boundlessMarket.fulfill(_asArray(batch));
+
+        assertEq(mockCallback.getCallCount(), 1);
+        expectRequestFulfilled(request.id);
+        expectMarketBalanceUnchanged();
+    }
+
+    /// @notice The negative half of the above: prover attaches
+    ///         `(imageId, journal)` that does NOT reconstruct to the proven
+    ///         claim digest. Without the reconstruction guard the callback
+    ///         would fire with unproven bytes; with it the adapter reverts
+    ///         and the market never dispatches the callback.
+    function testFulfillCallback_ClaimDigestMatch_OnChainAssessor_mismatchedBytesReverts() public {
+        Client client = getClient(1);
+        ProofRequest memory request = client.request(1);
+        bytes32 imageId = APP_IMAGE_ID;
+        bytes32 claimDigest = ReceiptClaimLib.ok(imageId, sha256(APP_JOURNAL)).digest();
+        request.requirements.predicate = PredicateLibrary.createClaimDigestMatchPredicate(claimDigest);
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
+        request.requirements.selector = setVerifier.SELECTOR();
+        bytes memory clientSignature = client.sign(request);
+
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        // Build the batch normally so the fixture computes the right
+        // claimDigest and assessor seal, then swap in a non-matching journal
+        // before submitting. The lock's stored requestDigest still matches
+        // (slim payload is unchanged), but the (imageId, journal) attached
+        // to fulfillmentData no longer reconstructs to claimDigest.
+        FulfillmentBatch memory batch = createFillAndSubmitRootOnChain(request, APP_JOURNAL, _proverWallet(testProver));
+        batch.fills[0].fulfillmentData =
+            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: bytes("LIES")}));
+
+        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.ClaimDigestMismatch.selector, uint256(0)));
+        boundlessMarket.fulfill(_asArray(batch));
+
+        // The fulfill reverted — request is still locked, callback never fired.
+        assertEq(mockCallback.getCallCount(), 0);
+        expectRequestNotFulfilled(request.id);
+    }
+
+    // ─── Mixed-adapter batches in one tx ────────────────────────────────
+
+    /// @notice One `fulfill` call carrying two `FulfillmentBatch[]`es of
+    ///         different assessor classes — one through `OnChainAssessor`,
+    ///         one through `R0BoundlessAssessorAdapter`. The market routes
+    ///         each batch independently; both must settle without cross-
+    ///         contamination.
+    function testFulfillMixedAdapters_OnChainAndR0_inOneTx() public {
+        Client clientA = getClient(1);
+        Client clientB = getClient(2);
+
+        ProofRequest memory requestA = clientA.request(1);
+        requestA.requirements.selector = setVerifier.SELECTOR();
+        ProofRequest memory requestB = clientB.request(2);
+        requestB.requirements.selector = setVerifier.SELECTOR();
+
+        bytes memory sigA = clientA.sign(requestA);
+        bytes memory sigB = clientB.sign(requestB);
+
+        vm.startPrank(testProverAddress);
+        boundlessMarket.lockRequest(requestA, sigA);
+        boundlessMarket.lockRequest(requestB, sigB);
+        vm.stopPrank();
+
+        FulfillmentBatch memory batchOnChain =
+            createFillAndSubmitRootOnChain(requestA, APP_JOURNAL, _proverWallet(testProver));
+        FulfillmentBatch memory batchR0 = createFillAndSubmitRootR0(requestB, APP_JOURNAL, testProverAddress);
+
+        FulfillmentBatch[] memory batches = new FulfillmentBatch[](2);
+        batches[0] = batchOnChain;
+        batches[1] = batchR0;
+        boundlessMarket.fulfill(batches);
+
+        expectRequestFulfilled(requestA.id);
+        expectRequestFulfilled(requestB.id);
+        expectMarketBalanceUnchanged();
+    }
+}
 
 contract BoundlessMarketBench is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
