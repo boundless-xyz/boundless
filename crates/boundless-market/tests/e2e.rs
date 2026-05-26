@@ -728,7 +728,7 @@ async fn test_client_builder_with_price_provider() {
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
         .with_uploader(Some(storage.clone()))
-        .with_price_provider(Some(price_provider))
+        .with_price_provider(Some(price_provider.clone()))
         .with_downloader(HttpDownloader::default())
         .build()
         .await
@@ -744,4 +744,25 @@ async fn test_client_builder_with_price_provider() {
     assert!(
         request.offer.maxPrice >= min(price_percentiles.p99, price_percentiles.p50 * U256::from(2))
     );
+
+    // Build the same request with the market-price buffer disabled (100% = no buffer) and
+    // confirm the default +15% buffer raises maxPrice. Gas is identical between the two builds
+    // (idle anvil mines no blocks on read-only calls), so the delta is purely the proof-portion
+    // buffer.
+    let client_no_buffer = ClientBuilder::new()
+        .with_signer(ctx.customer_signer.clone())
+        .with_deployment(ctx.deployment.clone())
+        .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .with_uploader(Some(storage.clone()))
+        .with_price_provider(Some(price_provider))
+        .with_downloader(HttpDownloader::default())
+        .config_offer_layer(|c| c.market_price_buffer_multiplier_percentage(100))
+        .build()
+        .await
+        .unwrap();
+    let request_no_buffer = client_no_buffer
+        .build_request(RequestParams::new().with_program(ECHO_ELF).with_stdin(b"test"))
+        .await
+        .unwrap();
+    assert!(request.offer.maxPrice > request_no_buffer.offer.maxPrice);
 }

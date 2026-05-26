@@ -131,6 +131,18 @@ pub(crate) fn resolve_max_price(
     })
 }
 
+/// Applies the market-price buffer to a per-cycle market price and scales by the cycle count.
+///
+/// `buffer_percentage` is a multiplier where `100` = no buffer and `115` = +15%. Multiplies
+/// before dividing to avoid truncation; any sub-wei fraction rounds down.
+pub(crate) fn buffered_market_max(
+    max_per_cycle: U256,
+    cycle_count: u64,
+    buffer_percentage: u64,
+) -> U256 {
+    max_per_cycle * U256::from(cycle_count) * U256::from(buffer_percentage) / U256::from(100)
+}
+
 struct CollateralRecommendation {
     default: U256,
     large: U256,
@@ -300,6 +312,16 @@ pub struct OfferLayerConfig {
     /// Supported proof types and their corresponding selectors.
     #[builder(setter(into), default)]
     pub supported_selectors: SupportedSelectors,
+
+    /// Multiplier applied to the market-derived max price to add headroom for
+    /// per-cycle price drift between request submission and prover lock-in.
+    ///
+    /// Expressed as a percentage where `100` = no buffer and `115` = +15%. Applied only when
+    /// `maxPrice` is sourced from the price provider — not for an explicit `max_price` in
+    /// [OfferParams], the configured [`max_price_per_cycle`](Self::max_price_per_cycle), or the
+    /// static default. The gas portion of the price is buffered separately and is unaffected.
+    #[builder(setter(strip_option), default = "Some(115)")]
+    pub market_price_buffer_multiplier_percentage: Option<u64>,
 }
 
 #[non_exhaustive]
@@ -407,6 +429,15 @@ pub struct OfferParams {
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub lock_collateral: Option<Amount>,
+
+    /// Override the market-price buffer multiplier for this request.
+    ///
+    /// Expressed as a percentage where 100 = no buffer and 115 = +15%. Takes priority over the
+    /// client-wide OfferLayerConfig default. Only affects requests whose max_price is
+    /// auto-derived from the price provider.
+    #[clap(long)]
+    #[builder(setter(strip_option), default)]
+    pub market_price_buffer_multiplier_percentage: Option<u64>,
 }
 
 impl From<OfferParamsBuilder> for OfferParams {
@@ -445,6 +476,8 @@ impl OfferParams {
             lock_timeout: Some(offer.lockTimeout),
             bidding_start: Some(offer.rampUpStart),
             ramp_up_period: Some(offer.rampUpPeriod),
+            // Reconstructing an existing on-chain offer must not re-apply the buffer.
+            market_price_buffer_multiplier_percentage: None,
         }
     }
 
@@ -701,14 +734,19 @@ where
                 if let Some(cycle_count) = cycle_count {
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
+                            let buffer = params
+                                .market_price_buffer_multiplier_percentage
+                                .or(self.config.market_price_buffer_multiplier_percentage)
+                                .unwrap_or(100);
                             let min = U256::ZERO;
                             let max_per_cycle =
                                 percentiles.p99.min(percentiles.p50 * U256::from(2));
-                            let max = max_per_cycle * U256::from(cycle_count);
+                            let max = buffered_market_max(max_per_cycle, cycle_count, buffer);
                             tracing::debug!(
-                                "Using market prices from price provider to set max price: p50_per_cycle: {} p99_per_cycle: {} min price: {} max price: {}",
+                                "Using market prices from price provider to set max price: p50_per_cycle: {} p99_per_cycle: {} buffer: {}% min price: {} max price: {}",
                                 percentiles.p50,
                                 percentiles.p99,
+                                buffer,
                                 format_units(min, "ether")?,
                                 format_units(max, "ether")?,
                             );
@@ -1115,6 +1153,23 @@ mod tests {
                 default_max_price_per_cycle() * u(10)
             );
         }
+
+        #[test]
+        fn buffer_default_115_adds_15_percent() {
+            // 100 wei/cycle * 10 cycles * 1.15 = 1150
+            assert_eq!(buffered_market_max(u(100), 10, 115), u(1150));
+        }
+
+        #[test]
+        fn buffer_100_is_noop() {
+            assert_eq!(buffered_market_max(u(100), 10, 100), u(1000));
+        }
+
+        #[test]
+        fn buffer_rounds_down() {
+            // 10 * 1 * 115 / 100 = 11.5 -> 11 (sub-wei fraction truncated)
+            assert_eq!(buffered_market_max(u(10), 1, 115), u(11));
+        }
     }
 
     mod offer_params_into_offer {
@@ -1144,6 +1199,7 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
+                market_price_buffer_multiplier_percentage: None,
             };
             let offer = params.into_offer(None).await.unwrap();
             assert_eq!(offer.minPrice, U256::from(1_000));
@@ -1170,6 +1226,7 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
+                market_price_buffer_multiplier_percentage: None,
             };
             let offer = params.into_offer(Some(&manager)).await.unwrap();
 
@@ -1189,6 +1246,7 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
+                market_price_buffer_multiplier_percentage: None,
             };
             let err = params.into_offer(None).await.unwrap_err();
             assert!(
@@ -1208,6 +1266,7 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
+                market_price_buffer_multiplier_percentage: None,
             };
             let err = params.into_offer(None).await.unwrap_err();
             assert!(
@@ -1227,6 +1286,7 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
+                market_price_buffer_multiplier_percentage: None,
             };
             let err = params.into_offer(None).await.unwrap_err();
             assert!(
