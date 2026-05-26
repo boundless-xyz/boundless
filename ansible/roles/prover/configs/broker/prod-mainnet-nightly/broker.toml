@@ -9,6 +9,8 @@ priority_requestor_lists = [
     "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
     "https://requestors.boundless.network/boundless-recommended-priority-list.large.json",
 ]
+# Signal requestor
+deny_requestor_addresses = ["0x734df7809c4ef94da037449c287166d114503198"]
 balance_warn_threshold = "0.02"
 balance_error_threshold = "0.005"
 collateral_balance_warn_threshold = "100"
