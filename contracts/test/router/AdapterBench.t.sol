@@ -61,12 +61,7 @@ contract AdapterBench is BenchBase {
         }
     }
 
-    /// @notice Show how journal size affects per-fill cost. The on-chain
-    ///         DigestMatch path does `sha256(abi.encode(journal))` twice per
-    ///         fill (once for predicate eval, once for claim-digest binding),
-    ///         so its cost grows linearly with journal length. R0 hashes the
-    ///         journal once when computing `fulfillmentDataDigest`. The
-    ///         ClaimDigestMatch path doesn't touch the journal at all.
+    /// @notice Show how journal size affects per-fill cost.
     function test_bench_journalSize() external view {
         uint256[3] memory journalSizes = [uint256(16), 128, 512];
         uint256 n = 10;

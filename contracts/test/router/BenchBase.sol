@@ -289,7 +289,10 @@ abstract contract BenchBase is Test {
         returns (ProofRequest memory req, Fulfillment memory fill)
     {
         (bytes32 imageId, bytes memory journal) = _imageAndJournal(i, journalBytes);
-        bytes32 journalDigest = sha256(abi.encode(journal));
+        // Journal hash convention is `sha256(journal)` over the raw bytes —
+        // matching the off-chain R0 STARK guest, `BoundlessMarketCallback`,
+        // and the broker's claim-digest computation. No `abi.encode` wrap.
+        bytes32 journalDigest = sha256(journal);
         bytes32 claimDigest = ReceiptClaimLib.ok(imageId, journalDigest).digest();
 
         Predicate memory predicate;
