@@ -61,9 +61,11 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
         /// @notice Class this entry belongs to. The class supplies the dispatch interface
         ///         tag and any binding metadata.
         bytes4 classId;
-        /// @notice Per-call gas cap for `staticcall`s into `impl`. A misbehaving adapter
-        ///         can self-rug its fulfillment batch on gas, but cannot starve settlement of
-        ///         sibling fulfillment batches in the same transaction.
+        /// @notice Per-call gas cap for `staticcall`s into `impl`. Bounds the gas a
+        ///         misbehaving adapter can burn per fill so a runaway impl cannot consume
+        ///         the entire transaction's gas before its revert is caught. Cross-batch
+        ///         isolation in a multi-batch fulfill() call is not provided by this cap —
+        ///         the enclosing `verifyBatch` still reverts on any per-fill failure.
         uint64 gasLimit;
     }
 
@@ -109,6 +111,10 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     /// @notice Cached chain-default class id for O(1) lookup. Mirrors whichever class has
     ///         `isDefault == true`. `0x00000000` if none.
     bytes4 public defaultClassId;
+    /// @notice Live-entry count per class. Maintained on `instantiate` and `removeEntry`
+    ///         so `removeClass` can refuse to tombstone a class that still has reachable
+    ///         entries — admins must remove the entries first.
+    mapping(bytes4 => uint256) public entriesPerClass;
 
     // ─── Errors ────────────────────────────────────────────────────────────
 
@@ -173,14 +179,15 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///         The default class must dispatch to `IBoundlessVerifier`.
     error DefaultMustBeVerifier();
 
-    /// @notice Reserved for future symmetry with curated/permissionless gating. Currently
-    ///         unused — non-permissionless paths revert via `AccessControl`.
-    error PermissionlessNotAllowed(bytes4 classId);
-
     /// @notice An `instantiate` impl either failed `IERC165.supportsInterface(tag)` or
     ///         reverted on the call. Used as a unified error for "this address does not
     ///         conform to the class interface" — including the `address(0)` case.
     error Erc165CheckFailed(address impl, bytes4 expectedInterfaceId);
+
+    /// @notice `addClass` was called with `defaultGasLimit == 0`. A zero default would
+    ///         silently produce dead entries via the `instantiate` fallback path (any
+    ///         `gasLimit == 0` caller would pin a `staticcall{gas: 0}` that always OOGs).
+    error InvalidGasLimit();
 
     /// @notice `verifyBatch` was called with no fills.
     error EmptyBatch();
@@ -222,8 +229,11 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     error SignedSelectorTombstoned(bytes4 signed);
 
     /// @notice A per-fill verifier or joint adapter call reverted (or ran out of gas).
-    ///         The failure is isolated to the offending fill's fulfillment batch — sibling
-    ///         fulfillment batches in the same transaction still settle.
+    ///         The per-fill try/catch translates the adapter's revert (which may be empty,
+    ///         e.g. on gas exhaustion) into this structured error carrying the offending
+    ///         fill's index and resolved selector. The enclosing `verifyBatch` call still
+    ///         reverts; cross-batch isolation in a multi-batch fulfill() call is not
+    ///         provided here — the market driver does not wrap `verifyBatch` in try/catch.
     error VerifierFailed(uint256 index, bytes4 selector);
 
     /// @notice The assessor selector supplied in `verifyBatch` belongs to a class
@@ -241,6 +251,10 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     /// @notice A joint-class fulfillment batch was submitted with a non-empty assessor selector
     ///         or seal. Joint classes have no assessor seam — both fields must be zero.
     error AssessorMustBeAbsent();
+
+    /// @notice `removeClass` was called on a class that still has live entries. Admins must
+    ///         `removeEntry` each pinned impl before tombstoning the class.
+    error ClassHasEntries(bytes4 classId, uint256 liveEntries);
 
     // ─── Events ────────────────────────────────────────────────────────────
 
@@ -275,6 +289,7 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
         if (tombstoned[classId]) revert ClassRemoved(classId);
         if (classes[classId].interfaceTag != bytes4(0)) revert ClassInUse(classId);
         if (entries[classId].impl != address(0)) revert EntryInUse(classId);
+        if (metadata.defaultGasLimit == 0) revert InvalidGasLimit();
 
         bytes4 tag = metadata.interfaceTag;
         if (!_isVerifierTag(tag) && !_isJointTag(tag) && !_isAssessorTag(tag)) {
@@ -307,12 +322,14 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
 
     /// @notice Remove a class. Governance-only. Tombstones the class id so it can never
     ///         be re-registered in either namespace.
-    /// @dev    Removing a class does NOT remove its existing `entries`. Brokers and
-    ///         clients should treat any entry whose `classId` resolves to a removed
-    ///         class as unusable; the router's per-fill loop guards against this via the
-    ///         class-existence check inside `_classTagOf`.
+    /// @dev    Reverts with `ClassHasEntries` if the class still has live entries; admins
+    ///         must `removeEntry` each pinned impl first. This keeps the entry map free
+    ///         of rows pointing at non-live classes and forces explicit acknowledgement
+    ///         of the impls being orphaned.
     function removeClass(bytes4 classId) external onlyRole(ADMIN_ROLE) {
         if (classes[classId].interfaceTag == bytes4(0)) revert ClassUnknown(classId);
+        uint256 live = entriesPerClass[classId];
+        if (live != 0) revert ClassHasEntries(classId, live);
         if (defaultClassId == classId) {
             defaultClassId = bytes4(0);
             emit DefaultClassChanged(classId, bytes4(0));
@@ -355,13 +372,16 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
 
         uint64 effectiveGas = gasLimit == 0 ? pc.defaultGasLimit : gasLimit;
         entries[selector] = Entry({impl: impl, classId: parentClassId, gasLimit: effectiveGas});
+        entriesPerClass[parentClassId]++;
         emit EntryAdded(selector, impl, parentClassId, effectiveGas);
     }
 
     /// @notice Remove an entry. Governance-only. Tombstones the selector.
     function removeEntry(bytes4 selector) external onlyRole(ADMIN_ROLE) {
-        if (entries[selector].impl == address(0)) revert EntryUnknown(selector);
+        Entry memory e = entries[selector];
+        if (e.impl == address(0)) revert EntryUnknown(selector);
         delete entries[selector];
+        entriesPerClass[e.classId]--;
         tombstoned[selector] = true;
         emit EntryTombstoned(selector);
     }
@@ -389,10 +409,13 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///                        market builds this during the binding check;
     ///                        direct router callers must supply consistent values.
     ///
-    /// @dev    Per-fill calls are gas-bounded `staticcall`s wrapped in
-    ///         try/catch — a malicious adapter can self-rug its fulfillment batch but
-    ///         cannot starve settlement of sibling fulfillment batches. The function
-    ///         is `view` because all dispatched calls are `staticcall`-equivalent.
+    /// @dev    Per-fill calls are gas-bounded `staticcall`s wrapped in try/catch.
+    ///         The try/catch bounds the gas a misbehaving adapter can burn per fill
+    ///         and translates its revert into a structured `VerifierFailed(i, selector)`
+    ///         so the caller knows which fill caused the failure. The enclosing
+    ///         `verifyBatch` call still reverts on any per-fill failure; cross-batch
+    ///         isolation in a multi-batch fulfill() call is not provided here. The
+    ///         function is `view` because all dispatched calls are `staticcall`-equivalent.
     function verifyBatch(FulfillmentBatch calldata batch, bytes32[] calldata requestDigests) external view {
         uint256 n = batch.fills.length;
         if (n == 0) revert EmptyBatch();
@@ -424,7 +447,7 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
         //    lookup, not N — the common case when one verifier serves a whole batch.
         Entry memory e = firstEntry;
         bytes4 sealSel = firstSel;
-        for (uint256 i = 0; i < n;) {
+        for (uint256 i = 0; i < n; i++) {
             if (i != 0) {
                 bytes4 nextSel = _sealSelector(batch.fills[i].seal);
                 if (nextSel != sealSel) {
@@ -450,9 +473,6 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
                     revert VerifierFailed(i, sealSel);
                 }
             }
-            unchecked {
-                ++i;
-            }
         }
 
         // 3. Assessor dispatch — only for per-fill verifier classes.
@@ -466,12 +486,9 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
             if (asEntry.classId != required) {
                 revert AssessorClassMismatch(required, asEntry.classId);
             }
-            // The assessor's `verifyAssessor(FulfillmentBatch, bytes32[])` calldata
-            // tail is byte-identical to `verifyBatch`'s, so we forward our own
-            // calldata payload verbatim with the assessor's selector prepended.
-            // ABI stability between the two signatures is load-bearing: if
-            // either drifts, the OnChainAssessor / R0BoundlessAssessorAdapter
-            // end-to-end tests will fail because the adapter sees garbled calldata.
+            // Forward the entry-point calldata tail to the assessor with its own
+            // selector prepended. See `_forwardCalldataAsStaticCall` for the
+            // ABI-equality invariant this depends on.
             _forwardCalldataAsStaticCall(asEntry.impl, asEntry.gasLimit, IBoundlessAssessor.verifyAssessor.selector);
         } else {
             // Joint class: no assessor seam — caller must signal that with an empty seal.
@@ -596,10 +613,15 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///      `calldatacopy` here still see the *outer* (entry-point) calldata — which is
     ///      exactly the bytes we want to forward.
     ///
-    ///      Invariant the caller must uphold: `selector` must belong to a sibling method
-    ///      whose post-selector ABI is byte-identical to the entry-point's calldata
-    ///      tail. Otherwise the callee will decode garbage. Read this call site as
-    ///      "tail-call to a sibling with the same args".
+    ///      `selector` must belong to a sibling method whose
+    ///      post-selector ABI is byte-identical to the entry-point's calldata tail.
+    ///      Otherwise the callee will decode garbage (or, worse, silently interpret
+    ///      bytes that happen to align). At time of writing the only call site is
+    ///      `verifyBatch` forwarding to `IBoundlessAssessor.verifyAssessor`; both
+    ///      signatures are `(FulfillmentBatch, bytes32[])`. The byte-equality is
+    ///      pinned by a unit test that encodes both signatures and compares the
+    ///      tails — any drift trips the test. Read any call site as "tail-call to a
+    ///      sibling with the same args".
     function _forwardCalldataAsStaticCall(address impl, uint256 gasLimit, bytes4 selector) internal view {
         assembly ("memory-safe") {
             let p := mload(0x40)
