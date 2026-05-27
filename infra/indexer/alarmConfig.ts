@@ -281,10 +281,10 @@ export const alarmConfig: ChainStageAlarms = {
             //   }
             // },
             {
-              description: "no submitted orders in 60 minutes from og_offchain",
+              description: "no submitted orders in 4 hours from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 3600
+                period: 14400
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -331,10 +331,10 @@ export const alarmConfig: ChainStageAlarms = {
             //   }
             // },
             {
-              description: "no submitted orders in 60 minutes from og_onchain",
+              description: "no submitted orders in 4 hours from og_onchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 3600
+                period: 14400
               },
               alarmConfig: {
                 evaluationPeriods: 1,
