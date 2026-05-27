@@ -429,15 +429,6 @@ pub struct OfferParams {
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
     pub lock_collateral: Option<Amount>,
-
-    /// Override the market-price buffer multiplier for this request.
-    ///
-    /// Expressed as a percentage where 100 = no buffer and 115 = +15%. Takes priority over the
-    /// client-wide OfferLayerConfig default. Only affects requests whose max_price is
-    /// auto-derived from the price provider.
-    #[clap(long)]
-    #[builder(setter(strip_option), default)]
-    pub market_price_buffer_multiplier_percentage: Option<u64>,
 }
 
 impl From<OfferParamsBuilder> for OfferParams {
@@ -476,8 +467,6 @@ impl OfferParams {
             lock_timeout: Some(offer.lockTimeout),
             bidding_start: Some(offer.rampUpStart),
             ramp_up_period: Some(offer.rampUpPeriod),
-            // Reconstructing an existing on-chain offer must not re-apply the buffer.
-            market_price_buffer_multiplier_percentage: None,
         }
     }
 
@@ -734,9 +723,9 @@ where
                 if let Some(cycle_count) = cycle_count {
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
-                            let buffer = params
+                            let buffer = self
+                                .config
                                 .market_price_buffer_multiplier_percentage
-                                .or(self.config.market_price_buffer_multiplier_percentage)
                                 .unwrap_or(100);
                             let min = U256::ZERO;
                             let max_per_cycle =
@@ -1199,7 +1188,6 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
-                market_price_buffer_multiplier_percentage: None,
             };
             let offer = params.into_offer(None).await.unwrap();
             assert_eq!(offer.minPrice, U256::from(1_000));
@@ -1226,7 +1214,6 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
-                market_price_buffer_multiplier_percentage: None,
             };
             let offer = params.into_offer(Some(&manager)).await.unwrap();
 
@@ -1246,7 +1233,6 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
-                market_price_buffer_multiplier_percentage: None,
             };
             let err = params.into_offer(None).await.unwrap_err();
             assert!(
@@ -1266,7 +1252,6 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
-                market_price_buffer_multiplier_percentage: None,
             };
             let err = params.into_offer(None).await.unwrap_err();
             assert!(
@@ -1286,7 +1271,6 @@ mod tests {
                 lock_timeout: Some(120),
                 bidding_start: Some(100),
                 ramp_up_period: Some(60),
-                market_price_buffer_multiplier_percentage: None,
             };
             let err = params.into_offer(None).await.unwrap_err();
             assert!(
