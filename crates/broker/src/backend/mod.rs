@@ -22,9 +22,9 @@ mod router;
 mod types;
 
 pub use risc0::{prune_receipt_claim_journal, Risc0Backend};
-pub use router::{BackendEntry, BackendRouter};
+pub use router::BackendRouter;
 pub use types::{
-    AssessorProofId, BackendBatchState, BackendError, BackendId, BatchOrder,
+    AssessorProofId, BackendBatchState, BackendEntry, BackendError, BackendId, BatchOrder,
     BatchSizeEstimateRequest, BatchUpdate, CloseBatch, CompressedProofId, FulfillmentBatch,
     FulfillmentOrder, OrderProcessProgress, ProcessOrder, ProcessedOrder, ProofId, UpdateBatch,
     VerifierUpdate, VerifierUpdateError,

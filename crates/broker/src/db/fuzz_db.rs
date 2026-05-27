@@ -38,7 +38,7 @@ use boundless_market::contracts::{
 };
 
 fn test_backend_id() -> BackendId {
-    BackendId::new("risc0_v3").unwrap()
+    BackendId::new("test_backend_id").unwrap()
 }
 
 fn test_backend_state(proof_id: String) -> BackendBatchState {

@@ -580,8 +580,8 @@ mod tests {
     use super::*;
     use crate::{
         backend::{
-            AssessorProofId, BackendBatchState, BackendEntry, BackendId, BackendRouter,
-            CompressedProofId, ProofId, Risc0Backend,
+            AssessorProofId, BackendBatchState, BackendEntry, BackendRouter, CompressedProofId,
+            ProofId, Risc0Backend,
         },
         db::SqliteDb,
         now_timestamp,
@@ -892,7 +892,7 @@ mod tests {
             batch_orders.push(failing);
         }
         let batch = Batch {
-            backend_id: BackendId::new("risc0_v3").unwrap(),
+            backend_id: Risc0Backend::default_id(),
             status: BatchStatus::ReadyToSubmit,
             assessor_proof_id: Some(AssessorProofId::new(assessor_proof.id).unwrap()),
             orders: batch_orders,
@@ -917,12 +917,10 @@ mod tests {
         market.lock_request(&order.request, client_sig.to_vec()).await.unwrap();
 
         let (commitment_tx, commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
-        let backend_id = BackendId::new("risc0_v3").unwrap();
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
         let priority_requestors = PriorityRequestors::new(config.clone(), anvil.chain_id());
         let risc0_backend = Arc::new(
-            Risc0Backend::new(
-                backend_id,
+            Risc0Backend::with_provers(
                 prover.clone(),
                 prover.clone(),
                 downloader,

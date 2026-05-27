@@ -545,8 +545,7 @@ pub(crate) mod tests {
             let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
             let backend_router = Arc::new(
                 BackendRouter::new()
-                    .register_backend(BackendEntry::new(Arc::new(Risc0Backend::new(
-                        Risc0Backend::default_id(),
+                    .register_backend(BackendEntry::new(Arc::new(Risc0Backend::with_provers(
                         prover,
                         Arc::new(DefaultProver::new()),
                         downloader,

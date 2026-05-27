@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -27,34 +27,17 @@ use boundless_market::selector::SupportedSelectors;
 use crate::Order;
 
 use super::types::{
-    BackendError, BackendId, BackendObj, BatchClose, BatchProcessorObj, BatchSizeEstimate,
-    BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch, OrderProcessProgress,
-    ProcessOrder, SubmissionPlan, UpdateBatch, VerifierUpdate, VerifierUpdateError,
+    BackendEntry, BackendError, BackendId, BackendObj, BatchClose, BatchProcessorObj,
+    BatchSizeEstimate, BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch,
+    OrderProcessProgress, ProcessOrder, SubmissionPlan, UpdateBatch, VerifierUpdate,
+    VerifierUpdateError,
 };
 
 #[derive(Clone, Default)]
 pub struct BackendRouter {
     backends: HashMap<BackendId, BackendEntry>,
+    // TODO(#1982): mirror on-chain verifier router dispatch (default + classes + entries).
     routes: HashMap<FixedBytes<4>, BackendId>,
-}
-
-#[derive(Clone)]
-pub struct BackendEntry {
-    id: BackendId,
-    selectors: Vec<FixedBytes<4>>,
-    backend: BackendObj,
-}
-
-impl BackendEntry {
-    pub fn new(backend: BackendObj) -> Self {
-        let id = backend.id().clone();
-        let selectors = backend.supported_selectors();
-        Self { id, selectors, backend }
-    }
-
-    pub fn id(&self) -> &BackendId {
-        &self.id
-    }
 }
 
 impl BackendRouter {
@@ -71,6 +54,7 @@ impl BackendRouter {
             anyhow::bail!("backend {} is already registered", entry.id());
         }
 
+        // Validate all selectors before mutating, so a mid-list error leaves no half-applied routes.
         let mut entry_selectors = HashSet::new();
         for selector in &entry.selectors {
             if !entry_selectors.insert(*selector) {
@@ -87,7 +71,18 @@ impl BackendRouter {
             entry.backend.proof_type(*selector).with_context(|| {
                 format!("backend {} did not classify selector {selector:?}", entry.id())
             })?;
-            self.routes.insert(*selector, entry.id.clone());
+        }
+
+        for selector in &entry.selectors {
+            match self.routes.entry(*selector) {
+                Entry::Occupied(occ) => anyhow::bail!(
+                    "selector {selector:?} is already registered to backend {}",
+                    occ.get()
+                ),
+                Entry::Vacant(vac) => {
+                    vac.insert(entry.id.clone());
+                }
+            }
         }
         self.backends.insert(entry.id.clone(), entry);
         Ok(self)
@@ -721,6 +716,23 @@ mod tests {
         let err = BackendRouter::new().register_backend(BackendEntry::new(backend)).err().unwrap();
 
         assert!(err.to_string().contains("is listed more than once for backend mock_a"));
+    }
+
+    #[test]
+    fn router_register_backend_is_transactional_on_partial_conflict() {
+        let backend_x = Arc::new(MockBackend::new("mock_x", vec![selector(2)]));
+        let router = BackendRouter::new().register_backend(BackendEntry::new(backend_x)).unwrap();
+
+        let backend_y =
+            Arc::new(MockBackend::new("mock_y", vec![selector(1), selector(2), selector(3)]));
+        let err = router.clone().register_backend(BackendEntry::new(backend_y)).err().unwrap();
+        assert!(err.to_string().contains("selector"));
+
+        let supported = router.supported_selectors();
+        assert_eq!(supported.proof_type(selector(1)), None);
+        assert_eq!(supported.proof_type(selector(2)), Some(ProofType::Any));
+        assert_eq!(supported.proof_type(selector(3)), None);
+        assert_eq!(router.backend_ids(), vec![BackendId::new("mock_x").unwrap()]);
     }
 
     #[test]

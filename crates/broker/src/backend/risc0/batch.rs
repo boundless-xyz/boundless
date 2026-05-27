@@ -133,12 +133,14 @@ impl Risc0Submission {
         selector: FixedBytes<4>,
         proof_id: &str,
     ) -> Result<Vec<u8>> {
-        if is_groth16_selector(selector) {
-            self.encode_groth16_seal(proof_id).await
-        } else if is_blake3_groth16_selector(selector) {
-            self.encode_blake3_groth16_seal(proof_id).await
-        } else {
-            anyhow::bail!("selector {selector:?} does not identify a compressed proof seal")
+        match super::compression_type_for_selector(selector) {
+            super::CompressionType::Groth16 => self.encode_groth16_seal(proof_id).await,
+            super::CompressionType::Blake3Groth16 => {
+                self.encode_blake3_groth16_seal(proof_id).await
+            }
+            super::CompressionType::None => {
+                anyhow::bail!("selector {selector:?} does not identify a compressed proof seal")
+            }
         }
     }
 

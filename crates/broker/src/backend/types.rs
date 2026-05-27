@@ -207,6 +207,8 @@ impl From<ClaimDigest> for [u8; 32] {
     }
 }
 
+/// MVP shape; mirrors `BoundlessMarket.sol::fulfill`. Verifier-router or joint
+/// verifier additions go here or as a new [`VerifierUpdate`] variant.
 pub struct AssessorArtifact {
     pub claim_digest: ClaimDigest,
     pub selectors: Vec<AssessorSelector>,
@@ -388,8 +390,7 @@ pub trait Backend: Send + Sync {
 
     async fn cancel_order(&self, order: &Order) -> Result<()>;
 
-    /// Returns the batch processor for this backend, or `None` if the backend
-    /// does not support batching.
+    /// `None` if this backend does not batch its proofs.
     fn batch_processor(&self) -> Option<BatchProcessorObj>;
 
     async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan>;
@@ -405,3 +406,22 @@ pub trait Backend: Send + Sync {
 }
 
 pub(crate) type BackendObj = Arc<dyn Backend>;
+
+#[derive(Clone)]
+pub struct BackendEntry {
+    pub(crate) id: BackendId,
+    pub(crate) selectors: Vec<FixedBytes<4>>,
+    pub(crate) backend: BackendObj,
+}
+
+impl BackendEntry {
+    pub fn new(backend: BackendObj) -> Self {
+        let id = backend.id().clone();
+        let selectors = backend.supported_selectors();
+        Self { id, selectors, backend }
+    }
+
+    pub fn id(&self) -> &BackendId {
+        &self.id
+    }
+}

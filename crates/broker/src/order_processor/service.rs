@@ -18,9 +18,7 @@ use tokio::sync::mpsc;
 
 #[cfg(test)]
 use crate::{
-    backend::{BackendId, Risc0Backend},
-    provers::ProverObj,
-    requestor_monitor::PriorityRequestors,
+    backend::Risc0Backend, provers::ProverObj, requestor_monitor::PriorityRequestors,
     ConfigurableDownloader,
 };
 use crate::{
@@ -70,8 +68,7 @@ impl OrderProcessor {
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
-        let backend = Arc::new(Risc0Backend::new(
-            Risc0Backend::default_id(),
+        let backend = Arc::new(Risc0Backend::with_provers(
             prover.clone(),
             snark_prover,
             downloader,
@@ -748,7 +745,7 @@ mod tests {
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(order.status, OrderStatus::PendingAgg);
-        assert_eq!(order.backend_id, Some(BackendId::new("risc0_v3").unwrap()));
+        assert_eq!(order.backend_id, Some(Risc0Backend::default_id()));
 
         // Test that LockAndFulfill orders ignore fulfillment events
         let (order_state_tx, _) = tokio::sync::broadcast::channel(100);

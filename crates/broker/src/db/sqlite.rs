@@ -981,7 +981,7 @@ mod tests {
     use risc0_zkvm::sha::Digest;
 
     fn test_backend_id() -> BackendId {
-        BackendId::new("risc0_v3").unwrap()
+        BackendId::new("test_backend_id").unwrap()
     }
 
     fn test_backend_state(
@@ -1002,7 +1002,7 @@ mod tests {
     }
 
     fn other_backend_id() -> BackendId {
-        BackendId::new("risc0_v4").unwrap()
+        BackendId::new("other_test_backend_id").unwrap()
     }
 
     fn create_order_request() -> OrderRequest {

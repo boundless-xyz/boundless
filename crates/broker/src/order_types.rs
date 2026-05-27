@@ -146,10 +146,9 @@ pub struct Order {
     /// Last update time
     #[serde(with = "ts_seconds")]
     pub(crate) updated_at: DateTime<Utc>,
-    /// Total cycles
-    /// Populated after initial pricing in order picker
+    // TODO(zkvm-abstraction): RISC0-shaped; migrate to `EvaluationMetrics` + backend-agnostic
+    // output-bytes (needs a DB schema change).
     pub(crate) total_cycles: Option<u64>,
-    /// Journal size in bytes. Populated after preflight.
     #[serde(default)]
     pub(crate) journal_bytes: Option<usize>,
     /// Locking status target UNIX timestamp

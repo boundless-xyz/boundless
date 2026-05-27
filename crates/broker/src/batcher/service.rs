@@ -84,12 +84,10 @@ impl BatcherService {
         prover: ProverObj,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Result<Self> {
-        let backend_id = Risc0Backend::default_id();
         let downloader = ConfigurableDownloader::new(config.clone()).await?;
         let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
         let backend = Arc::new(
-            Risc0Backend::new(
-                backend_id.clone(),
+            Risc0Backend::with_provers(
                 prover.clone(),
                 prover.clone(),
                 downloader,
@@ -758,7 +756,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -805,7 +803,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -923,7 +921,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res_1.id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -948,8 +946,7 @@ mod tests {
         let option_batch = db.get_complete_batch().await.unwrap();
         assert!(option_batch.is_none());
 
-        let aggregating_batch_id =
-            db.get_current_batch(&BackendId::new("risc0_v3").unwrap()).await.unwrap();
+        let aggregating_batch_id = db.get_current_batch(&Risc0Backend::default_id()).await.unwrap();
         let aggregating_batch = db.get_batch(aggregating_batch_id).await.unwrap();
         assert_eq!(aggregating_batch.orders, vec![order.id()]);
         let backend_state = aggregating_batch.backend_state.unwrap();
@@ -988,7 +985,7 @@ mod tests {
             input_id: Some(input_id),
             proof_id: Some(proof_res_2.id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
             lock_price: Some(U256::from(min_price)),
@@ -1101,7 +1098,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1219,7 +1216,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1345,7 +1342,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.clone().id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1387,7 +1384,7 @@ mod tests {
             input_id: Some(input_id.clone()),
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig_2.into(),
             lock_price: Some(U256::from(min_price)),
@@ -1442,7 +1439,7 @@ mod tests {
             input_id: None,
             proof_id: None,
             compressed_proof_id: None,
-            backend_id: Some(BackendId::new("risc0_v3").unwrap()),
+            backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp,
             client_sig: Bytes::new(),
             lock_price: Some(U256::from(1)),

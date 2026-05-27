@@ -52,6 +52,15 @@ const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60;
 const IMAGE_UPLOAD_CACHE_SIZE: u64 = 1000;
 const RISC0_V3_BACKEND_ID: &str = "risc0_v3";
 
+const SELECTOR_GROTH16_V3_0: FixedBytes<4> =
+    FixedBytes::new((SelectorExt::Groth16V3_0 as u32).to_be_bytes());
+const SELECTOR_BLAKE3_GROTH16_V0_1: FixedBytes<4> =
+    FixedBytes::new((SelectorExt::Blake3Groth16V0_1 as u32).to_be_bytes());
+const SELECTOR_FAKE_RECEIPT: FixedBytes<4> =
+    FixedBytes::new((SelectorExt::FakeReceipt as u32).to_be_bytes());
+const SELECTOR_FAKE_BLAKE3_GROTH16: FixedBytes<4> =
+    FixedBytes::new((SelectorExt::FakeBlake3Groth16 as u32).to_be_bytes());
+
 use crate::{
     config::ConfigLock,
     db::DbObj,
@@ -96,15 +105,29 @@ impl Risc0Backend {
         BackendId::new(RISC0_V3_BACKEND_ID).expect("static RISC0 backend id is valid")
     }
 
+    /// Production constructor: builds the prover backends from broker config.
     pub fn new(
-        id: BackendId,
+        config: ConfigLock,
+        bonsai_api_key: Option<&str>,
+        bonsai_api_url: Option<&url::Url>,
+        bento_api_url: Option<&url::Url>,
+        downloader: ConfigurableDownloader,
+        priority_requestors: PriorityRequestors,
+    ) -> Result<Self> {
+        let (prover, snark_prover) =
+            Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
+        Ok(Self::with_provers(prover, snark_prover, downloader, priority_requestors))
+    }
+
+    /// Constructor that takes the prover backends explicitly. Used by tests.
+    pub fn with_provers(
         prover: ProverObj,
         snark_prover: ProverObj,
         downloader: ConfigurableDownloader,
         priority_requestors: PriorityRequestors,
     ) -> Self {
         Self {
-            id,
+            id: Self::default_id(),
             prover,
             snark_prover,
             downloader,
@@ -130,6 +153,44 @@ impl Risc0Backend {
         }
     }
 
+    fn build_provers(
+        config: &ConfigLock,
+        bonsai_api_key: Option<&str>,
+        bonsai_api_url: Option<&url::Url>,
+        bento_api_url: Option<&url::Url>,
+    ) -> Result<(ProverObj, ProverObj)> {
+        if is_dev_mode() {
+            tracing::warn!(
+                "WARNING: Running in dev mode does not generate valid receipts. \
+                 Receipts generated from this process are invalid and should never be used in production."
+            );
+            let prover: ProverObj = Arc::new(provers::DefaultProver::new());
+            return Ok((Arc::clone(&prover), prover));
+        }
+        if let (Some(key), Some(url)) = (bonsai_api_key, bonsai_api_url) {
+            tracing::info!("Configured to run with Bonsai backend");
+            let prover: ProverObj = Arc::new(
+                provers::Bonsai::new(config.clone(), url.as_ref(), key)
+                    .context("Failed to construct Bonsai client")?,
+            );
+            return Ok((Arc::clone(&prover), prover));
+        }
+        if let Some(url) = bento_api_url {
+            tracing::info!("Configured to run with Bento backend");
+            let prover: ProverObj = Arc::new(
+                provers::Bonsai::new(config.clone(), url.as_ref(), "v1:reserved:1000")
+                    .context("Failed to initialize Bento client")?,
+            );
+            let snark_prover: ProverObj = Arc::new(
+                provers::Bonsai::new(config.clone(), url.as_ref(), "v1:reserved:2000")
+                    .context("Failed to initialize Bento client")?,
+            );
+            return Ok((prover, snark_prover));
+        }
+        let prover: ProverObj = Arc::new(provers::DefaultProver::new());
+        Ok((Arc::clone(&prover), prover))
+    }
+
     fn selectors() -> Vec<FixedBytes<4>> {
         Self::selectors_for(is_dev_mode())
     }
@@ -137,14 +198,11 @@ impl Risc0Backend {
     /// Verifier selectors this backend serves. `dev_mode` adds the dev-only fake-proof
     /// selectors; production selector routing uses only the non-dev set.
     fn selectors_for(dev_mode: bool) -> Vec<FixedBytes<4>> {
-        let mut selectors = vec![
-            UNSPECIFIED_SELECTOR,
-            FixedBytes::from(SelectorExt::Groth16V3_0 as u32),
-            FixedBytes::from(SelectorExt::Blake3Groth16V0_1 as u32),
-        ];
+        let mut selectors =
+            vec![UNSPECIFIED_SELECTOR, SELECTOR_GROTH16_V3_0, SELECTOR_BLAKE3_GROTH16_V0_1];
         if dev_mode {
-            selectors.push(FixedBytes::from(SelectorExt::FakeReceipt as u32));
-            selectors.push(FixedBytes::from(SelectorExt::FakeBlake3Groth16 as u32));
+            selectors.push(SELECTOR_FAKE_RECEIPT);
+            selectors.push(SELECTOR_FAKE_BLAKE3_GROTH16);
         }
         selectors
     }
@@ -582,24 +640,23 @@ fn supports_risc0_selector(selector: FixedBytes<4>) -> bool {
 /// [`super::router::BackendRouter::register_backend`] rejects any registered selector this
 /// returns `None` for, so every selector in [`Risc0Backend::selectors_for`] must classify.
 fn proof_type_for_selector(selector: FixedBytes<4>) -> Option<ProofType> {
-    if selector == UNSPECIFIED_SELECTOR
-        || selector == FixedBytes::from(SelectorExt::FakeReceipt as u32)
-    {
-        Some(ProofType::Any)
-    } else if is_groth16_selector(selector) {
-        Some(ProofType::Groth16)
-    } else if is_blake3_groth16_selector(selector) {
-        Some(ProofType::Blake3Groth16)
-    } else {
-        None
+    match selector {
+        UNSPECIFIED_SELECTOR | SELECTOR_FAKE_RECEIPT => Some(ProofType::Any),
+        SELECTOR_GROTH16_V3_0 => Some(ProofType::Groth16),
+        SELECTOR_BLAKE3_GROTH16_V0_1 | SELECTOR_FAKE_BLAKE3_GROTH16 => {
+            Some(ProofType::Blake3Groth16)
+        }
+        _ => None,
     }
 }
 
 fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
-    if is_groth16_selector(selector) || is_blake3_groth16_selector(selector) {
-        OrderStatus::SkipAggregation
-    } else {
-        OrderStatus::PendingAgg
+    match selector {
+        SELECTOR_GROTH16_V3_0
+        | SELECTOR_BLAKE3_GROTH16_V0_1
+        | SELECTOR_FAKE_RECEIPT
+        | SELECTOR_FAKE_BLAKE3_GROTH16 => OrderStatus::SkipAggregation,
+        _ => OrderStatus::PendingAgg,
     }
 }
 
@@ -625,12 +682,12 @@ fn classify_verifier_update_error(err: anyhow::Error) -> VerifierUpdateError {
 }
 
 fn compression_type_for_selector(selector: FixedBytes<4>) -> CompressionType {
-    if is_groth16_selector(selector) {
-        CompressionType::Groth16
-    } else if is_blake3_groth16_selector(selector) {
-        CompressionType::Blake3Groth16
-    } else {
-        CompressionType::None
+    match selector {
+        SELECTOR_GROTH16_V3_0 | SELECTOR_FAKE_RECEIPT => CompressionType::Groth16,
+        SELECTOR_BLAKE3_GROTH16_V0_1 | SELECTOR_FAKE_BLAKE3_GROTH16 => {
+            CompressionType::Blake3Groth16
+        }
+        _ => CompressionType::None,
     }
 }
 
@@ -1047,6 +1104,24 @@ mod tests {
     }
 
     #[test]
+    fn classification_and_routing_dispatchers_agree() {
+        // Compressed-seal selectors must skip aggregation; non-compressed selectors must not.
+        for dev_mode in [false, true] {
+            for selector in Risc0Backend::selectors_for(dev_mode) {
+                let compression = compression_type_for_selector(selector);
+                let next_status = next_status_for_risc0_selector(selector);
+                let expects_skip = !matches!(compression, CompressionType::None);
+                let observed_skip = matches!(next_status, OrderStatus::SkipAggregation);
+                assert_eq!(
+                    expects_skip, observed_skip,
+                    "selector {selector:?} (dev_mode={dev_mode}): \
+                     compression={compression:?} but next_status={next_status:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn production_selectors_exclude_dev_fakes() {
         // The whole suite runs with RISC0_DEV_MODE=1, so without an explicit `dev_mode=false`
         // case the production selector set is never exercised.
@@ -1070,13 +1145,7 @@ mod tests {
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
         let priority_requestors = PriorityRequestors::new(config, 1);
         let prover: ProverObj = std::sync::Arc::new(provers::DefaultProver::new());
-        Risc0Backend::new(
-            Risc0Backend::default_id(),
-            prover.clone(),
-            prover,
-            downloader,
-            priority_requestors,
-        )
+        Risc0Backend::with_provers(prover.clone(), prover, downloader, priority_requestors)
     }
 
     fn guard_fulfillment_batch(

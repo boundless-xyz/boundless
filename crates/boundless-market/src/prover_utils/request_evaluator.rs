@@ -62,8 +62,7 @@ impl NativeWork {
 
 /// Broker-comparable work units derived from backend-native evaluation output.
 ///
-/// Broker pricing and capacity policy consume this value. Backend evaluators are
-/// responsible for mapping their native work model into this normalized unit.
+/// TODO(zkvm-abstraction): cross-backend normalization unit is currently RISC0 cycles 1:1.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct NormalizedWork {
@@ -72,8 +71,6 @@ pub struct NormalizedWork {
 
 impl NormalizedWork {
     pub fn new(units: u64) -> Self {
-        // TODO: define the cross-backend normalization policy once another backend lands.
-        // The current RISC0 evaluator maps normalized work 1:1 to total cycles.
         Self { units }
     }
 }
@@ -245,9 +242,9 @@ impl EvaluationLimits {
 
 /// Executes request preflight for pricing without making broker policy decisions.
 ///
-/// This is the narrow backend-facing part of request evaluation. It returns execution facts
-/// and output bytes; profitability, collateral, deadlines, and capacity remain in
-/// [`super::OrderPricingContext`].
+/// Backend-agnostic seam. Broker policy (gas, collateral, requestors) lives in
+/// the [`super::OrderPricingContext`] supertrait; per-backend execution
+/// dependencies live in a context trait like [`Risc0RequestEvaluatorContext`].
 #[allow(async_fn_in_trait)]
 pub trait RequestEvaluator {
     async fn evaluate_request(
@@ -257,11 +254,11 @@ pub trait RequestEvaluator {
     ) -> Result<RequestEvaluation, OrderPricingError>;
 }
 
-/// RISC0-backed request evaluation hooks.
+/// RISC0-backed request evaluation hooks. The blanket [`RequestEvaluator`] impl
+/// below threads these dependencies into the shared preflight pipeline.
 ///
-/// Implementors provide the execution dependencies; the blanket [`RequestEvaluator`]
-/// implementation below handles upload, cache coalescing, bounded preflight, and
-/// journal retrieval exactly as the existing RISC0 path does.
+/// TODO(zkvm-abstraction): a second backend will need its own context trait +
+/// blanket impl, or `RequestEvaluator` must move onto `Backend` directly.
 pub trait Risc0RequestEvaluatorContext {
     /// Access to the prover for preflight operations.
     fn prover(&self) -> &ProverObj;
