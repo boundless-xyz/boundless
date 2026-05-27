@@ -133,14 +133,18 @@ pub(crate) fn resolve_max_price(
 
 /// Applies the market-price buffer to a per-cycle market price and scales by the cycle count.
 ///
-/// `buffer_percentage` is a multiplier where `100` = no buffer and `115` = +15%. Multiplies
-/// before dividing to avoid truncation; any sub-wei fraction rounds down.
+/// `buffer_percentage` is a multiplier where `100` = no change and `115` = +15%; values below
+/// `100` reduce the price. Multiplies before dividing to avoid truncation; any sub-wei fraction
+/// rounds down.
 pub(crate) fn buffered_market_max(
     max_per_cycle: U256,
     cycle_count: u64,
-    buffer_percentage: u64,
+    buffer_percentage: u16,
 ) -> U256 {
-    max_per_cycle * U256::from(cycle_count) * U256::from(buffer_percentage) / U256::from(100)
+    max_per_cycle
+        .saturating_mul(U256::from(cycle_count))
+        .saturating_mul(U256::from(buffer_percentage))
+        / U256::from(100)
 }
 
 struct CollateralRecommendation {
@@ -313,15 +317,13 @@ pub struct OfferLayerConfig {
     #[builder(setter(into), default)]
     pub supported_selectors: SupportedSelectors,
 
-    /// Multiplier applied to the market-derived max price to add headroom for
-    /// per-cycle price drift between request submission and prover lock-in.
+    /// Percentage multiplier applied to a price-provider-derived max price, adding headroom for
+    /// price drift before lock-in: `100` leaves it unchanged, `115` adds 15%.
     ///
-    /// Expressed as a percentage where `100` = no buffer and `115` = +15%. Applied only when
-    /// `maxPrice` is sourced from the price provider — not for an explicit `max_price` in
-    /// [OfferParams], the configured [`max_price_per_cycle`](Self::max_price_per_cycle), or the
-    /// static default. The gas portion of the price is buffered separately and is unaffected.
-    #[builder(setter(strip_option), default = "Some(115)")]
-    pub market_price_buffer_multiplier_percentage: Option<u64>,
+    /// Applies only when `maxPrice` comes from the price provider (the default when no explicit
+    /// price is set), not to a params, config, or static max price. Gas is added separately.
+    #[builder(default = "115")]
+    pub market_price_buffer_multiplier_percentage: u16,
 }
 
 #[non_exhaustive]
@@ -723,10 +725,7 @@ where
                 if let Some(cycle_count) = cycle_count {
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
-                            let buffer = self
-                                .config
-                                .market_price_buffer_multiplier_percentage
-                                .unwrap_or(100);
+                            let buffer = self.config.market_price_buffer_multiplier_percentage;
                             let min = U256::ZERO;
                             let max_per_cycle =
                                 percentiles.p99.min(percentiles.p50 * U256::from(2));
