@@ -387,7 +387,7 @@ impl Risc0BatchProcessor {
             .collect();
 
         Risc0BatchState { version: RISC0_BATCH_STATE_VERSION, guest_state, claim_digests }
-            .into_backend_state(ProofId::new(proof_res.id)?, None)
+            .into_backend_state(ProofId::new(proof_res.id), None)
     }
 
     pub async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
@@ -577,7 +577,7 @@ impl BatchProcessor for Risc0BatchProcessor {
                 assessor_proof_id
             );
 
-            Some(AssessorProofId::new(assessor_proof_id)?)
+            Some(AssessorProofId::new(assessor_proof_id))
         } else {
             None
         };
@@ -587,10 +587,7 @@ impl BatchProcessor for Risc0BatchProcessor {
             .iter()
             .filter(|order| order.compressed_proof_id.is_none())
             .map(|proof| proof.proof_id.clone())
-            .chain(assessor_proof_id.iter().map(|proof_id| {
-                ProofId::new(proof_id.as_str().to_string())
-                    .expect("assessor proof id should be a valid proof id")
-            }))
+            .chain(assessor_proof_id.iter().map(|proof_id| ProofId::new(proof_id.as_str())))
             .collect();
 
         tracing::debug!(
@@ -634,8 +631,7 @@ impl BatchProcessor for Risc0BatchProcessor {
             .map_err(BackendError::from)?;
 
         Ok(BatchClose {
-            compressed_proof_id: CompressedProofId::new(compressed_proof_id)
-                .map_err(BackendError::operation)?,
+            compressed_proof_id: CompressedProofId::new(compressed_proof_id),
             compression_secs: start.elapsed().as_secs_f64(),
         })
     }

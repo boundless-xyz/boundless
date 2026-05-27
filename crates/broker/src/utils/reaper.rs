@@ -179,7 +179,7 @@ mod tests {
     impl CancelBackend {
         fn new(selector: FixedBytes<4>) -> Self {
             Self {
-                id: crate::backend::BackendId::new("cancel_backend").unwrap(),
+                id: crate::backend::BackendId::new("cancel_backend"),
                 selectors: vec![selector],
                 cancel_calls: AtomicUsize::new(0),
             }

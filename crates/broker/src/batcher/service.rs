@@ -47,17 +47,17 @@ use super::error::BatcherErr;
 fn batch_order_from_batch_ready_order(
     order: BatchReadyOrder,
     compressed_proof_id: Option<CompressedProofId>,
-) -> Result<BatchOrder> {
-    Ok(BatchOrder {
+) -> BatchOrder {
+    BatchOrder {
         order_id: order.order_id,
-        proof_id: ProofId::new(order.proof_id)?,
+        proof_id: ProofId::new(order.proof_id),
         compressed_proof_id,
         expiration: order.expiration,
         fee: order.fee,
         fulfillment_type: order.fulfillment_type,
         request_id: order.request_id,
         lock_expiration: order.lock_expiration,
-    })
+    }
 }
 
 #[derive(Clone)]
@@ -418,16 +418,15 @@ impl BatcherService {
         direct_submit_orders: &[BatchReadyOrder],
         finalize: bool,
     ) -> Result<BatchUpdate> {
-        let new_orders = batch_update_orders
+        let new_orders: Vec<BatchOrder> = batch_update_orders
             .iter()
             .cloned()
             .map(|order| batch_order_from_batch_ready_order(order, None))
             .chain(direct_submit_orders.iter().cloned().map(|order| {
-                let compressed_proof_id = CompressedProofId::new(order.proof_id.clone())
-                    .expect("database returned empty compressed proof id");
+                let compressed_proof_id = CompressedProofId::new(order.proof_id.clone());
                 batch_order_from_batch_ready_order(order, Some(compressed_proof_id))
             }))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect();
 
         let update = self
             .backend

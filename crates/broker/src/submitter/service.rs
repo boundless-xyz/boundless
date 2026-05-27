@@ -34,7 +34,8 @@ use tokio::sync::mpsc;
 
 use crate::{
     backend::{
-        BackendRouter, FulfillmentBatch, FulfillmentOrder, VerifierUpdate, VerifierUpdateError,
+        BackendRouter, CompressedProofId, FulfillmentBatch, FulfillmentOrder, ProofId,
+        VerifierUpdate, VerifierUpdateError,
     },
     config::ConfigLock,
     db::DbObj,
@@ -176,8 +177,8 @@ where
                 fulfillment_orders.push(FulfillmentOrder {
                     order_id: order_id.clone(),
                     request: order_request,
-                    proof_id: order_proof_id.try_into()?,
-                    compressed_proof_id: compressed_proof_id.map(TryInto::try_into).transpose()?,
+                    proof_id: ProofId::new(order_proof_id),
+                    compressed_proof_id: compressed_proof_id.map(CompressedProofId::new),
                     program_id: order_img_id.into(),
                 });
                 anyhow::Ok(())
@@ -894,7 +895,7 @@ mod tests {
         let batch = Batch {
             backend_id: Risc0Backend::default_id(),
             status: BatchStatus::ReadyToSubmit,
-            assessor_proof_id: Some(AssessorProofId::new(assessor_proof.id).unwrap()),
+            assessor_proof_id: Some(AssessorProofId::new(assessor_proof.id)),
             orders: batch_orders,
             fees: U256::ZERO,
             start_time: Utc::now(),
@@ -908,8 +909,8 @@ mod tests {
                         assessor_receipt.claim().unwrap().digest(),
                     ],
                 }),
-                proof_id: Some(ProofId::new(aggregation_proof.id).unwrap()),
-                compressed_proof_id: Some(CompressedProofId::new(batch_g16).unwrap()),
+                proof_id: Some(ProofId::new(aggregation_proof.id)),
+                compressed_proof_id: Some(CompressedProofId::new(batch_g16)),
             }),
         };
         db.add_batch(batch_id, batch).await.unwrap();

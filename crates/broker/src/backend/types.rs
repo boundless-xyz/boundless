@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, str::FromStr, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use alloy::primitives::{Address, Bytes, FixedBytes, B256};
 use async_trait::async_trait;
@@ -34,16 +34,13 @@ use anyhow::Result;
 macro_rules! string_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(transparent)]
         pub struct $name(String);
 
         impl $name {
-            pub fn new(value: impl Into<String>) -> Result<Self> {
-                let value = value.into();
-                if value.trim().is_empty() {
-                    anyhow::bail!(concat!(stringify!($name), " cannot be empty"));
-                }
-                Ok(Self(value))
+            pub fn new(value: impl Into<String>) -> Self {
+                Self(value.into())
             }
 
             pub fn as_str(&self) -> &str {
@@ -61,46 +58,15 @@ macro_rules! string_id {
             }
         }
 
-        impl serde::Serialize for $name {
-            fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-            where
-                S: serde::Serializer,
-            {
-                serializer.serialize_str(&self.0)
+        impl From<String> for $name {
+            fn from(value: String) -> Self {
+                Self(value)
             }
         }
 
-        impl<'de> serde::Deserialize<'de> for $name {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                let value = <String as serde::Deserialize>::deserialize(deserializer)?;
-                Self::new(value).map_err(serde::de::Error::custom)
-            }
-        }
-
-        impl FromStr for $name {
-            type Err = anyhow::Error;
-
-            fn from_str(value: &str) -> Result<Self, Self::Err> {
-                Self::new(value)
-            }
-        }
-
-        impl TryFrom<String> for $name {
-            type Error = anyhow::Error;
-
-            fn try_from(value: String) -> Result<Self, Self::Error> {
-                Self::new(value)
-            }
-        }
-
-        impl TryFrom<&str> for $name {
-            type Error = anyhow::Error;
-
-            fn try_from(value: &str) -> Result<Self, Self::Error> {
-                Self::new(value)
+        impl From<&str> for $name {
+            fn from(value: &str) -> Self {
+                Self(value.to_owned())
             }
         }
     };

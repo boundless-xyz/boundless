@@ -981,7 +981,7 @@ mod tests {
     use risc0_zkvm::sha::Digest;
 
     fn test_backend_id() -> BackendId {
-        BackendId::new("test_backend_id").unwrap()
+        BackendId::new("test_backend_id")
     }
 
     fn test_backend_state(
@@ -995,14 +995,13 @@ mod tests {
                 "guest_state": guest_state,
                 "claim_digests": claim_digests,
             }),
-            proof_id: Some(ProofId::new(proof_id).unwrap()),
-            compressed_proof_id: compressed_proof_id
-                .map(|proof_id| CompressedProofId::new(proof_id).unwrap()),
+            proof_id: Some(ProofId::new(proof_id)),
+            compressed_proof_id: compressed_proof_id.map(CompressedProofId::new),
         }
     }
 
     fn other_backend_id() -> BackendId {
-        BackendId::new("other_test_backend_id").unwrap()
+        BackendId::new("other_test_backend_id")
     }
 
     fn create_order_request() -> OrderRequest {
@@ -1333,7 +1332,7 @@ mod tests {
         db.add_batch(batch_id, batch).await.unwrap();
 
         let g16_proof_id = "Testg16";
-        let compressed_proof_id = CompressedProofId::new(g16_proof_id).unwrap();
+        let compressed_proof_id = CompressedProofId::new(g16_proof_id);
         db.complete_batch(batch_id, &compressed_proof_id).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
@@ -1444,7 +1443,7 @@ mod tests {
             batch_id,
             &backend_state,
             &batch_orders,
-            Some(AssessorProofId::new("proof_id").unwrap()),
+            Some(AssessorProofId::new("proof_id")),
         )
         .await
         .unwrap();

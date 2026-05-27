@@ -310,7 +310,7 @@ mod tests {
 
     impl MockBackend {
         fn new(id: &str, supported: Vec<FixedBytes<4>>) -> Self {
-            let id = BackendId::new(id).unwrap();
+            let id = BackendId::new(id);
             Self {
                 proof_types: supported
                     .iter()
@@ -327,7 +327,7 @@ mod tests {
         }
 
         fn with_proof_types(id: &str, proof_types: Vec<(FixedBytes<4>, ProofType)>) -> Self {
-            let id = BackendId::new(id).unwrap();
+            let id = BackendId::new(id);
             Self {
                 supported: proof_types.iter().map(|(selector, _)| *selector).collect(),
                 proof_types: proof_types.into_iter().collect(),
@@ -397,7 +397,7 @@ mod tests {
             Ok(OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: self.id.clone(),
                 order_id: cmd.order.id(),
-                proof_id: "proof".try_into().unwrap(),
+                proof_id: "proof".into(),
                 compressed_proof_id: None,
                 next_status: OrderStatus::PendingAgg,
             }))
@@ -512,9 +512,9 @@ mod tests {
         assert_eq!(
             progress,
             OrderProcessProgress::Completed(ProcessedOrder {
-                backend_id: BackendId::new("mock_a").unwrap(),
+                backend_id: BackendId::new("mock_a"),
                 order_id: test_order(selector(1)).id(),
-                proof_id: "proof".try_into().unwrap(),
+                proof_id: "proof".into(),
                 compressed_proof_id: None,
                 next_status: OrderStatus::PendingAgg,
             })
@@ -525,8 +525,8 @@ mod tests {
     async fn router_keeps_backend_lifecycle_calls_separate() {
         let backend_a = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
         let backend_b = Arc::new(MockBackend::new("mock_b", vec![selector(2)]));
-        let backend_a_id = BackendId::new("mock_a").unwrap();
-        let backend_b_id = BackendId::new("mock_b").unwrap();
+        let backend_a_id = BackendId::new("mock_a");
+        let backend_b_id = BackendId::new("mock_b");
         let router = BackendRouter::new()
             .register_backend(BackendEntry::new(backend_a.clone()))
             .unwrap()
@@ -661,7 +661,7 @@ mod tests {
     async fn router_reports_missing_batch_processor() {
         let backend =
             Arc::new(MockBackend::new("mock_a", vec![selector(1)]).without_batch_processor());
-        let backend_id = BackendId::new("mock_a").unwrap();
+        let backend_id = BackendId::new("mock_a");
         let router = BackendRouter::new().register_backend(BackendEntry::new(backend)).unwrap();
 
         let err = router
@@ -732,7 +732,7 @@ mod tests {
         assert_eq!(supported.proof_type(selector(1)), None);
         assert_eq!(supported.proof_type(selector(2)), Some(ProofType::Any));
         assert_eq!(supported.proof_type(selector(3)), None);
-        assert_eq!(router.backend_ids(), vec![BackendId::new("mock_x").unwrap()]);
+        assert_eq!(router.backend_ids(), vec![BackendId::new("mock_x")]);
     }
 
     #[test]

@@ -102,7 +102,7 @@ pub struct Risc0Backend {
 
 impl Risc0Backend {
     pub fn default_id() -> BackendId {
-        BackendId::new(RISC0_V3_BACKEND_ID).expect("static RISC0 backend id is valid")
+        BackendId::new(RISC0_V3_BACKEND_ID)
     }
 
     /// Production constructor: builds the prover backends from broker config.
@@ -741,7 +741,7 @@ impl Backend for Risc0Backend {
 
         let Some(stark_proof_id) = order.proof_id.clone() else {
             return Ok(OrderProcessProgress::Started {
-                proof_id: ProofId::new(self.start_order(&order).await?)?,
+                proof_id: ProofId::new(self.start_order(&order).await?),
             });
         };
 
@@ -761,8 +761,8 @@ impl Backend for Risc0Backend {
             let compressed_proof_id =
                 self.compress_order_proof(&order_id, &stark_proof_id, compression_type).await?;
             return Ok(OrderProcessProgress::Compressed {
-                proof_id: ProofId::new(stark_proof_id)?,
-                compressed_proof_id: CompressedProofId::new(compressed_proof_id)?,
+                proof_id: ProofId::new(stark_proof_id),
+                compressed_proof_id: CompressedProofId::new(compressed_proof_id),
             });
         }
 
@@ -777,11 +777,8 @@ impl Backend for Risc0Backend {
         Ok(OrderProcessProgress::Completed(ProcessedOrder {
             backend_id: self.id.clone(),
             order_id,
-            proof_id: ProofId::new(stark_proof_id)?,
-            compressed_proof_id: order
-                .compressed_proof_id
-                .map(CompressedProofId::new)
-                .transpose()?,
+            proof_id: ProofId::new(stark_proof_id),
+            compressed_proof_id: order.compressed_proof_id.map(CompressedProofId::new),
             next_status,
         }))
     }
@@ -1187,7 +1184,7 @@ mod tests {
     #[tokio::test]
     async fn build_fulfillments_rejects_mismatched_backend_id() {
         let backend = guard_test_backend().await;
-        let cmd = guard_fulfillment_batch(BackendId::new("other_backend").unwrap(), None, None);
+        let cmd = guard_fulfillment_batch(BackendId::new("other_backend"), None, None);
         let err = expect_build_fulfillments_err(&backend, cmd).await;
         assert!(
             err.to_string().contains("cannot build fulfillments for backend"),

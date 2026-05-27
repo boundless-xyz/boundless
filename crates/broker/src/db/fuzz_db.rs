@@ -38,7 +38,7 @@ use boundless_market::contracts::{
 };
 
 fn test_backend_id() -> BackendId {
-    BackendId::new("test_backend_id").unwrap()
+    BackendId::new("test_backend_id")
 }
 
 fn test_backend_state(proof_id: String) -> BackendBatchState {
@@ -47,7 +47,7 @@ fn test_backend_state(proof_id: String) -> BackendBatchState {
             "guest_state": GuestState::initial([1u32; 8]),
             "claim_digests": Vec::<Digest>::new(),
         }),
-        proof_id: Some(ProofId::new(proof_id).unwrap()),
+        proof_id: Some(ProofId::new(proof_id)),
         compressed_proof_id: None,
     }
 }
@@ -249,7 +249,7 @@ proptest! {
                                         let batch = db.get_batch(batch_id).await.unwrap();
                                         if batch.backend_state.is_some() {
                                             let compressed_proof_id =
-                                                CompressedProofId::new(g16_proof_id).unwrap();
+                                                CompressedProofId::new(g16_proof_id);
                                             db.complete_batch(batch_id, &compressed_proof_id).await.unwrap();
                                             state.completed_batch.store(true, Ordering::SeqCst);
                                         }
@@ -298,7 +298,7 @@ proptest! {
                                                 batch_id,
                                                 &backend_state,
                                                 &orders,
-                                                Some(AssessorProofId::new("proof_id").unwrap()),
+                                                Some(AssessorProofId::new("proof_id")),
                                             ).await.unwrap();
                                         }
                                     },
