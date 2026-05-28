@@ -1,0 +1,15 @@
+[package]
+name = "multi-zkvm-types"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+boundless-market = { workspace = true, features = ["prover_utils"] }
+risc0-zkvm = { workspace = true, features = ["std", "client"] }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "signal"] }

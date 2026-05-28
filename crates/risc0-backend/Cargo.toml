@@ -20,6 +20,7 @@ bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-backend = { workspace = true }
 boundless-market = { workspace = true, features = ["prover_utils"] }
+multi-zkvm-types = { workspace = true }
 hex = { workspace = true }
 moka = { version = "0.12", features = ["future"] }
 reqwest = { workspace = true }

@@ -14,13 +14,13 @@
 
 use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
-use anyhow::{anyhow, Context, Result as AnyhowResult};
+use anyhow::{Context, Result as AnyhowResult, anyhow};
 use async_trait::async_trait;
-use boundless_market::prover_utils::prover::{ExecutorResp, ProofResult, Prover, ProverError};
 use boundless_market::prover_utils::ProverConfig;
+use boundless_market::prover_utils::prover::{ExecutorResp, ProofResult, Prover, ProverError};
 use risc0_zkvm::{
-    default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
-    VERSION,
+    ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo, VERSION, default_executor,
+    default_prover,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;

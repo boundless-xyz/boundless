@@ -72,6 +72,7 @@ impl BrokerBuilder {
             bento_api_url: None,
             bonsai_api_key: None,
             bonsai_api_url: None,
+            multi_zkvm_endpoint: None,
             deposit_amount: None,
             rpc_retry_max: 0,
             rpc_retry_backoff: 200,

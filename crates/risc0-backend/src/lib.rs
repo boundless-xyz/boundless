@@ -12,39 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use anyhow::bail;
 use std::{path::PathBuf, sync::Arc};
 
 use alloy::sol_types::{SolStruct, SolValue};
 use alloy::{
     network::Ethereum,
-    primitives::{Address, FixedBytes, B256, U256},
+    primitives::{Address, B256, FixedBytes, U256},
     providers::{DynProvider, Provider},
 };
 use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
+    Deployment,
     contracts::{
-        boundless_market::BoundlessMarketService, eip712_domain, encode_seal, AssessorJournal,
-        Fulfillment as MarketFulfillment, FulfillmentData, FulfillmentDataImageIdAndJournal,
-        FulfillmentDataType, Predicate, PredicateType, RequestInputType, UNSPECIFIED_SELECTOR,
+        AssessorJournal, Fulfillment as MarketFulfillment, FulfillmentData,
+        FulfillmentDataImageIdAndJournal, FulfillmentDataType, Predicate, PredicateType,
+        RequestInputType, UNSPECIFIED_SELECTOR, boundless_market::BoundlessMarketService,
+        eip712_domain, encode_seal,
     },
     input::GuestEnv,
     prover_utils::{
         EvaluationLimits, EvaluationRequest, ImageUploadCache, OrderPricingError, PreflightCache,
         PriorityRequestorCheck, RequestEvaluation, RequestEvaluator, Risc0Evaluator,
     },
-    selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
+    selector::{ProofType, SelectorExt, is_blake3_groth16_selector, is_groth16_selector},
     storage::StorageDownloader,
-    Deployment,
 };
 use hex::FromHex;
 use risc0_aggregation::{GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
-    compute_image_id,
+    MaybePruned, Receipt, ReceiptClaim, compute_image_id,
     sha::{Digest as Risc0Digest, Digestible},
-    MaybePruned, Receipt, ReceiptClaim,
 };
 
 pub mod provers;
@@ -178,11 +179,17 @@ impl Risc0Backend {
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
         bento_api_url: Option<&url::Url>,
+        multi_zkvm_endpoint: Option<&String>,
         downloader: Arc<dyn StorageDownloader>,
         priority_check: PriorityRequestorCheck,
     ) -> Result<Self> {
-        let (prover, snark_prover) =
-            Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
+        let (prover, snark_prover) = Self::build_provers(
+            &config,
+            bonsai_api_key,
+            bonsai_api_url,
+            bento_api_url,
+            multi_zkvm_endpoint,
+        )?;
         Ok(Self::with_provers(prover, snark_prover, downloader, priority_check))
     }
 
@@ -230,6 +237,7 @@ impl Risc0Backend {
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
         bento_api_url: Option<&url::Url>,
+        multi_zkvm_endpoint: Option<&String>,
     ) -> Result<(ProverObj, ProverObj)> {
         let bonsai_cfg = || BonsaiConfig {
             bonsai_r0_zkvm_ver: config.bonsai_r0_zkvm_ver.clone(),
@@ -244,6 +252,13 @@ impl Risc0Backend {
                  Receipts generated from this process are invalid and should never be used in production."
             );
             let prover: ProverObj = Arc::new(provers::DefaultProver::new());
+            return Ok((Arc::clone(&prover), prover));
+        }
+        if let Some(endpoint) = multi_zkvm_endpoint {
+            tracing::info!("Configured to run with MultiZKVM proving service");
+
+            let prover: ProverObj =
+                Arc::new(multi_zkvm_types::MultiZkvmClient::new(endpoint)?);
             return Ok((Arc::clone(&prover), prover));
         }
         if let (Some(key), Some(url)) = (bonsai_api_key, bonsai_api_url) {
@@ -498,12 +513,7 @@ impl Risc0Backend {
         let computed_id = compute_image_id(&program_bytes).context("Failed to compute image ID")?;
 
         if computed_id != image_id {
-            anyhow::bail!(
-                "{} image ID mismatch: expected {}, got {}",
-                image_label,
-                image_id,
-                computed_id
-            );
+            bail!("{} image ID mismatch: expected {}, got {}", image_label, image_id, computed_id);
         }
 
         tracing::debug!("Uploading {} image to bento", image_label);
@@ -618,7 +628,7 @@ impl Risc0Backend {
 
                 self.prover.upload_input(input_data).await.context("Failed to upload input")?
             }
-            _ => anyhow::bail!("Invalid input type: {:?}", request.input.inputType),
+            _ => bail!("Invalid input type: {:?}", request.input.inputType),
         })
     }
 
@@ -1001,7 +1011,7 @@ impl Backend for Risc0Backend {
                         .abi_encode(),
                         FulfillmentDataType::ImageIdAndJournal,
                     ),
-                    _ => anyhow::bail!("Invalid predicate type: {predicate_type:?}"),
+                    _ => bail!("Invalid predicate type: {predicate_type:?}"),
                 };
 
                 Ok(OrderFulfillmentArtifact {

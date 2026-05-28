@@ -28,12 +28,12 @@ use alloy::{
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
+    Deployment,
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
-    Deployment,
 };
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -132,7 +132,6 @@ impl Broker {
             tracing::warn!(
                 "LISTEN-ONLY MODE: Broker will monitor the market and evaluate orders but will NOT \
                  lock, prove, or submit. No on-chain transactions will be sent."
-
             );
         }
 
@@ -579,6 +578,7 @@ impl Broker {
             self.args.bonsai_api_key.as_deref(),
             self.args.bonsai_api_url.as_ref(),
             self.args.bento_api_url.as_ref(),
+            self.args.multi_zkvm_endpoint.as_ref(),
             Arc::new(self.downloader.clone()),
             priority_requestors.as_check(),
         )?;
