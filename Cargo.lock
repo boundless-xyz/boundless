@@ -6956,11 +6956,14 @@ dependencies = [
 name = "multi-zkvm-types"
 version = "2.1.0-alpha.0"
 dependencies = [
+ "anyhow",
  "async-trait",
+ "bincode",
  "boundless-market",
  "risc0-zkvm",
  "serde",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
