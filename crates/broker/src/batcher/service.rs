@@ -19,6 +19,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 #[cfg(test)]
 use risc0_zkvm::sha::Digest;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -32,26 +33,27 @@ use crate::{
 use crate::{
     backend::{
         BackendId, BackendRouter, BatchOrder, BatchSizeEstimateRequest, BatchUpdate, CloseBatch,
-        UpdateBatch,
+        OrderProvingData, UpdateBatch,
     },
     config::ConfigLock,
     db::{BatchReadyOrder, DbObj},
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    Batch, BatchStatus, FulfillmentType,
+    Batch, BatchStatus, FulfillmentType, Order,
 };
 
 use super::error::BatcherErr;
 
-fn batch_order_from_batch_ready_order(order: BatchReadyOrder) -> BatchOrder {
-    BatchOrder {
-        order_id: order.order_id,
-        expiration: order.expiration,
-        fee: order.fee,
-        fulfillment_type: order.fulfillment_type,
-        request_id: order.request_id,
-        lock_expiration: order.lock_expiration,
+/// Generic per-order data the broker hands the backend so the backend stays stateless. The
+/// opaque `backend_state` is replayed verbatim; the rest is broker-owned order data.
+fn order_proving_data(order: &Order) -> OrderProvingData {
+    OrderProvingData {
+        order_id: order.id(),
+        request: order.request.clone(),
+        client_sig: order.client_sig.clone(),
+        image_id: order.image_id.clone(),
+        backend_state: order.backend_state.clone(),
     }
 }
 
@@ -92,7 +94,6 @@ impl BatcherService {
         let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
         let backend = Arc::new(
             Risc0Backend::with_provers(
-                db.clone(),
                 prover.clone(),
                 prover.clone(),
                 downloader,
@@ -100,7 +101,6 @@ impl BatcherService {
             )
             .with_set_builder_program_id(set_builder_guest_id)
             .with_test_batch_processor(
-                db.clone(),
                 config.clone(),
                 prover.clone(),
                 set_builder_guest_id,
@@ -208,15 +208,15 @@ impl BatcherService {
 
         // Historical config name: for RISC0 this estimate is journal bytes. More generally this is
         // a backend-estimated batch size used to cap submission payload growth.
-        let pending_order_ids: Vec<_> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
+        let pending_ids: Vec<String> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
         let total_size_estimate = self
             .backend
             .estimate_batch_size(
                 backend_id,
                 BatchSizeEstimateRequest {
                     state: batch.backend_state.clone(),
-                    existing_order_ids: batch.orders.clone(),
-                    pending_order_ids,
+                    existing_orders: self.fetch_proving_data(&batch.orders).await?,
+                    pending_orders: self.fetch_proving_data(&pending_ids).await?,
                 },
             )
             .await?
@@ -414,6 +414,23 @@ impl BatcherService {
         Ok((valid_batch_update_orders, valid_direct_submit_orders))
     }
 
+    /// Load full orders for `ids` and project them to the generic [`OrderProvingData`] the
+    /// backend consumes, preserving order and failing loudly if any id is missing.
+    async fn fetch_proving_data(&self, ids: &[String]) -> Result<Vec<OrderProvingData>> {
+        let refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let orders = self.db.get_orders(&refs).await.context("Failed to load orders for batch")?;
+        let by_id: HashMap<String, Order> =
+            orders.into_iter().map(|order| (order.id(), order)).collect();
+        ids.iter()
+            .map(|id| {
+                by_id
+                    .get(id)
+                    .map(order_proving_data)
+                    .with_context(|| format!("Order {id} missing from DB while assembling batch"))
+            })
+            .collect()
+    }
+
     async fn update_backend_batch(
         &self,
         backend_id: &BackendId,
@@ -423,12 +440,27 @@ impl BatcherService {
         direct_submit_orders: &[BatchReadyOrder],
         finalize: bool,
     ) -> Result<BatchUpdate> {
-        let new_orders: Vec<BatchOrder> = batch_update_orders
-            .iter()
-            .cloned()
-            .chain(direct_submit_orders.iter().cloned())
-            .map(batch_order_from_batch_ready_order)
+        let ready: Vec<&BatchReadyOrder> =
+            batch_update_orders.iter().chain(direct_submit_orders.iter()).collect();
+        let ready_ids: Vec<String> = ready.iter().map(|o| o.order_id.clone()).collect();
+        let new_orders: Vec<BatchOrder> = self
+            .fetch_proving_data(&ready_ids)
+            .await?
+            .into_iter()
+            .zip(ready.iter())
+            .map(|(proving, ready)| BatchOrder {
+                proving,
+                expiration: ready.expiration,
+                fee: ready.fee,
+                fulfillment_type: ready.fulfillment_type,
+                request_id: ready.request_id,
+                lock_expiration: ready.lock_expiration,
+            })
             .collect();
+
+        // Existing orders are only consumed on the finalize (assessor) path.
+        let existing_orders =
+            if finalize { self.fetch_proving_data(&batch.orders).await? } else { Vec::new() };
 
         let update = self
             .backend
@@ -436,7 +468,7 @@ impl BatcherService {
                 backend_id,
                 UpdateBatch {
                     batch_id,
-                    existing_order_ids: batch.orders.clone(),
+                    existing_orders,
                     state: batch.backend_state.clone(),
                     new_orders,
                     finalize,
@@ -527,7 +559,14 @@ impl BatcherService {
 
             let close = match self
                 .backend
-                .close_batch(backend_id, CloseBatch { batch_id, order_ids: batch.orders.clone() })
+                .close_batch(
+                    backend_id,
+                    CloseBatch {
+                        batch_id,
+                        order_ids: batch.orders.clone(),
+                        state: batch.backend_state.clone(),
+                    },
+                )
                 .await
             {
                 Ok(close) => close,

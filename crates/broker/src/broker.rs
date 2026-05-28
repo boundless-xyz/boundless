@@ -557,7 +557,6 @@ impl Broker {
         );
 
         let mut risc0_backend = Risc0Backend::new(
-            db.clone(),
             config.clone(),
             self.args.bonsai_api_key.as_deref(),
             self.args.bonsai_api_url.as_ref(),
@@ -569,7 +568,6 @@ impl Broker {
         if !self.args.listen_only {
             risc0_backend = risc0_backend
                 .with_batch_processor_from_deployment(
-                    db.clone(),
                     config.clone(),
                     &provider,
                     deployment,

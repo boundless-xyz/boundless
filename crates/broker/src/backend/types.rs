@@ -185,6 +185,21 @@ pub struct FulfillmentOrder {
     pub order_id: String,
     pub request: ProofRequest,
     pub program_id: ProgramId,
+    /// Opaque backend state the backend authored; the broker stores and replays it without
+    /// reading it, so the backend never has to query the DB during fulfillment.
+    pub backend_state: Option<BackendOrderState>,
+}
+
+/// Generic per-order data the broker hands a backend so the backend stays stateless and never
+/// reads the DB itself. `backend_state` is the opaque blob the backend authored; the rest is
+/// broker-owned order data. The backend reconstructs its proving inputs from these plus its prover.
+#[derive(Clone, Debug)]
+pub struct OrderProvingData {
+    pub order_id: String,
+    pub request: ProofRequest,
+    pub client_sig: Bytes,
+    pub image_id: Option<String>,
+    pub backend_state: Option<BackendOrderState>,
 }
 
 pub struct FulfillmentBatch {
@@ -228,9 +243,9 @@ pub struct BatchSizeEstimateRequest {
     /// Current backend-owned batch state, if a batch has already been started.
     pub state: Option<BackendBatchState>,
     /// Orders already recorded in the broker batch.
-    pub existing_order_ids: Vec<String>,
+    pub existing_orders: Vec<OrderProvingData>,
     /// Candidate orders that would be added before checking the size limit.
-    pub pending_order_ids: Vec<String>,
+    pub pending_orders: Vec<OrderProvingData>,
 }
 
 #[derive(Clone, Debug)]
@@ -246,7 +261,7 @@ pub struct BackendBatchState(pub serde_json::Value);
 
 #[derive(Clone, Debug)]
 pub struct BatchOrder {
-    pub order_id: String,
+    pub proving: OrderProvingData,
     pub expiration: u64,
     pub fee: alloy::primitives::U256,
     pub fulfillment_type: FulfillmentType,
@@ -256,7 +271,7 @@ pub struct BatchOrder {
 
 pub struct UpdateBatch {
     pub batch_id: usize,
-    pub existing_order_ids: Vec<String>,
+    pub existing_orders: Vec<OrderProvingData>,
     pub state: Option<BackendBatchState>,
     pub new_orders: Vec<BatchOrder>,
     pub finalize: bool,
@@ -273,6 +288,8 @@ pub struct BatchUpdate {
 pub struct CloseBatch {
     pub batch_id: usize,
     pub order_ids: Vec<String>,
+    /// The batch's opaque backend state, passed in so the backend doesn't re-read the DB.
+    pub state: Option<BackendBatchState>,
 }
 
 pub struct BatchClose {

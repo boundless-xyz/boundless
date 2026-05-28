@@ -26,8 +26,8 @@ pub use router::BackendRouter;
 pub use types::{
     BackendBatchState, BackendEntry, BackendError, BackendId, BackendOrderState, BatchOrder,
     BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch, FulfillmentOrder,
-    OrderProcessProgress, ProcessOrder, ProcessedOrder, UpdateBatch, VerifierUpdate,
-    VerifierUpdateError,
+    OrderProcessProgress, OrderProvingData, ProcessOrder, ProcessedOrder, UpdateBatch,
+    VerifierUpdate, VerifierUpdateError,
 };
 
 #[cfg(test)]

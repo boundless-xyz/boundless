@@ -167,6 +167,9 @@ where
                     order_id: order_id.clone(),
                     request: order_request,
                     program_id: order_img_id.into(),
+                    backend_state: orders_by_id
+                        .get(order_id)
+                        .and_then(|order| order.backend_state.clone()),
                 });
                 anyhow::Ok(())
             };
@@ -906,7 +909,6 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), anvil.chain_id());
         let risc0_backend = Arc::new(
             Risc0Backend::with_provers(
-                db.clone(),
                 prover.clone(),
                 prover.clone(),
                 downloader,

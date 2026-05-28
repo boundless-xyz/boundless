@@ -69,7 +69,6 @@ impl OrderProcessor {
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
         let backend = Arc::new(Risc0Backend::with_provers(
-            db.clone(),
             prover.clone(),
             snark_prover,
             downloader,

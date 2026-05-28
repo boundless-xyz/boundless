@@ -110,7 +110,6 @@ impl Risc0BatchState {
 
 #[derive(Clone)]
 pub(super) struct Risc0BatchProcessor {
-    db: DbObj,
     config: ConfigLock,
     prover: ProverObj,
     set_builder_guest_id: Risc0Digest,
@@ -212,7 +211,6 @@ impl Risc0Submission {
 impl Risc0BatchProcessor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
         set_builder_guest_id: Risc0Digest,
@@ -222,7 +220,6 @@ impl Risc0BatchProcessor {
         chain_id: u64,
     ) -> Self {
         Self {
-            db,
             config,
             prover,
             set_builder_guest_id,
@@ -398,17 +395,11 @@ impl Risc0BatchProcessor {
         .into_backend_state()
     }
 
-    pub async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
+    pub async fn prove_assessor(&self, orders: &[&OrderProvingData]) -> Result<String> {
         let mut fills = vec![];
 
-        for order_id in order_ids {
-            let order = self
-                .db
-                .get_order(order_id)
-                .await
-                .with_context(|| format!("Failed to get DB order ID {order_id}"))?
-                .with_context(|| format!("order ID {order_id} missing from DB"))?;
-
+        for order in orders {
+            let order_id = &order.order_id;
             let backend_state = order
                 .backend_state
                 .as_ref()
@@ -428,6 +419,7 @@ impl Risc0BatchProcessor {
                     Risc0Digest::from_hex(
                         order
                             .image_id
+                            .as_deref()
                             .with_context(|| format!("Missing image_id for order: {order_id}"))?,
                     )?,
                     journal,
@@ -504,21 +496,11 @@ impl BatchProcessor for Risc0BatchProcessor {
         &self,
         cmd: BatchSizeEstimateRequest,
     ) -> Result<BatchSizeEstimate> {
-        let BatchSizeEstimateRequest {
-            state: _current_state,
-            existing_order_ids,
-            pending_order_ids,
-        } = cmd;
+        let BatchSizeEstimateRequest { state: _current_state, existing_orders, pending_orders } =
+            cmd;
         let mut size = 0;
-        let order_ids = existing_order_ids.iter().chain(pending_order_ids.iter());
-        for order_id in order_ids {
-            let order = self
-                .db
-                .get_order(order_id)
-                .await
-                .with_context(|| format!("Failed to get order {order_id}"))?
-                .with_context(|| format!("Order {order_id} missing from DB"))?;
-
+        for order in existing_orders.iter().chain(pending_orders.iter()) {
+            let order_id = &order.order_id;
             let backend_state = order
                 .backend_state
                 .as_ref()
@@ -546,10 +528,10 @@ impl BatchProcessor for Risc0BatchProcessor {
 
     async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
         let all_orders: Vec<String> = cmd
-            .existing_order_ids
+            .existing_orders
             .iter()
-            .chain(cmd.new_orders.iter().map(|p| &p.order_id))
-            .cloned()
+            .map(|o| o.order_id.clone())
+            .chain(cmd.new_orders.iter().map(|o| o.proving.order_id.clone()))
             .collect();
         let new_order_fee = cmd.new_orders.iter().fold(U256::ZERO, |sum, order| sum + order.fee);
         let earliest_expiration = cmd.new_orders.iter().map(|order| order.expiration).min();
@@ -576,9 +558,15 @@ impl BatchProcessor for Risc0BatchProcessor {
                 all_orders
             );
 
+            let assessor_orders: Vec<&OrderProvingData> = cmd
+                .existing_orders
+                .iter()
+                .chain(cmd.new_orders.iter().map(|o| &o.proving))
+                .collect();
+
             let assessor_start = std::time::Instant::now();
             let assessor_proof_id = self
-                .prove_assessor(&all_orders)
+                .prove_assessor(&assessor_orders)
                 .await
                 .with_context(|| format!("Failed to prove assessor with orders {all_orders:?}"))?;
             assessor_secs = Some(assessor_start.elapsed().as_secs_f64());
@@ -595,30 +583,15 @@ impl BatchProcessor for Risc0BatchProcessor {
             None
         };
 
-        let new_order_ids: Vec<&str> = cmd.new_orders.iter().map(|o| o.order_id.as_str()).collect();
-        let new_db_orders = self
-            .db
-            .get_orders(&new_order_ids)
-            .await
-            .context("Failed to load orders for batch update")?;
-        let new_states: std::collections::HashMap<String, super::Risc0OrderState> = new_db_orders
-            .into_iter()
-            .filter_map(|o| {
-                let id = o.id();
-                o.backend_state
-                    .as_ref()
-                    .map(|raw| super::Risc0OrderState::decode(raw).map(|s| (id, s)))
-            })
-            .collect::<Result<_>>()?;
-
         let mut proof_ids: Vec<ProofId> = Vec::with_capacity(cmd.new_orders.len() + 1);
         for order in &cmd.new_orders {
-            let state = new_states.get(&order.order_id).with_context(|| {
+            let backend_state = order.proving.backend_state.as_ref().with_context(|| {
                 format!(
                     "Order {} missing backend state at update_batch for batch {}",
-                    order.order_id, cmd.batch_id
+                    order.proving.order_id, cmd.batch_id
                 )
             })?;
+            let state = super::Risc0OrderState::decode(backend_state)?;
             // Direct-submit orders (those with a compressed proof already) skip set-builder.
             if state.compressed_proof_id.is_none() {
                 proof_ids.push(ProofId::new(state.proof_id.clone()));
@@ -667,9 +640,8 @@ impl BatchProcessor for Risc0BatchProcessor {
 
     async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError> {
         let start = std::time::Instant::now();
-        let batch = self.db.get_batch(cmd.batch_id).await.map_err(BackendError::operation)?;
-        let backend_state = batch
-            .backend_state
+        let backend_state = cmd
+            .state
             .as_ref()
             .with_context(|| {
                 format!("Batch {} has no recorded backend state at close-batch time", cmd.batch_id)
@@ -698,8 +670,7 @@ impl BatchProcessor for Risc0BatchProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::BatchOrder;
-    use crate::db::SqliteDb;
+    use crate::backend::{BatchOrder, OrderProvingData};
     use crate::provers::DefaultProver;
     use crate::FulfillmentType;
     use alloy::primitives::{Address, Bytes, U256};
@@ -798,15 +769,12 @@ mod tests {
 
     #[tokio::test]
     async fn update_batch_errors_when_new_order_missing_backend_state() {
-        let db: crate::db::DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let prover: crate::provers::ProverObj = Arc::new(DefaultProver::new());
 
         let order = order_without_backend_state(7);
         let order_id = order.id();
-        db.add_order(&order).await.unwrap();
 
         let processor = Risc0BatchProcessor::new(
-            db,
             crate::config::ConfigLock::default(),
             prover,
             Risc0Digest::ZERO,
@@ -819,10 +787,16 @@ mod tests {
         let res = processor
             .update_batch(super::super::UpdateBatch {
                 batch_id: 0,
-                existing_order_ids: Vec::new(),
+                existing_orders: Vec::new(),
                 state: None,
                 new_orders: vec![BatchOrder {
-                    order_id: order_id.clone(),
+                    proving: OrderProvingData {
+                        order_id: order_id.clone(),
+                        request: order.request.clone(),
+                        client_sig: Bytes::new(),
+                        image_id: None,
+                        backend_state: None,
+                    },
                     expiration: 100,
                     fee: U256::ZERO,
                     fulfillment_type: FulfillmentType::LockAndFulfill,

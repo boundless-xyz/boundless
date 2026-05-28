@@ -541,8 +541,8 @@ mod tests {
                 &backend_a_id,
                 BatchSizeEstimateRequest {
                     state: None,
-                    existing_order_ids: Vec::new(),
-                    pending_order_ids: vec!["a1".to_string()],
+                    existing_orders: Vec::new(),
+                    pending_orders: Vec::new(),
                 },
             )
             .await
@@ -552,8 +552,8 @@ mod tests {
                 &backend_b_id,
                 BatchSizeEstimateRequest {
                     state: None,
-                    existing_order_ids: Vec::new(),
-                    pending_order_ids: vec!["b1".to_string()],
+                    existing_orders: Vec::new(),
+                    pending_orders: Vec::new(),
                 },
             )
             .await
@@ -566,7 +566,7 @@ mod tests {
                 &backend_a_id,
                 UpdateBatch {
                     batch_id: 10,
-                    existing_order_ids: Vec::new(),
+                    existing_orders: Vec::new(),
                     state: None,
                     new_orders: Vec::new(),
                     finalize: false,
@@ -579,7 +579,7 @@ mod tests {
                 &backend_b_id,
                 UpdateBatch {
                     batch_id: 20,
-                    existing_order_ids: Vec::new(),
+                    existing_orders: Vec::new(),
                     state: None,
                     new_orders: Vec::new(),
                     finalize: false,
@@ -652,8 +652,8 @@ mod tests {
                 &backend_id,
                 BatchSizeEstimateRequest {
                     state: None,
-                    existing_order_ids: Vec::new(),
-                    pending_order_ids: Vec::new(),
+                    existing_orders: Vec::new(),
+                    pending_orders: Vec::new(),
                 },
             )
             .await

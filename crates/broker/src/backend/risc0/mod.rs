@@ -63,7 +63,6 @@ const SELECTOR_FAKE_BLAKE3_GROTH16: FixedBytes<4> =
 
 use crate::{
     config::ConfigLock,
-    db::DbObj,
     futures_retry::retry_with_context,
     is_dev_mode,
     provers::{self, ProverObj},
@@ -76,9 +75,9 @@ use super::types::{
     AssessorArtifact, Backend, BackendBatchState, BackendError, BackendId, BackendOrderState,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
     BatchUpdate, ClaimDigest, CloseBatch, Digest as BackendDigest, FailedFulfillmentOrder,
-    FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress, ProcessOrder, ProcessedOrder,
-    ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch, VerifierUpdate,
-    VerifierUpdateError,
+    FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress, OrderProvingData,
+    ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch,
+    VerifierUpdate, VerifierUpdateError,
 };
 
 /// Bump when the serialized [`Risc0OrderState`] shape changes incompatibly. A newer-than-known
@@ -139,7 +138,6 @@ use batch::{Risc0BatchProcessor, Risc0BatchState, Risc0Submission};
 
 pub struct Risc0Backend {
     id: BackendId,
-    db: DbObj,
     prover: ProverObj,
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
@@ -158,7 +156,6 @@ impl Risc0Backend {
 
     /// Production constructor: builds the prover backends from broker config.
     pub fn new(
-        db: DbObj,
         config: ConfigLock,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
@@ -168,12 +165,11 @@ impl Risc0Backend {
     ) -> Result<Self> {
         let (prover, snark_prover) =
             Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
-        Ok(Self::with_provers(db, prover, snark_prover, downloader, priority_requestors))
+        Ok(Self::with_provers(prover, snark_prover, downloader, priority_requestors))
     }
 
     /// Constructor that takes the prover backends explicitly. Used by tests.
     pub fn with_provers(
-        db: DbObj,
         prover: ProverObj,
         snark_prover: ProverObj,
         downloader: ConfigurableDownloader,
@@ -206,7 +202,6 @@ impl Risc0Backend {
 
         Self {
             id: Self::default_id(),
-            db,
             prover,
             snark_prover,
             downloader,
@@ -299,7 +294,6 @@ impl Risc0Backend {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn with_test_batch_processor(
         mut self,
-        db: DbObj,
         config: ConfigLock,
         prover: ProverObj,
         set_builder_guest_id: Risc0Digest,
@@ -309,7 +303,6 @@ impl Risc0Backend {
         chain_id: u64,
     ) -> Self {
         let batch_processor = Arc::new(Risc0BatchProcessor::new(
-            db,
             config,
             prover,
             set_builder_guest_id,
@@ -324,7 +317,6 @@ impl Risc0Backend {
 
     pub async fn with_batch_processor_from_deployment<P>(
         mut self,
-        db: DbObj,
         config: ConfigLock,
         provider: &Arc<P>,
         deployment: &Deployment,
@@ -351,7 +343,6 @@ impl Risc0Backend {
         .with_timeout(std::time::Duration::from_secs(txn_timeout));
 
         let batch_processor = Arc::new(Risc0BatchProcessor::new(
-            db,
             config,
             self.snark_prover.clone(),
             set_builder_img_id,
@@ -893,17 +884,13 @@ impl Backend for Risc0Backend {
             seal: submission.encode_groth16_seal(groth16_proof_id.as_str()).await?.into(),
         };
 
-        let order_id_refs: Vec<&str> = cmd.orders.iter().map(|o| o.order_id.as_str()).collect();
-        let db_orders = self
-            .db
-            .get_orders(&order_id_refs)
-            .await
-            .context("Failed to load orders for fulfillment")?;
-        let order_states: std::collections::HashMap<String, Risc0OrderState> = db_orders
-            .into_iter()
+        let order_states: std::collections::HashMap<String, Risc0OrderState> = cmd
+            .orders
+            .iter()
             .filter_map(|o| {
-                let id = o.id();
-                o.backend_state.as_ref().map(|raw| Risc0OrderState::decode(raw).map(|s| (id, s)))
+                o.backend_state
+                    .as_ref()
+                    .map(|raw| Risc0OrderState::decode(raw).map(|s| (o.order_id.clone(), s)))
             })
             .collect::<Result<_>>()?;
 
@@ -1201,9 +1188,7 @@ mod tests {
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
         let priority_requestors = PriorityRequestors::new(config, 1);
         let prover: ProverObj = std::sync::Arc::new(provers::DefaultProver::new());
-        let db: DbObj =
-            std::sync::Arc::new(crate::db::SqliteDb::new("sqlite::memory:").await.unwrap());
-        Risc0Backend::with_provers(db, prover.clone(), prover, downloader, priority_requestors)
+        Risc0Backend::with_provers(prover.clone(), prover, downloader, priority_requestors)
     }
 
     fn guard_fulfillment_batch(
