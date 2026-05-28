@@ -96,12 +96,12 @@ impl BatcherService {
             Risc0Backend::with_provers(
                 prover.clone(),
                 prover.clone(),
-                downloader,
-                priority_requestors,
+                Arc::new(downloader),
+                priority_requestors.as_check(),
             )
             .with_set_builder_program_id(set_builder_guest_id)
             .with_test_batch_processor(
-                config.clone(),
+                config.proof_retry_policy(),
                 prover.clone(),
                 set_builder_guest_id,
                 assessor_guest_id,

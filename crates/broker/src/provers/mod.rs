@@ -19,7 +19,7 @@ use risc0_zkvm::Receipt;
 mod bonsai;
 mod default;
 
-pub use bonsai::Bonsai;
+pub use bonsai::{Bonsai, BonsaiConfig};
 pub use default::DefaultProver;
 
 // Re-export types from boundless_market::prover_utils::prover

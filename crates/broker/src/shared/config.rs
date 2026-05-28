@@ -73,6 +73,21 @@ impl ConfigLock {
     pub fn load_write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Config>, ConfigErr> {
         self.config.write().map_err(|_| ConfigErr::LockFailed)
     }
+
+    /// A `() -> (retry_count, retry_sleep_ms)` closure that reads this reloadable config each
+    /// call, so a backend can keep picking up runtime changes without depending on `ConfigLock`.
+    /// Falls back to defaults if the lock can't be read.
+    pub fn proof_retry_policy(&self) -> Arc<dyn Fn() -> (u64, u64) + Send + Sync> {
+        let config = self.clone();
+        Arc::new(move || {
+            config
+                .lock_all()
+                .map(|c| (c.prover.proof_retry_count, c.prover.proof_retry_sleep_ms))
+                .unwrap_or_else(|_| {
+                    (defaults::proof_retry_count(), defaults::proof_retry_sleep_ms())
+                })
+        })
+    }
 }
 
 /// Max number of pending filesystem events from the config file

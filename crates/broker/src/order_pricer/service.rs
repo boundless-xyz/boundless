@@ -548,8 +548,8 @@ pub(crate) mod tests {
                     .register_backend(BackendEntry::new(Arc::new(Risc0Backend::with_provers(
                         prover,
                         Arc::new(DefaultProver::new()),
-                        downloader,
-                        priority_requestors.clone(),
+                        Arc::new(downloader),
+                        priority_requestors.as_check(),
                     ))))
                     .unwrap(),
             );

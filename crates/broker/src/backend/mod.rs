@@ -21,7 +21,7 @@ mod risc0;
 mod router;
 mod types;
 
-pub use risc0::{prune_receipt_claim_journal, Risc0Backend};
+pub use risc0::{prune_receipt_claim_journal, Risc0Backend, Risc0BackendConfig};
 pub use router::BackendRouter;
 pub use types::{
     BackendBatchState, BackendEntry, BackendError, BackendId, BackendOrderState, BatchOrder,

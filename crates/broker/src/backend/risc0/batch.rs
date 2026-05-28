@@ -110,7 +110,7 @@ impl Risc0BatchState {
 
 #[derive(Clone)]
 pub(super) struct Risc0BatchProcessor {
-    config: ConfigLock,
+    proof_retry: ProofRetryPolicy,
     prover: ProverObj,
     set_builder_guest_id: Risc0Digest,
     assessor_guest_id: Risc0Digest,
@@ -211,7 +211,7 @@ impl Risc0Submission {
 impl Risc0BatchProcessor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        config: ConfigLock,
+        proof_retry: ProofRetryPolicy,
         prover: ProverObj,
         set_builder_guest_id: Risc0Digest,
         assessor_guest_id: Risc0Digest,
@@ -220,7 +220,7 @@ impl Risc0BatchProcessor {
         chain_id: u64,
     ) -> Self {
         Self {
-            config,
+            proof_retry,
             prover,
             set_builder_guest_id,
             assessor_guest_id,
@@ -313,10 +313,7 @@ impl Risc0BatchProcessor {
             .await
             .context("Failed to upload set-builder input")?;
 
-        let (retry_count, sleep_ms) = {
-            let config = self.config.lock_all().context("Failed to lock config")?;
-            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-        };
+        let (retry_count, sleep_ms) = (self.proof_retry)();
 
         tracing::debug!("Starting proving of set-builder with orders {:?}", all_orders);
         let (proof_res, journal) = retry_with_context(
@@ -467,12 +464,7 @@ impl Risc0BatchProcessor {
         aggregation_proof_id: &str,
         orders: &[String],
     ) -> Result<String, provers::ProverError> {
-        let (retry_count, sleep_ms) = {
-            let config = self.config.lock_all().map_err(|e| {
-                provers::ProverError::ProverInternalError(format!("Failed to lock config: {e}"))
-            })?;
-            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
-        };
+        let (retry_count, sleep_ms) = (self.proof_retry)();
 
         let context = format!("batch {batch_id} with orders {:?}", orders);
         retry_with_context(
@@ -754,7 +746,7 @@ mod tests {
         let order_id = "order-7".to_string();
 
         let processor = Risc0BatchProcessor::new(
-            crate::config::ConfigLock::default(),
+            Arc::new(|| (0, 0)),
             prover,
             Risc0Digest::ZERO,
             Risc0Digest::ZERO,

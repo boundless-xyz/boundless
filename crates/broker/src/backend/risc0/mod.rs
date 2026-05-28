@@ -62,14 +62,29 @@ const SELECTOR_FAKE_BLAKE3_GROTH16: FixedBytes<4> =
     FixedBytes::new((SelectorExt::FakeBlake3Groth16 as u32).to_be_bytes());
 
 use crate::{
-    config::ConfigLock,
     futures_retry::retry_with_context,
     is_dev_mode,
-    provers::{self, ProverObj},
-    requestor_monitor::PriorityRequestors,
-    ConfigurableDownloader,
+    provers::{self, BonsaiConfig, ProverObj},
 };
 use anyhow::{Context, Result};
+
+/// Construction-time settings the RISC0 backend reads once at startup.
+pub struct Risc0BackendConfig {
+    pub bonsai_r0_zkvm_ver: Option<String>,
+    pub req_retry_count: u64,
+    pub req_retry_sleep_ms: u64,
+    pub status_poll_ms: u64,
+    pub status_poll_retry_count: u64,
+    pub set_builder_guest_path: Option<PathBuf>,
+    pub assessor_set_guest_path: Option<PathBuf>,
+    pub set_builder_default_image_url: String,
+    pub assessor_default_image_url: String,
+    pub txn_timeout: u64,
+}
+
+/// Live proving-retry policy: `() -> (retry_count, retry_sleep_ms)`. Backed by a closure that
+/// reads the broker's reloadable config, so runtime changes are still picked up per prove.
+pub type ProofRetryPolicy = Arc<dyn Fn() -> (u64, u64) + Send + Sync>;
 
 use super::types::{
     AssessorArtifact, Backend, BackendBatchState, BackendError, BackendId, BackendOrderState,
@@ -140,8 +155,8 @@ pub struct Risc0Backend {
     id: BackendId,
     prover: ProverObj,
     snark_prover: ProverObj,
-    downloader: ConfigurableDownloader,
-    priority_requestors: PriorityRequestors,
+    downloader: Arc<dyn StorageDownloader>,
+    priority_check: PriorityRequestorCheck,
     evaluator: Risc0Evaluator,
     set_builder_program_id: Option<Risc0Digest>,
     set_verifier_addr: Option<Address>,
@@ -154,26 +169,26 @@ impl Risc0Backend {
         BackendId::new(RISC0_V3_BACKEND_ID)
     }
 
-    /// Production constructor: builds the prover backends from broker config.
+    /// Production constructor: builds the prover backends from the projected config.
     pub fn new(
-        config: ConfigLock,
+        config: Risc0BackendConfig,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
         bento_api_url: Option<&url::Url>,
-        downloader: ConfigurableDownloader,
-        priority_requestors: PriorityRequestors,
+        downloader: Arc<dyn StorageDownloader>,
+        priority_check: PriorityRequestorCheck,
     ) -> Result<Self> {
         let (prover, snark_prover) =
             Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
-        Ok(Self::with_provers(prover, snark_prover, downloader, priority_requestors))
+        Ok(Self::with_provers(prover, snark_prover, downloader, priority_check))
     }
 
     /// Constructor that takes the prover backends explicitly. Used by tests.
     pub fn with_provers(
         prover: ProverObj,
         snark_prover: ProverObj,
-        downloader: ConfigurableDownloader,
-        priority_requestors: PriorityRequestors,
+        downloader: Arc<dyn StorageDownloader>,
+        priority_check: PriorityRequestorCheck,
     ) -> Self {
         let preflight_cache: PreflightCache = std::sync::Arc::new(
             moka::future::Cache::builder()
@@ -189,23 +204,16 @@ impl Risc0Backend {
                 .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
                 .build(),
         );
-        let priority_for_check = priority_requestors.clone();
-        let priority_check: PriorityRequestorCheck =
-            std::sync::Arc::new(move |addr| priority_for_check.is_priority_requestor(addr));
-        let evaluator = Risc0Evaluator::new(
-            prover.clone(),
-            std::sync::Arc::new(downloader.clone()),
-            preflight_cache,
-        )
-        .with_image_upload_cache(image_upload_cache)
-        .with_priority_check(priority_check);
+        let evaluator = Risc0Evaluator::new(prover.clone(), downloader.clone(), preflight_cache)
+            .with_image_upload_cache(image_upload_cache)
+            .with_priority_check(priority_check.clone());
 
         Self {
             id: Self::default_id(),
             prover,
             snark_prover,
             downloader,
-            priority_requestors,
+            priority_check,
             evaluator,
             set_builder_program_id: None,
             set_verifier_addr: None,
@@ -215,11 +223,18 @@ impl Risc0Backend {
     }
 
     fn build_provers(
-        config: &ConfigLock,
+        config: &Risc0BackendConfig,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
         bento_api_url: Option<&url::Url>,
     ) -> Result<(ProverObj, ProverObj)> {
+        let bonsai_cfg = || BonsaiConfig {
+            bonsai_r0_zkvm_ver: config.bonsai_r0_zkvm_ver.clone(),
+            req_retry_count: config.req_retry_count,
+            req_retry_sleep_ms: config.req_retry_sleep_ms,
+            status_poll_ms: config.status_poll_ms,
+            status_poll_retry_count: config.status_poll_retry_count,
+        };
         if is_dev_mode() {
             tracing::warn!(
                 "WARNING: Running in dev mode does not generate valid receipts. \
@@ -231,7 +246,7 @@ impl Risc0Backend {
         if let (Some(key), Some(url)) = (bonsai_api_key, bonsai_api_url) {
             tracing::info!("Configured to run with Bonsai backend");
             let prover: ProverObj = Arc::new(
-                provers::Bonsai::new(config.clone(), url.as_ref(), key)
+                provers::Bonsai::new(bonsai_cfg(), url.as_ref(), key)
                     .context("Failed to construct Bonsai client")?,
             );
             return Ok((Arc::clone(&prover), prover));
@@ -239,11 +254,11 @@ impl Risc0Backend {
         if let Some(url) = bento_api_url {
             tracing::info!("Configured to run with Bento backend");
             let prover: ProverObj = Arc::new(
-                provers::Bonsai::new(config.clone(), url.as_ref(), "v1:reserved:1000")
+                provers::Bonsai::new(bonsai_cfg(), url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
             );
             let snark_prover: ProverObj = Arc::new(
-                provers::Bonsai::new(config.clone(), url.as_ref(), "v1:reserved:2000")
+                provers::Bonsai::new(bonsai_cfg(), url.as_ref(), "v1:reserved:2000")
                     .context("Failed to initialize Bento client")?,
             );
             return Ok((prover, snark_prover));
@@ -294,7 +309,7 @@ impl Risc0Backend {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn with_test_batch_processor(
         mut self,
-        config: ConfigLock,
+        proof_retry: ProofRetryPolicy,
         prover: ProverObj,
         set_builder_guest_id: Risc0Digest,
         assessor_guest_id: Risc0Digest,
@@ -303,7 +318,7 @@ impl Risc0Backend {
         chain_id: u64,
     ) -> Self {
         let batch_processor = Arc::new(Risc0BatchProcessor::new(
-            config,
+            proof_retry,
             prover,
             set_builder_guest_id,
             assessor_guest_id,
@@ -317,7 +332,8 @@ impl Risc0Backend {
 
     pub async fn with_batch_processor_from_deployment<P>(
         mut self,
-        config: ConfigLock,
+        config: Risc0BackendConfig,
+        proof_retry: ProofRetryPolicy,
         provider: &Arc<P>,
         deployment: &Deployment,
         prover_addr: Address,
@@ -331,19 +347,15 @@ impl Risc0Backend {
         let assessor_img_id =
             self.fetch_and_upload_assessor_image(provider, deployment, &config).await?;
 
-        let txn_timeout = {
-            let cfg = config.lock_all().context("Failed to lock config")?;
-            cfg.batcher.txn_timeout
-        };
         let set_verifier = SetVerifierService::new(
             deployment.set_verifier_address,
             DynProvider::new(provider.clone()),
             prover_addr,
         )
-        .with_timeout(std::time::Duration::from_secs(txn_timeout));
+        .with_timeout(std::time::Duration::from_secs(config.txn_timeout));
 
         let batch_processor = Arc::new(Risc0BatchProcessor::new(
-            config,
+            proof_retry,
             self.snark_prover.clone(),
             set_builder_img_id,
             assessor_img_id,
@@ -374,7 +386,7 @@ impl Risc0Backend {
         &self,
         provider: &Arc<P>,
         deployment: &Deployment,
-        config: &ConfigLock,
+        config: &Risc0BackendConfig,
     ) -> Result<Risc0Digest>
     where
         P: Provider<Ethereum> + Clone + 'static,
@@ -390,17 +402,16 @@ impl Risc0Backend {
             .await
             .context("Failed to get set builder image_info")?;
         let image_id = Risc0Digest::from_bytes(image_id.0);
-        let (path, default_url) = {
-            let config = config.lock_all().context("Failed to lock config")?;
-            (
-                config.prover.set_builder_guest_path.clone(),
-                config.market.set_builder_default_image_url.clone(),
-            )
-        };
 
-        self.fetch_and_upload_image("set builder", image_id, image_url_str, path, default_url)
-            .await
-            .context("uploading set builder image")?;
+        self.fetch_and_upload_image(
+            "set builder",
+            image_id,
+            image_url_str,
+            config.set_builder_guest_path.clone(),
+            config.set_builder_default_image_url.clone(),
+        )
+        .await
+        .context("uploading set builder image")?;
         Ok(image_id)
     }
 
@@ -408,7 +419,7 @@ impl Risc0Backend {
         &self,
         provider: &Arc<P>,
         deployment: &Deployment,
-        config: &ConfigLock,
+        config: &Risc0BackendConfig,
     ) -> Result<Risc0Digest>
     where
         P: Provider<Ethereum> + Clone + 'static,
@@ -422,17 +433,15 @@ impl Risc0Backend {
             boundless_market.image_info().await.context("Failed to get assessor image_info")?;
         let image_id = Risc0Digest::from_bytes(image_id.0);
 
-        let (path, default_url) = {
-            let config = config.lock_all().context("Failed to lock config")?;
-            (
-                config.prover.assessor_set_guest_path.clone(),
-                config.market.assessor_default_image_url.clone(),
-            )
-        };
-
-        self.fetch_and_upload_image("assessor", image_id, image_url_str, path, default_url)
-            .await
-            .context("uploading assessor image")?;
+        self.fetch_and_upload_image(
+            "assessor",
+            image_id,
+            image_url_str,
+            config.assessor_set_guest_path.clone(),
+            config.assessor_default_image_url.clone(),
+        )
+        .await
+        .context("uploading assessor image")?;
         Ok(image_id)
     }
 
@@ -592,7 +601,7 @@ impl Risc0Backend {
                 tracing::debug!("Input URI string: {input_uri_str}");
 
                 let client_addr = request.client_address();
-                let input = if self.priority_requestors.is_priority_requestor(&client_addr) {
+                let input = if (self.priority_check)(&client_addr) {
                     self.downloader.download_with_limit(input_uri_str, usize::MAX).await
                 } else {
                     self.downloader.download(input_uri_str).await
@@ -1183,11 +1192,12 @@ mod tests {
     }
 
     async fn guard_test_backend() -> Risc0Backend {
-        let config = ConfigLock::default();
-        let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
-        let priority_requestors = PriorityRequestors::new(config, 1);
+        let downloader: Arc<dyn StorageDownloader> = Arc::new(
+            boundless_market::storage::StandardDownloader::from_config(Default::default()).await,
+        );
+        let priority_check: PriorityRequestorCheck = Arc::new(|_| false);
         let prover: ProverObj = std::sync::Arc::new(provers::DefaultProver::new());
-        Risc0Backend::with_provers(prover.clone(), prover, downloader, priority_requestors)
+        Risc0Backend::with_provers(prover.clone(), prover, downloader, priority_check)
     }
 
     fn guard_fulfillment_batch(

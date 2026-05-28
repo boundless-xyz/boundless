@@ -911,8 +911,8 @@ mod tests {
             Risc0Backend::with_provers(
                 prover.clone(),
                 prover.clone(),
-                downloader,
-                priority_requestors,
+                Arc::new(downloader),
+                priority_requestors.as_check(),
             )
             .with_set_builder_program_id(set_builder_id)
             .with_set_verifier(set_verifier, provider.clone(), prover_addr),

@@ -39,7 +39,7 @@ use url::Url;
 
 use crate::{
     args::{ChainPipeline, CoreArgs},
-    backend::{BackendEntry, BackendRouter, Risc0Backend},
+    backend::{BackendEntry, BackendRouter, Risc0Backend, Risc0BackendConfig},
     batcher, chain_monitor_v2, channels,
     config::{ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
@@ -556,19 +556,39 @@ impl Broker {
                 .build(),
         );
 
+        // Project the broker's reloadable config into the backend-neutral snapshot, and hand the
+        // backend closures (priority check, proving-retry policy) that keep reading the live
+        // config — so the RISC0 backend depends on no broker config type.
+        let risc0_cfg = {
+            let c = config.lock_all().context("Failed to lock config")?;
+            Risc0BackendConfig {
+                bonsai_r0_zkvm_ver: c.prover.bonsai_r0_zkvm_ver.clone(),
+                req_retry_count: c.prover.req_retry_count,
+                req_retry_sleep_ms: c.prover.req_retry_sleep_ms,
+                status_poll_ms: c.prover.status_poll_ms,
+                status_poll_retry_count: c.prover.status_poll_retry_count,
+                set_builder_guest_path: c.prover.set_builder_guest_path.clone(),
+                assessor_set_guest_path: c.prover.assessor_set_guest_path.clone(),
+                set_builder_default_image_url: c.market.set_builder_default_image_url.clone(),
+                assessor_default_image_url: c.market.assessor_default_image_url.clone(),
+                txn_timeout: c.batcher.txn_timeout,
+            }
+        };
+
         let mut risc0_backend = Risc0Backend::new(
-            config.clone(),
+            risc0_cfg.clone(),
             self.args.bonsai_api_key.as_deref(),
             self.args.bonsai_api_url.as_ref(),
             self.args.bento_api_url.as_ref(),
-            self.downloader.clone(),
-            priority_requestors.clone(),
+            Arc::new(self.downloader.clone()),
+            priority_requestors.as_check(),
         )?;
 
         if !self.args.listen_only {
             risc0_backend = risc0_backend
                 .with_batch_processor_from_deployment(
-                    config.clone(),
+                    risc0_cfg,
+                    config.proof_retry_policy(),
                     &provider,
                     deployment,
                     prover_addr,

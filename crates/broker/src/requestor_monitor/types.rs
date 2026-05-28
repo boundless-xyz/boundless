@@ -96,6 +96,13 @@ impl PriorityRequestors {
         self.get_requestor_entry(address).is_some()
     }
 
+    /// Adapt to a backend-neutral [`PriorityRequestorCheck`] closure that reads the live
+    /// requestor list.
+    pub fn as_check(&self) -> boundless_market::prover_utils::PriorityRequestorCheck {
+        let this = self.clone();
+        Arc::new(move |address| this.is_priority_requestor(address))
+    }
+
     /// Returns all dynamically-registered priority requestors (from remote lists)
     /// mapped to their priority level. Entries without a `priority` extension fall
     /// back to [`DEFAULT_PRIORITY_LEVEL`].

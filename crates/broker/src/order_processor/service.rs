@@ -74,8 +74,8 @@ impl OrderProcessor {
         let backend = Arc::new(Risc0Backend::with_provers(
             prover.clone(),
             snark_prover,
-            downloader,
-            priority_requestors,
+            Arc::new(downloader),
+            priority_requestors.as_check(),
         ));
         let backend_router = Arc::new(
             BackendRouter::new()

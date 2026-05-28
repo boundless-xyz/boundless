@@ -16,6 +16,7 @@ use boundless_market::contracts::ProofRequest;
 pub use config::Config;
 pub use config::ConfigLock;
 pub use rpc_retry_policy::CustomRetryPolicy;
+#[cfg(test)]
 pub(crate) use storage::ConfigurableDownloader;
 
 pub(crate) mod batcher;
