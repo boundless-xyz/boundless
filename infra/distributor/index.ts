@@ -29,6 +29,11 @@ export = () => {
   const distributorEthAlertThreshold = config.get('DISTRIBUTOR_ETH_ALERT_THRESHOLD');
   const distributorStakeAlertThreshold = config.get('DISTRIBUTOR_STAKE_ALERT_THRESHOLD');
 
+  // Alert-only balance monitors (with optional ETH refill) for addresses the distributor
+  // does not otherwise fund (e.g. KOG, Signal). Passed via env because the value contains
+  // ';' which would break the `/bin/sh -c` command string. See crates/distributor (MONITOR_BALANCES).
+  const monitorBalances = config.get('MONITOR_BALANCES');
+
   // External prover top-up config (all optional)
   const enableExternalTopup = config.getBoolean('ENABLE_EXTERNAL_TOPUP') ?? false;
   const indexerApiUrl = enableExternalTopup ? config.requireSecret('INDEXER_API_URL') : config.get('INDEXER_API_URL');
@@ -416,6 +421,7 @@ export = () => {
             name: 'SECRET_HASH',
             value: secretHash,
           },
+          ...(monitorBalances ? [{ name: 'MONITOR_BALANCES', value: monitorBalances }] : []),
         ],
         secrets: distributorSecrets,
         mountPoints: containerMountPoints,
@@ -665,5 +671,63 @@ export = () => {
     actionsEnabled: true,
     alarmActions,
   });
+
+  // Alert-only balance monitors. One metric filter + alarm per (label, kind, level), keyed
+  // to the `[B-MON-<LABEL>-<KIND>-<LEVEL>]` tags emitted by check_monitored_balances. CloudWatch
+  // filter patterns are static, so this list must mirror the labels in the MONITOR_BALANCES config.
+  // Only created on stacks that actually configure monitors. LOW -> SEV2, CRIT -> SEV1.
+  if (monitorBalances) {
+    const monitorAlarmSpecs: { label: string; kind: 'ETH' | 'DEPOSIT' }[] = [
+      { label: 'KOG', kind: 'ETH' },
+      { label: 'KOG', kind: 'DEPOSIT' },
+      { label: 'SIGNAL-REQ', kind: 'DEPOSIT' },
+      { label: 'SIGNAL-SIGNER', kind: 'ETH' },
+    ];
+
+    for (const spec of monitorAlarmSpecs) {
+      for (const level of ['LOW', 'CRIT'] as const) {
+        const tag = `[B-MON-${spec.label}-${spec.kind}-${level}]`;
+        const slug = `mon-${spec.label}-${spec.kind}-${level}`.toLowerCase();
+        const metricName = `${serviceName}-log-${slug}`;
+        const severity = level === 'CRIT' ? Severity.SEV1 : Severity.SEV2;
+
+        new aws.cloudwatch.LogMetricFilter(`${serviceName}-${slug}-filter`, {
+          name: `${metricName}-filter`,
+          logGroupName: serviceName,
+          metricTransformation: {
+            namespace: `Boundless/Services/${serviceName}`,
+            name: metricName,
+            value: '1',
+            defaultValue: '0',
+          },
+          pattern: `"${tag}"`,
+        }, { dependsOn: [fargateTask] });
+
+        new aws.cloudwatch.MetricAlarm(`${serviceName}-${slug}-alarm-${severity}`, {
+          name: `${metricName}-${severity}`,
+          metricQueries: [
+            {
+              id: 'm1',
+              metric: {
+                namespace: `Boundless/Services/${serviceName}`,
+                metricName,
+                period: 3600,
+                stat: 'Sum',
+              },
+              returnData: true,
+            },
+          ],
+          threshold: 1,
+          comparisonOperator: 'GreaterThanOrEqualToThreshold',
+          evaluationPeriods: 1,
+          datapointsToAlarm: 1,
+          treatMissingData: 'notBreaching',
+          alarmDescription: `${level === 'CRIT' ? 'CRITICAL' : 'WARNING'}: monitored ${spec.label} ${spec.kind} balance below ${level.toLowerCase()} threshold on ${chainId}`,
+          actionsEnabled: true,
+          alarmActions,
+        });
+      }
+    }
+  }
 
 };

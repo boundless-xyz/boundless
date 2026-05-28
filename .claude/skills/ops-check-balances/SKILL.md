@@ -39,13 +39,15 @@ Loaded from `operator_addresses.json`'s `thresholds` block. Resolved field-by-fi
 per-entry override → by_role[role] → by_chain[chain] → default
 ```
 
-ETH thresholds for **distributor-managed roles** (provers, OGs) come from `by_chain` because the distributor's `ETH_THRESHOLD` varies by ~3 orders of magnitude across chains (0.008 ETH on Taiko vs 10 ETH on Eth Sepolia). Audit thresholds are tied to those values: WARN ≈ `0.5 × ETH_THRESHOLD` (distributor missed at least one cycle), CRIT ≈ `0.125 × ETH_THRESHOLD` (auto-top-up clearly broken).
+ETH thresholds for **distributor-managed roles** (provers, OGs) come from `by_chain` because the distributor's `ETH_THRESHOLD` varies by ~2 orders of magnitude across chains (0.008 ETH on Taiko vs 1 ETH on Base Sepolia staging). Audit thresholds are tied to those values: WARN ≈ `0.5 × ETH_THRESHOLD` (distributor missed at least one cycle), CRIT ≈ `0.125 × ETH_THRESHOLD` (auto-top-up clearly broken).
 
 ETH thresholds for **non-distributor-managed roles** (`distributor` itself, `signal` signers) come from `by_role` and ignore the chain. Distributor's WARN matches the operational `DISTRIBUTOR_ETH_ALERT_THRESHOLD` of 0.5; signal signers use a smaller threshold tuned to their ~0.0001 ETH/day burn.
 
 ZKC thresholds (prover collateral, distributor reserve) come from `by_role.prover` and `by_role.distributor` respectively, since they're uniform across chains.
 
-See `runbooks/addresses/README.md` for the full table of values and rationale.
+`eth_warn`/`eth_crit` gate the **native-ETH gas** balance. To alert on an address's **market deposit** (`balanceOf`) instead of (or in addition to) gas, set `deposit_warn`/`deposit_crit` (ETH-equivalent units). These are **opt-in**: there is no default, so the script flags a deposit (`DEPOSIT-LOW` / `DEPOSIT-CRIT`) only for entries that resolve a deposit threshold. Used for requestors whose deposit is the operational signal (e.g. KOG, deposit WARN 1 / CRIT 0.1, while its gas stays on the base-mainnet default).
+
+The resolved values the skill consumes live in `operator_addresses.json`'s `thresholds` block. The runbook README no longer mirrors a values table — the operational source of truth is the distributor Pulumi config in the boundless repo (`infra/distributor/Pulumi.l-prod-{chain_id}.yaml` / `Pulumi.l-staging-{chain_id}.yaml`, keys like `ETH_THRESHOLD` / `DISTRIBUTOR_ETH_ALERT_THRESHOLD`). The `deposit_warn`/`deposit_crit` overrides are runbook-local and exist only in `operator_addresses.json`.
 
 A specific entry can override any field by setting a `thresholds: { eth_warn: ..., ... }` block on it — only the fields you set are overridden; the rest fall through.
 
@@ -57,7 +59,7 @@ Contract addresses (market, collateral token) are **fetched at runtime** from th
 DEPLOYMENT_TOML_URL="https://raw.githubusercontent.com/boundless-xyz/boundless/main/contracts/deployment.toml"
 ```
 
-The chain label used in `operator_addresses.json` must match a `[deployment.<label>]` section in `deployment.toml`. Today that's `base-mainnet`, `taiko-mainnet`, `base-sepolia`, `ethereum-sepolia`, `base-sepolia-staging`, `taiko-staging`.
+The chain label used in `operator_addresses.json` must match a `[deployment.<label>]` section in `deployment.toml`. Today that's `base-mainnet`, `taiko-mainnet`, `base-sepolia-staging`, `taiko-staging` (the prod testnets `base-sepolia` and `ethereum-sepolia` were discontinued).
 
 The only inline data the skill keeps is the **chain label → public RPC URL** mapping below — RPC URLs aren't in `deployment.toml` and don't rotate.
 
@@ -65,8 +67,6 @@ The only inline data the skill keeps is the **chain label → public RPC URL** m
 | ---------------------- | --------------------------------------------- |
 | `base-mainnet`         | `https://mainnet.base.org`                    |
 | `taiko-mainnet`        | `https://rpc.taiko.xyz`                       |
-| `base-sepolia`         | `https://sepolia.base.org`                    |
-| `ethereum-sepolia`     | `https://ethereum-sepolia-rpc.publicnode.com` |
 | `base-sepolia-staging` | `https://sepolia.base.org`                    |
 | `taiko-staging`        | `https://rpc.taiko.xyz`                       |
 
@@ -102,8 +102,6 @@ chain_rpc() {
   case "$1" in
     base-mainnet)           echo "https://mainnet.base.org" ;;
     taiko-mainnet)          echo "https://rpc.taiko.xyz" ;;
-    base-sepolia)           echo "https://sepolia.base.org" ;;
-    ethereum-sepolia)       echo "https://ethereum-sepolia-rpc.publicnode.com" ;;
     base-sepolia-staging)   echo "https://sepolia.base.org" ;;
     taiko-staging)          echo "https://rpc.taiko.xyz" ;;
     *) echo "" ;;
@@ -148,12 +146,14 @@ fmt_zkc()     { python3 -c "v='${1:-}'; print(f'{int(v)/1e18:.4f}' if v else '?'
 flt_lt()      { python3 -c "import sys; sys.exit(0 if float('$1') < float('$2') else 1)" 2>/dev/null; }
 
 # Build (entry × chain) tuples filtered by env, into TSV:
-# label \t address \t role \t chain \t needs_gas \t needs_market \t eth_warn \t eth_crit
+# label \t address \t role \t chain \t needs_gas \t needs_market \t eth_warn \t eth_crit \t deposit_warn \t deposit_crit
 #
 # Threshold resolution (field-by-field): per-entry override → by_role[role] → by_chain[chain] → default.
 # `//` works correctly here because thresholds are numbers, not booleans (no false-collapse risk).
 # But for the boolean flags `needs_gas` / `needs_market_check`, `//` would mistreat `false`,
 # so we use `has()` for those.
+# eth_* gate native ETH (gas). deposit_* gate the market balanceOf and are OPT-IN: no default,
+# so they resolve to "" when unset and the consumer skips deposit flagging for that entry.
 TUPLES=$(jq -r --arg incl "$INCLUDE_STAGING" '
   . as $root
   | .addresses[]
@@ -174,21 +174,35 @@ TUPLES=$(jq -r --arg incl "$INCLUDE_STAGING" '
       // ($root.thresholds.default.eth_crit)
       // 0.005
     ) as $eth_crit
+  | (
+      (($e.thresholds // {}).deposit_warn)
+      // (($root.thresholds.by_role[$e.role] // {}).deposit_warn)
+      // (($root.thresholds.by_chain[$c]    // {}).deposit_warn)
+      // ($root.thresholds.default.deposit_warn)
+      // ""
+    ) as $dep_warn
+  | (
+      (($e.thresholds // {}).deposit_crit)
+      // (($root.thresholds.by_role[$e.role] // {}).deposit_crit)
+      // (($root.thresholds.by_chain[$c]    // {}).deposit_crit)
+      // ($root.thresholds.default.deposit_crit)
+      // ""
+    ) as $dep_crit
   | [.label, .address, .role, $c,
      (if has("needs_gas") then .needs_gas else true end),
      (if has("needs_market_check") then .needs_market_check else false end),
-     $eth_warn, $eth_crit]
+     $eth_warn, $eth_crit, $dep_warn, $dep_crit]
   | @tsv
 ' "$ADDRS_FILE")
 
-printf "%-36s %-12s %-22s %-12s %-13s %-12s %s\n" SERVICE ROLE CHAIN ETH DEPOSIT COLLATERAL FLAG
-echo "----------------------------------------------------------------------------------------------------------------------"
+printf "%-36s %-44s %-12s %-22s %-12s %-13s %-12s %s\n" SERVICE ADDRESS ROLE CHAIN ETH DEPOSIT COLLATERAL FLAG
+echo "--------------------------------------------------------------------------------------------------------------------------------------------------------------------"
 
-while IFS=$'\t' read -r LABEL ADDR ROLE CHAIN NEEDS_GAS NEEDS_MARKET ETH_WARN ETH_CRIT; do
+while IFS=$'\t' read -r LABEL ADDR ROLE CHAIN NEEDS_GAS NEEDS_MARKET ETH_WARN ETH_CRIT DEP_WARN DEP_CRIT; do
   RPC=$(chain_rpc "$CHAIN")
   CHAIN_INFO=$(chain_contracts "$CHAIN")
   if [ -z "$RPC" ] || [ -z "$CHAIN_INFO" ]; then
-    printf "%-36s %-12s %-22s %s\n" "$LABEL" "$ROLE" "$CHAIN" "(chain not found — RPC or deployment.toml entry missing)"
+    printf "%-36s %-44s %-12s %-22s %s\n" "$LABEL" "$ADDR" "$ROLE" "$CHAIN" "(chain not found — RPC or deployment.toml entry missing)"
     continue
   fi
   MKT="${CHAIN_INFO%%|*}"
@@ -209,6 +223,12 @@ while IFS=$'\t' read -r LABEL ADDR ROLE CHAIN NEEDS_GAS NEEDS_MARKET ETH_WARN ET
   if [ "$NEEDS_MARKET" = "true" ] && [ -n "$MKT" ]; then
     D_RAW=$(decode_uint "$(cast call --rpc-url "$RPC" "$MKT" 'balanceOf(address)(uint256)' "$ADDR" 2>/dev/null || true)")
     D=$(fmt_eth "$D_RAW")
+    # Market-deposit thresholds are opt-in (no default); flag only when resolved for this entry.
+    if [ "$D" != "?" ] && [ "$D" != "-" ]; then
+      if [ -n "$DEP_CRIT" ] && flt_lt "$D" "$DEP_CRIT"; then FLAG="$FLAG DEPOSIT-CRIT"
+      elif [ -n "$DEP_WARN" ] && flt_lt "$D" "$DEP_WARN"; then FLAG="$FLAG DEPOSIT-LOW"
+      fi
+    fi
   fi
 
   if [ "$ROLE" = "prover" ] && [ -n "$MKT" ]; then
@@ -224,14 +244,14 @@ while IFS=$'\t' read -r LABEL ADDR ROLE CHAIN NEEDS_GAS NEEDS_MARKET ETH_WARN ET
     fi
   fi
 
-  printf "%-36s %-12s %-22s %-12s %-13s %-12s%s\n" "$LABEL" "$ROLE" "$CHAIN" "$E" "$D" "$C" "$FLAG"
+  printf "%-36s %-44s %-12s %-22s %-12s %-13s %-12s%s\n" "$LABEL" "$ADDR" "$ROLE" "$CHAIN" "$E" "$D" "$C" "$FLAG"
 done <<<"$TUPLES"
 
 # Distributor bridged-ZKC reserve (one row per (distributor address × its chains))
 echo
 echo "=== Distributor bridged-ZKC ERC20 reserve ==="
-printf "%-36s %-22s %-14s %s\n" DISTRIBUTOR CHAIN ZKC_RESERVE FLAG
-echo "----------------------------------------------------------------------"
+printf "%-36s %-44s %-22s %-14s %s\n" DISTRIBUTOR ADDRESS CHAIN ZKC_RESERVE FLAG
+echo "------------------------------------------------------------------------------------------------------------------------"
 
 DISTRIB_TUPLES=$(jq -r --arg incl "$INCLUDE_STAGING" '
   .addresses[]
@@ -257,26 +277,27 @@ while IFS=$'\t' read -r LABEL ADDR CHAIN; do
     elif flt_lt "$ZKC" "$R_WARN"; then FLAG="ZKC-LOW"
     fi
   fi
-  printf "%-36s %-22s %-14s %s\n" "$LABEL" "$CHAIN" "$ZKC" "$FLAG"
+  printf "%-36s %-44s %-22s %-14s %s\n" "$LABEL" "$ADDR" "$CHAIN" "$ZKC" "$FLAG"
 done <<<"$DISTRIB_TUPLES"
 ```
 
 ## Output format
 
-Render the script's output as **three separate markdown tables grouped by environment tier**, in this order so operators can scan the highest-stakes rows first:
+Render the script's output as **two separate markdown tables grouped by environment tier**, in this order so operators can scan the highest-stakes rows first:
 
 1. **Prod mainnet** — chains `base-mainnet`, `taiko-mainnet`. Real funds at stake; flagged rows here matter most.
-2. **Prod testnets** — chains `base-sepolia`, `ethereum-sepolia`. Public testnet operations; flags worth checking but lower urgency.
-3. **Staging** — chains `base-sepolia-staging`, `taiko-staging`. Internal testing; flagged rows are usually not paging-worthy unless they block an active staging change.
+2. **Staging** — chains `base-sepolia-staging`, `taiko-staging`. Internal testing; flagged rows are usually not paging-worthy unless they block an active staging change.
 
-Within each tier, **flagged rows in bold** (CRIT and LOW). The Distributor's bridged-ZKC reserve table can stay as a single fourth table at the end (or split by tier too if it's noisy).
+(The prod testnets `base-sepolia` and `ethereum-sepolia` were discontinued, so there's no prod-testnet tier.)
+
+Within each tier, **flagged rows in bold** (CRIT and LOW). The Distributor's bridged-ZKC reserve table can stay as a single third table at the end (or split by tier too if it's noisy).
 
 Follow with a short **"action list"** ordered by urgency (CRIT before LOW), with prod-mainnet items first since they map directly to operational impact. Skip the section if nothing is flagged.
 
 ## Common gotchas
 
 - **Don't conflate `balanceOfCollateral` with `balanceOf` for distributors.** Distributors don't deposit stake — their ZKC sits in the bridged-ERC20 directly. The script renders both: market deposit (`needs_market_check: true`) and the per-distributor ZKC reserve in the second table.
-- **Chain has both prod and staging market deployments**. Chain 167000 (Taiko mainnet) and chain 84532 (Base Sepolia) each have separate prod and staging market contracts. The runbook uses chain labels like `taiko-mainnet` (prod) vs `taiko-mainnet-staging` (staging) to disambiguate; the skill's chain lookup table mirrors that.
+- **Chain id reused across prod and staging**. Chain 167000 (Taiko) runs both a prod market (`taiko-mainnet`) and a staging market (`taiko-staging`); chain 84532 (Base Sepolia) now only carries the staging market (`base-sepolia-staging`) since the prod `base-sepolia` testnet was discontinued. The runbook disambiguates by chain label, and the skill's chain lookup table mirrors that.
 - **Decommissioned hosts may still have CloudWatch log groups** (e.g. `/boundless/bento/prover-01`, `prover-02`, `bento-prover-{1,2}`). The audit reflects the runbook's `operator_addresses.json` (which mirrors `infra/cw-monitoring/Pulumi.production.yaml` for active provers), not historical log-group existence.
 - **Public RPCs sometimes return 0** when rate-limited or transiently unhealthy. If a balance comes back as exactly 0, retry once with a private RPC (see Prerequisites: `network_secrets.toml`'s QuikNode keys) before declaring it actually empty.
 - **`awk` truncates wei to scientific notation.** Always pipe through Python or `printf "%.6f"` for any wei→ETH math.
