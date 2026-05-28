@@ -63,30 +63,6 @@ pub(super) struct Risc0BatchState {
     pub(super) assessor_proof_id: Option<String>,
 }
 
-impl From<Risc0Digest> for BackendDigest {
-    fn from(value: Risc0Digest) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<BackendDigest> for Risc0Digest {
-    fn from(value: BackendDigest) -> Self {
-        Self::from(<[u8; 32]>::from(value))
-    }
-}
-
-impl From<Risc0Digest> for ClaimDigest {
-    fn from(value: Risc0Digest) -> Self {
-        Self(BackendDigest::from(value))
-    }
-}
-
-impl From<ClaimDigest> for Risc0Digest {
-    fn from(value: ClaimDigest) -> Self {
-        Self::from(value.0)
-    }
-}
-
 impl Risc0BatchState {
     pub(super) fn from_backend_state(state: &BackendBatchState) -> Result<Self> {
         let decoded: Self = serde_json::from_value(state.0.clone())
@@ -201,7 +177,7 @@ impl Risc0Submission {
             .with_context(|| format!("Failed to decode assessor journal for {proof_id}"))?;
 
         Ok(AssessorArtifact {
-            claim_digest: claim_digest.into(),
+            claim_digest: ClaimDigest::from_native(claim_digest),
             selectors: journal.selectors,
             callbacks: journal.callbacks,
         })
@@ -662,13 +638,13 @@ impl BatchProcessor for Risc0BatchProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::{BatchOrder, OrderProvingData};
     use crate::provers::DefaultProver;
-    use crate::FulfillmentType;
     use alloy::primitives::{Address, Bytes, U256};
+    use boundless_backend::{BatchOrder, OrderProvingData};
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
+    use boundless_market::prover_utils::FulfillmentType;
     use std::sync::Arc;
 
     fn sample_state() -> Risc0BatchState {

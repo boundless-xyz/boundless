@@ -24,7 +24,7 @@ use risc0_zkvm::Receipt;
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
-use crate::futures_retry::{retry, retry_only_with_context, retry_with_context};
+use boundless_backend::futures_retry::{retry, retry_only_with_context, retry_with_context};
 use boundless_market::prover_utils::ProverConfig;
 
 fn sdk_err(err: SdkErr) -> ProverError {

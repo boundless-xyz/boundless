@@ -214,17 +214,11 @@ mod tests {
         ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use boundless_market::selector::ProofType;
-    use chrono::Utc;
     use risc0_zkvm::sha::Digest;
     use std::{
         collections::HashMap,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            OnceLock,
-        },
+        sync::atomic::{AtomicUsize, Ordering},
     };
-
-    use crate::{Order, OrderStatus};
 
     use super::super::types::{
         Backend, BackendBatchState, BatchProcessor, BatchProcessorObj, CancelOrder,
@@ -441,7 +435,9 @@ mod tests {
         FixedBytes::from([byte; 4])
     }
 
-    fn test_order(selector: FixedBytes<4>) -> Order {
+    const TEST_ORDER_ID: &str = "test-order";
+
+    fn test_request(selector: FixedBytes<4>) -> ProofRequest {
         let mut request = ProofRequest::new(
             RequestId::new(Address::ZERO, 1),
             Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
@@ -458,35 +454,13 @@ mod tests {
             },
         );
         request.requirements.selector = selector;
-
-        Order {
-            boundless_market_address: Address::ZERO,
-            chain_id: 1,
-            fulfillment_type: crate::FulfillmentType::LockAndFulfill,
-            request,
-            status: OrderStatus::Proving,
-            client_sig: Bytes::new(),
-            updated_at: Utc::now(),
-            image_id: None,
-            input_id: None,
-            total_cycles: None,
-            journal_bytes: None,
-            target_timestamp: None,
-            expire_timestamp: None,
-            proving_started_at: None,
-            backend_state: None,
-            backend_id: None,
-            lock_price: None,
-            error_msg: None,
-            cached_id: OnceLock::new(),
-        }
+        request
     }
 
     fn process_cmd(selector: FixedBytes<4>) -> ProcessOrder {
-        let order = test_order(selector);
         ProcessOrder {
-            order_id: order.id(),
-            request: order.request,
+            order_id: TEST_ORDER_ID.to_string(),
+            request: test_request(selector),
             image_id: None,
             input_id: None,
             backend_state: None,
@@ -495,7 +469,7 @@ mod tests {
 
     fn cancel_cmd(selector: FixedBytes<4>) -> CancelOrder {
         CancelOrder {
-            order_id: test_order(selector).id(),
+            order_id: TEST_ORDER_ID.to_string(),
             selector,
             backend_state: None,
             is_proving: true,
@@ -515,7 +489,7 @@ mod tests {
             progress,
             OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: BackendId::new("mock_a"),
-                order_id: test_order(selector(1)).id(),
+                order_id: TEST_ORDER_ID.to_string(),
                 submission_path: SubmissionPath::Batched,
                 compressed: false,
             })

@@ -35,7 +35,7 @@ pub(crate) mod order_locker;
 pub(crate) mod order_pricer;
 pub(crate) mod order_processor;
 mod order_types;
-pub mod provers;
+pub use risc0_backend::provers;
 pub(crate) mod requestor_monitor;
 pub(crate) mod shared;
 pub use shared::config;
@@ -43,10 +43,11 @@ pub(crate) use shared::{channels, errors, prioritization, service_runner, task};
 pub(crate) mod submitter;
 pub(crate) mod telemetry;
 pub mod utils;
+pub use boundless_backend::futures_retry;
 pub(crate) use utils::{
     format_expiries, is_dev_mode, now_timestamp, reaper, rpc_retry_policy, storage,
 };
-pub use utils::{futures_retry, rpcmetrics, sequential_fallback};
+pub use utils::{rpcmetrics, sequential_fallback};
 pub mod version_check;
 
 pub use args::{build_chain_provider, ChainArgs, ChainPipeline, CoreArgs};

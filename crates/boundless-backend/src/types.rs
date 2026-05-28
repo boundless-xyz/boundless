@@ -16,6 +16,7 @@ use std::{fmt, sync::Arc};
 
 use alloy::primitives::{Address, Bytes, FixedBytes, B256};
 use async_trait::async_trait;
+use boundless_market::prover_utils::{prover::ProverError, FulfillmentType};
 use boundless_market::prover_utils::{
     EvaluationLimits, EvaluationRequest, OrderPricingError, RequestEvaluation,
 };
@@ -28,7 +29,6 @@ use boundless_market::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{provers, FulfillmentType};
 use anyhow::Result;
 
 macro_rules! string_id {
@@ -81,6 +81,20 @@ impl Digest {
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+
+    /// Build from a backend's native 32-byte digest (e.g. `risc0_zkvm::sha::Digest`).
+    ///
+    /// Rust's orphan rule forbids a cross-crate `From` impl between a backend's digest type and
+    /// this one (both are foreign to the backend crate), so backends bridge through `[u8; 32]`.
+    /// This generic constructor is the shared, coherence-safe way to do that for any backend.
+    pub fn from_native<T: Into<[u8; 32]>>(value: T) -> Self {
+        Self(value.into())
+    }
+
+    /// Convert into a backend's native 32-byte digest type. Inverse of [`Digest::from_native`].
+    pub fn to_native<T: From<[u8; 32]>>(self) -> T {
+        T::from(self.0)
+    }
 }
 
 impl From<[u8; 32]> for Digest {
@@ -102,6 +116,16 @@ impl ProgramId {
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
+
+    /// Build from a backend's native 32-byte digest. See [`Digest::from_native`].
+    pub fn from_native<T: Into<[u8; 32]>>(value: T) -> Self {
+        Self(Digest::from_native(value))
+    }
+
+    /// Convert into a backend's native 32-byte digest type.
+    pub fn to_native<T: From<[u8; 32]>>(self) -> T {
+        self.0.to_native()
+    }
 }
 
 impl From<[u8; 32]> for ProgramId {
@@ -116,7 +140,6 @@ impl From<ProgramId> for [u8; 32] {
     }
 }
 
-/// Command for processing one accepted broker order.
 /// Backend-neutral input for processing one order. The broker hands the backend exactly what
 /// it needs to prove, never its own `Order` lifecycle type.
 #[derive(Clone, Debug)]
@@ -178,6 +201,16 @@ pub struct ClaimDigest(pub Digest);
 impl ClaimDigest {
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
+    }
+
+    /// Build from a backend's native 32-byte claim digest. See [`Digest::from_native`].
+    pub fn from_native<T: Into<[u8; 32]>>(value: T) -> Self {
+        Self(Digest::from_native(value))
+    }
+
+    /// Convert into a backend's native 32-byte digest type.
+    pub fn to_native<T: From<[u8; 32]>>(self) -> T {
+        self.0.to_native()
     }
 }
 
@@ -335,8 +368,8 @@ impl BackendError {
     }
 }
 
-impl From<provers::ProverError> for BackendError {
-    fn from(err: provers::ProverError) -> Self {
+impl From<ProverError> for BackendError {
+    fn from(err: ProverError) -> Self {
         Self::operation(err)
     }
 }
@@ -364,7 +397,7 @@ pub struct SubmissionAssessorArtifact {
 }
 
 #[async_trait]
-pub(crate) trait BatchProcessor: Send + Sync {
+pub trait BatchProcessor: Send + Sync {
     async fn estimate_batch_size(&self, cmd: BatchSizeEstimateRequest)
         -> Result<BatchSizeEstimate>;
 
@@ -373,7 +406,7 @@ pub(crate) trait BatchProcessor: Send + Sync {
     async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError>;
 }
 
-pub(crate) type BatchProcessorObj = Arc<dyn BatchProcessor>;
+pub type BatchProcessorObj = Arc<dyn BatchProcessor>;
 
 #[async_trait]
 pub trait Backend: Send + Sync {
@@ -408,7 +441,7 @@ pub trait Backend: Send + Sync {
     ) -> Result<(), VerifierUpdateError>;
 }
 
-pub(crate) type BackendObj = Arc<dyn Backend>;
+pub type BackendObj = Arc<dyn Backend>;
 
 #[derive(Clone)]
 pub struct BackendEntry {

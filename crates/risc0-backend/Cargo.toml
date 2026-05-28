@@ -1,0 +1,45 @@
+[package]
+name = "risc0-backend"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[package.metadata.release]
+release = false
+
+[features]
+# Exposes test-only constructors (`with_test_batch_processor`, `with_set_verifier`, …) for
+# downstream crates' tests (e.g. the broker's batcher/submitter tests).
+test-support = []
+
+[dependencies]
+alloy = { workspace = true, features = ["network", "providers", "sol-types", "contract"] }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bincode = { workspace = true }
+blake3_groth16 = { workspace = true }
+bonsai-sdk = { workspace = true }
+boundless-assessor = { workspace = true }
+boundless-backend = { workspace = true }
+boundless-market = { workspace = true, features = ["prover_utils"] }
+hex = { workspace = true }
+moka = { version = "0.12", features = ["future"] }
+reqwest = { workspace = true }
+risc0-aggregation = { workspace = true }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
+risc0-zkvm = { workspace = true, features = ["std", "client"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+boundless-test-utils = { workspace = true }
+risc0-groth16 = { workspace = true, features = ["prove"] }
+tokio = { workspace = true, features = ["full", "test-util"] }

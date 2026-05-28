@@ -37,10 +37,9 @@ anyhow = { workspace = true }
 async-channel = "2.3"
 async-stream = "0.3"
 async-trait = { workspace = true }
-bincode = { workspace = true }
 blake3_groth16 = { workspace = true }
-bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
+boundless-backend = { workspace = true }
 boundless-market = { workspace = true, features = ["prover_utils"] }
 boundless-test-utils = { workspace = true, optional = true }
 bytemuck = { workspace = true }
@@ -55,11 +54,11 @@ rand = { workspace = true }
 requestor-lists = { path = "../requestor-lists" }
 reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
+risc0-backend = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10"
 sqlx = { workspace = true, features = ["sqlite", "postgres", "runtime-tokio", "json", "migrate", "macros"] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -70,7 +69,6 @@ tower = "0.5"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 url = { workspace = true }
-uuid = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
@@ -82,6 +80,7 @@ httpmock = "0.7"
 proptest = "1.4"
 proptest-derive = "0.5"
 rand = { workspace = true }
+risc0-backend = { workspace = true, features = ["test-support"] }
 risc0-groth16 = { workspace = true, features = ["prove"] }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serial_test = "3.2"

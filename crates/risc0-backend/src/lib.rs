@@ -47,6 +47,18 @@ use risc0_zkvm::{
     MaybePruned, Receipt, ReceiptClaim,
 };
 
+pub mod provers;
+
+/// Whether `RISC0_DEV_MODE` is enabled. Local copy of the broker's env check (risc0-zkvm's own
+/// `is_dev_mode` is deprecated and no longer authoritative).
+fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
+
 const PREFLIGHT_CACHE_SIZE: u64 = 5000;
 const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60;
 const IMAGE_UPLOAD_CACHE_SIZE: u64 = 1000;
@@ -61,14 +73,12 @@ const SELECTOR_FAKE_RECEIPT: FixedBytes<4> =
 const SELECTOR_FAKE_BLAKE3_GROTH16: FixedBytes<4> =
     FixedBytes::new((SelectorExt::FakeBlake3Groth16 as u32).to_be_bytes());
 
-use crate::{
-    futures_retry::retry_with_context,
-    is_dev_mode,
-    provers::{self, BonsaiConfig, ProverObj},
-};
+use crate::provers::{BonsaiConfig, ProverObj};
 use anyhow::{Context, Result};
+use boundless_backend::futures_retry::retry_with_context;
 
 /// Construction-time settings the RISC0 backend reads once at startup.
+#[derive(Clone)]
 pub struct Risc0BackendConfig {
     pub bonsai_r0_zkvm_ver: Option<String>,
     pub req_retry_count: u64,
@@ -86,13 +96,13 @@ pub struct Risc0BackendConfig {
 /// reads the broker's reloadable config, so runtime changes are still picked up per prove.
 pub type ProofRetryPolicy = Arc<dyn Fn() -> (u64, u64) + Send + Sync>;
 
-use super::types::{
+use boundless_backend::{
     AssessorArtifact, Backend, BackendBatchState, BackendError, BackendId, BackendOrderState,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
-    BatchUpdate, CancelOrder, ClaimDigest, CloseBatch, Digest as BackendDigest,
-    FailedFulfillmentOrder, FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress,
-    OrderProvingData, ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact,
-    SubmissionPath, SubmissionPlan, UpdateBatch, VerifierUpdate, VerifierUpdateError,
+    BatchUpdate, CancelOrder, ClaimDigest, CloseBatch, FailedFulfillmentOrder, FulfillmentBatch,
+    OrderFulfillmentArtifact, OrderProcessProgress, OrderProvingData, ProcessOrder, ProcessedOrder,
+    ProofId, SubmissionAssessorArtifact, SubmissionPath, SubmissionPlan, UpdateBatch,
+    VerifierUpdate, VerifierUpdateError,
 };
 
 /// Bump when the serialized [`Risc0OrderState`] shape changes incompatibly. A newer-than-known
@@ -107,12 +117,12 @@ fn risc0_order_state_version() -> u32 {
 
 /// JSON-serialized inside [`BackendOrderState`] for the RISC0 backend.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub(super) struct Risc0OrderState {
+pub(crate) struct Risc0OrderState {
     #[serde(default = "risc0_order_state_version")]
-    pub(super) version: u32,
-    pub(super) proof_id: String,
+    pub(crate) version: u32,
+    pub(crate) proof_id: String,
     #[serde(default)]
-    pub(super) compressed_proof_id: Option<String>,
+    pub(crate) compressed_proof_id: Option<String>,
 }
 
 impl Default for Risc0OrderState {
@@ -126,7 +136,7 @@ impl Default for Risc0OrderState {
 }
 
 impl Risc0OrderState {
-    pub(super) fn decode(state: &BackendOrderState) -> Result<Self> {
+    pub(crate) fn decode(state: &BackendOrderState) -> Result<Self> {
         let decoded: Self = serde_json::from_value(state.0.clone())
             .context("Failed to decode RISC0 order state")?;
         anyhow::ensure!(
@@ -139,7 +149,7 @@ impl Risc0OrderState {
         Ok(decoded)
     }
 
-    pub(super) fn encode(&self) -> BackendOrderState {
+    pub(crate) fn encode(&self) -> BackendOrderState {
         BackendOrderState(
             serde_json::to_value(self).expect("Risc0OrderState always serializes to JSON"),
         )
@@ -283,13 +293,13 @@ impl Risc0Backend {
         selectors
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     pub fn with_set_builder_program_id(mut self, set_builder_program_id: Risc0Digest) -> Self {
         self.set_builder_program_id = Some(set_builder_program_id);
         self
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     pub fn with_set_verifier<P>(
         mut self,
         set_verifier_addr: Address,
@@ -305,9 +315,9 @@ impl Risc0Backend {
         self
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn with_test_batch_processor(
+    pub fn with_test_batch_processor(
         mut self,
         proof_retry: ProofRetryPolicy,
         prover: ProverObj,
@@ -527,7 +537,10 @@ impl Risc0Backend {
         Ok(bytes)
     }
 
-    async fn upload_order_image(&self, request: &crate::ProofRequest) -> Result<String> {
+    async fn upload_order_image(
+        &self,
+        request: &boundless_market::contracts::ProofRequest,
+    ) -> Result<String> {
         let predicate = Predicate::try_from(request.requirements.predicate.clone())
             .with_context(|| format!("Failed to parse predicate for request {:x}", request.id))?;
 
@@ -583,7 +596,10 @@ impl Risc0Backend {
         Ok(image_id_str)
     }
 
-    async fn upload_order_input(&self, request: &crate::ProofRequest) -> Result<String> {
+    async fn upload_order_input(
+        &self,
+        request: &boundless_market::contracts::ProofRequest,
+    ) -> Result<String> {
         Ok(match request.input.inputType {
             RequestInputType::Inline => self
                 .prover
@@ -996,7 +1012,7 @@ impl Backend for Risc0Backend {
                         FulfillmentDataType::None,
                     ),
                     PredicateType::PrefixMatch | PredicateType::DigestMatch => (
-                        ClaimDigest::from(order_claim_digest),
+                        ClaimDigest::from_native(order_claim_digest),
                         FulfillmentDataImageIdAndJournal {
                             imageId: <[u8; 32]>::from(order_img_id).into(),
                             journal: order_journal.into(),
@@ -1034,7 +1050,7 @@ impl Backend for Risc0Backend {
         }
 
         let assessor = submission.assessor_receipt(assessor_proof_id).await?;
-        let assessor_claim = Risc0Digest::from(assessor.claim_digest);
+        let assessor_claim: Risc0Digest = assessor.claim_digest.to_native();
         let assessor_claim_index = aggregation_state
             .claim_digests
             .iter()

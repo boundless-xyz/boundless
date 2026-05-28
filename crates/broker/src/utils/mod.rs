@@ -16,7 +16,6 @@
 //! the reaper task, and small misc helpers (gas estimation, timestamps,
 //! and expiry formatting).
 
-pub mod futures_retry;
 mod helpers;
 pub(crate) mod reaper;
 pub(crate) mod rpc_retry_policy;

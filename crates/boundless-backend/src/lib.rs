@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Broker-facing backend boundary.
+//! Backend-agnostic API for the Boundless broker.
 //!
-//! The backend-agnostic API (traits, payloads, router) lives in the `boundless-backend` crate and
-//! the RISC0 implementation in the `risc0-backend` crate; both are re-exported here so the rest of
-//! the broker keeps using `crate::backend::*`. The broker keeps DB state, retry policy,
-//! cancellation, and batch lifecycle orchestration; backend implementations own zkVM-specific
-//! proof processing.
+//! Defines the [`Backend`]/[`BatchProcessor`] traits a proving backend implements, the neutral
+//! command/payload types exchanged across that boundary, and the [`BackendRouter`] that
+//! dispatches by verifier selector. Backend implementations (e.g. `risc0-backend`) depend on
+//! this crate; the broker wires them together. No broker-internal types leak through here.
 
-pub use boundless_backend::*;
-pub use risc0_backend::{prune_receipt_claim_journal, Risc0Backend, Risc0BackendConfig};
+pub mod futures_retry;
+mod router;
+mod types;
+
+pub use router::BackendRouter;
+pub use types::*;

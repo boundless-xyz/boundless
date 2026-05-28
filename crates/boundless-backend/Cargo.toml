@@ -1,0 +1,26 @@
+[package]
+name = "boundless-backend"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+alloy = { workspace = true, features = ["sol-types"] }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+boundless-market = { workspace = true, features = ["prover_utils"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+risc0-zkvm = { workspace = true, features = ["std"] }
+tracing-test = { workspace = true }
