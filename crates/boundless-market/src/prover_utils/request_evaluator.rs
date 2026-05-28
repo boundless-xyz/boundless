@@ -265,27 +265,17 @@ impl Risc0Evaluator {
     }
 
     /// Enable coalescing of concurrent image uploads for identical requests.
+    #[cfg(any(feature = "prover_utils", test))]
     pub fn with_image_upload_cache(mut self, cache: ImageUploadCache) -> Self {
         self.image_upload_cache = Some(cache);
         self
     }
 
     /// Install a priority-requestor predicate.
+    #[cfg(feature = "prover_utils")]
     pub fn with_priority_check(mut self, check: PriorityRequestorCheck) -> Self {
         self.priority_check = Some(check);
         self
-    }
-
-    pub fn prover(&self) -> &ProverObj {
-        &self.prover
-    }
-
-    pub fn downloader(&self) -> &Arc<dyn StorageDownloader + Send + Sync> {
-        &self.downloader
-    }
-
-    pub fn preflight_cache(&self) -> &PreflightCache {
-        &self.preflight_cache
     }
 
     async fn resolve_program_id(
