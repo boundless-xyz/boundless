@@ -29,21 +29,15 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
             { dependsOn: [role] }
         );
 
-        const stagingDeploymentTaiko = new aws.codebuild.Project(
-            `l-${this.config.appName}-staging-167000-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-staging-167000", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
-
-        const stagingDeploymentEthSepolia = new aws.codebuild.Project(
-            `l-${this.config.appName}-staging-11155111-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-staging-11155111", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
-
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+            { dependsOn: [role] }
+        );
+
+        const stagingDeploymentTaiko = new aws.codebuild.Project(
+            `l-${this.config.appName}-staging-167000-build`,
+            this.codeBuildProjectArgs(this.config.appName, "l-staging-167000", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
             { dependsOn: [role] }
         );
 
@@ -92,19 +86,6 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                                 ProjectName: stagingDeploymentBaseSepolia.name
                             },
                             outputArtifacts: ["staging_output_base_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        },
-                        {
-                            name: "DeployStagingEthSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 1,
-                            configuration: {
-                                ProjectName: stagingDeploymentEthSepolia.name
-                            },
-                            outputArtifacts: ["staging_output_eth_sepolia"],
                             inputArtifacts: ["source_output"],
                         },
                         {
