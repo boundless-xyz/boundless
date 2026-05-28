@@ -73,7 +73,6 @@ string_id!(
     "Stable broker-side identity for a backend registration. This is distinct from a verifier selector: many selectors may route to the same backend, and broker policy/batching is keyed by backend."
 );
 string_id!(ProofId, "Durable backend proof handle.");
-string_id!(AssessorProofId, "Durable backend assessor proof handle.");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Digest(pub [u8; 32]);
@@ -142,6 +141,9 @@ pub struct ProcessedOrder {
     pub backend_id: BackendId,
     pub order_id: String,
     pub next_status: OrderStatus,
+    /// Whether proving produced a compressed seal. Kept distinct from `next_status` so a status
+    /// rename or a new backend can't silently shift what telemetry counts as compression.
+    pub compressed: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -188,7 +190,6 @@ pub struct FulfillmentOrder {
 pub struct FulfillmentBatch {
     pub backend_id: BackendId,
     pub state: Option<BackendBatchState>,
-    pub assessor_proof_id: Option<AssessorProofId>,
     pub eip712_domain: EIP712DomainSaltless,
     pub orders: Vec<FulfillmentOrder>,
 }
@@ -263,7 +264,8 @@ pub struct UpdateBatch {
 
 pub struct BatchUpdate {
     pub state: BackendBatchState,
-    pub assessor_proof_id: Option<AssessorProofId>,
+    /// Echoes the requested `finalize`; the broker flips the batch to `PendingCompression` on it.
+    pub finalize: bool,
     pub batch_update_secs: Option<f64>,
     pub assessor_secs: Option<f64>,
 }

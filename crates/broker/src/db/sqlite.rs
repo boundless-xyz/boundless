@@ -35,7 +35,7 @@ use tracing::instrument;
 use url::Url;
 
 use crate::{
-    backend::{AssessorProofId, BackendBatchState, BackendId, BackendOrderState},
+    backend::{BackendBatchState, BackendId, BackendOrderState},
     db::{
         error::DbError,
         types::{BatchReadyOrder, DbBatch, DbLockedRequest, DbOrder},
@@ -662,13 +662,13 @@ impl BrokerDb for SqliteDb {
         }
     }
 
-    #[instrument(level = "trace", skip(self, backend_state, orders, assessor_proof_id))]
+    #[instrument(level = "trace", skip(self, backend_state, orders))]
     async fn update_batch(
         &self,
         batch_id: usize,
         backend_state: &BackendBatchState,
         orders: &[BatchReadyOrder],
-        assessor_proof_id: Option<AssessorProofId>,
+        finalize: bool,
     ) -> Result<(), DbError> {
         let mut txn = self.pool.begin().await?;
 
@@ -759,20 +759,16 @@ impl BrokerDb for SqliteDb {
             }
         }
 
-        if let Some(assessor_proof_id) = assessor_proof_id {
+        if finalize {
             let res = sqlx::query(
                 r#"
                 UPDATE batches
                 SET
-                    data = json_set(
-                           json_set(data,
-                           '$.status', $1),
-                           '$.assessor_proof_id', json($2))
+                    data = json_set(data, '$.status', $1)
                 WHERE
-                    id = $3"#,
+                    id = $2"#,
             )
             .bind(BatchStatus::PendingCompression)
-            .bind(sqlx::types::Json(assessor_proof_id))
             .bind(batch_id as i64)
             .execute(&mut *txn)
             .await?;
@@ -1376,14 +1372,7 @@ mod tests {
         };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
-        db.update_batch(
-            batch_id,
-            &backend_state,
-            &batch_orders,
-            Some(AssessorProofId::new("proof_id")),
-        )
-        .await
-        .unwrap();
+        db.update_batch(batch_id, &backend_state, &batch_orders, true).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::PendingCompression);

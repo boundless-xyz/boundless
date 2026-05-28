@@ -27,7 +27,7 @@ use async_trait::async_trait;
 #[cfg(test)]
 use crate::BatchStatus;
 use crate::{
-    backend::{AssessorProofId, BackendBatchState, BackendId, BackendOrderState},
+    backend::{BackendBatchState, BackendId, BackendOrderState},
     Batch, FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
 };
 
@@ -113,13 +113,13 @@ pub trait BrokerDb {
     /// Update a broker batch with backend state and newly claimed orders.
     ///
     /// Sets the backend state, and adds the given orders to the batch, updating the batch fees
-    /// and deadline. During finalization, the assessor_proof_id is recorded as well.
+    /// and deadline. When `finalize` is true, the batch transitions to `PendingCompression`.
     async fn update_batch(
         &self,
         batch_id: usize,
         backend_state: &BackendBatchState,
         orders: &[BatchReadyOrder],
-        assessor_proof_id: Option<AssessorProofId>,
+        finalize: bool,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 

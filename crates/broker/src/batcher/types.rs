@@ -19,7 +19,7 @@ use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::backend::{AssessorProofId, BackendBatchState, BackendId};
+use crate::backend::{BackendBatchState, BackendId};
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BatchStatus {
@@ -39,8 +39,6 @@ pub struct Batch {
     pub status: BatchStatus,
     /// Orders from the market that are included in this batch.
     pub orders: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub assessor_proof_id: Option<AssessorProofId>,
     /// Opaque backend batch state persisted by the broker between lifecycle steps.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_state: Option<BackendBatchState>,
@@ -61,7 +59,6 @@ impl Batch {
             backend_id,
             status: BatchStatus::Open,
             orders: Vec::new(),
-            assessor_proof_id: None,
             backend_state: None,
             start_time,
             deadline: None,

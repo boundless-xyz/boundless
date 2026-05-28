@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     sync::Arc,
 };
 
@@ -74,15 +74,7 @@ impl BackendRouter {
         }
 
         for selector in &entry.selectors {
-            match self.routes.entry(*selector) {
-                Entry::Occupied(occ) => anyhow::bail!(
-                    "selector {selector:?} is already registered to backend {}",
-                    occ.get()
-                ),
-                Entry::Vacant(vac) => {
-                    vac.insert(entry.id.clone());
-                }
-            }
+            self.routes.insert(*selector, entry.id.clone());
         }
         self.backends.insert(entry.id.clone(), entry);
         Ok(self)
@@ -280,7 +272,7 @@ mod tests {
                     "backend_id": self.id.to_string(),
                     "batch_id": cmd.batch_id,
                 })),
-                assessor_proof_id: None,
+                finalize: cmd.finalize,
                 batch_update_secs: None,
                 assessor_secs: None,
             })
@@ -394,6 +386,7 @@ mod tests {
                 backend_id: self.id.clone(),
                 order_id: cmd.order.id(),
                 next_status: OrderStatus::ReadyForBatch,
+                compressed: false,
             }))
         }
 
@@ -508,6 +501,7 @@ mod tests {
                 backend_id: BackendId::new("mock_a"),
                 order_id: test_order(selector(1)).id(),
                 next_status: OrderStatus::ReadyForBatch,
+                compressed: false,
             })
         );
     }
@@ -602,7 +596,6 @@ mod tests {
             .build_fulfillments(FulfillmentBatch {
                 backend_id: backend_a_id.clone(),
                 state: None,
-                assessor_proof_id: None,
                 eip712_domain: eip712_domain(Address::ZERO, 1),
                 orders: Vec::new(),
             })
@@ -612,7 +605,6 @@ mod tests {
             .build_fulfillments(FulfillmentBatch {
                 backend_id: backend_b_id.clone(),
                 state: None,
-                assessor_proof_id: None,
                 eip712_domain: eip712_domain(Address::ZERO, 1),
                 orders: Vec::new(),
             })

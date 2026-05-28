@@ -73,25 +73,56 @@ use crate::{
 use anyhow::{Context, Result};
 
 use super::types::{
-    AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
-    BackendOrderState, BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate,
-    BatchSizeEstimateRequest, BatchUpdate, ClaimDigest, CloseBatch, Digest as BackendDigest,
-    FailedFulfillmentOrder, FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress,
-    ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch,
-    VerifierUpdate, VerifierUpdateError,
+    AssessorArtifact, Backend, BackendBatchState, BackendError, BackendId, BackendOrderState,
+    BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
+    BatchUpdate, ClaimDigest, CloseBatch, Digest as BackendDigest, FailedFulfillmentOrder,
+    FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress, ProcessOrder, ProcessedOrder,
+    ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch, VerifierUpdate,
+    VerifierUpdateError,
 };
 
+/// Bump when the serialized [`Risc0OrderState`] shape changes incompatibly. A newer-than-known
+/// version on read means the broker was downgraded mid-flight; [`Risc0OrderState::decode`] rejects
+/// it rather than silently misreading. State written before versioning has no field and defaults
+/// to 1, which is its shape.
+const RISC0_ORDER_STATE_VERSION: u32 = 1;
+
+fn risc0_order_state_version() -> u32 {
+    RISC0_ORDER_STATE_VERSION
+}
+
 /// JSON-serialized inside [`BackendOrderState`] for the RISC0 backend.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct Risc0OrderState {
+    #[serde(default = "risc0_order_state_version")]
+    pub(super) version: u32,
     pub(super) proof_id: String,
     #[serde(default)]
     pub(super) compressed_proof_id: Option<String>,
 }
 
+impl Default for Risc0OrderState {
+    fn default() -> Self {
+        Self {
+            version: RISC0_ORDER_STATE_VERSION,
+            proof_id: String::new(),
+            compressed_proof_id: None,
+        }
+    }
+}
+
 impl Risc0OrderState {
     pub(super) fn decode(state: &BackendOrderState) -> Result<Self> {
-        serde_json::from_value(state.0.clone()).context("Failed to decode RISC0 order state")
+        let decoded: Self = serde_json::from_value(state.0.clone())
+            .context("Failed to decode RISC0 order state")?;
+        anyhow::ensure!(
+            decoded.version <= RISC0_ORDER_STATE_VERSION,
+            "RISC0 order state schema version {} is newer than this broker supports ({}); \
+             the broker may have been downgraded while an order was in flight",
+            decoded.version,
+            RISC0_ORDER_STATE_VERSION,
+        );
+        Ok(decoded)
     }
 
     pub(super) fn encode(&self) -> BackendOrderState {
@@ -752,7 +783,7 @@ impl Backend for Risc0Backend {
             None => {
                 let proof_id = self.start_order(&order).await?;
                 return Ok(OrderProcessProgress::InProgress {
-                    state: Risc0OrderState { proof_id, compressed_proof_id: None }.encode(),
+                    state: Risc0OrderState { proof_id, ..Default::default() }.encode(),
                 });
             }
         };
@@ -772,6 +803,7 @@ impl Backend for Risc0Backend {
         }
 
         let next_status = next_status_for_risc0_selector(order.request.requirements.selector);
+        let compressed = state.compressed_proof_id.is_some();
 
         tracing::info!(
             "Customer Proof complete for proof_id: {}, order_id: {order_id} cycles: {:?} time: {}",
@@ -784,6 +816,7 @@ impl Backend for Risc0Backend {
             backend_id: self.id.clone(),
             order_id,
             next_status,
+            compressed,
         }))
     }
 
@@ -817,9 +850,9 @@ impl Backend for Risc0Backend {
         let backend_state =
             cmd.state.as_ref().context("Cannot submit batch with no recorded backend state")?;
         let aggregation_state = Risc0BatchState::from_backend_state(backend_state)?;
-        let assessor_proof_id = cmd
+        let assessor_proof_id = aggregation_state
             .assessor_proof_id
-            .as_ref()
+            .as_deref()
             .context("Cannot submit batch with no assessor receipt")?;
         let set_builder_program_id = self
             .set_builder_program_id
@@ -880,7 +913,10 @@ impl Backend for Risc0Backend {
             let order_id = order.order_id.clone();
             let res = async {
                 let state = order_states.get(&order_id).with_context(|| {
-                    format!("Order {order_id} missing backend state for submission")
+                    format!(
+                        "Order {order_id} storage-class failure: missing DB row or backend state \
+                         at fulfillment build time"
+                    )
                 })?;
                 let order_img_id = Risc0Digest::from(<[u8; 32]>::from(order.program_id));
                 let order_journal = self
@@ -1002,7 +1038,7 @@ impl Backend for Risc0Backend {
             }
         }
 
-        let assessor = submission.assessor_receipt(assessor_proof_id.as_str()).await?;
+        let assessor = submission.assessor_receipt(assessor_proof_id).await?;
         let assessor_claim = Risc0Digest::from(assessor.claim_digest);
         let assessor_claim_index = aggregation_state
             .claim_digests
@@ -1090,7 +1126,7 @@ mod tests {
     }
 
     #[test]
-    fn unspecified_selector_orders_enter_aggregation() {
+    fn unspecified_selector_orders_ready_for_batch() {
         assert_eq!(
             next_status_for_risc0_selector(UNSPECIFIED_SELECTOR),
             OrderStatus::ReadyForBatch
@@ -1098,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn compressed_selector_orders_skip_aggregation() {
+    fn compressed_selector_orders_ready_for_submission() {
         for selector in [
             selector_ext(SelectorExt::groth16_latest()),
             selector_ext(SelectorExt::blake3_groth16_latest()),
@@ -1173,22 +1209,24 @@ mod tests {
     fn guard_fulfillment_batch(
         backend_id: BackendId,
         state: Option<BackendBatchState>,
-        assessor_proof_id: Option<AssessorProofId>,
     ) -> FulfillmentBatch {
         FulfillmentBatch {
             backend_id,
             state,
-            assessor_proof_id,
             eip712_domain: eip712_domain(Address::ZERO, 1),
             orders: vec![],
         }
     }
 
-    fn decodable_backend_state() -> BackendBatchState {
-        BackendBatchState(serde_json::json!({
+    fn decodable_backend_state(assessor_proof_id: Option<&str>) -> BackendBatchState {
+        let mut value = serde_json::json!({
             "guest_state": GuestState::initial(Risc0Digest::ZERO),
             "claim_digests": Vec::<Risc0Digest>::new(),
-        }))
+        });
+        if let Some(id) = assessor_proof_id {
+            value["assessor_proof_id"] = serde_json::json!(id);
+        }
+        BackendBatchState(value)
     }
 
     // `SubmissionPlan` is intentionally not `Debug`, so `unwrap_err` is unavailable here.
@@ -1205,7 +1243,7 @@ mod tests {
     #[tokio::test]
     async fn build_fulfillments_rejects_mismatched_backend_id() {
         let backend = guard_test_backend().await;
-        let cmd = guard_fulfillment_batch(BackendId::new("other_backend"), None, None);
+        let cmd = guard_fulfillment_batch(BackendId::new("other_backend"), None);
         let err = expect_build_fulfillments_err(&backend, cmd).await;
         assert!(
             err.to_string().contains("cannot build fulfillments for backend"),
@@ -1216,9 +1254,46 @@ mod tests {
     #[tokio::test]
     async fn build_fulfillments_requires_backend_state() {
         let backend = guard_test_backend().await;
-        let cmd = guard_fulfillment_batch(Risc0Backend::default_id(), None, None);
+        let cmd = guard_fulfillment_batch(Risc0Backend::default_id(), None);
         let err = expect_build_fulfillments_err(&backend, cmd).await;
         assert!(err.to_string().contains("no recorded backend state"), "unexpected error: {err:#}");
+    }
+
+    #[test]
+    fn risc0_order_state_rejects_future_version() {
+        let raw = BackendOrderState(serde_json::json!({
+            "version": u32::MAX,
+            "proof_id": "abc",
+        }));
+        let err = match Risc0OrderState::decode(&raw) {
+            Ok(_) => panic!("future schema version must be rejected"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("newer than this broker supports"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn risc0_order_state_defaults_missing_version() {
+        let raw = BackendOrderState(serde_json::json!({ "proof_id": "abc" }));
+        let decoded = Risc0OrderState::decode(&raw).unwrap();
+        assert_eq!(decoded.version, RISC0_ORDER_STATE_VERSION);
+        assert_eq!(decoded.proof_id, "abc");
+    }
+
+    #[test]
+    fn risc0_order_state_round_trips_proof_id() {
+        // Guards that the raw opaque JSON `db/fuzz_db.rs` writes still decodes to a typed state.
+        let raw = BackendOrderState(serde_json::json!({ "proof_id": "fuzz_proof_42" }));
+        let decoded = Risc0OrderState::decode(&raw).unwrap();
+        assert_eq!(decoded.proof_id, "fuzz_proof_42");
+        assert_eq!(decoded.compressed_proof_id, None);
+
+        let re_encoded = decoded.encode();
+        let re_decoded = Risc0OrderState::decode(&re_encoded).unwrap();
+        assert_eq!(re_decoded.proof_id, "fuzz_proof_42");
     }
 
     #[tokio::test]
@@ -1226,8 +1301,7 @@ mod tests {
         let backend = guard_test_backend().await;
         let cmd = guard_fulfillment_batch(
             Risc0Backend::default_id(),
-            Some(decodable_backend_state()),
-            None,
+            Some(decodable_backend_state(None)),
         );
         let err = expect_build_fulfillments_err(&backend, cmd).await;
         assert!(err.to_string().contains("no assessor receipt"), "unexpected error: {err:#}");

@@ -452,7 +452,7 @@ impl BatcherService {
                 batch_id,
                 &update.state,
                 &[batch_update_orders, direct_submit_orders].concat(),
-                update.assessor_proof_id.clone(),
+                update.finalize,
             )
             .await
             .with_context(|| {

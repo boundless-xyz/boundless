@@ -209,7 +209,6 @@ where
             .build_fulfillments(FulfillmentBatch {
                 backend_id: batch.backend_id.clone(),
                 state: batch.backend_state.clone(),
-                assessor_proof_id: batch.assessor_proof_id.clone(),
                 eip712_domain: self.market.eip712_domain().await?,
                 orders: fulfillment_orders,
             })
@@ -568,8 +567,7 @@ mod tests {
     use super::*;
     use crate::{
         backend::{
-            AssessorProofId, BackendBatchState, BackendEntry, BackendOrderState, BackendRouter,
-            Risc0Backend,
+            BackendBatchState, BackendEntry, BackendOrderState, BackendRouter, Risc0Backend,
         },
         db::SqliteDb,
         now_timestamp,
@@ -883,7 +881,6 @@ mod tests {
         let batch = Batch {
             backend_id: Risc0Backend::default_id(),
             status: BatchStatus::ReadyToSubmit,
-            assessor_proof_id: Some(AssessorProofId::new(assessor_proof.id)),
             orders: batch_orders,
             fees: U256::ZERO,
             start_time: Utc::now(),
@@ -897,6 +894,7 @@ mod tests {
                 ],
                 "proof_id": aggregation_proof.id,
                 "compressed_proof_id": batch_g16,
+                "assessor_proof_id": assessor_proof.id,
             }))),
         };
         db.add_batch(batch_id, batch).await.unwrap();

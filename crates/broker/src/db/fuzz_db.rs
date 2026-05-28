@@ -27,7 +27,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
-use crate::backend::{AssessorProofId, BackendBatchState, BackendId, BackendOrderState};
+use crate::backend::{BackendBatchState, BackendId, BackendOrderState};
 use crate::FulfillmentType;
 use crate::{db::BatchReadyOrder, Order, OrderStatus};
 
@@ -300,7 +300,7 @@ proptest! {
                                                 batch_id,
                                                 &backend_state,
                                                 &orders,
-                                                Some(AssessorProofId::new("proof_id")),
+                                                true,
                                             ).await.unwrap();
                                         }
                                     },

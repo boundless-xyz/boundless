@@ -31,7 +31,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    FulfillmentType, Order, OrderStateChange, OrderStatus,
+    FulfillmentType, Order, OrderStateChange,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
@@ -367,11 +367,8 @@ impl OrderProcessor {
             Ok(processed) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
-                // ReadyForSubmission == this order's path produced a compressed (Groth16 /
-                // Blake3Groth16) seal, so compression happened during proving.
                 let proof_compression_secs =
-                    matches!(processed.next_status, OrderStatus::ReadyForSubmission)
-                        .then(|| proving_start.elapsed().as_secs_f64());
+                    processed.compressed.then(|| proving_start.elapsed().as_secs_f64());
 
                 crate::telemetry::telemetry(self.chain_id).record_application_proving_completed(
                     &order_id,

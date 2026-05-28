@@ -59,6 +59,8 @@ pub(super) struct Risc0BatchState {
     /// Groth16 compression of the set-builder proof.
     #[serde(default)]
     pub(super) compressed_proof_id: Option<String>,
+    #[serde(default)]
+    pub(super) assessor_proof_id: Option<String>,
 }
 
 impl From<Risc0Digest> for BackendDigest {
@@ -391,6 +393,7 @@ impl Risc0BatchProcessor {
             claim_digests,
             proof_id: Some(proof_res.id),
             compressed_proof_id: None,
+            assessor_proof_id: None,
         }
         .into_backend_state()
     }
@@ -566,7 +569,7 @@ impl BatchProcessor for Risc0BatchProcessor {
         );
 
         let mut assessor_secs = None;
-        let assessor_proof_id = if cmd.finalize {
+        let assessor_proof_id: Option<String> = if cmd.finalize {
             tracing::debug!(
                 "Running assessor for batch {} with orders {:?}",
                 cmd.batch_id,
@@ -587,7 +590,7 @@ impl BatchProcessor for Risc0BatchProcessor {
                 assessor_proof_id
             );
 
-            Some(AssessorProofId::new(assessor_proof_id))
+            Some(assessor_proof_id)
         } else {
             None
         };
@@ -608,20 +611,20 @@ impl BatchProcessor for Risc0BatchProcessor {
             })
             .collect::<Result<_>>()?;
 
-        let proof_ids: Vec<ProofId> = cmd
-            .new_orders
-            .iter()
-            .filter_map(|order| {
-                let state = new_states.get(&order.order_id)?;
-                // Direct-submit orders (those with a compressed proof already) skip set-builder.
-                if state.compressed_proof_id.is_some() {
-                    None
-                } else {
-                    Some(ProofId::new(state.proof_id.clone()))
-                }
-            })
-            .chain(assessor_proof_id.iter().map(|proof_id| ProofId::new(proof_id.as_str())))
-            .collect();
+        let mut proof_ids: Vec<ProofId> = Vec::with_capacity(cmd.new_orders.len() + 1);
+        for order in &cmd.new_orders {
+            let state = new_states.get(&order.order_id).with_context(|| {
+                format!(
+                    "Order {} missing backend state at update_batch for batch {}",
+                    order.order_id, cmd.batch_id
+                )
+            })?;
+            // Direct-submit orders (those with a compressed proof already) skip set-builder.
+            if state.compressed_proof_id.is_none() {
+                proof_ids.push(ProofId::new(state.proof_id.clone()));
+            }
+        }
+        proof_ids.extend(assessor_proof_id.iter().map(|proof_id| ProofId::new(proof_id.clone())));
 
         tracing::debug!(
             "Running set builder for batch {} of orders {:?} and proofs {:?}",
@@ -648,9 +651,15 @@ impl BatchProcessor for Risc0BatchProcessor {
             proof_ids.iter().map(|proof_id| proof_id.as_str()).collect::<Vec<_>>()
         );
 
+        // Stash the assessor proof id inside the backend-opaque state; it's risc0-internal and
+        // the broker layer never reads it.
+        let mut decoded = Risc0BatchState::from_backend_state(&aggregation_state)?;
+        decoded.assessor_proof_id = assessor_proof_id;
+        let aggregation_state = decoded.into_backend_state()?;
+
         Ok(BatchUpdate {
             state: aggregation_state,
-            assessor_proof_id,
+            finalize: cmd.finalize,
             batch_update_secs,
             assessor_secs,
         })
@@ -689,6 +698,16 @@ impl BatchProcessor for Risc0BatchProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::BatchOrder;
+    use crate::db::SqliteDb;
+    use crate::provers::DefaultProver;
+    use crate::FulfillmentType;
+    use alloy::primitives::{Address, Bytes, U256};
+    use boundless_market::contracts::{
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+    };
+    use chrono::Utc;
+    use std::sync::Arc;
 
     fn sample_state() -> Risc0BatchState {
         Risc0BatchState {
@@ -697,6 +716,7 @@ mod tests {
             claim_digests: vec![],
             proof_id: None,
             compressed_proof_id: None,
+            assessor_proof_id: None,
         }
     }
 
@@ -735,6 +755,92 @@ mod tests {
         assert!(
             err.to_string().contains("newer than this broker supports"),
             "unexpected error: {err}"
+        );
+    }
+
+    fn order_without_backend_state(order_id_seed: u32) -> crate::Order {
+        crate::Order {
+            status: crate::OrderStatus::PendingProving,
+            updated_at: Utc::now(),
+            target_timestamp: None,
+            request: ProofRequest::new(
+                RequestId::new(Address::ZERO, order_id_seed),
+                Requirements::new(Predicate::prefix_match(Risc0Digest::ZERO, Bytes::default())),
+                "test",
+                RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
+                Offer {
+                    minPrice: U256::from(1),
+                    maxPrice: U256::from(10),
+                    rampUpStart: 0,
+                    timeout: 1000,
+                    lockTimeout: 1000,
+                    rampUpPeriod: 1,
+                    lockCollateral: U256::ZERO,
+                },
+            ),
+            image_id: None,
+            input_id: None,
+            backend_state: None,
+            backend_id: None,
+            expire_timestamp: Some(1000),
+            client_sig: Bytes::new(),
+            lock_price: Some(U256::from(10)),
+            fulfillment_type: FulfillmentType::LockAndFulfill,
+            error_msg: None,
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            total_cycles: None,
+            journal_bytes: None,
+            proving_started_at: None,
+            cached_id: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_batch_errors_when_new_order_missing_backend_state() {
+        let db: crate::db::DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let prover: crate::provers::ProverObj = Arc::new(DefaultProver::new());
+
+        let order = order_without_backend_state(7);
+        let order_id = order.id();
+        db.add_order(&order).await.unwrap();
+
+        let processor = Risc0BatchProcessor::new(
+            db,
+            crate::config::ConfigLock::default(),
+            prover,
+            Risc0Digest::ZERO,
+            Risc0Digest::ZERO,
+            Address::ZERO,
+            Address::ZERO,
+            1,
+        );
+
+        let res = processor
+            .update_batch(super::super::UpdateBatch {
+                batch_id: 0,
+                existing_order_ids: Vec::new(),
+                state: None,
+                new_orders: vec![BatchOrder {
+                    order_id: order_id.clone(),
+                    expiration: 100,
+                    fee: U256::ZERO,
+                    fulfillment_type: FulfillmentType::LockAndFulfill,
+                    request_id: order.request.id,
+                    lock_expiration: 100,
+                }],
+                finalize: false,
+            })
+            .await;
+        let err = match res {
+            Ok(_) => panic!("expected update_batch to fail when new_order has no backend state"),
+            Err(err) => err,
+        };
+        let msg = format!("{err:#}");
+        assert!(msg.contains(&order_id), "error must name the missing order id: {msg}");
+        assert!(
+            msg.contains("missing backend state"),
+            "error must mention missing backend state: {msg}"
         );
     }
 }
