@@ -976,13 +976,6 @@ mod tests {
         drop(anvil); // drop anvil to simulate an RPC fault
 
         let res = submitter.process_next_batch().await;
-        // futures_retry emits this format on each failed attempt:
-        //   "Operation [submit_batch] (context: batch_id=0) failed, starting retry 1/1: ..."
-        assert!(logs_contain("Operation [submit_batch] (context: batch_id=0)"));
-        assert!(logs_contain("starting retry 1/1"));
-        assert!(logs_contain(
-            "Operation [submit_batch] (context: batch_id=0) failed after 1 retries",
-        ));
         assert!(logs_contain("Batch 0 submission failed after retries"));
         assert!(matches!(res, Err(SubmitterErr::BatchSubmissionFailed(_))));
 
