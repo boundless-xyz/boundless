@@ -63,12 +63,12 @@ The chain label used in `operator_addresses.json` must match a `[deployment.<lab
 
 The only inline data the skill keeps is the **chain label → public RPC URL** mapping below — RPC URLs aren't in `deployment.toml` and don't rotate.
 
-| Chain label            | Public RPC                                    |
-| ---------------------- | --------------------------------------------- |
-| `base-mainnet`         | `https://mainnet.base.org`                    |
-| `taiko-mainnet`        | `https://rpc.taiko.xyz`                       |
-| `base-sepolia-staging` | `https://sepolia.base.org`                    |
-| `taiko-staging`        | `https://rpc.taiko.xyz`                       |
+| Chain label            | Public RPC                 |
+| ---------------------- | -------------------------- |
+| `base-mainnet`         | `https://mainnet.base.org` |
+| `taiko-mainnet`        | `https://rpc.taiko.xyz`    |
+| `base-sepolia-staging` | `https://sepolia.base.org` |
+| `taiko-staging`        | `https://rpc.taiko.xyz`    |
 
 ## The check script
 
