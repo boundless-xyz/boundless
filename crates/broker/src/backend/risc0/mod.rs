@@ -74,12 +74,32 @@ use anyhow::{Context, Result};
 
 use super::types::{
     AssessorArtifact, AssessorProofId, Backend, BackendBatchState, BackendError, BackendId,
-    BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
-    BatchUpdate, ClaimDigest, CloseBatch, CompressedProofId, Digest as BackendDigest,
+    BackendOrderState, BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate,
+    BatchSizeEstimateRequest, BatchUpdate, ClaimDigest, CloseBatch, Digest as BackendDigest,
     FailedFulfillmentOrder, FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress,
     ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch,
     VerifierUpdate, VerifierUpdateError,
 };
+
+/// JSON-serialized inside [`BackendOrderState`] for the RISC0 backend.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub(super) struct Risc0OrderState {
+    pub(super) proof_id: String,
+    #[serde(default)]
+    pub(super) compressed_proof_id: Option<String>,
+}
+
+impl Risc0OrderState {
+    pub(super) fn decode(state: &BackendOrderState) -> Result<Self> {
+        serde_json::from_value(state.0.clone()).context("Failed to decode RISC0 order state")
+    }
+
+    pub(super) fn encode(&self) -> BackendOrderState {
+        BackendOrderState(
+            serde_json::to_value(self).expect("Risc0OrderState always serializes to JSON"),
+        )
+    }
+}
 
 mod batch;
 
@@ -88,6 +108,7 @@ use batch::{Risc0BatchProcessor, Risc0BatchState, Risc0Submission};
 
 pub struct Risc0Backend {
     id: BackendId,
+    db: DbObj,
     prover: ProverObj,
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
@@ -107,6 +128,7 @@ impl Risc0Backend {
 
     /// Production constructor: builds the prover backends from broker config.
     pub fn new(
+        db: DbObj,
         config: ConfigLock,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
@@ -116,11 +138,12 @@ impl Risc0Backend {
     ) -> Result<Self> {
         let (prover, snark_prover) =
             Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
-        Ok(Self::with_provers(prover, snark_prover, downloader, priority_requestors))
+        Ok(Self::with_provers(db, prover, snark_prover, downloader, priority_requestors))
     }
 
     /// Constructor that takes the prover backends explicitly. Used by tests.
     pub fn with_provers(
+        db: DbObj,
         prover: ProverObj,
         snark_prover: ProverObj,
         downloader: ConfigurableDownloader,
@@ -128,6 +151,7 @@ impl Risc0Backend {
     ) -> Self {
         Self {
             id: Self::default_id(),
+            db,
             prover,
             snark_prover,
             downloader,
@@ -554,11 +578,6 @@ impl Risc0Backend {
     async fn start_order(&self, order: &Order) -> Result<String> {
         let order_id = order.id();
 
-        if let Some(existing_proof_id) = order.proof_id.clone() {
-            tracing::debug!("Using existing proof {existing_proof_id} for order {order_id}");
-            return Ok(existing_proof_id);
-        }
-
         tracing::info!("Proving order {order_id}");
 
         let image_id = match order.image_id.as_ref() {
@@ -655,8 +674,8 @@ fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
         SELECTOR_GROTH16_V3_0
         | SELECTOR_BLAKE3_GROTH16_V0_1
         | SELECTOR_FAKE_RECEIPT
-        | SELECTOR_FAKE_BLAKE3_GROTH16 => OrderStatus::SkipAggregation,
-        _ => OrderStatus::PendingAgg,
+        | SELECTOR_FAKE_BLAKE3_GROTH16 => OrderStatus::ReadyForSubmission,
+        _ => OrderStatus::ReadyForBatch,
     }
 }
 
@@ -739,37 +758,35 @@ impl Backend for Risc0Backend {
         let order = cmd.order;
         let order_id = order.id();
 
-        let Some(stark_proof_id) = order.proof_id.clone() else {
-            return Ok(OrderProcessProgress::Started {
-                proof_id: ProofId::new(self.start_order(&order).await?),
-            });
+        let mut state = match order.backend_state.as_ref() {
+            Some(raw) => Risc0OrderState::decode(raw)?,
+            None => {
+                let proof_id = self.start_order(&order).await?;
+                return Ok(OrderProcessProgress::InProgress {
+                    state: Risc0OrderState { proof_id, compressed_proof_id: None }.encode(),
+                });
+            }
         };
 
         let proof_res = self
             .prover
-            .wait_for_stark(&stark_proof_id)
+            .wait_for_stark(&state.proof_id)
             .await
             .context("Monitoring proof (stark) failed")?;
 
         let compression_type = compression_type_for_selector(order.request.requirements.selector);
-        tracing::debug!(
-            "Order {order_id} has compression_type: {compression_type:?}, snark_proof_id: {:?}",
-            order.compressed_proof_id
-        );
-
-        if compression_type != CompressionType::None && order.compressed_proof_id.is_none() {
+        if compression_type != CompressionType::None && state.compressed_proof_id.is_none() {
             let compressed_proof_id =
-                self.compress_order_proof(&order_id, &stark_proof_id, compression_type).await?;
-            return Ok(OrderProcessProgress::Compressed {
-                proof_id: ProofId::new(stark_proof_id),
-                compressed_proof_id: CompressedProofId::new(compressed_proof_id),
-            });
+                self.compress_order_proof(&order_id, &state.proof_id, compression_type).await?;
+            state.compressed_proof_id = Some(compressed_proof_id);
+            return Ok(OrderProcessProgress::InProgress { state: state.encode() });
         }
 
         let next_status = next_status_for_risc0_selector(order.request.requirements.selector);
 
         tracing::info!(
-            "Customer Proof complete for proof_id: {stark_proof_id}, order_id: {order_id} cycles: {:?} time: {}",
+            "Customer Proof complete for proof_id: {}, order_id: {order_id} cycles: {:?} time: {}",
+            state.proof_id,
             proof_res.stats.as_ref().map(|s| s.total_cycles),
             proof_res.elapsed_time,
         );
@@ -777,20 +794,19 @@ impl Backend for Risc0Backend {
         Ok(OrderProcessProgress::Completed(ProcessedOrder {
             backend_id: self.id.clone(),
             order_id,
-            proof_id: ProofId::new(stark_proof_id),
-            compressed_proof_id: order.compressed_proof_id.map(CompressedProofId::new),
             next_status,
         }))
     }
 
     async fn cancel_order(&self, order: &Order) -> Result<()> {
-        if let Some(proof_id) = order.proof_id.as_ref() {
+        if let Some(raw) = order.backend_state.as_ref() {
+            let state = Risc0OrderState::decode(raw)?;
             if matches!(order.status, OrderStatus::Proving) {
-                tracing::debug!("Cancelling proof {} for order {}", proof_id, order.id());
+                tracing::debug!("Cancelling proof {} for order {}", state.proof_id, order.id());
                 self.prover
-                    .cancel_stark(proof_id)
+                    .cancel_stark(&state.proof_id)
                     .await
-                    .with_context(|| format!("Failed to cancel proof {proof_id}"))?;
+                    .with_context(|| format!("Failed to cancel proof {}", state.proof_id))?;
             }
         }
 
@@ -825,7 +841,7 @@ impl Backend for Risc0Backend {
         let submission = Risc0Submission::new(self.snark_prover.clone());
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: set_builder_program_id };
-        let groth16_proof_id = backend_state
+        let groth16_proof_id = aggregation_state
             .compressed_proof_id
             .as_ref()
             .context("Cannot submit batch with no recorded Groth16 proof ID")?;
@@ -855,20 +871,37 @@ impl Backend for Risc0Backend {
             seal: submission.encode_groth16_seal(groth16_proof_id.as_str()).await?.into(),
         };
 
+        let order_id_refs: Vec<&str> = cmd.orders.iter().map(|o| o.order_id.as_str()).collect();
+        let db_orders = self
+            .db
+            .get_orders(&order_id_refs)
+            .await
+            .context("Failed to load orders for fulfillment")?;
+        let order_states: std::collections::HashMap<String, Risc0OrderState> = db_orders
+            .into_iter()
+            .filter_map(|o| {
+                let id = o.id();
+                o.backend_state.as_ref().map(|raw| Risc0OrderState::decode(raw).map(|s| (id, s)))
+            })
+            .collect::<Result<_>>()?;
+
         let mut orders = Vec::with_capacity(cmd.orders.len());
         let mut failed_orders = Vec::new();
         for order in cmd.orders {
             let order_id = order.order_id.clone();
             let res = async {
+                let state = order_states.get(&order_id).with_context(|| {
+                    format!("Order {order_id} missing backend state for submission")
+                })?;
                 let order_img_id = Risc0Digest::from(<[u8; 32]>::from(order.program_id));
                 let order_journal = self
                     .prover
-                    .get_journal(order.proof_id.as_str())
+                    .get_journal(&state.proof_id)
                     .await
                     .with_context(|| {
-                        format!("Failed to get order journal from prover for {}", order.order_id)
+                        format!("Failed to get order journal from prover for {order_id}")
                     })?
-                    .with_context(|| format!("Order proof journal missing for {}", order.order_id))?;
+                    .with_context(|| format!("Order proof journal missing for {order_id}"))?;
                 let order_journal_digest = order_journal.digest();
                 let order_claim_digest =
                     submission.claim_digest(order_img_id, order_journal_digest);
@@ -876,16 +909,14 @@ impl Backend for Risc0Backend {
                 let seal = if is_groth16_selector(order.request.requirements.selector)
                     || is_blake3_groth16_selector(order.request.requirements.selector)
                 {
-                    let compressed_proof_id = order.compressed_proof_id.with_context(|| {
-                        format!(
-                            "Order {} missing compressed proof ID for submission",
-                            order.order_id
-                        )
-                    })?;
+                    let compressed_proof_id =
+                        state.compressed_proof_id.as_deref().with_context(|| {
+                            format!("Order {order_id} missing compressed proof ID for submission")
+                        })?;
                     submission
                         .encode_seal_for_selector(
                             order.request.requirements.selector,
-                            compressed_proof_id.as_str(),
+                            compressed_proof_id,
                         )
                         .await
                         .with_context(|| {
@@ -1071,7 +1102,10 @@ mod tests {
 
     #[test]
     fn unspecified_selector_orders_enter_aggregation() {
-        assert_eq!(next_status_for_risc0_selector(UNSPECIFIED_SELECTOR), OrderStatus::PendingAgg);
+        assert_eq!(
+            next_status_for_risc0_selector(UNSPECIFIED_SELECTOR),
+            OrderStatus::ReadyForBatch
+        );
     }
 
     #[test]
@@ -1080,7 +1114,7 @@ mod tests {
             selector_ext(SelectorExt::groth16_latest()),
             selector_ext(SelectorExt::blake3_groth16_latest()),
         ] {
-            assert_eq!(next_status_for_risc0_selector(selector), OrderStatus::SkipAggregation);
+            assert_eq!(next_status_for_risc0_selector(selector), OrderStatus::ReadyForSubmission);
         }
     }
 
@@ -1108,7 +1142,7 @@ mod tests {
                 let compression = compression_type_for_selector(selector);
                 let next_status = next_status_for_risc0_selector(selector);
                 let expects_skip = !matches!(compression, CompressionType::None);
-                let observed_skip = matches!(next_status, OrderStatus::SkipAggregation);
+                let observed_skip = matches!(next_status, OrderStatus::ReadyForSubmission);
                 assert_eq!(
                     expects_skip, observed_skip,
                     "selector {selector:?} (dev_mode={dev_mode}): \
@@ -1142,7 +1176,9 @@ mod tests {
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
         let priority_requestors = PriorityRequestors::new(config, 1);
         let prover: ProverObj = std::sync::Arc::new(provers::DefaultProver::new());
-        Risc0Backend::with_provers(prover.clone(), prover, downloader, priority_requestors)
+        let db: DbObj =
+            std::sync::Arc::new(crate::db::SqliteDb::new("sqlite::memory:").await.unwrap());
+        Risc0Backend::with_provers(db, prover.clone(), prover, downloader, priority_requestors)
     }
 
     fn guard_fulfillment_batch(
@@ -1160,14 +1196,10 @@ mod tests {
     }
 
     fn decodable_backend_state() -> BackendBatchState {
-        BackendBatchState {
-            data: serde_json::json!({
-                "guest_state": GuestState::initial(Risc0Digest::ZERO),
-                "claim_digests": Vec::<Risc0Digest>::new(),
-            }),
-            proof_id: None,
-            compressed_proof_id: None,
-        }
+        BackendBatchState(serde_json::json!({
+            "guest_state": GuestState::initial(Risc0Digest::ZERO),
+            "claim_digests": Vec::<Risc0Digest>::new(),
+        }))
     }
 
     // `SubmissionPlan` is intentionally not `Debug`, so `unwrap_err` is unavailable here.

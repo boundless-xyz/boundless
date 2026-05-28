@@ -26,7 +26,6 @@ use crate::{Batch, FulfillmentType, Order};
 #[derive(Clone, Debug)]
 pub struct BatchReadyOrder {
     pub order_id: String,
-    pub proof_id: String,
     pub expiration: u64,
     pub fee: U256,
     pub fulfillment_type: FulfillmentType,

@@ -53,6 +53,12 @@ pub(super) struct Risc0BatchState {
     version: u32,
     pub(super) guest_state: GuestState,
     pub(super) claim_digests: Vec<Risc0Digest>,
+    /// Set-builder stark proof produced by [`Risc0BatchProcessor::prove_set_builder`].
+    #[serde(default)]
+    pub(super) proof_id: Option<String>,
+    /// Groth16 compression of the set-builder proof.
+    #[serde(default)]
+    pub(super) compressed_proof_id: Option<String>,
 }
 
 impl From<Risc0Digest> for BackendDigest {
@@ -81,7 +87,7 @@ impl From<ClaimDigest> for Risc0Digest {
 
 impl Risc0BatchState {
     pub(super) fn from_backend_state(state: &BackendBatchState) -> Result<Self> {
-        let decoded: Self = serde_json::from_value(state.data.clone())
+        let decoded: Self = serde_json::from_value(state.0.clone())
             .context("Failed to decode RISC0 batch state")?;
         anyhow::ensure!(
             decoded.version <= RISC0_BATCH_STATE_VERSION,
@@ -93,16 +99,10 @@ impl Risc0BatchState {
         Ok(decoded)
     }
 
-    pub(super) fn into_backend_state(
-        self,
-        proof_id: ProofId,
-        compressed_proof_id: Option<CompressedProofId>,
-    ) -> Result<BackendBatchState> {
-        Ok(BackendBatchState {
-            data: serde_json::to_value(self).context("Failed to encode RISC0 batch state")?,
-            proof_id: Some(proof_id),
-            compressed_proof_id,
-        })
+    pub(super) fn into_backend_state(self) -> Result<BackendBatchState> {
+        Ok(BackendBatchState(
+            serde_json::to_value(self).context("Failed to encode RISC0 batch state")?,
+        ))
     }
 }
 
@@ -301,8 +301,7 @@ impl Risc0BatchProcessor {
 
         let assumption_ids: Vec<String> = aggregation_state
             .as_ref()
-            .and_then(|_| backend_state.and_then(|s| s.proof_id.as_ref()))
-            .map(|proof_id| proof_id.as_str().to_string())
+            .and_then(|s| s.proof_id.clone())
             .into_iter()
             .chain(valid_proof_ids.iter().cloned())
             .collect();
@@ -386,8 +385,14 @@ impl Risc0BatchProcessor {
             .chain(claims.into_iter().map(|claim| claim.digest()))
             .collect();
 
-        Risc0BatchState { version: RISC0_BATCH_STATE_VERSION, guest_state, claim_digests }
-            .into_backend_state(ProofId::new(proof_res.id), None)
+        Risc0BatchState {
+            version: RISC0_BATCH_STATE_VERSION,
+            guest_state,
+            claim_digests,
+            proof_id: Some(proof_res.id),
+            compressed_proof_id: None,
+        }
+        .into_backend_state()
     }
 
     pub async fn prove_assessor(&self, order_ids: &[String]) -> Result<String> {
@@ -401,16 +406,18 @@ impl Risc0BatchProcessor {
                 .with_context(|| format!("Failed to get DB order ID {order_id}"))?
                 .with_context(|| format!("order ID {order_id} missing from DB"))?;
 
-            let proof_id = order
-                .proof_id
-                .with_context(|| format!("Missing proof_id for order: {order_id}"))?;
+            let backend_state = order
+                .backend_state
+                .as_ref()
+                .with_context(|| format!("Missing backend state for order: {order_id}"))?;
+            let state = super::Risc0OrderState::decode(backend_state)?;
 
             let journal = self
                 .prover
-                .get_journal(&proof_id)
+                .get_journal(&state.proof_id)
                 .await
-                .with_context(|| format!("Failed to get {proof_id} journal"))?
-                .with_context(|| format!("{proof_id} journal missing"))?;
+                .with_context(|| format!("Failed to get {} journal", state.proof_id))?
+                .with_context(|| format!("{} journal missing", state.proof_id))?;
 
             let fulfillment_data = match order.request.requirements.predicate.predicateType {
                 PredicateType::ClaimDigestMatch => FulfillmentData::None,
@@ -509,15 +516,18 @@ impl BatchProcessor for Risc0BatchProcessor {
                 .with_context(|| format!("Failed to get order {order_id}"))?
                 .with_context(|| format!("Order {order_id} missing from DB"))?;
 
-            let proof_id =
-                order.proof_id.with_context(|| format!("Missing proof_id for order {order_id}"))?;
+            let backend_state = order
+                .backend_state
+                .as_ref()
+                .with_context(|| format!("Missing backend state for order {order_id}"))?;
+            let state = super::Risc0OrderState::decode(backend_state)?;
 
             let journal = self
                 .prover
-                .get_journal(&proof_id)
+                .get_journal(&state.proof_id)
                 .await
-                .with_context(|| format!("Failed to get journal for {proof_id}"))?
-                .with_context(|| format!("Journal for {proof_id} missing"))?;
+                .with_context(|| format!("Failed to get journal for {}", state.proof_id))?
+                .with_context(|| format!("Journal for {} missing", state.proof_id))?;
 
             // For RISC0 claim-digest match orders, the journal is not included in calldata.
             if !matches!(
@@ -582,11 +592,34 @@ impl BatchProcessor for Risc0BatchProcessor {
             None
         };
 
+        let new_order_ids: Vec<&str> = cmd.new_orders.iter().map(|o| o.order_id.as_str()).collect();
+        let new_db_orders = self
+            .db
+            .get_orders(&new_order_ids)
+            .await
+            .context("Failed to load orders for batch update")?;
+        let new_states: std::collections::HashMap<String, super::Risc0OrderState> = new_db_orders
+            .into_iter()
+            .filter_map(|o| {
+                let id = o.id();
+                o.backend_state
+                    .as_ref()
+                    .map(|raw| super::Risc0OrderState::decode(raw).map(|s| (id, s)))
+            })
+            .collect::<Result<_>>()?;
+
         let proof_ids: Vec<ProofId> = cmd
             .new_orders
             .iter()
-            .filter(|order| order.compressed_proof_id.is_none())
-            .map(|proof| proof.proof_id.clone())
+            .filter_map(|order| {
+                let state = new_states.get(&order.order_id)?;
+                // Direct-submit orders (those with a compressed proof already) skip set-builder.
+                if state.compressed_proof_id.is_some() {
+                    None
+                } else {
+                    Some(ProofId::new(state.proof_id.clone()))
+                }
+            })
             .chain(assessor_proof_id.iter().map(|proof_id| ProofId::new(proof_id.as_str())))
             .collect();
 
@@ -625,13 +658,29 @@ impl BatchProcessor for Risc0BatchProcessor {
 
     async fn close_batch(&self, cmd: CloseBatch) -> Result<BatchClose, BackendError> {
         let start = std::time::Instant::now();
+        let batch = self.db.get_batch(cmd.batch_id).await.map_err(BackendError::operation)?;
+        let backend_state = batch
+            .backend_state
+            .as_ref()
+            .with_context(|| {
+                format!("Batch {} has no recorded backend state at close-batch time", cmd.batch_id)
+            })
+            .map_err(BackendError::operation)?;
+        let mut state =
+            Risc0BatchState::from_backend_state(backend_state).map_err(BackendError::operation)?;
+        let proof_id = state
+            .proof_id
+            .clone()
+            .with_context(|| format!("Batch {} has no recorded set-builder proof id", cmd.batch_id))
+            .map_err(BackendError::operation)?;
         let compressed_proof_id = self
-            .compress_batch_proof(cmd.batch_id, cmd.proof_id.as_str(), &cmd.order_ids)
+            .compress_batch_proof(cmd.batch_id, &proof_id, &cmd.order_ids)
             .await
             .map_err(BackendError::from)?;
+        state.compressed_proof_id = Some(compressed_proof_id);
 
         Ok(BatchClose {
-            compressed_proof_id: CompressedProofId::new(compressed_proof_id),
+            state: state.into_backend_state().map_err(BackendError::operation)?,
             compression_secs: start.elapsed().as_secs_f64(),
         })
     }
@@ -646,11 +695,13 @@ mod tests {
             version: RISC0_BATCH_STATE_VERSION,
             guest_state: GuestState::initial(Risc0Digest::ZERO),
             claim_digests: vec![],
+            proof_id: None,
+            compressed_proof_id: None,
         }
     }
 
     fn backend_state(data: serde_json::Value) -> BackendBatchState {
-        BackendBatchState { data, proof_id: None, compressed_proof_id: None }
+        BackendBatchState(data)
     }
 
     #[test]

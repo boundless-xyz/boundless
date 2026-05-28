@@ -46,10 +46,6 @@ macro_rules! string_id {
             pub fn as_str(&self) -> &str {
                 &self.0
             }
-
-            pub fn into_string(self) -> String {
-                self.0
-            }
         }
 
         impl fmt::Display for $name {
@@ -77,7 +73,6 @@ string_id!(
     "Stable broker-side identity for a backend registration. This is distinct from a verifier selector: many selectors may route to the same backend, and broker policy/batching is keyed by backend."
 );
 string_id!(ProofId, "Durable backend proof handle.");
-string_id!(CompressedProofId, "Durable backend compressed proof handle.");
 string_id!(AssessorProofId, "Durable backend assessor proof handle.");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -128,11 +123,16 @@ pub struct ProcessOrder {
     pub order: Order,
 }
 
+/// Backend-opaque per-order durable state. The backend writes whatever it
+/// needs to resume the order after a restart; the broker just persists it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BackendOrderState(pub serde_json::Value);
+
 /// Durable progress returned while an order is being processed.
 #[derive(Clone, Debug, PartialEq)]
 pub enum OrderProcessProgress {
-    Started { proof_id: ProofId },
-    Compressed { proof_id: ProofId, compressed_proof_id: CompressedProofId },
+    InProgress { state: BackendOrderState },
     Completed(ProcessedOrder),
 }
 
@@ -141,8 +141,6 @@ pub enum OrderProcessProgress {
 pub struct ProcessedOrder {
     pub backend_id: BackendId,
     pub order_id: String,
-    pub proof_id: ProofId,
-    pub compressed_proof_id: Option<CompressedProofId>,
     pub next_status: OrderStatus,
 }
 
@@ -184,8 +182,6 @@ pub struct AssessorArtifact {
 pub struct FulfillmentOrder {
     pub order_id: String,
     pub request: ProofRequest,
-    pub proof_id: ProofId,
-    pub compressed_proof_id: Option<CompressedProofId>,
     pub program_id: ProgramId,
 }
 
@@ -241,18 +237,15 @@ pub struct BatchSizeEstimate {
     pub size: usize,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackendBatchState {
-    pub data: serde_json::Value,
-    pub proof_id: Option<ProofId>,
-    pub compressed_proof_id: Option<CompressedProofId>,
-}
+/// Backend-opaque per-batch durable state. Same role as
+/// [`BackendOrderState`] but scoped to a batch's aggregation work.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BackendBatchState(pub serde_json::Value);
 
 #[derive(Clone, Debug)]
 pub struct BatchOrder {
     pub order_id: String,
-    pub proof_id: ProofId,
-    pub compressed_proof_id: Option<CompressedProofId>,
     pub expiration: u64,
     pub fee: alloy::primitives::U256,
     pub fulfillment_type: FulfillmentType,
@@ -277,12 +270,11 @@ pub struct BatchUpdate {
 
 pub struct CloseBatch {
     pub batch_id: usize,
-    pub proof_id: ProofId,
     pub order_ids: Vec<String>,
 }
 
 pub struct BatchClose {
-    pub compressed_proof_id: CompressedProofId,
+    pub state: BackendBatchState,
     pub compression_secs: f64,
 }
 

@@ -27,7 +27,7 @@ use async_trait::async_trait;
 #[cfg(test)]
 use crate::BatchStatus;
 use crate::{
-    backend::{AssessorProofId, BackendBatchState, BackendId, CompressedProofId},
+    backend::{AssessorProofId, BackendBatchState, BackendId, BackendOrderState},
     Batch, FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
 };
 
@@ -53,8 +53,7 @@ pub trait BrokerDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
-    async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
+    ) -> Result<(ProofRequest, Bytes, String, U256, FulfillmentType), DbError>;
     async fn set_order_failure(&self, id: &str, failure_str: &str) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: &str) -> Result<(), DbError>;
     /// Get all orders that are committed to be prove and be fulfilled.
@@ -66,11 +65,10 @@ pub trait BrokerDb {
     ) -> Result<Vec<Order>, DbError>;
     async fn get_proving_order(&self) -> Result<Option<Order>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<Order>, DbError>;
-    async fn set_order_proof_id(&self, order_id: &str, proof_id: &str) -> Result<(), DbError>;
-    async fn set_order_compressed_proof_id(
+    async fn set_order_backend_state(
         &self,
         order_id: &str,
-        proof_id: &str,
+        state: &BackendOrderState,
     ) -> Result<(), DbError>;
     async fn set_order_batch_status(
         &self,
@@ -89,7 +87,7 @@ pub trait BrokerDb {
     async fn complete_batch(
         &self,
         batch_id: usize,
-        compressed_proof_id: &CompressedProofId,
+        backend_state: &BackendBatchState,
     ) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;

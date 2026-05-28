@@ -276,14 +276,10 @@ mod tests {
         async fn update_batch(&self, cmd: UpdateBatch) -> Result<BatchUpdate> {
             self.update_calls.fetch_add(1, Ordering::SeqCst);
             Ok(BatchUpdate {
-                state: BackendBatchState {
-                    data: serde_json::json!({
-                        "backend_id": self.id.to_string(),
-                        "batch_id": cmd.batch_id,
-                    }),
-                    proof_id: None,
-                    compressed_proof_id: None,
-                },
+                state: BackendBatchState(serde_json::json!({
+                    "backend_id": self.id.to_string(),
+                    "batch_id": cmd.batch_id,
+                })),
                 assessor_proof_id: None,
                 batch_update_secs: None,
                 assessor_secs: None,
@@ -397,9 +393,7 @@ mod tests {
             Ok(OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: self.id.clone(),
                 order_id: cmd.order.id(),
-                proof_id: "proof".into(),
-                compressed_proof_id: None,
-                next_status: OrderStatus::PendingAgg,
+                next_status: OrderStatus::ReadyForBatch,
             }))
         }
 
@@ -490,8 +484,7 @@ mod tests {
             target_timestamp: None,
             expire_timestamp: None,
             proving_started_at: None,
-            proof_id: Some("stark".to_string()),
-            compressed_proof_id: None,
+            backend_state: None,
             backend_id: None,
             lock_price: None,
             error_msg: None,
@@ -514,9 +507,7 @@ mod tests {
             OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: BackendId::new("mock_a"),
                 order_id: test_order(selector(1)).id(),
-                proof_id: "proof".into(),
-                compressed_proof_id: None,
-                next_status: OrderStatus::PendingAgg,
+                next_status: OrderStatus::ReadyForBatch,
             })
         );
     }
@@ -604,8 +595,8 @@ mod tests {
             .unwrap();
         assert_eq!(backend_a.update_calls(), 1);
         assert_eq!(backend_b.update_calls(), 1);
-        assert_eq!(update_a.state.data["backend_id"], "mock_a");
-        assert_eq!(update_b.state.data["backend_id"], "mock_b");
+        assert_eq!(update_a.state.0["backend_id"], "mock_a");
+        assert_eq!(update_b.state.0["backend_id"], "mock_b");
 
         router
             .build_fulfillments(FulfillmentBatch {

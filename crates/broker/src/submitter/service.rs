@@ -34,8 +34,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     backend::{
-        BackendRouter, CompressedProofId, FulfillmentBatch, FulfillmentOrder, ProofId,
-        VerifierUpdate, VerifierUpdateError,
+        BackendRouter, FulfillmentBatch, FulfillmentOrder, VerifierUpdate, VerifierUpdateError,
     },
     config::ConfigLock,
     db::DbObj,
@@ -145,14 +144,7 @@ where
             tracing::info!("Submitting order {order_id}");
 
             let res = async {
-                let (
-                    order_request,
-                    client_sig,
-                    order_proof_id,
-                    order_img_id,
-                    lock_price,
-                    fulfillment_type,
-                ) =
+                let (order_request, client_sig, order_img_id, lock_price, fulfillment_type) =
                     self.db.get_submission_order(order_id).await.context(
                         "Failed to get order from DB for submission, order NOT finalized",
                     )?;
@@ -171,14 +163,9 @@ where
 
                 order_prices.insert(order_id, OrderPrice { price: lock_price, collateral_reward });
 
-                let compressed_proof_id =
-                    orders_by_id.get(order_id).and_then(|order| order.compressed_proof_id.clone());
-
                 fulfillment_orders.push(FulfillmentOrder {
                     order_id: order_id.clone(),
                     request: order_request,
-                    proof_id: ProofId::new(order_proof_id),
-                    compressed_proof_id: compressed_proof_id.map(CompressedProofId::new),
                     program_id: order_img_id.into(),
                 });
                 anyhow::Ok(())
@@ -581,8 +568,8 @@ mod tests {
     use super::*;
     use crate::{
         backend::{
-            AssessorProofId, BackendBatchState, BackendEntry, BackendRouter, CompressedProofId,
-            ProofId, Risc0Backend,
+            AssessorProofId, BackendBatchState, BackendEntry, BackendOrderState, BackendRouter,
+            Risc0Backend,
         },
         db::SqliteDb,
         now_timestamp,
@@ -821,8 +808,10 @@ mod tests {
             request: order_request,
             image_id: Some(echo_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(echo_proof.id.clone()),
-            compressed_proof_id: None,
+            backend_state: Some(BackendOrderState(serde_json::json!({
+                "proof_id": echo_proof.id.clone(),
+                "compressed_proof_id": null,
+            }))),
             backend_id: None,
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
@@ -865,8 +854,6 @@ mod tests {
                 request: failing_request,
                 image_id: None,
                 input_id: None,
-                proof_id: None,
-                compressed_proof_id: None,
                 backend_id: None,
                 expire_timestamp: Some(now_timestamp() + 100),
                 client_sig: Bytes::new(),
@@ -878,6 +865,7 @@ mod tests {
                 total_cycles: None,
                 journal_bytes: None,
                 proving_started_at: None,
+                backend_state: None,
                 cached_id: Default::default(),
             };
             let failing_order_id = failing_order.id();
@@ -901,17 +889,15 @@ mod tests {
             start_time: Utc::now(),
             deadline: Some(order.request.offer.rampUpStart + order.request.offer.timeout as u64),
             error_msg: None,
-            backend_state: Some(BackendBatchState {
-                data: serde_json::json!({
-                    "guest_state": batch_guest_state,
-                    "claim_digests": vec![
-                        echo_receipt.claim().unwrap().digest(),
-                        assessor_receipt.claim().unwrap().digest(),
-                    ],
-                }),
-                proof_id: Some(ProofId::new(aggregation_proof.id)),
-                compressed_proof_id: Some(CompressedProofId::new(batch_g16)),
-            }),
+            backend_state: Some(BackendBatchState(serde_json::json!({
+                "guest_state": batch_guest_state,
+                "claim_digests": vec![
+                    echo_receipt.claim().unwrap().digest(),
+                    assessor_receipt.claim().unwrap().digest(),
+                ],
+                "proof_id": aggregation_proof.id,
+                "compressed_proof_id": batch_g16,
+            }))),
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
@@ -922,6 +908,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), anvil.chain_id());
         let risc0_backend = Arc::new(
             Risc0Backend::with_provers(
+                db.clone(),
                 prover.clone(),
                 prover.clone(),
                 downloader,

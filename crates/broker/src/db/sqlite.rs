@@ -34,10 +34,8 @@ use sqlx::{
 use tracing::instrument;
 use url::Url;
 
-#[cfg(test)]
-use crate::backend::ProofId;
 use crate::{
-    backend::{AssessorProofId, BackendBatchState, BackendId, CompressedProofId},
+    backend::{AssessorProofId, BackendBatchState, BackendId, BackendOrderState},
     db::{
         error::DbError,
         types::{BatchReadyOrder, DbBatch, DbLockedRequest, DbOrder},
@@ -233,7 +231,7 @@ impl BrokerDb for SqliteDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError> {
+    ) -> Result<(ProofRequest, Bytes, String, U256, FulfillmentType), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             if order.status != OrderStatus::PendingSubmission {
@@ -242,21 +240,10 @@ impl BrokerDb for SqliteDb {
             Ok((
                 order.request.clone(),
                 order.client_sig.clone(),
-                order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
                 order.image_id.ok_or(DbError::MissingElm("image_id"))?,
                 order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
                 order.fulfillment_type,
             ))
-        } else {
-            Err(DbError::OrderNotFound(id.to_string()))
-        }
-    }
-
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError> {
-        let order = self.get_order(id).await?;
-        if let Some(order) = order {
-            Ok(order.compressed_proof_id.ok_or(DbError::MissingElm("compressed_proof_id"))?)
         } else {
             Err(DbError::OrderNotFound(id.to_string()))
         }
@@ -322,9 +309,9 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForBatch)
+        .bind(OrderStatus::Batching)
+        .bind(OrderStatus::ReadyForSubmission)
         .bind(OrderStatus::PendingSubmission)
         .fetch_all(&self.pool)
         .await?;
@@ -346,8 +333,8 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForBatch)
+        .bind(OrderStatus::ReadyForSubmission)
         .bind(OrderStatus::PendingSubmission)
         .bind(Utc::now().timestamp().saturating_sub(grace_period_secs))
         .fetch_all(&self.pool)
@@ -395,47 +382,22 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_proof_id(&self, id: &str, proof_id: &str) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE orders
-            SET data = json_set(
-                       json_set(data,
-                       '$.proof_id', $1),
-                       '$.updated_at', $2)
-            WHERE
-                id = $3"#,
-        )
-        .bind(proof_id)
-        .bind(Utc::now().timestamp())
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id.to_string()));
-        }
-
-        Ok(())
-    }
-
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_compressed_proof_id(
+    async fn set_order_backend_state(
         &self,
         id: &str,
-        compressed_proof_id: &str,
+        state: &BackendOrderState,
     ) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
             SET data = json_set(
                        json_set(data,
-                       '$.compressed_proof_id', $1),
+                       '$.backend_state', json($1)),
                        '$.updated_at', $2)
             WHERE
                 id = $3"#,
         )
-        .bind(compressed_proof_id)
+        .bind(sqlx::types::Json(state))
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
@@ -501,10 +463,10 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::Batching)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::ReadyForBatch)
+        .bind(OrderStatus::Batching)
         .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
@@ -513,11 +475,6 @@ impl BrokerDb for SqliteDb {
         for order in orders.into_iter() {
             batch_ready_orders.push(BatchReadyOrder {
                 order_id: order.id.clone(),
-                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
-                proof_id: order
-                    .data
-                    .proof_id
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
                 expiration: order.data.request.expires_at(),
                 fee: order
                     .data
@@ -551,9 +508,9 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForSubmission)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForSubmission)
         .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
@@ -562,11 +519,6 @@ impl BrokerDb for SqliteDb {
         for order in orders.into_iter() {
             batch_ready_orders.push(BatchReadyOrder {
                 order_id: order.id.clone(),
-                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
-                proof_id: order
-                    .data
-                    .proof_id
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
                 expiration: order.data.request.expires_at(),
                 fee: order
                     .data
@@ -585,25 +537,20 @@ impl BrokerDb for SqliteDb {
     async fn complete_batch(
         &self,
         batch_id: usize,
-        compressed_proof_id: &CompressedProofId,
+        backend_state: &BackendBatchState,
     ) -> Result<(), DbError> {
-        let batch = self.get_batch(batch_id).await?;
-        if batch.backend_state.is_none() {
-            return Err(DbError::BatchBackendStateIsNone(batch_id));
-        }
-
         let res = sqlx::query(
             r#"
             UPDATE batches
             SET data = json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.backend_state.compressed_proof_id', json($2))
+                       '$.backend_state', json($2))
             WHERE
                 id = $3"#,
         )
         .bind(BatchStatus::ReadyToSubmit)
-        .bind(sqlx::types::Json(compressed_proof_id))
+        .bind(sqlx::types::Json(backend_state))
         .bind(batch_id as i64)
         .execute(&self.pool)
         .await?;
@@ -990,14 +937,12 @@ mod tests {
         guest_state: GuestState,
         claim_digests: Vec<Digest>,
     ) -> BackendBatchState {
-        BackendBatchState {
-            data: serde_json::json!({
-                "guest_state": guest_state,
-                "claim_digests": claim_digests,
-            }),
-            proof_id: Some(ProofId::new(proof_id)),
-            compressed_proof_id: compressed_proof_id.map(CompressedProofId::new),
-        }
+        BackendBatchState(serde_json::json!({
+            "guest_state": guest_state,
+            "claim_digests": claim_digests,
+            "proof_id": proof_id,
+            "compressed_proof_id": compressed_proof_id,
+        }))
     }
 
     fn other_backend_id() -> BackendId {
@@ -1085,18 +1030,16 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let mut order = create_order();
         order.status = OrderStatus::PendingSubmission;
-        order.proof_id = Some("test".to_string());
         order.lock_price = Some(U256::from(10));
         db.add_order(&order).await.unwrap();
 
-        let submit_order: (ProofRequest, Bytes, String, String, U256, FulfillmentType) =
+        let submit_order: (ProofRequest, Bytes, String, U256, FulfillmentType) =
             db.get_submission_order(&order.id()).await.unwrap();
         assert_eq!(submit_order.0, order.request);
         assert_eq!(submit_order.1, order.client_sig);
-        assert_eq!(submit_order.2, order.proof_id.unwrap());
-        assert_eq!(submit_order.3, order.image_id.unwrap());
-        assert_eq!(submit_order.4, order.lock_price.unwrap());
-        assert_eq!(submit_order.5, order.fulfillment_type);
+        assert_eq!(submit_order.2, order.image_id.unwrap());
+        assert_eq!(submit_order.3, order.lock_price.unwrap());
+        assert_eq!(submit_order.4, order.fulfillment_type);
     }
 
     #[sqlx::test]
@@ -1142,7 +1085,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn set_order_proof_id(pool: SqlitePool) {
+    async fn set_order_backend_state(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let id = U256::ZERO;
@@ -1150,11 +1093,11 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        let proof_id = "test";
-        db.set_order_proof_id(&order.id(), proof_id).await.unwrap();
+        let state = BackendOrderState(serde_json::json!({ "proof_id": "test" }));
+        db.set_order_backend_state(&order.id(), &state).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.proof_id, Some(proof_id.into()));
+        assert_eq!(db_order.backend_state, Some(state));
     }
 
     #[sqlx::test]
@@ -1187,13 +1130,13 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        db.set_order_batch_status(&order.id(), OrderStatus::PendingAgg, &test_backend_id())
+        db.set_order_batch_status(&order.id(), OrderStatus::ReadyForBatch, &test_backend_id())
             .await
             .unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
-        assert_eq!(db_order.status, OrderStatus::PendingAgg);
+        assert_eq!(db_order.status, OrderStatus::ReadyForBatch);
         assert_eq!(db_order.backend_id, Some(test_backend_id()));
     }
 
@@ -1204,35 +1147,35 @@ mod tests {
         let mut orders = [
             Order {
                 status: OrderStatus::PendingProving,
-                proof_id: Some("test_id3".to_string()),
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id3"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
-                proof_id: Some("test_id1".to_string()),
+                status: OrderStatus::ReadyForBatch,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id1"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::Aggregating,
-                proof_id: Some("test_id2".to_string()),
+                status: OrderStatus::Batching,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id2"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
                 status: OrderStatus::PendingSubmission,
-                proof_id: Some("test_id4".to_string()),
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id4"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
-                proof_id: Some("test_id5".to_string()),
+                status: OrderStatus::ReadyForBatch,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id5"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 backend_id: Some(other_backend_id()),
@@ -1251,21 +1194,19 @@ mod tests {
 
         let batch_order = &batch_orders[0];
         assert_eq!(batch_order.order_id, orders[1].id());
-        assert_eq!(batch_order.proof_id, "test_id1");
         // expiration is now derived from request.expires_at() (rampUpStart + timeout = 0 + 100)
         assert_eq!(batch_order.expiration, orders[1].request.expires_at());
         assert_eq!(batch_order.fee, U256::from(10u64));
 
         let batch_order = &batch_orders[1];
         assert_eq!(batch_order.order_id, orders[2].id());
-        assert_eq!(batch_order.proof_id, "test_id2");
         assert_eq!(batch_order.expiration, orders[2].request.expires_at());
         assert_eq!(batch_order.fee, U256::from(10u64));
 
         let db_order = db.get_order(&batch_orders[0].order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Aggregating);
+        assert_eq!(db_order.status, OrderStatus::Batching);
         let db_order = db.get_order(&batch_orders[1].order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Aggregating);
+        assert_eq!(db_order.status, OrderStatus::Batching);
 
         let other_backend_batch_orders =
             db.get_pending_batch_orders(&other_backend_id()).await.unwrap();
@@ -1331,16 +1272,14 @@ mod tests {
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
-        let g16_proof_id = "Testg16";
-        let compressed_proof_id = CompressedProofId::new(g16_proof_id);
-        db.complete_batch(batch_id, &compressed_proof_id).await.unwrap();
+        let new_state = BackendBatchState(serde_json::json!({
+            "compressed_proof_id": "Testg16",
+        }));
+        db.complete_batch(batch_id, &new_state).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::ReadyToSubmit);
-        assert_eq!(
-            db_batch.backend_state.unwrap().compressed_proof_id.unwrap(),
-            compressed_proof_id
-        );
+        assert_eq!(db_batch.backend_state.unwrap().0, new_state.0);
     }
 
     #[sqlx::test]
@@ -1406,7 +1345,6 @@ mod tests {
         let batch_id = 1;
         let batch_orders = [
             BatchReadyOrder {
-                proof_id: "a".to_string(),
                 order_id: order1.id(),
                 expiration: 20,
                 fee: U256::from(5),
@@ -1415,7 +1353,6 @@ mod tests {
                 lock_expiration: order1.request.lock_expires_at(),
             },
             BatchReadyOrder {
-                proof_id: "b".to_string(),
                 order_id: order2.id(),
                 expiration: 25,
                 fee: U256::from(10),
@@ -1455,12 +1392,12 @@ mod tests {
         assert_eq!(db_batch.fees, U256::from(25));
         assert!(db_batch.backend_state.is_some());
         let backend_state = db_batch.backend_state.unwrap();
-        assert_eq!(backend_state.compressed_proof_id.as_ref(), None);
-        assert_eq!(backend_state.proof_id.as_ref().unwrap().as_str(), "c");
+        assert!(backend_state.0.get("compressed_proof_id").is_none_or(|v| v.is_null()));
+        assert_eq!(backend_state.0["proof_id"].as_str(), Some("c"));
         let guest_state: GuestState =
-            serde_json::from_value(backend_state.data["guest_state"].clone()).unwrap();
+            serde_json::from_value(backend_state.0["guest_state"].clone()).unwrap();
         let persisted_claim_digests: Vec<Digest> =
-            serde_json::from_value(backend_state.data["claim_digests"].clone()).unwrap();
+            serde_json::from_value(backend_state.0["claim_digests"].clone()).unwrap();
         assert!(!guest_state.is_initial());
         assert_eq!(&persisted_claim_digests, &claim_digests);
     }
@@ -1526,12 +1463,12 @@ mod tests {
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
+                status: OrderStatus::ReadyForBatch,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::SkipAggregation,
+                status: OrderStatus::ReadyForSubmission,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
@@ -1542,7 +1479,7 @@ mod tests {
             },
             // Non-expired orders (should NOT be returned)
             Order {
-                status: OrderStatus::Aggregating,
+                status: OrderStatus::Batching,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
@@ -1592,8 +1529,8 @@ mod tests {
                 order.status,
                 OrderStatus::PendingProving
                     | OrderStatus::Proving
-                    | OrderStatus::PendingAgg
-                    | OrderStatus::SkipAggregation
+                    | OrderStatus::ReadyForBatch
+                    | OrderStatus::ReadyForSubmission
                     | OrderStatus::PendingSubmission
             ));
         }

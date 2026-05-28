@@ -32,7 +32,7 @@ use crate::{
 use crate::{
     backend::{
         BackendId, BackendRouter, BatchOrder, BatchSizeEstimateRequest, BatchUpdate, CloseBatch,
-        CompressedProofId, ProofId, UpdateBatch,
+        UpdateBatch,
     },
     config::ConfigLock,
     db::{BatchReadyOrder, DbObj},
@@ -44,20 +44,24 @@ use crate::{
 
 use super::error::BatcherErr;
 
-fn batch_order_from_batch_ready_order(
-    order: BatchReadyOrder,
-    compressed_proof_id: Option<CompressedProofId>,
-) -> BatchOrder {
+fn batch_order_from_batch_ready_order(order: BatchReadyOrder) -> BatchOrder {
     BatchOrder {
         order_id: order.order_id,
-        proof_id: ProofId::new(order.proof_id),
-        compressed_proof_id,
         expiration: order.expiration,
         fee: order.fee,
         fulfillment_type: order.fulfillment_type,
         request_id: order.request_id,
         lock_expiration: order.lock_expiration,
     }
+}
+
+#[cfg(test)]
+fn test_risc0_order_state(
+    proof_id: impl Into<String>,
+) -> Option<crate::backend::BackendOrderState> {
+    Some(crate::backend::BackendOrderState(
+        serde_json::json!({ "proof_id": proof_id.into(), "compressed_proof_id": null }),
+    ))
 }
 
 #[derive(Clone)]
@@ -88,6 +92,7 @@ impl BatcherService {
         let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
         let backend = Arc::new(
             Risc0Backend::with_provers(
+                db.clone(),
                 prover.clone(),
                 prover.clone(),
                 downloader,
@@ -421,11 +426,8 @@ impl BatcherService {
         let new_orders: Vec<BatchOrder> = batch_update_orders
             .iter()
             .cloned()
-            .map(|order| batch_order_from_batch_ready_order(order, None))
-            .chain(direct_submit_orders.iter().cloned().map(|order| {
-                let compressed_proof_id = CompressedProofId::new(order.proof_id.clone());
-                batch_order_from_batch_ready_order(order, Some(compressed_proof_id))
-            }))
+            .chain(direct_submit_orders.iter().cloned())
+            .map(batch_order_from_batch_ready_order)
             .collect();
 
         let update = self
@@ -470,7 +472,7 @@ impl BatcherService {
             self.db.get_current_batch(backend_id).await.context("Failed to get current batch")?;
         let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
 
-        let (backend_proof_id, compress, batch_update_secs, assessor_secs) = match batch.status {
+        let (compress, batch_update_secs, assessor_secs) = match batch.status {
             BatchStatus::Open => {
                 // Claim and filter orders that are ready for backend batch processing.
                 let (batch_update_orders, direct_submit_orders) =
@@ -509,30 +511,9 @@ impl BatcherService {
                         "Failed to update backend batch {batch_id} with orders {:?}",
                         batch.orders
                     ))?;
-                (
-                    result
-                        .state
-                        .proof_id
-                        .clone()
-                        .context("backend finalized batch without proof id")?,
-                    finalize,
-                    result.batch_update_secs,
-                    result.assessor_secs,
-                )
+                (finalize, result.batch_update_secs, result.assessor_secs)
             }
-            BatchStatus::PendingCompression => {
-                let backend_state = batch.backend_state.with_context(|| {
-                        format!(
-                            "Batch {batch_id} in inconsistent state: status is PendingCompression but backend_state is None"
-                        )
-                    })?;
-                let proof_id = backend_state.proof_id.with_context(|| {
-                        format!(
-                            "Batch {batch_id} in inconsistent state: status is PendingCompression but proof_id is None"
-                        )
-                    })?;
-                (proof_id, true, None, None)
-            }
+            BatchStatus::PendingCompression => (true, None, None),
             status => {
                 return Err(BatcherErr::UnexpectedErr(anyhow::anyhow!(
                     "Unexpected batch status {status:?}"
@@ -546,14 +527,7 @@ impl BatcherService {
 
             let close = match self
                 .backend
-                .close_batch(
-                    backend_id,
-                    CloseBatch {
-                        batch_id,
-                        proof_id: backend_proof_id,
-                        order_ids: batch.orders.clone(),
-                    },
-                )
+                .close_batch(backend_id, CloseBatch { batch_id, order_ids: batch.orders.clone() })
                 .await
             {
                 Ok(close) => close,
@@ -576,14 +550,9 @@ impl BatcherService {
                 );
             }
 
-            self.db.complete_batch(batch_id, &close.compressed_proof_id).await.with_context(
-                || {
-                    format!(
-                        "Failed to set batch {batch_id} with orders {:?} as complete",
-                        batch.orders
-                    )
-                },
-            )?;
+            self.db.complete_batch(batch_id, &close.state).await.with_context(|| {
+                format!("Failed to set batch {batch_id} with orders {:?} as complete", batch.orders)
+            })?;
         }
 
         Ok(())
@@ -747,14 +716,12 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(proof_res_1.id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
@@ -766,6 +733,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res_1.id),
             cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
@@ -794,14 +762,12 @@ mod tests {
             .as_bytes()
             .into();
         let order = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str),
             input_id: Some(input_id),
-            proof_id: Some(proof_res_2.id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig,
@@ -813,6 +779,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res_2.id),
             cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
@@ -913,13 +880,11 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(proof_res_1.id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(order_request.expires_at()),
             client_sig: client_sig.into(),
@@ -932,6 +897,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res_1.id),
             cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
@@ -950,7 +916,7 @@ mod tests {
         assert_eq!(aggregating_batch.orders, vec![order.id()]);
         let backend_state = aggregating_batch.backend_state.unwrap();
         let guest_state: risc0_aggregation::GuestState =
-            serde_json::from_value(backend_state.data["guest_state"].clone()).unwrap();
+            serde_json::from_value(backend_state.0["guest_state"].clone()).unwrap();
         assert!(!guest_state.mmr.is_finalized());
 
         // Second order
@@ -977,13 +943,11 @@ mod tests {
             .as_bytes()
             .into();
         let order = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             image_id: Some(image_id_str),
             input_id: Some(input_id),
-            proof_id: Some(proof_res_2.id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(order_request.expires_at()),
             client_sig,
@@ -996,6 +960,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res_2.id),
             cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
@@ -1089,14 +1054,12 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(proof_res.id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
@@ -1108,6 +1071,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res.id),
             cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
@@ -1207,14 +1171,12 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(proof_res.id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 100),
             client_sig: client_sig.into(),
@@ -1226,6 +1188,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res.id),
             cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
@@ -1333,14 +1296,12 @@ mod tests {
             .as_bytes();
 
         let order = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request.clone(),
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(proof_res.clone().id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig.into(),
@@ -1352,6 +1313,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res.id),
             cached_id: Default::default(),
         };
 
@@ -1375,14 +1337,12 @@ mod tests {
             .as_bytes();
 
         let order2 = Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: order_request_2,
             image_id: Some(image_id_str.clone()),
             input_id: Some(input_id.clone()),
-            proof_id: Some(proof_res.id),
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp: Some(now_timestamp() + 1000),
             client_sig: client_sig_2.into(),
@@ -1394,6 +1354,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: test_risc0_order_state(&proof_res.id),
             cached_id: Default::default(),
         };
 
@@ -1416,7 +1377,7 @@ mod tests {
         timeout: u32,
     ) -> Order {
         Order {
-            status: OrderStatus::PendingAgg,
+            status: OrderStatus::ReadyForBatch,
             updated_at: Utc::now(),
             target_timestamp: None,
             request: ProofRequest::new(
@@ -1436,8 +1397,6 @@ mod tests {
             ),
             image_id: None,
             input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
             backend_id: Some(Risc0Backend::default_id()),
             expire_timestamp,
             client_sig: Bytes::new(),
@@ -1449,6 +1408,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: None,
             cached_id: Default::default(),
         }
     }
@@ -1456,7 +1416,6 @@ mod tests {
     fn batch_ready_order_from(order: &Order) -> BatchReadyOrder {
         BatchReadyOrder {
             order_id: order.id(),
-            proof_id: "proof".to_string(),
             expiration: order.request.expires_at(),
             fee: U256::from(10),
             fulfillment_type: order.fulfillment_type,
@@ -1532,7 +1491,7 @@ mod tests {
 
         // Check that valid order is unchanged
         let db_valid_order = db.get_order(&valid_order.id()).await.unwrap().unwrap();
-        assert_eq!(db_valid_order.status, OrderStatus::PendingAgg);
+        assert_eq!(db_valid_order.status, OrderStatus::ReadyForBatch);
         assert!(db_valid_order.error_msg.is_none());
     }
 

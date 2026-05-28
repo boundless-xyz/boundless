@@ -275,8 +275,6 @@ mod tests {
             ),
             image_id: None,
             input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
             backend_id: None,
             expire_timestamp,
             client_sig: Bytes::new(),
@@ -288,6 +286,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: None,
             cached_id: Default::default(),
         }
     }
@@ -352,7 +351,7 @@ mod tests {
             Some(past_time),
         );
         let expired_order2 =
-            create_order_with_status_and_expiration(2, OrderStatus::PendingAgg, Some(past_time));
+            create_order_with_status_and_expiration(2, OrderStatus::ReadyForBatch, Some(past_time));
         let active_order =
             create_order_with_status_and_expiration(3, OrderStatus::Proving, Some(future_time));
         let done_order =
@@ -442,8 +441,8 @@ mod tests {
         let statuses = [
             OrderStatus::PendingProving,
             OrderStatus::Proving,
-            OrderStatus::PendingAgg,
-            OrderStatus::SkipAggregation,
+            OrderStatus::ReadyForBatch,
+            OrderStatus::ReadyForSubmission,
             OrderStatus::PendingSubmission,
         ];
 

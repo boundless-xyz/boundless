@@ -27,7 +27,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
-use crate::backend::{AssessorProofId, BackendBatchState, BackendId, CompressedProofId, ProofId};
+use crate::backend::{AssessorProofId, BackendBatchState, BackendId, BackendOrderState};
 use crate::FulfillmentType;
 use crate::{db::BatchReadyOrder, Order, OrderStatus};
 
@@ -42,14 +42,11 @@ fn test_backend_id() -> BackendId {
 }
 
 fn test_backend_state(proof_id: String) -> BackendBatchState {
-    BackendBatchState {
-        data: serde_json::json!({
-            "guest_state": GuestState::initial([1u32; 8]),
-            "claim_digests": Vec::<Digest>::new(),
-        }),
-        proof_id: Some(ProofId::new(proof_id)),
-        compressed_proof_id: None,
-    }
+    BackendBatchState(serde_json::json!({
+        "guest_state": GuestState::initial([1u32; 8]),
+        "claim_digests": Vec::<Digest>::new(),
+        "proof_id": proof_id,
+    }))
 }
 
 // Add new state tracking structure
@@ -120,8 +117,10 @@ fn generate_test_order(request_id: u32) -> Order {
         ),
         image_id: None,
         input_id: None,
-        proof_id: Some(format!("proof_{request_id}")),
-        compressed_proof_id: Some(format!("compressed_proof_{request_id}")),
+        backend_state: Some(BackendOrderState(serde_json::json!({
+            "proof_id": format!("proof_{request_id}"),
+            "compressed_proof_id": format!("compressed_proof_{request_id}"),
+        }))),
         backend_id: None,
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
@@ -221,17 +220,20 @@ proptest! {
                                         db.set_order_failure(id, "test").await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderProofId { proof_id } => {
-                                        db.set_order_proof_id(id, &proof_id).await.unwrap();
+                                        let state = BackendOrderState(
+                                            serde_json::json!({ "proof_id": proof_id }),
+                                        );
+                                        db.set_order_backend_state(id, &state).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_order_batch_status(id, OrderStatus::PendingAgg, &test_backend_id()).await.unwrap();
+                                        db.set_order_batch_status(id, OrderStatus::ReadyForBatch, &test_backend_id()).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();
                                         if let Some(order) = order {
                                             // `get_submission_order` now requires the order to be in
                                             // `PendingSubmission`; match that precondition here.
-                                            if order.status == OrderStatus::PendingSubmission && order.proof_id.is_some() && order.lock_price.is_some() && order.image_id.is_some() {
+                                            if order.status == OrderStatus::PendingSubmission && order.lock_price.is_some() && order.image_id.is_some() {
                                                 db.get_submission_order(id).await.unwrap();
                                             }
                                         }
@@ -248,9 +250,10 @@ proptest! {
                                         let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                         let batch = db.get_batch(batch_id).await.unwrap();
                                         if batch.backend_state.is_some() {
-                                            let compressed_proof_id =
-                                                CompressedProofId::new(g16_proof_id);
-                                            db.complete_batch(batch_id, &compressed_proof_id).await.unwrap();
+                                            let new_state = BackendBatchState(serde_json::json!({
+                                                "compressed_proof_id": g16_proof_id,
+                                            }));
+                                            db.complete_batch(batch_id, &new_state).await.unwrap();
                                             state.completed_batch.store(true, Ordering::SeqCst);
                                         }
                                     },
@@ -283,7 +286,6 @@ proptest! {
 
                                                 orders.push(BatchReadyOrder {
                                                     order_id: id.to_string(),
-                                                    proof_id: format!("proof_{id}"),
                                                     expiration: 1000,
                                                     fee: U256::from(10),
                                                     fulfillment_type: FulfillmentType::LockAndFulfill,

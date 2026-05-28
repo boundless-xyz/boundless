@@ -546,6 +546,7 @@ pub(crate) mod tests {
             let backend_router = Arc::new(
                 BackendRouter::new()
                     .register_backend(BackendEntry::new(Arc::new(Risc0Backend::with_provers(
+                        db.clone(),
                         prover,
                         Arc::new(DefaultProver::new()),
                         downloader,

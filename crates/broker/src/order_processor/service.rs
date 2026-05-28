@@ -31,7 +31,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    FulfillmentType, Order, OrderStateChange,
+    FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
@@ -69,6 +69,7 @@ impl OrderProcessor {
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
         let backend = Arc::new(Risc0Backend::with_provers(
+            db.clone(),
             prover.clone(),
             snark_prover,
             downloader,
@@ -121,25 +122,12 @@ impl OrderProcessor {
                 .context("Failed to process order proof")?;
 
             match progress {
-                OrderProcessProgress::Started { proof_id } => {
+                OrderProcessProgress::InProgress { state } => {
                     let order_id = order.id();
-                    self.db.set_order_proof_id(&order_id, proof_id.as_str()).await.with_context(
-                        || format!("Failed to set order {order_id} proof id: {proof_id}"),
+                    self.db.set_order_backend_state(&order_id, &state).await.with_context(
+                        || format!("Failed to persist backend state for {order_id}"),
                     )?;
-                    order.proof_id = Some(proof_id.into_string());
-                }
-                OrderProcessProgress::Compressed { proof_id, compressed_proof_id } => {
-                    let order_id = order.id();
-                    self.db
-                        .set_order_compressed_proof_id(&order_id, compressed_proof_id.as_str())
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "Failed to set order {order_id} compressed proof id: {compressed_proof_id}"
-                            )
-                        })?;
-                    order.proof_id = Some(proof_id.into_string());
-                    order.compressed_proof_id = Some(compressed_proof_id.into_string());
+                    order.backend_state = Some(state);
                 }
                 OrderProcessProgress::Completed(processed) => return Ok(processed),
             }
@@ -153,7 +141,10 @@ impl OrderProcessor {
         let order_id = order.id();
         let request_id = order.request.id;
 
-        let proof_id = order.proof_id.as_ref().context("Order should have proof ID")?;
+        order
+            .backend_state
+            .as_ref()
+            .context("Order should have backend state before monitoring")?;
 
         // Check config: should we cancel jobs when orders become not actionable?
         let should_cancel_on_not_actionable =
@@ -206,9 +197,9 @@ impl OrderProcessor {
             tokio::select! {
                 // Proof monitoring completed
                 res = &mut monitor_task => {
-                    let status = res.with_context(|| {
-                        format!("Monitoring proof failed for order {order_id}, proof_id: {proof_id}")
-                    }).map_err(ProvingErr::ProvingFailed)?;
+                    let status = res
+                        .with_context(|| format!("Monitoring proof failed for order {order_id}"))
+                        .map_err(ProvingErr::ProvingFailed)?;
 
                     if let Some(variant) = not_actionable_variant {
                         tracing::info!(
@@ -313,61 +304,53 @@ impl OrderProcessor {
             });
 
         let context = format!("order {order_id}");
-        let proof_id = match order.proof_id.clone() {
-            Some(existing_proof_id) => existing_proof_id,
-            None => {
-                match retry_with_context(
-                    proof_retry_count,
-                    proof_retry_sleep_ms,
-                    || async {
-                        match self
-                            .backend
-                            .process_order(ProcessOrder { order: order.clone() })
-                            .await?
-                        {
-                            OrderProcessProgress::Started { proof_id } => Ok(proof_id),
-                            OrderProcessProgress::Compressed { .. }
-                            | OrderProcessProgress::Completed(_) => Err(anyhow::anyhow!(
-                                "backend reported order {order_id} complete before proof \
-                                 start; expected Started"
-                            )),
-                        }
-                    },
-                    "process_order_start",
-                    &context,
-                )
-                .await
-                {
-                    Ok(proof_id) => proof_id.into_string(),
-                    Err(err) => {
-                        let proving_err = ProvingErr::ProvingFailed(err);
-                        tracing::error!(
-                            "Failed to create stark session for order {order_id}: {proving_err:?}"
-                        );
-                        handle_order_failure(
-                            &self.db,
-                            &order_id,
-                            &BrokerFailure::new(
-                                proving_err.code(),
-                                "Proving session create failed",
-                                proving_err.completion_outcome(),
-                            ),
-                            self.chain_id,
-                            &self.proving_completion_tx,
-                        )
-                        .await;
-                        return;
+        if order.backend_state.is_none() {
+            // Fail fast on proving-session-create errors: retry the initial step on its
+            // own so a permanent failure doesn't drag the monitor loop through retries.
+            let started_state = match retry_with_context(
+                proof_retry_count,
+                proof_retry_sleep_ms,
+                || async {
+                    match self.backend.process_order(ProcessOrder { order: order.clone() }).await? {
+                        OrderProcessProgress::InProgress { state } => Ok(state),
+                        OrderProcessProgress::Completed(_) => Err(anyhow::anyhow!(
+                            "backend reported order {order_id} complete before proof \
+                             start; expected InProgress"
+                        )),
                     }
+                },
+                "process_order_start",
+                &context,
+            )
+            .await
+            {
+                Ok(state) => state,
+                Err(err) => {
+                    let proving_err = ProvingErr::ProvingFailed(err);
+                    tracing::error!(
+                        "Failed to create stark session for order {order_id}: {proving_err:?}"
+                    );
+                    handle_order_failure(
+                        &self.db,
+                        &order_id,
+                        &BrokerFailure::new(
+                            proving_err.code(),
+                            "Proving session create failed",
+                            proving_err.completion_outcome(),
+                        ),
+                        self.chain_id,
+                        &self.proving_completion_tx,
+                    )
+                    .await;
+                    return;
                 }
-            }
-        };
+            };
 
-        if order.proof_id.is_none() {
-            if let Err(err) = self.db.set_order_proof_id(&order_id, &proof_id).await {
-                tracing::error!("Failed to set order {order_id} proof id: {proof_id}: {err:?}");
+            if let Err(err) = self.db.set_order_backend_state(&order_id, &started_state).await {
+                tracing::error!("Failed to persist backend state for order {order_id}: {err:?}");
             }
+            order.backend_state = Some(started_state);
         }
-        order.proof_id = Some(proof_id);
 
         let result = retry_with_context(
             proof_retry_count,
@@ -384,13 +367,11 @@ impl OrderProcessor {
             Ok(processed) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
-                // Compression timing: set when the backend produced a compressed proof.
-                // Currently measured as total proving wall-clock since STARK and compression
-                // happen inside the same monitor_proof_internal call.
-                let proof_compression_secs = processed
-                    .compressed_proof_id
-                    .is_some()
-                    .then(|| proving_start.elapsed().as_secs_f64());
+                // ReadyForSubmission == this order's path produced a compressed (Groth16 /
+                // Blake3Groth16) seal, so compression happened during proving.
+                let proof_compression_secs =
+                    matches!(processed.next_status, OrderStatus::ReadyForSubmission)
+                        .then(|| proving_start.elapsed().as_secs_f64());
 
                 crate::telemetry::telemetry(self.chain_id).record_application_proving_completed(
                     &order_id,
@@ -470,10 +451,7 @@ impl OrderProcessor {
             }
             Err(ref err) => {
                 tracing::error!(
-                    "Order {} with job id {} failed to prove after {} retries: {err:?}",
-                    order_id,
-                    order.proof_id.as_deref().unwrap_or("<invalid>"),
-                    proof_retry_count
+                    "Order {order_id} failed to prove after {proof_retry_count} retries: {err:?}",
                 );
 
                 handle_order_failure(
@@ -496,12 +474,12 @@ impl OrderProcessor {
         for order in current_proofs {
             let order_id = order.id();
 
-            if order.proof_id.is_none() {
-                tracing::error!("Order in status Proving missing proof_id: {order_id}");
+            if order.backend_state.is_none() {
+                tracing::error!("Order in status Proving missing backend state: {order_id}");
                 set_order_failure(
                     &self.db,
                     &order_id,
-                    "Proving status missing proof_id",
+                    "Proving status missing backend state",
                     self.chain_id,
                     &self.proving_completion_tx,
                 )
@@ -595,6 +573,7 @@ async fn set_order_failure(
 mod tests {
     use super::*;
     use crate::{
+        backend::BackendOrderState,
         db::SqliteDb,
         now_timestamp,
         order_committer::CommitmentComplete,
@@ -666,8 +645,8 @@ mod tests {
             },
             image_id: Some(image_id),
             input_id: Some(input_id),
-            proof_id,
-            compressed_proof_id: None,
+            backend_state: proof_id
+                .map(|id| BackendOrderState(serde_json::json!({ "proof_id": id }))),
             backend_id: None,
             expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
             client_sig: Bytes::new(),
@@ -744,7 +723,7 @@ mod tests {
         order_processor.prove_and_update_db(order.clone()).await;
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::PendingAgg);
+        assert_eq!(order.status, OrderStatus::ReadyForBatch);
         assert_eq!(order.backend_id, Some(Risc0Backend::default_id()));
 
         // Test that LockAndFulfill orders ignore fulfillment events
@@ -791,7 +770,7 @@ mod tests {
         order_processor_with_fulfillment.prove_and_update_db(lock_and_fulfill_order.clone()).await;
 
         let final_order = db.get_order(&lock_and_fulfill_order.id()).await.unwrap().unwrap();
-        assert_eq!(final_order.status, OrderStatus::PendingAgg);
+        assert_eq!(final_order.status, OrderStatus::ReadyForBatch);
     }
 
     #[tokio::test]
@@ -863,8 +842,6 @@ mod tests {
             },
             image_id: Some(image_id),
             input_id: Some(input_id),
-            proof_id: Some(proof_id.clone()),
-            compressed_proof_id: None,
             backend_id: None,
             expire_timestamp: Some(now_timestamp() + 3600), // 1 hour from now
             client_sig: Bytes::new(),
@@ -876,6 +853,7 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: Some(BackendOrderState(serde_json::json!({ "proof_id": proof_id }))),
             cached_id: Default::default(),
         };
         db.add_order(&order).await.unwrap();
@@ -892,8 +870,11 @@ mod tests {
         }
 
         let order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(order.status, OrderStatus::PendingAgg);
-        assert_eq!(order.proof_id, Some(proof_id));
+        assert_eq!(order.status, OrderStatus::ReadyForBatch);
+        assert_eq!(
+            order.backend_state.as_ref().and_then(|s| s.0.get("proof_id")).and_then(|v| v.as_str()),
+            Some(proof_id.as_str()),
+        );
 
         assert!(logs_contain("Found 1 proofs currently proving"));
     }
@@ -994,7 +975,7 @@ mod tests {
 
         let result_2 = monitor_task_2.await.unwrap();
         assert!(result_2.is_ok());
-        assert_eq!(result_2.unwrap().next_status, OrderStatus::PendingAgg);
+        assert_eq!(result_2.unwrap().next_status, OrderStatus::ReadyForBatch);
 
         assert!(logs_contain("fulfilled externally"));
     }

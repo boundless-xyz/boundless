@@ -29,7 +29,7 @@ use boundless_market::{
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::backend::BackendId;
+use crate::backend::{BackendId, BackendOrderState};
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
 /// Orders in initial, intermediate, or terminal non-failure states (e.g. New, Pricing, Done, Skipped)
@@ -40,13 +40,13 @@ pub enum OrderStatus {
     PendingProving,
     /// Order is actively ready for proving
     Proving,
-    /// Order is ready for aggregation
-    PendingAgg,
-    /// Order is in the process of Aggregation
-    Aggregating,
-    /// Unaggregated order is ready for submission
-    SkipAggregation,
-    /// Pending on chain finalization
+    /// Proof is complete and the order is waiting to be claimed into a backend batch.
+    ReadyForBatch,
+    /// Order has been claimed into a backend batch that is being built.
+    Batching,
+    /// Proof is complete and the order can be submitted directly (no batching).
+    ReadyForSubmission,
+    /// Order is in a batch that is being submitted on chain.
     PendingSubmission,
     /// Order has been completed
     Done,
@@ -102,8 +102,7 @@ pub(crate) fn order_from_request(order_request: &OrderRequest, status: OrderStat
         target_timestamp: order_request.target_timestamp,
         expire_timestamp: order_request.expire_timestamp,
         proving_started_at: None,
-        proof_id: None,
-        compressed_proof_id: None,
+        backend_state: None,
         backend_id: None,
         lock_price: None,
         error_msg: None,
@@ -163,14 +162,13 @@ pub struct Order {
     ///
     ///  Populated after preflight
     pub(crate) input_id: Option<String>,
-    /// Proof Id
+    /// Backend-opaque per-order state.
     ///
-    /// Populated after proof completion
-    pub(crate) proof_id: Option<String>,
-    /// Compressed proof Id
-    ///
-    /// Populated after proof completion. if the proof is compressed
-    pub(crate) compressed_proof_id: Option<String>,
+    /// The proving backend writes whatever it needs to resume this order after
+    /// a restart (proof handles, intermediate stage data, etc.). The broker
+    /// just persists the blob.
+    #[serde(default)]
+    pub(crate) backend_state: Option<BackendOrderState>,
     /// Backend that processed this order.
     ///
     /// Populated after proof completion.
@@ -249,8 +247,7 @@ mod tests {
             proving_started_at: None,
             image_id: None,
             input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
+            backend_state: None,
             backend_id: None,
             expire_timestamp: None,
             client_sig: Bytes::new(),
