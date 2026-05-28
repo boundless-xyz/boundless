@@ -243,8 +243,8 @@ impl EvaluationLimits {
 /// Executes request preflight for pricing without making broker policy decisions.
 ///
 /// Backend-agnostic seam. Broker policy (gas, collateral, requestors) lives in
-/// the [`super::OrderPricingContext`] supertrait; per-backend execution
-/// dependencies live in a context trait like [`Risc0RequestEvaluatorContext`].
+/// [`super::OrderPricingContext`]; the concrete preflight pipeline for the
+/// RISC0 backend lives in [`Risc0Evaluator`].
 #[allow(async_fn_in_trait)]
 pub trait RequestEvaluator {
     async fn evaluate_request(
@@ -254,87 +254,116 @@ pub trait RequestEvaluator {
     ) -> Result<RequestEvaluation, OrderPricingError>;
 }
 
-/// RISC0-backed request evaluation hooks. The blanket [`RequestEvaluator`] impl
-/// below threads these dependencies into the shared preflight pipeline.
+/// Predicate used by an evaluator to flag priority requestors (whose uploads get
+/// elevated prover priority). Defaults to "no requestor is priority" if absent.
+pub type PriorityRequestorCheck = Arc<dyn Fn(&Address) -> bool + Send + Sync>;
+
+/// Concrete RISC0 preflight pipeline.
 ///
-/// TODO(zkvm-abstraction): a second backend will need its own context trait +
-/// blanket impl, or `RequestEvaluator` must move onto `Backend` directly.
-pub trait Risc0RequestEvaluatorContext {
-    /// Access to the prover for preflight operations.
-    fn prover(&self) -> &ProverObj;
+/// Constructed directly by anything that needs to run preflight against a RISC0
+/// prover — broker backends, requestor SDKs, and tests all use the same type.
+/// `with_*` methods are optional and default off; the broker wires them up for
+/// concurrent-load coalescing and priority-requestor bypass.
+#[derive(Clone)]
+pub struct Risc0Evaluator {
+    prover: ProverObj,
+    downloader: Arc<dyn StorageDownloader + Send + Sync>,
+    preflight_cache: PreflightCache,
+    image_upload_cache: Option<ImageUploadCache>,
+    priority_check: Option<PriorityRequestorCheck>,
+}
 
-    /// Access to the downloader for fetching images and inputs.
-    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync>;
+impl Risc0Evaluator {
+    pub fn new(
+        prover: ProverObj,
+        downloader: Arc<dyn StorageDownloader + Send + Sync>,
+        preflight_cache: PreflightCache,
+    ) -> Self {
+        Self { prover, downloader, preflight_cache, image_upload_cache: None, priority_check: None }
+    }
 
-    /// Cache for coalescing and reusing preflight results.
-    fn preflight_cache(&self) -> &PreflightCache;
-
-    /// Whether requestor-specific limits should be bypassed for this client.
-    fn is_priority_requestor(&self, client_addr: &Address) -> bool;
-
-    /// Cache used to coalesce concurrent image uploads for identical requests.
+    /// Enable coalescing of concurrent image uploads for identical requests.
     ///
-    /// Defaults to `None`, which uploads without coalescing. Contexts that see burst
-    /// load (the broker) should return `Some` so N concurrent evaluations of the same
-    /// request share a single image download + upload.
-    fn image_upload_cache(&self) -> Option<&ImageUploadCache> {
-        None
+    /// Contexts under burst load (the broker) should set this; otherwise N concurrent
+    /// evaluations of the same request each upload the image independently.
+    pub fn with_image_upload_cache(mut self, cache: ImageUploadCache) -> Self {
+        self.image_upload_cache = Some(cache);
+        self
+    }
+
+    /// Install a priority-requestor predicate.
+    pub fn with_priority_check(mut self, check: PriorityRequestorCheck) -> Self {
+        self.priority_check = Some(check);
+        self
+    }
+
+    pub fn prover(&self) -> &ProverObj {
+        &self.prover
+    }
+
+    pub fn downloader(&self) -> &Arc<dyn StorageDownloader + Send + Sync> {
+        &self.downloader
+    }
+
+    pub fn preflight_cache(&self) -> &PreflightCache {
+        &self.preflight_cache
+    }
+
+    async fn resolve_program_id(
+        &self,
+        program_url: &str,
+        predicate: &crate::contracts::RequestPredicate,
+    ) -> Result<String, OrderPricingError> {
+        let Some(cache) = self.image_upload_cache.as_ref() else {
+            return upload_image_with_downloader(
+                &self.prover,
+                program_url,
+                predicate,
+                self.downloader.as_ref(),
+            )
+            .await
+            .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)));
+        };
+        // Multiple concurrent calls on the same key coalesce into a single upload.
+        // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
+        let key = ImageUploadCacheKey::new(program_url, predicate);
+        let prover = self.prover.clone();
+        let program_url = program_url.to_string();
+        let predicate = predicate.clone();
+        let downloader = self.downloader.clone();
+        cache
+            .try_get_with(key, async move {
+                upload_image_with_downloader(&prover, &program_url, &predicate, downloader.as_ref())
+                    .await
+                    .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
+            })
+            .await
+            .map_err(|e| (*e).clone())
     }
 }
 
-/// Upload the request's image, coalescing concurrent uploads of identical requests
-/// through the context's [`ImageUploadCache`] when one is available.
-async fn resolve_program_id<T: Risc0RequestEvaluatorContext>(
-    ctx: &T,
-    prover: &ProverObj,
-    program_url: &str,
-    predicate: &crate::contracts::RequestPredicate,
-    downloader: Arc<dyn StorageDownloader + Send + Sync>,
-) -> Result<String, OrderPricingError> {
-    let Some(cache) = Risc0RequestEvaluatorContext::image_upload_cache(ctx) else {
-        return upload_image_with_downloader(prover, program_url, predicate, downloader.as_ref())
-            .await
-            .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)));
-    };
-    // Multiple concurrent calls on the same key coalesce into a single upload.
-    // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
-    let key = ImageUploadCacheKey::new(program_url, predicate);
-    let prover = prover.clone();
-    let program_url = program_url.to_string();
-    let predicate = predicate.clone();
-    cache
-        .try_get_with(key, async move {
-            upload_image_with_downloader(&prover, &program_url, &predicate, downloader.as_ref())
-                .await
-                .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
-        })
-        .await
-        .map_err(|e| (*e).clone())
-}
-
-impl<T> RequestEvaluator for T
-where
-    T: Risc0RequestEvaluatorContext + Sync,
-{
+impl RequestEvaluator for Risc0Evaluator {
     async fn evaluate_request(
         &self,
         request: EvaluationRequest,
         limits: EvaluationLimits,
     ) -> Result<RequestEvaluation, OrderPricingError> {
         let max_cycles = limits.max_cycles;
-        let prover = Risc0RequestEvaluatorContext::prover(self).clone();
-        let downloader = Risc0RequestEvaluatorContext::downloader(self);
-        let cache = Risc0RequestEvaluatorContext::preflight_cache(self).clone();
+        let prover = self.prover.clone();
+        let downloader = self.downloader.clone();
+        let cache = self.preflight_cache.clone();
         let request_id = request.request_id.clone();
         let program_url = request.program_url.clone();
         let predicate = request.predicate.clone();
-        let program_id =
-            resolve_program_id(self, &prover, &program_url, &predicate, downloader.clone()).await?;
+        let program_id = self.resolve_program_id(&program_url, &predicate).await?;
         let cache_key = request.cache_key(program_id, max_cycles)?;
         let input_type = request.input_type;
         let input_data = request.input_data;
-        let is_priority =
-            Risc0RequestEvaluatorContext::is_priority_requestor(self, &request.client_address);
+        let is_priority = self
+            .priority_check
+            .as_ref()
+            .map(|check| check(&request.client_address))
+            .unwrap_or(false);
 
         let program_id = cache_key.program_id.clone();
         // `max_cycles` is part of the cache key, so a `LimitExceeded` result is only ever
@@ -344,84 +373,76 @@ where
         // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
         cache
             .try_get_with(cache_key, async {
-                    tracing::trace!(
-                        "Starting preflight execution of {request_id} with limit of {max_cycles} cycles"
-                    );
+                tracing::trace!(
+                    "Starting preflight execution of {request_id} with limit of {max_cycles} cycles"
+                );
 
-                    let input_id = upload_input_with_downloader(
-                        &prover,
-                        input_type,
-                        &input_data,
-                        downloader.as_ref(),
-                        is_priority,
-                    )
+                let input_id = upload_input_with_downloader(
+                    &prover,
+                    input_type,
+                    &input_data,
+                    downloader.as_ref(),
+                    is_priority,
+                )
+                .await
+                .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?;
+
+                match prover
+                    .preflight(&program_id, &input_id, vec![], Some(max_cycles), &request_id)
                     .await
-                    .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?;
-
-                    match prover
-                        .preflight(
-                            &program_id,
-                            &input_id,
-                            vec![],
-                            Some(max_cycles),
-                            &request_id,
-                        )
-                        .await
-                    {
-                        Ok(res) => {
-                            let stats = res.stats.ok_or_else(|| {
+                {
+                    Ok(res) => {
+                        let stats = res.stats.ok_or_else(|| {
+                            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                                "Preflight execution of {request_id} succeeded but stats are missing"
+                            )))
+                        })?;
+                        let evaluation_id = res.id;
+                        let public_output = prover
+                            .get_preflight_journal(&evaluation_id)
+                            .await
+                            .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
+                            .ok_or_else(|| {
                                 OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                                    "Preflight execution of {request_id} succeeded but stats are missing"
+                                    "Preflight journal not found"
                                 )))
                             })?;
-                            let evaluation_id = res.id;
-                            let public_output = Risc0RequestEvaluatorContext::prover(self)
-                                .get_preflight_journal(&evaluation_id)
-                                .await
-                                .map_err(|e| {
-                                    OrderPricingError::UnexpectedErr(Arc::new(e.into()))
-                                })?
-                                .ok_or_else(|| {
-                                    OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                                        "Preflight journal not found"
-                                    )))
-                                })?;
-                            tracing::debug!(
-                                "Preflight execution of {request_id} with session id {} and {} mcycles completed",
-                                evaluation_id,
-                                stats.total_cycles / 1_000_000
-                            );
-                            Ok(RequestEvaluation::Success {
-                                evaluation_id,
-                                metrics: EvaluationMetrics::new(
-                                    NativeWork::new(stats.total_cycles),
-                                    NormalizedWork::new(stats.total_cycles),
-                                ),
-                                program_id,
-                                input_id,
-                                public_output,
-                            })
-                        }
-                        Err(err) => {
-                            let err_msg = err.to_string();
-                            match classify_preflight_error(&err_msg) {
-                                Some(PreflightErrorKind::LimitExceeded) => {
-                                    tracing::debug!(
-                                        "Skipping order {request_id} due to intentional execution limit of {max_cycles}"
-                                    );
-                                    Ok(RequestEvaluation::LimitExceeded { limit: limits })
-                                }
-                                Some(PreflightErrorKind::GuestPanicked) => {
-                                    tracing::debug!(
-                                        "Skipping order {request_id} due to guest panic: {}",
-                                        err_msg
-                                    );
-                                    Ok(RequestEvaluation::GuestFailed)
-                                }
-                                None => Err(OrderPricingError::UnexpectedErr(Arc::new(err.into()))),
+                        tracing::debug!(
+                            "Preflight execution of {request_id} with session id {} and {} mcycles completed",
+                            evaluation_id,
+                            stats.total_cycles / 1_000_000
+                        );
+                        Ok(RequestEvaluation::Success {
+                            evaluation_id,
+                            metrics: EvaluationMetrics::new(
+                                NativeWork::new(stats.total_cycles),
+                                NormalizedWork::new(stats.total_cycles),
+                            ),
+                            program_id,
+                            input_id,
+                            public_output,
+                        })
+                    }
+                    Err(err) => {
+                        let err_msg = err.to_string();
+                        match classify_preflight_error(&err_msg) {
+                            Some(PreflightErrorKind::LimitExceeded) => {
+                                tracing::debug!(
+                                    "Skipping order {request_id} due to intentional execution limit of {max_cycles}"
+                                );
+                                Ok(RequestEvaluation::LimitExceeded { limit: limits })
                             }
+                            Some(PreflightErrorKind::GuestPanicked) => {
+                                tracing::debug!(
+                                    "Skipping order {request_id} due to guest panic: {}",
+                                    err_msg
+                                );
+                                Ok(RequestEvaluation::GuestFailed)
+                            }
+                            None => Err(OrderPricingError::UnexpectedErr(Arc::new(err.into()))),
                         }
                     }
+                }
             })
             .await
             .map_err(|e| (*e).clone())
@@ -432,7 +453,7 @@ where
 ///
 /// This is a standalone function (not a trait method) so it can be called from inside
 /// async closures like `try_get_with` without capturing `&self`.
-pub(super) async fn upload_image_with_downloader(
+async fn upload_image_with_downloader(
     prover: &ProverObj,
     image_url: &str,
     predicate: &crate::contracts::RequestPredicate,
@@ -483,7 +504,7 @@ pub(super) async fn upload_image_with_downloader(
 /// async closures like `try_get_with` without capturing `&self`.
 ///
 /// If `is_priority_requestor` is true, size limits are bypassed when fetching from URLs.
-pub(super) async fn upload_input_with_downloader(
+async fn upload_input_with_downloader(
     prover: &ProverObj,
     input_type: crate::contracts::RequestInputType,
     input_data: &Bytes,
@@ -657,45 +678,12 @@ mod tests {
         }
     }
 
-    struct StubCtx {
-        prover: ProverObj,
-        downloader: Arc<dyn StorageDownloader + Send + Sync>,
-        cache: PreflightCache,
-        image_cache: Option<ImageUploadCache>,
+    fn stub_evaluator(prover: ProverObj) -> Risc0Evaluator {
+        Risc0Evaluator::new(prover, Arc::new(NoopDownloader), Arc::new(Cache::new(64)))
     }
 
-    impl StubCtx {
-        fn new(prover: ProverObj) -> Self {
-            Self {
-                prover,
-                downloader: Arc::new(NoopDownloader),
-                cache: Arc::new(Cache::new(64)),
-                image_cache: None,
-            }
-        }
-
-        fn with_image_cache(mut self) -> Self {
-            self.image_cache = Some(Arc::new(Cache::new(64)));
-            self
-        }
-    }
-
-    impl Risc0RequestEvaluatorContext for StubCtx {
-        fn prover(&self) -> &ProverObj {
-            &self.prover
-        }
-        fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
-            self.downloader.clone()
-        }
-        fn preflight_cache(&self) -> &PreflightCache {
-            &self.cache
-        }
-        fn is_priority_requestor(&self, _: &Address) -> bool {
-            false
-        }
-        fn image_upload_cache(&self) -> Option<&ImageUploadCache> {
-            self.image_cache.as_ref()
-        }
+    fn stub_evaluator_with_image_cache(prover: ProverObj) -> Risc0Evaluator {
+        stub_evaluator(prover).with_image_upload_cache(Arc::new(Cache::new(64)))
     }
 
     fn test_request() -> EvaluationRequest {
@@ -729,7 +717,7 @@ mod tests {
     #[tokio::test]
     async fn higher_limit_caller_reevaluates_past_cached_limit_exceeded() {
         let stub = StubProver::new();
-        let ctx = StubCtx::new(stub.clone());
+        let ctx = stub_evaluator(stub.clone());
 
         let r1 = ctx
             .evaluate_request(test_request(), EvaluationLimits::new(100))
@@ -759,7 +747,7 @@ mod tests {
     #[tokio::test]
     async fn cached_limit_exceeded_returned_when_caller_limit_unchanged() {
         let stub = StubProver::new();
-        let ctx = StubCtx::new(stub.clone());
+        let ctx = stub_evaluator(stub.clone());
 
         let r1 = ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();
         assert!(matches!(r1, RequestEvaluation::LimitExceeded { .. }));
@@ -779,7 +767,7 @@ mod tests {
         // repeated (or concurrent) evaluation reuses the cached upload instead of
         // downloading and uploading the image again.
         let stub = StubProver::new();
-        let ctx = StubCtx::new(stub.clone()).with_image_cache();
+        let ctx = stub_evaluator_with_image_cache(stub.clone());
 
         for _ in 0..3 {
             ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();
@@ -797,7 +785,7 @@ mod tests {
         // Contrast for the test above: with no image-upload cache every evaluation
         // uploads independently, so the cache is what provides the coalescing.
         let stub = StubProver::new();
-        let ctx = StubCtx::new(stub.clone());
+        let ctx = stub_evaluator(stub.clone());
 
         for _ in 0..3 {
             ctx.evaluate_request(test_request(), EvaluationLimits::new(100)).await.unwrap();

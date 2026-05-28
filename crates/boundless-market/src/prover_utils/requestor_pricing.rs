@@ -34,8 +34,9 @@ use moka::policy::EvictionPolicy;
 use super::local_executor::LocalExecutor;
 use super::prover::ProverObj;
 use super::{
-    Erc1271GasCache, FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError,
-    OrderPricingOutcome, OrderRequest, PreflightCache, Risc0RequestEvaluatorContext,
+    Erc1271GasCache, EvaluationLimits, EvaluationRequest, FulfillmentType, MarketConfig,
+    OrderPricingContext, OrderPricingError, OrderPricingOutcome, OrderRequest, PreflightCache,
+    RequestEvaluation, RequestEvaluator, Risc0Evaluator,
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
@@ -43,7 +44,7 @@ use crate::dynamic_gas_filler::PriorityMode;
 use crate::price_oracle::{Amount, Asset, PriceOracleManager};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
-use crate::storage::{StandardDownloader, StorageDownloader};
+use crate::storage::StandardDownloader;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
@@ -200,13 +201,11 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 /// verification and requestor allowlists.
 pub struct RequestorPricingContext<P> {
     provider: Arc<P>,
-    prover: ProverObj,
+    evaluator: Risc0Evaluator,
     market_config: MarketConfig,
     supported_selectors: SupportedSelectors,
-    preflight_cache: PreflightCache,
     erc1271_gas_cache: Erc1271GasCache,
     collateral_token_decimals: u8,
-    downloader: Arc<StandardDownloader>,
     price_oracle: Option<Arc<PriceOracleManager>>,
 }
 
@@ -226,17 +225,29 @@ where
         downloader: Arc<StandardDownloader>,
         price_oracle: Option<Arc<PriceOracleManager>>,
     ) -> Self {
+        let evaluator = Risc0Evaluator::new(prover, downloader, preflight_cache);
         Self {
             provider,
-            prover,
+            evaluator,
             market_config,
             supported_selectors: SupportedSelectors::default(),
-            preflight_cache,
             erc1271_gas_cache,
             collateral_token_decimals,
-            downloader,
             price_oracle,
         }
+    }
+}
+
+impl<P> RequestEvaluator for RequestorPricingContext<P>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    async fn evaluate_request(
+        &self,
+        request: EvaluationRequest,
+        limits: EvaluationLimits,
+    ) -> Result<RequestEvaluation, OrderPricingError> {
+        self.evaluator.evaluate_request(request, limits).await
     }
 }
 
@@ -340,26 +351,5 @@ where
                 e
             )))
         })
-    }
-}
-
-impl<P> Risc0RequestEvaluatorContext for RequestorPricingContext<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
-    fn prover(&self) -> &ProverObj {
-        &self.prover
-    }
-
-    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
-        self.downloader.clone()
-    }
-
-    fn preflight_cache(&self) -> &PreflightCache {
-        &self.preflight_cache
-    }
-
-    fn is_priority_requestor(&self, _client_addr: &Address) -> bool {
-        OrderPricingContext::is_priority_requestor(self, _client_addr)
     }
 }

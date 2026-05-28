@@ -32,7 +32,7 @@ use boundless_market::{
     input::GuestEnv,
     prover_utils::{
         EvaluationLimits, EvaluationRequest, ImageUploadCache, OrderPricingError, PreflightCache,
-        RequestEvaluation, RequestEvaluator, Risc0RequestEvaluatorContext,
+        PriorityRequestorCheck, RequestEvaluation, RequestEvaluator, Risc0Evaluator,
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
     storage::StorageDownloader,
@@ -112,9 +112,8 @@ pub struct Risc0Backend {
     prover: ProverObj,
     snark_prover: ProverObj,
     downloader: ConfigurableDownloader,
-    preflight_cache: PreflightCache,
-    image_upload_cache: ImageUploadCache,
     priority_requestors: PriorityRequestors,
+    evaluator: Risc0Evaluator,
     set_builder_program_id: Option<Risc0Digest>,
     set_verifier_addr: Option<Address>,
     set_verifier: Option<SetVerifierService<DynProvider>>,
@@ -149,27 +148,39 @@ impl Risc0Backend {
         downloader: ConfigurableDownloader,
         priority_requestors: PriorityRequestors,
     ) -> Self {
+        let preflight_cache: PreflightCache = std::sync::Arc::new(
+            moka::future::Cache::builder()
+                .eviction_policy(moka::policy::EvictionPolicy::lru())
+                .max_capacity(PREFLIGHT_CACHE_SIZE)
+                .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
+                .build(),
+        );
+        let image_upload_cache: ImageUploadCache = std::sync::Arc::new(
+            moka::future::Cache::builder()
+                .eviction_policy(moka::policy::EvictionPolicy::lru())
+                .max_capacity(IMAGE_UPLOAD_CACHE_SIZE)
+                .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
+                .build(),
+        );
+        let priority_for_check = priority_requestors.clone();
+        let priority_check: PriorityRequestorCheck =
+            std::sync::Arc::new(move |addr| priority_for_check.is_priority_requestor(addr));
+        let evaluator = Risc0Evaluator::new(
+            prover.clone(),
+            std::sync::Arc::new(downloader.clone()),
+            preflight_cache,
+        )
+        .with_image_upload_cache(image_upload_cache)
+        .with_priority_check(priority_check);
+
         Self {
             id: Self::default_id(),
             db,
             prover,
             snark_prover,
             downloader,
-            preflight_cache: std::sync::Arc::new(
-                moka::future::Cache::builder()
-                    .eviction_policy(moka::policy::EvictionPolicy::lru())
-                    .max_capacity(PREFLIGHT_CACHE_SIZE)
-                    .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
-                    .build(),
-            ),
-            image_upload_cache: std::sync::Arc::new(
-                moka::future::Cache::builder()
-                    .eviction_policy(moka::policy::EvictionPolicy::lru())
-                    .max_capacity(IMAGE_UPLOAD_CACHE_SIZE)
-                    .time_to_live(std::time::Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
-                    .build(),
-            ),
             priority_requestors,
+            evaluator,
             set_builder_program_id: None,
             set_verifier_addr: None,
             set_verifier: None,
@@ -710,28 +721,6 @@ fn compression_type_for_selector(selector: FixedBytes<4>) -> CompressionType {
     }
 }
 
-impl Risc0RequestEvaluatorContext for Risc0Backend {
-    fn prover(&self) -> &ProverObj {
-        &self.prover
-    }
-
-    fn downloader(&self) -> std::sync::Arc<dyn StorageDownloader + Send + Sync> {
-        std::sync::Arc::new(self.downloader.clone())
-    }
-
-    fn preflight_cache(&self) -> &PreflightCache {
-        &self.preflight_cache
-    }
-
-    fn is_priority_requestor(&self, client_addr: &Address) -> bool {
-        self.priority_requestors.is_priority_requestor(client_addr)
-    }
-
-    fn image_upload_cache(&self) -> Option<&ImageUploadCache> {
-        Some(&self.image_upload_cache)
-    }
-}
-
 #[async_trait]
 impl Backend for Risc0Backend {
     fn id(&self) -> &BackendId {
@@ -751,7 +740,7 @@ impl Backend for Risc0Backend {
         request: EvaluationRequest,
         limits: EvaluationLimits,
     ) -> Result<RequestEvaluation, OrderPricingError> {
-        RequestEvaluator::evaluate_request(self, request, limits).await
+        self.evaluator.evaluate_request(request, limits).await
     }
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {

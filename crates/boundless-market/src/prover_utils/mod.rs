@@ -30,7 +30,8 @@ pub use config::{
 pub use request_evaluator::{
     EvaluationLimits, EvaluationMetrics, EvaluationRequest, ImageUploadCache, ImageUploadCacheKey,
     InputCacheKey, NativeWork, NormalizedWork, PreflightCache, PreflightCacheKey,
-    PreflightCacheValue, RequestEvaluation, RequestEvaluator, Risc0RequestEvaluatorContext,
+    PreflightCacheValue, PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
+    Risc0Evaluator,
 };
 
 use crate::{
@@ -53,8 +54,6 @@ use alloy::{
 use anyhow::Context;
 use hex::FromHex;
 use moka::future::Cache;
-#[cfg(feature = "prover_utils")]
-use request_evaluator::{upload_image_with_downloader, upload_input_with_downloader};
 use risc0_zkvm::sha::Digest as Risc0Digest;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -406,56 +405,6 @@ pub trait OrderPricingContext: RequestEvaluator {
     /// Convert an Amount to ZKC using the price oracle.
     async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
 
-    /// Fetch data from a URI using the downloader.
-    #[cfg(feature = "prover_utils")]
-    async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, OrderPricingError>
-    where
-        Self: Risc0RequestEvaluatorContext,
-    {
-        Risc0RequestEvaluatorContext::downloader(self)
-            .download(url)
-            .await
-            .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e.into())))
-    }
-
-    /// Upload an image from a URL to the prover using the downloader.
-    #[cfg(feature = "prover_utils")]
-    async fn upload_image(
-        &self,
-        image_url: &str,
-        predicate: &crate::contracts::RequestPredicate,
-    ) -> Result<String, OrderPricingError>
-    where
-        Self: Risc0RequestEvaluatorContext,
-    {
-        upload_image_with_downloader(
-            Risc0RequestEvaluatorContext::prover(self),
-            image_url,
-            predicate,
-            Risc0RequestEvaluatorContext::downloader(self).as_ref(),
-        )
-        .await
-        .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
-    }
-
-    /// Upload input data to the prover (from inline data or URL) using the downloader.
-    #[cfg(feature = "prover_utils")]
-    async fn upload_input(&self, order: &OrderRequest) -> Result<String, OrderPricingError>
-    where
-        Self: Risc0RequestEvaluatorContext,
-    {
-        let is_priority =
-            OrderPricingContext::is_priority_requestor(self, &order.request.client_address());
-        upload_input_with_downloader(
-            Risc0RequestEvaluatorContext::prover(self),
-            order.request.input.inputType,
-            &order.request.input.data,
-            Risc0RequestEvaluatorContext::downloader(self).as_ref(),
-            is_priority,
-        )
-        .await
-        .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))
-    }
     async fn price_order(
         &self,
         order: &mut OrderRequest,
