@@ -1,0 +1,45 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwGnPMfb0/YC290qpYVoArOyAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM1q5NuKHP11fJnr5JAgEQgDssGchsH3jIMq0dxuVQobD8cMOCRNPWSPIpXgnWHECgxq+BGYuHZ4xVTuWKtXRa9t0Xd0M2SbmiMnxtSw==
+config:
+  aws:region: us-west-2
+  kailua-batch:BASE_STACK: organization/bootstrap/services-staging
+  kailua-batch:CHAIN_ID: "10"
+  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:1343d65
+  kailua-batch:TASK_CPU: "8"
+  kailua-batch:TASK_MEMORY_MIB: "8192"
+  kailua-batch:LOG_RETENTION_DAYS: "30"
+  # Set true if private subnets have no NAT and you need outbound internet for the task
+  kailua-batch:ASSIGN_PUBLIC_IP: "false"
+  kailua-batch:SCHEDULE_COUNT: "1"
+  kailua-batch:SCHEDULE_WINDOW_MINUTES: "20"
+  kailua-batch:TASKS_PER_MINUTE: "2"
+  kailua-batch:MAX_RUNNING_TASKS: "4"
+  kailua-batch:SKIP_AWAIT_PROOF: "true"
+  kailua-batch:KAILUA_WORKDIR: /kailua
+  kailua-batch:MODE: debug
+  kailua-batch:DATA_REL: .localtestdata/op-mainnet
+  kailua-batch:S3_BUCKET: zkasper-staging
+  kailua-batch:R2_DOMAIN: https://staging-signal-artifacts.beboundless.xyz
+  kailua-batch:AWS_REGION: auto
+  kailua-batch:LOG_VERBOSITY: -vvv
+  kailua-batch:BOUNDLESS_ORDER_STREAM_URL: https://eth-sepolia.boundless.network
+  kailua-batch:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
+  kailua-batch:ENABLE_PAGERDUTY_ALERTS: "true"
+  kailua-batch:L1_RPC:
+    secure: v1:CZ4niHnsH82jY+K4:B78oU23pSX5Q8QeEiGZrMdDbrc4JsToI1DTalFRjCnI6ULo8VYggTLLo2+yEXmLqfXbtc27YXiASlpKC4IXbE80JN/QdyqJL+G60+avUKPbOHqkioaZq5ztYWitUnO1H
+  kailua-batch:L2_RPC:
+    secure: v1:pUNYk5hFuP0jvvRF:6ewLtHUtTTXcuqPFtFnGmm3LADqZvDCwjlRkaosPkC9yjjMTKRMrugPmOznEPa0UVDzsgiuDq9fgSlc/rKInxDguEMxA6o9Ceb+JnLx5VormlTmJp2fU5Ym7VW5j7HI8Eyoa+IMiEgzhtiY=
+  kailua-batch:OP_NODE:
+    secure: v1:NDmliGKgnrIixk9l:PWQDI58xNY/xInKXEJlOw1Mdc9wCBF8licP/+Z/EsTUUtZPRcEsaEfWDGg7L/DQqbMA+UssMsGrGtyDX1wQEE+hc2Qx1Wn6nTHOM6hz+O6aR92ksYXjQ885po5XYOq385JJYzDK0O4ZMACY=
+  kailua-batch:S3_UPLOAD_ACCESS_KEY:
+    secure: v1:uFycwmlIKUO7NsKE:dRU7bvvPSrwczbfLSTROn4cecsWm4efCNKE6myOw1NkCF/p9qWGib0cNoMj9PdZE
+  kailua-batch:S3_SECRET_ACCESS_KEY:
+    secure: v1:itWPjPSbiWUcm4Yh:LIdK/8840n9YHylUxXmxmp+arYj09UliAIPlWt/e4wLm8ULIuPIigvVY64j79tDkqpnOrpvznEsmEEoxu1feoThvnSV45QcgonVEpLVvlJw=
+  kailua-batch:WALLET_KEY:
+    secure: v1:lRAWZbowXgQkSqSX:Ut0Qvfyo1slJtxMZPc/WpvuLQlC2+bsPmPKhf5bOlGQP1u2bAv+o8DJEkfzEnozOHqMgma/5HtEqYJKtvTawf5p0VjFuv9DX3ByhwDJZeaI=
+  kailua-batch:BOUNDLESS_RPC_URL:
+    secure: v1:UVr9zNWy+JYTpw8N:b/hsINpVPt9oRMnJBnVKyLi/F8AaMeq7qxXJNsOz/8e3kxSCNUEvZgPSG/7Gb98yH9qpiX4/1nrYXQGaHVomDXNBhoOyA+bZXGXwOdUyrf3R/UBpmn3oEL+fKclObTHqxqbZBJO/hjhXf4lPkkUL6g==
+  kailua-batch:L1_BEACON:
+    secure: v1:MQoNgD7ntu5BZh+0:SW9N5n+daQQJWr87m37OGvkfxfOOhW33EX3qxyjkEmNoLtCc0qecSENX8noGaVFmLShKzHTUl337gnvCbqS53ZhO9FwxENpan1MG6Lzam1IJHzJ4IZQ+pAo7EH/d0iEN
+  kailua-batch:S3_URL:
+    secure: v1:uic0XwOCVP8ecxaT:GwwYi64Gisrq7VKu+mTpqxYhdCWOpOkBGS+oEMvPGEA1qMcpiwalNOfS8WmgzCIdG0+l0h3+1xMZ/RqyPEWO43klUPk4+GbI4rjY0Xeen1bk

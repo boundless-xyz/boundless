@@ -281,10 +281,10 @@ export const alarmConfig: ChainStageAlarms = {
             //   }
             // },
             {
-              description: "no submitted orders in 60 minutes from og_offchain",
+              description: "no submitted orders in 4 hours from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 3600
+                period: 14400
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -297,11 +297,10 @@ export const alarmConfig: ChainStageAlarms = {
           ],
           successRate: [
             {
-              // Since current submit every 5 mins, this is >= 2 failures an hour
-              description: "less than 50% success rate for two 30 minute periods in 2 hours from og_offchain",
+              description: "less than 50% success rate for two 60 minute periods in 4 hours from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 1800
+                period: 3600
               },
               alarmConfig: {
                 threshold: 0.50,
@@ -332,10 +331,10 @@ export const alarmConfig: ChainStageAlarms = {
             //   }
             // },
             {
-              description: "no submitted orders in 30 minutes from og_onchain",
+              description: "no submitted orders in 4 hours from og_onchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 1800
+                period: 14400
               },
               alarmConfig: {
                 evaluationPeriods: 1,
