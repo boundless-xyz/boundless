@@ -16,7 +16,7 @@ config:
   distributor:ORDER_GENERATOR_KEYS:
     secure: v1:9I2ddT9rg2Niw7zb:ois6KgynsVEBTK8DtIDFVjtqoJ/KX+unjQbYuAhavvy+y1Tn4bzAowQ10daQ5J1Qvm/cMFCTkBTSZO5DPI4ZxsIrf4aQufX0Tl2fGjWTiLVZAl/xlcaWVDUwTjt+/yk7VAHeON9vXlMhg+tRG9CA4db1i9oKJ2VX0M3m++fHLgS9Ohe/BH3qZtujP+6Lt/MpVicegRh/lpqlpW0s5w7ucwYyekKi63Gu2dTWi99YWTO1Yw9bQMjtWxmV274aVoJwHFT4UiSlbQ7A91CZoeOj+GTaCWBJIfx1HIHnYUt7R4toqhn5Rp87DxBptbtLieewRJr0vmH5jIoLPrbPV5tF4uOuQqCso2QG5p+eCgZnyYOVB+iog1g2caFjwDpJ9RK27FejKpbl13pFBd8lcexDA5G3QlbW0VkhbzOtpw1Q8snSYEKwnng+KpbGBRYFrxEM8ZgSmHoPthQ24SCZACz/QE6XfTPoGCfdnUfulcf98DDUDW3+ND561OI/Evf5MkxTRYv9k9DsUUhn2HY5e7gzMut8oSto
   distributor:OFFCHAIN_REQUESTOR_ADDRESSES: "0xc197ebe12c7bcf1d9f3b415342bdbc795425335c,0x076aCA5883aDB08C31E9308C59cD8495A2513DA7"
-  distributor:MONITOR_BALANCES: "label=KOG;addr=0x371479ca8a23B662f5B08d137BB21A4850861ACA;kind=eth;warn=0.005;crit=0.002;refill=0.03,label=KOG;addr=0x371479ca8a23B662f5B08d137BB21A4850861ACA;kind=deposit;warn=1;crit=0.1,label=SIGNAL-REQ;addr=0x734df7809c4ef94da037449c287166d114503198;kind=deposit;warn=1;crit=0.1,label=SIGNAL-SIGNER;addr=0x2f08f5d80dEB0CECCb0f4eF3BaB46451a6C47E16;kind=eth;warn=0.003;crit=0.001;refill=0.02"
+  distributor:MONITOR_BALANCES: "label=KOG;addr=0x371479ca8a23B662f5B08d137BB21A4850861ACA;kind=deposit;warn=1;crit=0.1,label=SIGNAL-REQ;addr=0x734df7809c4ef94da037449c287166d114503198;kind=deposit;warn=1;crit=0.1,label=SIGNAL-SIGNER;addr=0x2f08f5d80dEB0CECCb0f4eF3BaB46451a6C47E16;kind=eth;warn=0.003;crit=0.001;refill=0.005"
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   distributor:PROVER_ETH_DONATE_THRESHOLD: "0.15"
   distributor:PROVER_KEYS:

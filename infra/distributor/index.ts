@@ -678,7 +678,6 @@ export = () => {
   // Only created on stacks that actually configure monitors. LOW -> SEV2, CRIT -> SEV1.
   if (monitorBalances) {
     const monitorAlarmSpecs: { label: string; kind: 'ETH' | 'DEPOSIT' }[] = [
-      { label: 'KOG', kind: 'ETH' },
       { label: 'KOG', kind: 'DEPOSIT' },
       { label: 'SIGNAL-REQ', kind: 'DEPOSIT' },
       { label: 'SIGNAL-SIGNER', kind: 'ETH' },

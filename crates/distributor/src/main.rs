@@ -1736,15 +1736,16 @@ mod tests {
 
     #[test]
     fn test_monitored_balance_parse() {
+        // eth entry with refill (the SIGNAL-SIGNER prod shape)
         let e: MonitoredBalance =
-            "label=KOG;addr=0x371479ca8a23B662f5B08d137BB21A4850861ACA;kind=eth;warn=0.005;crit=0.002;refill=0.03"
+            "label=SIGNAL-SIGNER;addr=0x2f08f5d80dEB0CECCb0f4eF3BaB46451a6C47E16;kind=eth;warn=0.003;crit=0.001;refill=0.005"
                 .parse()
                 .unwrap();
-        assert_eq!(e.label, "KOG");
+        assert_eq!(e.label, "SIGNAL-SIGNER");
         assert_eq!(e.kind, BalanceKind::Eth);
-        assert_eq!(e.warn, parse_ether("0.005").unwrap());
-        assert_eq!(e.crit, parse_ether("0.002").unwrap());
-        assert_eq!(e.refill, Some(parse_ether("0.03").unwrap()));
+        assert_eq!(e.warn, parse_ether("0.003").unwrap());
+        assert_eq!(e.crit, parse_ether("0.001").unwrap());
+        assert_eq!(e.refill, Some(parse_ether("0.005").unwrap()));
 
         let d: MonitoredBalance =
             "label=SIGNAL-REQ;addr=0x734df7809c4ef94da037449c287166d114503198;kind=deposit;warn=1;crit=0.1"
@@ -1785,7 +1786,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_monitor_eth_refill_and_alert() {
+    async fn test_monitor_eth_refill_success() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
         let distributor_signer = PrivateKeySigner::random();
@@ -1804,27 +1805,17 @@ mod tests {
             .await
             .unwrap();
 
-        let refill_addr = PrivateKeySigner::random().address();
-        let alert_addr = PrivateKeySigner::random().address();
-
-        let monitored = vec![
-            MonitoredBalance {
-                label: "KOG".into(),
-                address: refill_addr,
-                kind: BalanceKind::Eth,
-                warn: parse_ether("0.005").unwrap(),
-                crit: parse_ether("0.002").unwrap(),
-                refill: Some(parse_ether("0.03").unwrap()),
-            },
-            MonitoredBalance {
-                label: "SIGNAL-SIGNER".into(),
-                address: alert_addr,
-                kind: BalanceKind::Eth,
-                warn: parse_ether("0.003").unwrap(),
-                crit: parse_ether("0.001").unwrap(),
-                refill: None,
-            },
-        ];
+        // An eth entry below `warn`, with the distributor funded, is topped up to the
+        // refill target and stays silent (no alarm).
+        let signer_addr = PrivateKeySigner::random().address();
+        let monitored = vec![MonitoredBalance {
+            label: "SIGNAL-SIGNER".into(),
+            address: signer_addr,
+            kind: BalanceKind::Eth,
+            warn: parse_ether("0.003").unwrap(),
+            crit: parse_ether("0.001").unwrap(),
+            refill: Some(parse_ether("0.005").unwrap()),
+        }];
 
         check_monitored_balances(
             &monitored,
@@ -1835,20 +1826,12 @@ mod tests {
         .await
         .unwrap();
 
-        // The refill entry was topped up to its target and stays silent.
         assert_eq!(
-            distributor_client.provider().get_balance(refill_addr).await.unwrap(),
-            parse_ether("0.03").unwrap()
+            distributor_client.provider().get_balance(signer_addr).await.unwrap(),
+            parse_ether("0.005").unwrap()
         );
-        assert!(!logs_contain("[B-MON-KOG-ETH-LOW]"));
-        assert!(!logs_contain("[B-MON-KOG-ETH-CRIT]"));
-
-        // The alert-only entry is left untouched and alarms.
-        assert_eq!(
-            distributor_client.provider().get_balance(alert_addr).await.unwrap(),
-            U256::ZERO
-        );
-        assert!(logs_contain("[B-MON-SIGNAL-SIGNER-ETH-CRIT]"));
+        assert!(!logs_contain("[B-MON-SIGNAL-SIGNER-ETH-LOW]"));
+        assert!(!logs_contain("[B-MON-SIGNAL-SIGNER-ETH-CRIT]"));
     }
 
     #[tokio::test]
@@ -1905,7 +1888,7 @@ mod tests {
         let distributor_signer = PrivateKeySigner::random();
 
         let provider = ProviderBuilder::new().connect(&anvil.endpoint()).await.unwrap();
-        // Distributor can't cover a 0.03 refill.
+        // Distributor can't cover the 0.005 refill.
         provider
             .anvil_set_balance(distributor_signer.address(), parse_ether("0.001").unwrap())
             .await
@@ -1919,14 +1902,14 @@ mod tests {
             .await
             .unwrap();
 
-        let refill_addr = PrivateKeySigner::random().address();
+        let signer_addr = PrivateKeySigner::random().address();
         let monitored = vec![MonitoredBalance {
-            label: "KOG".into(),
-            address: refill_addr,
+            label: "SIGNAL-SIGNER".into(),
+            address: signer_addr,
             kind: BalanceKind::Eth,
-            warn: parse_ether("0.005").unwrap(),
-            crit: parse_ether("0.002").unwrap(),
-            refill: Some(parse_ether("0.03").unwrap()),
+            warn: parse_ether("0.003").unwrap(),
+            crit: parse_ether("0.001").unwrap(),
+            refill: Some(parse_ether("0.005").unwrap()),
         }];
 
         check_monitored_balances(
@@ -1940,9 +1923,9 @@ mod tests {
 
         // Refill could not happen, and the (still-low) balance alarms.
         assert!(logs_contain("insufficient ETH to refill"));
-        assert!(logs_contain("[B-MON-KOG-ETH-CRIT]"));
+        assert!(logs_contain("[B-MON-SIGNAL-SIGNER-ETH-CRIT]"));
         assert_eq!(
-            distributor_client.provider().get_balance(refill_addr).await.unwrap(),
+            distributor_client.provider().get_balance(signer_addr).await.unwrap(),
             U256::ZERO
         );
     }
