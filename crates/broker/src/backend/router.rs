@@ -24,13 +24,11 @@ use boundless_market::prover_utils::{
 };
 use boundless_market::selector::SupportedSelectors;
 
-use crate::Order;
-
 use super::types::{
     BackendEntry, BackendError, BackendId, BackendObj, BatchClose, BatchProcessorObj,
-    BatchSizeEstimate, BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch,
-    OrderProcessProgress, ProcessOrder, SubmissionPlan, UpdateBatch, VerifierUpdate,
-    VerifierUpdateError,
+    BatchSizeEstimate, BatchSizeEstimateRequest, BatchUpdate, CancelOrder, CloseBatch,
+    FulfillmentBatch, OrderProcessProgress, ProcessOrder, SubmissionPlan, UpdateBatch,
+    VerifierUpdate, VerifierUpdateError,
 };
 
 #[derive(Clone, Default)]
@@ -92,8 +90,7 @@ impl BackendRouter {
         supported
     }
 
-    fn backend_for_order(&self, order: &Order) -> Result<BackendObj> {
-        let selector = order.request.requirements.selector;
+    fn backend_for_selector(&self, selector: FixedBytes<4>) -> Result<BackendObj> {
         let backend_id = self
             .routes
             .get(&selector)
@@ -139,13 +136,13 @@ impl BackendRouter {
     }
 
     pub async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
-        let backend = self.backend_for_order(&cmd.order)?;
+        let backend = self.backend_for_selector(cmd.request.requirements.selector)?;
         backend.process_order(cmd).await
     }
 
-    pub async fn cancel_order(&self, order: &Order) -> Result<()> {
-        let backend = self.backend_for_order(order)?;
-        backend.cancel_order(order).await
+    pub async fn cancel_order(&self, cmd: CancelOrder) -> Result<()> {
+        let backend = self.backend_for_selector(cmd.selector)?;
+        backend.cancel_order(cmd).await
     }
 
     fn batch_processor_for_id(&self, backend_id: &BackendId) -> Result<BatchProcessorObj> {
@@ -227,11 +224,11 @@ mod tests {
         },
     };
 
-    use crate::OrderStatus;
+    use crate::{Order, OrderStatus};
 
     use super::super::types::{
-        Backend, BackendBatchState, BatchProcessor, BatchProcessorObj, OrderFulfillmentArtifact,
-        ProcessedOrder,
+        Backend, BackendBatchState, BatchProcessor, BatchProcessorObj, CancelOrder,
+        OrderFulfillmentArtifact, ProcessedOrder, SubmissionPath,
     };
 
     #[derive(Debug)]
@@ -384,13 +381,13 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: self.id.clone(),
-                order_id: cmd.order.id(),
-                next_status: OrderStatus::ReadyForBatch,
+                order_id: cmd.order_id,
+                submission_path: SubmissionPath::Batched,
                 compressed: false,
             }))
         }
 
-        async fn cancel_order(&self, _order: &Order) -> Result<()> {
+        async fn cancel_order(&self, _cmd: CancelOrder) -> Result<()> {
             self.cancel_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
@@ -485,14 +482,33 @@ mod tests {
         }
     }
 
+    fn process_cmd(selector: FixedBytes<4>) -> ProcessOrder {
+        let order = test_order(selector);
+        ProcessOrder {
+            order_id: order.id(),
+            request: order.request,
+            image_id: None,
+            input_id: None,
+            backend_state: None,
+        }
+    }
+
+    fn cancel_cmd(selector: FixedBytes<4>) -> CancelOrder {
+        CancelOrder {
+            order_id: test_order(selector).id(),
+            selector,
+            backend_state: None,
+            is_proving: true,
+        }
+    }
+
     #[tokio::test]
     async fn router_routes_supported_selector() {
         let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
         let router =
             BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap();
 
-        let progress =
-            router.process_order(ProcessOrder { order: test_order(selector(1)) }).await.unwrap();
+        let progress = router.process_order(process_cmd(selector(1))).await.unwrap();
 
         assert_eq!(backend.calls(), 1);
         assert_eq!(
@@ -500,7 +516,7 @@ mod tests {
             OrderProcessProgress::Completed(ProcessedOrder {
                 backend_id: BackendId::new("mock_a"),
                 order_id: test_order(selector(1)).id(),
-                next_status: OrderStatus::ReadyForBatch,
+                submission_path: SubmissionPath::Batched,
                 compressed: false,
             })
         );
@@ -518,10 +534,8 @@ mod tests {
             .register_backend(BackendEntry::new(backend_b.clone()))
             .unwrap();
 
-        let progress_a =
-            router.process_order(ProcessOrder { order: test_order(selector(1)) }).await.unwrap();
-        let progress_b =
-            router.process_order(ProcessOrder { order: test_order(selector(2)) }).await.unwrap();
+        let progress_a = router.process_order(process_cmd(selector(1))).await.unwrap();
+        let progress_b = router.process_order(process_cmd(selector(2))).await.unwrap();
 
         assert_eq!(backend_a.calls(), 1);
         assert_eq!(backend_b.calls(), 1);
@@ -620,10 +634,7 @@ mod tests {
         let router =
             BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap();
 
-        let err = router
-            .process_order(ProcessOrder { order: test_order(selector(2)) })
-            .await
-            .unwrap_err();
+        let err = router.process_order(process_cmd(selector(2))).await.unwrap_err();
 
         assert_eq!(backend.calls(), 0);
         assert!(err.to_string().contains("no backend registered for selector"));
@@ -635,7 +646,7 @@ mod tests {
         let router =
             BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap();
 
-        router.cancel_order(&test_order(selector(1))).await.unwrap();
+        router.cancel_order(cancel_cmd(selector(1))).await.unwrap();
 
         assert_eq!(backend.cancel_calls(), 1);
     }

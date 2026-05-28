@@ -23,13 +23,14 @@ use boundless_market::telemetry::CompletionOutcome;
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::BackendRouter,
+    backend::{BackendRouter, CancelOrder},
     coded_error_impl,
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
     errors::{handle_order_failure, BrokerFailure, CodedError},
     order_committer::CommitmentComplete,
     task::{BrokerService, SupervisorErr},
+    OrderStatus,
 };
 
 #[derive(Error)]
@@ -102,7 +103,13 @@ impl ReaperTask {
                     config.market.cancel_proving_expired_orders
                 };
                 if should_cancel {
-                    if let Err(err) = self.backend.cancel_order(&order).await {
+                    let cancel = CancelOrder {
+                        order_id: order_id.clone(),
+                        selector: order.request.requirements.selector,
+                        backend_state: order.backend_state.clone(),
+                        is_proving: matches!(order.status, OrderStatus::Proving),
+                    };
+                    if let Err(err) = self.backend.cancel_order(cancel).await {
                         warn!(
                             "[B-REAP-004] Failed to cancel backend processing for expired order {order_id}: {err:?}"
                         );
@@ -219,7 +226,7 @@ mod tests {
             anyhow::bail!("cancel backend does not process orders")
         }
 
-        async fn cancel_order(&self, _order: &Order) -> anyhow::Result<()> {
+        async fn cancel_order(&self, _cmd: CancelOrder) -> anyhow::Result<()> {
             self.cancel_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }

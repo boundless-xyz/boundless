@@ -25,9 +25,9 @@ pub use risc0::{prune_receipt_claim_journal, Risc0Backend};
 pub use router::BackendRouter;
 pub use types::{
     BackendBatchState, BackendEntry, BackendError, BackendId, BackendOrderState, BatchOrder,
-    BatchSizeEstimateRequest, BatchUpdate, CloseBatch, FulfillmentBatch, FulfillmentOrder,
-    OrderProcessProgress, OrderProvingData, ProcessOrder, ProcessedOrder, UpdateBatch,
-    VerifierUpdate, VerifierUpdateError,
+    BatchSizeEstimateRequest, BatchUpdate, CancelOrder, CloseBatch, FulfillmentBatch,
+    FulfillmentOrder, OrderProcessProgress, OrderProvingData, ProcessOrder, ProcessedOrder,
+    SubmissionPath, UpdateBatch, VerifierUpdate, VerifierUpdateError,
 };
 
 #[cfg(test)]

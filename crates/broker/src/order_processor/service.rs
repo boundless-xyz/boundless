@@ -22,7 +22,10 @@ use crate::{
     ConfigurableDownloader,
 };
 use crate::{
-    backend::{BackendRouter, OrderProcessProgress, ProcessOrder, ProcessedOrder},
+    backend::{
+        BackendRouter, CancelOrder, OrderProcessProgress, ProcessOrder, ProcessedOrder,
+        SubmissionPath,
+    },
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
@@ -31,7 +34,7 @@ use crate::{
     now_timestamp,
     order_committer::{CommitmentComplete, CommitmentOutcome},
     task::{BrokerService, SupervisorErr},
-    FulfillmentType, Order, OrderStateChange,
+    FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
@@ -116,7 +119,7 @@ impl OrderProcessor {
         loop {
             let progress = self
                 .backend
-                .process_order(ProcessOrder { order: order.clone() })
+                .process_order(process_order_cmd(&order))
                 .await
                 .context("Failed to process order proof")?;
 
@@ -310,7 +313,7 @@ impl OrderProcessor {
                 proof_retry_count,
                 proof_retry_sleep_ms,
                 || async {
-                    match self.backend.process_order(ProcessOrder { order: order.clone() }).await? {
+                    match self.backend.process_order(process_order_cmd(&order)).await? {
                         OrderProcessProgress::InProgress { state } => Ok(state),
                         OrderProcessProgress::Completed(_) => Err(anyhow::anyhow!(
                             "backend reported order {order_id} complete before proof \
@@ -408,9 +411,13 @@ impl OrderProcessor {
                     }
                 }
 
+                let next_status = match processed.submission_path {
+                    SubmissionPath::Batched => OrderStatus::ReadyForBatch,
+                    SubmissionPath::Direct => OrderStatus::ReadyForSubmission,
+                };
                 if let Err(e) = self
                     .db
-                    .set_order_batch_status(&order_id, processed.next_status, &processed.backend_id)
+                    .set_order_batch_status(&order_id, next_status, &processed.backend_id)
                     .await
                 {
                     tracing::error!("Failed to set order batch status for order {order_id}: {e:?}");
@@ -418,7 +425,7 @@ impl OrderProcessor {
             }
             Err(ref err @ (ProvingErr::CancelFulfilledByAnother | ProvingErr::CancelExpired)) => {
                 tracing::info!("Order {order_id} not actionable, cancelling proof: {err}");
-                if let Err(cancel_err) = self.backend.cancel_order(&order).await {
+                if let Err(cancel_err) = self.backend.cancel_order(cancel_order_cmd(&order)).await {
                     tracing::warn!(
                         "[B-ORD-001] Failed to cancel backend processing for order {order_id}: {cancel_err:?}"
                     );
@@ -541,6 +548,27 @@ impl BrokerService for OrderProcessor {
         }
 
         Ok(())
+    }
+}
+
+/// Project a broker [`Order`] to the backend-neutral [`ProcessOrder`] input.
+fn process_order_cmd(order: &Order) -> ProcessOrder {
+    ProcessOrder {
+        order_id: order.id(),
+        request: order.request.clone(),
+        image_id: order.image_id.clone(),
+        input_id: order.input_id.clone(),
+        backend_state: order.backend_state.clone(),
+    }
+}
+
+/// Project a broker [`Order`] to the backend-neutral [`CancelOrder`] input.
+fn cancel_order_cmd(order: &Order) -> CancelOrder {
+    CancelOrder {
+        order_id: order.id(),
+        selector: order.request.requirements.selector,
+        backend_state: order.backend_state.clone(),
+        is_proving: matches!(order.status, OrderStatus::Proving),
     }
 }
 
@@ -971,7 +999,7 @@ mod tests {
 
         let result_2 = monitor_task_2.await.unwrap();
         assert!(result_2.is_ok());
-        assert_eq!(result_2.unwrap().next_status, OrderStatus::ReadyForBatch);
+        assert_eq!(result_2.unwrap().submission_path, SubmissionPath::Batched);
 
         assert!(logs_contain("fulfilled externally"));
     }

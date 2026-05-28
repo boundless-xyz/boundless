@@ -28,7 +28,7 @@ use boundless_market::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{provers, FulfillmentType, Order, OrderStatus};
+use crate::{provers, FulfillmentType};
 use anyhow::Result;
 
 macro_rules! string_id {
@@ -117,9 +117,26 @@ impl From<ProgramId> for [u8; 32] {
 }
 
 /// Command for processing one accepted broker order.
+/// Backend-neutral input for processing one order. The broker hands the backend exactly what
+/// it needs to prove, never its own `Order` lifecycle type.
 #[derive(Clone, Debug)]
 pub struct ProcessOrder {
-    pub order: Order,
+    pub order_id: String,
+    pub request: ProofRequest,
+    pub image_id: Option<String>,
+    pub input_id: Option<String>,
+    pub backend_state: Option<BackendOrderState>,
+}
+
+/// Backend-neutral input for cancelling an in-flight order.
+#[derive(Clone, Debug)]
+pub struct CancelOrder {
+    pub order_id: String,
+    /// Verifier selector, used by the router to dispatch to the owning backend.
+    pub selector: FixedBytes<4>,
+    pub backend_state: Option<BackendOrderState>,
+    /// Whether the broker believes a proof is currently in flight for this order.
+    pub is_proving: bool,
 }
 
 /// Backend-opaque per-order durable state. The backend writes whatever it
@@ -135,14 +152,23 @@ pub enum OrderProcessProgress {
     Completed(ProcessedOrder),
 }
 
+/// How a finished proof reaches on-chain submission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionPath {
+    /// Needs set-builder aggregation before submission.
+    Batched,
+    /// Already a compressed seal; submit as-is.
+    Direct,
+}
+
 /// Completed backend processing for one broker order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessedOrder {
     pub backend_id: BackendId,
     pub order_id: String,
-    pub next_status: OrderStatus,
-    /// Whether proving produced a compressed seal. Kept distinct from `next_status` so a status
-    /// rename or a new backend can't silently shift what telemetry counts as compression.
+    pub submission_path: SubmissionPath,
+    /// Whether proving produced a compressed seal. Kept distinct from `submission_path` so a
+    /// new backend can't silently shift what telemetry counts as compression.
     pub compressed: bool,
 }
 
@@ -365,7 +391,7 @@ pub trait Backend: Send + Sync {
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress>;
 
-    async fn cancel_order(&self, order: &Order) -> Result<()>;
+    async fn cancel_order(&self, cmd: CancelOrder) -> Result<()>;
 
     /// `None` if this backend does not batch its proofs.
     fn batch_processor(&self) -> Option<BatchProcessorObj>;

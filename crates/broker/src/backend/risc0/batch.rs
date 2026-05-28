@@ -677,7 +677,6 @@ mod tests {
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
-    use chrono::Utc;
     use std::sync::Arc;
 
     fn sample_state() -> Risc0BatchState {
@@ -729,50 +728,30 @@ mod tests {
         );
     }
 
-    fn order_without_backend_state(order_id_seed: u32) -> crate::Order {
-        crate::Order {
-            status: crate::OrderStatus::PendingProving,
-            updated_at: Utc::now(),
-            target_timestamp: None,
-            request: ProofRequest::new(
-                RequestId::new(Address::ZERO, order_id_seed),
-                Requirements::new(Predicate::prefix_match(Risc0Digest::ZERO, Bytes::default())),
-                "test",
-                RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
-                Offer {
-                    minPrice: U256::from(1),
-                    maxPrice: U256::from(10),
-                    rampUpStart: 0,
-                    timeout: 1000,
-                    lockTimeout: 1000,
-                    rampUpPeriod: 1,
-                    lockCollateral: U256::ZERO,
-                },
-            ),
-            image_id: None,
-            input_id: None,
-            backend_state: None,
-            backend_id: None,
-            expire_timestamp: Some(1000),
-            client_sig: Bytes::new(),
-            lock_price: Some(U256::from(10)),
-            fulfillment_type: FulfillmentType::LockAndFulfill,
-            error_msg: None,
-            boundless_market_address: Address::ZERO,
-            chain_id: 1,
-            total_cycles: None,
-            journal_bytes: None,
-            proving_started_at: None,
-            cached_id: Default::default(),
-        }
+    fn test_request(seed: u32) -> ProofRequest {
+        ProofRequest::new(
+            RequestId::new(Address::ZERO, seed),
+            Requirements::new(Predicate::prefix_match(Risc0Digest::ZERO, Bytes::default())),
+            "test",
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(1),
+                maxPrice: U256::from(10),
+                rampUpStart: 0,
+                timeout: 1000,
+                lockTimeout: 1000,
+                rampUpPeriod: 1,
+                lockCollateral: U256::ZERO,
+            },
+        )
     }
 
     #[tokio::test]
     async fn update_batch_errors_when_new_order_missing_backend_state() {
         let prover: crate::provers::ProverObj = Arc::new(DefaultProver::new());
 
-        let order = order_without_backend_state(7);
-        let order_id = order.id();
+        let request = test_request(7);
+        let order_id = "order-7".to_string();
 
         let processor = Risc0BatchProcessor::new(
             crate::config::ConfigLock::default(),
@@ -792,7 +771,7 @@ mod tests {
                 new_orders: vec![BatchOrder {
                     proving: OrderProvingData {
                         order_id: order_id.clone(),
-                        request: order.request.clone(),
+                        request: request.clone(),
                         client_sig: Bytes::new(),
                         image_id: None,
                         backend_state: None,
@@ -800,7 +779,7 @@ mod tests {
                     expiration: 100,
                     fee: U256::ZERO,
                     fulfillment_type: FulfillmentType::LockAndFulfill,
-                    request_id: order.request.id,
+                    request_id: request.id,
                     lock_expiration: 100,
                 }],
                 finalize: false,

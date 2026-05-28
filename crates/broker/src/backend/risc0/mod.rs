@@ -67,17 +67,17 @@ use crate::{
     is_dev_mode,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
-    ConfigurableDownloader, Order, OrderStatus,
+    ConfigurableDownloader,
 };
 use anyhow::{Context, Result};
 
 use super::types::{
     AssessorArtifact, Backend, BackendBatchState, BackendError, BackendId, BackendOrderState,
     BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
-    BatchUpdate, ClaimDigest, CloseBatch, Digest as BackendDigest, FailedFulfillmentOrder,
-    FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress, OrderProvingData,
-    ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact, SubmissionPlan, UpdateBatch,
-    VerifierUpdate, VerifierUpdateError,
+    BatchUpdate, CancelOrder, ClaimDigest, CloseBatch, Digest as BackendDigest,
+    FailedFulfillmentOrder, FulfillmentBatch, OrderFulfillmentArtifact, OrderProcessProgress,
+    OrderProvingData, ProcessOrder, ProcessedOrder, ProofId, SubmissionAssessorArtifact,
+    SubmissionPath, SubmissionPlan, UpdateBatch, VerifierUpdate, VerifierUpdateError,
 };
 
 /// Bump when the serialized [`Risc0OrderState`] shape changes incompatibly. A newer-than-known
@@ -608,8 +608,8 @@ impl Risc0Backend {
         })
     }
 
-    async fn start_order(&self, order: &Order) -> Result<String> {
-        let order_id = order.id();
+    async fn start_order(&self, order: &ProcessOrder) -> Result<String> {
+        let order_id = &order.order_id;
 
         tracing::info!("Proving order {order_id}");
 
@@ -702,13 +702,13 @@ fn proof_type_for_selector(selector: FixedBytes<4>) -> Option<ProofType> {
     }
 }
 
-fn next_status_for_risc0_selector(selector: FixedBytes<4>) -> OrderStatus {
+fn submission_path_for_risc0_selector(selector: FixedBytes<4>) -> SubmissionPath {
     match selector {
         SELECTOR_GROTH16_V3_0
         | SELECTOR_BLAKE3_GROTH16_V0_1
         | SELECTOR_FAKE_RECEIPT
-        | SELECTOR_FAKE_BLAKE3_GROTH16 => OrderStatus::ReadyForSubmission,
-        _ => OrderStatus::ReadyForBatch,
+        | SELECTOR_FAKE_BLAKE3_GROTH16 => SubmissionPath::Direct,
+        _ => SubmissionPath::Batched,
     }
 }
 
@@ -766,13 +766,12 @@ impl Backend for Risc0Backend {
     }
 
     async fn process_order(&self, cmd: ProcessOrder) -> Result<OrderProcessProgress> {
-        let order = cmd.order;
-        let order_id = order.id();
+        let order_id = cmd.order_id.clone();
 
-        let mut state = match order.backend_state.as_ref() {
+        let mut state = match cmd.backend_state.as_ref() {
             Some(raw) => Risc0OrderState::decode(raw)?,
             None => {
-                let proof_id = self.start_order(&order).await?;
+                let proof_id = self.start_order(&cmd).await?;
                 return Ok(OrderProcessProgress::InProgress {
                     state: Risc0OrderState { proof_id, ..Default::default() }.encode(),
                 });
@@ -785,7 +784,7 @@ impl Backend for Risc0Backend {
             .await
             .context("Monitoring proof (stark) failed")?;
 
-        let compression_type = compression_type_for_selector(order.request.requirements.selector);
+        let compression_type = compression_type_for_selector(cmd.request.requirements.selector);
         if compression_type != CompressionType::None && state.compressed_proof_id.is_none() {
             let compressed_proof_id =
                 self.compress_order_proof(&order_id, &state.proof_id, compression_type).await?;
@@ -793,7 +792,7 @@ impl Backend for Risc0Backend {
             return Ok(OrderProcessProgress::InProgress { state: state.encode() });
         }
 
-        let next_status = next_status_for_risc0_selector(order.request.requirements.selector);
+        let submission_path = submission_path_for_risc0_selector(cmd.request.requirements.selector);
         let compressed = state.compressed_proof_id.is_some();
 
         tracing::info!(
@@ -806,16 +805,16 @@ impl Backend for Risc0Backend {
         Ok(OrderProcessProgress::Completed(ProcessedOrder {
             backend_id: self.id.clone(),
             order_id,
-            next_status,
+            submission_path,
             compressed,
         }))
     }
 
-    async fn cancel_order(&self, order: &Order) -> Result<()> {
-        if let Some(raw) = order.backend_state.as_ref() {
+    async fn cancel_order(&self, cmd: CancelOrder) -> Result<()> {
+        if let Some(raw) = cmd.backend_state.as_ref() {
             let state = Risc0OrderState::decode(raw)?;
-            if matches!(order.status, OrderStatus::Proving) {
-                tracing::debug!("Cancelling proof {} for order {}", state.proof_id, order.id());
+            if cmd.is_proving {
+                tracing::debug!("Cancelling proof {} for order {}", state.proof_id, cmd.order_id);
                 self.prover
                     .cancel_stark(&state.proof_id)
                     .await
@@ -1115,8 +1114,8 @@ mod tests {
     #[test]
     fn unspecified_selector_orders_ready_for_batch() {
         assert_eq!(
-            next_status_for_risc0_selector(UNSPECIFIED_SELECTOR),
-            OrderStatus::ReadyForBatch
+            submission_path_for_risc0_selector(UNSPECIFIED_SELECTOR),
+            SubmissionPath::Batched
         );
     }
 
@@ -1126,7 +1125,7 @@ mod tests {
             selector_ext(SelectorExt::groth16_latest()),
             selector_ext(SelectorExt::blake3_groth16_latest()),
         ] {
-            assert_eq!(next_status_for_risc0_selector(selector), OrderStatus::ReadyForSubmission);
+            assert_eq!(submission_path_for_risc0_selector(selector), SubmissionPath::Direct);
         }
     }
 
@@ -1148,17 +1147,17 @@ mod tests {
 
     #[test]
     fn classification_and_routing_dispatchers_agree() {
-        // Compressed-seal selectors must skip aggregation; non-compressed selectors must not.
+        // Compressed-seal selectors must submit directly; non-compressed selectors must batch.
         for dev_mode in [false, true] {
             for selector in Risc0Backend::selectors_for(dev_mode) {
                 let compression = compression_type_for_selector(selector);
-                let next_status = next_status_for_risc0_selector(selector);
-                let expects_skip = !matches!(compression, CompressionType::None);
-                let observed_skip = matches!(next_status, OrderStatus::ReadyForSubmission);
+                let submission_path = submission_path_for_risc0_selector(selector);
+                let expects_direct = !matches!(compression, CompressionType::None);
+                let observed_direct = matches!(submission_path, SubmissionPath::Direct);
                 assert_eq!(
-                    expects_skip, observed_skip,
+                    expects_direct, observed_direct,
                     "selector {selector:?} (dev_mode={dev_mode}): \
-                     compression={compression:?} but next_status={next_status:?}",
+                     compression={compression:?} but submission_path={submission_path:?}",
                 );
             }
         }
