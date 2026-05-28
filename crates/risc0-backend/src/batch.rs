@@ -35,11 +35,8 @@ pub fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
 
 /// Current schema version of the serialized [`Risc0BatchState`].
 ///
-/// This state is persisted (as opaque JSON inside [`BackendBatchState`]) and read back by a
-/// possibly newer broker after a deploy. Bump this whenever the serialized shape changes
-/// incompatibly, and handle the older shape in [`Risc0BatchState::from_backend_state`].
-/// State written before versioning existed has no `version` field; `serde(default)` decodes
-/// it as version 1, which is exactly its shape.
+/// [`Risc0BatchState::from_backend_state`] rejects a newer-than-known version. State written
+/// before versioning defaults to 1.
 const RISC0_BATCH_STATE_VERSION: u32 = 1;
 
 fn risc0_batch_state_version() -> u32 {
@@ -592,8 +589,7 @@ impl BatchProcessor for Risc0BatchProcessor {
             proof_ids.iter().map(|proof_id| proof_id.as_str()).collect::<Vec<_>>()
         );
 
-        // Stash the assessor proof id inside the backend-opaque state; it's risc0-internal and
-        // the broker layer never reads it.
+        // Stash the assessor proof id inside the backend-opaque state.
         let mut decoded = Risc0BatchState::from_backend_state(&aggregation_state)?;
         decoded.assessor_proof_id = assessor_proof_id;
         let aggregation_state = decoded.into_backend_state()?;
@@ -671,7 +667,7 @@ mod tests {
 
     #[test]
     fn from_backend_state_defaults_missing_version() {
-        // State persisted before the `version` field existed: the broker must still decode it.
+        // State persisted before the `version` field existed still decodes.
         let data = serde_json::json!({
             "guest_state": GuestState::initial(Risc0Digest::ZERO),
             "claim_digests": Vec::<Risc0Digest>::new(),
@@ -682,8 +678,7 @@ mod tests {
 
     #[test]
     fn from_backend_state_rejects_future_version() {
-        // A newer broker wrote this state; a downgraded broker must fail loudly, not silently
-        // misread a changed schema.
+        // A future schema version is rejected.
         let mut data = serde_json::to_value(sample_state()).unwrap();
         data["version"] = serde_json::json!(RISC0_BATCH_STATE_VERSION + 1);
         let err = match Risc0BatchState::from_backend_state(&backend_state(data)) {

@@ -261,7 +261,6 @@ pub struct RequestCompleted {
     /// Reported by ApplicationProvingCompleted.
     pub proof_compression_secs: Option<f64>,
     /// Wall-clock seconds for backend batch state update/finalization. Path B only.
-    /// Historical field name retained for telemetry compatibility.
     pub set_builder_proving_secs: Option<f64>,
     /// Wall-clock seconds for backend assessor artifact generation. Path B only.
     pub assessor_proving_secs: Option<f64>,

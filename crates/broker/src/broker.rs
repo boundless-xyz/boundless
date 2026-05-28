@@ -557,8 +557,7 @@ impl Broker {
         );
 
         // Project the broker's reloadable config into the backend-neutral snapshot, and hand the
-        // backend closures (priority check, proving-retry policy) that keep reading the live
-        // config — so the RISC0 backend depends on no broker config type.
+        // backend closures (priority check, proving-retry policy) that keep reading the live config.
         let risc0_cfg = {
             let c = config.lock_all().context("Failed to lock config")?;
             Risc0BackendConfig {

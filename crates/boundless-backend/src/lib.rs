@@ -17,7 +17,7 @@
 //! Defines the [`Backend`]/[`BatchProcessor`] traits a proving backend implements, the neutral
 //! command/payload types exchanged across that boundary, and the [`BackendRouter`] that
 //! dispatches by verifier selector. Backend implementations (e.g. `risc0-backend`) depend on
-//! this crate; the broker wires them together. No broker-internal types leak through here.
+//! this crate; the broker wires them together.
 
 pub mod futures_retry;
 mod router;

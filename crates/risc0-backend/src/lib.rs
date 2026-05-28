@@ -49,8 +49,7 @@ use risc0_zkvm::{
 
 pub mod provers;
 
-/// Whether `RISC0_DEV_MODE` is enabled. Local copy of the broker's env check (risc0-zkvm's own
-/// `is_dev_mode` is deprecated and no longer authoritative).
+/// Whether `RISC0_DEV_MODE` is enabled.
 fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
         .ok()
@@ -92,8 +91,7 @@ pub struct Risc0BackendConfig {
     pub txn_timeout: u64,
 }
 
-/// Live proving-retry policy: `() -> (retry_count, retry_sleep_ms)`. Backed by a closure that
-/// reads the broker's reloadable config, so runtime changes are still picked up per prove.
+/// Live proving-retry policy: `() -> (retry_count, retry_sleep_ms)`, read per prove.
 pub type ProofRetryPolicy = Arc<dyn Fn() -> (u64, u64) + Send + Sync>;
 
 use boundless_backend::{
@@ -105,10 +103,8 @@ use boundless_backend::{
     VerifierUpdate, VerifierUpdateError,
 };
 
-/// Bump when the serialized [`Risc0OrderState`] shape changes incompatibly. A newer-than-known
-/// version on read means the broker was downgraded mid-flight; [`Risc0OrderState::decode`] rejects
-/// it rather than silently misreading. State written before versioning has no field and defaults
-/// to 1, which is its shape.
+/// Serialized [`Risc0OrderState`] shape version. [`Risc0OrderState::decode`] rejects a
+/// newer-than-known version. State written before versioning defaults to 1.
 const RISC0_ORDER_STATE_VERSION: u32 = 1;
 
 fn risc0_order_state_version() -> u32 {
@@ -546,8 +542,7 @@ impl Risc0Backend {
 
         let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
 
-        // Claim-digest predicates do not carry an image id, so the image must be downloaded before
-        // the RISC0 image id can be computed and uploaded.
+        // Claim-digest predicates do not carry an image id.
         if let Some(ref image_id_str) = image_id_str {
             if self.prover.has_image(image_id_str).await? {
                 tracing::debug!(
@@ -713,9 +708,6 @@ fn supports_risc0_selector(selector: FixedBytes<4>) -> bool {
 
 /// Classifies a verifier selector into the proof type the RISC0 backend produces for it, or
 /// `None` if this backend does not serve the selector.
-///
-/// [`super::router::BackendRouter::register_backend`] rejects any registered selector this
-/// returns `None` for, so every selector in [`Risc0Backend::selectors_for`] must classify.
 fn proof_type_for_selector(selector: FixedBytes<4>) -> Option<ProofType> {
     match selector {
         UNSPECIFIED_SELECTOR | SELECTOR_FAKE_RECEIPT => Some(ProofType::Any),
@@ -747,9 +739,8 @@ enum CompressionType {
 
 /// Classifies a set-verifier root-submission error for the submitter's retry/alarm policy.
 ///
-/// [`SetVerifierService::submit_merkle_root`] reports a confirmation timeout with a
-/// `failed to confirm tx` context. The match is against the full cause chain (`{:#}`) so
-/// that added context cannot hide the keyword.
+/// A `failed to confirm tx` anywhere in the cause chain (`{:#}`) maps to
+/// [`VerifierUpdateError::TxnConfirmation`].
 fn classify_verifier_update_error(err: anyhow::Error) -> VerifierUpdateError {
     if format!("{err:#}").contains("failed to confirm tx") {
         VerifierUpdateError::TxnConfirmation(err)
@@ -1156,10 +1147,7 @@ mod tests {
 
     #[test]
     fn every_supported_selector_is_classified() {
-        // `BackendRouter::register_backend` bails on any selector the backend cannot
-        // classify. This guards that invariant for both the dev and production sets, so a
-        // selector added to `selectors_for` without a `proof_type_for_selector` arm fails
-        // here rather than at broker startup.
+        // Every selector the backend serves must classify, for both the dev and production sets.
         for dev_mode in [false, true] {
             for selector in Risc0Backend::selectors_for(dev_mode) {
                 assert!(
@@ -1190,8 +1178,6 @@ mod tests {
 
     #[test]
     fn production_selectors_exclude_dev_fakes() {
-        // The whole suite runs with RISC0_DEV_MODE=1, so without an explicit `dev_mode=false`
-        // case the production selector set is never exercised.
         let prod = Risc0Backend::selectors_for(false);
         let fake_receipt = selector_ext(SelectorExt::FakeReceipt);
         let fake_blake3 = selector_ext(SelectorExt::FakeBlake3Groth16);
@@ -1239,7 +1225,7 @@ mod tests {
         BackendBatchState(value)
     }
 
-    // `SubmissionPlan` is intentionally not `Debug`, so `unwrap_err` is unavailable here.
+    // `SubmissionPlan` is not `Debug`, so `unwrap_err` is unavailable.
     async fn expect_build_fulfillments_err(
         backend: &Risc0Backend,
         cmd: FulfillmentBatch,
@@ -1295,7 +1281,7 @@ mod tests {
 
     #[test]
     fn risc0_order_state_round_trips_proof_id() {
-        // Guards that the raw opaque JSON `db/fuzz_db.rs` writes still decodes to a typed state.
+        // Raw opaque JSON decodes to a typed state.
         let raw = BackendOrderState(serde_json::json!({ "proof_id": "fuzz_proof_42" }));
         let decoded = Risc0OrderState::decode(&raw).unwrap();
         assert_eq!(decoded.proof_id, "fuzz_proof_42");

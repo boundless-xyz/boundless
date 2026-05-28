@@ -58,7 +58,7 @@ pub struct OrderPricer<P> {
     pub(super) chain_monitor: ChainMonitorObj,
     pub(super) market: BoundlessMarketService<Arc<P>>,
     /// Static snapshot of selector -> proof-type metadata, captured from the backend
-    /// router at construction. Backends register once at startup, so this never goes stale.
+    /// router at construction.
     pub(super) supported_selectors: SupportedSelectors,
     pub(super) new_order_rx: SharedReceiver<Box<OrderRequest>>,
     pub(super) priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,

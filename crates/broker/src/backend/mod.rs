@@ -15,10 +15,7 @@
 //! Broker-facing backend boundary.
 //!
 //! The backend-agnostic API (traits, payloads, router) lives in the `boundless-backend` crate and
-//! the RISC0 implementation in the `risc0-backend` crate; both are re-exported here so the rest of
-//! the broker keeps using `crate::backend::*`. The broker keeps DB state, retry policy,
-//! cancellation, and batch lifecycle orchestration; backend implementations own zkVM-specific
-//! proof processing.
+//! the RISC0 implementation in the `risc0-backend` crate; both are re-exported here.
 
 pub use boundless_backend::*;
 pub use risc0_backend::{prune_receipt_claim_journal, Risc0Backend, Risc0BackendConfig};

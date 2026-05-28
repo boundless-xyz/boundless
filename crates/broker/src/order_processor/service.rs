@@ -307,8 +307,7 @@ impl OrderProcessor {
 
         let context = format!("order {order_id}");
         if order.backend_state.is_none() {
-            // Fail fast on proving-session-create errors: retry the initial step on its
-            // own so a permanent failure doesn't drag the monitor loop through retries.
+            // Retry the proving-session-create step on its own, separate from the monitor loop.
             let started_state = match retry_with_context(
                 proof_retry_count,
                 proof_retry_sleep_ms,

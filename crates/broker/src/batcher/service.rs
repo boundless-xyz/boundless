@@ -45,8 +45,8 @@ use crate::{
 
 use super::error::BatcherErr;
 
-/// Generic per-order data the broker hands the backend so the backend stays stateless. The
-/// opaque `backend_state` is replayed verbatim; the rest is broker-owned order data.
+/// Per-order data the broker hands the backend. The opaque `backend_state` is replayed
+/// verbatim; the rest is broker-owned order data.
 fn order_proving_data(order: &Order) -> OrderProvingData {
     OrderProvingData {
         order_id: order.id(),
@@ -206,8 +206,7 @@ impl BatcherService {
             );
         }
 
-        // Historical config name: for RISC0 this estimate is journal bytes. More generally this is
-        // a backend-estimated batch size used to cap submission payload growth.
+        // Backend-estimated batch size. For RISC0 this estimate is journal bytes.
         let pending_ids: Vec<String> = pending_orders.iter().map(|o| o.order_id.clone()).collect();
         let total_size_estimate = self
             .backend
@@ -388,7 +387,7 @@ impl BatcherService {
     }
 
     /// Claim backend-ready orders, filter non-actionable orders, and keep direct-submit
-    /// orders separate so their existing compressed proof handle can be passed to the backend.
+    /// orders separate.
     async fn get_filtered_batch_ready_orders(
         &self,
         backend_id: &BackendId,
@@ -598,8 +597,7 @@ impl BatcherService {
     }
 
     async fn process_batches(&self) -> Result<(), BatcherErr> {
-        // Isolate per-backend failures: an error on one backend must not skip the
-        // remaining backends for this poll cycle. The batcher loop retries next tick.
+        // A failure on one backend does not skip the remaining backends this poll cycle.
         for backend_id in self.backend.backend_ids() {
             if let Err(err) = self.process_backend_batch(&backend_id).await {
                 tracing::warn!("Failed to process batch for backend {backend_id}: {err:?}");

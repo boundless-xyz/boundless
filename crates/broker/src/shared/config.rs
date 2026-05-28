@@ -74,9 +74,8 @@ impl ConfigLock {
         self.config.write().map_err(|_| ConfigErr::LockFailed)
     }
 
-    /// A `() -> (retry_count, retry_sleep_ms)` closure that reads this reloadable config each
-    /// call, so a backend can keep picking up runtime changes without depending on `ConfigLock`.
-    /// Falls back to defaults if the lock can't be read.
+    /// A `() -> (retry_count, retry_sleep_ms)` closure that reads this reloadable config on each
+    /// call. Falls back to defaults if the lock can't be read.
     pub fn proof_retry_policy(&self) -> Arc<dyn Fn() -> (u64, u64) + Send + Sync> {
         let config = self.clone();
         Arc::new(move || {

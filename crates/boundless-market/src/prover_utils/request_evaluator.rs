@@ -28,7 +28,7 @@ use crate::{
     storage::StorageDownloader,
 };
 
-/// Result of executing a request far enough to learn backend-specific facts needed by pricing.
+/// Result of evaluating a request against a backend.
 #[derive(Clone, Debug)]
 pub enum RequestEvaluation {
     Success {
@@ -46,8 +46,7 @@ pub enum RequestEvaluation {
 
 /// Backend-native work observed during request evaluation.
 ///
-/// The unit is defined by the evaluator implementation. For the current RISC0
-/// evaluator this is the reported cycle count.
+/// The unit is defined by the evaluator. For the RISC0 evaluator it is the cycle count.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct NativeWork {
@@ -107,10 +106,7 @@ fn classify_preflight_error(error: &str) -> Option<PreflightErrorKind> {
     }
 }
 
-/// Value type for preflight cache.
-///
-/// Successful entries intentionally include the public output because pricing
-/// always consumes it for output-size and predicate checks.
+/// Value type for the preflight cache.
 pub type PreflightCacheValue = RequestEvaluation;
 
 /// Input type for preflight cache.
@@ -133,18 +129,14 @@ pub struct PreflightCacheKey {
     pub predicate_data: Vec<u8>,
     /// The input cache key.
     pub input: InputCacheKey,
-    /// The cycle limit the evaluation ran under. Keyed so a `LimitExceeded` result cached
-    /// for a low limit is never reused by a caller running under a higher limit.
+    /// The cycle limit the evaluation ran under.
     pub max_cycles: u64,
 }
 
-/// Cache for preflight results to avoid duplicate computations.
+/// Cache for preflight results.
 pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 
 /// Key for the image-upload coalescing cache.
-///
-/// Identical `(program_url, predicate)` pairs upload to the same program, so concurrent
-/// evaluations can share one image download + upload instead of each repeating it.
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct ImageUploadCacheKey {
     program_url: String,
@@ -240,11 +232,7 @@ impl EvaluationLimits {
     }
 }
 
-/// Executes request preflight for pricing without making broker policy decisions.
-///
-/// Backend-agnostic seam. Broker policy (gas, collateral, requestors) lives in
-/// [`super::OrderPricingContext`]; the concrete preflight pipeline for the
-/// RISC0 backend lives in [`Risc0Evaluator`].
+/// Executes request preflight for pricing.
 #[allow(async_fn_in_trait)]
 pub trait RequestEvaluator {
     async fn evaluate_request(
@@ -254,16 +242,10 @@ pub trait RequestEvaluator {
     ) -> Result<RequestEvaluation, OrderPricingError>;
 }
 
-/// Predicate used by an evaluator to flag priority requestors (whose uploads get
-/// elevated prover priority). Defaults to "no requestor is priority" if absent.
+/// Predicate that flags priority requestors. Defaults to none if absent.
 pub type PriorityRequestorCheck = Arc<dyn Fn(&Address) -> bool + Send + Sync>;
 
 /// Concrete RISC0 preflight pipeline.
-///
-/// Constructed directly by anything that needs to run preflight against a RISC0
-/// prover — broker backends, requestor SDKs, and tests all use the same type.
-/// `with_*` methods are optional and default off; the broker wires them up for
-/// concurrent-load coalescing and priority-requestor bypass.
 #[derive(Clone)]
 pub struct Risc0Evaluator {
     prover: ProverObj,
@@ -283,9 +265,6 @@ impl Risc0Evaluator {
     }
 
     /// Enable coalescing of concurrent image uploads for identical requests.
-    ///
-    /// Contexts under burst load (the broker) should set this; otherwise N concurrent
-    /// evaluations of the same request each upload the image independently.
     pub fn with_image_upload_cache(mut self, cache: ImageUploadCache) -> Self {
         self.image_upload_cache = Some(cache);
         self
@@ -366,10 +345,7 @@ impl RequestEvaluator for Risc0Evaluator {
             .unwrap_or(false);
 
         let program_id = cache_key.program_id.clone();
-        // `max_cycles` is part of the cache key, so a `LimitExceeded` result is only ever
-        // shared with callers that ran under the same limit; a higher-limit caller misses
-        // the cache and re-runs preflight rather than reusing a stale skip. Multiple
-        // concurrent calls on the same key coalesce into a single execution.
+        // Concurrent calls on the same key coalesce into a single execution.
         // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
         cache
             .try_get_with(cache_key, async {
@@ -450,9 +426,6 @@ impl RequestEvaluator for Risc0Evaluator {
 }
 
 /// Upload an image to the prover using the provided downloader.
-///
-/// This is a standalone function (not a trait method) so it can be called from inside
-/// async closures like `try_get_with` without capturing `&self`.
 async fn upload_image_with_downloader(
     prover: &ProverObj,
     image_url: &str,
@@ -499,9 +472,6 @@ async fn upload_image_with_downloader(
 }
 
 /// Upload input data to the prover (from inline data or URL) using the provided downloader.
-///
-/// This is a standalone function (not a trait method) so it can be called from inside
-/// async closures like `try_get_with` without capturing `&self`.
 ///
 /// If `is_priority_requestor` is true, size limits are bypassed when fetching from URLs.
 async fn upload_input_with_downloader(
@@ -703,10 +673,8 @@ mod tests {
 
     #[test]
     fn cache_key_includes_max_cycles() {
-        // Regression guard for the unbounded invalidate/retry loop: a `LimitExceeded`
-        // result cached under a low limit must key differently from a higher-limit
-        // evaluation, so the higher-limit caller misses the cache instead of reusing
-        // the stale skip (or spinning to invalidate it).
+        // A `LimitExceeded` result cached under a low limit keys differently from a
+        // higher-limit evaluation.
         let request = test_request();
         let low = request.cache_key("program".into(), 100).unwrap();
         let high = request.cache_key("program".into(), 1_000_000).unwrap();
@@ -763,9 +731,7 @@ mod tests {
 
     #[tokio::test]
     async fn image_upload_cache_coalesces_repeated_evaluations() {
-        // With an image-upload cache, identical requests resolve their program once: a
-        // repeated (or concurrent) evaluation reuses the cached upload instead of
-        // downloading and uploading the image again.
+        // With an image-upload cache, identical requests resolve their program once.
         let stub = StubProver::new();
         let ctx = stub_evaluator_with_image_cache(stub.clone());
 
@@ -782,8 +748,7 @@ mod tests {
 
     #[tokio::test]
     async fn image_upload_runs_per_call_without_a_cache() {
-        // Contrast for the test above: with no image-upload cache every evaluation
-        // uploads independently, so the cache is what provides the coalescing.
+        // Without an image-upload cache, every evaluation uploads independently.
         let stub = StubProver::new();
         let ctx = stub_evaluator(stub.clone());
 

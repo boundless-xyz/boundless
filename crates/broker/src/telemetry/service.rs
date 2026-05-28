@@ -386,8 +386,7 @@ impl TelemetryService {
             fulfillment_type: entry.fulfillment_type,
             stark_proving_secs: entry.stark_proving_secs,
             proof_compression_secs: entry.proof_compression_secs,
-            // Keep the external telemetry schema stable while the broker internals use
-            // backend-neutral batch terminology.
+            // External schema field names differ from the broker's internal batch terminology.
             set_builder_proving_secs: entry.batch_update_secs,
             assessor_proving_secs: entry.assessor_secs,
             assessor_compression_proof_secs: entry.batch_compression_secs,

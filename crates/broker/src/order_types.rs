@@ -162,11 +162,7 @@ pub struct Order {
     ///
     ///  Populated after preflight
     pub(crate) input_id: Option<String>,
-    /// Backend-opaque per-order state.
-    ///
-    /// The proving backend writes whatever it needs to resume this order after
-    /// a restart (proof handles, intermediate stage data, etc.). The broker
-    /// just persists the blob.
+    /// Backend-opaque per-order state. The proving backend writes it; the broker persists it.
     #[serde(default)]
     pub(crate) backend_state: Option<BackendOrderState>,
     /// Backend that processed this order.

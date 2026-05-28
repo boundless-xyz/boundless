@@ -22,11 +22,9 @@ pub(crate) mod rpc_retry_policy;
 pub mod rpcmetrics;
 pub mod sequential_fallback;
 pub(crate) mod storage;
-// Re-export the standalone helpers at the `crate::utils` root so callers
-// keep using `utils::...` without a redundant intermediate path component.
+// Re-export the standalone helpers at the `crate::utils` root.
 pub(crate) use helpers::{
     estimate_gas_to_fulfill, estimate_gas_to_lock, format_expiries, is_dev_mode, now_timestamp,
 };
-// `prune_receipt_claim_journal` is defined in the RISC0 backend and is used
-// by `boundless-cli` to compute claim digests.
+
 pub use crate::backend::prune_receipt_claim_journal;

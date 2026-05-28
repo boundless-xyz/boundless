@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Batcher service — owns broker batch lifecycle and delegates backend-specific
-//! batch updates, assessor artifact creation, and batch compression to the
-//! selected backend.
+//! Batcher service: owns the broker batch lifecycle and delegates backend-specific
+//! batch updates, assessor artifact creation, and batch compression to the selected backend.
 //!
 //! Layout:
-//! - [`service`] — the [`BatcherService`] struct, its constructor, and the
+//! - [`service`]: the [`BatcherService`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
-//! - [`types`] — public batch types ([`Batch`], [`BatchStatus`]).
-//! - [`error`] — [`BatcherErr`] enum.
+//! - [`types`]: public batch types ([`Batch`], [`BatchStatus`]).
+//! - [`error`]: the [`BatcherErr`] enum.
 
 mod error;
 mod service;

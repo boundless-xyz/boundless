@@ -70,7 +70,7 @@ macro_rules! string_id {
 
 string_id!(
     BackendId,
-    "Stable broker-side identity for a backend registration. This is distinct from a verifier selector: many selectors may route to the same backend, and broker policy/batching is keyed by backend."
+    "Stable broker-side identity for a backend registration. Many selectors may route to one backend; broker policy and batching are keyed by backend."
 );
 string_id!(ProofId, "Durable backend proof handle.");
 
@@ -83,10 +83,6 @@ impl Digest {
     }
 
     /// Build from a backend's native 32-byte digest (e.g. `risc0_zkvm::sha::Digest`).
-    ///
-    /// Rust's orphan rule forbids a cross-crate `From` impl between a backend's digest type and
-    /// this one (both are foreign to the backend crate), so backends bridge through `[u8; 32]`.
-    /// This generic constructor is the shared, coherence-safe way to do that for any backend.
     pub fn from_native<T: Into<[u8; 32]>>(value: T) -> Self {
         Self(value.into())
     }
@@ -140,8 +136,7 @@ impl From<ProgramId> for [u8; 32] {
     }
 }
 
-/// Backend-neutral input for processing one order. The broker hands the backend exactly what
-/// it needs to prove, never its own `Order` lifecycle type.
+/// Backend-neutral input for processing one order.
 #[derive(Clone, Debug)]
 pub struct ProcessOrder {
     pub order_id: String,
@@ -162,8 +157,7 @@ pub struct CancelOrder {
     pub is_proving: bool,
 }
 
-/// Backend-opaque per-order durable state. The backend writes whatever it
-/// needs to resume the order after a restart; the broker just persists it.
+/// Backend-opaque per-order durable state. The backend writes it; the broker persists it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BackendOrderState(pub serde_json::Value);
@@ -190,8 +184,7 @@ pub struct ProcessedOrder {
     pub backend_id: BackendId,
     pub order_id: String,
     pub submission_path: SubmissionPath,
-    /// Whether proving produced a compressed seal. Kept distinct from `submission_path` so a
-    /// new backend can't silently shift what telemetry counts as compression.
+    /// Whether proving produced a compressed seal.
     pub compressed: bool,
 }
 
@@ -232,8 +225,7 @@ impl From<ClaimDigest> for [u8; 32] {
     }
 }
 
-/// MVP shape; mirrors `BoundlessMarket.sol::fulfill`. Verifier-router or joint
-/// verifier additions go here or as a new [`VerifierUpdate`] variant.
+/// Mirrors `BoundlessMarket.sol::fulfill`.
 pub struct AssessorArtifact {
     pub claim_digest: ClaimDigest,
     pub selectors: Vec<AssessorSelector>,
@@ -244,14 +236,12 @@ pub struct FulfillmentOrder {
     pub order_id: String,
     pub request: ProofRequest,
     pub program_id: ProgramId,
-    /// Opaque backend state the backend authored; the broker stores and replays it without
-    /// reading it, so the backend never has to query the DB during fulfillment.
+    /// Opaque backend state the backend authored; the broker stores and replays it without reading it.
     pub backend_state: Option<BackendOrderState>,
 }
 
-/// Generic per-order data the broker hands a backend so the backend stays stateless and never
-/// reads the DB itself. `backend_state` is the opaque blob the backend authored; the rest is
-/// broker-owned order data. The backend reconstructs its proving inputs from these plus its prover.
+/// Per-order data the broker hands a backend. `backend_state` is the opaque blob the backend
+/// authored; the rest is broker-owned order data.
 #[derive(Clone, Debug)]
 pub struct OrderProvingData {
     pub order_id: String,
@@ -268,14 +258,9 @@ pub struct FulfillmentBatch {
     pub orders: Vec<FulfillmentOrder>,
 }
 
-/// Verifier-side work that the broker must execute before or alongside fulfillment submission.
+/// Verifier-side work the broker must execute before or alongside fulfillment submission.
 ///
-/// This is intentionally shaped around the current market contracts. Backends produce the
-/// verifier artifacts, while the broker owns transaction orchestration. More general verifier
-/// calls belong in the future verifier-router contract adapter rather than this MVP enum. For
-/// example, joint-verifier or on-chain-assessor flows should become additional backend-produced
-/// submission artifacts once the contract interface supports them; today the only required
-/// verifier-side preparation is submitting an RISC0 set-verifier root.
+/// Today the only variant is submitting an RISC0 set-verifier root.
 pub enum VerifierUpdate {
     SubmitMerkleRoot { verifier: Address, root: B256, seal: Bytes },
 }
@@ -347,7 +332,7 @@ pub struct BatchUpdate {
 pub struct CloseBatch {
     pub batch_id: usize,
     pub order_ids: Vec<String>,
-    /// The batch's opaque backend state, passed in so the backend doesn't re-read the DB.
+    /// The batch's opaque backend state.
     pub state: Option<BackendBatchState>,
 }
 
@@ -375,14 +360,10 @@ impl From<ProverError> for BackendError {
 }
 
 /// Failure from applying a [`VerifierUpdate`].
-///
-/// The variants carry enough structure for the submitter to classify the failure for its
-/// retry/alarm policy without string-matching an error message — a backend that adds context
-/// around the underlying error cannot silently break that classification.
 #[derive(Debug, thiserror::Error)]
 pub enum VerifierUpdateError {
     /// The verifier-update transaction was broadcast but its confirmation could not be
-    /// observed (e.g. it timed out waiting for inclusion). Transient — safe to retry.
+    /// observed (e.g. it timed out waiting for inclusion). Transient; safe to retry.
     #[error("verifier update transaction confirmation failed: {0:#}")]
     TxnConfirmation(#[source] anyhow::Error),
     /// Any other failure while applying the verifier update.

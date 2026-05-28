@@ -69,8 +69,7 @@ where
                 }
 
                 if attempt < retry_count {
-                    // The retry status is placed before `{err:?}` so it stays on the first
-                    // log line even when the error's Debug output spans multiple lines.
+                    // Log the retry status before the error's Debug output.
                     tracing::warn!(
                         "Operation [{}]{} failed, starting retry {}/{}: {err:?}",
                         function_name,

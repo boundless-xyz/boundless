@@ -52,7 +52,7 @@ impl BackendRouter {
             anyhow::bail!("backend {} is already registered", entry.id());
         }
 
-        // Validate all selectors before mutating, so a mid-list error leaves no half-applied routes.
+        // Validate all selectors before mutating.
         let mut entry_selectors = HashSet::new();
         for selector in &entry.selectors {
             if !entry_selectors.insert(*selector) {

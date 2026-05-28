@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Per-chain order processor — picks committed orders out of the DB and
+//! Per-chain order processor: picks committed orders out of the DB and
 //! drives them through the registered backend, recording the resulting proof
 //! IDs and emitting capacity completions back to the OrderCommitter.
 //!
 //! Layout:
-//! - [`service`] — the [`OrderProcessor`] struct, its constructor, and the
+//! - [`service`]: the [`OrderProcessor`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
-//! - `error` — [`ProvingErr`] enum and its `completion_outcome` mapping to
+//! - `error`: the [`ProvingErr`] enum and its `completion_outcome` mapping to
 //!   `boundless_market::telemetry::CompletionOutcome`.
 
 mod error;

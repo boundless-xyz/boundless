@@ -124,17 +124,13 @@ where
         let mut skipped_done_orders = Vec::new();
 
         for order_id in batch.orders.iter() {
-            // On a submit_batch retry after a partial on-chain success, an order may already
-            // have been finalized and advanced to Done. It must not be resubmitted, and the
-            // prep-failure path below must not flip an on-chain-fulfilled order back to Failed.
+            // An order already finalized to Done is skipped, not resubmitted.
             if orders_by_id.get(order_id).is_some_and(|order| order.status == OrderStatus::Done) {
                 tracing::info!("Order {order_id} already finalized, skipping resubmission");
                 skipped_done_orders.push(order_id.clone());
                 continue;
             }
-            // An order that failed preparation in an earlier attempt is already terminal —
-            // re-running handle_order_failure here would emit a duplicate ProvingFailed
-            // CommitmentComplete and double-count the capacity release.
+            // An order already Failed in a prior attempt is skipped.
             if orders_by_id.get(order_id).is_some_and(|order| order.status == OrderStatus::Failed) {
                 tracing::info!(
                     "Order {order_id} already failed in a prior submit attempt, skipping"
@@ -313,9 +309,7 @@ where
                     .collect();
                 tracing::warn!("Failed to submit verifier update for orders: {order_ids:?}");
 
-                // The backend already classified the failure; map it onto the BoundlessMarket
-                // error taxonomy. This `match` is exhaustive, so a new `VerifierUpdateError`
-                // variant is a compile error here rather than a silent misclassification.
+                // Map the backend's classified failure onto the BoundlessMarket error taxonomy.
                 let market_err = match err {
                     VerifierUpdateError::TxnConfirmation(err) => {
                         MarketError::TxnConfirmationError(err)
@@ -608,8 +602,7 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct BatchHarnessOptions {
-        /// Add a second order to the batch whose DB row has no proof id, so the submitter
-        /// fails it during submission preparation while still submitting the real order.
+        /// Add a second order with no proof id, so the submitter fails to prepare it.
         with_failing_order: bool,
     }
 
@@ -830,8 +823,7 @@ mod tests {
         db.add_order(&order).await.unwrap();
 
         // Optionally add a second order the submitter cannot prepare (its DB row has no proof
-        // id, so `get_submission_order` fails). It exercises partial-batch failure: the good
-        // order must still submit, and each order must emit exactly one CommitmentComplete.
+        // id, so `get_submission_order` fails).
         let failing_order_id = if options.with_failing_order {
             let failing_request = ProofRequest::new(
                 RequestId::new(Address::repeat_byte(0xBB), 1),
@@ -984,8 +976,7 @@ mod tests {
         drop(anvil); // drop anvil to simulate an RPC fault
 
         let res = submitter.process_next_batch().await;
-        // futures_retry emits this format on each failed attempt (retry status before the
-        // error so it survives multi-line error Debug output):
+        // futures_retry emits this format on each failed attempt:
         //   "Operation [submit_batch] (context: batch_id=0) failed, starting retry 1/1: ..."
         assert!(logs_contain("Operation [submit_batch] (context: batch_id=0)"));
         assert!(logs_contain("starting retry 1/1"));
