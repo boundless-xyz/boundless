@@ -28,6 +28,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {IBoundlessVerifier} from "../src/router/interfaces/IBoundlessVerifier.sol";
 import {IBoundlessAssessor} from "../src/router/interfaces/IBoundlessAssessor.sol";
@@ -99,6 +100,7 @@ contract BoundlessMarketTest is Test {
     R0BoundlessAssessorAdapter internal r0AssessorAdapter;
 
     address internal boundlessMarketSource;
+    address internal legacyImpl;
     address internal proxy;
     RiscZeroSetVerifier internal setVerifier;
     HitPoints internal collateralToken;
@@ -203,12 +205,26 @@ contract BoundlessMarketTest is Test {
         setVerifierAdapter = new R0BoundlessVerifierAdapter(setVerifier);
         router.instantiate(setVerifier.SELECTOR(), address(setVerifierAdapter), VERIFIER_CLASS_ID, 0);
 
+        // Deploy a fresh legacy market impl so the new market's fallback has a
+        // delegate-call target. On mainnet/Base this is the pre-upgrade impl
+        // address; tests stand one up from contracts/src/legacy/.
+        legacyImpl = address(
+            new BoundlessMarketLegacy(
+                setVerifier,
+                setVerifier,
+                ASSESSOR_IMAGE_ID,
+                DEPRECATED_ASSESSOR_IMAGE_ID,
+                DEPRECATED_ASSESSOR_DURATION,
+                address(collateralToken)
+            )
+        );
+
         // Deploy the UUPS proxy with the implementation
-        boundlessMarketSource = address(new BoundlessMarket(router, address(collateralToken)));
+        boundlessMarketSource = address(new BoundlessMarket(router, address(collateralToken), legacyImpl));
         proxy = UnsafeUpgrades.deployUUPSProxy(
             boundlessMarketSource, abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr))
         );
-        boundlessMarket = BoundlessMarket(proxy);
+        boundlessMarket = BoundlessMarket(payable(proxy));
 
         mockCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 10_000);
         mockHighGasCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 250_000);
@@ -4515,17 +4531,17 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
     function testUnsafeUpgrade() public {
         vm.startPrank(ownerWallet.addr);
         proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(new BoundlessMarket(router, address(collateralToken))),
+            address(new BoundlessMarket(router, address(collateralToken), legacyImpl)),
             abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr))
         );
-        boundlessMarket = BoundlessMarket(proxy);
+        boundlessMarket = BoundlessMarket(payable(proxy));
         address implAddressV1 = UnsafeUpgrades.getImplementationAddress(proxy);
 
         // Should emit an `Upgraded` event
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy, address(new BoundlessMarket(router, address(collateralToken))), "", ownerWallet.addr
+            proxy, address(new BoundlessMarket(router, address(collateralToken), legacyImpl)), "", ownerWallet.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);

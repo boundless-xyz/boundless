@@ -37,6 +37,7 @@ import {IBoundlessRouter} from "./router/interfaces/IBoundlessRouter.sol";
 
 error InvalidRouter();
 error InvalidCollateralToken();
+error InvalidLegacyImpl();
 error InvalidInitialOwner();
 error MismatchedRequestId(uint256 expected, uint256 received);
 
@@ -77,6 +78,16 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable COLLATERAL_TOKEN_CONTRACT;
 
+    /// @notice Implementation address of the previous (legacy ABI) BoundlessMarket.
+    ///         The fallback function delegate-calls into this address so the
+    ///         pre-router ABI keeps working for in-flight transactions and old
+    ///         broker clients during the migration window.
+    /// @dev    On Base mainnet this is the impl pointed to by the proxy before
+    ///         the upgrade. On dev/localnet a fresh deployment of
+    ///         contracts/src/legacy/BoundlessMarketLegacy.sol.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable LEGACY_IMPL;
+
     /// @notice Max gas allowed for ERC1271 smart contract signature checks used for client auth.
     /// @dev This constraint is applied to smart contract signatures used for authorizing proof
     /// requests in order to make gas costs bounded.
@@ -96,14 +107,34 @@ contract BoundlessMarket is
     uint96 public constant MARKET_FEE_BPS = 0;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(IBoundlessRouter router, address collateralTokenContract) {
+    constructor(IBoundlessRouter router, address collateralTokenContract, address legacyImpl) {
         if (address(router) == address(0)) revert InvalidRouter();
         if (collateralTokenContract == address(0)) revert InvalidCollateralToken();
+        if (legacyImpl == address(0)) revert InvalidLegacyImpl();
 
         ROUTER = router;
         COLLATERAL_TOKEN_CONTRACT = collateralTokenContract;
+        LEGACY_IMPL = legacyImpl;
 
         _disableInitializers();
+    }
+
+    /// @notice Forwards any selector not declared on this contract to the
+    ///         previous implementation via delegate-call, preserving the
+    ///         caller, value, and the proxy's storage context.
+    /// @dev    Used to keep the legacy ABI surface live during the migration
+    ///         window without re-introducing the legacy bodies into this
+    ///         implementation's bytecode.
+    fallback() external payable {
+        address impl = LEGACY_IMPL;
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 { revert(0, returndatasize()) }
+            default { return(0, returndatasize()) }
+        }
     }
 
     function initialize(address initialOwner) external initializer {

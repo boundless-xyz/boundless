@@ -69,14 +69,17 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
         address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
         // Market dispatches verification via the BoundlessRouter; its address is
         // supplied via the BOUNDLESS_ROUTER env var until the deployment.toml
-        // schema is updated to carry it.
+        // schema is updated to carry it. The legacy impl (fallback target for
+        // the legacy ABI) is supplied via BOUNDLESS_LEGACY_IMPL.
         address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
+        address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
 
         vm.startBroadcast(getDeployer());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
-        address newImplementation =
-            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), collateralToken));
+        address newImplementation = address(
+            new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl)
+        );
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(newImplementation, abi.encodeCall(BoundlessMarket.initialize, (admin)))
         );
@@ -84,8 +87,9 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
         vm.stopBroadcast();
 
         // Verify the deployment
-        BoundlessMarket market = BoundlessMarket(marketAddress);
+        BoundlessMarket market = BoundlessMarket(payable(marketAddress));
         require(address(market.ROUTER()) == boundlessRouter, "router does not match");
+        require(market.LEGACY_IMPL() == legacyImpl, "legacy impl does not match");
         require(
             market.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken, "collateral token does not match"
         );
@@ -146,10 +150,13 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // Market now dispatches verification via the BoundlessRouter; the
         // pre-existing `verifier` / `applicationVerifier` / `assessorImageId` fields
         // are no longer market-level state. Read the router from BOUNDLESS_ROUTER
-        // env var until the deployment.toml schema is updated to carry it.
+        // env var until the deployment.toml schema is updated to carry it. The
+        // legacy impl (fallback target for the legacy ABI) is supplied via
+        // BOUNDLESS_LEGACY_IMPL, typically the previous market impl.
         address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
+        address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
 
-        BoundlessMarket market = BoundlessMarket(marketAddress);
+        BoundlessMarket market = BoundlessMarket(payable(marketAddress));
 
         // Upgrade requires build info from the currently deployed version.
         // You can get this build info with the following process.
@@ -163,7 +170,7 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // ```
         UpgradeOptions memory opts;
         opts.constructorData =
-            BoundlessMarketLib.encodeConstructorArgs(BoundlessRouter(boundlessRouter), collateralToken);
+            BoundlessMarketLib.encodeConstructorArgs(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl);
 
         if (skipSafetyChecks) {
             console2.log("WARNING: Skipping all upgrade safety checks and reference build!");
@@ -204,7 +211,7 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             console2.log("Upgraded Boundless Market implementation to: ", newImpl);
 
             // Verify the upgrade
-            BoundlessMarket upgradedMarket = BoundlessMarket(marketAddress);
+            BoundlessMarket upgradedMarket = BoundlessMarket(payable(marketAddress));
             require(address(upgradedMarket.ROUTER()) == boundlessRouter, "upgraded market router does not match");
             require(
                 upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
@@ -267,7 +274,7 @@ contract RollbackBoundlessMarket is BoundlessScriptBase {
         vm.stopBroadcast();
 
         // Verify the upgrade
-        BoundlessMarket upgradedMarket = BoundlessMarket(marketAddress);
+        BoundlessMarket upgradedMarket = BoundlessMarket(payable(marketAddress));
         require(
             upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
             "upgraded market stake token does not match"
@@ -319,7 +326,7 @@ contract AddBoundlessMarketAdmin is BoundlessScriptBase {
         require(adminToAdd != address(0), "ADMIN_TO_ADD environment variable not set");
 
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        BoundlessMarket market = BoundlessMarket(marketAddress);
+        BoundlessMarket market = BoundlessMarket(payable(marketAddress));
 
         bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
         bytes32 adminRole = market.ADMIN_ROLE();
@@ -387,7 +394,7 @@ contract RemoveBoundlessMarketAdmin is BoundlessScriptBase {
         require(adminToRemove != address(0), "ADMIN_TO_REMOVE environment variable not set");
 
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
-        BoundlessMarket market = BoundlessMarket(marketAddress);
+        BoundlessMarket market = BoundlessMarket(payable(marketAddress));
 
         bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
         bytes32 adminRole = market.ADMIN_ROLE();

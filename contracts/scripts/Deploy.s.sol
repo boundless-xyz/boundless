@@ -148,11 +148,14 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
 
         // Deploy the Boundless market. The market dispatches verification via the
         // BoundlessRouter; its address is supplied via the BOUNDLESS_ROUTER env
-        // var until the deployment.toml schema is updated to carry it.
+        // var until the deployment.toml schema is updated to carry it. The
+        // legacy impl address (delegate-call target for the legacy ABI) is
+        // supplied via the BOUNDLESS_LEGACY_IMPL env var.
         address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
+        address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
         bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
         address newImplementation =
-            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken));
+            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken, legacyImpl));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
