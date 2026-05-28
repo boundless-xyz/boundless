@@ -76,6 +76,31 @@ jobs:
       - name: Ensure gas snapshots have been updated. TODO Fix this. Snapshot checks are currently disabled as they don't match in CI.
         run: FORGE_SNAPSHOT_CHECK=false forge test --isolate
 
+  legacy-bytecode-parity:
+    runs-on: ubuntu-latest
+    needs: contracts-changed
+    if: needs.contracts-changed.outputs.src == 'true' ||
+        needs.contracts-changed.outputs.foundry == 'true' ||
+        needs.contracts-changed.outputs.test == 'true' ||
+        needs.contracts-changed.outputs.scripts == 'true' ||
+        needs.contracts-changed.outputs.ci == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: forge build
+        run: forge build --silent
+
+      - name: Verify legacy/ bytecode matches deployed OLD impl
+        run: python3 contracts/scripts/verify-legacy-bytecode.py
+
   upgradability:
     runs-on: ubuntu-latest
     needs: contracts-changed
