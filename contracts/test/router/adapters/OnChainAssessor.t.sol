@@ -152,7 +152,7 @@ contract OnChainAssessorTest is Test {
         f[0].fulfillmentData =
             abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: bytes("not-the-journal")}));
         bytes memory seal = _buildSeal(s, f);
-        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.PredicateFailed.selector, uint256(0)));
+        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.ClaimDigestMismatch.selector, uint256(0)));
         adapter.verifyAssessor(_makeBatch(s, f, proverAddr, seal), rd);
     }
 
@@ -166,18 +166,20 @@ contract OnChainAssessorTest is Test {
         f[0].fulfillmentData =
             abi.encode(FulfillmentDataImageIdAndJournal({imageId: wrongImageId, journal: journal}));
         bytes memory seal = _buildSeal(s, f);
-        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.PredicateFailed.selector, uint256(0)));
+        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.ClaimDigestMismatch.selector, uint256(0)));
         adapter.verifyAssessor(_makeBatch(s, f, proverAddr, seal), rd);
     }
 
     function test_predicateFailure_prefixMatch_journalDoesNotStartWithPrefix_reverts() external {
         (ProofRequest memory req, Fulfillment memory fill) = _makePrefixMatchFill(0);
         // Replace the journal with one that doesn't start with the prefix the
-        // request signed. Keep the same imageId so we isolate the prefix check.
+        // request signed, and update claimDigest so the reconstruction guard
+        // passes — isolating the prefix check as the failure path.
         (bytes32 imageId,) = _imageAndJournal(0);
-        fill.fulfillmentData = abi.encode(
-            FulfillmentDataImageIdAndJournal({imageId: imageId, journal: bytes("xxxxxxxxRESTOFTHEJOURNAL")})
-        );
+        bytes memory newJournal = bytes("xxxxxxxxRESTOFTHEJOURNAL");
+        fill.fulfillmentData =
+            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: newJournal}));
+        fill.claimDigest = ReceiptClaimLib.ok(imageId, sha256(newJournal)).digest();
         ProofRequest[] memory r = _asArray(req);
         Fulfillment[] memory f = _asArray(fill);
         (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
@@ -321,17 +323,33 @@ contract OnChainAssessorTest is Test {
         adapter.verifyAssessor(_makeBatch(s, f, proverAddr, seal), rd);
     }
 
+    /// @dev Tamper fulfillmentData in a way that defeats both the predicate
+    ///      check and the reconstruction guard, isolating the per-batch
+    ///      signature as the failure path. We use PrefixMatch so the new
+    ///      journal can still satisfy the predicate (it preserves the signed
+    ///      prefix), and we update fill.claimDigest so the reconstruction
+    ///      guard also passes. The seal — signed before the mutation — is
+    ///      bound to the *original* claimDigest, so signature recovery yields
+    ///      the wrong address.
     function test_tamper_fulfillmentData_postSigning_reverts() external {
-        (ProofRequest[] memory r, Fulfillment[] memory f) = _buildBatch(1, PredicateType.DigestMatch);
+        (ProofRequest memory req, Fulfillment memory fill) = _makePrefixMatchFill(0);
+        ProofRequest[] memory r = _asArray(req);
+        Fulfillment[] memory f = _asArray(fill);
         (SlimRequest[] memory s, bytes32[] memory rd) = _toSlimBatch(r);
-        // Build the seal first so the signature is over the original digests,
-        // then mutate fulfillmentData. Predicate eval catches the mismatch
-        // (imageId still matches but the journal does not).
         bytes memory seal = _buildSeal(s, f);
+
+        // _imageAndJournal(0) sets the first 8 bytes (the prefix) to zero, so
+        // a fresh zero-initialized buffer already starts with the signed
+        // prefix; one trailing non-zero byte is enough to diverge from the
+        // original journal and produce a different claimDigest.
         (bytes32 imageId,) = _imageAndJournal(0);
+        bytes memory newJournal = new bytes(9);
+        newJournal[8] = 0xAA;
         f[0].fulfillmentData =
-            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: bytes("tampered")}));
-        vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.PredicateFailed.selector, uint256(0)));
+            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: newJournal}));
+        f[0].claimDigest = ReceiptClaimLib.ok(imageId, sha256(newJournal)).digest();
+
+        vm.expectPartialRevert(OnChainAssessor.ProverSignatureMismatch.selector);
         adapter.verifyAssessor(_makeBatch(s, f, proverAddr, seal), rd);
     }
 

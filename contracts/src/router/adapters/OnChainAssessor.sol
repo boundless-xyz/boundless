@@ -13,8 +13,9 @@ import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 
 import {IBoundlessAssessor} from "../interfaces/IBoundlessAssessor.sol";
 import {FulfillmentBatch} from "../../types/FulfillmentBatch.sol";
+import {Fulfillment} from "../../types/Fulfillment.sol";
 import {FulfillmentDataLibrary, FulfillmentDataType} from "../../types/FulfillmentData.sol";
-import {PredicateType} from "../../types/Predicate.sol";
+import {Predicate, PredicateType} from "../../types/Predicate.sol";
 
 /// @title OnChainAssessor — native Solidity fulfillment-check adapter.
 ///
@@ -101,46 +102,33 @@ contract OnChainAssessor is IBoundlessAssessor, IERC165 {
         // claimDigests for the per-batch signature hash.
         bytes32[] memory claimDigests = new bytes32[](n);
         for (uint256 i = 0; i < n; i++) {
-            PredicateType ptype = batch.requests[i].predicate.predicateType;
-            if (ptype == PredicateType.ClaimDigestMatch) {
-                // Predicate.data == fill.claimDigest. This is itself the binding —
-                // the predicate's claim digest IS the value the verifier proved.
-                if (!batch.requests[i].predicate.eval(batch.fills[i].claimDigest)) {
-                    revert PredicateFailed(i);
-                }
-                // If the prover also attached (imageId, journal) — typically because
-                // the request has a callback that needs them — assert they reconstruct
-                // to the proven claimDigest. The claimDigest alone does not pin which
-                // (imageId, journal) produced it, so without this check a callback
-                // would dispatch unproven bytes.
-                if (batch.fills[i].fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
-                    (bytes32 imageId, bytes calldata journal) =
-                        FulfillmentDataLibrary.decodePackedImageIdAndJournal(batch.fills[i].fulfillmentData);
-                    bytes32 reconstructed = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
-                    if (reconstructed != batch.fills[i].claimDigest) {
-                        revert ClaimDigestMismatch(i);
-                    }
-                }
-            } else {
-                if (batch.fills[i].fulfillmentDataType != FulfillmentDataType.ImageIdAndJournal) {
-                    revert MissingFulfillmentData(i);
-                }
-                (bytes32 imageId, bytes calldata journal) =
-                    FulfillmentDataLibrary.decodePackedImageIdAndJournal(batch.fills[i].fulfillmentData);
+            Predicate calldata predicate = batch.requests[i].predicate;
+            Fulfillment calldata fill = batch.fills[i];
+            bool hasImageAndJournal = fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal;
 
-                // Predicate match: imageId + journal-prefix-or-digest matches what the client signed.
-                if (!batch.requests[i].predicate.eval(imageId, journal)) {
-                    revert PredicateFailed(i);
-                }
-                // Claim-digest binding: the (imageId, journal) the prover supplied must
-                // reconstruct to fill.claimDigest. Without this, the prover could submit
-                // a valid seal for a different computation entirely.
-                bytes32 reconstructed = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
-                if (reconstructed != batch.fills[i].claimDigest) {
+            // Single reconstruction guard: whenever (imageId, journal) is attached,
+            // it MUST reconstruct to fill.claimDigest otherwise a downstream
+            // callback would dispatch unproven bytes.
+            bytes32 imageId;
+            // Empty default keeps the calldata pointer valid; only DigestMatch /
+            // PrefixMatch (which require hasImageAndJournal) ever read it.
+            bytes calldata journal = fill.fulfillmentData[0:0];
+            if (hasImageAndJournal) {
+                (imageId, journal) = FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
+                if (ReceiptClaimLib.ok(imageId, sha256(journal)).digest() != fill.claimDigest) {
                     revert ClaimDigestMismatch(i);
                 }
             }
-            claimDigests[i] = batch.fills[i].claimDigest;
+
+            // Predicate satisfaction only dispatch differs per predicate type.
+            if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
+                if (!predicate.eval(fill.claimDigest)) revert PredicateFailed(i);
+            } else {
+                if (!hasImageAndJournal) revert MissingFulfillmentData(i);
+                if (!predicate.eval(imageId, journal)) revert PredicateFailed(i);
+            }
+
+            claimDigests[i] = fill.claimDigest;
         }
 
         // Per batch: prover signature over (prover, requestDigests, claimDigests).
