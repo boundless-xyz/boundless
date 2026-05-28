@@ -52,10 +52,7 @@ pub mod provers;
 /// Whether `RISC0_DEV_MODE` is enabled.
 fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
-        .ok()
-        .map(|x| x.to_lowercase())
-        .filter(|x| x == "1" || x == "true" || x == "yes")
-        .is_some()
+        .is_ok_and(|value| matches!(value.to_lowercase().as_str(), "1" | "true" | "yes"))
 }
 
 const PREFLIGHT_CACHE_SIZE: u64 = 5000;
@@ -145,10 +142,10 @@ impl Risc0OrderState {
         Ok(decoded)
     }
 
-    pub(crate) fn encode(&self) -> BackendOrderState {
-        BackendOrderState(
-            serde_json::to_value(self).expect("Risc0OrderState always serializes to JSON"),
-        )
+    pub(crate) fn encode(&self) -> Result<BackendOrderState> {
+        Ok(BackendOrderState(
+            serde_json::to_value(self).context("Failed to encode RISC0 order state")?,
+        ))
     }
 }
 
@@ -789,7 +786,7 @@ impl Backend for Risc0Backend {
             None => {
                 let proof_id = self.start_order(&cmd).await?;
                 return Ok(OrderProcessProgress::InProgress {
-                    state: Risc0OrderState { proof_id, ..Default::default() }.encode(),
+                    state: Risc0OrderState { proof_id, ..Default::default() }.encode()?,
                 });
             }
         };
@@ -805,7 +802,7 @@ impl Backend for Risc0Backend {
             let compressed_proof_id =
                 self.compress_order_proof(&order_id, &state.proof_id, compression_type).await?;
             state.compressed_proof_id = Some(compressed_proof_id);
-            return Ok(OrderProcessProgress::InProgress { state: state.encode() });
+            return Ok(OrderProcessProgress::InProgress { state: state.encode()? });
         }
 
         let submission_path = submission_path_for_risc0_selector(cmd.request.requirements.selector);
@@ -980,11 +977,7 @@ impl Backend for Risc0Backend {
                     set_inclusion_receipt.abi_encode_seal().context("Failed to encode seal")?
                 };
 
-                tracing::debug!(
-                    "Seal for order {} : {}",
-                    order.order_id,
-                    hex::encode(seal.clone())
-                );
+                tracing::debug!("Seal for order {} : {}", order.order_id, hex::encode(&seal));
 
                 let request_digest =
                     order.request.eip712_signing_hash(&cmd.eip712_domain.alloy_struct());
@@ -1287,7 +1280,7 @@ mod tests {
         assert_eq!(decoded.proof_id, "fuzz_proof_42");
         assert_eq!(decoded.compressed_proof_id, None);
 
-        let re_encoded = decoded.encode();
+        let re_encoded = decoded.encode().unwrap();
         let re_decoded = Risc0OrderState::decode(&re_encoded).unwrap();
         assert_eq!(re_decoded.proof_id, "fuzz_proof_42");
     }

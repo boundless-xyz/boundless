@@ -252,7 +252,7 @@ impl Risc0BatchProcessor {
         }
 
         if claims.is_empty() {
-            anyhow::bail!(format!("No valid proofs found in batch with orders {:?}", all_orders));
+            anyhow::bail!("No valid proofs found in batch with orders {:?}", all_orders);
         }
 
         if valid_proof_ids.len() < proofs.len() {

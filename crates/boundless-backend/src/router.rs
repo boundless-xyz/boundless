@@ -179,9 +179,8 @@ impl BackendRouter {
             .await
     }
 
-    pub async fn build_fulfillments(&self, mut cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
+    pub async fn build_fulfillments(&self, cmd: FulfillmentBatch) -> Result<SubmissionPlan> {
         let backend = self.backend_for_id(&cmd.backend_id)?;
-        cmd.backend_id = backend.id().clone();
         backend.build_fulfillments(cmd).await
     }
 
