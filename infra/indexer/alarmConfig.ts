@@ -297,15 +297,15 @@ export const alarmConfig: ChainStageAlarms = {
           ],
           successRate: [
             {
-              description: "less than 50% success rate for two 60 minute periods in 4 hours from og_offchain",
+              description: "less than 50% success rate over a 4 hour period from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 3600
+                period: 14400
               },
               alarmConfig: {
                 threshold: 0.50,
-                evaluationPeriods: 4,
-                datapointsToAlarm: 2,
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
                 comparisonOperator: "LessThanThreshold"
               }
             }
