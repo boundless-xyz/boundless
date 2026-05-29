@@ -2,7 +2,7 @@
 # Per-chain fields (min_mcycle_price, max_collateral, deny lists) are in broker.{chain_id}.toml
 [market]
 min_mcycle_price = "0.00000005"
-max_collateral = "5"
+max_collateral = "100"
 expected_probability_win_secondary_fulfillment = 100 # no discount on secondary fulfillments -> min_mcycle_price is used to judge whether to accept a request or not
 peak_prove_khz = 11000
 min_deadline = 120
