@@ -11,19 +11,25 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
-import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
-import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
-import {Callback} from "../src/types/Callback.sol";
-import {Fulfillment} from "../src/types/Fulfillment.sol";
-import {Input, InputType} from "../src/types/Input.sol";
-import {Requirements} from "../src/types/Requirements.sol";
-import {Offer} from "../src/types/Offer.sol";
-import {ProofRequest} from "../src/types/ProofRequest.sol";
-import {PredicateLibrary} from "../src/types/Predicate.sol";
-import {RequestIdLibrary} from "../src/types/RequestId.sol";
+// The deployment-test exercises the deployed market via the legacy ABI
+// (Fulfillment[] + AssessorReceipt shape). After this branch's upgrade,
+// those entry points are served by the legacy impl through the new
+// market's fallback delegate-call. All struct + interface imports are
+// therefore taken from contracts/src/legacy/, which carries the matching
+// type definitions.
+import {IBoundlessMarket} from "../src/legacy/IBoundlessMarketLegacy.sol";
+import {AssessorReceipt} from "../src/legacy/types/AssessorReceipt.sol";
+import {Callback} from "../src/legacy/types/Callback.sol";
+import {Fulfillment} from "../src/legacy/types/Fulfillment.sol";
+import {Input, InputType} from "../src/legacy/types/Input.sol";
+import {Requirements} from "../src/legacy/types/Requirements.sol";
+import {Offer} from "../src/legacy/types/Offer.sol";
+import {ProofRequest} from "../src/legacy/types/ProofRequest.sol";
+import {PredicateLibrary} from "../src/legacy/types/Predicate.sol";
+import {RequestIdLibrary} from "../src/legacy/types/RequestId.sol";
 
-import {BoundlessMarket} from "../src/BoundlessMarket.sol";
-import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
+import {BoundlessMarket} from "../src/legacy/BoundlessMarketLegacy.sol";
+import {BoundlessMarketLib} from "../src/legacy/libraries/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig} from "../scripts/Config.s.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
