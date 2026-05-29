@@ -174,7 +174,7 @@ impl Risc0Backend {
     }
 
     /// Production constructor: builds the prover backends from the projected config.
-    pub fn new(
+    pub async fn new(
         config: Risc0BackendConfig,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
@@ -189,7 +189,8 @@ impl Risc0Backend {
             bonsai_api_url,
             bento_api_url,
             multi_zkvm_endpoint,
-        )?;
+        )
+        .await?;
         Ok(Self::with_provers(prover, snark_prover, downloader, priority_check))
     }
 
@@ -232,7 +233,7 @@ impl Risc0Backend {
         }
     }
 
-    fn build_provers(
+    async fn build_provers(
         config: &Risc0BackendConfig,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
@@ -258,7 +259,7 @@ impl Risc0Backend {
             tracing::info!("Configured to run with MultiZKVM proving service");
 
             let prover: ProverObj =
-                Arc::new(multi_zkvm_types::MultiZkvmClient::new(endpoint)?);
+                Arc::new(multi_zkvm_types::MultiZkvmClient::new(endpoint).await?);
             return Ok((Arc::clone(&prover), prover));
         }
         if let (Some(key), Some(url)) = (bonsai_api_key, bonsai_api_url) {

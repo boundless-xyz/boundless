@@ -581,7 +581,8 @@ impl Broker {
             self.args.multi_zkvm_endpoint.as_ref(),
             Arc::new(self.downloader.clone()),
             priority_requestors.as_check(),
-        )?;
+        )
+        .await?;
 
         if !self.args.listen_only {
             risc0_backend = risc0_backend

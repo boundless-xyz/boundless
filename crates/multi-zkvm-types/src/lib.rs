@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod client;
+pub mod protocol;
 pub mod rpc;
 
 pub use client::MultiZkvmClient;
