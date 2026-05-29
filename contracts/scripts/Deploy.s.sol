@@ -19,6 +19,7 @@ import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {FulfillLib} from "../src/FulfillLib.sol";
 import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
@@ -170,9 +171,18 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             console2.log("Using BOUNDLESS_LEGACY_IMPL from env:", legacyImpl);
         }
 
+        address fulfillLib = vm.envOr("BOUNDLESS_FULFILL_LIB", address(0));
+        if (fulfillLib == address(0)) {
+            fulfillLib = address(new FulfillLib(BoundlessRouter(boundlessRouter)));
+            console2.log("Deployed FulfillLib to", fulfillLib);
+        } else {
+            console2.log("Using BOUNDLESS_FULFILL_LIB from env:", fulfillLib);
+        }
+
         bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
-        address newImplementation =
-            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken, legacyImpl));
+        address newImplementation = address(
+            new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken, legacyImpl, fulfillLib)
+        );
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(

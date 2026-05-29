@@ -73,12 +73,13 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
         // the legacy ABI) is supplied via BOUNDLESS_LEGACY_IMPL.
         address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
         address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
+        address fulfillLib = vm.envAddress("BOUNDLESS_FULFILL_LIB");
 
         vm.startBroadcast(getDeployer());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation = address(
-            new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl)
+            new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl, fulfillLib)
         );
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(newImplementation, abi.encodeCall(BoundlessMarket.initialize, (admin)))

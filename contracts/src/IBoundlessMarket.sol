@@ -297,12 +297,6 @@ interface IBoundlessMarket {
     ///         order, fills in order within each fulfillment batch).
     function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) external returns (bytes[] memory paymentError);
 
-    /// @notice Fulfills fulfillment batches and withdraws the resulting balance for each
-    ///         fulfillment batch's prover. See `fulfill` for the locked-only requirement.
-    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches)
-        external
-        returns (bytes[] memory paymentError);
-
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
     /// @dev When called within the same transaction, this method can be used to fulfill a request
@@ -322,12 +316,6 @@ interface IBoundlessMarket {
         FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
-    /// @notice A combined call to `priceRequest` (per request) and `fulfillAndWithdraw`.
-    function priceAndFulfillAndWithdraw(
-        ProofRequestBatch[] calldata requestBatches,
-        FulfillmentBatch[] calldata fulfillmentBatches
-    ) external returns (bytes[] memory paymentError);
-
     /// @notice Submit a new root to a set-verifier.
     /// @dev Consider using `submitRootAndFulfill` to submit the root and fulfill in one transaction.
     /// @param setVerifier The address of the set-verifier contract.
@@ -343,25 +331,8 @@ interface IBoundlessMarket {
         FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
-    /// @notice Submit a set-verifier root and then call `fulfillAndWithdraw` in one tx.
-    function submitRootAndFulfillAndWithdraw(
-        address setVerifier,
-        bytes32 root,
-        bytes calldata seal,
-        FulfillmentBatch[] calldata fulfillmentBatches
-    ) external returns (bytes[] memory paymentError);
-
     /// @notice Submit a set-verifier root and then call `priceAndFulfill` in one tx.
     function submitRootAndPriceAndFulfill(
-        address setVerifier,
-        bytes32 root,
-        bytes calldata seal,
-        ProofRequestBatch[] calldata requestBatches,
-        FulfillmentBatch[] calldata fulfillmentBatches
-    ) external returns (bytes[] memory paymentError);
-
-    /// @notice Submit a set-verifier root and then call `priceAndFulfillAndWithdraw` in one tx.
-    function submitRootAndPriceAndFulfillAndWithdraw(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,

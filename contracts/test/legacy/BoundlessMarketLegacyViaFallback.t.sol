@@ -131,11 +131,13 @@ contract BoundlessMarketLegacyViaFallbackTest is Test {
         );
 
         // Deploy the NEW market impl and point the proxy at it. The new market's
-        // router is set to a non-zero placeholder address since these tests
-        // exercise the legacy ABI surface, which is forwarded via fallback
-        // before the router is ever touched.
+        // router and fulfill-lib are set to non-zero placeholder addresses since
+        // these tests exercise the legacy ABI surface, which is forwarded via
+        // fallback before the new market's router / fulfill-lib are ever touched.
         boundlessMarketSource = address(
-            new BoundlessMarketNew(IBoundlessRouter(address(0xdead)), address(collateralToken), legacyImpl)
+            new BoundlessMarketNew(
+                IBoundlessRouter(address(0xdead)), address(collateralToken), legacyImpl, address(0xbeef)
+            )
         );
         proxy = UnsafeUpgrades.deployUUPSProxy(
             boundlessMarketSource, abi.encodeCall(BoundlessMarketNew.initialize, (ownerWallet.addr))

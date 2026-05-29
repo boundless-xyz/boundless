@@ -1,0 +1,433 @@
+// Copyright 2026 Boundless Foundation, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+// SPDX-License-Identifier: BUSL-1.1
+
+pragma solidity ^0.8.26;
+
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+
+import {IBoundlessMarket} from "./IBoundlessMarket.sol";
+import {IBoundlessMarketCallback} from "./IBoundlessMarketCallback.sol";
+import {Account} from "./types/Account.sol";
+import {Fulfillment} from "./types/Fulfillment.sol";
+import {FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
+import {RequestId} from "./types/RequestId.sol";
+import {RequestLock} from "./types/RequestLock.sol";
+import {SlimRequest, SlimRequestLibrary} from "./types/SlimRequest.sol";
+import {FulfillmentBatch} from "./types/FulfillmentBatch.sol";
+import {FulfillmentContext, FulfillmentContextLibrary} from "./types/FulfillmentContext.sol";
+
+import {IBoundlessRouter} from "./router/interfaces/IBoundlessRouter.sol";
+
+error FulfillLibInvalidRouter();
+
+/// @title FulfillLib — settle path extracted from BoundlessMarket.
+///
+/// @notice Delegate-called from `BoundlessMarket`. State variables are
+///         redeclared here in the same order/types as the market so that
+///         `delegatecall` reads and writes land on the market's storage slots.
+///         Inherits `EIP712Upgradeable` to access the same cached domain
+///         separator the market initialized through the proxy.
+///
+/// @dev    The function bodies in this contract are a verbatim copy of the
+///         pre-extraction `BoundlessMarket` fulfill chain from commit
+///         `65f6640b22dce3117c392c54c384e368a2c16d19`. The only differences are
+///         mechanical: errors/events referenced via the `IBoundlessMarket.`
+///         qualifier (since this contract doesn't inherit the interface),
+///         storage variables redeclared at matching slots, and `ROUTER` /
+///         `MARKET_FEE_BPS` redeclared as this contract's own immutable /
+///         constant. No semantic changes were made.
+contract FulfillLib is EIP712Upgradeable {
+    /// Storage slot 0 — mirror of BoundlessMarket.requestLocks.
+    mapping(RequestId => RequestLock) internal requestLocks;
+    /// Storage slot 1 — mirror of BoundlessMarket.accounts.
+    mapping(address => Account) internal accounts;
+    /// Storage slot 2 — preserved for layout compatibility, unused on this path.
+    string private imageUrl;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    IBoundlessRouter public immutable ROUTER;
+
+    /// Must equal BoundlessMarket.MARKET_FEE_BPS.
+    uint96 public constant MARKET_FEE_BPS = 0;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(IBoundlessRouter router) {
+        if (address(router) == address(0)) revert FulfillLibInvalidRouter();
+        ROUTER = router;
+        _disableInitializers();
+    }
+
+    /// @notice Fulfill one or more `FulfillmentBatch`es.
+    /// @dev    Verbatim copy of `BoundlessMarket.fulfill` body from commit
+    ///         `65f6640b22` (lines 310–333). The market keeps the
+    ///         `fulfill(FulfillmentBatch[])` selector as its public entry and
+    ///         forwards into this lib via `delegatecall` against this function
+    ///         (which shares the selector).
+    function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) external returns (bytes[] memory paymentError) {
+        // Flatten payment-error output across fulfillment batches.
+        uint256 totalFills = 0;
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            totalFills += fulfillmentBatches[j].fills.length;
+        }
+        paymentError = new bytes[](totalFills);
+
+        uint256 outIdx = 0;
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            FulfillmentBatch calldata batch = fulfillmentBatches[j];
+            uint256 n = batch.fills.length;
+            if (n == 0) continue;
+            if (n > type(uint16).max) revert IBoundlessMarket.BatchSizeExceedsLimit(n, type(uint16).max);
+            if (batch.requests.length != n) revert IBoundlessMarket.BatchSizeExceedsLimit(batch.requests.length, n);
+
+            // Bind every slim payload to a client-signed request (lock or
+            // priced), then dispatch verifier + assessor through the router
+            // and settle each fill.
+            bytes32[] memory requestDigests = _bindAndCollectDigests(batch.requests);
+            ROUTER.verifyBatch(batch, requestDigests);
+            outIdx = _settleBatch(batch, requestDigests, paymentError, outIdx);
+        }
+    }
+
+    /// @dev Assert that the supplied `requestDigest` matches either the stored
+    ///      lock digest or a valid `FulfillmentContext` entry from
+    ///      `priceRequest`. Once this passes, the slim payload that produced
+    ///      `requestDigest` is bound to a client-signed request and downstream
+    ///      consumers (router, assessor adapter, callback dispatch) can trust
+    ///      its fields without re-verification.
+    ///
+    ///      `requestDigest` is the domain-bound digest (`_hashTypedDataV4` of
+    ///      the EIP-712 struct hash produced by
+    ///      `SlimRequestLibrary.reconstructRequestDigest`). `_lockRequest` and
+    ///      `priceRequest` both write this same domain-bound value into
+    ///      storage, so this function can compare without further hashing.
+    ///
+    ///      Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 274–282).
+    function _verifyBinding(RequestId id, bytes32 requestDigest) internal view {
+        if (requestLocks[id].requestDigest == requestDigest) {
+            return;
+        }
+        if (FulfillmentContextLibrary.load(requestDigest).valid) {
+            return;
+        }
+        revert IBoundlessMarket.RequestIsNotLockedOrPriced(id);
+    }
+
+    /// @dev Per-batch helper: reconstruct each request's domain-bound digest,
+    ///      verify the binding, and collect into an array for the router and assessor.
+    ///
+    ///      Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 286–298).
+    function _bindAndCollectDigests(SlimRequest[] calldata requests)
+        internal
+        view
+        returns (bytes32[] memory requestDigests)
+    {
+        uint256 n = requests.length;
+        requestDigests = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) {
+            bytes32 requestDigest = _hashTypedDataV4(SlimRequestLibrary.reconstructRequestDigest(requests[i]));
+            _verifyBinding(requests[i].id, requestDigest);
+            requestDigests[i] = requestDigest;
+        }
+    }
+
+    /// @dev Per-fill settle pass for one already-verified `FulfillmentBatch`.
+    ///      Walks every fill, charges/credits accounts via `_fulfillAndPay`,
+    ///      and dispatches callbacks. Returns the updated flat-output index so
+    ///      `settle` can keep packing payment errors across batches.
+    ///
+    ///      Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 339–365).
+    function _settleBatch(
+        FulfillmentBatch calldata batch,
+        bytes32[] memory requestDigests,
+        bytes[] memory paymentError,
+        uint256 outIdx
+    ) internal returns (uint256) {
+        address prover = batch.prover;
+        uint256 n = batch.fills.length;
+        for (uint256 i = 0; i < n; i++) {
+            Fulfillment calldata fill = batch.fills[i];
+            SlimRequest calldata slim = batch.requests[i];
+            bool expired;
+            (paymentError[outIdx], expired) = _fulfillAndPay(fill, slim.id, requestDigests[i], prover);
+
+            if (!expired && slim.callback.addr != address(0)) {
+                if (fill.fulfillmentDataType == FulfillmentDataType.ImageIdAndJournal) {
+                    (bytes32 imageId, bytes calldata journal) =
+                        FulfillmentDataLibrary.decodePackedImageIdAndJournal(fill.fulfillmentData);
+                    _executeCallback(slim.id, slim.callback.addr, slim.callback.gasLimit, imageId, journal, fill.seal);
+                } else {
+                    revert IBoundlessMarket.UnfulfillableCallback();
+                }
+            }
+            outIdx++;
+        }
+        return outIdx;
+    }
+
+    /// Complete the fulfillment logic after having verified the app and assessor
+    /// receipts. `requestDigest` is the verified EIP-712 digest reconstructed
+    /// from the slim payload; the caller has already asserted it matches the
+    /// stored binding via `_verifyBinding`. `id` comes from the trusted slim
+    /// payload (positionally paired with `fill`).
+    ///
+    /// Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 417–484).
+    function _fulfillAndPay(Fulfillment calldata fill, RequestId id, bytes32 requestDigest, address prover)
+        internal
+        returns (bytes memory paymentError, bool expired)
+    {
+        (address client, uint32 idx) = id.clientAndIndex();
+        Account storage clientAccount = accounts[client];
+        (bool locked, bool fulfilled) = clientAccount.requestFlags(idx);
+
+        // Fetch the lock and fulfillment information.
+        // NOTE: The `lock` should only be used in code paths where locked is true.
+        RequestLock memory lock;
+        if (locked) {
+            lock = requestLocks[id];
+        }
+        FulfillmentContext memory context = FulfillmentContextLibrary.load(requestDigest);
+
+        // First, check whether the request is known to be a valid signed request, and whether it is
+        // expired. If the request cannot be authenticated, revert.
+        //
+        // In the expired case, we return early here. We do not emit the ProofDelivered event, and
+        // we do not issue a callback. This makes interpretation of the ProofDelivered events
+        // simpler, as they cannot be emitted for an expired request.
+        if (context.valid) {
+            // Request has been validated in priceRequest, check the reported expiration.
+            if (context.expired) {
+                paymentError = abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, RequestId.unwrap(id));
+                emit IBoundlessMarket.PaymentRequirementsFailed(paymentError);
+                return (paymentError, true);
+            }
+        } else if (locked && lock.requestDigest == requestDigest) {
+            // Request was validated in lockRequest, check whether the request is fully expired.
+            if (lock.deadline() < block.timestamp) {
+                paymentError = abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, RequestId.unwrap(id));
+                emit IBoundlessMarket.PaymentRequirementsFailed(paymentError);
+                return (paymentError, true);
+            }
+        } else {
+            // Request is not validated by either price or lock step. We cannot determine that the
+            // request is authentic, so we revert.
+            // NOTE: We could loosen this slightly, only reverting when the id indicates this is a
+            // smart-contract authorized request. However, we'd need to handle the fact that we
+            // don't have a FulfillmentContext on this code path.
+            revert IBoundlessMarket.RequestIsNotLockedOrPriced(id);
+        }
+
+        // NOTE: Every code path past this point must ensure the `fulfilled` flag is set, or
+        // revert. If this is not the case, then it will break the invariant that the first
+        // delivered proof (e.g. the first time `ProofDelivered` fires and the first time the
+        // callback is called) the fulfilled flag is set.
+        if (locked) {
+            if (lock.lockDeadline >= block.timestamp) {
+                paymentError = _fulfillAndPayLocked(lock, id, client, idx, requestDigest, fulfilled, prover);
+            } else {
+                // NOTE: If the request is not priced, the context will be all zeroes. We will have
+                // only reached this point if the request digest matches the lock, which is expired.
+                // In this case, the price will be zero, which is correct.
+                paymentError =
+                    _fulfillAndPayWasLocked(lock, id, client, idx, context.price, requestDigest, fulfilled, prover);
+            }
+        } else {
+            paymentError = _fulfillAndPayNeverLocked(id, client, idx, context.price, requestDigest, fulfilled, prover);
+        }
+
+        if (paymentError.length > 0) {
+            emit IBoundlessMarket.PaymentRequirementsFailed(paymentError);
+        }
+        emit IBoundlessMarket.ProofDelivered(id, prover, fill);
+    }
+
+    /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
+    /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
+    /// If the request is currently locked, only the prover can fulfill it and receive payment
+    ///
+    /// Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 489–522).
+    function _fulfillAndPayLocked(
+        RequestLock memory lock,
+        RequestId id,
+        address client,
+        uint32 idx,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver
+    ) internal returns (bytes memory paymentError) {
+        // NOTE: If the prover is paid, the fulfilled flag must be set.
+        if (lock.isProverPaid()) {
+            return abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, RequestId.unwrap(id));
+        }
+
+        if (!fulfilled) {
+            accounts[client].setRequestFulfilled(idx);
+            emit IBoundlessMarket.RequestFulfilled(id, assessorProver, requestDigest);
+        }
+
+        // At this point the request has been fulfilled. The remaining logic determines whether
+        // payment should be sent and to whom.
+        // While the request is locked, only the locker is eligible for payment, and only for the request that was locked.
+        if (lock.prover != assessorProver || lock.requestDigest != requestDigest) {
+            return abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, RequestId.unwrap(id));
+        }
+        requestLocks[id].setProverPaidBeforeLockDeadline();
+
+        uint96 price = lock.price;
+        if (MARKET_FEE_BPS > 0) {
+            price = _applyMarketFee(price);
+        }
+        accounts[assessorProver].balance += price;
+        accounts[assessorProver].collateralBalance += lock.collateral;
+    }
+
+    /// @notice For a request that was locked, and now the lock has expired. Marks the request as fulfilled,
+    /// and transfers payment if eligible.
+    /// @dev It is possible for anyone to fulfill a request at any time while the request has not expired.
+    /// If the request was locked, and now the lock has expired, and the request as a whole has not expired,
+    /// anyone can fulfill it and receive payment.
+    ///
+    /// Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 529–592).
+    function _fulfillAndPayWasLocked(
+        RequestLock memory lock,
+        RequestId id,
+        address client,
+        uint32 idx,
+        uint96 price,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver
+    ) internal returns (bytes memory paymentError) {
+        // NOTE: If the prover is paid, the fulfilled flag must be set.
+        if (lock.isProverPaid()) {
+            return abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, RequestId.unwrap(id));
+        }
+
+        if (!fulfilled) {
+            accounts[client].setRequestFulfilled(idx);
+            emit IBoundlessMarket.RequestFulfilled(id, assessorProver, requestDigest);
+        }
+
+        // Deduct any additionally owned funds from client account. The client was already charged
+        // for the price at lock time once when the request was locked. We only need to charge any
+        // additional price for the difference between the price of the fulfilled request, at the
+        // current block, and the price of the locked request.
+        //
+        // Note that although they have the same ID, the locked request and the fulfilled request
+        // could be different. If the request fulfilled is the same as the one locked, the
+        // price will be zero and the entire fee on the lock will be returned to the client.
+        Account storage clientAccount = accounts[client];
+
+        // If the request has the same id, but is different to the request that was locked, the fulfillment
+        // price could be either higher or lower than the price that was previously locked.
+        // If the price is higher, we charge the client the difference.
+        // If the price is lower, we refund the client the difference.
+        uint96 lockPrice = lock.price;
+        bool partialPayment = false;
+        uint96 finalPrice = price;
+
+        if (price > lockPrice) {
+            uint96 clientOwes = price - lockPrice;
+            if (clientAccount.balance < clientOwes) {
+                // If the client does not have enough balance to cover the full amount owed,
+                // we will only charge them what they have available.
+                clientOwes = clientAccount.balance;
+                finalPrice = lockPrice + clientOwes;
+                partialPayment = true;
+            }
+            unchecked {
+                clientAccount.balance -= clientOwes;
+            }
+        } else {
+            uint96 clientOwed = lockPrice - price;
+            clientAccount.balance += clientOwed;
+        }
+
+        requestLocks[id].setProverPaidAfterLockDeadline(assessorProver);
+        if (MARKET_FEE_BPS > 0) {
+            finalPrice = _applyMarketFee(finalPrice);
+        }
+        accounts[assessorProver].balance += finalPrice;
+        if (partialPayment) {
+            return abi.encodeWithSelector(IBoundlessMarket.PartialPayment.selector, price, finalPrice);
+        }
+    }
+
+    /// @notice For a request that has never been locked. Marks the request as fulfilled, and transfers payment if eligible.
+    /// @dev If a never locked request is fulfilled, but client has not enough funds to cover the payment, no
+    /// payment can ever be rendered for this order in the future.
+    ///
+    /// Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 597–631).
+    function _fulfillAndPayNeverLocked(
+        RequestId id,
+        address client,
+        uint32 idx,
+        uint96 price,
+        bytes32 requestDigest,
+        bool fulfilled,
+        address assessorProver
+    ) internal returns (bytes memory paymentError) {
+        // When never locked, the fulfilled flag _does_ indicate that we alrady attempted to
+        // transfer payment (which will only fail in the InsufficientBalance case below) so we
+        // return early here.
+        if (fulfilled) {
+            return abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, RequestId.unwrap(id));
+        }
+
+        Account storage clientAccount = accounts[client];
+        clientAccount.setRequestFulfilled(idx);
+        emit IBoundlessMarket.RequestFulfilled(id, assessorProver, requestDigest);
+
+        // Deduct the funds from client account.
+        // NOTE: In the case of InsufficientBalance, the payment can never be transferred in the
+        // future. This is a simplifying choice.
+        if (clientAccount.balance < price) {
+            return abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, client);
+        }
+        unchecked {
+            clientAccount.balance -= price;
+        }
+
+        if (MARKET_FEE_BPS > 0) {
+            price = _applyMarketFee(price);
+        }
+        accounts[assessorProver].balance += price;
+    }
+
+    /// @dev Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 633–637).
+    function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {
+        uint96 fee = proverPayment * MARKET_FEE_BPS / 10000;
+        accounts[address(this)].balance += fee;
+        return proverPayment - fee;
+    }
+
+    /// @notice Execute the callback for a fulfilled request if one is specified
+    /// @dev This function is called after payment is processed and handles any callback specified in the request
+    /// @param id The ID of the request being fulfilled
+    /// @param callbackAddr The address of the callback contract
+    /// @param callbackGasLimit The gas limit to use for the callback
+    /// @param imageId The ID of the RISC Zero guest image that produced the proof
+    /// @param journal The output journal from the RISC Zero guest execution
+    /// @param seal The cryptographic seal proving correct execution
+    ///
+    /// Verbatim copy from `BoundlessMarket` commit `65f6640b22` (lines 647–663).
+    function _executeCallback(
+        RequestId id,
+        address callbackAddr,
+        uint96 callbackGasLimit,
+        bytes32 imageId,
+        bytes calldata journal,
+        bytes calldata seal
+    ) internal {
+        // Ensure sufficient gas for callback, accounting for EIP-150 (63/64 rule).
+        // The requestor is responsible for ensuring that the callback gas limit is sufficient to cover
+        // for any extra overhead that the caller pays (calldata copy, cold access, etc.).
+        if (gasleft() * 63 / 64 < callbackGasLimit) revert IBoundlessMarket.InsufficientGas();
+        try IBoundlessMarketCallback(callbackAddr).handleProof{gas: callbackGasLimit}(imageId, journal, seal) {}
+        catch (bytes memory err) {
+            emit IBoundlessMarket.CallbackFailed(id, callbackAddr, err);
+        }
+    }
+}
