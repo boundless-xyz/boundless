@@ -24,6 +24,8 @@ export interface LProverAnsiblePipelineArgs extends BasePipelineArgs { }
  * Required secrets (must have a value via put-secret-value before first run, or build fails at DOWNLOAD_SOURCE):
  * - l-prover-ansible-ssh-key: SSH private key for Ansible (same as ANSIBLE_SSH_PRIVATE_KEY in GitHub).
  * - l-prover-ansible-inventory: Base64-encoded Ansible inventory. See ansible/INVENTORY.md for format and how to update.
+ * - l-prover-ansible-tailscale-authkey: Ephemeral, tagged Tailscale auth key so CodeBuild can join the
+ *   tailnet and reach the DC provers over MagicDNS. See ansible/INVENTORY.md for the Tailscale setup.
  *
  * Pipeline stages:
  * 1. Source - fetch code from GitHub
@@ -57,19 +59,28 @@ export class LProverAnsiblePipeline extends pulumi.ComponentResource {
       { parent: this }
     );
 
+    // Ephemeral, tagged Tailscale auth key used by CodeBuild to join the tailnet
+    // and reach the DC provers over MagicDNS. Value is seeded out-of-band (like
+    // the SSH key and inventory secrets above) before the first run.
+    const tailscaleAuthkeySecret = new aws.secretsmanager.Secret(
+      `${APP_NAME}-tailscale-authkey`,
+      { name: "l-prover-ansible-tailscale-authkey" },
+      { parent: this }
+    );
+
     new aws.iam.RolePolicy(
       `${APP_NAME}-secrets-policy`,
       {
         role: role.id,
-        policy: pulumi.all([sshKeySecret.arn, inventorySecret.arn]).apply(
-          ([sshArn, invArn]) =>
+        policy: pulumi.all([sshKeySecret.arn, inventorySecret.arn, tailscaleAuthkeySecret.arn]).apply(
+          ([sshArn, invArn, tsArn]) =>
             JSON.stringify({
               Version: "2012-10-17",
               Statement: [
                 {
                   Effect: "Allow",
                   Action: "secretsmanager:GetSecretValue",
-                  Resource: [sshArn, invArn],
+                  Resource: [sshArn, invArn, tsArn],
                 },
               ],
             })
@@ -82,10 +93,13 @@ export class LProverAnsiblePipeline extends pulumi.ComponentResource {
 phases:
   install:
     commands:
-      - apt-get update && apt-get install -y openssh-client python3-pip
+      # netcat-openbsd provides SOCKS5 support (nc -X 5) so SSH can tunnel
+      # through the userspace tailscaled proxy below.
+      - apt-get update && apt-get install -y openssh-client python3-pip netcat-openbsd
       - pip install --break-system-packages ansible-core
       - pip uninstall -y paramiko || true
       - ansible-galaxy collection install community.postgresql
+      - curl -fsSL https://tailscale.com/install.sh | sh
   pre_build:
     commands:
       - set -e
@@ -94,6 +108,12 @@ phases:
       - echo "$ANSIBLE_PRIVATE_KEY" > ~/.ssh/id_ed25519
       - chmod 600 ~/.ssh/id_ed25519
       - echo "$ANSIBLE_INVENTORY" | base64 -d > ansible/inventory.yml
+      # Join the tailnet in userspace mode (no /dev/net/tun, no privileged build).
+      # The ephemeral, tagged auth key auto-removes this node when the build ends.
+      - tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --state=/tmp/tailscaled.state --statedir=/tmp/tailscale &
+      - sleep 5
+      - tailscale up --authkey "$TAILSCALE_AUTHKEY" --hostname "codebuild-prover-ansible" --accept-dns=true
+      - tailscale status
   build:
     commands:
       - |
@@ -102,11 +122,13 @@ phases:
         eval "$(ssh-agent -s)"
         ssh-add $HOME/.ssh/id_ed25519
 
-        # Ansible environment
+        # Ansible environment. SSH is tunneled through the tailscaled SOCKS5
+        # proxy (userspace networking) so MagicDNS prover hostnames resolve and
+        # connect over the tailnet.
         export ANSIBLE_HOST_KEY_CHECKING=False
         export ANSIBLE_FORCE_COLOR=1
         export ANSIBLE_SSH_AGENT=auto
-        export ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        export ANSIBLE_SSH_ARGS="-o ProxyCommand='nc -X 5 -x localhost:1055 %h %p' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
         cd ansible
         echo "Deploying to target: $TARGET"
@@ -117,6 +139,8 @@ phases:
     commands:
       - rm -f ~/.ssh/id_ed25519
       - rm -f ansible/inventory.yml
+      # Ephemeral node auto-removes, but log out promptly so it leaves the tailnet.
+      - tailscale logout || true
 artifacts:
   files: ['**/*']
 `;
@@ -266,6 +290,11 @@ artifacts:
               name: "ANSIBLE_INVENTORY",
               type: "SECRETS_MANAGER",
               value: inventorySecret.name,
+            },
+            {
+              name: "TAILSCALE_AUTHKEY",
+              type: "SECRETS_MANAGER",
+              value: tailscaleAuthkeySecret.name,
             },
             {
               name: "TARGET",

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =============================================================================
-# Sc ipt Name: setup.sh
+# Script Name: setup.sh
 # Description:
 #   - Updates the system packages.
 #   - Installs essential boundless packages.
@@ -25,6 +25,18 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 LOG_FILE="/var/log/${SCRIPT_NAME%.sh}.log"
+
+# Keep apt fully non-interactive so unattended runs (e.g. EC2 user-data) don't
+# stall on config-file or needrestart prompts.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
+# Resolve the non-root user that invoked the script (typically via sudo) so that
+# user-scoped installs (Rust) and group changes target the real account rather
+# than root.
+TARGET_USER="$(logname 2>/dev/null || echo "${SUDO_USER:-$(whoami)}")"
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_HOME="${TARGET_HOME:-$HOME}"
 
 # =============================================================================
 # Functions
@@ -123,9 +135,11 @@ install_gcc_version() {
 }
 
 # Function to install Rust
+# Installs for the invoking (non-root) user so the toolchain lands in that
+# user's home rather than root's when the script is run via sudo.
 install_rust() {
-    if command -v rustc &> /dev/null; then
-        info "Rust is already installed. Skipping Rust installation."
+    if sudo -u "$TARGET_USER" bash -lc 'command -v rustc' &> /dev/null; then
+        info "Rust is already installed for '$TARGET_USER'. Skipping Rust installation."
         return
     fi
 
@@ -133,27 +147,27 @@ install_rust() {
     local ubuntu_version
     ubuntu_version=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
 
-    info "Installing Rust programming language..."
+    info "Installing Rust programming language for '$TARGET_USER'..."
     if [[ "$ubuntu_version" == "22.04" ]]; then
         {
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            sudo -u "$TARGET_USER" bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
         } >> "$LOG_FILE" 2>&1
         # Source Rust environment variables for the current session
-        if [[ -f "$HOME/.cargo/env" ]]; then
+        if [[ -f "$TARGET_HOME/.cargo/env" ]]; then
             # shellcheck source=/dev/null
-            source "$HOME/.cargo/env"
+            source "$TARGET_HOME/.cargo/env"
             success "Rust installed successfully."
         else
-            error "Rust installation failed. ~/.cargo/env not found."
+            error "Rust installation failed. $TARGET_HOME/.cargo/env not found."
             exit 1
         fi
     else
         {
             # On Ubuntu 24.04 rustup has an apt package
             sudo apt install -y rustup
-            rustup default stable
+            sudo -u "$TARGET_USER" rustup default stable
         }  >> "$LOG_FILE" 2>&1
-        if command -v rustc &> /dev/null; then
+        if sudo -u "$TARGET_USER" bash -lc 'command -v rustc' &> /dev/null; then
             success "Rust installed successfully."
         else
             error "Rust installation failed. Rustc not found."
@@ -195,6 +209,15 @@ install_cuda() {
     if is_package_installed "cuda-toolkit-13-0" && is_package_installed "nvidia-open"; then
         info "CUDA Toolkit and nvidia-open are already installed. Skipping CUDA installation."
     else
+        # The CUDA apt repos are only published for x86_64; guard against
+        # running this on an unsupported architecture.
+        local arch
+        arch="$(uname -m)"
+        if [[ "$arch" != "x86_64" ]]; then
+            error "CUDA install only supports x86_64 (detected: $arch)."
+            exit 1
+        fi
+
         info "Installing CUDA Toolkit and dependencies..."
         {
             # Get Ubuntu version for CUDA repository
@@ -217,7 +240,7 @@ install_cuda() {
             esac
 
             info "Installing Nvidia CUDA keyring and repo for $cuda_repo_version"
-            wget https://developer.download.nvidia.com/compute/cuda/repos/$cuda_repo_version/x86_64/cuda-keyring_1.1-1_all.deb
+            curl -fsSLO "https://developer.download.nvidia.com/compute/cuda/repos/$cuda_repo_version/x86_64/cuda-keyring_1.1-1_all.deb"
             sudo dpkg -i cuda-keyring_1.1-1_all.deb
             rm cuda-keyring_1.1-1_all.deb
             sudo apt-get update
@@ -262,17 +285,19 @@ install_docker() {
 
 # Function to add user to Docker group
 add_user_to_docker_group() {
-    local username
-    username=$(logname 2>/dev/null || echo "${SUDO_USER:-$(whoami)}")
+    if [[ "$TARGET_USER" == "root" ]]; then
+        info "Target user is root; skipping 'docker' group membership."
+        return
+    fi
 
-    if id -nG "$username" | grep -qw "docker"; then
-        info "User '$username' is already in the 'docker' group."
+    if id -nG "$TARGET_USER" | grep -qw "docker"; then
+        info "User '$TARGET_USER' is already in the 'docker' group."
     else
-        info "Adding user '$username' to the 'docker' group..."
+        info "Adding user '$TARGET_USER' to the 'docker' group..."
         {
-            sudo usermod -aG docker "$username"
+            sudo usermod -aG docker "$TARGET_USER"
         } >> "$LOG_FILE" 2>&1
-        success "User '$username' added to the 'docker' group."
+        success "User '$TARGET_USER' added to the 'docker' group."
         info "To apply the new group membership, please log out and log back in."
     fi
 }
@@ -315,27 +340,29 @@ configure_docker_nvidia() {
     info "Configuring Docker to use NVIDIA runtime by default..."
 
     {
-        # Create Docker daemon configuration directory if it doesn't exist
-        sudo mkdir -p /etc/docker
-
-        # Create or overwrite daemon.json with NVIDIA runtime configuration
-        sudo tee /etc/docker/daemon.json <<EOF
-{
-    "default-runtime": "nvidia",
-    "runtimes": {
-        "nvidia": {
-            "path": "nvidia-container-runtime",
-            "runtimeArgs": []
-        }
-    }
-}
-EOF
+        # Use nvidia-ctk (shipped with the container toolkit) to register the
+        # nvidia runtime and set it as default. This merges into the existing
+        # /etc/docker/daemon.json rather than overwriting it, preserving any
+        # other settings (e.g. storage-driver/data-root on ZFS hosts).
+        sudo nvidia-ctk runtime configure --runtime=docker --set-as-default
 
         # Restart Docker to apply the new configuration
         sudo systemctl restart docker
     } >> "$LOG_FILE" 2>&1
 
     success "Docker configured to use NVIDIA runtime by default."
+}
+
+# Function to verify NVIDIA GPU support is available.
+# Non-fatal: a freshly installed driver typically needs the reboot at the end
+# of this script before nvidia-smi works.
+verify_nvidia() {
+    info "Verifying NVIDIA driver / Docker GPU support..."
+    if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+        success "nvidia-smi reports a working driver."
+    else
+        info "nvidia-smi is not functional yet; a reboot is usually required after driver installation."
+    fi
 }
 
 # Function to install protobuf-compiler
@@ -369,6 +396,15 @@ init_git_submodules() {
 # Main Script Execution
 # =============================================================================
 
+# Ensure the log file exists and is writable by the current user before we wire
+# up logging. /var/log normally needs root, so create it via sudo and hand it to
+# the invoking user; fall back to a temp dir if that isn't possible.
+if ! sudo touch "$LOG_FILE" 2>/dev/null; then
+    LOG_FILE="${TMPDIR:-/tmp}/${SCRIPT_NAME%.sh}.log"
+    touch "$LOG_FILE"
+fi
+sudo chown "$(id -u):$(id -g)" "$LOG_FILE" 2>/dev/null || true
+
 # Redirect all output to log file
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -397,20 +433,24 @@ install_docker
 # Add user to Docker group
 add_user_to_docker_group
 
+# Install CUDA Toolkit and NVIDIA driver (must precede the NVIDIA runtime config
+# below so the runtime/default flip happens on a host that has the driver).
+install_cuda
+
 # Install NVIDIA Container Toolkit
 install_nvidia_container_toolkit
 
 # Configure Docker to use NVIDIA runtime
 configure_docker_nvidia
 
+# Verify NVIDIA GPU support (non-fatal; may require the reboot below)
+verify_nvidia
+
 # Install Rust
 install_rust
 
 # Install Just
 install_just
-
-# Install CUDA Toolkit
-install_cuda
 
 # Install Protobuf compiler
 install_protobuf
