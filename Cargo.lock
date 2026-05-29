@@ -6958,9 +6958,13 @@ version = "2.1.0-alpha.0"
 dependencies = [
  "anyhow",
  "boundless-market",
+ "clap",
  "multi-zkvm-types",
+ "risc0-backend",
  "tokio",
  "tracing",
+ "tracing-subscriber 0.3.20",
+ "url",
 ]
 
 [[package]]
