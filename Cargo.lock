@@ -6953,6 +6953,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "multi-zkvm-prover"
+version = "2.1.0-alpha.0"
+dependencies = [
+ "anyhow",
+ "boundless-market",
+ "multi-zkvm-types",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "multi-zkvm-types"
 version = "2.1.0-alpha.0"
 dependencies = [

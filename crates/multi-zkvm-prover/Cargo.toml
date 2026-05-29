@@ -1,0 +1,15 @@
+[package]
+name = "multi-zkvm-prover"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+boundless-market = { workspace = true, features = ["prover_utils"] }
+multi-zkvm-types = { workspace = true }
+tokio = { workspace = true, features = ["net", "rt", "macros"] }
+tracing = { workspace = true }
