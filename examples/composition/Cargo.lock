@@ -1987,7 +1987,7 @@ dependencies = [
 
 [[package]]
 name = "blake3_groth16"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -2112,7 +2112,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2150,6 +2150,7 @@ dependencies = [
  "s3s",
  "s3s-fs",
  "serde",
+ "serde_bytes",
  "serde_json",
  "sha2",
  "siwe",
@@ -2169,7 +2170,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2190,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2203,7 +2204,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3864,7 +3865,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3882,7 +3883,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6125,7 +6126,7 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "requestor-lists"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy",
  "reqwest 0.13.1",
@@ -6879,7 +6880,7 @@ dependencies = [
  "security-framework 3.5.1",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7195,6 +7196,16 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
