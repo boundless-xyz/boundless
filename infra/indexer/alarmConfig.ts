@@ -265,86 +265,14 @@ export const alarmConfig: ChainStageAlarms = {
         {
           name: "og_offchain",
           address: "0xc197eBE12C7Bcf1d9F3b415342bDbC795425335C",
-          submissionRate: [
-            // {
-            //   description: "no submitted orders in 2 hours from og_offchain",
-            //   severity: Severity.SEV1,
-            //   metricConfig: {
-            //     period: 7200
-            //   },
-            //   alarmConfig: {
-            //     evaluationPeriods: 1,
-            //     datapointsToAlarm: 1,
-            //     threshold: 1,
-            //     comparisonOperator: "LessThanThreshold",
-            //     treatMissingData: "breaching"
-            //   }
-            // },
-            {
-              description: "no submitted orders in 4 hours from og_offchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 14400
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            }
-          ],
-          successRate: [
-            {
-              description: "less than 50% success rate over a 4 hour period from og_offchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 14400
-              },
-              alarmConfig: {
-                threshold: 0.50,
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                comparisonOperator: "LessThanThreshold"
-              }
-            }
-          ],
+          submissionRate: [],
+          successRate: [],
           expiredRequests: []
         },
         {
           name: "og_onchain",
           address: "0xE198C6944Cae382902A375b0B8673084270A7f8e",
-          submissionRate: [
-            // {
-            //   description: "no submitted orders in 2 hours from og_onchain",
-            //   severity: Severity.SEV1,
-            //   metricConfig: {
-            //     period: 7200
-            //   },
-            //   alarmConfig: {
-            //     evaluationPeriods: 1,
-            //     datapointsToAlarm: 1,
-            //     threshold: 1,
-            //     comparisonOperator: "LessThanThreshold",
-            //     treatMissingData: "breaching"
-            //   }
-            // },
-            {
-              description: "no submitted orders in 4 hours from og_onchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 14400
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            }
-          ],
+          submissionRate: [],
           successRate: [],
           expiredRequests: []
         },
