@@ -80,7 +80,6 @@ httpmock = "0.7"
 proptest = "1.4"
 proptest-derive = "0.5"
 rand = { workspace = true }
-risc0-backend = { workspace = true, features = ["test-support"] }
 risc0-groth16 = { workspace = true, features = ["prove"] }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serial_test = "3.2"

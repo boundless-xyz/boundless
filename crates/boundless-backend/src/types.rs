@@ -225,13 +225,6 @@ impl From<ClaimDigest> for [u8; 32] {
     }
 }
 
-/// Mirrors `BoundlessMarket.sol::fulfill`.
-pub struct AssessorArtifact {
-    pub claim_digest: ClaimDigest,
-    pub selectors: Vec<AssessorSelector>,
-    pub callbacks: Vec<AssessorCallback>,
-}
-
 pub struct FulfillmentOrder {
     pub order_id: String,
     pub request: ProofRequest,

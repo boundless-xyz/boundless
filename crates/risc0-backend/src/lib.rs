@@ -92,9 +92,9 @@ pub struct Risc0BackendConfig {
 pub type ProofRetryPolicy = Arc<dyn Fn() -> (u64, u64) + Send + Sync>;
 
 use boundless_backend::{
-    AssessorArtifact, Backend, BackendBatchState, BackendError, BackendId, BackendOrderState,
-    BatchClose, BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest,
-    BatchUpdate, CancelOrder, ClaimDigest, CloseBatch, FailedFulfillmentOrder, FulfillmentBatch,
+    Backend, BackendBatchState, BackendError, BackendId, BackendOrderState, BatchClose,
+    BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest, BatchUpdate,
+    CancelOrder, ClaimDigest, CloseBatch, FailedFulfillmentOrder, FulfillmentBatch,
     OrderFulfillmentArtifact, OrderProcessProgress, OrderProvingData, ProcessOrder, ProcessedOrder,
     ProofId, SubmissionAssessorArtifact, SubmissionPath, SubmissionPlan, UpdateBatch,
     VerifierUpdate, VerifierUpdateError,
@@ -286,13 +286,11 @@ impl Risc0Backend {
         selectors
     }
 
-    #[cfg(feature = "test-support")]
     pub fn with_set_builder_program_id(mut self, set_builder_program_id: Risc0Digest) -> Self {
         self.set_builder_program_id = Some(set_builder_program_id);
         self
     }
 
-    #[cfg(feature = "test-support")]
     pub fn with_set_verifier<P>(
         mut self,
         set_verifier_addr: Address,
@@ -308,7 +306,6 @@ impl Risc0Backend {
         self
     }
 
-    #[cfg(feature = "test-support")]
     #[allow(clippy::too_many_arguments)]
     pub fn with_test_batch_processor(
         mut self,

@@ -12,10 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use boundless_market::contracts::{AssessorCallback, AssessorSelector};
 use risc0_zkvm::sha::Sha256;
 use serde::{Deserialize, Serialize};
 
 use super::*;
+
+/// Assessor receipt data the risc0 backend extracts from a proven assessor journal.
+/// Mirrors the fields `BoundlessMarket.sol::fulfill` needs from the assessor.
+pub struct AssessorArtifact {
+    pub claim_digest: ClaimDigest,
+    pub selectors: Vec<AssessorSelector>,
+    pub callbacks: Vec<AssessorCallback>,
+}
 
 /// Prunes the journal of a [`ReceiptClaim`] to its digest.
 pub fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {

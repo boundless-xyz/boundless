@@ -10,11 +10,6 @@ publish = false
 [package.metadata.release]
 release = false
 
-[features]
-# Exposes test-only constructors (`with_test_batch_processor`, `with_set_verifier`, …) for
-# downstream crates' tests (e.g. the broker's batcher/submitter tests).
-test-support = []
-
 [dependencies]
 alloy = { workspace = true, features = ["network", "providers", "sol-types", "contract"] }
 anyhow = { workspace = true }
