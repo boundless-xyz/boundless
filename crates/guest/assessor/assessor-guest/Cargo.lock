@@ -1765,7 +1765,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -1809,6 +1809,7 @@ dependencies = [
  "risc0-zkvm",
  "rmp-serde",
  "serde",
+ "serde_bytes",
  "serde_json",
  "sha2",
  "siwe",
@@ -4361,7 +4362,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5105,7 +5106,7 @@ dependencies = [
  "security-framework 3.3.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5324,6 +5325,16 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -6352,7 +6363,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
