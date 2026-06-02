@@ -12,19 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cross-service utilities: retry helpers, RPC layers, storage helpers,
-//! the reaper task, and small misc helpers (gas estimation, timestamps,
-//! and expiry formatting).
+//! Error type for the batcher service.
 
-mod helpers;
-pub(crate) mod reaper;
-pub(crate) mod rpc_retry_policy;
-pub mod rpcmetrics;
-pub mod sequential_fallback;
-pub(crate) mod storage;
-// Re-export the standalone helpers at the `crate::utils` root.
-pub(crate) use helpers::{
-    estimate_gas_to_fulfill, estimate_gas_to_lock, format_expiries, is_dev_mode, now_timestamp,
-};
+use thiserror::Error;
 
-pub use crate::backend::prune_receipt_claim_journal;
+use crate::coded_error_impl;
+use crate::errors::CodedError;
+
+#[derive(Error)]
+pub enum BatcherErr {
+    #[error("{code} Compression error: {0}", code = self.code())]
+    CompressionErr(crate::backend::BackendError),
+    #[error("{code} Unexpected error: {0:?}", code = self.code())]
+    UnexpectedErr(#[from] anyhow::Error),
+}
+
+coded_error_impl!(BatcherErr, "AGG",
+    UnexpectedErr(..)  => "500",
+    CompressionErr(..) => "400",
+);

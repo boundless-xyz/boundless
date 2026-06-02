@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Per-chain proving service — picks committed orders out of the DB and
-//! drives them through the prover backend (Bento or Bonsai), recording the
-//! resulting proof IDs and emitting capacity completions back to the
-//! OrderCommitter.
+//! Batcher service: owns the broker batch lifecycle and delegates backend-specific
+//! batch updates, assessor artifact creation, and batch compression to the selected backend.
 //!
 //! Layout:
-//! - [`service`] — the [`ProvingService`] struct, its constructor, and the
+//! - [`service`]: the [`BatcherService`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
-//! - `error` — [`ProvingErr`] enum and its `completion_outcome` mapping to
-//!   `boundless_market::telemetry::CompletionOutcome`.
+//! - [`types`]: public batch types ([`Batch`], [`BatchStatus`]).
+//! - [`error`]: the [`BatcherErr`] enum.
 
 mod error;
 mod service;
+mod types;
 
-pub(crate) use service::ProvingService;
+pub(crate) use service::BatcherService;
+pub(crate) use types::{Batch, BatchStatus};

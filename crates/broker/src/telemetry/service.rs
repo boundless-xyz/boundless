@@ -292,17 +292,17 @@ impl TelemetryService {
                     entry.proving_completed_at = Some(Instant::now());
                 }
             }
-            TelemetryEvent::AggregationCompleted {
+            TelemetryEvent::BackendBatchCompleted {
                 order_id,
-                set_builder_proving_secs,
-                assessor_proving_secs,
-                assessor_compression_proof_secs,
+                batch_update_secs,
+                assessor_secs,
+                batch_compression_secs,
             } => {
                 if let Some(entry) = self.in_flight.get_mut(&order_id) {
-                    entry.set_builder_proving_secs = set_builder_proving_secs;
-                    entry.assessor_proving_secs = assessor_proving_secs;
-                    entry.assessor_compression_proof_secs = assessor_compression_proof_secs;
-                    entry.aggregation_completed_at = Some(Instant::now());
+                    entry.batch_update_secs = batch_update_secs;
+                    entry.assessor_secs = assessor_secs;
+                    entry.batch_compression_secs = batch_compression_secs;
+                    entry.batch_completed_at = Some(Instant::now());
                 }
             }
             TelemetryEvent::Fulfilled { order_id } => {
@@ -333,23 +333,23 @@ impl TelemetryService {
                 _ => None,
             };
 
-        let aggregation_duration_secs =
-            match (entry.proving_completed_at, entry.aggregation_completed_at) {
-                (Some(p), Some(a)) => Some(a.duration_since(p).as_secs()),
-                _ => None,
-            };
+        let aggregation_duration_secs = match (entry.proving_completed_at, entry.batch_completed_at)
+        {
+            (Some(p), Some(a)) => Some(a.duration_since(p).as_secs()),
+            _ => None,
+        };
 
-        // Path B (Merkle/batch): submission starts after aggregation completes.
-        // Path A (Groth16/non-batch): no aggregation step, so submission starts after proving completes.
+        // Path B (Merkle/batch): submission starts after backend batch processing completes.
+        // Path A (Groth16/non-batch): no batch step, so submission starts after proving completes.
         let submission_duration_secs = entry
-            .aggregation_completed_at
+            .batch_completed_at
             .or(entry.proving_completed_at)
             .map(|t| now.duration_since(t).as_secs());
 
         // Path A: committed_at to proving_completed_at (STARK + compression).
-        // Path B: committed_at to aggregation_completed_at (STARK + set builder + assessor + batch compression).
+        // Path B: committed_at to batch_completed_at (application proof + backend batch artifacts).
         let actual_total_proving_time_secs = entry.committed_at.and_then(|committed| {
-            let all_proofs_done = entry.aggregation_completed_at.or(entry.proving_completed_at)?;
+            let all_proofs_done = entry.batch_completed_at.or(entry.proving_completed_at)?;
             Some(all_proofs_done.duration_since(committed).as_secs())
         });
 
@@ -386,9 +386,10 @@ impl TelemetryService {
             fulfillment_type: entry.fulfillment_type,
             stark_proving_secs: entry.stark_proving_secs,
             proof_compression_secs: entry.proof_compression_secs,
-            set_builder_proving_secs: entry.set_builder_proving_secs,
-            assessor_proving_secs: entry.assessor_proving_secs,
-            assessor_compression_proof_secs: entry.assessor_compression_proof_secs,
+            // External schema field names differ from the broker's internal batch terminology.
+            set_builder_proving_secs: entry.batch_update_secs,
+            assessor_proving_secs: entry.assessor_secs,
+            assessor_compression_proof_secs: entry.batch_compression_secs,
             received_at_timestamp: entry.received_at_timestamp,
             completed_at: Utc::now(),
         };
@@ -776,11 +777,11 @@ mod tests {
             .await;
 
         service
-            .process_event(TelemetryEvent::AggregationCompleted {
+            .process_event(TelemetryEvent::BackendBatchCompleted {
                 order_id: oid.clone(),
-                set_builder_proving_secs: Some(10.5),
-                assessor_proving_secs: Some(3.2),
-                assessor_compression_proof_secs: Some(8.1),
+                batch_update_secs: Some(10.5),
+                assessor_secs: Some(3.2),
+                batch_compression_secs: Some(8.1),
             })
             .await;
 
@@ -898,7 +899,7 @@ mod tests {
 
     /// Two-phase shutdown contract: the broker uses `non_critical_cancel_token`
     /// for tasks like OrderPricer/OrderLocker (Phase 1, immediate cancel) and
-    /// `critical_cancel_token` for tasks like ProvingService/Submitter (Phase 2,
+    /// `critical_cancel_token` for tasks like OrderProcessor/Submitter (Phase 2,
     /// waited up to 2 h while in-flight orders drain).
     ///
     /// Telemetry must be bound to the **critical** token so monitoring keeps

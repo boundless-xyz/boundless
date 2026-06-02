@@ -34,10 +34,6 @@ pub(crate) const ORDER_DEDUP_CACHE_SIZE: u64 = 5000;
 /// In-memory LRU cache for order deduplication by ID (prevents duplicate order processing)
 pub(crate) type OrderCache = Arc<Cache<String, ()>>;
 
-/// Configuration for preflight result caching
-pub(crate) const PREFLIGHT_CACHE_SIZE: u64 = 5000;
-pub(crate) const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
-
 /// A preflight task that can be cancelled, tagged with its fulfillment type.
 struct PreflightHandle {
     cancel_token: CancellationToken,

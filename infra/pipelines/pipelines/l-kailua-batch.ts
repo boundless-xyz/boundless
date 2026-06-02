@@ -16,8 +16,7 @@ const config: LaunchPipelineConfig = {
     appName: "kailua-batch",
     buildTimeout: 75,
     computeType: "BUILD_GENERAL1_MEDIUM",
-    // TODO: switch back to "main" after INF-51 merges
-    branchName: "zeroecco/INF-51",
+    branchName: "main",
 };
 
 /** Staging/prod env stacks (Pulumi.staging.yaml, Pulumi.prod.yaml) — not per-chain. */
