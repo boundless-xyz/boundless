@@ -28,7 +28,6 @@ const REQUIRED_SECRETS: SecretMapping[] = [
     { configKey: "S3_ACCESS_KEY", envName: "S3_ACCESS_KEY", fallbackConfigKey: "S3_UPLOAD_ACCESS_KEY" },
     { configKey: "S3_SECRET_KEY", envName: "S3_SECRET_KEY", fallbackConfigKey: "S3_SECRET_ACCESS_KEY" },
     { configKey: "BOUNDLESS_RPC_URL", envName: "BOUNDLESS_RPC_URL" },
-    { configKey: "BOUNDLESS_ORDER_STREAM_URL", envName: "BOUNDLESS_ORDER_STREAM_URL" },
 ];
 
 const OPTIONAL_SECRETS: SecretMapping[] = [];
@@ -210,9 +209,14 @@ export = () => {
         SEQ_WINDOW: config.get("SEQ_WINDOW") ?? "50",
     };
 
+    const orderStreamUrl = config.requireSecret("BOUNDLESS_ORDER_STREAM_URL");
+
     const extraEnvironment = config.getObject<Record<string, string>>("ENV") ?? {};
-    const environment = Object.entries({ ...defaultEnvironment, ...extraEnvironment })
-        .map(([name, value]) => ({ name, value }));
+    const environment: { name: string; value: pulumi.Input<string> }[] = [
+        ...Object.entries({ ...defaultEnvironment, ...extraEnvironment })
+            .map(([name, value]) => ({ name, value })),
+        { name: "BOUNDLESS_ORDER_STREAM_URL", value: orderStreamUrl },
+    ];
 
     const ecsSecrets = taskSecrets.map(secret => ({
         name: secret.name,
