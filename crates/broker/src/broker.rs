@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The top-level [`Broker`] orchestration: builds provers, starts the per-chain
-//! pipelines, and runs the two-phase shutdown loop.
+//! The top-level [`Broker`] orchestration: starts the per-chain pipelines and
+//! runs the two-phase shutdown loop.
 //!
 //! Also hosts deployment resolution helpers ([`resolve_deployment`] and the
 //! private `validate_deployment_config` it delegates to). Everything here used
 //! to live in `lib.rs`.
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::Ethereum,
-    primitives::Address,
     providers::{DynProvider, Provider, WalletProvider},
 };
 use alloy_chains::NamedChain;
@@ -32,27 +31,22 @@ use boundless_market::{
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
-    storage::StorageDownloader,
     Deployment,
 };
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-use risc0_zkvm::sha::Digest;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::{
-    aggregator,
     args::{ChainPipeline, CoreArgs},
-    chain_monitor_v2, channels,
-    config::{ConfigLock, ConfigWatcher, RpcMode, TelemetryMode},
+    backend::{BackendEntry, BackendRouter, Risc0Backend, Risc0BackendConfig},
+    batcher, chain_monitor_v2, channels,
+    config::{ConfigWatcher, RpcMode, TelemetryMode},
     db::DbObj,
-    is_dev_mode, market_monitor, offchain_market_monitor, order_committer, order_evaluator,
-    order_locker, order_pricer,
+    market_monitor, offchain_market_monitor, order_committer, order_evaluator, order_locker,
+    order_pricer, order_processor,
     order_types::OrderStateChange,
-    provers,
-    provers::ProverObj,
-    proving, reaper, requestor_monitor, service_runner,
+    reaper, requestor_monitor, service_runner,
     service_runner::ServiceRunner,
     storage::ConfigurableDownloader,
     submitter, telemetry, version_check,
@@ -105,168 +99,6 @@ impl Broker {
         Ok(Self { args, config_watcher, downloader })
     }
 
-    async fn fetch_and_upload_set_builder_image<P>(
-        &self,
-        prover: &ProverObj,
-        provider: &Arc<P>,
-        deployment: &Deployment,
-        config: &ConfigLock,
-    ) -> Result<Digest>
-    where
-        P: Provider<Ethereum> + Clone + 'static,
-    {
-        let set_verifier_contract = SetVerifierService::new(
-            deployment.set_verifier_address,
-            provider.clone(),
-            Address::ZERO,
-        );
-
-        let (image_id, image_url_str) = set_verifier_contract
-            .image_info()
-            .await
-            .context("Failed to get set builder image_info")?;
-        let image_id = Digest::from_bytes(image_id.0);
-        let (path, default_url) = {
-            let config = config.lock_all().context("Failed to lock config")?;
-            (
-                config.prover.set_builder_guest_path.clone(),
-                config.market.set_builder_default_image_url.clone(),
-            )
-        };
-
-        self.fetch_and_upload_image(
-            "set builder",
-            prover,
-            image_id,
-            image_url_str,
-            path,
-            default_url,
-        )
-        .await
-        .context("uploading set builder image")?;
-        Ok(image_id)
-    }
-
-    async fn fetch_and_upload_assessor_image<P>(
-        &self,
-        prover: &ProverObj,
-        provider: &Arc<P>,
-        deployment: &Deployment,
-        config: &ConfigLock,
-    ) -> Result<Digest>
-    where
-        P: Provider<Ethereum> + Clone + 'static,
-    {
-        let boundless_market = BoundlessMarketService::new_for_broker(
-            deployment.boundless_market_address,
-            provider.clone(),
-            Address::ZERO,
-        );
-        let (image_id, image_url_str) =
-            boundless_market.image_info().await.context("Failed to get assessor image_info")?;
-        let image_id = Digest::from_bytes(image_id.0);
-
-        let (path, default_url) = {
-            let config = config.lock_all().context("Failed to lock config")?;
-            (
-                config.prover.assessor_set_guest_path.clone(),
-                config.market.assessor_default_image_url.clone(),
-            )
-        };
-
-        self.fetch_and_upload_image("assessor", prover, image_id, image_url_str, path, default_url)
-            .await
-            .context("uploading assessor image")?;
-        Ok(image_id)
-    }
-
-    async fn fetch_and_upload_image(
-        &self,
-        image_label: &'static str,
-        prover: &ProverObj,
-        image_id: Digest,
-        contract_url: String,
-        program_path: Option<PathBuf>,
-        default_url: String,
-    ) -> Result<()> {
-        if prover.has_image(&image_id.to_string()).await? {
-            tracing::debug!("{} image {} already uploaded, skipping pull", image_label, image_id);
-            return Ok(());
-        }
-
-        tracing::debug!("Fetching {} image", image_label);
-        let program_bytes = if let Some(path) = program_path {
-            // Read from local file if provided
-            tokio::fs::read(&path)
-                .await
-                .with_context(|| format!("Failed to read program file: {}", path.display()))?
-        } else {
-            // Try default URL first, fall back to contract URL if it fails or ID doesn't match
-            match self.download_image(&default_url, "default").await {
-                Ok(bytes) => {
-                    let computed_id = risc0_zkvm::compute_image_id(&bytes)
-                        .context("Failed to compute image ID")?;
-                    if computed_id == image_id {
-                        tracing::debug!(
-                            "Successfully verified {} image from default URL",
-                            image_label
-                        );
-                        bytes
-                    } else {
-                        tracing::warn!(
-                            "{} image ID mismatch from default URL: expected {}, got {}, falling back to contract URL",
-                            image_label,
-                            image_id,
-                            computed_id
-                        );
-                        self.download_image(&contract_url, "contract").await?
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to download {} image from default URL: {}, falling back to contract URL",
-                        image_label,
-                        e
-                    );
-                    self.download_image(&contract_url, "contract").await?
-                }
-            }
-        };
-
-        // Final verification - ensure we have the correct image
-        let computed_id =
-            risc0_zkvm::compute_image_id(&program_bytes).context("Failed to compute image ID")?;
-
-        if computed_id != image_id {
-            anyhow::bail!(
-                "{} image ID mismatch: expected {}, got {}",
-                image_label,
-                image_id,
-                computed_id
-            );
-        }
-
-        tracing::debug!("Uploading {} image to bento", image_label);
-        prover
-            .upload_image(&image_id.to_string(), program_bytes)
-            .await
-            .with_context(|| format!("Failed to upload {} image to prover", image_label))?;
-        Ok(())
-    }
-
-    async fn download_image(&self, url: &str, source_name: &str) -> Result<Vec<u8>> {
-        tracing::trace!("Attempting to download image from {}: {}", source_name, url);
-
-        let bytes = self
-            .downloader
-            .download(url)
-            .await
-            .with_context(|| format!("Failed to download image from {}", source_name))?;
-
-        tracing::trace!("Successfully downloaded image from {}", source_name);
-        Ok(bytes)
-    }
-
     fn handle_join_result(
         res: std::result::Result<Result<()>, tokio::task::JoinError>,
     ) -> Result<bool> {
@@ -292,43 +124,6 @@ impl Broker {
         }
     }
 
-    fn build_provers(&self, config: &ConfigLock) -> Result<(ProverObj, ProverObj)> {
-        let prover: ProverObj;
-        let aggregation_prover: ProverObj;
-        if is_dev_mode() {
-            tracing::warn!(
-                "WARNING: Running the Broker in dev mode does not generate valid receipts. \
-                 Receipts generated from this process are invalid and should never be used in production."
-            );
-            prover = Arc::new(provers::DefaultProver::new());
-            aggregation_prover = Arc::clone(&prover);
-        } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
-            (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
-        {
-            tracing::info!("Configured to run with Bonsai backend");
-            prover = Arc::new(
-                provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
-                    .context("Failed to construct Bonsai client")?,
-            );
-            aggregation_prover = Arc::clone(&prover);
-        } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
-            tracing::info!("Configured to run with Bento backend");
-            prover = Arc::new(
-                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
-                    .context("Failed to initialize Bento client")?,
-            );
-            // Initialize aggregation/snark prover with a higher reserved key to prioritize
-            aggregation_prover = Arc::new(
-                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
-                    .context("Failed to initialize Bento client")?,
-            );
-        } else {
-            prover = Arc::new(provers::DefaultProver::new());
-            aggregation_prover = Arc::clone(&prover);
-        }
-        Ok((prover, aggregation_prover))
-    }
-
     pub async fn start_service<P>(&self, chains: Vec<ChainPipeline<P>>) -> Result<()>
     where
         P: Provider<Ethereum> + WalletProvider + Clone + 'static,
@@ -342,7 +137,6 @@ impl Broker {
         }
 
         let base_config = self.config_watcher.config.clone();
-        let (prover, aggregation_prover) = self.build_provers(&base_config)?;
 
         let mut runner = ServiceRunner::new(base_config.clone());
 
@@ -356,7 +150,7 @@ impl Broker {
             channels::shared_channel(COMPLETION_CHANNEL_CAPACITY);
         // Shared broadcast for on-chain lock/fulfill events. Each chain's MarketMonitor sends into
         // this channel, and both global singletons (OrderEvaluator, OrderCommitter) and per-chain
-        // components (OrderPricer, ProvingService) subscribe. Per-chain subscribers must filter by
+        // components (OrderPricer, OrderProcessor) subscribe. Per-chain subscribers must filter by
         // chain_id since they receive events from all chains.
         let (order_state_tx, _) = tokio::sync::broadcast::channel(ORDER_STATE_CHANNEL_CAPACITY);
         let mut chain_dispatchers: std::collections::HashMap<u64, mpsc::Sender<Box<OrderRequest>>> =
@@ -393,8 +187,6 @@ impl Broker {
 
             self.start_chain_pipeline(
                 chain,
-                prover.clone(),
-                aggregation_prover.clone(),
                 evaluator_order_tx.clone(),
                 pricer_rx,
                 pricing_completion_tx.clone(),
@@ -502,8 +294,6 @@ impl Broker {
     async fn start_chain_pipeline<P>(
         &self,
         chain: &ChainPipeline<P>,
-        prover: ProverObj,
-        aggregation_prover: ProverObj,
         evaluator_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pricer_rx: channels::SharedReceiver<Box<OrderRequest>>,
         pricing_completion_tx: mpsc::Sender<order_evaluator::PreflightComplete>,
@@ -766,10 +556,56 @@ impl Broker {
                 .build(),
         );
 
+        // Project the broker's reloadable config into the backend-neutral snapshot, and hand the
+        // backend closures (priority check, proving-retry policy) that keep reading the live config.
+        let risc0_cfg = {
+            let c = config.lock_all().context("Failed to lock config")?;
+            Risc0BackendConfig {
+                bonsai_r0_zkvm_ver: c.prover.bonsai_r0_zkvm_ver.clone(),
+                req_retry_count: c.prover.req_retry_count,
+                req_retry_sleep_ms: c.prover.req_retry_sleep_ms,
+                status_poll_ms: c.prover.status_poll_ms,
+                status_poll_retry_count: c.prover.status_poll_retry_count,
+                set_builder_guest_path: c.prover.set_builder_guest_path.clone(),
+                assessor_set_guest_path: c.prover.assessor_set_guest_path.clone(),
+                set_builder_default_image_url: c.market.set_builder_default_image_url.clone(),
+                assessor_default_image_url: c.market.assessor_default_image_url.clone(),
+                txn_timeout: c.batcher.txn_timeout,
+            }
+        };
+
+        let mut risc0_backend = Risc0Backend::new(
+            risc0_cfg.clone(),
+            self.args.bonsai_api_key.as_deref(),
+            self.args.bonsai_api_url.as_ref(),
+            self.args.bento_api_url.as_ref(),
+            Arc::new(self.downloader.clone()),
+            priority_requestors.as_check(),
+        )?;
+
+        if !self.args.listen_only {
+            risc0_backend = risc0_backend
+                .with_batch_processor_from_deployment(
+                    risc0_cfg,
+                    config.proof_retry_policy(),
+                    &provider,
+                    deployment,
+                    prover_addr,
+                    chain_id,
+                )
+                .await?;
+        }
+
+        let backend_router = Arc::new(
+            BackendRouter::new()
+                .register_backend(BackendEntry::new(Arc::new(risc0_backend)))
+                .context("Failed to register RISC0 backend selectors")?,
+        );
+
         let order_pricer = Arc::new(order_pricer::OrderPricer::new(
             db.clone(),
             config.clone(),
-            prover.clone(),
+            backend_router.clone(),
             deployment.boundless_market_address,
             provider.clone(),
             chain_monitor.clone(),
@@ -779,7 +615,6 @@ impl Broker {
             order_state_tx.clone(),
             priority_requestors.clone(),
             allow_requestors.clone(),
-            self.downloader.clone(),
             price_oracle.clone(),
             erc1271_gas_cache.clone(),
             self.args.listen_only,
@@ -810,6 +645,7 @@ impl Broker {
             gas_priority_mode.clone(),
             gas_estimation_priority_mode,
             erc1271_gas_cache,
+            backend_router.supported_selectors(),
             self.args.listen_only,
             chain_id,
             proving_completion_tx.clone(),
@@ -822,53 +658,36 @@ impl Broker {
         );
 
         if !self.args.listen_only {
-            let proving_service = Arc::new(proving::ProvingService::new(
-                db.clone(),
-                prover.clone(),
-                aggregation_prover.clone(),
-                config.clone(),
-                order_state_tx.clone(),
-                priority_requestors.clone(),
-                market.clone(),
-                self.downloader.clone(),
-                chain_id,
-                proving_completion_tx.clone(),
-            ));
+            let order_processor =
+                Arc::new(order_processor::OrderProcessor::new_with_backend_router(
+                    db.clone(),
+                    backend_router.clone(),
+                    config.clone(),
+                    order_state_tx.clone(),
+                    market.clone(),
+                    chain_id,
+                    proving_completion_tx.clone(),
+                ));
 
             runner.spawn_in_span(
-                proving_service,
+                order_processor,
                 service_runner::Criticality::Critical,
-                "proving service",
+                "order processor",
                 chain_span.clone(),
             );
 
-            let set_builder_img_id = self
-                .fetch_and_upload_set_builder_image(&prover, &provider, deployment, &config)
-                .await?;
-            let assessor_img_id = self
-                .fetch_and_upload_assessor_image(&prover, &provider, deployment, &config)
-                .await?;
-
-            let aggregator = Arc::new(
-                aggregator::AggregatorService::new(
-                    db.clone(),
-                    chain_id,
-                    set_builder_img_id,
-                    assessor_img_id,
-                    deployment.boundless_market_address,
-                    prover_addr,
-                    config.clone(),
-                    aggregation_prover.clone(),
-                    proving_completion_tx.clone(),
-                )
-                .await
-                .context("Failed to initialize aggregator service")?,
-            );
+            let batcher = Arc::new(batcher::BatcherService::new_with_backend_router(
+                db.clone(),
+                config.clone(),
+                backend_router.clone(),
+                chain_id,
+                proving_completion_tx.clone(),
+            )?);
 
             runner.spawn_in_span(
-                aggregator,
+                batcher,
                 service_runner::Criticality::CriticalWithFastRetry,
-                "aggregator service",
+                "batcher service",
                 chain_span.clone(),
             );
 
@@ -877,7 +696,7 @@ impl Broker {
             let reaper = Arc::new(reaper::ReaperTask::new(
                 db.clone(),
                 config.clone(),
-                prover.clone(),
+                backend_router.clone(),
                 chain_id,
                 proving_completion_tx.clone(),
             ));
@@ -891,11 +710,9 @@ impl Broker {
             let submitter = Arc::new(submitter::Submitter::new(
                 db.clone(),
                 config.clone(),
-                aggregation_prover.clone(),
+                backend_router.clone(),
                 provider.clone(),
-                deployment.set_verifier_address,
                 deployment.boundless_market_address,
-                set_builder_img_id,
                 chain_id,
                 proving_completion_tx.clone(),
             )?);

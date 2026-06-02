@@ -27,7 +27,8 @@ use async_trait::async_trait;
 #[cfg(test)]
 use crate::BatchStatus;
 use crate::{
-    AggregationState, Batch, FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
+    backend::{BackendBatchState, BackendId, BackendOrderState},
+    Batch, FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
 };
 
 mod error;
@@ -38,7 +39,7 @@ mod types;
 
 pub use error::DbError;
 pub use sqlite::{broker_sqlite_url_for_chain, SqliteDb};
-pub use types::AggregationOrder;
+pub use types::BatchReadyOrder;
 
 #[async_trait]
 pub trait BrokerDb {
@@ -52,8 +53,7 @@ pub trait BrokerDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
-    async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
+    ) -> Result<(ProofRequest, Bytes, String, U256, FulfillmentType), DbError>;
     async fn set_order_failure(&self, id: &str, failure_str: &str) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: &str) -> Result<(), DbError>;
     /// Get all orders that are committed to be prove and be fulfilled.
@@ -65,20 +65,34 @@ pub trait BrokerDb {
     ) -> Result<Vec<Order>, DbError>;
     async fn get_proving_order(&self) -> Result<Option<Order>, DbError>;
     async fn get_active_proofs(&self) -> Result<Vec<Order>, DbError>;
-    async fn set_order_proof_id(&self, order_id: &str, proof_id: &str) -> Result<(), DbError>;
-    async fn set_order_compressed_proof_id(
+    async fn set_order_backend_state(
         &self,
         order_id: &str,
-        proof_id: &str,
+        state: &BackendOrderState,
     ) -> Result<(), DbError>;
-    async fn set_aggregation_status(&self, id: &str, status: OrderStatus) -> Result<(), DbError>;
-    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError>;
-    async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError>;
+    async fn set_order_batch_status(
+        &self,
+        id: &str,
+        status: OrderStatus,
+        backend_id: &BackendId,
+    ) -> Result<(), DbError>;
+    async fn get_pending_batch_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<BatchReadyOrder>, DbError>;
+    async fn get_pending_direct_submission_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<BatchReadyOrder>, DbError>;
+    async fn complete_batch(
+        &self,
+        batch_id: usize,
+        backend_state: &BackendBatchState,
+    ) -> Result<(), DbError>;
     async fn get_complete_batch(&self) -> Result<Option<(usize, Batch)>, DbError>;
     async fn set_batch_submitted(&self, batch_id: usize) -> Result<(), DbError>;
     async fn set_batch_failure(&self, batch_id: usize, err: String) -> Result<(), DbError>;
-    async fn get_current_batch(&self) -> Result<usize, DbError>;
+    async fn get_current_batch(&self, backend_id: &BackendId) -> Result<usize, DbError>;
     async fn set_request_fulfilled(
         &self,
         request_id: U256,
@@ -96,16 +110,16 @@ pub trait BrokerDb {
     async fn is_request_locked(&self, request_id: U256) -> Result<bool, DbError>;
     // Checks the locked table for the given request_id
     async fn get_request_locked(&self, request_id: U256) -> Result<Option<(String, u64)>, DbError>;
-    /// Update a batch with the results of an aggregation step.
+    /// Update a broker batch with backend state and newly claimed orders.
     ///
-    /// Sets the aggreagtion state, and adds the given orders to the batch, updating the batch fees
-    /// and deadline. During finalization, the assessor_proof_id is recorded as well.
+    /// Sets the backend state, and adds the given orders to the batch, updating the batch fees
+    /// and deadline. When `finalize` is true, the batch transitions to `PendingCompression`.
     async fn update_batch(
         &self,
         batch_id: usize,
-        aggreagtion_state: &AggregationState,
-        orders: &[AggregationOrder],
-        assessor_proof_id: Option<String>,
+        backend_state: &BackendBatchState,
+        orders: &[BatchReadyOrder],
+        finalize: bool,
     ) -> Result<(), DbError>;
     async fn get_batch(&self, batch_id: usize) -> Result<Batch, DbError>;
 

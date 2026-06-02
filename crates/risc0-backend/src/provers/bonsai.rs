@@ -24,14 +24,33 @@ use risc0_zkvm::Receipt;
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
-use crate::config::ProverConfig;
-use crate::{
-    config::ConfigLock,
-    futures_retry::{retry, retry_only_with_context, retry_with_context},
-};
+use boundless_backend::futures_retry::{retry, retry_only_with_context, retry_with_context};
+use boundless_market::prover_utils::ProverConfig;
 
 fn sdk_err(err: SdkErr) -> ProverError {
     ProverError::ProverInternalError(format!("Bonsai SDK error: {err:?}"))
+}
+
+/// Construction-time prover settings the [`Bonsai`] client needs.
+pub struct BonsaiConfig {
+    pub bonsai_r0_zkvm_ver: Option<String>,
+    pub req_retry_count: u64,
+    pub req_retry_sleep_ms: u64,
+    pub status_poll_ms: u64,
+    pub status_poll_retry_count: u64,
+}
+
+impl Default for BonsaiConfig {
+    fn default() -> Self {
+        let pc = ProverConfig::default();
+        Self {
+            bonsai_r0_zkvm_ver: pc.bonsai_r0_zkvm_ver,
+            req_retry_count: pc.req_retry_count,
+            req_retry_sleep_ms: pc.req_retry_sleep_ms,
+            status_poll_ms: pc.status_poll_ms,
+            status_poll_retry_count: pc.status_poll_retry_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,23 +74,14 @@ pub struct Bonsai {
 }
 
 impl Bonsai {
-    pub fn new(config: ConfigLock, api_url: &str, api_key: &str) -> Result<Self, ProverError> {
-        let (
+    pub fn new(cfg: BonsaiConfig, api_url: &str, api_key: &str) -> Result<Self, ProverError> {
+        let BonsaiConfig {
             bonsai_r0_zkvm_ver,
             req_retry_count,
             req_retry_sleep_ms,
             status_poll_ms,
             status_poll_retry_count,
-        ) = {
-            let config = config.lock_all().unwrap();
-            (
-                config.prover.bonsai_r0_zkvm_ver.clone(),
-                config.prover.req_retry_count,
-                config.prover.req_retry_sleep_ms,
-                config.prover.status_poll_ms,
-                config.prover.status_poll_retry_count,
-            )
-        };
+        } = cfg;
 
         let prover_type = if api_key.is_empty() || api_key.starts_with("v1:reserved:") {
             ProverType::Bento

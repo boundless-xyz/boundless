@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Aggregator service — bundles fulfillments into a Merkle batch, runs the
-//! set-builder + assessor guests, and writes the resulting batch state to the
-//! database for later submission.
+//! Per-chain order processor: picks committed orders out of the DB and
+//! drives them through the registered backend, recording the resulting proof
+//! IDs and emitting capacity completions back to the OrderCommitter.
 //!
 //! Layout:
-//! - [`service`] — the [`AggregatorService`] struct, its constructor, and the
+//! - [`service`]: the [`OrderProcessor`] struct, its constructor, and the
 //!   [`BrokerService`](crate::task::BrokerService) `run` loop.
-//! - [`types`] — public batch types ([`Batch`], [`BatchStatus`],
-//!   [`AggregationState`]) and the internal `AggregateProofsResult`.
-//! - [`error`] — [`AggregatorErr`] enum.
+//! - `error`: the [`ProvingErr`] enum and its `completion_outcome` mapping to
+//!   `boundless_market::telemetry::CompletionOutcome`.
 
 mod error;
 mod service;
-mod types;
 
-pub(crate) use service::AggregatorService;
-pub(crate) use types::{AggregationState, Batch, BatchStatus};
+pub(crate) use service::OrderProcessor;
