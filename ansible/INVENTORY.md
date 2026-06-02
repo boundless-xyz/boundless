@@ -40,11 +40,10 @@ in userspace mode and SSHes through a local SOCKS5 proxy, so the inventory uses
 
 Host mapping (group → MagicDNS host):
 
-| Group                            | MagicDNS host |
-| -------------------------------- | ------------- |
-| `prover_8453_production_release` | `prover-01`   |
-| `prover_8453_production_nightly` | `prover-02`   |
-| `prover_84532_staging_nightly`   | `prover-03`   |
+| Group               | MagicDNS host    |
+| ------------------- | ---------------- |
+| `prover_staging`    | `prover-staging` |
+| `prover_production` | `prover-prod`    |
 
 > The `execution_*` (explorer) hosts are intentionally left on their public IPs;
 > they are not part of the Tailscale move.
@@ -59,9 +58,9 @@ These steps are not code and must be done before the first pipeline run:
    expires (rotate on/before expiry).
 2. **Tailscale ACL:** allow `tag:ci-prover` to reach the prover hosts on `tcp:22`.
    Scope it to just the prover nodes; do not grant broad tailnet access.
-3. **Join the provers to the tailnet** as `prover-01`, `prover-02`, `prover-03`
-   (MagicDNS names) and confirm each is SSH-reachable over the tailnet from a
-   tailnet-connected host.
+3. **Join the provers to the tailnet** as `prover-staging` and `prover-prod`
+   (MagicDNS names that match the inventory host keys) and confirm each is
+   SSH-reachable over the tailnet from a tailnet-connected host.
 4. **Seed the secrets:**
    - `l-prover-ansible-tailscale-authkey` = the auth key from step 1.
    - `l-prover-ansible-inventory-file` = base64 of the updated `inventory.yml`

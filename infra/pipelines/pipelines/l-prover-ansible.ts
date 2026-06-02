@@ -18,20 +18,19 @@ const COMPUTE_TYPE = "BUILD_GENERAL1_MEDIUM";
 export interface LProverAnsiblePipelineArgs extends BasePipelineArgs { }
 
 /**
- * CodePipeline that deploys the prover via Ansible (monitoring, security, prover playbooks).
+ * CodePipeline that deploys the prover via Ansible (prover playbook).
  * SSH key and inventory are read from AWS Secrets Manager so infra details are not in GitHub.
  *
  * Required secrets (must have a value via put-secret-value before first run, or build fails at DOWNLOAD_SOURCE):
- * - l-prover-ansible-ssh-key: SSH private key for Ansible (same as ANSIBLE_SSH_PRIVATE_KEY in GitHub).
- * - l-prover-ansible-inventory: Base64-encoded Ansible inventory. See ansible/INVENTORY.md for format and how to update.
+ * - l-prover-ansible-private-key: SSH private key for Ansible (same as ANSIBLE_SSH_PRIVATE_KEY in GitHub).
+ * - l-prover-ansible-inventory-file: Base64-encoded Ansible inventory. See ansible/INVENTORY.md for format and how to update.
  * - l-prover-ansible-tailscale-authkey: Ephemeral, tagged Tailscale auth key so CodeBuild can join the
  *   tailnet and reach the DC provers over MagicDNS. See ansible/INVENTORY.md for the Tailscale setup.
  *
  * Pipeline stages:
  * 1. Source - fetch code from GitHub
  * 2. DeployStaging - Ansible deploy to staging + cw-monitoring Pulumi staging stack (parallel)
- * 3. DeployNightly - Ansible deploy to nightly
- * 4. DeployProduction - manual approval, then Ansible deploy to production release
+ * 3. DeployProduction - manual approval, then Ansible deploy to production release
  *    and cw-monitoring Pulumi production stack
  */
 export class LProverAnsiblePipeline extends pulumi.ComponentResource {
@@ -132,8 +131,6 @@ phases:
 
         cd ansible
         echo "Deploying to target: $TARGET"
-        ansible-playbook -i inventory.yml monitoring.yml -D -v --limit "$TARGET"
-        ansible-playbook -i inventory.yml security.yml -D -v --limit "$TARGET"
         ansible-playbook -i inventory.yml prover.yml -D -v --limit "$TARGET"
   post_build:
     commands:
@@ -273,7 +270,7 @@ artifacts:
       `l-${APP_NAME}-build`,
       {
         name: `l-${APP_NAME}-build`,
-        description: "Deploy prover via Ansible (monitoring, security, prover)",
+        description: "Deploy prover via Ansible (prover playbook)",
         serviceRole: role.arn,
         buildTimeout: BUILD_TIMEOUT,
         environment: {
@@ -382,44 +379,6 @@ artifacts:
                 outputArtifacts: ["cw_staging_output"],
                 configuration: {
                   ProjectName: cwStagingBuild.name,
-                },
-              },
-            ],
-          },
-          {
-            name: "DeployNightly",
-            actions: [
-              {
-                name: "AnsibleDeployProductionNightly",
-                category: "Build",
-                owner: "AWS",
-                provider: "CodeBuild",
-                version: "1",
-                runOrder: 1,
-                inputArtifacts: ["source_output"],
-                outputArtifacts: ["nightly_output"],
-                configuration: {
-                  ProjectName: buildProject.name,
-                  EnvironmentVariables: JSON.stringify([
-                    {
-                      name: "TARGET",
-                      value: "production:&nightly",
-                      type: "PLAINTEXT",
-                    },
-                  ]),
-                },
-              },
-              {
-                name: "CWMonitoringProduction",
-                category: "Build",
-                owner: "AWS",
-                provider: "CodeBuild",
-                version: "1",
-                runOrder: 1,
-                inputArtifacts: ["source_output"],
-                outputArtifacts: ["cw_nightly_production_output"],
-                configuration: {
-                  ProjectName: cwProductionBuild.name,
                 },
               },
             ],
