@@ -45,3 +45,5 @@ config:
     secure: v1:MQoNgD7ntu5BZh+0:SW9N5n+daQQJWr87m37OGvkfxfOOhW33EX3qxyjkEmNoLtCc0qecSENX8noGaVFmLShKzHTUl337gnvCbqS53ZhO9FwxENpan1MG6Lzam1IJHzJ4IZQ+pAo7EH/d0iEN
   kailua-batch:S3_URL:
     secure: v1:uic0XwOCVP8ecxaT:GwwYi64Gisrq7VKu+mTpqxYhdCWOpOkBGS+oEMvPGEA1qMcpiwalNOfS8WmgzCIdG0+l0h3+1xMZ/RqyPEWO43klUPk4+GbI4rjY0Xeen1bk
+  kailua-batch:BOUNDLESS_ORDER_STREAM_URL:
+    secure: v1:b6nIkJAjAWeO2ft3:6qho2ddpG6aXWZiMof1om7PHGhsG+w4m7frcZfUgNF3RoSGY/WqAsB/ep9EhsgiEE/UnBoGyeRP7Dk1nOXthDZRlZlhuTekxQksOxDn7CnwklHQtidg3GCDb2TWf
