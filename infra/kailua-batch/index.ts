@@ -28,6 +28,7 @@ const REQUIRED_SECRETS: SecretMapping[] = [
     { configKey: "S3_ACCESS_KEY", envName: "S3_ACCESS_KEY", fallbackConfigKey: "S3_UPLOAD_ACCESS_KEY" },
     { configKey: "S3_SECRET_KEY", envName: "S3_SECRET_KEY", fallbackConfigKey: "S3_SECRET_ACCESS_KEY" },
     { configKey: "BOUNDLESS_RPC_URL", envName: "BOUNDLESS_RPC_URL" },
+    { configKey: "BOUNDLESS_ORDER_STREAM_URL", envName: "BOUNDLESS_ORDER_STREAM_URL" },
 ];
 
 const OPTIONAL_SECRETS: SecretMapping[] = [];
@@ -156,14 +157,32 @@ export = () => {
         });
     }
 
-    const orderStreamUrl = config.get("BOUNDLESS_ORDER_STREAM_URL");
-    if (!orderStreamUrl) {
-        throw new Error("BOUNDLESS_ORDER_STREAM_URL must be set in stack config");
+    const deploymentOverrideKeys = [
+        "BOUNDLESS_MARKET_ADDRESS",
+        "BOUNDLESS_SET_VERIFIER_ADDRESS",
+        "BOUNDLESS_COLLATERAL_TOKEN_ADDRESS",
+    ] as const;
+    const deploymentOverrides: Record<string, string> = {};
+    for (const key of deploymentOverrideKeys) {
+        const value = config.get(key);
+        if (value) {
+            deploymentOverrides[key] = value;
+        }
+    }
+    if (
+        Boolean(deploymentOverrides.BOUNDLESS_MARKET_ADDRESS) !==
+        Boolean(deploymentOverrides.BOUNDLESS_SET_VERIFIER_ADDRESS)
+    ) {
+        throw new Error(
+            "BOUNDLESS_MARKET_ADDRESS and BOUNDLESS_SET_VERIFIER_ADDRESS must be set together " +
+            "(the kailua image requires both to build an explicit deployment; setting only one " +
+            "silently falls back to the canonical production deployment)",
+        );
     }
 
     const defaultEnvironment: Record<string, string> = {
         MODE: config.get("MODE") ?? "debug",
-        BOUNDLESS_ORDER_STREAM_URL: orderStreamUrl,
+        ...deploymentOverrides,
         BOUNDLESS_ORDER_SUBMISSION_COOLDOWN: "1",
         EXPORT_PROFILE_CSV: "true",
         BOUNDLESS_ORDER_FUNDING_MODE: config.get("BOUNDLESS_ORDER_FUNDING_MODE") ?? "available-balance",
