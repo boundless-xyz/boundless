@@ -666,6 +666,7 @@ mod tests {
             bento_api_url: None,
             bonsai_api_url: None,
             bonsai_api_key: None,
+            multi_zkvm_endpoint: None,
             config_file: PathBuf::from("broker.toml"),
             deposit_amount: None,
             rpc_retry_max: 10,
