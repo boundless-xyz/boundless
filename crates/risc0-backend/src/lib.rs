@@ -18,34 +18,34 @@ use std::{path::PathBuf, sync::Arc};
 use alloy::sol_types::{SolStruct, SolValue};
 use alloy::{
     network::Ethereum,
-    primitives::{Address, B256, FixedBytes, U256},
+    primitives::{Address, FixedBytes, B256, U256},
     providers::{DynProvider, Provider},
 };
 use async_trait::async_trait;
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
-    Deployment,
     contracts::{
-        AssessorJournal, Fulfillment as MarketFulfillment, FulfillmentData,
-        FulfillmentDataImageIdAndJournal, FulfillmentDataType, Predicate, PredicateType,
-        RequestInputType, UNSPECIFIED_SELECTOR, boundless_market::BoundlessMarketService,
-        eip712_domain, encode_seal,
+        boundless_market::BoundlessMarketService, eip712_domain, encode_seal, AssessorJournal,
+        Fulfillment as MarketFulfillment, FulfillmentData, FulfillmentDataImageIdAndJournal,
+        FulfillmentDataType, Predicate, PredicateType, RequestInputType, UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     prover_utils::{
         EvaluationLimits, EvaluationRequest, ImageUploadCache, OrderPricingError, PreflightCache,
         PriorityRequestorCheck, RequestEvaluation, RequestEvaluator, Risc0Evaluator,
     },
-    selector::{ProofType, SelectorExt, is_blake3_groth16_selector, is_groth16_selector},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
     storage::StorageDownloader,
+    Deployment,
 };
 use hex::FromHex;
 use risc0_aggregation::{GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{
-    MaybePruned, Receipt, ReceiptClaim, compute_image_id,
+    compute_image_id,
     sha::{Digest as Risc0Digest, Digestible},
+    MaybePruned, Receipt, ReceiptClaim,
 };
 
 pub mod provers;

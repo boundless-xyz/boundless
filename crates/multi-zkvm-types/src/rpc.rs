@@ -20,10 +20,10 @@ use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context as _, Result, anyhow, bail};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use anyhow::{anyhow, bail, Context as _, Result};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use tokio::net::{TcpStream, UnixStream, tcp, unix};
+use tokio::net::{tcp, unix, TcpStream, UnixStream};
 use tokio::sync::Mutex as TokioMutex;
 
 /// Create a pair of RPC sender and receiver. The sender is used to send messages to the remote
@@ -35,10 +35,7 @@ pub fn rpc_system<StreamT: RpcStream>(
 
     let registry = Arc::new(Mutex::new(RpcRegistry::new()));
 
-    (
-        RpcSender::new(write_half, registry.clone()),
-        RpcReceiver::new(read_half, registry),
-    )
+    (RpcSender::new(write_half, registry.clone()), RpcReceiver::new(read_half, registry))
 }
 
 /// A stream fit for use with the RPC system.
@@ -377,7 +374,7 @@ impl RpcStream for UnixStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+    use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
     #[test]
     fn header_serialization() {

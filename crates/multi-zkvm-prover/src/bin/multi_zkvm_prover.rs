@@ -61,9 +61,8 @@ async fn main() -> anyhow::Result<()> {
             .context("Failed to initialize Bento client")?,
     );
 
-    let server = MultiZkvmServer::new(&args.bind_addr, prover)
-        .await
-        .context("Failed to bind server")?;
+    let server =
+        MultiZkvmServer::new(&args.bind_addr, prover).await.context("Failed to bind server")?;
 
     tracing::info!("listening on {}", args.bind_addr);
     server.run().await;

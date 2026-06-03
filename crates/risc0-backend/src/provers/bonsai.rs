@@ -17,8 +17,8 @@ use std::future::Future;
 use anyhow::Context;
 use async_trait::async_trait;
 use bonsai_sdk::{
-    SdkErr,
     non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id as Blake3Groth16Id, SnarkId},
+    SdkErr,
 };
 use risc0_zkvm::Receipt;
 use sqlx::{self, Postgres, Transaction};

@@ -41,9 +41,9 @@ fn remote_err(e: RemoteProverError) -> ProverError {
 }
 
 async fn connect_endpoint(endpoint: &str) -> Result<tokio::net::TcpStream> {
-    tokio::net::TcpStream::connect(endpoint)
-        .await
-        .map_err(|e| ProverError::ProverInternalError(format!("failed to connect to {endpoint}: {e}")))
+    tokio::net::TcpStream::connect(endpoint).await.map_err(|e| {
+        ProverError::ProverInternalError(format!("failed to connect to {endpoint}: {e}"))
+    })
 }
 
 impl MultiZkvmClient {
@@ -90,8 +90,11 @@ impl Prover for MultiZkvmClient {
     }
 
     async fn upload_input(&self, input: Vec<u8>) -> Result<String> {
-        self.send_request(Request::Risc0(Risc0Request::UploadInput { input }), extract!(UploadInput))
-            .await
+        self.send_request(
+            Request::Risc0(Risc0Request::UploadInput { input }),
+            extract!(UploadInput),
+        )
+        .await
     }
 
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<()> {

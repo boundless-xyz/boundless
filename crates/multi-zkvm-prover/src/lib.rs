@@ -16,7 +16,7 @@ use boundless_market::prover_utils::prover::{ProverError, ProverObj};
 use multi_zkvm_types::protocol::{
     RemoteProverError, Request, Response, Risc0Request, Risc0Response,
 };
-use multi_zkvm_types::rpc::{RpcMessageId, rpc_system};
+use multi_zkvm_types::rpc::{rpc_system, RpcMessageId};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 
 fn into_remote_err(e: ProverError) -> RemoteProverError {
@@ -88,33 +88,44 @@ async fn handle_request(request: Request, prover: &ProverObj) -> Response {
 
 async fn handle_risc0_request(request: Risc0Request, prover: &ProverObj) -> Risc0Response {
     match request {
-        Risc0Request::HasImage { image_id } =>
-            dispatch!(HasImage, prover.has_image(&image_id)),
-        Risc0Request::UploadInput { input } =>
-            dispatch!(UploadInput, prover.upload_input(input)),
-        Risc0Request::UploadImage { image_id, image } =>
-            dispatch!(UploadImage, prover.upload_image(&image_id, image)),
-        Risc0Request::Preflight { image_id, input_id, assumptions, executor_limit, order_id } =>
-            dispatch!(Preflight, prover.preflight(&image_id, &input_id, assumptions, executor_limit, &order_id)),
-        Risc0Request::ProveStark { image_id, input_id, assumptions } =>
-            dispatch!(ProveStark, prover.prove_stark(&image_id, &input_id, assumptions)),
-        Risc0Request::WaitForStark { proof_id } =>
-            dispatch!(WaitForStark, prover.wait_for_stark(&proof_id)),
-        Risc0Request::CancelStark { proof_id } =>
-            dispatch!(CancelStark, prover.cancel_stark(&proof_id)),
-        Risc0Request::GetReceipt { proof_id } =>
-            dispatch!(GetReceipt, prover.get_receipt(&proof_id)),
-        Risc0Request::GetPreflightJournal { proof_id } =>
-            dispatch!(GetPreflightJournal, prover.get_preflight_journal(&proof_id)),
-        Risc0Request::GetJournal { proof_id } =>
-            dispatch!(GetJournal, prover.get_journal(&proof_id)),
-        Risc0Request::Compress { proof_id } =>
-            dispatch!(Compress, prover.compress(&proof_id)),
-        Risc0Request::GetCompressedReceipt { proof_id } =>
-            dispatch!(GetCompressedReceipt, prover.get_compressed_receipt(&proof_id)),
-        Risc0Request::CompressBlake3Groth16 { proof_id } =>
-            dispatch!(CompressBlake3Groth16, prover.compress_blake3_groth16(&proof_id)),
-        Risc0Request::GetBlake3Groth16Receipt { proof_id } =>
-            dispatch!(GetBlake3Groth16Receipt, prover.get_blake3_groth16_receipt(&proof_id)),
+        Risc0Request::HasImage { image_id } => dispatch!(HasImage, prover.has_image(&image_id)),
+        Risc0Request::UploadInput { input } => dispatch!(UploadInput, prover.upload_input(input)),
+        Risc0Request::UploadImage { image_id, image } => {
+            dispatch!(UploadImage, prover.upload_image(&image_id, image))
+        }
+        Risc0Request::Preflight { image_id, input_id, assumptions, executor_limit, order_id } => {
+            dispatch!(
+                Preflight,
+                prover.preflight(&image_id, &input_id, assumptions, executor_limit, &order_id)
+            )
+        }
+        Risc0Request::ProveStark { image_id, input_id, assumptions } => {
+            dispatch!(ProveStark, prover.prove_stark(&image_id, &input_id, assumptions))
+        }
+        Risc0Request::WaitForStark { proof_id } => {
+            dispatch!(WaitForStark, prover.wait_for_stark(&proof_id))
+        }
+        Risc0Request::CancelStark { proof_id } => {
+            dispatch!(CancelStark, prover.cancel_stark(&proof_id))
+        }
+        Risc0Request::GetReceipt { proof_id } => {
+            dispatch!(GetReceipt, prover.get_receipt(&proof_id))
+        }
+        Risc0Request::GetPreflightJournal { proof_id } => {
+            dispatch!(GetPreflightJournal, prover.get_preflight_journal(&proof_id))
+        }
+        Risc0Request::GetJournal { proof_id } => {
+            dispatch!(GetJournal, prover.get_journal(&proof_id))
+        }
+        Risc0Request::Compress { proof_id } => dispatch!(Compress, prover.compress(&proof_id)),
+        Risc0Request::GetCompressedReceipt { proof_id } => {
+            dispatch!(GetCompressedReceipt, prover.get_compressed_receipt(&proof_id))
+        }
+        Risc0Request::CompressBlake3Groth16 { proof_id } => {
+            dispatch!(CompressBlake3Groth16, prover.compress_blake3_groth16(&proof_id))
+        }
+        Risc0Request::GetBlake3Groth16Receipt { proof_id } => {
+            dispatch!(GetBlake3Groth16Receipt, prover.get_blake3_groth16_receipt(&proof_id))
+        }
     }
 }

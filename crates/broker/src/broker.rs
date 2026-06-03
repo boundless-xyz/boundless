@@ -28,12 +28,12 @@ use alloy::{
 use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
-    Deployment,
     contracts::boundless_market::BoundlessMarketService,
     order_stream_client::OrderStreamClient,
     prover_utils::{Erc1271GasCache, OrderRequest},
+    Deployment,
 };
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
