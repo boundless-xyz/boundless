@@ -5073,6 +5073,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "multi-zkvm-types"
+version = "2.1.0-alpha.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "boundless-market",
+ "risc0-zkvm",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6290,6 +6304,7 @@ dependencies = [
  "boundless-market",
  "hex",
  "moka",
+ "multi-zkvm-types",
  "reqwest 0.13.1",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
