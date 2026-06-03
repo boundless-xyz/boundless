@@ -84,6 +84,7 @@ pub enum Response {
     Risc0(Risc0Response),
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize)]
 pub enum Risc0Response {
     HasImage(Result<bool>),

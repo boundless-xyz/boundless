@@ -14,5 +14,5 @@ bincode = { workspace = true }
 boundless-market = { workspace = true, features = ["prover_utils"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 serde = { workspace = true }
-tracing = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "signal"] }
+tracing = { workspace = true }

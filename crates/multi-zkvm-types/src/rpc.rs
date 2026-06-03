@@ -377,7 +377,6 @@ impl RpcStream for UnixStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::assert_matches;
     use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
     #[test]
@@ -402,18 +401,6 @@ mod tests {
     #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
     struct Response {
         message: String,
-    }
-
-    fn get_metric(metrics: &[ResourceMetrics], name: &str) -> u64 {
-        let metric = metrics[0]
-            .scope_metrics()
-            .next()
-            .unwrap()
-            .metrics()
-            .find(|m| m.name() == name)
-            .unwrap();
-        let sum = assert_matches!(metric.data(), AggregatedMetrics::U64(MetricData::Sum(s)) => s);
-        sum.data_points().map(|p| p.value()).sum()
     }
 
     struct Fixture {
