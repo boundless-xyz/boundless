@@ -16,6 +16,7 @@
 pub mod config;
 pub(crate) mod local_executor;
 pub mod prover;
+pub mod request_evaluator;
 pub(crate) mod requestor_pricing;
 
 #[cfg(not(feature = "prover_utils"))]
@@ -25,16 +26,20 @@ pub use config::{
     defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
     OrderPricingPriority, PricingOverrides, ProverConfig, RpcMode, TelemetryMode,
 };
+#[allow(unused_imports)]
+pub use request_evaluator::{
+    EvaluationLimits, EvaluationMetrics, EvaluationRequest, ImageUploadCache, ImageUploadCacheKey,
+    InputCacheKey, NativeWork, NormalizedWork, PreflightCache, PreflightCacheKey,
+    PreflightCacheValue, PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
+    Risc0Evaluator,
+};
 
 use crate::{
     contracts::{
         erc1271::IERC1271, FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError,
-        RequestInputType,
     },
-    input::GuestEnv,
     price_oracle::{scale_decimals, Amount},
     selector::{is_blake3_groth16_selector, SupportedSelectors},
-    storage::StorageDownloader,
     util::now_timestamp,
 };
 use alloy::{
@@ -49,10 +54,8 @@ use alloy::{
 use anyhow::Context;
 use hex::FromHex;
 use moka::future::Cache;
-use prover::ProverObj;
 use risc0_zkvm::sha::Digest as Risc0Digest;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fmt,
@@ -72,7 +75,7 @@ pub const SKIP_EXPIRY_TOO_LONG: &str = "[S-003]";
 pub const SKIP_UNSUPPORTED_SELECTOR: &str = "[S-004]";
 pub const SKIP_COLLATERAL_TOO_HIGH: &str = "[S-005]";
 pub const SKIP_CYCLE_LIMIT_FROM_REWARD: &str = "[S-006]";
-pub const SKIP_PREFLIGHT_CACHE_LIMIT: &str = "[S-007]";
+pub const SKIP_PREFLIGHT_LIMIT_EXCEEDED: &str = "[S-007]";
 pub const SKIP_CYCLES_ABOVE_LIMIT: &str = "[S-008]";
 pub const SKIP_CYCLES_BELOW_MIN: &str = "[S-009]";
 pub const SKIP_JOURNAL_TOO_LARGE: &str = "[S-010]";
@@ -81,6 +84,7 @@ pub const SKIP_GAS_EXCEEDS_MAX_PRICE: &str = "[S-012]";
 pub const SKIP_PREDICATE_CHECK_FAILED: &str = "[S-013]";
 pub const SKIP_COLLATERAL_REWARD_TOO_LOW: &str = "[S-014]";
 pub const SKIP_PRICE_TOO_LOW: &str = "[S-015]";
+pub const SKIP_PREFLIGHT_GUEST_FAILED: &str = "[S-016]";
 
 /// Scale a reward value for secondary fulfillment probability.
 ///
@@ -341,34 +345,6 @@ pub enum OrderPricingOutcome {
     Skip { code: &'static str, reason: String },
 }
 
-/// Value type for preflight cache.
-#[derive(Clone, Debug)]
-pub enum PreflightCacheValue {
-    Success { exec_session_id: String, cycle_count: u64, image_id: String, input_id: String },
-    Skip { cached_limit: u64 },
-}
-
-/// Input type for preflight cache.
-#[derive(Hash, Eq, PartialEq, Clone, Debug)]
-pub enum InputCacheKey {
-    /// URL-based input.
-    Url(String),
-    /// Hash-based input (for inline data).
-    Hash([u8; 32]),
-}
-
-/// Key type for the preflight cache.
-#[derive(Hash, Eq, PartialEq, Clone, Debug)]
-pub struct PreflightCacheKey {
-    /// The predicate data.
-    pub predicate_data: Vec<u8>,
-    /// The input cache key.
-    pub input: InputCacheKey,
-}
-
-/// Cache for preflight results to avoid duplicate computations.
-pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
-
 /// Cache for ERC1271 `isValidSignature` gas estimates, keyed by wallet contract address.
 ///
 /// Entries are reused across orders from the same smart-contract wallet because the
@@ -376,103 +352,11 @@ pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 /// specific hash or signature being verified.
 pub type Erc1271GasCache = Arc<Cache<Address, u64>>;
 
-/// Upload an image to the prover using the provided downloader.
-///
-/// This is a standalone function (not a trait method) so it can be called from inside
-/// async closures like `try_get_with` without capturing `&self`.
-async fn upload_image_with_downloader(
-    prover: &ProverObj,
-    image_url: &str,
-    predicate: &crate::contracts::RequestPredicate,
-    downloader: &(dyn StorageDownloader + Send + Sync),
-) -> anyhow::Result<String> {
-    let predicate = Predicate::try_from(predicate.clone()).context("Failed to parse predicate")?;
-
-    let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
-
-    // Check if prover already has the image cached
-    if let Some(ref image_id_str) = image_id_str {
-        if prover.has_image(image_id_str).await? {
-            tracing::debug!("Skipping program upload for cached image ID: {image_id_str}");
-            return Ok(image_id_str.clone());
-        }
-    }
-
-    tracing::debug!("Fetching program from URI {image_url}");
-    let image_data = downloader
-        .download(image_url)
-        .await
-        .with_context(|| format!("Failed to fetch image URI: {image_url}"))?;
-
-    let image_id =
-        risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
-
-    if let Some(ref expected_image_id_str) = image_id_str {
-        let expected_image_id = risc0_zkvm::sha::Digest::from_hex(expected_image_id_str)?;
-        if image_id != expected_image_id {
-            anyhow::bail!(
-                "image ID does not match requirements; expect {}, got {}",
-                expected_image_id,
-                image_id
-            );
-        }
-    }
-
-    let image_id_str = image_id.to_string();
-
-    tracing::debug!("Uploading program with image ID {image_id_str} to prover");
-    prover.upload_image(&image_id_str, image_data).await?;
-
-    Ok(image_id_str)
-}
-
-/// Upload input data to the prover (from inline data or URL) using the provided downloader.
-///
-/// This is a standalone function (not a trait method) so it can be called from inside
-/// async closures like `try_get_with` without capturing `&self`.
-///
-/// If `is_priority_requestor` is true, size limits are bypassed when fetching from URLs.
-async fn upload_input_with_downloader(
-    prover: &ProverObj,
-    input_type: crate::contracts::RequestInputType,
-    input_data: &Bytes,
-    downloader: &(dyn StorageDownloader + Send + Sync),
-    is_priority_requestor: bool,
-) -> anyhow::Result<String> {
-    match input_type {
-        crate::contracts::RequestInputType::Inline => {
-            let stdin = GuestEnv::decode(input_data).context("Failed to decode input")?.stdin;
-            prover.upload_input(stdin).await.map_err(|e| anyhow::anyhow!("{}", e))
-        }
-        crate::contracts::RequestInputType::Url => {
-            let input_url =
-                std::str::from_utf8(input_data).context("input url is not valid utf8")?;
-
-            tracing::debug!("Fetching input from URI {input_url}");
-            let raw_input = if is_priority_requestor {
-                downloader.download_with_limit(input_url, usize::MAX).await
-            } else {
-                downloader.download(input_url).await
-            }
-            .with_context(|| format!("Failed to fetch input URI: {input_url}"))?;
-
-            let stdin =
-                GuestEnv::decode(&raw_input).context("Failed to decode input from URL")?.stdin;
-
-            prover.upload_input(stdin).await.map_err(|e| anyhow::anyhow!("{}", e))
-        }
-        crate::contracts::RequestInputType::__Invalid => {
-            anyhow::bail!("Invalid input type")
-        }
-    }
-}
-
 /// Context required by order pricing.
 #[allow(async_fn_in_trait)]
-pub trait OrderPricingContext {
+pub trait OrderPricingContext: RequestEvaluator {
     fn market_config(&self) -> Result<MarketConfig, OrderPricingError>;
     fn supported_selectors(&self) -> &SupportedSelectors;
-    fn preflight_cache(&self) -> &PreflightCache;
     fn collateral_token_decimals(&self) -> u8;
     fn format_collateral(&self, value: U256) -> String {
         format_units(value, self.collateral_token_decimals()).unwrap_or_else(|_| "?".to_string())
@@ -521,155 +405,6 @@ pub trait OrderPricingContext {
     /// Convert an Amount to ZKC using the price oracle.
     async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
 
-    /// Access to the prover for preflight operations.
-    fn prover(&self) -> &ProverObj;
-
-    /// Access to the downloader for fetching images and inputs.
-    /// Returns an Arc so it can be cloned into async closures.
-    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync>;
-
-    /// Fetch data from a URI using the downloader.
-    #[cfg(feature = "prover_utils")]
-    async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, OrderPricingError> {
-        self.downloader()
-            .download(url)
-            .await
-            .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e.into())))
-    }
-
-    /// Upload an image from a URL to the prover using the downloader.
-    #[cfg(feature = "prover_utils")]
-    async fn upload_image(
-        &self,
-        image_url: &str,
-        predicate: &crate::contracts::RequestPredicate,
-    ) -> Result<String, OrderPricingError> {
-        upload_image_with_downloader(
-            self.prover(),
-            image_url,
-            predicate,
-            self.downloader().as_ref(),
-        )
-        .await
-        .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
-    }
-
-    /// Upload input data to the prover (from inline data or URL) using the downloader.
-    #[cfg(feature = "prover_utils")]
-    async fn upload_input(&self, order: &OrderRequest) -> Result<String, OrderPricingError> {
-        let is_priority = self.is_priority_requestor(&order.request.client_address());
-        upload_input_with_downloader(
-            self.prover(),
-            order.request.input.inputType,
-            &order.request.input.data,
-            self.downloader().as_ref(),
-            is_priority,
-        )
-        .await
-        .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))
-    }
-
-    /// Execute preflight for an order.
-    async fn preflight_execute(
-        &self,
-        order: &OrderRequest,
-        exec_limit_cycles: u64,
-        cache_key: PreflightCacheKey,
-    ) -> Result<PreflightCacheValue, OrderPricingError> {
-        let order_id = order.id();
-
-        // Clone all data needed inside the closure
-        let prover = self.prover().clone();
-        let downloader = self.downloader();
-        let cache = self.preflight_cache().clone();
-        let image_url = order.request.imageUrl.clone();
-        let predicate = order.request.requirements.predicate.clone();
-        let input_type = order.request.input.inputType;
-        let input_data = order.request.input.data.clone();
-        let order_id_clone = order_id.clone();
-        let is_priority = self.is_priority_requestor(&order.request.client_address());
-
-        // Multiple concurrent calls of this coalesce into a single execution.
-        // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
-        let result = cache
-            .try_get_with(cache_key, async move {
-                tracing::trace!(
-                    "Starting preflight execution of {order_id_clone} with limit of {exec_limit_cycles} cycles"
-                );
-
-                // Upload image from URL using downloader
-                let image_id =
-                    upload_image_with_downloader(&prover, &image_url, &predicate, downloader.as_ref())
-                        .await
-                        .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?;
-
-                // Upload input using downloader
-                let input_id =
-                    upload_input_with_downloader(&prover, input_type, &input_data, downloader.as_ref(), is_priority)
-                        .await
-                        .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?;
-
-                match prover
-                    .preflight(&image_id, &input_id, vec![], Some(exec_limit_cycles), &order_id_clone)
-                    .await
-                {
-                    Ok(res) => {
-                        let stats = res.stats.ok_or_else(|| {
-                            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                                "Preflight execution of {order_id_clone} succeeded but stats are missing"
-                            )))
-                        })?;
-                        tracing::debug!(
-                            "Preflight execution of {order_id_clone} with session id {} and {} mcycles completed",
-                            res.id,
-                            stats.total_cycles / 1_000_000
-                        );
-                        Ok(PreflightCacheValue::Success {
-                            exec_session_id: res.id,
-                            cycle_count: stats.total_cycles,
-                            image_id,
-                            input_id,
-                        })
-                    }
-                    Err(err) => {
-                        let err_msg = err.to_string();
-                        if err_msg.contains("Session limit exceeded")
-                            || err_msg.contains("Execution stopped intentionally due to session limit")
-                        {
-                            tracing::debug!(
-                                "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}"
-                            );
-                            Ok(PreflightCacheValue::Skip { cached_limit: exec_limit_cycles })
-                        } else if err_msg.contains("Guest panicked") || err_msg.contains("GuestPanic") {
-                            tracing::debug!(
-                                "Skipping order {order_id_clone} due to guest panic: {}",
-                                err_msg
-                            );
-                            Ok(PreflightCacheValue::Skip { cached_limit: u64::MAX })
-                        } else {
-                            Err(OrderPricingError::UnexpectedErr(Arc::new(err.into())))
-                        }
-                    }
-                }
-            })
-            .await
-            .map_err(|e| (*e).clone())?;
-
-        Ok(result)
-    }
-
-    /// Fetch the journal from a preflight execution.
-    async fn preflight_journal(&self, exec_session_id: &str) -> Result<Vec<u8>, OrderPricingError> {
-        self.prover()
-            .get_preflight_journal(exec_session_id)
-            .await
-            .map_err(|e| OrderPricingError::UnexpectedErr(Arc::new(e.into())))?
-            .ok_or_else(|| {
-                OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                    "Preflight journal not found"
-                )))
-            })
-    }
     async fn price_order(
         &self,
         order: &mut OrderRequest,
@@ -824,63 +559,47 @@ pub trait OrderPricingContext {
             exec_limit_cycles / 1_000_000
         );
 
-        // Create cache key based on input type
-        let predicate_data = order.request.requirements.predicate.data.to_vec();
-        let cache_key = match order.request.input.inputType {
-            RequestInputType::Url => {
-                let input_url = std::str::from_utf8(&order.request.input.data)
-                    .context("input url is not utf8")
-                    .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?
-                    .to_string();
-                PreflightCacheKey { predicate_data, input: InputCacheKey::Url(input_url) }
-            }
-            RequestInputType::Inline => {
-                // For inline inputs, use SHA256 hash of the data
-                let mut hasher = Sha256::new();
-                sha2::Digest::update(&mut hasher, &order.request.input.data);
-                let input_hash: [u8; 32] = hasher.finalize().into();
-                PreflightCacheKey { predicate_data, input: InputCacheKey::Hash(input_hash) }
-            }
-            RequestInputType::__Invalid => {
-                return Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                    "Unknown input type: {:?}",
-                    order.request.input.inputType
-                ))));
-            }
-        };
+        let preflight_result = self
+            .evaluate_request(
+                EvaluationRequest::from_order(order),
+                EvaluationLimits::new(exec_limit_cycles),
+            )
+            .await?;
 
-        let preflight_result = loop {
-            let result =
-                self.preflight_execute(order, exec_limit_cycles, cache_key.clone()).await?;
-            if let PreflightCacheValue::Skip { cached_limit } = result {
-                if cached_limit < exec_limit_cycles {
-                    self.preflight_cache().invalidate(&cache_key).await;
-                    continue;
-                }
-            }
-            break result;
-        };
-
-        let (exec_session_id, cycle_count, image_id) = match preflight_result {
-            PreflightCacheValue::Success { exec_session_id, cycle_count, image_id, input_id } => {
+        let (cycle_count, program_id, journal) = match preflight_result {
+            PreflightCacheValue::Success {
+                evaluation_id,
+                metrics,
+                program_id,
+                input_id,
+                public_output,
+            } => {
+                let cycle_count = metrics.normalized.units;
                 tracing::debug!(
-                    "Using preflight result for {order_id}: session id {} with {} mcycles",
-                    exec_session_id,
+                    "Using request evaluation for {order_id}: evaluation id {} with {} normalized mcycles",
+                    evaluation_id,
                     cycle_count / 1_000_000
                 );
 
                 // Update order with the uploaded IDs
-                order.image_id = Some(image_id.clone());
+                order.image_id = Some(program_id.clone());
                 order.input_id = Some(input_id.clone());
 
-                (exec_session_id, cycle_count, image_id)
+                (cycle_count, program_id, public_output)
             }
-            PreflightCacheValue::Skip { cached_limit } => {
+            PreflightCacheValue::LimitExceeded { limit } => {
                 return Ok(Skip {
-                    code: SKIP_PREFLIGHT_CACHE_LIMIT,
+                    code: SKIP_PREFLIGHT_LIMIT_EXCEEDED,
                     reason: format!(
-                        "order preflight execution limit hit with {cached_limit} cycles - limited by {prove_limit_reason}"
+                        "order preflight exceeded execution limit of {} cycles - limited by {prove_limit_reason}",
+                        limit.max_cycles,
                     ),
+                });
+            }
+            PreflightCacheValue::GuestFailed => {
+                return Ok(Skip {
+                    code: SKIP_PREFLIGHT_GUEST_FAILED,
+                    reason: "order preflight failed because the guest panicked".to_string(),
                 });
             }
         };
@@ -969,7 +688,6 @@ pub trait OrderPricingContext {
             }
         }
 
-        let journal = self.preflight_journal(&exec_session_id).await?;
         let journal_len = journal.len();
         let order_predicate_type = order.request.requirements.predicate.predicateType;
         if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)
@@ -1022,7 +740,7 @@ pub trait OrderPricingContext {
             FulfillmentData::None
         } else {
             FulfillmentData::from_image_id_and_journal(
-                Risc0Digest::from_hex(image_id).context("Failed to parse image ID")?,
+                Risc0Digest::from_hex(program_id).context("Failed to parse image ID")?,
                 journal,
             )
         };

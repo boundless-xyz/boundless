@@ -146,18 +146,18 @@ impl TelemetryHandle {
         });
     }
 
-    pub(crate) fn record_aggregation_completed(
+    pub(crate) fn record_backend_batch_completed(
         &self,
         order_id: &str,
-        set_builder_proving_secs: Option<f64>,
-        assessor_proving_secs: Option<f64>,
-        assessor_compression_proof_secs: Option<f64>,
+        batch_update_secs: Option<f64>,
+        assessor_secs: Option<f64>,
+        batch_compression_secs: Option<f64>,
     ) {
-        self.record(TelemetryEvent::AggregationCompleted {
+        self.record(TelemetryEvent::BackendBatchCompleted {
             order_id: order_id.to_string(),
-            set_builder_proving_secs,
-            assessor_proving_secs,
-            assessor_compression_proof_secs,
+            batch_update_secs,
+            assessor_secs,
+            batch_compression_secs,
         });
     }
 

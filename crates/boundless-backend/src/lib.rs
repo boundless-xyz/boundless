@@ -12,19 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cross-service utilities: retry helpers, RPC layers, storage helpers,
-//! the reaper task, and small misc helpers (gas estimation, timestamps,
-//! and expiry formatting).
+//! Backend-agnostic API for the Boundless broker.
+//!
+//! Defines the [`Backend`]/[`BatchProcessor`] traits a proving backend implements, the neutral
+//! command/payload types exchanged across that boundary, and the [`BackendRouter`] that
+//! dispatches by verifier selector. Backend implementations (e.g. `risc0-backend`) depend on
+//! this crate; the broker wires them together.
 
-mod helpers;
-pub(crate) mod reaper;
-pub(crate) mod rpc_retry_policy;
-pub mod rpcmetrics;
-pub mod sequential_fallback;
-pub(crate) mod storage;
-// Re-export the standalone helpers at the `crate::utils` root.
-pub(crate) use helpers::{
-    estimate_gas_to_fulfill, estimate_gas_to_lock, format_expiries, is_dev_mode, now_timestamp,
-};
+pub mod futures_retry;
+mod router;
+mod types;
 
-pub use crate::backend::prune_receipt_claim_journal;
+pub use router::BackendRouter;
+pub use types::*;

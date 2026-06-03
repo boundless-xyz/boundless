@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Error type for the proving service.
+//! Error type for the order processor.
 
 use boundless_market::telemetry::CompletionOutcome;
 use thiserror::Error;

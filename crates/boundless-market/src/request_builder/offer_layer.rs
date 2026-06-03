@@ -131,6 +131,22 @@ pub(crate) fn resolve_max_price(
     })
 }
 
+/// Applies the market-price buffer to a per-cycle market price and scales by the cycle count.
+///
+/// `buffer_percentage` is a multiplier where `100` = no change and `115` = +15%; values below
+/// `100` reduce the price. Multiplies before dividing to avoid truncation; any sub-wei fraction
+/// rounds down.
+pub(crate) fn buffered_market_max(
+    max_per_cycle: U256,
+    cycle_count: u64,
+    buffer_percentage: u16,
+) -> U256 {
+    max_per_cycle
+        .saturating_mul(U256::from(cycle_count))
+        .saturating_mul(U256::from(buffer_percentage))
+        / U256::from(100)
+}
+
 struct CollateralRecommendation {
     default: U256,
     large: U256,
@@ -300,6 +316,14 @@ pub struct OfferLayerConfig {
     /// Supported proof types and their corresponding selectors.
     #[builder(setter(into), default)]
     pub supported_selectors: SupportedSelectors,
+
+    /// Percentage multiplier applied to a price-provider-derived max price, adding headroom for
+    /// price drift before lock-in: `100` leaves it unchanged, `115` adds 15%.
+    ///
+    /// Applies only when `maxPrice` comes from the price provider (the default when no explicit
+    /// price is set), not to a params, config, or static max price. Gas is added separately.
+    #[builder(default = "115")]
+    pub market_price_buffer_multiplier_percentage: u16,
 }
 
 #[non_exhaustive]
@@ -701,14 +725,16 @@ where
                 if let Some(cycle_count) = cycle_count {
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
+                            let buffer = self.config.market_price_buffer_multiplier_percentage;
                             let min = U256::ZERO;
                             let max_per_cycle =
                                 percentiles.p99.min(percentiles.p50 * U256::from(2));
-                            let max = max_per_cycle * U256::from(cycle_count);
+                            let max = buffered_market_max(max_per_cycle, cycle_count, buffer);
                             tracing::debug!(
-                                "Using market prices from price provider to set max price: p50_per_cycle: {} p99_per_cycle: {} min price: {} max price: {}",
+                                "Using market prices from price provider to set max price: p50_per_cycle: {} p99_per_cycle: {} buffer: {}% min price: {} max price: {}",
                                 percentiles.p50,
                                 percentiles.p99,
+                                buffer,
                                 format_units(min, "ether")?,
                                 format_units(max, "ether")?,
                             );
@@ -1114,6 +1140,23 @@ mod tests {
                 resolve_max_price(None, None, None, Some(10)),
                 default_max_price_per_cycle() * u(10)
             );
+        }
+
+        #[test]
+        fn buffer_default_115_adds_15_percent() {
+            // 100 wei/cycle * 10 cycles * 1.15 = 1150
+            assert_eq!(buffered_market_max(u(100), 10, 115), u(1150));
+        }
+
+        #[test]
+        fn buffer_100_is_noop() {
+            assert_eq!(buffered_market_max(u(100), 10, 100), u(1000));
+        }
+
+        #[test]
+        fn buffer_rounds_down() {
+            // 10 * 1 * 115 / 100 = 11.5 -> 11 (sub-wei fraction truncated)
+            assert_eq!(buffered_market_max(u(10), 1, 115), u(11));
         }
     }
 

@@ -27,14 +27,27 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::runtime::Builder;
 
+use crate::backend::{BackendBatchState, BackendId, BackendOrderState};
 use crate::FulfillmentType;
-use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
+use crate::{db::BatchReadyOrder, Order, OrderStatus};
 
 use super::{BrokerDb, SqliteDb};
 
 use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
 };
+
+fn test_backend_id() -> BackendId {
+    BackendId::new("test_backend_id")
+}
+
+fn test_backend_state(proof_id: String) -> BackendBatchState {
+    BackendBatchState(serde_json::json!({
+        "guest_state": GuestState::initial([1u32; 8]),
+        "claim_digests": Vec::<Digest>::new(),
+        "proof_id": proof_id,
+    }))
+}
 
 // Add new state tracking structure
 struct TestState {
@@ -50,7 +63,7 @@ enum DbOperation {
     BatchOperation(BatchOperation),
     GetProvingOrder,
     GetActiveProofs,
-    GetAggregationProofs,
+    GetPendingBatchOrders,
     GetBatch(u32),
 }
 
@@ -104,8 +117,11 @@ fn generate_test_order(request_id: u32) -> Order {
         ),
         image_id: None,
         input_id: None,
-        proof_id: Some(format!("proof_{request_id}")),
-        compressed_proof_id: Some(format!("compressed_proof_{request_id}")),
+        backend_state: Some(BackendOrderState(serde_json::json!({
+            "proof_id": format!("proof_{request_id}"),
+            "compressed_proof_id": format!("compressed_proof_{request_id}"),
+        }))),
+        backend_id: None,
         expire_timestamp: Some(1000),
         client_sig: vec![].into(),
         lock_price: Some(U256::from(10)),
@@ -204,15 +220,19 @@ proptest! {
                                         db.set_order_failure(id, "test").await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderProofId { proof_id } => {
-                                        db.set_order_proof_id(id, &proof_id).await.unwrap();
+                                        let state = BackendOrderState(
+                                            serde_json::json!({ "proof_id": proof_id }),
+                                        );
+                                        db.set_order_backend_state(id, &state).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetAggregationStatus => {
-                                        db.set_aggregation_status(id, OrderStatus::PendingAgg).await.unwrap();
+                                        db.set_order_batch_status(id, OrderStatus::ReadyForBatch, &test_backend_id()).await.unwrap();
                                     },
                                     ExistingOrderOperation::GetSubmissionOrder => {
                                         let order = db.get_order(id).await.unwrap();
                                         if let Some(order) = order {
-                                            if order.proof_id.is_some() && order.lock_price.is_some() && order.image_id.is_some() {
+                                            // `get_submission_order` requires the order to be in `PendingSubmission`.
+                                            if order.status == OrderStatus::PendingSubmission && order.lock_price.is_some() && order.image_id.is_some() {
                                                 db.get_submission_order(id).await.unwrap();
                                             }
                                         }
@@ -223,13 +243,16 @@ proptest! {
                             DbOperation::BatchOperation(operation) => {
                                 match operation {
                                     BatchOperation::GetCurrentBatch => {
-                                        db.get_current_batch().await.unwrap();
+                                        db.get_current_batch(&test_backend_id()).await.unwrap();
                                     },
                                     BatchOperation::CompleteBatch { g16_proof_id } => {
-                                        let batch_id = db.get_current_batch().await.unwrap();
+                                        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                         let batch = db.get_batch(batch_id).await.unwrap();
-                                        if batch.aggregation_state.is_some() {
-                                            db.complete_batch(batch_id, &g16_proof_id).await.unwrap();
+                                        if batch.backend_state.is_some() {
+                                            let new_state = BackendBatchState(serde_json::json!({
+                                                "compressed_proof_id": g16_proof_id,
+                                            }));
+                                            db.complete_batch(batch_id, &new_state).await.unwrap();
                                             state.completed_batch.store(true, Ordering::SeqCst);
                                         }
                                     },
@@ -238,19 +261,19 @@ proptest! {
                                     },
                                     BatchOperation::SetBatchSubmitted => {
                                         if state.completed_batch.load(Ordering::SeqCst) {
-                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                             db.set_batch_submitted(batch_id).await.unwrap();
                                         }
                                     },
                                     BatchOperation::SetBatchFailure { error } => {
                                         if state.completed_batch.load(Ordering::SeqCst) {
-                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                             db.set_batch_failure(batch_id, error).await.unwrap();
                                         }
                                     },
                                     BatchOperation::UpdateBatch { proof_id, order_count } => {
                                         if !state.added_orders.is_empty() {
-                                            let batch_id = db.get_current_batch().await.unwrap();
+                                            let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
                                             // Select up to order_count random orders
                                             let count = std::cmp::min(order_count as usize, state.added_orders.len());
                                             let mut orders = Vec::with_capacity(count);
@@ -260,9 +283,8 @@ proptest! {
                                                 let random_index: usize = rand::rng().random_range(0..len);
                                                 let id = state.added_orders.get(random_index).unwrap();
 
-                                                orders.push(AggregationOrder {
+                                                orders.push(BatchReadyOrder {
                                                     order_id: id.to_string(),
-                                                    proof_id: format!("proof_{id}"),
                                                     expiration: 1000,
                                                     fee: U256::from(10),
                                                     fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -271,18 +293,13 @@ proptest! {
                                                 });
                                             }
 
-                                            let agg_state = AggregationState {
-                                                guest_state: GuestState::initial([1u32; 8]),
-                                                claim_digests: vec![],
-                                                groth16_proof_id: None,
-                                                proof_id,
-                                            };
+                                            let backend_state = test_backend_state(proof_id);
 
                                             db.update_batch(
                                                 batch_id,
-                                                &agg_state,
+                                                &backend_state,
                                                 &orders,
-                                                Some("proof_id".to_string()),
+                                                true,
                                             ).await.unwrap();
                                         }
                                     },
@@ -296,11 +313,11 @@ proptest! {
                                 db.get_active_proofs().await.unwrap();
                             },
 
-                            DbOperation::GetAggregationProofs => {
-                                db.get_aggregation_proofs().await.unwrap();
+                            DbOperation::GetPendingBatchOrders => {
+                                db.get_pending_batch_orders(&test_backend_id()).await.unwrap();
                             },
                             DbOperation::GetBatch(batch_id) => {
-                                let current_batch = db.get_current_batch().await.unwrap();
+                                let current_batch = db.get_current_batch(&test_backend_id()).await.unwrap();
                                 let _ = db.get_batch(batch_id as usize % current_batch).await;
                             },
                         }

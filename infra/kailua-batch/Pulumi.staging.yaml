@@ -22,7 +22,9 @@ config:
   kailua-batch:R2_DOMAIN: https://staging-signal-artifacts.beboundless.xyz
   kailua-batch:AWS_REGION: auto
   kailua-batch:LOG_VERBOSITY: -vvv
-  kailua-batch:BOUNDLESS_ORDER_STREAM_URL: https://eth-sepolia.boundless.network
+  kailua-batch:BOUNDLESS_MARKET_ADDRESS: "0x60d11ef5d4608bab18a663fd486d3b9f162172cf"
+  kailua-batch:BOUNDLESS_SET_VERIFIER_ADDRESS: "0x6135DC08D14EF8a44496B009e2181426628B8ebd"
+  kailua-batch:BOUNDLESS_COLLATERAL_TOKEN_ADDRESS: "0xC284A781072442cC1882a8Db4573990B7B49DaC4"
   kailua-batch:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   kailua-batch:ENABLE_PAGERDUTY_ALERTS: "true"
   kailua-batch:L1_RPC:
@@ -43,3 +45,5 @@ config:
     secure: v1:MQoNgD7ntu5BZh+0:SW9N5n+daQQJWr87m37OGvkfxfOOhW33EX3qxyjkEmNoLtCc0qecSENX8noGaVFmLShKzHTUl337gnvCbqS53ZhO9FwxENpan1MG6Lzam1IJHzJ4IZQ+pAo7EH/d0iEN
   kailua-batch:S3_URL:
     secure: v1:uic0XwOCVP8ecxaT:GwwYi64Gisrq7VKu+mTpqxYhdCWOpOkBGS+oEMvPGEA1qMcpiwalNOfS8WmgzCIdG0+l0h3+1xMZ/RqyPEWO43klUPk4+GbI4rjY0Xeen1bk
+  kailua-batch:BOUNDLESS_ORDER_STREAM_URL:
+    secure: v1:b6nIkJAjAWeO2ft3:6qho2ddpG6aXWZiMof1om7PHGhsG+w4m7frcZfUgNF3RoSGY/WqAsB/ep9EhsgiEE/UnBoGyeRP7Dk1nOXthDZRlZlhuTekxQksOxDn7CnwklHQtidg3GCDb2TWf

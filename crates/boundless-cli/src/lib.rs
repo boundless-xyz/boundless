@@ -38,7 +38,7 @@ use anyhow::{bail, Context, Result};
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use broker::{
-    provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover},
+    provers::{Bonsai, BonsaiConfig, DefaultProver as BrokerDefaultProver, Prover},
     utils::prune_receipt_claim_journal,
 };
 use risc0_aggregation::{
@@ -253,7 +253,7 @@ impl OrderFulfiller {
             if let Ok(url) = std::env::var("BONSAI_API_URL") {
                 tracing::info!("Default prover selected but BONSAI_API_URL is set, using Bonsai");
                 Arc::new(Bonsai::new(
-                    broker::config::ConfigLock::default(),
+                    BonsaiConfig::default(),
                     &url,
                     &std::env::var("BONSAI_API_KEY")
                         .clone()
@@ -264,7 +264,7 @@ impl OrderFulfiller {
             }
         } else {
             Arc::new(Bonsai::new(
-                broker::config::ConfigLock::default(),
+                BonsaiConfig::default(),
                 &prover_config.proving_backend.bento_api_url,
                 &prover_config
                     .proving_backend

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -23,13 +23,14 @@ use boundless_market::telemetry::CompletionOutcome;
 use tokio::sync::mpsc;
 
 use crate::{
+    backend::{BackendRouter, CancelOrder},
     coded_error_impl,
     config::{ConfigErr, ConfigLock},
     db::{DbError, DbObj},
-    errors::{cancel_proof_and_fail, BrokerFailure, CodedError},
+    errors::{handle_order_failure, BrokerFailure, CodedError},
     order_committer::CommitmentComplete,
-    provers::ProverObj,
     task::{BrokerService, SupervisorErr},
+    OrderStatus,
 };
 
 #[derive(Error)]
@@ -50,7 +51,7 @@ coded_error_impl!(ReaperError, "REAP",
 pub struct ReaperTask {
     db: DbObj,
     config: ConfigLock,
-    prover: ProverObj,
+    backend: Arc<BackendRouter>,
     chain_id: u64,
     /// Sends ProvingFailed to the OrderCommitter to free the capacity slot for expired orders.
     proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -60,11 +61,11 @@ impl ReaperTask {
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
+        backend: Arc<BackendRouter>,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
-        Self { db, config, prover, chain_id, proving_completion_tx }
+        Self { db, config, backend, chain_id, proving_completion_tx }
     }
 
     async fn check_expired_orders(&self) -> Result<(), ReaperError> {
@@ -82,20 +83,38 @@ impl ReaperTask {
                 let order_id = order.id();
                 debug!("Setting expired order {} to failed", order_id);
 
-                cancel_proof_and_fail(
-                    &self.prover,
+                let failure = BrokerFailure::new(
+                    "[B-REAP-003]",
+                    "Order expired in reaper",
+                    CompletionOutcome::ExpiredWhileProving,
+                );
+
+                handle_order_failure(
                     &self.db,
-                    &self.config,
-                    &order,
-                    &BrokerFailure::new(
-                        "[B-REAP-003]",
-                        "Order expired in reaper",
-                        CompletionOutcome::ExpiredWhileProving,
-                    ),
+                    &order_id,
+                    &failure,
                     self.chain_id,
                     &self.proving_completion_tx,
                 )
                 .await;
+
+                let should_cancel = {
+                    let config = self.config.lock_all()?;
+                    config.market.cancel_proving_expired_orders
+                };
+                if should_cancel {
+                    let cancel = CancelOrder {
+                        order_id: order_id.clone(),
+                        selector: order.request.requirements.selector,
+                        backend_state: order.backend_state.clone(),
+                        is_proving: matches!(order.status, OrderStatus::Proving),
+                    };
+                    if let Err(err) = self.backend.cancel_order(cancel).await {
+                        warn!(
+                            "[B-REAP-004] Failed to cancel backend processing for expired order {order_id}: {err:?}"
+                        );
+                    }
+                }
             }
         }
 
@@ -137,16 +156,105 @@ impl BrokerService for ReaperTask {
 mod tests {
     use super::*;
     use crate::{
-        db::SqliteDb, now_timestamp, provers::DefaultProver, FulfillmentType, Order, OrderStatus,
+        backend::{
+            Backend, BackendEntry, BatchProcessorObj, FulfillmentBatch, OrderProcessProgress,
+            ProcessOrder, SubmissionPlan, VerifierUpdate,
+        },
+        db::SqliteDb,
+        now_timestamp, FulfillmentType, Order, OrderStatus,
     };
-    use alloy::primitives::{Address, Bytes, U256};
+    use alloy::primitives::{Address, Bytes, FixedBytes, U256};
+    use async_trait::async_trait;
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
+    use boundless_market::selector::ProofType;
     use chrono::Utc;
     use risc0_zkvm::sha::Digest;
-    use std::sync::Arc;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use tracing_test::traced_test;
+
+    struct CancelBackend {
+        id: crate::backend::BackendId,
+        selectors: Vec<FixedBytes<4>>,
+        cancel_calls: AtomicUsize,
+    }
+
+    impl CancelBackend {
+        fn new(selector: FixedBytes<4>) -> Self {
+            Self {
+                id: crate::backend::BackendId::new("cancel_backend"),
+                selectors: vec![selector],
+                cancel_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn cancel_calls(&self) -> usize {
+            self.cancel_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl Backend for CancelBackend {
+        fn id(&self) -> &crate::backend::BackendId {
+            &self.id
+        }
+
+        fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
+            self.selectors.clone()
+        }
+
+        fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
+            self.selectors.contains(&selector).then_some(ProofType::Any)
+        }
+
+        async fn evaluate_request(
+            &self,
+            _request: boundless_market::prover_utils::EvaluationRequest,
+            _limits: boundless_market::prover_utils::EvaluationLimits,
+        ) -> Result<
+            boundless_market::prover_utils::RequestEvaluation,
+            boundless_market::prover_utils::OrderPricingError,
+        > {
+            Err(anyhow::anyhow!("cancel backend does not evaluate requests").into())
+        }
+
+        async fn process_order(&self, _cmd: ProcessOrder) -> anyhow::Result<OrderProcessProgress> {
+            anyhow::bail!("cancel backend does not process orders")
+        }
+
+        async fn cancel_order(&self, _cmd: CancelOrder) -> anyhow::Result<()> {
+            self.cancel_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn batch_processor(&self) -> Option<BatchProcessorObj> {
+            None
+        }
+
+        async fn build_fulfillments(
+            &self,
+            _cmd: FulfillmentBatch,
+        ) -> anyhow::Result<SubmissionPlan> {
+            anyhow::bail!("cancel backend does not build fulfillments")
+        }
+
+        async fn verifier_update_applied(&self, _update: &VerifierUpdate) -> anyhow::Result<bool> {
+            anyhow::bail!("cancel backend does not query verifier updates")
+        }
+
+        async fn apply_verifier_update(
+            &self,
+            _update: &VerifierUpdate,
+        ) -> Result<(), crate::backend::VerifierUpdateError> {
+            Err(crate::backend::VerifierUpdateError::Other(anyhow::anyhow!(
+                "cancel backend does not apply verifier updates"
+            )))
+        }
+    }
 
     fn create_order_with_status_and_expiration(
         id: u64,
@@ -174,8 +282,7 @@ mod tests {
             ),
             image_id: None,
             input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
+            backend_id: None,
             expire_timestamp,
             client_sig: Bytes::new(),
             lock_price: Some(U256::from(1)),
@@ -186,8 +293,13 @@ mod tests {
             total_cycles: None,
             journal_bytes: None,
             proving_started_at: None,
+            backend_state: None,
             cached_id: Default::default(),
         }
+    }
+
+    fn test_backend_router() -> Arc<BackendRouter> {
+        Arc::new(BackendRouter::new())
     }
 
     #[tokio::test]
@@ -195,9 +307,9 @@ mod tests {
     async fn test_check_expired_orders_no_expired() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
-        let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backend_router(), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let future_time = current_time + 100;
@@ -232,9 +344,9 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
-        let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backend_router(), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -246,7 +358,7 @@ mod tests {
             Some(past_time),
         );
         let expired_order2 =
-            create_order_with_status_and_expiration(2, OrderStatus::PendingAgg, Some(past_time));
+            create_order_with_status_and_expiration(2, OrderStatus::ReadyForBatch, Some(past_time));
         let active_order =
             create_order_with_status_and_expiration(3, OrderStatus::Proving, Some(future_time));
         let done_order =
@@ -286,13 +398,48 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_expired_order_cancels_registered_backend() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let config = ConfigLock::default();
+        {
+            let mut config = config.load_write().unwrap();
+            config.prover.reaper_grace_period_secs = 30;
+            config.market.cancel_proving_expired_orders = true;
+        }
+        let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
+
+        let current_time = now_timestamp();
+        let past_time = current_time - 100;
+        let order =
+            create_order_with_status_and_expiration(1, OrderStatus::Proving, Some(past_time));
+        let backend = Arc::new(CancelBackend::new(order.request.requirements.selector));
+        let router = Arc::new(
+            BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap(),
+        );
+        let reaper = ReaperTask::new(db.clone(), config, router, 1, proving_completion_tx);
+
+        db.add_order(&order).await.unwrap();
+
+        reaper.check_expired_orders().await.unwrap();
+
+        assert_eq!(backend.cancel_calls(), 1);
+        let stored_order = db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(stored_order.status, OrderStatus::Failed);
+        assert_eq!(
+            stored_order.error_msg,
+            Some("[B-REAP-003] Order expired in reaper".to_string())
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_check_expired_orders_all_committed_statuses() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         config.load_write().unwrap().prover.reaper_grace_period_secs = 30;
-        let prover: ProverObj = Arc::new(DefaultProver::new());
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
-        let reaper = ReaperTask::new(db.clone(), config, prover, 1, proving_completion_tx);
+        let reaper =
+            ReaperTask::new(db.clone(), config, test_backend_router(), 1, proving_completion_tx);
 
         let current_time = now_timestamp();
         let past_time = current_time - 100;
@@ -301,8 +448,8 @@ mod tests {
         let statuses = [
             OrderStatus::PendingProving,
             OrderStatus::Proving,
-            OrderStatus::PendingAgg,
-            OrderStatus::SkipAggregation,
+            OrderStatus::ReadyForBatch,
+            OrderStatus::ReadyForSubmission,
             OrderStatus::PendingSubmission,
         ];
 

@@ -48,10 +48,10 @@ pub(super) struct InFlightRequest {
     pub(super) stark_proving_secs: Option<f64>,
     pub(super) proof_compression_secs: Option<f64>,
     pub(super) proving_completed_at: Option<Instant>,
-    pub(super) set_builder_proving_secs: Option<f64>,
-    pub(super) assessor_proving_secs: Option<f64>,
-    pub(super) assessor_compression_proof_secs: Option<f64>,
-    pub(super) aggregation_completed_at: Option<Instant>,
+    pub(super) batch_update_secs: Option<f64>,
+    pub(super) assessor_secs: Option<f64>,
+    pub(super) batch_compression_secs: Option<f64>,
+    pub(super) batch_completed_at: Option<Instant>,
 }
 
 impl InFlightRequest {
@@ -76,10 +76,10 @@ impl InFlightRequest {
             stark_proving_secs: None,
             proof_compression_secs: None,
             proving_completed_at: None,
-            set_builder_proving_secs: None,
-            assessor_proving_secs: None,
-            assessor_compression_proof_secs: None,
-            aggregation_completed_at: None,
+            batch_update_secs: None,
+            assessor_secs: None,
+            batch_compression_secs: None,
+            batch_completed_at: None,
         }
     }
 }
