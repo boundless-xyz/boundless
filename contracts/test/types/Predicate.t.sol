@@ -15,20 +15,21 @@ contract PredicateTest is Test {
     using ReceiptClaimLib for ReceiptClaim;
 
     function testEvalDigestMatch() public pure {
-        bytes32 hash = sha256(abi.encode("test"));
+        // Journal hash convention: `sha256(journal)` over the raw bytes,
+        // matching the off-chain R0 STARK guest and `BoundlessMarketCallback`.
+        bytes memory journal = "test";
+        bytes32 hash = sha256(journal);
         Predicate memory predicate = PredicateLibrary.createDigestMatchPredicate(IMAGE_ID, hash);
         assertEq(
             uint8(predicate.predicateType), uint8(PredicateType.DigestMatch), "Predicate type should be DigestMatch"
         );
-
-        bytes memory journal = "test";
 
         bool result = predicate.eval(IMAGE_ID, journal);
         assertTrue(result, "Predicate evaluation should be true for matching digest");
     }
 
     function testEvalDigestMatchFail() public pure {
-        bytes32 hash = sha256(abi.encode("test"));
+        bytes32 hash = sha256(bytes("test"));
         Predicate memory predicate = PredicateLibrary.createDigestMatchPredicate(IMAGE_ID, hash);
         assertEq(
             uint8(predicate.predicateType), uint8(PredicateType.DigestMatch), "Predicate type should be DigestMatch"
@@ -60,7 +61,7 @@ contract PredicateTest is Test {
 
     function testEvalClaimDigestMatch() public pure {
         bytes memory journal = "test";
-        bytes32 journalDigest = sha256(abi.encode(journal));
+        bytes32 journalDigest = sha256(journal);
         bytes32 claimDigest = ReceiptClaimLib.ok(IMAGE_ID, journalDigest).digest();
         Predicate memory predicate = PredicateLibrary.createClaimDigestMatchPredicate(claimDigest);
         assertEq(
@@ -75,7 +76,7 @@ contract PredicateTest is Test {
 
     function testEvalClaimDigestMatchFail() public pure {
         bytes memory journal = "test";
-        bytes32 journalDigest = sha256(abi.encode(journal));
+        bytes32 journalDigest = sha256(journal);
         bytes32 claimDigest = ReceiptClaimLib.ok(IMAGE_ID, journalDigest).digest();
         Predicate memory predicate = PredicateLibrary.createClaimDigestMatchPredicate(claimDigest);
         assertEq(
@@ -85,7 +86,7 @@ contract PredicateTest is Test {
         );
 
         journal = "different test";
-        journalDigest = sha256(abi.encode(journal));
+        journalDigest = sha256(journal);
         claimDigest = ReceiptClaimLib.ok(IMAGE_ID, journalDigest).digest();
 
         bool result = predicate.eval(claimDigest);
