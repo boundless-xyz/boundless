@@ -180,6 +180,7 @@ export = () => {
     }
 
     const dynamicPricingTimeoutModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER");
+    const dynamicPricingRampUpModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER");
 
     const defaultEnvironment: Record<string, string> = {
         MODE: config.get("MODE") ?? "debug",
@@ -195,6 +196,9 @@ export = () => {
         BOUNDLESS_DYNAMIC_PRICING: config.get("BOUNDLESS_DYNAMIC_PRICING") ?? "true",
         ...(dynamicPricingTimeoutModifier
             ? { BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER: dynamicPricingTimeoutModifier }
+            : {}),
+        ...(dynamicPricingRampUpModifier
+            ? { BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: dynamicPricingRampUpModifier }
             : {}),
         S3_BUCKET: config.require("S3_BUCKET"),
         AWS_REGION: config.get("AWS_REGION") ?? "auto",

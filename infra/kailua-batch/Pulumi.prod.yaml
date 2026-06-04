@@ -25,6 +25,7 @@ config:
   kailua-batch:LOG_VERBOSITY: -vvv
   kailua-batch:BOUNDLESS_ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
   kailua-batch:BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER: "2"
+  kailua-batch:BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: "2"
   kailua-batch:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch"
   kailua-batch:ENABLE_PAGERDUTY_ALERTS: "true"
   kailua-batch:L1_RPC:
