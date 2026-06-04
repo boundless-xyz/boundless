@@ -85,6 +85,8 @@ pub struct Risc0BackendConfig {
     pub assessor_set_guest_path: Option<PathBuf>,
     pub set_builder_default_image_url: String,
     pub assessor_default_image_url: String,
+    /// The 4-byte router assessor selector prepended to the assessor seal.
+    pub assessor_selector: FixedBytes<4>,
     pub txn_timeout: u64,
 }
 
@@ -165,6 +167,8 @@ pub struct Risc0Backend {
     set_verifier_addr: Option<Address>,
     set_verifier: Option<SetVerifierService<DynProvider>>,
     batch_processor: Option<BatchProcessorObj>,
+    /// The 4-byte router assessor selector prepended to the assessor seal in `build_fulfillments`.
+    assessor_selector: FixedBytes<4>,
 }
 
 impl Risc0Backend {
@@ -183,7 +187,8 @@ impl Risc0Backend {
     ) -> Result<Self> {
         let (prover, snark_prover) =
             Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
-        Ok(Self::with_provers(prover, snark_prover, downloader, priority_check))
+        Ok(Self::with_provers(prover, snark_prover, downloader, priority_check)
+            .with_assessor_selector(config.assessor_selector))
     }
 
     /// Constructor that takes the prover backends explicitly. Used by tests.
@@ -222,7 +227,14 @@ impl Risc0Backend {
             set_verifier_addr: None,
             set_verifier: None,
             batch_processor: None,
+            assessor_selector: FixedBytes::ZERO,
         }
+    }
+
+    /// Sets the 4-byte router assessor selector prepended to the assessor seal.
+    pub fn with_assessor_selector(mut self, assessor_selector: FixedBytes<4>) -> Self {
+        self.assessor_selector = assessor_selector;
+        self
     }
 
     fn build_provers(
@@ -1045,7 +1057,7 @@ impl Backend for Risc0Backend {
             risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
         tracing::debug!("Merkle path for assessor : {:x?} : {assessor_path:x?}", assessor_claim);
 
-        let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
+        let inner_assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
             // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
             // derived from the claim. So instead of constructing the journal, we simply use the
             // zero digest. We should either plumb through the data for the assessor journal, or we
@@ -1054,15 +1066,19 @@ impl Backend for Risc0Backend {
             assessor_path,
             inclusion_params.digest(),
         );
+        let inner_assessor_seal = inner_assessor_seal
+            .abi_encode_seal()
+            .context("ABI encode assessor set inclusion receipt")?;
+        // The on-chain assessor seal is `router assessor selector ++ inner seal`.
         let assessor_seal =
-            assessor_seal.abi_encode_seal().context("ABI encode assessor set inclusion receipt")?;
+            boundless_market::contracts::assessor_seal(self.assessor_selector, inner_assessor_seal);
 
         Ok(SubmissionPlan {
             verifier_updates: vec![verifier_update],
             failed_orders,
             orders,
             assessor: SubmissionAssessorArtifact {
-                seal: assessor_seal.into(),
+                seal: assessor_seal,
                 selectors: assessor.selectors,
                 callbacks: assessor.callbacks,
             },
