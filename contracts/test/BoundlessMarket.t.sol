@@ -686,6 +686,20 @@ contract BoundlessMarketTest is Test {
         internal
         returns (FulfillmentBatch memory batch)
     {
+        bytes32 root;
+        (batch, root) = createFillsR0(requests, journals, prover);
+        submitRoot(root);
+    }
+
+    // Same R0 broker output as `createFillsAndSubmitRootR0`, but returns the
+    // set-builder `root` WITHOUT submitting it — so callers can feed
+    // `(root, seal, batch)` into `submitRootAndFulfill` in a single tx
+    // (the guest-assessor "best case").
+    function createFillsR0(ProofRequest[] memory requests, bytes[] memory journals, address prover)
+        internal
+        view
+        returns (FulfillmentBatch memory batch, bytes32 root)
+    {
         // Step 1: broker-side per-fill outputs — same pre-merkle stage
         // `createFills` uses, plus the domain-bound `requestDigests` the
         // assessor guest feeds into its journal.
@@ -706,9 +720,8 @@ contract BoundlessMarketTest is Test {
         // production.
         (bytes32 batchRoot, bytes32[][] memory tree) = TestUtils.mockSetBuilder(fills);
         bytes32 assessorLeaf = TestUtils.hashLeaf(assessorClaimDigest);
-        bytes32 root = MerkleProofish._hashPair(batchRoot, assessorLeaf);
+        root = MerkleProofish._hashPair(batchRoot, assessorLeaf);
         TestUtils.fillInclusionProofs(setVerifier, fills, assessorLeaf, tree);
-        submitRoot(root);
 
         batch = FulfillmentBatch({
             requests: slim,
@@ -824,6 +837,17 @@ contract BoundlessMarketTest is Test {
         // bumps the wallet's nonce and so is not view-compatible.
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(prover.privateKey, digest);
         return abi.encodePacked(ASSESSOR_ON_CHAIN_SEL, r, s, v);
+    }
+
+    /// @dev `Client.wallet` is `Vm.Wallet public` — Solidity's auto-getter
+    ///      returns the struct as a tuple, not as a `Vm.Wallet`. Rehydrate
+    ///      so the OnChainAssessor fixtures (and benches) can take a typed wallet.
+    function _proverWallet(Client prover) internal view returns (Vm.Wallet memory w) {
+        (address a, uint256 x, uint256 y, uint256 p) = prover.wallet();
+        w.addr = a;
+        w.publicKeyX = x;
+        w.publicKeyY = y;
+        w.privateKey = p;
     }
 
     /// @dev Broker-side per-fill build, extracted from `createFills` so the
@@ -4357,17 +4381,6 @@ contract BoundlessMarketOnChainAssessorTest is BoundlessMarketTest {
     using BoundlessMarketLib for ProofRequest;
     using BoundlessMarketLib for Offer;
 
-    /// @dev `Client.wallet` is `Vm.Wallet public` — Solidity's auto-getter
-    ///      returns the struct as a tuple, not as a `Vm.Wallet`. Rehydrate
-    ///      so the OnChainAssessor fixtures can take a typed wallet.
-    function _proverWallet(Client prover) internal view returns (Vm.Wallet memory w) {
-        (address a, uint256 x, uint256 y, uint256 p) = prover.wallet();
-        w.addr = a;
-        w.publicKeyX = x;
-        w.publicKeyY = y;
-        w.privateKey = p;
-    }
-
     // ─── Happy paths ────────────────────────────────────────────────────
 
     function testFulfillLockedRequest_OnChainAssessor() public {
@@ -4655,6 +4668,101 @@ contract BoundlessMarketBench is BoundlessMarketTest {
     function testBenchFulfillWithCallback032() public {
         benchFulfillWithCallback(32, "032");
     }
+
+    // ─── Guest-assessor best case: set-builder root + fulfill in one tx ──
+    //
+    // `submitRootAndFulfill` submits the set-builder root (production: one
+    // Groth16 verification; mocked here) and settles all fills in the same
+    // call. The R0 fixture aggregates the app proofs AND the assessor leaf
+    // into that single root, matching the broker's finalize path. The
+    // Groth16 verify cost the mock omits (~250k) is added analytically in
+    // the cost report.
+
+    function benchSubmitRootAndFulfill(uint256 batchSize, string memory snapshot) public {
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
+        (FulfillmentBatch memory batch, bytes32 root) = createFillsR0(requests, journals, testProverAddress);
+        bytes memory seal =
+            verifier.mockProve(
+            SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
+        )
+        .seal;
+
+        boundlessMarket.submitRootAndFulfill(address(setVerifier), root, seal, _asArray(batch));
+        vm.snapshotGasLastCall(string.concat("submitRootAndFulfill: batch of ", snapshot, ":v2"));
+
+        for (uint256 j = 0; j < requests.length; j++) {
+            expectRequestFulfilled(requests[j].id);
+        }
+    }
+
+    // ─── On-chain assessor (PR 2005): native Solidity assessor ───────────
+    //
+    // Same per-fill setVerifier inclusion proofs as the guest path, but the
+    // batch is vouched for by the native `OnChainAssessor` (EIP-712 ECDSA
+    // prover signature + on-chain predicate eval) instead of an off-chain
+    // assessor STARK. No assessor leaf in the root, no assessor Groth16 — at
+    // the cost of per-fill ECDSA + predicate gas, captured directly here.
+
+    function benchFulfillOnChainAssessor(uint256 batchSize, string memory snapshot) public {
+        (ProofRequest[] memory requests, bytes[] memory journals) =
+            newBatchWithSelector(batchSize, setVerifier.SELECTOR());
+        FulfillmentBatch memory batch = createFillsAndSubmitRootOnChain(requests, journals, _proverWallet(testProver));
+
+        boundlessMarket.fulfill(_asArray(batch));
+        vm.snapshotGasLastCall(string.concat("fulfill (on-chain assessor): batch of ", snapshot, ":v2"));
+
+        for (uint256 j = 0; j < requests.length; j++) {
+            expectRequestFulfilled(requests[j].id);
+        }
+    }
+
+    function testBenchSubmitRootAndFulfill001() public {
+        benchSubmitRootAndFulfill(1, "001");
+    }
+
+    function testBenchSubmitRootAndFulfill002() public {
+        benchSubmitRootAndFulfill(2, "002");
+    }
+
+    function testBenchSubmitRootAndFulfill004() public {
+        benchSubmitRootAndFulfill(4, "004");
+    }
+
+    function testBenchSubmitRootAndFulfill008() public {
+        benchSubmitRootAndFulfill(8, "008");
+    }
+
+    function testBenchSubmitRootAndFulfill016() public {
+        benchSubmitRootAndFulfill(16, "016");
+    }
+
+    function testBenchSubmitRootAndFulfill032() public {
+        benchSubmitRootAndFulfill(32, "032");
+    }
+
+    function testBenchFulfillOnChainAssessor001() public {
+        benchFulfillOnChainAssessor(1, "001");
+    }
+
+    function testBenchFulfillOnChainAssessor002() public {
+        benchFulfillOnChainAssessor(2, "002");
+    }
+
+    function testBenchFulfillOnChainAssessor004() public {
+        benchFulfillOnChainAssessor(4, "004");
+    }
+
+    function testBenchFulfillOnChainAssessor008() public {
+        benchFulfillOnChainAssessor(8, "008");
+    }
+
+    function testBenchFulfillOnChainAssessor016() public {
+        benchFulfillOnChainAssessor(16, "016");
+    }
+
+    function testBenchFulfillOnChainAssessor032() public {
+        benchFulfillOnChainAssessor(32, "032");
+    }
 }
 
 contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
@@ -4673,7 +4781,10 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy, address(new BoundlessMarket(router, address(collateralToken), legacyImpl, address(fulfillLib))), "", ownerWallet.addr
+            proxy,
+            address(new BoundlessMarket(router, address(collateralToken), legacyImpl, address(fulfillLib))),
+            "",
+            ownerWallet.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);

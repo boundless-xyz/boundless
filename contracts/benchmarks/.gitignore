@@ -1,0 +1,5 @@
+# Local telemetry parquet cache (downloaded by a fetch script)
+.telem-cache/
+# Python bytecode from running the telemetry runner
+__pycache__/
+*.pyc
