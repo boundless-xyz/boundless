@@ -11,6 +11,8 @@ publish = false
 release = false
 
 [features]
+default = ["gcs"]
+gcs = ["boundless-market/gcs"]
 test-utils = ["dep:boundless-test-utils"]
 prove = ["blake3_groth16/prove"]
 cuda = ["blake3_groth16/cuda"]
