@@ -19,17 +19,18 @@ to approve the production rollout.
 
 ## Setup
 
-Read `network_secrets.toml` from the repo root and extract `[aws.ops]`
-(`access_key_id`, `secret_access_key`). These are read-only and can query
-CodePipeline / CodeBuild / CloudWatch but cannot approve, start, or retry
-pipelines. If the file is missing, point the user at the **Boundless
-runbook**.
+Load the ops-account AWS credentials from Bitwarden via the shared helpers
+(full setup in
+[`../ops-query/references/bw-credentials.md`](../ops-query/references/bw-credentials.md)):
 
 ```bash
-export AWS_ACCESS_KEY_ID="..."
-export AWS_SECRET_ACCESS_KEY="..."
-export AWS_DEFAULT_REGION="us-west-2"
+source .claude/skills/ops-query/references/bw-credentials.sh
+bw_ensure_ready || exit 1
+bw_load_aws ops
 ```
+
+These creds are read-only -- they can query CodePipeline / CodeBuild /
+CloudWatch but cannot approve, start, or retry pipelines.
 
 All Boundless pipelines live in `us-west-2` in account `968153779208`
 (BoundlessOps).
