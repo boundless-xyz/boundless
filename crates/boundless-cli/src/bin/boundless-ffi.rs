@@ -21,7 +21,7 @@ use std::{
 
 use alloy::{
     hex::FromHex,
-    primitives::{Address, Bytes, Signature, U256},
+    primitives::{Address, Bytes, FixedBytes, Signature, U256},
     sol_types::SolValue,
 };
 use anyhow::{bail, ensure, Context, Result};
@@ -58,6 +58,9 @@ struct MainArgs {
     /// Hex encoded request' signature
     #[clap(long)]
     signature: String,
+    /// The 4-byte BoundlessRouter assessor selector to prepend to the assessor seal (hex)
+    #[clap(long)]
+    assessor_selector: FixedBytes<4>,
     #[clap(long, env = "IPFS_GATEWAY")]
     ipfs_gateway: Option<String>,
     #[clap(long, env = "PINATA_JWT")]
@@ -136,6 +139,7 @@ async fn main() -> Result<()> {
         assessor_image_id,
         args.prover_address,
         domain.clone(),
+        args.assessor_selector,
     )?;
     let request = <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?)
         .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
@@ -145,9 +149,11 @@ async fn main() -> Result<()> {
     if signature.normalize_s().is_some() {
         bail!("invalid signature: not normalized s-value");
     }
-    let (fills, root_receipt, assessor_receipt) =
-        prover.fulfill(&[(request, signature.as_bytes().into())]).await?;
-    let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
+    let orders = vec![(request, signature.as_bytes().into())];
+    let (fills, root_receipt, assessor_seal) = prover.fulfill(&orders).await?;
+    let requests: Vec<_> = orders.iter().map(|(req, _)| req.clone()).collect();
+    let order_fulfilled =
+        OrderFulfilled::new(&requests, fills, assessor_seal, args.prover_address, root_receipt)?;
 
     // Forge test FFI calls expect hex encoded bytes sent to stdout
     write!(&mut stdout, "{}", hex::encode(order_fulfilled.abi_encode()))
