@@ -12,14 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::{BTreeMap, HashMap};
+
 use crate::{
     config::{OrderCommitmentPriority, OrderPricingPriority},
     FulfillmentType, OrderRequest,
 };
 
-use alloy::primitives::{utils::format_ether, U256};
+use alloy::primitives::{utils::format_ether, Address, U256};
 use rand::seq::SliceRandom;
 use rand::Rng;
+
+/// Priority level applied to a priority requestor that carries no explicit level,
+/// i.e. a static-config `priority_requestor_addresses` entry or a remote requestor
+/// list entry without a `priority` extension. Higher levels (up to 100) outrank it;
+/// lower levels rank below it.
+pub(crate) const DEFAULT_PRIORITY_LEVEL: i32 = 50;
 
 /// Unified priority mode for both pricing and commitment
 #[derive(Debug, Clone, Copy)]
@@ -64,26 +72,46 @@ impl UnifiedPriorityMode {
     }
 }
 
+/// Sorts `orders` in place: priority requestors first, everyone else last.
+///
+/// `priority_levels` maps a priority requestor address to its priority level
+/// (0-100, higher wins). Priority orders are split into tiers by level, highest
+/// level first; within a tier they are sorted by `mode`. This means a higher
+/// level always outranks a lower one regardless of the configured priority mode.
+/// Regular (non-priority) orders are sorted by `mode` and always rank last.
 fn sort_orders_by_priority_and_mode<T>(
     orders: &mut Vec<T>,
-    priority_addresses: Option<&[alloy::primitives::Address]>,
+    priority_levels: Option<&HashMap<Address, i32>>,
     mode: UnifiedPriorityMode,
 ) where
     T: AsRef<OrderRequest>,
 {
-    let Some(addresses) = priority_addresses else {
+    let Some(levels) = priority_levels.filter(|m| !m.is_empty()) else {
         sort_by_mode(orders, mode);
         return;
     };
 
-    let (mut priority_orders, mut regular_orders): (Vec<T>, Vec<T>) = orders
+    let (priority_orders, mut regular_orders): (Vec<T>, Vec<T>) = orders
         .drain(..)
-        .partition(|order| addresses.contains(&order.as_ref().request.client_address()));
+        .partition(|order| levels.contains_key(&order.as_ref().request.client_address()));
 
-    sort_by_mode(&mut priority_orders, mode);
     sort_by_mode(&mut regular_orders, mode);
 
-    orders.extend(priority_orders);
+    // Group priority orders into descending level tiers. BTreeMap keyed by
+    // Reverse(level) iterates highest level first.
+    let mut tiers: BTreeMap<std::cmp::Reverse<i32>, Vec<T>> = BTreeMap::new();
+    for order in priority_orders {
+        let level = levels
+            .get(&order.as_ref().request.client_address())
+            .copied()
+            .unwrap_or(DEFAULT_PRIORITY_LEVEL);
+        tiers.entry(std::cmp::Reverse(level)).or_default().push(order);
+    }
+
+    for (_, mut tier) in tiers {
+        sort_by_mode(&mut tier, mode);
+        orders.extend(tier);
+    }
     orders.extend(regular_orders);
 }
 
@@ -215,14 +243,14 @@ where
 pub(crate) fn prioritize_orders_to_evaluate(
     orders: &mut Vec<Box<OrderRequest>>,
     priority_mode: OrderPricingPriority,
-    priority_addresses: Option<&[alloy::primitives::Address]>,
+    priority_levels: Option<&HashMap<Address, i32>>,
     capacity: usize,
 ) -> Vec<Box<OrderRequest>> {
     if orders.is_empty() || capacity == 0 {
         return Vec::new();
     }
 
-    sort_orders_by_priority_and_mode(orders, priority_addresses, priority_mode.into());
+    sort_orders_by_priority_and_mode(orders, priority_levels, priority_mode.into());
 
     let take_count = std::cmp::min(capacity, orders.len());
     orders.drain(..take_count).collect()
@@ -236,7 +264,7 @@ pub(crate) fn prioritize_orders_to_evaluate(
 pub(crate) fn prioritize_orders_to_commit(
     orders: &mut Vec<Box<OrderRequest>>,
     priority_mode: OrderCommitmentPriority,
-    priority_addresses: Option<&[alloy::primitives::Address]>,
+    priority_levels: Option<&HashMap<Address, i32>>,
     capacity: usize,
     peak_prove_khz: Option<u64>,
 ) -> Vec<Box<OrderRequest>> {
@@ -245,7 +273,7 @@ pub(crate) fn prioritize_orders_to_commit(
     }
 
     let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
-    sort_orders_by_priority_and_mode(orders, priority_addresses, mode);
+    sort_orders_by_priority_and_mode(orders, priority_levels, mode);
 
     let take_count = std::cmp::min(capacity, orders.len());
     orders.drain(..take_count).collect()
@@ -267,12 +295,17 @@ mod tests {
     fn prioritize_commitment_orders(
         mut orders: Vec<Arc<OrderRequest>>,
         priority_mode: OrderCommitmentPriority,
-        priority_addresses: Option<&[alloy::primitives::Address]>,
+        priority_levels: Option<&HashMap<Address, i32>>,
         peak_prove_khz: Option<u64>,
     ) -> Vec<Arc<OrderRequest>> {
         let mode = UnifiedPriorityMode::from_commitment_priority(priority_mode, peak_prove_khz);
-        sort_orders_by_priority_and_mode(&mut orders, priority_addresses, mode);
+        sort_orders_by_priority_and_mode(&mut orders, priority_levels, mode);
         orders
+    }
+
+    /// Builds a priority-levels map from `(address, level)` pairs for tests.
+    fn levels(entries: impl IntoIterator<Item = (Address, i32)>) -> HashMap<Address, i32> {
+        entries.into_iter().collect()
     }
     use alloy::primitives::U256;
     use tracing_test::traced_test;
@@ -845,7 +878,7 @@ mod tests {
 
         let regular_addr = alloy::primitives::Address::from([0x42; 20]);
         let priority_addr = alloy::primitives::Address::from([0x99; 20]);
-        let priority_addresses = vec![priority_addr];
+        let priority_levels = levels([(priority_addr, DEFAULT_PRIORITY_LEVEL)]);
 
         // Test shortest expiry mode without priority addresses
         let mut regular_order_1 = ctx
@@ -907,7 +940,7 @@ mod tests {
         let selected_orders = prioritize_orders_to_evaluate(
             &mut test_orders,
             OrderPricingPriority::ShortestExpiry,
-            Some(&priority_addresses),
+            Some(&priority_levels),
             1,
         );
         let selected_order = selected_orders.into_iter().next().unwrap();
@@ -932,7 +965,7 @@ mod tests {
         // Switch the signer address to a new one.
         ctx.signer = alloy::signers::local::PrivateKeySigner::random();
         let priority_addr = ctx.signer.address();
-        let priority_addresses = vec![priority_addr];
+        let priority_levels = levels([(priority_addr, DEFAULT_PRIORITY_LEVEL)]);
 
         // Priority order with long expiry (should be selected first with priority)
         // Note: The order is created with the default signer address (ctx.signer.address())
@@ -957,7 +990,7 @@ mod tests {
         let prioritized_orders = prioritize_commitment_orders(
             test_orders,
             OrderCommitmentPriority::ShortestExpiry,
-            Some(&priority_addresses),
+            Some(&priority_levels),
             None,
         );
 
@@ -965,6 +998,68 @@ mod tests {
         assert_eq!(prioritized_orders[0].request.lock_expires_at(), current_timestamp + 500);
         assert_eq!(prioritized_orders[0].request.client_address(), priority_addr);
         assert_eq!(prioritized_orders[1].request.lock_expires_at(), current_timestamp + 100);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_priority_level_outranks_lower_level() {
+        let ctx = PricerTestCtxBuilder::default().build().await;
+        let base_time = now_timestamp();
+
+        let high_addr = alloy::primitives::Address::from([0xAA; 20]);
+        let low_addr = alloy::primitives::Address::from([0xBB; 20]);
+        let regular_addr = alloy::primitives::Address::from([0x42; 20]);
+
+        // high_addr is level 100; low_addr carries the default level.
+        let priority_levels = levels([(high_addr, 100), (low_addr, DEFAULT_PRIORITY_LEVEL)]);
+
+        // Regular order: shortest expiry — would rank first under ShortestExpiry mode.
+        let mut regular_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 0,
+                bidding_start: base_time,
+                lock_timeout: 100,
+                ..Default::default()
+            })
+            .await;
+        regular_order.request.id =
+            boundless_market::contracts::RequestId::new(regular_addr, 0).into();
+
+        // Low-level priority order: medium expiry.
+        let mut low_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                bidding_start: base_time,
+                lock_timeout: 300,
+                ..Default::default()
+            })
+            .await;
+        low_order.request.id = boundless_market::contracts::RequestId::new(low_addr, 1).into();
+
+        // High-level priority order: longest expiry — the mode alone would rank it last.
+        let mut high_order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                bidding_start: base_time,
+                lock_timeout: 900,
+                ..Default::default()
+            })
+            .await;
+        high_order.request.id = boundless_market::contracts::RequestId::new(high_addr, 2).into();
+
+        let mut test_orders = vec![regular_order, low_order, high_order];
+        let selected = prioritize_orders_to_evaluate(
+            &mut test_orders,
+            OrderPricingPriority::ShortestExpiry,
+            Some(&priority_levels),
+            3,
+        );
+
+        // Level wins over the mode: the level-100 requestor is first despite the
+        // longest expiry, the level-50 requestor second, the regular order last.
+        assert_eq!(selected[0].request.client_address(), high_addr);
+        assert_eq!(selected[1].request.client_address(), low_addr);
+        assert_eq!(selected[2].request.client_address(), regular_addr);
     }
 
     #[tokio::test]
@@ -1368,7 +1463,7 @@ mod tests {
 
         let priority_addr = alloy::primitives::Address::from([0x99; 20]);
         let regular_addr = alloy::primitives::Address::from([0x42; 20]);
-        let priority_addresses = vec![priority_addr];
+        let priority_levels = levels([(priority_addr, DEFAULT_PRIORITY_LEVEL)]);
 
         let mut regular_chain1 = *ctx
             .generate_next_order(OrderParams {
@@ -1398,7 +1493,7 @@ mod tests {
         let selected = prioritize_orders_to_evaluate(
             &mut orders,
             OrderPricingPriority::ShortestExpiry,
-            Some(&priority_addresses),
+            Some(&priority_levels),
             2,
         );
 

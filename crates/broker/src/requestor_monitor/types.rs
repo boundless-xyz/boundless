@@ -26,7 +26,7 @@ use std::{
 use alloy::primitives::Address;
 use requestor_lists::{Extensions, RequestorEntry, RequestorList};
 
-use crate::config::ConfigLock;
+use crate::{config::ConfigLock, prioritization::DEFAULT_PRIORITY_LEVEL};
 
 /// Cached entry that tracks both the requestor data and its source URL
 #[derive(Clone, Debug)]
@@ -96,9 +96,35 @@ impl PriorityRequestors {
         self.get_requestor_entry(address).is_some()
     }
 
-    /// Returns all dynamically-registered priority addresses (from remote lists).
-    pub fn dynamic_addresses(&self) -> Vec<Address> {
-        self.requestors.read().map(|r| r.keys().copied().collect()).unwrap_or_default()
+    /// Adapt to a backend-neutral [`PriorityRequestorCheck`] closure that reads the live
+    /// requestor list.
+    pub fn as_check(&self) -> boundless_market::prover_utils::PriorityRequestorCheck {
+        let this = self.clone();
+        Arc::new(move |address| this.is_priority_requestor(address))
+    }
+
+    /// Returns all dynamically-registered priority requestors (from remote lists)
+    /// mapped to their priority level. Entries without a `priority` extension fall
+    /// back to [`DEFAULT_PRIORITY_LEVEL`].
+    pub fn dynamic_levels(&self) -> HashMap<Address, i32> {
+        self.requestors
+            .read()
+            .map(|requestors| {
+                requestors
+                    .iter()
+                    .map(|(address, cached)| {
+                        let level = cached
+                            .entry
+                            .extensions
+                            .priority
+                            .as_ref()
+                            .map(|priority| priority.level)
+                            .unwrap_or(DEFAULT_PRIORITY_LEVEL);
+                        (*address, level)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Update the priority requestors from a list

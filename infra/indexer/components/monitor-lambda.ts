@@ -145,7 +145,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
         value: '1',
         defaultValue: '0',
       },
-      pattern: '?ERROR ?error ?Error',
+      pattern: '{ $.level = "ERROR" }',
     }, { dependsOn: [this.lambdaFunction] });
 
     const alarmActions = args.boundlessAlertsTopicArns ?? [];

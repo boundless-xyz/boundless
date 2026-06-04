@@ -43,7 +43,7 @@ pub struct BrokerBuilder {
     args: CoreArgs,
     config_file: NamedTempFile,
     db_dir: tempfile::TempDir,
-    rpc_url: Url,
+    rpc_urls: Vec<Url>,
 }
 
 impl BrokerBuilder {
@@ -82,11 +82,19 @@ impl BrokerBuilder {
             version_registry_address: Some(ctx.version_registry_address),
             force_version_check: false,
         };
-        Self { args, config_file, db_dir, rpc_url }
+        Self { args, config_file, db_dir, rpc_urls: vec![rpc_url] }
     }
 
     pub fn with_db_url(mut self, db_url: String) -> Self {
         self.args.db_url = db_url;
+        self
+    }
+
+    /// Override the RPC URL list used to build the provider stack — useful for
+    /// exercising the [`SequentialFallbackLayer`](crate::sequential_fallback) path
+    /// from integration tests.
+    pub fn with_rpc_urls(mut self, rpc_urls: Vec<Url>) -> Self {
+        self.rpc_urls = rpc_urls;
         self
     }
 
@@ -105,7 +113,7 @@ impl BrokerBuilder {
         let config_watcher = ConfigWatcher::new(self.config_file.path()).await?;
         let config = config_watcher.config.clone();
         let (provider, any_provider, gas_priority_mode) =
-            crate::build_chain_provider(&[self.rpc_url], &ctx.prover_signer, &self.args, &config)?;
+            crate::build_chain_provider(&self.rpc_urls, &ctx.prover_signer, &self.args, &config)?;
         let provider = Arc::new(provider);
         let chain_id = provider.get_chain_id().await?;
         let deployment = resolve_deployment(self.args.deployment.as_ref(), chain_id)?;

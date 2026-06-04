@@ -14,10 +14,10 @@
 
 use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
-use crate::config::ProverConfig;
 use anyhow::{anyhow, Context, Result as AnyhowResult};
 use async_trait::async_trait;
 use boundless_market::prover_utils::prover::{ExecutorResp, ProofResult, Prover, ProverError};
+use boundless_market::prover_utils::ProverConfig;
 use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
     VERSION,

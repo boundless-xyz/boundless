@@ -8,6 +8,7 @@ import { LOrderStreamPipeline } from "./pipelines/l-order-stream";
 import { LProverAnsiblePipeline } from "./pipelines/l-prover-ansible";
 import { LRequestorListsPipeline } from "./pipelines/l-requestor-lists";
 import { LSlasherPipeline } from "./pipelines/l-slasher";
+import { LKailuaBatchPipeline } from "./pipelines/l-kailua-batch";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -146,6 +147,16 @@ const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
 })
 
 const lSlasherPipeline = new LSlasherPipeline("lSlasherPipeline", {
+  connection: githubConnection,
+  artifactBucket: codePipelineSharedResources.artifactBucket,
+  role: codePipelineSharedResources.role,
+  githubToken,
+  dockerUsername,
+  dockerToken,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
+})
+
+const lKailuaBatchPipeline = new LKailuaBatchPipeline("lKailuaBatchPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,

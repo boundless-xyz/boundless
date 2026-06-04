@@ -51,6 +51,7 @@ interface OrderGeneratorArgs {
   useZeth?: boolean;
   maxPriceCap?: string;
   maxOutstandingRequests?: string;
+  desiredCount?: number;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -165,6 +166,12 @@ export class OrderGenerator extends pulumi.ComponentResource {
       },
       {
         name: 'INDEXER_URL',
+        valueFrom: indexerUrlSecret.arn,
+      },
+      {
+        // Distinct env var because Deployment::indexer_url already binds
+        // INDEXER_URL; the throttle field uses a non-colliding name.
+        name: 'THROTTLE_INDEXER_URL',
         valueFrom: indexerUrlSecret.arn,
       },
     ];
@@ -318,6 +325,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         {
           name: serviceName,
           cluster: cluster.arn,
+          desiredCount: args.desiredCount ?? 1,
           networkConfiguration: {
             securityGroups: [securityGroup.id],
             subnets: args.privateSubnetIds,
@@ -489,34 +497,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
       alarmActions,
     });
 
-    // 7 errors within 1 hour in the order generator triggers a SEV1 alarm.
-    // Eth Sepolia is unreliable, so don't SEV1 on it.
-    if (!isStaging && args.chainId !== '11155111') {
-      new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV1}`, {
-        name: `${serviceName}-log-err-${Severity.SEV1}`,
-        metricQueries: [
-          {
-            id: 'm1',
-            metric: {
-              namespace: `Boundless/Services/${serviceName}`,
-              metricName: `${serviceName}-log-err`,
-              period: 60,
-              stat: 'Sum',
-            },
-            returnData: true,
-          },
-        ],
-        threshold: 1,
-        comparisonOperator: 'GreaterThanOrEqualToThreshold',
-        evaluationPeriods: 60,
-        datapointsToAlarm: 7,
-        treatMissingData: 'notBreaching',
-        alarmDescription: `Order generator ${name} log ERROR level 7 times within an hour`,
-        actionsEnabled: true,
-        alarmActions,
-      });
-    }
-
     // 10 or more transaction confirmation errors within 1 hour triggers a SEV2 alarm.
     new aws.cloudwatch.MetricAlarm(`${serviceName}-tx-conf-error-alarm-${Severity.SEV2}`, {
       name: `${serviceName}-log-tx-conf-err-${Severity.SEV2}`,
@@ -568,33 +548,5 @@ export class OrderGenerator extends pulumi.ComponentResource {
       alarmActions,
     });
 
-    // A single error in the order generator causes the process to exit.
-    // SEV1 alarm if we see 4 errors in 30 mins.
-    // Eth Sepolia is unreliable, so don't SEV1 on it.
-    if (!isStaging && args.chainId !== '11155111') {
-      new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV1}`, {
-        name: `${serviceName}-log-fatal-${Severity.SEV1}`,
-        metricQueries: [
-          {
-            id: 'm1',
-            metric: {
-              namespace: `Boundless/Services/${serviceName}`,
-              metricName: `${serviceName}-log-fatal`,
-              period: 60,
-              stat: 'Sum',
-            },
-            returnData: true,
-          },
-        ],
-        threshold: 1,
-        comparisonOperator: 'GreaterThanOrEqualToThreshold',
-        evaluationPeriods: 30,
-        datapointsToAlarm: 4,
-        treatMissingData: 'notBreaching',
-        alarmDescription: `Order generator ${name} FATAL (task exited) 4 times within 30 mins`,
-        actionsEnabled: true,
-        alarmActions,
-      });
-    }
   }
 }
