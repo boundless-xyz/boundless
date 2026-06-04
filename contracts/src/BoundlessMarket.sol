@@ -449,7 +449,7 @@ contract BoundlessMarket is
         if (paymentError.length > 0) {
             emit PaymentRequirementsFailed(paymentError);
         }
-        emit ProofDelivered(id, prover, fill);
+        emit ProofDelivered(id, prover, requestDigest, fill);
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.

@@ -23,8 +23,7 @@ use super::DbError;
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorReceipt, Fulfillment, FulfillmentDataType, Predicate, PredicateType, ProofRequest,
-    RequestInputType,
+    Fulfillment, FulfillmentDataType, Predicate, PredicateType, ProofRequest, RequestInputType,
 };
 use log::LevelFilter;
 use sqlx::{
@@ -661,14 +660,12 @@ pub trait IndexerDb {
         request_ids: &[U256],
     ) -> Result<HashMap<U256, Vec<B256>>, DbError>;
 
-    async fn add_assessor_receipts(
-        &self,
-        receipts: &[(AssessorReceipt, TxMetadata)],
-    ) -> Result<(), DbError>;
-
+    /// `proofs` entries are `(requestDigest, requestId, fulfillment, prover, metadata)`. The
+    /// request digest and id are taken from the `ProofDelivered` event, since the on-chain
+    /// `Fulfillment` no longer carries them.
     async fn add_proofs(
         &self,
-        proofs: &[(Fulfillment, Address, TxMetadata)],
+        proofs: &[(B256, U256, Fulfillment, Address, TxMetadata)],
     ) -> Result<(), DbError>;
 
     async fn get_last_order_stream_timestamp(
@@ -1598,86 +1595,9 @@ impl IndexerDb for MarketDb {
         Ok(())
     }
 
-    async fn add_assessor_receipts(
-        &self,
-        receipts: &[(AssessorReceipt, TxMetadata)],
-    ) -> Result<(), DbError> {
-        if receipts.is_empty() {
-            return Ok(());
-        }
-
-        // First, batch insert unique transactions
-        let unique_txs: Vec<TxMetadata> = receipts
-            .iter()
-            .map(|(_, metadata)| *metadata)
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-
-        self.add_txs(&unique_txs).await?;
-
-        // Then batch insert assessor receipts in chunks
-        let mut tx = self.pool.begin().await?;
-
-        const BATCH_SIZE: usize = 1000;
-        for chunk in receipts.chunks(BATCH_SIZE) {
-            if chunk.is_empty() {
-                continue;
-            }
-
-            let mut query = String::from(
-                "INSERT INTO assessor_receipts (
-                    tx_hash,
-                    prover_address,
-                    seal,
-                    block_number,
-                    block_timestamp
-                ) VALUES ",
-            );
-
-            let mut params_count = 0;
-            for i in 0..chunk.len() {
-                if i > 0 {
-                    query.push_str(", ");
-                }
-                query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${})",
-                    params_count + 1,
-                    params_count + 2,
-                    params_count + 3,
-                    params_count + 4,
-                    params_count + 5
-                ));
-                params_count += 5;
-            }
-            query.push_str(
-                " ON CONFLICT (tx_hash) DO UPDATE SET
-                    prover_address = EXCLUDED.prover_address,
-                    seal = EXCLUDED.seal,
-                    block_number = EXCLUDED.block_number,
-                    block_timestamp = EXCLUDED.block_timestamp",
-            );
-
-            let mut query_builder = sqlx::query(&query);
-            for (receipt, metadata) in chunk {
-                query_builder = query_builder
-                    .bind(format!("{:x}", metadata.tx_hash))
-                    .bind(format!("{:x}", receipt.prover))
-                    .bind(format!("{:x}", receipt.seal))
-                    .bind(metadata.block_number as i64)
-                    .bind(metadata.block_timestamp as i64);
-            }
-
-            query_builder.execute(&mut *tx).await?;
-        }
-
-        tx.commit().await?;
-        Ok(())
-    }
-
     async fn add_proofs(
         &self,
-        proofs: &[(Fulfillment, Address, TxMetadata)],
+        proofs: &[(B256, U256, Fulfillment, Address, TxMetadata)],
     ) -> Result<(), DbError> {
         if proofs.is_empty() {
             return Ok(());
@@ -1686,7 +1606,7 @@ impl IndexerDb for MarketDb {
         // First, batch insert unique transactions
         let unique_txs: Vec<TxMetadata> = proofs
             .iter()
-            .map(|(_, _, metadata)| *metadata)
+            .map(|(_, _, _, _, metadata)| *metadata)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
@@ -1752,7 +1672,7 @@ impl IndexerDb for MarketDb {
             );
 
             let mut query_builder = sqlx::query(&query);
-            for (fill, prover_address, metadata) in chunk {
+            for (request_digest, request_id, fill, prover_address, metadata) in chunk {
                 let fulfillment_data_type: &'static str = match fill.fulfillmentDataType {
                     FulfillmentDataType::ImageIdAndJournal => "ImageIdAndJournal",
                     FulfillmentDataType::None => "None",
@@ -1764,8 +1684,8 @@ impl IndexerDb for MarketDb {
                 };
 
                 query_builder = query_builder
-                    .bind(format!("{:x}", fill.requestDigest))
-                    .bind(format!("{:x}", fill.id))
+                    .bind(format!("{request_digest:x}"))
+                    .bind(format!("{request_id:x}"))
                     .bind(format!("{prover_address:x}"))
                     .bind(format!("{:x}", fill.claimDigest))
                     .bind(fulfillment_data_type)
