@@ -400,9 +400,8 @@ mod tests {
                     .into_iter()
                     .map(|order| OrderFulfillmentArtifact {
                         order_id: order.order_id,
+                        request: order.request,
                         fulfillment: MarketFulfillment {
-                            id: alloy::primitives::U256::ZERO,
-                            requestDigest: Default::default(),
                             fulfillmentData: Default::default(),
                             fulfillmentDataType: FulfillmentDataType::None,
                             claimDigest: Default::default(),

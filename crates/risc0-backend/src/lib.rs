@@ -14,7 +14,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use alloy::sol_types::{SolStruct, SolValue};
+use alloy::sol_types::SolValue;
 use alloy::{
     network::Ethereum,
     primitives::{Address, FixedBytes, B256, U256},
@@ -25,9 +25,9 @@ use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, eip712_domain, encode_seal, AssessorJournal,
-        Fulfillment as MarketFulfillment, FulfillmentData, FulfillmentDataImageIdAndJournal,
-        FulfillmentDataType, Predicate, PredicateType, RequestInputType, UNSPECIFIED_SELECTOR,
+        eip712_domain, encode_seal, AssessorJournal, Fulfillment as MarketFulfillment,
+        FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, Predicate,
+        PredicateType, RequestInputType, UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     prover_utils::{
@@ -344,8 +344,7 @@ impl Risc0Backend {
     {
         let set_builder_img_id =
             self.fetch_and_upload_set_builder_image(provider, deployment, &config).await?;
-        let assessor_img_id =
-            self.fetch_and_upload_assessor_image(provider, deployment, &config).await?;
+        let assessor_img_id = self.fetch_and_upload_assessor_image(&config).await?;
 
         let set_verifier = SetVerifierService::new(
             deployment.set_verifier_address,
@@ -415,33 +414,38 @@ impl Risc0Backend {
         Ok(image_id)
     }
 
-    async fn fetch_and_upload_assessor_image<P>(
+    async fn fetch_and_upload_assessor_image(
         &self,
-        provider: &Arc<P>,
-        deployment: &Deployment,
         config: &Risc0BackendConfig,
-    ) -> Result<Risc0Digest>
-    where
-        P: Provider<Ethereum> + Clone + 'static,
-    {
-        let boundless_market = BoundlessMarketService::new_for_broker(
-            deployment.boundless_market_address,
-            provider.clone(),
-            Address::ZERO,
-        );
-        let (image_id, image_url_str) =
-            boundless_market.image_info().await.context("Failed to get assessor image_info")?;
-        let image_id = Risc0Digest::from_bytes(image_id.0);
+    ) -> Result<Risc0Digest> {
+        // The market no longer exposes the assessor image info. The backend proves whatever assessor
+        // guest it is configured with, so derive the image id from the configured ELF (local guest
+        // path, falling back to the default URL) and upload it under that id.
+        // TODO: #1982: to handle the assessor image properly we need to handle this when we
+        //  initialize the backend and its supported selectors. The metadata in the specified
+        //  entry/class needs to point to the correct URL.
+        let program_bytes = if let Some(path) = config.assessor_set_guest_path.clone() {
+            tokio::fs::read(&path).await.with_context(|| {
+                format!("Failed to read assessor guest file: {}", path.display())
+            })?
+        } else {
+            self.download_image(&config.assessor_default_image_url, "assessor default")
+                .await
+                .context("Failed to download assessor image from default URL")?
+        };
+        let image_id =
+            compute_image_id(&program_bytes).context("Failed to compute assessor image ID")?;
 
-        self.fetch_and_upload_image(
-            "assessor",
-            image_id,
-            image_url_str,
-            config.assessor_set_guest_path.clone(),
-            config.assessor_default_image_url.clone(),
-        )
-        .await
-        .context("uploading assessor image")?;
+        if self.snark_prover.has_image(&image_id.to_string()).await? {
+            tracing::debug!("Assessor image {} already uploaded, skipping pull", image_id);
+            return Ok(image_id);
+        }
+
+        tracing::debug!("Uploading assessor image {} to bento", image_id);
+        self.snark_prover
+            .upload_image(&image_id.to_string(), program_bytes)
+            .await
+            .context("Failed to upload assessor image to prover")?;
         Ok(image_id)
     }
 
@@ -976,9 +980,6 @@ impl Backend for Risc0Backend {
 
                 tracing::debug!("Seal for order {} : {}", order.order_id, hex::encode(&seal));
 
-                let request_digest =
-                    order.request.eip712_signing_hash(&cmd.eip712_domain.alloy_struct());
-                let request_id = order.request.id;
                 let predicate_type = order.request.requirements.predicate.predicateType;
 
                 let (claim_digest, fulfillment_data, fulfillment_data_type) = match predicate_type {
@@ -1006,9 +1007,8 @@ impl Backend for Risc0Backend {
 
                 Ok(OrderFulfillmentArtifact {
                     order_id: order.order_id,
+                    request: order.request,
                     fulfillment: MarketFulfillment {
-                        id: request_id,
-                        requestDigest: request_digest,
                         fulfillmentData: fulfillment_data.into(),
                         fulfillmentDataType: fulfillment_data_type,
                         claimDigest: <[u8; 32]>::from(claim_digest).into(),

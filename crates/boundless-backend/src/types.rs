@@ -260,6 +260,9 @@ pub enum VerifierUpdate {
 
 pub struct OrderFulfillmentArtifact {
     pub order_id: String,
+    /// The full request being fulfilled. The broker derives the on-chain `SlimRequest` from this
+    /// and keys order tracking on its id (the `Fulfillment` no longer carries the request id).
+    pub request: ProofRequest,
     pub fulfillment: MarketFulfillment,
 }
 
