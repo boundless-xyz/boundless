@@ -4,7 +4,7 @@ config:
   aws:region: us-west-2
   kailua-batch:BASE_STACK: organization/bootstrap/services-prod
   kailua-batch:CHAIN_ID: "10"
-  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:1343d65
+  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:0e45ea7
   # BLOCK_COUNT per launched task: task index 0 -> 1, task index 1 -> 2 (see trigger Lambda)
   kailua-batch:TASK_CPU: "8"
   kailua-batch:TASK_MEMORY_MIB: "8192"
