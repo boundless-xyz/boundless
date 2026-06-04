@@ -41,10 +41,10 @@ config:
   kailua-batch:WALLET_KEY:
     secure: v1:lRAWZbowXgQkSqSX:Ut0Qvfyo1slJtxMZPc/WpvuLQlC2+bsPmPKhf5bOlGQP1u2bAv+o8DJEkfzEnozOHqMgma/5HtEqYJKtvTawf5p0VjFuv9DX3ByhwDJZeaI=
   kailua-batch:BOUNDLESS_RPC_URL:
-    secure: v1:UVr9zNWy+JYTpw8N:b/hsINpVPt9oRMnJBnVKyLi/F8AaMeq7qxXJNsOz/8e3kxSCNUEvZgPSG/7Gb98yH9qpiX4/1nrYXQGaHVomDXNBhoOyA+bZXGXwOdUyrf3R/UBpmn3oEL+fKclObTHqxqbZBJO/hjhXf4lPkkUL6g==
+    secure: v1:6Twx1ICtEXpBAuP9:5zjb9S1hfA8ZQCyMnBzfHsODQttEpPUyJ/lMquS6Dm1JPluU+JThVi/8aw2Ai7awi3Gd5YNn7TcmIi3ARIY5smNupuAMjXSCCYlyn3acMt1lxOmOyXOrBdu9XAO7CvmGQKWXXgTDlcJeUsZ5dqMd+w==
   kailua-batch:L1_BEACON:
     secure: v1:MQoNgD7ntu5BZh+0:SW9N5n+daQQJWr87m37OGvkfxfOOhW33EX3qxyjkEmNoLtCc0qecSENX8noGaVFmLShKzHTUl337gnvCbqS53ZhO9FwxENpan1MG6Lzam1IJHzJ4IZQ+pAo7EH/d0iEN
   kailua-batch:S3_URL:
     secure: v1:uic0XwOCVP8ecxaT:GwwYi64Gisrq7VKu+mTpqxYhdCWOpOkBGS+oEMvPGEA1qMcpiwalNOfS8WmgzCIdG0+l0h3+1xMZ/RqyPEWO43klUPk4+GbI4rjY0Xeen1bk
   kailua-batch:BOUNDLESS_ORDER_STREAM_URL:
-    secure: v1:b6nIkJAjAWeO2ft3:6qho2ddpG6aXWZiMof1om7PHGhsG+w4m7frcZfUgNF3RoSGY/WqAsB/ep9EhsgiEE/UnBoGyeRP7Dk1nOXthDZRlZlhuTekxQksOxDn7CnwklHQtidg3GCDb2TWf
+    secure: v1:MPne/quadp5SpIJV:UTCRs341PjeijpWIBNIxIassKAYSZd+I9SOejCns4aDI3+4dgBHH1qCl6Iem9sH9GOVsSMNhh/XXfpgxgh1D0Ct3gPuLvTiZa2fSuUmMXDRnh+vRm2u3PrhbhO0=
