@@ -4228,6 +4228,28 @@ contract BoundlessMarketLegacyBench is BoundlessMarketLegacyTest {
         }
     }
 
+    // Combined root submission + fulfill in one tx — mirrors the new market's
+    // `benchSubmitRootAndFulfill` so legacy and new are compared on the SAME
+    // entrypoint. (`benchFulfill` above measures fulfill only, with the root
+    // submitted in a separate, unmeasured tx.)
+    function benchSubmitRootAndFulfill(uint256 batchSize, string memory snapshot) public {
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
+        (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) =
+            createFills(requests, journals, testProverAddress, FulfillmentDataType.ImageIdAndJournal, ASSESSOR_IMAGE_ID);
+        bytes memory seal =
+            verifier.mockProve(
+            SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
+        )
+        .seal;
+
+        boundlessMarket.submitRootAndFulfill(address(setVerifier), root, seal, fills, assessorReceipt);
+        vm.snapshotGasLastCall(string.concat("submitRootAndFulfill: batch of ", snapshot));
+
+        for (uint256 j = 0; j < fills.length; j++) {
+            expectRequestFulfilled(fills[j].id);
+        }
+    }
+
     function testBenchFulfill001() public {
         benchFulfill(1, "001");
     }
@@ -4306,6 +4328,30 @@ contract BoundlessMarketLegacyBench is BoundlessMarketLegacyTest {
 
     function testBenchFulfillWithCallback032() public {
         benchFulfillWithCallback(32, "032");
+    }
+
+    function testBenchSubmitRootAndFulfill001() public {
+        benchSubmitRootAndFulfill(1, "001");
+    }
+
+    function testBenchSubmitRootAndFulfill002() public {
+        benchSubmitRootAndFulfill(2, "002");
+    }
+
+    function testBenchSubmitRootAndFulfill004() public {
+        benchSubmitRootAndFulfill(4, "004");
+    }
+
+    function testBenchSubmitRootAndFulfill008() public {
+        benchSubmitRootAndFulfill(8, "008");
+    }
+
+    function testBenchSubmitRootAndFulfill016() public {
+        benchSubmitRootAndFulfill(16, "016");
+    }
+
+    function testBenchSubmitRootAndFulfill032() public {
+        benchSubmitRootAndFulfill(32, "032");
     }
 }
 

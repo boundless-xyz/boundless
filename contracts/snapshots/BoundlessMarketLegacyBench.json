@@ -18,5 +18,11 @@
   "fulfill: batch of 016": "686422",
   "fulfill: batch of 032": "1343691",
   "fulfill: batch of 064": "2722486",
-  "fulfill: batch of 128": "5673869"
+  "fulfill: batch of 128": "5673869",
+  "submitRootAndFulfill: batch of 001": "120209",
+  "submitRootAndFulfill: batch of 002": "161173",
+  "submitRootAndFulfill: batch of 004": "245152",
+  "submitRootAndFulfill: batch of 008": "403160",
+  "submitRootAndFulfill: batch of 016": "719347",
+  "submitRootAndFulfill: batch of 032": "1376626"
 }

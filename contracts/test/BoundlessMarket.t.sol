@@ -4697,19 +4697,20 @@ contract BoundlessMarketBench is BoundlessMarketTest {
 
     // ─── On-chain assessor (PR 2005): native Solidity assessor ───────────
     //
-    // Same per-fill setVerifier inclusion proofs as the guest path, but the
-    // batch is vouched for by the native `OnChainAssessor` (EIP-712 ECDSA
-    // prover signature + on-chain predicate eval) instead of an off-chain
-    // assessor STARK. No assessor leaf in the root, no assessor Groth16 — at
-    // the cost of per-fill ECDSA + predicate gas, captured directly here.
-
+    // The native `OnChainAssessor` (EIP-712 ECDSA prover signature + on-chain
+    // predicate eval) replaces the off-chain assessor STARK. Crucially there is
+    // NO set-builder root here: the assessor needs none, and each app proof is
+    // verified directly (NullVerifier in the mock; a direct Groth16 in prod, +
+    // ~250k each analytically). So this is the canonical no-root flow — per-fill
+    // app proof is its own seal, no root SSTORE, no assessor leaf, no assessor
+    // Groth16. Compare against the guest `submitRootAndFulfill` (which MUST
+    // submit a root to carry the aggregated assessor).
     function benchFulfillOnChainAssessor(uint256 batchSize, string memory snapshot) public {
-        (ProofRequest[] memory requests, bytes[] memory journals) =
-            newBatchWithSelector(batchSize, setVerifier.SELECTOR());
-        FulfillmentBatch memory batch = createFillsAndSubmitRootOnChain(requests, journals, _proverWallet(testProver));
+        (ProofRequest[] memory requests, bytes[] memory journals) = newBatchWithSelector(batchSize, VERIFIER_ENTRY_SEL);
+        FulfillmentBatch memory batch = createFulfillmentBatchOnChain(requests, journals, _proverWallet(testProver));
 
         boundlessMarket.fulfill(_asArray(batch));
-        vm.snapshotGasLastCall(string.concat("fulfill (on-chain assessor): batch of ", snapshot, ":v2"));
+        vm.snapshotGasLastCall(string.concat("fulfill (on-chain assessor, no root): batch of ", snapshot, ":v2"));
 
         for (uint256 j = 0; j < requests.length; j++) {
             expectRequestFulfilled(requests[j].id);
