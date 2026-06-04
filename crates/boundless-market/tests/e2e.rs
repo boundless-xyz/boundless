@@ -26,8 +26,8 @@ use boundless_market::{
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
-        AssessorReceipt, FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest,
-        RequestId, RequestStatus, Requirements,
+        FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest, RequestId,
+        RequestStatus, Requirements,
     },
     indexer_client::IndexerClient,
     input::GuestEnv,
@@ -296,15 +296,14 @@ async fn test_e2e() {
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
     // fulfill the request
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .fulfill(FulfillmentTx::new(
+            vec![request.clone()],
+            vec![fulfillment.clone()],
+            assessor_seal.clone(),
+            ctx.prover_signer.address(),
+        ))
         .await
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
@@ -368,20 +367,23 @@ async fn test_e2e_merged_submit_fulfill() {
         FulfillmentDataType::ImageIdAndJournal,
     );
 
+    let requests = vec![request.clone()];
     let fulfillments = vec![fulfillment];
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
     // publish the committed root + fulfillments
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone()).with_submit_root(
-            ctx.deployment.set_verifier_address,
-            root,
-            set_verifier_seal,
-        ))
+        .fulfill(
+            FulfillmentTx::new(
+                requests.clone(),
+                fulfillments.clone(),
+                assessor_seal.clone(),
+                ctx.prover_signer.address(),
+            )
+            .with_submit_root(
+                ctx.deployment.set_verifier_address,
+                root,
+                set_verifier_seal,
+            ),
+        )
         .await
         .unwrap();
 
@@ -431,20 +433,20 @@ async fn test_e2e_price_and_fulfill_batch() {
         FulfillmentDataType::ImageIdAndJournal,
     );
 
+    let requests = vec![request.clone()];
     let fulfillments = vec![fulfillment];
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
 
     // Price and fulfill the request
     ctx.prover_market
         .fulfill(
-            FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone())
-                .with_submit_root(ctx.deployment.set_verifier_address, root, set_verifier_seal)
-                .with_unlocked_request(UnlockedRequest::new(request.clone(), customer_sig.clone())),
+            FulfillmentTx::new(
+                requests.clone(),
+                fulfillments.clone(),
+                assessor_seal.clone(),
+                ctx.prover_signer.address(),
+            )
+            .with_submit_root(ctx.deployment.set_verifier_address, root, set_verifier_seal)
+            .with_unlocked_request(UnlockedRequest::new(request.clone(), customer_sig.clone())),
         )
         .await
         .unwrap();
@@ -517,18 +519,16 @@ async fn test_e2e_no_payment() {
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-        let assessor_fill = AssessorReceipt {
-            seal: assessor_seal,
-            selectors: vec![],
-            prover: some_other_address,
-            callbacks: vec![],
-        };
-
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         // fulfill the request. This call emits a PaymentRequirementsFailed log since the lock
         // belongs to a different prover, but the request itself still becomes fulfilled on-chain.
         ctx.prover_market
-            .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+            .fulfill(FulfillmentTx::new(
+                vec![request.clone()],
+                vec![fulfillment.clone()],
+                assessor_seal.clone(),
+                some_other_address,
+            ))
             .await
             .expect("fulfillment should succeed even if payment requirements fail");
         assert!(logs_contain("Payment requirements failed for at least one fulfillment"));
@@ -560,16 +560,14 @@ async fn test_e2e_no_payment() {
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
-
     // fulfill the request, this time getting paid.
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .fulfill(FulfillmentTx::new(
+            vec![request.clone()],
+            vec![fulfillment.clone()],
+            assessor_seal.clone(),
+            ctx.prover_signer.address(),
+        ))
         .await
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
@@ -644,15 +642,14 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
     // fulfill the request
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .fulfill(FulfillmentTx::new(
+            vec![request.clone()],
+            vec![fulfillment.clone()],
+            assessor_seal.clone(),
+            ctx.prover_signer.address(),
+        ))
         .await
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());

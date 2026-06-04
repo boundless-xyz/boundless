@@ -593,10 +593,10 @@ mod tests {
     };
     use boundless_test_utils::{
         guests::{
-            ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
-            SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH,
+            ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF,
+            SET_BUILDER_ID, SET_BUILDER_PATH,
         },
-        market::{deploy_boundless_market, deploy_hit_points},
+        market::{deploy_boundless_market, deploy_hit_points, ASSESSOR_R0_SELECTOR},
         verifier::{deploy_mock_verifier, deploy_set_verifier},
     };
     use chrono::Utc;
@@ -674,7 +674,7 @@ mod tests {
             set_verifier,
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
-            format!("file://{ASSESSOR_GUEST_PATH}"),
+            Digest::from(SET_BUILDER_ID),
             Some(prover_addr),
         )
         .await
@@ -911,7 +911,8 @@ mod tests {
                 priority_requestors.as_check(),
             )
             .with_set_builder_program_id(set_builder_id)
-            .with_set_verifier(set_verifier, provider.clone(), prover_addr),
+            .with_set_verifier(set_verifier, provider.clone(), prover_addr)
+            .with_assessor_selector(ASSESSOR_R0_SELECTOR),
         );
         let backend_router = Arc::new(
             BackendRouter::new().register_backend(BackendEntry::new(risc0_backend)).unwrap(),

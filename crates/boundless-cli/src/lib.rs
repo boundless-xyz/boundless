@@ -649,7 +649,7 @@ mod tests {
     };
     use boundless_test_utils::{
         guests::{ECHO_ID, ECHO_PATH},
-        market::create_test_ctx,
+        market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
     };
     use std::sync::Arc;
 
@@ -692,7 +692,8 @@ mod tests {
         let (request, signature) =
             setup_proving_request_and_signature(&signer, Some(SelectorExt::groth16_latest())).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller =
+            OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -712,7 +713,8 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller =
+            OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -749,7 +751,8 @@ mod tests {
         let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
 
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller =
+            OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();

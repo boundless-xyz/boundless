@@ -29,7 +29,7 @@ use boundless_market::contracts::{
 use boundless_market::storage::StandardDownloader;
 use boundless_slasher::db::PgDb;
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
-use boundless_test_utils::market::create_test_ctx;
+use boundless_test_utils::market::{create_test_ctx, ASSESSOR_R0_SELECTOR};
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use futures_util::StreamExt;
 
@@ -271,10 +271,14 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
         StandardDownloader::new().await,
     );
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-    let prover = OrderFulfiller::initialize(prover, &client).await.unwrap();
-    let (fill, root_receipt, assessor_receipt) =
-        prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
-    let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();
+    let fulfiller =
+        OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
+    let prover_address = client.boundless_market.caller();
+    let orders = [(request.clone(), client_sig.clone())];
+    let (fills, root_receipt, assessor_seal) = fulfiller.fulfill(&orders).await.unwrap();
+    let requests: Vec<ProofRequest> = orders.iter().map(|(req, _)| req.clone()).collect();
+    let order_fulfilled =
+        OrderFulfilled::new(&requests, fills, assessor_seal, prover_address, root_receipt).unwrap();
     let expires_at = request.offer.rampUpStart + request.offer.timeout as u64;
     let lock_expires_at = request.offer.rampUpStart + request.offer.lockTimeout as u64;
 
@@ -298,13 +302,18 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     // Fulfill the order
     ctx.customer_market
         .fulfill(
-            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
-                .with_submit_root(
-                    ctx.deployment.set_verifier_address,
-                    order_fulfilled.root,
-                    order_fulfilled.seal,
-                )
-                .with_unlocked_request(UnlockedRequest::new(request, client_sig)),
+            FulfillmentTx::new(
+                requests,
+                order_fulfilled.fulfillmentBatch.fills,
+                order_fulfilled.fulfillmentBatch.assessorSeal,
+                prover_address,
+            )
+            .with_submit_root(
+                ctx.deployment.set_verifier_address,
+                order_fulfilled.root,
+                order_fulfilled.seal,
+            )
+            .with_unlocked_request(UnlockedRequest::new(request, client_sig)),
         )
         .await
         .unwrap();

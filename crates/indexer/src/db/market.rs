@@ -4627,8 +4627,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
-        RequestId, RequestInput, Requirements,
+        Fulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest, RequestId, RequestInput,
+        Requirements,
     };
     use risc0_zkvm::Digest;
     use tracing_test::traced_test;
@@ -4828,31 +4828,6 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn test_assessor_receipts(pool: sqlx::PgPool) {
-        let test_db = test_db(pool).await;
-        let db: DbObj = test_db.db;
-
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
-
-        let receipt = AssessorReceipt {
-            prover: Address::ZERO,
-            callbacks: vec![],
-            selectors: vec![],
-            seal: Bytes::default(),
-        };
-
-        db.add_assessor_receipts(&[(receipt.clone(), metadata)]).await.unwrap();
-
-        // Verify assessor receipt was added
-        let result = sqlx::query("SELECT * FROM assessor_receipts WHERE tx_hash = $1")
-            .bind(format!("{:x}", metadata.tx_hash))
-            .fetch_one(&test_db.pool)
-            .await
-            .unwrap();
-        assert_eq!(result.get::<String, _>("prover_address"), format!("{:x}", receipt.prover));
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
     async fn test_add_proofs(pool: sqlx::PgPool) {
         let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
@@ -4868,10 +4843,9 @@ mod tests {
             digest_bytes[1] = ((i / 256) % 256) as u8;
             digest_bytes[2] = ((i / 65536) % 256) as u8;
             let request_digest = B256::from(digest_bytes);
+            let request_id = U256::from(i);
 
             let fulfillment = Fulfillment {
-                requestDigest: request_digest,
-                id: U256::from(i),
                 claimDigest: B256::from([(i % 256) as u8; 32]),
                 fulfillmentData: Bytes::default(),
                 fulfillmentDataType: FulfillmentDataType::None,
@@ -4894,7 +4868,7 @@ mod tests {
                 i as u64,
             );
 
-            proofs.push((fulfillment, prover, metadata));
+            proofs.push((request_digest, request_id, fulfillment, prover, metadata));
         }
 
         // Batch insert all proofs
@@ -4902,10 +4876,10 @@ mod tests {
 
         // Verify proofs were added correctly - check samples
         for i in [0, 500, 800, 1199].iter() {
-            let (fulfillment, prover, metadata) = &proofs[*i];
+            let (request_digest, request_id, fulfillment, prover, metadata) = &proofs[*i];
             let result =
                 sqlx::query("SELECT * FROM proofs WHERE request_digest = $1 AND tx_hash = $2")
-                    .bind(format!("{:x}", fulfillment.requestDigest))
+                    .bind(format!("{request_digest:x}"))
                     .bind(format!("{:x}", metadata.tx_hash))
                     .fetch_optional(&test_db.pool)
                     .await
@@ -4913,7 +4887,7 @@ mod tests {
 
             assert!(result.is_some(), "Proof {} should exist", i);
             let row = result.unwrap();
-            assert_eq!(row.get::<String, _>("request_id"), format!("{:x}", fulfillment.id));
+            assert_eq!(row.get::<String, _>("request_id"), format!("{request_id:x}"));
             assert_eq!(row.get::<String, _>("prover_address"), format!("{prover:x}"));
             assert_eq!(
                 row.get::<String, _>("claim_digest"),
@@ -5974,8 +5948,6 @@ mod tests {
         let metadata_wrong_prover =
             TxMetadata::new(B256::from([19; 32]), Address::ZERO, 103, 1250, 0);
         let fulfillment_wrong_prover = Fulfillment {
-            requestDigest: request_digest,
-            id: request.id,
             claimDigest: B256::from([29; 32]),
             fulfillmentData: Bytes::default(),
             fulfillmentDataType: FulfillmentDataType::None,
@@ -5987,8 +5959,6 @@ mod tests {
 
         let metadata_early = TxMetadata::new(B256::from([20; 32]), Address::ZERO, 104, 1300, 0);
         let fulfillment_early = Fulfillment {
-            requestDigest: request_digest,
-            id: request.id,
             claimDigest: B256::from([30; 32]),
             fulfillmentData: Bytes::default(),
             fulfillmentDataType: FulfillmentDataType::None,
@@ -5997,8 +5967,6 @@ mod tests {
 
         let metadata_late = TxMetadata::new(B256::from([21; 32]), Address::ZERO, 105, 1400, 1);
         let fulfillment_late = Fulfillment {
-            requestDigest: request_digest,
-            id: request.id,
             claimDigest: B256::from([31; 32]),
             fulfillmentData: Bytes::default(),
             fulfillmentDataType: FulfillmentDataType::None,
@@ -6006,9 +5974,9 @@ mod tests {
         };
 
         db.add_proofs(&[
-            (fulfillment_wrong_prover, prover_b, metadata_wrong_prover),
-            (fulfillment_early, prover_a, metadata_early),
-            (fulfillment_late, prover_a, metadata_late),
+            (request_digest, request.id, fulfillment_wrong_prover, prover_b, metadata_wrong_prover),
+            (request_digest, request.id, fulfillment_early, prover_a, metadata_early),
+            (request_digest, request.id, fulfillment_late, prover_a, metadata_late),
         ])
         .await
         .unwrap();
@@ -6092,14 +6060,14 @@ mod tests {
             .unwrap();
         let seal1 = Bytes::from(vec![1, 1, 1]);
         let fulfillment1 = Fulfillment {
-            requestDigest: digest1,
-            id: request1.id,
             claimDigest: B256::from([201; 32]),
             fulfillmentData: Bytes::default(),
             fulfillmentDataType: FulfillmentDataType::None,
             seal: seal1.clone(),
         };
-        db.add_proofs(&[(fulfillment1, prover1, meta1_fulfill)]).await.unwrap();
+        db.add_proofs(&[(digest1, request1.id, fulfillment1, prover1, meta1_fulfill)])
+            .await
+            .unwrap();
         // Add proof_delivered_events for prover1 (the lock prover)
         db.add_proof_delivered_events(&[(digest1, request1.id, prover1, meta1_fulfill)])
             .await
@@ -6165,14 +6133,14 @@ mod tests {
             .unwrap();
         let seal4 = Bytes::from(vec![4, 4, 4]);
         let fulfillment4 = Fulfillment {
-            requestDigest: digest4,
-            id: request4.id,
             claimDigest: B256::from([204; 32]),
             fulfillmentData: Bytes::default(),
             fulfillmentDataType: FulfillmentDataType::None,
             seal: seal4.clone(),
         };
-        db.add_proofs(&[(fulfillment4, prover2, meta4_fulfill)]).await.unwrap();
+        db.add_proofs(&[(digest4, request4.id, fulfillment4, prover2, meta4_fulfill)])
+            .await
+            .unwrap();
 
         // Request 5: no events at all
         let meta5 = TxMetadata::new(B256::from([140; 32]), Address::ZERO, 109, 5000, 0);
