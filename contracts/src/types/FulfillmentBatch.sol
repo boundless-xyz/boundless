@@ -11,24 +11,22 @@ import {SlimRequest} from "./SlimRequest.sol";
 
 /// @title FulfillmentBatch — single-class slice of a fulfillment transaction.
 ///
-/// @notice A `FulfillmentBatch` carries the data the market and router need
-///         to verify and settle one verifier-class group of fills. One
-///         transaction can carry multiple `FulfillmentBatch`es of mixed
-///         classes; each is verified independently by the router and settles
-///         its own per-fill lifecycle.
+/// @notice A `FulfillmentBatch` carries the data the market and router need to
+/// verify and settle one verifier-class group of fills. One transaction can
+/// carry multiple `FulfillmentBatch`es of mixed classes; each is verified
+/// independently by the router and settles its own per-fill lifecycle.
 ///
-///         All fills in a batch must share the same verifier class (the
-///         router enforces this via `MixedClassWithinBatch`). The optional
-///         assessor seam is per-batch: verifier-class batches carry a
-///         non-empty `assessorSeal`, joint-class batches must leave it empty.
+/// All fills in a batch must share the same verifier class (the router enforces
+/// this via `MixedClassWithinBatch`). The optional assessor seam is per-batch:
+/// verifier-class batches carry a non-empty `assessorSeal`, joint-class batches
+/// must leave it empty.
 ///
-///         The market reconstructs each request's EIP-712 digest from
-///         `requests[i]` and asserts integrity against the lock (locked
-///         path) or against the transient `FulfillmentContext` (priced
-///         path). The slim payload carries the predicate, callback, and
-///         selector in full plus pre-computed digests for `imageUrl`,
-///         `input`, and `offer` — enough to reconstruct the signed
-///         `requestDigest` but ~5x smaller than the full `ProofRequest`.
+/// The market reconstructs each request's EIP-712 digest from `requests[i]` and
+/// asserts integrity against the lock (locked path) or against the transient
+/// `FulfillmentContext` (priced path). The slim payload carries the predicate,
+/// callback, and selector in full plus pre-computed digests for `imageUrl`,
+/// `input`, and `offer` — enough to reconstruct the signed `requestDigest` but
+/// ~5x smaller than the full `ProofRequest`.
 struct FulfillmentBatch {
     /// @notice Per-fill `SlimRequest` (one per `fills` entry, same order).
     ///         The market reconstructs `requestDigest` from this and asserts
