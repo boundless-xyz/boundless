@@ -4,7 +4,7 @@ config:
   aws:region: us-west-2
   kailua-batch:BASE_STACK: organization/bootstrap/services-staging
   kailua-batch:CHAIN_ID: "10"
-  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:0e45ea7
+  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:df322d3
   kailua-batch:TASK_CPU: "8"
   kailua-batch:TASK_MEMORY_MIB: "8192"
   kailua-batch:LOG_RETENTION_DAYS: "30"
