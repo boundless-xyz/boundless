@@ -18,6 +18,12 @@ Checks (per peer):
   2. Every struct type that appears in the top-level storage (Account,
      RequestLock, transitively) has identical member layouts in both
      artifacts: same labels, same (slot, offset, width).
+  3. Shared compile-time constants (SHARED_CONSTANTS, e.g. MARKET_FEE_BPS)
+     hold the same declared type and value. Constants occupy no storage slot,
+     so this invariant — currently only asserted by a "Must equal
+     BoundlessMarket.X" comment in the peer source — is read from the contract
+     AST instead of the storage layout. A mismatch means the peer's fee math
+     would silently disagree with the market's.
 
 Differences in the AST-id suffix of type names (e.g. `RequestId)12840` vs
 `RequestId)20065`) are tolerated — only the human-readable struct/enum/
@@ -48,6 +54,13 @@ SHARED_TOP_LEVEL = [
     ("imageUrl", 2),
 ]
 
+# Contract-level `constant`s that the new market and every peer it
+# delegate-calls must agree on. These occupy no storage slot, so they are
+# checked against the AST rather than the storage layout. Each corresponds to a
+# "Must equal BoundlessMarket.X" comment in the peer source — this list turns
+# that comment into an enforced invariant.
+SHARED_CONSTANTS = ["MARKET_FEE_BPS"]
+
 
 # Strip the trailing `_storage` suffix and any embedded AST id sequences from
 # a type identifier so two artifacts with different compile-time IDs still
@@ -77,6 +90,88 @@ def load_layout(artifact_path: Path) -> dict:
         )
         sys.exit(2)
     return layout
+
+
+def load_ast(artifact_path: Path) -> dict:
+    if not artifact_path.exists():
+        print(f"error: {artifact_path.relative_to(REPO_ROOT)} not found — run `forge build` first", file=sys.stderr)
+        sys.exit(2)
+    artifact = json.loads(artifact_path.read_text())
+    ast = artifact.get("ast")
+    if not ast:
+        print(
+            f"error: {artifact_path.relative_to(REPO_ROOT)} has no ast (ast = true in foundry.toml?)",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return ast
+
+
+def _strip_ids(node):
+    """Drop source-location / ast-id keys so a value expression compiled in one
+    file compares structurally equal to the same expression in another."""
+    if isinstance(node, dict):
+        return {
+            k: _strip_ids(v)
+            for k, v in node.items()
+            if k not in ("id", "src", "nameLocation", "nameLocations", "referencedDeclaration")
+        }
+    if isinstance(node, list):
+        return [_strip_ids(x) for x in node]
+    return node
+
+
+def find_constant(ast: dict, name: str) -> dict | None:
+    """Find a contract-level `constant` declaration by name in the artifact AST.
+
+    Returns its declared type, a structural fingerprint of the value expression
+    (robust to literals and to identical multi-token expressions), and a short
+    human-readable form. Returns None if no such constant exists.
+    """
+    for node in ast.get("nodes", []):
+        if node.get("nodeType") != "ContractDefinition":
+            continue
+        for member in node.get("nodes", []):
+            if (
+                member.get("nodeType") == "VariableDeclaration"
+                and member.get("name") == name
+                and member.get("constant")
+            ):
+                value = member.get("value") or {}
+                if value.get("nodeType") == "Literal":
+                    display = f"{value.get('kind')} {value.get('value')!r}"
+                else:
+                    display = f"<{value.get('nodeType', 'unknown')} expression>"
+                return {
+                    "type": member.get("typeDescriptions", {}).get("typeString"),
+                    "fingerprint": json.dumps(_strip_ids(value), sort_keys=True),
+                    "display": display,
+                }
+    return None
+
+
+def compare_constants(primary_ast: dict, peer_ast: dict, peer_name: str) -> list[str]:
+    """Assert every SHARED_CONSTANTS entry holds the same declared type and value
+    in the primary market and the peer."""
+    errors: list[str] = []
+    for name in SHARED_CONSTANTS:
+        primary = find_constant(primary_ast, name)
+        peer = find_constant(peer_ast, name)
+        if primary is None:
+            errors.append(f"constant {name}: missing from primary (new market)")
+            continue
+        if peer is None:
+            errors.append(f"constant {name}: declared in primary but missing from {peer_name}")
+            continue
+        if primary["type"] != peer["type"]:
+            errors.append(
+                f"constant {name}: type differs (primary={primary['type']!r}, {peer_name}={peer['type']!r})"
+            )
+        if primary["fingerprint"] != peer["fingerprint"]:
+            errors.append(
+                f"constant {name}: value differs (primary={primary['display']}, {peer_name}={peer['display']})"
+            )
+    return errors
 
 
 def storage_entry(layout: dict, slot: int) -> dict | None:
@@ -215,12 +310,15 @@ def compare_layouts(primary_layout: dict, peer_layout: dict, peer_name: str) -> 
 
 def main() -> int:
     primary_layout = load_layout(PRIMARY_ARTIFACT)
+    primary_ast = load_ast(PRIMARY_ARTIFACT)
 
     any_errors = False
     summary_lines = []
     for peer_name, peer_path in PEERS:
         peer_layout = load_layout(peer_path)
+        peer_ast = load_ast(peer_path)
         errors = compare_layouts(primary_layout, peer_layout, peer_name)
+        errors += compare_constants(primary_ast, peer_ast, peer_name)
         if errors:
             any_errors = True
             print(f"storage layout divergence between primary (new market) and {peer_name}:", file=sys.stderr)
@@ -237,7 +335,10 @@ def main() -> int:
     if any_errors:
         return 1
 
-    print("OK: storage layout interop preserved across primary, legacy, and FulfillLib")
+    print(
+        "OK: storage layout interop and shared constants "
+        f"({', '.join(SHARED_CONSTANTS)}) preserved across primary, legacy, and FulfillLib"
+    )
     for line in summary_lines:
         print(line)
     return 0
