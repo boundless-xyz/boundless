@@ -36,7 +36,7 @@ use boundless_market::contracts::{
 };
 use boundless_market::storage::StandardDownloader;
 use boundless_test_utils::{
-    guests::{ECHO_ID, ECHO_PATH},
+    guests::{ASSESSOR_GUEST_PATH, ECHO_ID, ECHO_PATH},
     market::{create_test_ctx, TestCtx, ASSESSOR_R0_SELECTOR},
 };
 use sqlx::{PgPool, Row};
@@ -74,6 +74,7 @@ pub async fn new_market_test_fixture(
         Arc::new(BrokerDefaultProver::default()),
         &client,
         ASSESSOR_R0_SELECTOR,
+        &format!("file://{ASSESSOR_GUEST_PATH}"),
     )
     .await
     .unwrap();

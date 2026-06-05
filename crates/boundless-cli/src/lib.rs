@@ -282,14 +282,20 @@ impl OrderFulfiller {
             )?)
         };
 
-        Self::initialize(prover, client, assessor_selector).await
+        Self::initialize(prover, client, assessor_selector, ASSESSOR_DEFAULT_IMAGE_URL).await
     }
 
     /// Initialize an OrderFulfiller from a provided Prover instance.
+    ///
+    /// `assessor_image_url` is the source for the assessor guest ELF; its image id must match the
+    /// one the deployed `R0BoundlessAssessorAdapter` verifies against. Production passes
+    /// [ASSESSOR_DEFAULT_IMAGE_URL]; tests point it at the locally-built guest so the proven image
+    /// matches the image deployed by the test harness.
     pub async fn initialize<P, St, D, R, Si>(
         prover: Arc<dyn Prover + Send + Sync>,
         client: &boundless_market::Client<P, St, D, R, Si>,
         assessor_selector: FixedBytes<4>,
+        assessor_image_url: &str,
     ) -> Result<Self>
     where
         P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
@@ -304,7 +310,7 @@ impl OrderFulfiller {
 
         // The market no longer exposes the assessor image info; derive it from the configured ELF.
         let assessor_program = downloader
-            .download(ASSESSOR_DEFAULT_IMAGE_URL)
+            .download(assessor_image_url)
             .await
             .context("Failed to download assessor image")?;
         let assessor_image_id =
@@ -315,8 +321,8 @@ impl OrderFulfiller {
             &prover,
             "assessor",
             assessor_image_id,
-            ASSESSOR_DEFAULT_IMAGE_URL,
-            ASSESSOR_DEFAULT_IMAGE_URL,
+            assessor_image_url,
+            assessor_image_url,
             &downloader,
         )
         .await?;
@@ -648,7 +654,7 @@ mod tests {
         storage::StandardDownloader,
     };
     use boundless_test_utils::{
-        guests::{ECHO_ID, ECHO_PATH},
+        guests::{ASSESSOR_GUEST_PATH, ECHO_ID, ECHO_PATH},
         market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
     };
     use std::sync::Arc;
@@ -693,7 +699,14 @@ mod tests {
             setup_proving_request_and_signature(&signer, Some(SelectorExt::groth16_latest())).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
         let mut fulfiller =
-            OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
+            OrderFulfiller::initialize(
+                prover,
+                &client,
+                ASSESSOR_R0_SELECTOR,
+                &format!("file://{ASSESSOR_GUEST_PATH}"),
+            )
+            .await
+            .unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -714,7 +727,14 @@ mod tests {
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
         let mut fulfiller =
-            OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
+            OrderFulfiller::initialize(
+                prover,
+                &client,
+                ASSESSOR_R0_SELECTOR,
+                &format!("file://{ASSESSOR_GUEST_PATH}"),
+            )
+            .await
+            .unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -752,7 +772,14 @@ mod tests {
 
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
         let mut fulfiller =
-            OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
+            OrderFulfiller::initialize(
+                prover,
+                &client,
+                ASSESSOR_R0_SELECTOR,
+                &format!("file://{ASSESSOR_GUEST_PATH}"),
+            )
+            .await
+            .unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();

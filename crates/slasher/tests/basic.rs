@@ -28,7 +28,7 @@ use boundless_market::contracts::{
 };
 use boundless_market::storage::StandardDownloader;
 use boundless_slasher::db::PgDb;
-use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
+use boundless_test_utils::guests::{ASSESSOR_GUEST_PATH, ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::{create_test_ctx, ASSESSOR_R0_SELECTOR};
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use futures_util::StreamExt;
@@ -271,8 +271,14 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
         StandardDownloader::new().await,
     );
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-    let fulfiller =
-        OrderFulfiller::initialize(prover, &client, ASSESSOR_R0_SELECTOR).await.unwrap();
+    let fulfiller = OrderFulfiller::initialize(
+        prover,
+        &client,
+        ASSESSOR_R0_SELECTOR,
+        &format!("file://{ASSESSOR_GUEST_PATH}"),
+    )
+    .await
+    .unwrap();
     let prover_address = client.boundless_market.caller();
     let orders = [(request.clone(), client_sig.clone())];
     let (fills, root_receipt, assessor_seal) = fulfiller.fulfill(&orders).await.unwrap();

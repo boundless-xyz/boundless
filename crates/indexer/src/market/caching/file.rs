@@ -175,7 +175,7 @@ mod tests {
     };
     use boundless_market::storage::StandardDownloader;
     use boundless_test_utils::{
-        guests::{ECHO_ID, ECHO_PATH},
+        guests::{ASSESSOR_GUEST_PATH, ECHO_ID, ECHO_PATH},
         market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
     };
     use broker::provers::DefaultProver;
@@ -252,6 +252,7 @@ mod tests {
             Arc::new(DefaultProver::default()),
             &client,
             ASSESSOR_R0_SELECTOR,
+            &format!("file://{ASSESSOR_GUEST_PATH}"),
         )
         .await
         .unwrap();
