@@ -209,6 +209,24 @@ pub async fn deploy_router<P: Provider + Clone>(
         .get_receipt()
         .await?;
 
+    // Register the broker's non-set-inclusion verifier selectors (groth16 / blake3 groth16, or
+    // their dev-mode fake-receipt mocks) under the same verifier class. One adapter per selector,
+    // each pinned to the matching underlying verifier, so seals carrying those selectors dispatch
+    // instead of reverting with `EntryUnknown`.
+    for (selector, verifier) in
+        crate::verifier::deploy_verifier_class_entries(&deployer_provider).await?
+    {
+        let adapter = R0BoundlessVerifierAdapter::deploy(&deployer_provider, verifier)
+            .await
+            .context("failed to deploy R0BoundlessVerifierAdapter")?;
+        router
+            .instantiate(selector, *adapter.address(), VERIFIER_CLASS_ID, 0)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+    }
+
     Ok(*proxy_instance.address())
 }
 
