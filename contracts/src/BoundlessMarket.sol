@@ -12,6 +12,7 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -46,7 +47,8 @@ contract BoundlessMarket is
     Initializable,
     EIP712Upgradeable,
     AccessControlUpgradeable,
-    UUPSUpgradeable
+    UUPSUpgradeable,
+    Proxy
 {
     using SafeCast for int256;
     using SafeCast for uint256;
@@ -119,22 +121,16 @@ contract BoundlessMarket is
         _disableInitializers();
     }
 
-    /// @notice Forwards any selector not declared on this contract to the
-    ///         previous implementation via delegate-call, preserving the
-    ///         caller, value, and the proxy's storage context.
-    /// @dev    Used to keep the legacy ABI surface live during the migration
-    ///         window without re-introducing the legacy bodies into this
-    ///         implementation's bytecode.
-    fallback() external payable {
-        address impl = LEGACY_IMPL;
-        assembly {
-            calldatacopy(0, 0, calldatasize())
-            let result := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
-            returndatacopy(0, 0, returndatasize())
-            switch result
-            case 0 { revert(0, returndatasize()) }
-            default { return(0, returndatasize()) }
-        }
+    /// @notice OpenZeppelin {Proxy} hook: returns the address that selectors not
+    ///         declared on this contract are delegate-called into. The inherited
+    ///         `fallback()` forwards to it, preserving the caller, value, and the
+    ///         proxy's storage context.
+    /// @dev    This is the LEGACY ABI implementation, NOT this contract's ERC1967
+    ///         implementation (that lives in the proxy's storage slot). Keeping
+    ///         the legacy ABI surface live this way avoids re-introducing the
+    ///         legacy bodies into this implementation's bytecode.
+    function _implementation() internal view override returns (address) {
+        return LEGACY_IMPL;
     }
 
     function initialize(address initialOwner) external initializer {
