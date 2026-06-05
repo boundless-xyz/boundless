@@ -22,6 +22,11 @@ parser.add_argument("--boundless-market-old-impl", help="BoundlessMarket old imp
 parser.add_argument("--collateral-token", help="CollateralToken contract address")
 parser.add_argument("--assessor-image-id", help="Assessor image ID (hex)")
 parser.add_argument("--assessor-guest-url", help="URL to the assessor guest package")
+parser.add_argument("--boundless-router", help="BoundlessRouter contract address")
+parser.add_argument(
+    "--r0-assessor-selector",
+    help="Router entry selector for the R0 STARK assessor adapter (bytes4 right-padded to bytes32 hex)",
+)
 
 # PoVW contract fields
 parser.add_argument("--povw-accounting", help="PovwAccounting contract address")
@@ -62,6 +67,8 @@ field_mapping = {
     "collateral-token": args.collateral_token,
     "assessor-image-id": args.assessor_image_id,
     "assessor-guest-url": args.assessor_guest_url,
+    "boundless-router": args.boundless_router,
+    "r0-assessor-selector": args.r0_assessor_selector,
     # PoVW contract fields
     "povw-accounting": args.povw_accounting,
     "povw-accounting-impl": args.povw_accounting_impl,

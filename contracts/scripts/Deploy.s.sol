@@ -148,9 +148,10 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         }
 
         // Deploy the Boundless market. The market dispatches verification via the
-        // BoundlessRouter; its address is supplied via the BOUNDLESS_ROUTER env
-        // var until the deployment.toml schema is updated to carry it.
-        address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
+        // BoundlessRouter, read from the deployment config (the BOUNDLESS_ROUTER env
+        // var overrides it, e.g. when the router is deployed in the same run).
+        address boundlessRouter = vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter);
+        require(boundlessRouter != address(0), "boundless router must be set in deployment.toml or BOUNDLESS_ROUTER");
 
         // Resolve the legacy impl (delegate-call target for the legacy ABI).
         // Production deployments set BOUNDLESS_LEGACY_IMPL to the impl pointed
@@ -169,7 +170,6 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         } else {
             console2.log("Using BOUNDLESS_LEGACY_IMPL from env:", legacyImpl);
         }
-
         bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
         address newImplementation =
             address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken, legacyImpl));

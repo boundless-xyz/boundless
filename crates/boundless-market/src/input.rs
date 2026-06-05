@@ -87,6 +87,7 @@ pub struct GuestEnv {
     /// be provided directly). When the guest calls `env::read_slice` these are the bytes that will
     /// be read. If the guest uses `env::read`, this should be encoded using the default RISC Zero
     /// codec. [GuestEnvBuilder::write] will encode the data given using the default codec.
+    #[serde(with = "serde_bytes")]
     pub stdin: Vec<u8>,
 }
 
@@ -270,6 +271,42 @@ mod tests {
 
         let decoded_env = GuestEnv::decode(&env.encode()?)?;
         assert_eq!(env, decoded_env);
+        Ok(())
+    }
+
+    #[test]
+    fn test_stdin_wire_compat() -> Result<(), Error> {
+        // Pre-patch shape of GuestEnv (no #[serde(with = "serde_bytes")]) with
+        // its own encode/decode mirroring GuestEnv's, so the test reads as a
+        // symmetric cross-decode.
+        #[derive(Serialize, Deserialize)]
+        struct LegacyGuestEnv {
+            stdin: Vec<u8>,
+        }
+        impl LegacyGuestEnv {
+            fn encode(&self) -> Result<Vec<u8>, Error> {
+                let mut encoded = Vec::<u8>::new();
+                encoded.push(Version::V1.into());
+                encoded.extend_from_slice(&rmp_serde::to_vec_named(&self)?);
+                Ok(encoded)
+            }
+            fn decode(bytes: &[u8]) -> Result<Self, Error> {
+                Ok(rmp_serde::from_read(&bytes[1..])?)
+            }
+        }
+
+        let payload: Vec<u8> = (0..=255u8).collect();
+
+        // Legacy wire -> current decoder.
+        let legacy_wire = LegacyGuestEnv { stdin: payload.clone() }.encode()?;
+        assert_eq!(legacy_wire[8], 0xdc, "legacy form: MessagePack array16 marker");
+        assert_eq!(GuestEnv::decode(&legacy_wire)?.stdin, payload);
+
+        // Current wire -> legacy decoder.
+        let current_wire = GuestEnv::builder().write_slice(&payload).build_vec()?;
+        assert_eq!(current_wire[8], 0xc5, "current form: MessagePack bin16 marker");
+        assert_eq!(LegacyGuestEnv::decode(&current_wire)?.stdin, payload);
+
         Ok(())
     }
 }

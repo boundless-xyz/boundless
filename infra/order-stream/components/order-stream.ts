@@ -40,6 +40,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       premiumApiKey?: pulumi.Output<string>;
       standardRateLimit: number;
       premiumRateLimit: number;
+      desiredCount: number;
       kinesisHeartbeatStreamName: pulumi.Output<string>;
       kinesisHeartbeatStreamArn: pulumi.Output<string>;
       kinesisEvaluationsStreamName: pulumi.Output<string>;
@@ -74,6 +75,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       premiumApiKey,
       standardRateLimit,
       premiumRateLimit,
+      desiredCount,
       kinesisHeartbeatStreamName,
       kinesisHeartbeatStreamArn,
       kinesisEvaluationsStreamName,
@@ -572,7 +574,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         assignPublicIp: false,
         subnets: privSubNetIds,
       },
-      desiredCount: 1,
+      desiredCount,
       deploymentCircuitBreaker: {
         enable: true,
         rollback: false,

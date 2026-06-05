@@ -705,14 +705,16 @@ impl<U, D, S> ClientBuilder<U, D, S> {
 
     /// Set a custom price provider for fetching market prices.
     ///
-    /// If provided, the [OfferLayer] will use market prices (p10 and p99 percentiles)
+    /// If provided, the [OfferLayer] will use market prices (p50 and p99 percentiles)
     /// when [`OfferParams`](crate::request_builder::OfferParams) doesn't explicitly set min_price or max_price.
     ///
     /// This method allows you to use any implementation of [`PriceProvider`](crate::price_provider::PriceProvider), not just [IndexerClient].
     /// This is useful for testing with mock providers or using alternative price data sources.
     ///
-    /// If not set, the indexer URL from the [Deployment] will be used to create an [IndexerClient].
-    /// The price provider takes precedence over the deployment's indexer URL.
+    /// If not set, a provider is built from the [Deployment]'s indexer URL, or a built-in
+    /// market-pricing fallback when no indexer URL is configured — so market-based defaults
+    /// (and the market-price buffer) apply unless an explicit price is set. An explicitly set
+    /// provider takes precedence over the deployment's indexer URL.
     ///
     /// ```rust
     /// # use boundless_market::client::ClientBuilder;

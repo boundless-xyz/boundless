@@ -24,7 +24,7 @@ use serde_json::json;
 use std::{env, sync::Arc};
 use tower_http::{
     cors::{Any, CorsLayer},
-    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+    trace::{DefaultMakeSpan, DefaultOnFailure, DefaultOnResponse, TraceLayer},
 };
 use tracing::Level;
 
@@ -54,10 +54,13 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     // Configure CORS
     let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
 
-    // Configure request/response tracing
+    // Configure request/response tracing. Demote on_failure to WARN so a single 5xx response
+    // (already logged at ERROR via `handle_error`) does not produce a second ERROR line and
+    // double-trigger the SEV2 log-err alarm.
     let trace_layer = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::DEBUG))
-        .on_response(DefaultOnResponse::new().level(Level::DEBUG));
+        .on_response(DefaultOnResponse::new().level(Level::DEBUG))
+        .on_failure(DefaultOnFailure::new().level(Level::WARN));
 
     // Build the router
     Router::new()

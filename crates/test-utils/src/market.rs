@@ -25,7 +25,7 @@ use alloy::{
     sol_types::SolCall,
     transports::http::reqwest::Url,
 };
-use alloy_primitives::{B256, U256};
+use alloy_primitives::{FixedBytes, B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
 use boundless_market::dynamic_gas_filler::PriorityMode;
@@ -99,36 +99,164 @@ pub async fn deploy_version_registry<P: Provider>(
     Ok(*proxy_instance.address())
 }
 
-pub async fn deploy_boundless_market<P: Provider>(
+/// BoundlessRouter verifier class id (matches the Solidity test harness).
+pub const VERIFIER_CLASS_ID: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0x10]);
+/// BoundlessRouter assessor class id.
+pub const ASSESSOR_CLASS_ID: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0x20]);
+/// Router entry selector for the R0 STARK assessor adapter. Brokers prepend this to the assessor
+/// seal so the router dispatches to `R0BoundlessAssessorAdapter`.
+pub const ASSESSOR_R0_SELECTOR: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0x24]);
+/// `type(IBoundlessAssessor).interfaceId`.
+const ASSESSOR_INTERFACE_ID: FixedBytes<4> = FixedBytes([0x08, 0x06, 0x08, 0x88]);
+/// `type(IBoundlessVerifier).interfaceId`.
+const VERIFIER_INTERFACE_ID: FixedBytes<4> = FixedBytes([0x6b, 0x40, 0x63, 0x41]);
+
+/// The 4-byte verifier selector for a set-verifier with the given set-builder image id. The
+/// set-inclusion seal carries this same selector, and requests sign it as their verifier selector.
+pub fn set_verifier_selector(set_builder_id: Digest) -> FixedBytes<4> {
+    let digest = SetInclusionReceiptVerifierParameters { image_id: set_builder_id }.digest();
+    FixedBytes::<4>::from_slice(&digest.as_bytes()[..4])
+}
+
+/// Deploy and configure a [BoundlessRouter] mirroring the Solidity test harness: a UUPS proxy with
+/// a verifier class (default) backed by the R0 set-verifier adapter and an assessor class backed by
+/// the R0 STARK assessor adapter.
+pub async fn deploy_router<P: Provider + Clone>(
     owner_address: Address,
     deployer_provider: P,
-    verifier: Address,
-    hit_points: Address,
+    set_verifier: Address,
     assessor_guest_id: Digest,
-    assessor_guest_url: String,
-    allowed_prover: Option<Address>,
+    set_builder_id: Digest,
 ) -> Result<Address> {
-    let market_instance = BoundlessMarket::deploy(
+    let router_impl = BoundlessRouter::deploy(&deployer_provider)
+        .await
+        .context("failed to deploy BoundlessRouter implementation")?;
+    let proxy_instance = ERC1967Proxy::deploy(
         &deployer_provider,
-        verifier,
-        verifier,
-        <[u8; 32]>::from(assessor_guest_id).into(),
-        B256::ZERO, // DEPRECATED_ASSESSOR_ID
-        0,          // DEPRECATED_ASSESSOR_DURATION
-        hit_points,
+        *router_impl.address(),
+        BoundlessRouter::initializeCall { admin: owner_address }.abi_encode().into(),
     )
     .await
-    .context("failed to deploy BoundlessMarket implementation")?;
+    .context("failed to deploy BoundlessRouter proxy")?;
+    let router = BoundlessRouter::new(*proxy_instance.address(), &deployer_provider);
+
+    // Adapters that wrap the R0 set verifier for per-class dispatch.
+    let assessor_adapter = R0BoundlessAssessorAdapter::deploy(
+        &deployer_provider,
+        set_verifier,
+        <[u8; 32]>::from(assessor_guest_id).into(),
+    )
+    .await
+    .context("failed to deploy R0BoundlessAssessorAdapter")?;
+    let verifier_adapter = R0BoundlessVerifierAdapter::deploy(&deployer_provider, set_verifier)
+        .await
+        .context("failed to deploy R0BoundlessVerifierAdapter")?;
+
+    // Assessor class + its R0 entry.
+    router
+        .addClass(
+            ASSESSOR_CLASS_ID,
+            BoundlessRouter::ClassMetadata {
+                interfaceTag: ASSESSOR_INTERFACE_ID,
+                permissionlessInstantiate: false,
+                isDefault: false,
+                requiredAssessorClass: FixedBytes::ZERO,
+                schemaArtifact: B256::ZERO,
+                schemaArtifactUrl: String::new(),
+                defaultGasLimit: 10_000_000,
+                label: String::new(),
+            },
+        )
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    router
+        .instantiate(ASSESSOR_R0_SELECTOR, *assessor_adapter.address(), ASSESSOR_CLASS_ID, 0)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
+    // Default verifier class + the set-verifier entry, requiring the assessor class above.
+    router
+        .addClass(
+            VERIFIER_CLASS_ID,
+            BoundlessRouter::ClassMetadata {
+                interfaceTag: VERIFIER_INTERFACE_ID,
+                permissionlessInstantiate: false,
+                isDefault: true,
+                requiredAssessorClass: ASSESSOR_CLASS_ID,
+                schemaArtifact: B256::ZERO,
+                schemaArtifactUrl: String::new(),
+                defaultGasLimit: 100_000,
+                label: String::new(),
+            },
+        )
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    router
+        .instantiate(
+            set_verifier_selector(set_builder_id),
+            *verifier_adapter.address(),
+            VERIFIER_CLASS_ID,
+            0,
+        )
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
+    // Register the broker's non-set-inclusion verifier selectors (groth16 / blake3 groth16, or
+    // their dev-mode fake-receipt mocks) under the same verifier class. One adapter per selector,
+    // each pinned to the matching underlying verifier, so seals carrying those selectors dispatch
+    // instead of reverting with `EntryUnknown`.
+    for (selector, verifier) in
+        crate::verifier::deploy_verifier_class_entries(&deployer_provider).await?
+    {
+        let adapter = R0BoundlessVerifierAdapter::deploy(&deployer_provider, verifier)
+            .await
+            .context("failed to deploy R0BoundlessVerifierAdapter")?;
+        router
+            .instantiate(selector, *adapter.address(), VERIFIER_CLASS_ID, 0)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+    }
+
+    Ok(*proxy_instance.address())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn deploy_boundless_market<P: Provider + Clone>(
+    owner_address: Address,
+    deployer_provider: P,
+    set_verifier: Address,
+    hit_points: Address,
+    assessor_guest_id: Digest,
+    set_builder_id: Digest,
+    allowed_prover: Option<Address>,
+) -> Result<Address> {
+    let router = deploy_router(
+        owner_address,
+        deployer_provider.clone(),
+        set_verifier,
+        assessor_guest_id,
+        set_builder_id,
+    )
+    .await?;
+
+    let market_instance = BoundlessMarket::deploy(&deployer_provider, router, hit_points)
+        .await
+        .context("failed to deploy BoundlessMarket implementation")?;
 
     let proxy_instance = ERC1967Proxy::deploy(
         &deployer_provider,
         *market_instance.address(),
-        BoundlessMarket::initializeCall {
-            initialOwner: owner_address,
-            imageUrl: assessor_guest_url,
-        }
-        .abi_encode()
-        .into(),
+        BoundlessMarket::initializeCall { initialOwner: owner_address }.abi_encode().into(),
     )
     .await
     .context("failed to deploy BoundlessMarket proxy")?;
@@ -177,7 +305,7 @@ pub async fn deploy_contracts(
     set_builder_id: Digest,
     set_builder_url: String,
     assessor_guest_id: Digest,
-    assessor_guest_url: String,
+    _assessor_guest_url: String,
 ) -> Result<(Address, Address, Address, Address, Address)> {
     let deployer_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
     let deployer_address = deployer_signer.address();
@@ -199,10 +327,10 @@ pub async fn deploy_contracts(
     let boundless_market = deploy_boundless_market(
         deployer_address,
         &deployer_provider,
-        verifier_router,
+        set_verifier,
         hit_points,
         assessor_guest_id,
-        assessor_guest_url,
+        set_builder_id,
         None,
     )
     .await?;
@@ -402,21 +530,22 @@ pub fn mock_singleton(
     let (fulfillment_data_type, fulfillment_data) = fulfillment_data.fulfillment_type_and_data();
 
     let fulfillment = Fulfillment {
-        id: request.id,
-        requestDigest: request_digest,
         claimDigest: claim_digest,
         fulfillmentData: fulfillment_data.into(),
         fulfillmentDataType: fulfillment_data_type,
         seal: set_inclusion_seal.into(),
     };
 
-    let assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
+    let inner_assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
         assesor_receipt_claim,
         merkle_path(&[app_claim_digest, assessor_claim_digest], 1),
         verifier_parameters.digest(),
     )
     .abi_encode_seal()
     .unwrap();
+    // The on-chain assessor seal is the router assessor selector followed by the inner seal.
+    let assessor_seal =
+        boundless_market::contracts::assessor_seal(ASSESSOR_R0_SELECTOR, inner_assessor_seal);
 
-    (to_b256(set_builder_root), set_builder_seal.into(), fulfillment, assessor_seal.into())
+    (to_b256(set_builder_root), set_builder_seal.into(), fulfillment, assessor_seal)
 }

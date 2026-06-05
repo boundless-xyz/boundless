@@ -106,15 +106,21 @@ export interface MonitoredNode {
 // ── Bento service down ──────────────────────────────────────────────────────
 // Vector publishes bento_active gauge (0 or 1). Missing data = breaching
 // because the node may have lost connectivity or Vector stopped.
+//
+// Threshold matches the broker's SHUTDOWN_GRACE_PERIOD_SECS (2 hours, see
+// `broker.rs`): during a deploy that coincides with long in-flight proofs,
+// the systemd unit can stay in `deactivating` for the full grace period
+// while the broker waits for committed orders to drain. Alarming below 2h
+// would page on a healthy graceful shutdown.
 
 const PROD_BENTO_DOWN: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "bento service down for 4 consecutive 15-min periods (1 hour)",
+        description: "bento service down for 8 consecutive 15-min periods (2 hours)",
         metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 4,
-            datapointsToAlarm: 4,
+            evaluationPeriods: 8,
+            datapointsToAlarm: 8,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
@@ -134,15 +140,16 @@ const PROD_BENTO_DOWN: AlarmConfig[] = [
     },
 ];
 
-// Staging deploys frequently and nodes restart — longer window, lower severity.
+// Staging deploys frequently and nodes restart — same 2-hour threshold as prod
+// so a graceful shutdown waiting on in-flight orders doesn't page.
 const STAGING_BENTO_DOWN: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "bento service down for 4 consecutive 15-min periods (1 hour)",
+        description: "bento service down for 8 consecutive 15-min periods (2 hours)",
         metricConfig: { period: 900 },
         alarmConfig: {
-            evaluationPeriods: 4,
-            datapointsToAlarm: 4,
+            evaluationPeriods: 8,
+            datapointsToAlarm: 8,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",

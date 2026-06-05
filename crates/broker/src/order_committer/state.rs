@@ -28,6 +28,7 @@ pub(super) struct InFlightOrder {
 
 pub(super) struct CommitterConfig {
     pub(super) max_concurrent_proofs: usize,
+    pub(super) max_commitment_duration_secs: u64,
     pub(super) peak_prove_khz: Option<u64>,
     pub(super) additional_proof_cycles: u64,
     pub(super) batch_buffer_time_secs: u64,

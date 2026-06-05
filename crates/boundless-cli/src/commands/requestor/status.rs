@@ -415,7 +415,7 @@ impl RequestorStatus {
                         prover: data.event.prover,
                         block_number: data.block_number,
                         tx_hash: data.tx_hash,
-                        request_digest: data.event.fulfillment.requestDigest,
+                        request_digest,
                     });
                 }
             }

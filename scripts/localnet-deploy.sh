@@ -94,11 +94,27 @@ else
     forge build || { echo "Failed to build contracts"; exit 1; }
 fi
 
+# Deploy the BoundlessRouter first: the market dispatches verification through it,
+# so its address must exist before BoundlessMarket is deployed.
+echo "Deploying BoundlessRouter..."
+ROUTER_ADMIN="${ROUTER_ADMIN:-$BOUNDLESS_MARKET_OWNER}"
+DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+ROUTER_ADMIN="$ROUTER_ADMIN" \
+forge script contracts/scripts/Deploy.Router.s.sol \
+    --rpc-url "$ANVIL_RPC" \
+    --broadcast -vv || { echo "Failed to deploy BoundlessRouter"; exit 1; }
+
+ROUTER_BROADCAST="./broadcast/Deploy.Router.s.sol/$CHAIN_ID/run-latest.json"
+BOUNDLESS_ROUTER=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' "$ROUTER_BROADCAST" | head -n 1)
+export BOUNDLESS_ROUTER
+echo "  BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER"
+
 echo "Deploying contracts..."
 DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
 CHAIN_KEY="$CHAIN_KEY" \
 RISC0_DEV_MODE="$RISC0_DEV_MODE" \
 BOUNDLESS_MARKET_OWNER="$BOUNDLESS_MARKET_OWNER" \
+BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
 ASSESSOR_GUEST_URL="${ASSESSOR_GUEST_URL:-}" \
 SET_BUILDER_GUEST_URL="${SET_BUILDER_GUEST_URL:-}" \
 forge script contracts/scripts/Deploy.s.sol \
@@ -117,7 +133,38 @@ if [ -z "$COLLATERAL_TOKEN_ADDRESS" ] || [ "$COLLATERAL_TOKEN_ADDRESS" = "0x0000
     COLLATERAL_TOKEN_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -n 1 || echo "")
 fi
 
+# Register the R0 verifier + assessor adapters in the BoundlessRouter. The verifier
+# adapter wraps the set verifier at its own selector (set-inclusion seals carry it);
+# the assessor adapter binds the assessor image id at ASSESSOR_SELECTOR, which brokers
+# prepend to the assessor seal (broker.localnet.toml must use the same selector).
+ASSESSOR_IMAGE_ID="0x$(r0vm --id --elf "$ASSESSOR_PATH")"
+ASSESSOR_SELECTOR="0x00000024"
+ASSESSOR_SELECTOR_BYTES32="0x0000002400000000000000000000000000000000000000000000000000000000"
+# `SELECTOR()` returns a bytes4 right-padded into a 32-byte word — exactly the form the
+# router scripts' `vm.envBytes32(...)` expects.
+SET_VERIFIER_SELECTOR=$(cast call "$SET_VERIFIER_ADDRESS" "SELECTOR()" --rpc-url "$ANVIL_RPC")
+
+echo "Registering R0 verifier adapter (selector $SET_VERIFIER_SELECTOR)..."
+DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
+R0_ROUTER="$VERIFIER_ADDRESS" \
+R0_SELECTOR="$SET_VERIFIER_SELECTOR" \
+forge script contracts/scripts/Manage.Router.s.sol:RegisterR0Verifier \
+    --rpc-url "$ANVIL_RPC" \
+    --broadcast -vv || { echo "Failed to register R0 verifier adapter"; exit 1; }
+
+echo "Registering R0 assessor adapter (selector $ASSESSOR_SELECTOR)..."
+DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
+R0_VERIFIER="$SET_VERIFIER_ADDRESS" \
+ASSESSOR_IMAGE_ID="$ASSESSOR_IMAGE_ID" \
+ASSESSOR_SELECTOR="$ASSESSOR_SELECTOR_BYTES32" \
+forge script contracts/scripts/Manage.Router.s.sol:RegisterR0Assessor \
+    --rpc-url "$ANVIL_RPC" \
+    --broadcast -vv || { echo "Failed to register R0 assessor adapter"; exit 1; }
+
 echo "Contract deployed at addresses:"
+echo "  BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER"
 echo "  VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
 echo "  SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
 echo "  BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
@@ -151,6 +198,7 @@ cat > "$DEPLOYER_ENV" <<EOF
 VERIFIER_ADDRESS=$VERIFIER_ADDRESS
 SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS
 BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS
+BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER
 COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS
 EOF
 
@@ -172,26 +220,27 @@ etherscan-api-key = "none"
 EOF
     echo "Created contracts/deployment_secrets.toml"
 
-    # Compute assessor image ID
-    ASSESSOR_BIN="target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin"
-    ASSESSOR_ID="0x$(r0vm --id --elf "$ASSESSOR_BIN")"
-
     # Use host path for guest URL (manage script runs on the host, not in Docker)
+    ASSESSOR_BIN="target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin"
     if [ -n "${REPO_ROOT:-}" ]; then
         ASSESSOR_GUEST_URL="file://${REPO_ROOT}/${ASSESSOR_BIN}"
     else
         ASSESSOR_GUEST_URL="file://$(realpath "$ASSESSOR_BIN")"
     fi
 
-    # Update deployment.toml with deployed addresses
+    # Update deployment.toml with deployed addresses. The assessor image id and selector
+    # match the R0 assessor adapter registered in the router above; ASSESSOR_SELECTOR_BYTES32
+    # is the bytes4 right-padded to bytes32 so the config's `bytes4(readBytes32(...))` recovers it.
     CHAIN_KEY="${CHAIN_KEY:-anvil}" python3 contracts/update_deployment_toml.py \
         --verifier "$VERIFIER_ADDRESS" \
         --application-verifier "$VERIFIER_ADDRESS" \
         --set-verifier "$SET_VERIFIER_ADDRESS" \
         --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
+        --boundless-router "$BOUNDLESS_ROUTER" \
         --collateral-token "$COLLATERAL_TOKEN_ADDRESS" \
-        --assessor-image-id "$ASSESSOR_ID" \
-        --assessor-guest-url "$ASSESSOR_GUEST_URL"
+        --assessor-image-id "$ASSESSOR_IMAGE_ID" \
+        --assessor-guest-url "$ASSESSOR_GUEST_URL" \
+        --r0-assessor-selector "$ASSESSOR_SELECTOR_BYTES32"
 
     echo "CI deployment config updated."
 fi

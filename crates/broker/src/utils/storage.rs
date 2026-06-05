@@ -15,12 +15,9 @@
 use crate::config::ConfigLock;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use boundless_market::{
-    contracts::Predicate,
-    storage::{StandardDownloader, StorageDownloader, StorageDownloaderConfig, StorageError},
+use boundless_market::storage::{
+    StandardDownloader, StorageDownloader, StorageDownloaderConfig, StorageError,
 };
-use hex::FromHex;
-use risc0_zkvm::Digest;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use url::Url;
@@ -100,109 +97,6 @@ impl StorageDownloader for ConfigurableDownloader {
         // Delegate to inner downloader which applies config.max_size limit.
         self.downloader().await.download_url(url).await
     }
-}
-
-pub async fn upload_image_uri(
-    prover: &crate::provers::ProverObj,
-    request: &crate::ProofRequest,
-    downloader: &impl StorageDownloader,
-) -> Result<String> {
-    let predicate = Predicate::try_from(request.requirements.predicate.clone())
-        .with_context(|| format!("Failed to parse predicate for request {:x}", request.id))?;
-
-    let image_id_str = predicate.image_id().map(|image_id| image_id.to_string());
-
-    // When predicate is ClaimDigestMatch, we do not have the image id, so we must always download and upload the image.
-    if let Some(ref image_id_str) = image_id_str {
-        if prover.has_image(image_id_str).await? {
-            tracing::debug!(
-                "Skipping program upload for cached image ID: {image_id_str} for request {:x}",
-                request.id
-            );
-            return Ok(image_id_str.clone());
-        }
-    }
-
-    tracing::debug!(
-        "Fetching program for request {:x} with image ID {image_id_str:?} from URI {}",
-        request.id,
-        request.imageUrl
-    );
-    let image_data = downloader
-        .download(&request.imageUrl)
-        .await
-        .with_context(|| format!("Failed to fetch image URI: {}", request.imageUrl))?;
-
-    let image_id = risc0_zkvm::compute_image_id(&image_data)
-        .context(format!("Failed to compute image ID for request {:x}", request.id))?;
-
-    if let Some(ref image_id_str) = image_id_str {
-        let required_image_id = Digest::from_hex(image_id_str)?;
-        anyhow::ensure!(
-            image_id == required_image_id,
-            "image ID does not match requirements; expect {}, got {}",
-            required_image_id,
-            image_id
-        );
-    }
-
-    let image_id_str = image_id.to_string();
-
-    tracing::debug!(
-        "Uploading program for request {:x} with image ID {image_id_str} to prover",
-        request.id
-    );
-    prover
-        .upload_image(&image_id_str, image_data)
-        .await
-        .context("Failed to upload image to prover")?;
-
-    Ok(image_id_str)
-}
-
-/// Fetches and uploads input from a URL to the prover.
-///
-/// This function:
-/// 1. For inline inputs: decodes and uploads directly
-/// 2. For URL inputs: fetches using broker config (with optional size limit bypass for priority requestors)
-/// 3. Decodes the input using GuestEnv format
-/// 4. Uploads to the prover
-pub async fn upload_input_uri(
-    prover: &crate::provers::ProverObj,
-    request: &crate::ProofRequest,
-    downloader: &impl StorageDownloader,
-    priority_requestors: &crate::requestor_monitor::PriorityRequestors,
-) -> Result<String> {
-    Ok(match request.input.inputType {
-        boundless_market::contracts::RequestInputType::Inline => prover
-            .upload_input(
-                boundless_market::input::GuestEnv::decode(&request.input.data)
-                    .with_context(|| "Failed to decode input")?
-                    .stdin,
-            )
-            .await
-            .context("Failed to upload input data")?,
-
-        boundless_market::contracts::RequestInputType::Url => {
-            let input_uri_str =
-                std::str::from_utf8(&request.input.data).context("input url is not utf8")?;
-            tracing::debug!("Input URI string: {input_uri_str}");
-
-            let client_addr = request.client_address();
-            let input = if priority_requestors.is_priority_requestor(&client_addr) {
-                downloader.download_with_limit(input_uri_str, usize::MAX).await
-            } else {
-                downloader.download(input_uri_str).await
-            }
-            .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?;
-            let input_data = boundless_market::input::GuestEnv::decode(&input)
-                .with_context(|| format!("Failed to decode input from URI: {input_uri_str}"))?
-                .stdin;
-
-            prover.upload_input(input_data).await.context("Failed to upload input")?
-        }
-        _ => anyhow::bail!("Invalid input type: {:?}", request.input.inputType),
-    })
 }
 
 #[cfg(test)]

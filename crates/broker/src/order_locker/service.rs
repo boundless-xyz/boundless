@@ -118,6 +118,7 @@ where
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
         gas_estimation_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
         erc1271_gas_cache: Erc1271GasCache,
+        supported_selectors: SupportedSelectors,
         listen_only: bool,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -158,7 +159,7 @@ where
             provider,
             prover_addr,
             priced_order_rx: priced_orders_rx,
-            supported_selectors: SupportedSelectors::default(),
+            supported_selectors,
             erc1271_gas_cache,
             rpc_retry_config,
             gas_priority_mode,
@@ -952,7 +953,7 @@ pub(crate) mod tests {
         Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use boundless_test_utils::{
-        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH},
+        guests::{ASSESSOR_GUEST_ID, SET_BUILDER_ID},
         market::{deploy_boundless_market, deploy_hit_points},
     };
 
@@ -1050,7 +1051,7 @@ pub(crate) mod tests {
             address!("0x0000000000000000000000000000000000000001"),
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
-            format!("file://{ASSESSOR_GUEST_PATH}"),
+            Digest::from(SET_BUILDER_ID),
             Some(signer.address()),
         )
         .await
@@ -1108,6 +1109,7 @@ pub(crate) mod tests {
             gas_priority_mode,
             gas_estimation_priority_mode,
             Arc::new(Cache::builder().build()),
+            SupportedSelectors::default(),
             false,
             anvil.chain_id(),
             proving_completion_tx,

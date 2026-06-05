@@ -17,6 +17,10 @@
 # This config is NOT suitable for any real network.
 
 [market]
+# Router entry selector for the R0 STARK assessor adapter, prepended to the
+# assessor seal so the on-chain BoundlessRouter dispatches to the adapter
+# registered by the localnet deployer (see contracts/scripts/Deploy.s.sol).
+assessor_selector = "0x00000024"
 min_mcycle_price = "0 ETH"
 min_mcycle_price_collateral_token = "0 ZKC"
 skip_gas_profitability_check = true

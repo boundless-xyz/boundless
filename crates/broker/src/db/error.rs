@@ -25,8 +25,8 @@ pub enum DbError {
     #[error("{code} Batch key {0} not found in DB", code = self.code())]
     BatchNotFound(usize),
 
-    #[error("{code} Batch key {0} has no aggreagtion state", code = self.code())]
-    BatchAggregationStateIsNone(usize),
+    #[error("{code} Batch key {0} has no backend state", code = self.code())]
+    BatchBackendStateIsNone(usize),
 
     #[cfg(test)]
     #[error("{code} Batch insert failed {0}", code = self.code())]
