@@ -4395,19 +4395,16 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 contract BoundlessMarketBench is BoundlessMarketTest {
     using BoundlessMarketLib for Offer;
 
-    // Bench helpers run through the R0 proof-based assessor adapter so the
-    // numbers reflect what real users pay end-to-end (router + setVerifier
-    // per-fill + `R0BoundlessAssessorAdapter`). Snapshot labels carry a
-    // `:v2` suffix so the new numbers coexist with the legacy entries
-    // (captured against the old market in `BoundlessMarketBench.json`) for
-    // side-by-side review.
+    // Bench helpers run through the R0 proof-based assessor adapter so the numbers
+    // reflect what real users pay end-to-end: the router resolving each fill via
+    // the setVerifier plus the `R0BoundlessAssessorAdapter`.
 
     function benchFulfill(uint256 batchSize, string memory snapshot) public {
         (ProofRequest[] memory requests, bytes[] memory journals) = newBatch(batchSize);
         FulfillmentBatch memory batch = createFillsAndSubmitRootR0(requests, journals, testProverAddress);
 
         boundlessMarket.fulfill(_asArray(batch));
-        vm.snapshotGasLastCall(string.concat("fulfill: batch of ", snapshot, ":v2"));
+        vm.snapshotGasLastCall(string.concat("fulfill: batch of ", snapshot));
 
         for (uint256 j = 0; j < requests.length; j++) {
             expectRequestFulfilled(requests[j].id);
@@ -4420,7 +4417,7 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         FulfillmentBatch memory batch = createFillsAndSubmitRootR0(requests, journals, testProverAddress);
 
         boundlessMarket.fulfill(_asArray(batch));
-        vm.snapshotGasLastCall(string.concat("fulfill (with selector): batch of ", snapshot, ":v2"));
+        vm.snapshotGasLastCall(string.concat("fulfill (with selector): batch of ", snapshot));
 
         for (uint256 j = 0; j < requests.length; j++) {
             expectRequestFulfilled(requests[j].id);
@@ -4432,7 +4429,7 @@ contract BoundlessMarketBench is BoundlessMarketTest {
         FulfillmentBatch memory batch = createFillsAndSubmitRootR0(requests, journals, testProverAddress);
 
         boundlessMarket.fulfill(_asArray(batch));
-        vm.snapshotGasLastCall(string.concat("fulfill (with callback): batch of ", snapshot, ":v2"));
+        vm.snapshotGasLastCall(string.concat("fulfill (with callback): batch of ", snapshot));
 
         for (uint256 j = 0; j < requests.length; j++) {
             expectRequestFulfilled(requests[j].id);
