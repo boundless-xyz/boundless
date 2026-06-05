@@ -180,7 +180,6 @@ export = () => {
     }
 
     const dynamicPricingTimeoutModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER");
-    const dynamicPricingRampUpModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER");
 
     const defaultEnvironment: Record<string, string> = {
         MODE: config.get("MODE") ?? "debug",
@@ -196,9 +195,6 @@ export = () => {
         BOUNDLESS_DYNAMIC_PRICING: config.get("BOUNDLESS_DYNAMIC_PRICING") ?? "true",
         ...(dynamicPricingTimeoutModifier
             ? { BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER: dynamicPricingTimeoutModifier }
-            : {}),
-        ...(dynamicPricingRampUpModifier
-            ? { BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: dynamicPricingRampUpModifier }
             : {}),
         S3_BUCKET: config.require("S3_BUCKET"),
         AWS_REGION: config.get("AWS_REGION") ?? "auto",
@@ -243,7 +239,10 @@ export = () => {
         'START_BLOCK=$((FINALIZED - START_BLOCK_OFFSET))',
         'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT}"',
         `cd ${kailuaWorkdir}`,
-        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || [ $? -eq 111 ]',
+        // Bound task runtime: kailua retries RPC/contract calls forever, so a misconfig or stuck
+        // endpoint hangs the task indefinitely and saturates MAX_RUNNING_TASKS. timeout kills it so
+        // the task exits non-zero and frees its slot. Override via ENV stack config (KAILUA_TASK_TIMEOUT_SECONDS).
+        'timeout -k 30 "${KAILUA_TASK_TIMEOUT_SECONDS:-1800}" just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || [ $? -eq 111 ]',
     ].join("\n");
 
     const containerCommand = config.get("KAILUA_COMMAND") ?? [
