@@ -4566,7 +4566,7 @@ contract BoundlessMarketOnChainAssessorTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
         boundlessMarket.fulfill(_asArray(batch));
 
         expectRequestFulfilled(request.id);
