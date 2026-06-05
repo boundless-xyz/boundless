@@ -150,12 +150,16 @@ struct MainArgs {
     max_price_cap: Option<U256>,
 
     /// Maximum number of outstanding (submitted, not locked) requests before throttling.
-    #[clap(long, env, requires = "indexer_url")]
+    #[clap(long, env, requires = "throttle_indexer_url")]
     max_outstanding_requests: Option<u32>,
 
     /// Indexer API URL for checking outstanding requests.
+    ///
+    /// Distinct from `Deployment::indexer_url` (which shares the `--indexer-url` /
+    /// `INDEXER_URL` name); having two fields claim the same flag would silently
+    /// route the env var to only one of them and disable throttling.
     #[clap(long, env)]
-    indexer_url: Option<Url>,
+    throttle_indexer_url: Option<Url>,
 }
 
 #[tokio::main]
@@ -246,10 +250,10 @@ async fn run(args: &MainArgs) -> Result<()> {
     };
 
     // Create indexer client if throttling is enabled
-    let indexer_client = match (&args.max_outstanding_requests, &args.indexer_url) {
+    let indexer_client = match (&args.max_outstanding_requests, &args.throttle_indexer_url) {
         (Some(_), Some(url)) => {
             tracing::info!(
-                "Throttling enabled: max_outstanding_requests={:?}, indexer_url={}",
+                "Throttling enabled: max_outstanding_requests={:?}, throttle_indexer_url={}",
                 args.max_outstanding_requests,
                 url
             );
@@ -614,7 +618,7 @@ mod tests {
             use_zeth: false,
             max_price_cap: None,
             max_outstanding_requests: None,
-            indexer_url: None,
+            throttle_indexer_url: None,
         };
 
         run(&args).await.unwrap();

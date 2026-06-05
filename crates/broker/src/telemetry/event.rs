@@ -114,17 +114,17 @@ pub(crate) enum TelemetryEvent {
         /// None for merkle inclusion orders (they skip per-order compression).
         proof_compression_secs: Option<f64>,
     },
-    // Emitted by the batching pipeline when aggregation completes (set builder + assessor
-    // + aggregation Groth16 compression).
-    AggregationCompleted {
+    // Emitted by the backend batch pipeline when the backend has produced the artifacts needed
+    // for submission.
+    BackendBatchCompleted {
         /// Composite order ID.
         order_id: String,
-        /// Wall-clock seconds for the set-builder STARK proof that merges claim digests.
-        set_builder_proving_secs: Option<f64>,
-        /// Wall-clock seconds for the assessor STARK proof that validates batch fulfillments.
-        assessor_proving_secs: Option<f64>,
-        /// Wall-clock seconds for compressing the aggregation STARK proof into Groth16.
-        assessor_compression_proof_secs: Option<f64>,
+        /// Wall-clock seconds spent updating/finalizing backend-owned batch state.
+        batch_update_secs: Option<f64>,
+        /// Wall-clock seconds spent producing backend-owned assessor artifacts.
+        assessor_secs: Option<f64>,
+        /// Wall-clock seconds spent compressing the backend batch artifact.
+        batch_compression_secs: Option<f64>,
     },
     // Emitted when the fulfill transaction is confirmed on-chain.
     Fulfilled {

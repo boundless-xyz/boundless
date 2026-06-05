@@ -12,22 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Error type for the aggregator service.
+//! Broker-facing backend boundary.
+//!
+//! The backend-agnostic API (traits, payloads, router) lives in the `boundless-backend` crate and
+//! the RISC0 implementation in the `risc0-backend` crate; both are re-exported here.
 
-use thiserror::Error;
-
-use crate::coded_error_impl;
-use crate::errors::CodedError;
-
-#[derive(Error)]
-pub enum AggregatorErr {
-    #[error("{code} Compression error: {0}", code = self.code())]
-    CompressionErr(crate::provers::ProverError),
-    #[error("{code} Unexpected error: {0:?}", code = self.code())]
-    UnexpectedErr(#[from] anyhow::Error),
-}
-
-coded_error_impl!(AggregatorErr, "AGG",
-    UnexpectedErr(..)  => "500",
-    CompressionErr(..) => "400",
-);
+pub use boundless_backend::*;
+pub use risc0_backend::{prune_receipt_claim_journal, Risc0Backend, Risc0BackendConfig};

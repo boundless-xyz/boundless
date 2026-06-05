@@ -15,10 +15,9 @@
 //! Order types and helpers shared across broker services.
 //!
 //! Defines the persistent [`Order`] domain object and its lifecycle status
-//! ([`OrderStatus`]), the on-chain state change events ([`OrderStateChange`])
-//! broadcast from chain monitors, and the compression-type discriminator
-//! ([`CompressionType`]) derived from a request's selector. Plus the small
-//! helpers that build an [`Order`] from a fresh [`OrderRequest`].
+//! ([`OrderStatus`]) and the on-chain state change events ([`OrderStateChange`])
+//! broadcast from chain monitors. Plus the small helpers that build an
+//! [`Order`] from a fresh [`OrderRequest`].
 
 use std::sync::OnceLock;
 
@@ -26,10 +25,11 @@ use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use boundless_market::{
     contracts::ProofRequest,
     prover_utils::{FulfillmentType, OrderRequest},
-    selector::{is_blake3_groth16_selector, is_groth16_selector},
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::backend::{BackendId, BackendOrderState};
 
 /// Status of a persistent order as it moves through the lifecycle in the database.
 /// Orders in initial, intermediate, or terminal non-failure states (e.g. New, Pricing, Done, Skipped)
@@ -40,13 +40,13 @@ pub enum OrderStatus {
     PendingProving,
     /// Order is actively ready for proving
     Proving,
-    /// Order is ready for aggregation
-    PendingAgg,
-    /// Order is in the process of Aggregation
-    Aggregating,
-    /// Unaggregated order is ready for submission
-    SkipAggregation,
-    /// Pending on chain finalization
+    /// Proof is complete and the order is waiting to be claimed into a backend batch.
+    ReadyForBatch,
+    /// Order has been claimed into a backend batch that is being built.
+    Batching,
+    /// Proof is complete and the order can be submitted directly (no batching).
+    ReadyForSubmission,
+    /// Order is in a batch that is being submitted on chain.
     PendingSubmission,
     /// Order has been completed
     Done,
@@ -57,7 +57,7 @@ pub enum OrderStatus {
 }
 
 /// On-chain order state change broadcast from MarketMonitor to all unified components
-/// (OrderEvaluator, OrderPricer, OrderCommitter) and the ProvingService.
+/// (OrderEvaluator, OrderPricer, OrderCommitter) and the OrderProcessor.
 ///
 /// Each variant carries `chain_id` to ensure that events on one chain don't affect
 /// pending orders for other chains that may share the same `request_id`.
@@ -102,8 +102,8 @@ pub(crate) fn order_from_request(order_request: &OrderRequest, status: OrderStat
         target_timestamp: order_request.target_timestamp,
         expire_timestamp: order_request.expire_timestamp,
         proving_started_at: None,
-        proof_id: None,
-        compressed_proof_id: None,
+        backend_state: None,
+        backend_id: None,
         lock_price: None,
         error_msg: None,
         cached_id: OnceLock::new(),
@@ -145,10 +145,9 @@ pub struct Order {
     /// Last update time
     #[serde(with = "ts_seconds")]
     pub(crate) updated_at: DateTime<Utc>,
-    /// Total cycles
-    /// Populated after initial pricing in order picker
+    // TODO(zkvm-abstraction): RISC0-shaped; migrate to `EvaluationMetrics` + backend-agnostic
+    // output-bytes (needs a DB schema change).
     pub(crate) total_cycles: Option<u64>,
-    /// Journal size in bytes. Populated after preflight.
     #[serde(default)]
     pub(crate) journal_bytes: Option<usize>,
     /// Locking status target UNIX timestamp
@@ -163,14 +162,14 @@ pub struct Order {
     ///
     ///  Populated after preflight
     pub(crate) input_id: Option<String>,
-    /// Proof Id
+    /// Backend-opaque per-order state. The proving backend writes it; the broker persists it.
+    #[serde(default)]
+    pub(crate) backend_state: Option<BackendOrderState>,
+    /// Backend that processed this order.
     ///
-    /// Populated after proof completion
-    pub(crate) proof_id: Option<String>,
-    /// Compressed proof Id
-    ///
-    /// Populated after proof completion. if the proof is compressed
-    pub(crate) compressed_proof_id: Option<String>,
+    /// Populated after proof completion.
+    #[serde(default)]
+    pub(crate) backend_id: Option<BackendId>,
     /// UNIX timestamp the order expires at
     ///
     /// Populated during order picking
@@ -200,22 +199,6 @@ impl Order {
             })
             .clone()
     }
-
-    pub fn is_groth16(&self) -> bool {
-        is_groth16_selector(self.request.requirements.selector)
-    }
-    fn is_blake3_groth16(&self) -> bool {
-        is_blake3_groth16_selector(self.request.requirements.selector)
-    }
-    pub fn compression_type(&self) -> CompressionType {
-        if self.is_groth16() {
-            CompressionType::Groth16
-        } else if self.is_blake3_groth16() {
-            CompressionType::Blake3Groth16
-        } else {
-            CompressionType::None
-        }
-    }
 }
 
 impl std::fmt::Display for Order {
@@ -227,13 +210,6 @@ impl std::fmt::Display for Order {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, crate::format_expiries(&self.request))
     }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum CompressionType {
-    None,
-    Groth16,
-    Blake3Groth16,
 }
 
 #[cfg(test)]
@@ -267,8 +243,8 @@ mod tests {
             proving_started_at: None,
             image_id: None,
             input_id: None,
-            proof_id: None,
-            compressed_proof_id: None,
+            backend_state: None,
+            backend_id: None,
             expire_timestamp: None,
             client_sig: Bytes::new(),
             lock_price: None,

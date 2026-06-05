@@ -449,7 +449,7 @@ contract BoundlessMarket is
         if (paymentError.length > 0) {
             emit PaymentRequirementsFailed(paymentError);
         }
-        emit ProofDelivered(id, prover, fill);
+        emit ProofDelivered(id, prover, requestDigest, fill);
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.
@@ -633,7 +633,7 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function submitRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external {
-        IRiscZeroSetVerifier(address(setVerifierAddress)).submitMerkleRoot(root, seal);
+        _submitRoot(setVerifierAddress, root, seal);
     }
 
     /// @inheritdoc IBoundlessMarket
@@ -643,7 +643,7 @@ contract BoundlessMarket is
         bytes calldata seal,
         FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
-        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        _submitRoot(setVerifier, root, seal);
         paymentError = fulfill(fulfillmentBatches);
     }
 
@@ -654,7 +654,7 @@ contract BoundlessMarket is
         bytes calldata seal,
         FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
-        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        _submitRoot(setVerifier, root, seal);
         paymentError = fulfillAndWithdraw(fulfillmentBatches);
     }
 
@@ -666,7 +666,7 @@ contract BoundlessMarket is
         ProofRequestBatch[] calldata requestBatches,
         FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
-        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        _submitRoot(setVerifier, root, seal);
         paymentError = priceAndFulfill(requestBatches, fulfillmentBatches);
     }
 
@@ -678,8 +678,15 @@ contract BoundlessMarket is
         ProofRequestBatch[] calldata requestBatches,
         FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError) {
-        IRiscZeroSetVerifier(address(setVerifier)).submitMerkleRoot(root, seal);
+        _submitRoot(setVerifier, root, seal);
         paymentError = priceAndFulfillAndWithdraw(requestBatches, fulfillmentBatches);
+    }
+
+    /// @dev Shared dispatch for `submitRoot*` variants. Five call sites means
+    ///      the optimizer should keep this factored instead of inlining the
+    ///      external-call setup at each site.
+    function _submitRoot(address setVerifier, bytes32 root, bytes calldata seal) private {
+        IRiscZeroSetVerifier(setVerifier).submitMerkleRoot(root, seal);
     }
 
     /// @inheritdoc IBoundlessMarket

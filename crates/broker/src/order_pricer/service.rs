@@ -16,15 +16,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
+    backend::BackendRouter,
     chain_monitor_v2::ChainMonitorObj,
     channels::SharedReceiver,
     config::ConfigLock,
     db::DbObj,
     order_evaluator::{PreflightComplete, PreflightOutcome},
-    provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
     task::{BrokerService, SupervisorErr},
-    ConfigurableDownloader, Erc1271GasCache, OrderRequest, OrderStateChange, PreflightCache,
+    Erc1271GasCache, OrderRequest, OrderStateChange,
 };
 use alloy::{
     network::Ethereum,
@@ -45,10 +45,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, Span};
 
 use super::error::OrderPricerErr;
-use super::types::{
-    ActivePreflights, OrderCache, ORDER_DEDUP_CACHE_SIZE, PREFLIGHT_CACHE_SIZE,
-    PREFLIGHT_CACHE_TTL_SECS,
-};
+use super::types::{ActivePreflights, OrderCache, ORDER_DEDUP_CACHE_SIZE};
 
 const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -56,21 +53,21 @@ const LOG_INTERVAL: Duration = Duration::from_secs(5);
 pub struct OrderPricer<P> {
     pub(super) db: DbObj,
     pub(super) config: ConfigLock,
-    pub(super) prover: ProverObj,
+    pub(super) backend: Arc<BackendRouter>,
     pub(super) provider: Arc<P>,
     pub(super) chain_monitor: ChainMonitorObj,
     pub(super) market: BoundlessMarketService<Arc<P>>,
+    /// Static snapshot of selector -> proof-type metadata, captured from the backend
+    /// router at construction.
     pub(super) supported_selectors: SupportedSelectors,
     pub(super) new_order_rx: SharedReceiver<Box<OrderRequest>>,
     pub(super) priced_orders_tx: mpsc::Sender<Box<OrderRequest>>,
     pub(super) collateral_token_decimals: u8,
     pub(super) order_cache: OrderCache,
-    pub(super) preflight_cache: PreflightCache,
     pub(super) erc1271_gas_cache: Erc1271GasCache,
     pub(super) order_state_tx: broadcast::Sender<OrderStateChange>,
     pub(super) priority_requestors: PriorityRequestors,
     pub(super) allow_requestors: AllowRequestors,
-    pub(super) downloader: ConfigurableDownloader,
     pub(super) price_oracle: Arc<PriceOracleManager>,
     pub(super) listen_only: bool,
     pub(super) chain_id: u64,
@@ -85,7 +82,7 @@ where
     pub fn new(
         db: DbObj,
         config: ConfigLock,
-        prover: ProverObj,
+        backend: Arc<BackendRouter>,
         market_addr: Address,
         provider: Arc<P>,
         chain_monitor: ChainMonitorObj,
@@ -95,7 +92,6 @@ where
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
         allow_requestors: AllowRequestors,
-        downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
         erc1271_gas_cache: Erc1271GasCache,
         listen_only: bool,
@@ -108,14 +104,16 @@ where
             provider.default_signer_address(),
         );
 
+        let supported_selectors = backend.supported_selectors();
+
         Self {
             db,
             config,
-            prover,
+            backend,
             provider,
             chain_monitor,
             market,
-            supported_selectors: SupportedSelectors::default(),
+            supported_selectors,
             new_order_rx,
             priced_orders_tx: order_result_tx,
             collateral_token_decimals,
@@ -126,18 +124,10 @@ where
                     .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
                     .build(),
             ),
-            preflight_cache: Arc::new(
-                Cache::builder()
-                    .eviction_policy(EvictionPolicy::lru())
-                    .max_capacity(PREFLIGHT_CACHE_SIZE)
-                    .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
-                    .build(),
-            ),
             erc1271_gas_cache,
             order_state_tx,
             priority_requestors,
             allow_requestors,
-            downloader,
             price_oracle,
             listen_only,
             chain_id,
@@ -171,23 +161,31 @@ where
 
                     if active_preflights.contains(&request_id, &order_id) {
                         tracing::debug!("Skipping order {order_id} - already being processed");
-                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                        if let Err(err) = self.pricing_completion_tx.try_send(PreflightComplete {
                             order_id,
                             request_id,
                             chain_id,
                             outcome: PreflightOutcome::Skipped,
-                        });
+                        }) {
+                            tracing::error!(
+                                "Failed to send preflight completion for duplicate active order; capacity tracking may be stale: {err}"
+                            );
+                        }
                         continue;
                     }
 
                     if self.order_cache.get(&order_id).await.is_some() {
                         tracing::debug!("Skipping duplicate order {order_id}, already being processed");
-                        let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                        if let Err(err) = self.pricing_completion_tx.try_send(PreflightComplete {
                             order_id,
                             request_id,
                             chain_id,
                             outcome: PreflightOutcome::Skipped,
-                        });
+                        }) {
+                            tracing::error!(
+                                "Failed to send preflight completion for duplicate cached order; capacity tracking may be stale: {err}"
+                            );
+                        }
                         continue;
                     }
 
@@ -232,12 +230,16 @@ where
                         Ok((order_id, request_id, outcome)) => {
                             active_preflights.remove(&request_id, &order_id);
 
-                            let _ = self.pricing_completion_tx.try_send(PreflightComplete {
+                            if let Err(err) = self.pricing_completion_tx.try_send(PreflightComplete {
                                 order_id: order_id.clone(),
                                 request_id,
                                 chain_id: self.chain_id,
                                 outcome,
-                            });
+                            }) {
+                                tracing::error!(
+                                    "Failed to send preflight completion for order {order_id}; capacity tracking may be stale: {err}"
+                                );
+                            }
 
                             tracing::trace!("Priced task for order {} (request 0x{:x}) completed with {outcome} ({} remaining)",
                                 order_id, request_id, tasks.len());
@@ -273,10 +275,11 @@ pub(crate) mod tests {
     use crate::config::{defaults, MarketConfig};
     use crate::order_pricer::types::ActivePreflights;
     use crate::{
+        backend::{BackendEntry, BackendRouter, Risc0Backend},
         chain_monitor_v2::ChainMonitorService,
         db::SqliteDb,
-        provers::{DefaultProver, ProofResult, Prover, ProverError},
-        FulfillmentType,
+        provers::{DefaultProver, ProofResult, Prover, ProverError, ProverObj},
+        ConfigurableDownloader, FulfillmentType,
     };
     use crate::{now_timestamp, OrderPricingContext, OrderPricingOutcome};
     use alloy::{
@@ -305,7 +308,7 @@ pub(crate) mod tests {
         storage::{MockStorageUploader, StorageUploader},
     };
     use boundless_test_utils::{
-        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
+        guests::{ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID, SET_BUILDER_ID},
         market::{deploy_boundless_market, deploy_hit_points},
     };
     use price_oracle::TradingPair;
@@ -500,7 +503,7 @@ pub(crate) mod tests {
                 address!("0x0000000000000000000000000000000000000001"),
                 hp_contract,
                 Digest::from(ASSESSOR_GUEST_ID),
-                format!("file://{ASSESSOR_GUEST_PATH}"),
+                Digest::from(SET_BUILDER_ID),
                 Some(signer.address()),
             )
             .await
@@ -540,6 +543,16 @@ pub(crate) mod tests {
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
             let allow_requestors = AllowRequestors::new(config.clone(), chain_id);
             let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
+            let backend_router = Arc::new(
+                BackendRouter::new()
+                    .register_backend(BackendEntry::new(Arc::new(Risc0Backend::with_provers(
+                        prover,
+                        Arc::new(DefaultProver::new()),
+                        Arc::new(downloader),
+                        priority_requestors.as_check(),
+                    ))))
+                    .unwrap(),
+            );
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) =
@@ -551,7 +564,7 @@ pub(crate) mod tests {
             let pricer = OrderPricer::new(
                 db.clone(),
                 config,
-                prover,
+                backend_router,
                 market_address,
                 provider.clone(),
                 chain_monitor,
@@ -561,7 +574,6 @@ pub(crate) mod tests {
                 order_state_tx,
                 priority_requestors,
                 allow_requestors,
-                downloader,
                 create_test_price_oracle(),
                 Arc::new(Cache::builder().build()),
                 false,

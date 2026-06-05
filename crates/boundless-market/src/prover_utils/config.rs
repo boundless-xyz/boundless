@@ -167,6 +167,10 @@ pub mod defaults {
         1
     }
 
+    pub const fn max_commitment_duration_secs() -> u64 {
+        14400
+    }
+
     pub const fn max_order_expiry_secs() -> Option<u64> {
         None
     }
@@ -531,6 +535,12 @@ pub struct MarketConfig {
     /// Maximum number of concurrent proofs that can be processed at once
     #[serde(default = "defaults::max_concurrent_proofs")]
     pub max_concurrent_proofs: u32,
+    /// Maximum time (in seconds) an order may hold a slot in the OrderCommitter
+    /// `in_flight` map before its slot is reaped as stale. Acts as a backstop
+    /// against leaked slots; raise it for prover clusters where legitimate
+    /// proves regularly exceed the default.
+    #[serde(default = "defaults::max_commitment_duration_secs")]
+    pub max_commitment_duration_secs: u64,
     /// Optional cache directory for storing downloaded images and inputs
     ///
     /// If not set, files will be re-downloaded every time
@@ -551,6 +561,13 @@ pub struct MarketConfig {
     /// This URL will be tried first before falling back to the contract URL
     #[serde(default = "defaults::set_builder_default_image_url")]
     pub set_builder_default_image_url: String,
+    /// The 4-byte BoundlessRouter assessor selector prepended to the assessor seal.
+    ///
+    /// Identifies which assessor adapter the router dispatches to. This is a per-deployment router
+    /// registration value and must match the deployed assessor entry; the default (all zeros) is
+    /// not a valid selector and must be overridden for fulfillment to succeed.
+    #[serde(default)]
+    pub assessor_selector: FixedBytes<4>,
     /// Maximum number of orders to concurrently work on pricing
     ///
     /// Used to limit pricing tasks spawned to prevent overwhelming the system
@@ -648,10 +665,12 @@ impl Default for MarketConfig {
             collateral_balance_warn_threshold: None,
             collateral_balance_error_threshold: None,
             max_concurrent_proofs: defaults::max_concurrent_proofs(),
+            max_commitment_duration_secs: defaults::max_commitment_duration_secs(),
             cache_dir: None,
             ipfs_gateway_fallback: defaults::ipfs_gateway(),
             assessor_default_image_url: defaults::assessor_default_image_url(),
             set_builder_default_image_url: defaults::set_builder_default_image_url(),
+            assessor_selector: FixedBytes::ZERO,
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),

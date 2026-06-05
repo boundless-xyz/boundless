@@ -218,9 +218,9 @@ export function buildProverLogPatterns(
             metricName: "chain-monitor-rpc-error",
             alarm: {
                 severity: Severity.SEV2,
-                description: ">=1 chain monitor RPC error in 2 of 3 15-min periods",
+                description: ">=1 chain monitor RPC error in 4 of 7 15-min periods",
                 metricConfig: { period: 900 },
-                alarmConfig: { evaluationPeriods: 3, datapointsToAlarm: 2, threshold: 1 },
+                alarmConfig: { evaluationPeriods: 7, datapointsToAlarm: 4, threshold: 1 },
             },
         },
         {

@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 use alloy::{
@@ -27,7 +28,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
     sol,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use boundless_market::{
     client::Client,
     deployments::collateral_token_supports_permit,
@@ -142,6 +143,119 @@ struct MainArgs {
     /// Path to JSON state file tracking per-prover lifetime allowances
     #[clap(long, env, default_value = "./topup-state.json")]
     allowance_state_file: PathBuf,
+
+    /// Alert-only balance monitors (optionally auto-refilled), for addresses the
+    /// distributor does not otherwise fund. Comma-separated entries; each entry is
+    /// `label=KOG;addr=0x..;kind=eth|deposit;warn=0.015;crit=0.005[;refill=0.05]`.
+    /// Emits `[B-MON-<LABEL>-<KIND>-LOW]` / `-CRIT`. `refill` (eth only) tops the
+    /// address up from the distributor via a plain transfer. Unset = no monitoring.
+    #[clap(long = "monitor-balance", env = "MONITOR_BALANCES", value_delimiter = ',')]
+    monitor_balances: Vec<String>,
+}
+
+/// Which balance a monitor entry inspects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BalanceKind {
+    /// Native ETH (gas) balance.
+    Eth,
+    /// Market deposit balance (`balanceOf`).
+    Deposit,
+}
+
+impl BalanceKind {
+    /// Token used in the alarm tag, e.g. `[B-MON-KOG-DEPOSIT-LOW]`.
+    fn tag(self) -> &'static str {
+        match self {
+            BalanceKind::Eth => "ETH",
+            BalanceKind::Deposit => "DEPOSIT",
+        }
+    }
+}
+
+impl FromStr for BalanceKind {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "eth" => Ok(BalanceKind::Eth),
+            "deposit" => Ok(BalanceKind::Deposit),
+            other => bail!("invalid balance kind '{other}', expected 'eth' or 'deposit'"),
+        }
+    }
+}
+
+/// One alert-only (optionally auto-refilled) balance monitor.
+///
+/// Parsed from `label=KOG;addr=0x..;kind=eth|deposit;warn=1;crit=0.1[;refill=0.05]`.
+/// `warn`/`crit`/`refill` are ETH-denominated (native ETH and market deposits are both 18-decimal).
+#[derive(Clone, Debug)]
+struct MonitoredBalance {
+    label: String,
+    address: Address,
+    kind: BalanceKind,
+    warn: U256,
+    crit: U256,
+    /// ETH-only refill target. When set and balance < `warn`, the distributor tops the
+    /// address up to this amount via a plain transfer. `None` = alert-only.
+    refill: Option<U256>,
+}
+
+impl FromStr for MonitoredBalance {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self> {
+        let (mut label, mut address, mut kind, mut warn, mut crit, mut refill) =
+            (None, None, None, None, None, None);
+        for field in s.split(';') {
+            let field = field.trim();
+            if field.is_empty() {
+                continue;
+            }
+            let (k, v) = field.split_once('=').with_context(|| {
+                format!("malformed field '{field}' (expected key=value) in monitor entry '{s}'")
+            })?;
+            let v = v.trim();
+            match k.trim().to_ascii_lowercase().as_str() {
+                "label" => label = Some(v.to_string()),
+                "addr" | "address" => {
+                    address = Some(
+                        v.parse::<Address>().with_context(|| format!("invalid address '{v}'"))?,
+                    )
+                }
+                "kind" => kind = Some(v.parse::<BalanceKind>()?),
+                "warn" => {
+                    warn = Some(parse_ether(v).with_context(|| format!("invalid warn '{v}'"))?)
+                }
+                "crit" => {
+                    crit = Some(parse_ether(v).with_context(|| format!("invalid crit '{v}'"))?)
+                }
+                "refill" => {
+                    refill = Some(parse_ether(v).with_context(|| format!("invalid refill '{v}'"))?)
+                }
+                other => bail!("unknown field '{other}' in monitor entry '{s}'"),
+            }
+        }
+        let label = label.context("monitor entry missing 'label'")?;
+        anyhow::ensure!(
+            !label.is_empty()
+                && label.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-'),
+            "monitor label '{label}' must match [A-Z0-9-]+ (it is embedded in the CloudWatch alarm tag)"
+        );
+        let address = address.context("monitor entry missing 'addr'")?;
+        let kind = kind.context("monitor entry missing 'kind'")?;
+        let warn = warn.context("monitor entry missing 'warn'")?;
+        let crit = crit.context("monitor entry missing 'crit'")?;
+        anyhow::ensure!(crit <= warn, "monitor '{label}': crit must be <= warn");
+        if let Some(target) = refill {
+            anyhow::ensure!(
+                kind == BalanceKind::Eth,
+                "monitor '{label}': refill is only supported for kind=eth"
+            );
+            anyhow::ensure!(
+                target >= warn,
+                "monitor '{label}': refill target must be >= warn (so a successful refill clears the alarm)"
+            );
+        }
+        Ok(MonitoredBalance { label, address, kind, warn, crit, refill })
+    }
 }
 
 /// Per-prover lifetime allowance tracking.
@@ -240,6 +354,18 @@ async fn run(args: &MainArgs) -> Result<()> {
     let distributor_collateral_alert_threshold: U256 =
         parse_units(&args.distributor_stake_alert_threshold, collateral_token_decimals)?.into();
 
+    // Parse alert-only (optionally auto-refilled) balance monitors. Fail fast on misconfig.
+    let monitored: Vec<MonitoredBalance> = args
+        .monitor_balances
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.parse::<MonitoredBalance>()
+                .with_context(|| format!("invalid --monitor-balance entry '{s}'"))
+        })
+        .collect::<Result<_>>()?;
+
     // check top up amounts are greater than thresholds
     if eth_top_up_amount < eth_threshold {
         tracing::error!("ETH top up amount is less than threshold");
@@ -298,6 +424,22 @@ async fn run(args: &MainArgs) -> Result<()> {
             format_units(distributor_collateral_balance, collateral_token_decimals)?,
             format_units(distributor_collateral_alert_threshold, collateral_token_decimals)?
         );
+    }
+
+    // Alert-only balance monitoring (with optional ETH refill) for addresses the
+    // distributor does not otherwise fund (e.g. KOG, Signal). Read-only except for the
+    // opt-in eth refill; failures here must not block the top-up loops below.
+    if monitored.is_empty() {
+        tracing::info!("No monitored balances configured");
+    } else if let Err(e) = check_monitored_balances(
+        &monitored,
+        &distributor_provider,
+        distributor_address,
+        &distributor_client.boundless_market,
+    )
+    .await
+    {
+        tracing::error!("Monitored-balance check failed: {:?}", e);
     }
 
     // Transfer ETH from provers to the distributor from provers if above threshold
@@ -954,6 +1096,156 @@ async fn top_up_external_provers<P: Provider<alloy::network::Ethereum> + Clone +
     Ok(())
 }
 
+/// Alert-only balance monitoring (with optional ETH refill) for addresses the
+/// distributor does not otherwise fund.
+///
+/// For each entry: reads the configured balance (native ETH or market deposit). For
+/// `eth` entries with a `refill` target that are below `warn`, the distributor tops the
+/// address up to `target` via a plain transfer (no target key needed — only the
+/// distributor signs). Market deposits cannot be auto-refilled (no `depositTo`), so they
+/// are always alert-only. After any refill attempt, emits `[B-MON-<LABEL>-<KIND>-CRIT]`
+/// when below `crit` or `[B-MON-<LABEL>-<KIND>-LOW]` when below `warn` — so a successful
+/// refill stays silent, while a failed one (e.g. distributor dry) still alarms.
+async fn check_monitored_balances<Pp, Pm>(
+    monitored: &[MonitoredBalance],
+    provider: &Pp,
+    distributor_address: Address,
+    market: &BoundlessMarketService<Pm>,
+) -> Result<()>
+where
+    Pp: Provider<alloy::network::Ethereum>,
+    Pm: Provider<alloy::network::Ethereum> + Clone + 'static,
+{
+    for m in monitored {
+        let kind = m.kind.tag();
+
+        let mut balance = match m.kind {
+            BalanceKind::Eth => match provider.get_balance(m.address).await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to read ETH balance for monitored {} {}: {:?}",
+                        m.label,
+                        m.address,
+                        e
+                    );
+                    continue;
+                }
+            },
+            BalanceKind::Deposit => match market.balance_of(m.address).await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to read market deposit for monitored {} {}: {:?}",
+                        m.label,
+                        m.address,
+                        e
+                    );
+                    continue;
+                }
+            },
+        };
+
+        // Optional auto-refill (eth entries only) when below the trigger threshold.
+        if let (BalanceKind::Eth, Some(target)) = (m.kind, m.refill) {
+            if balance < m.warn {
+                let transfer_amount = target.saturating_sub(balance);
+                let distributor_balance =
+                    provider.get_balance(distributor_address).await.unwrap_or(U256::ZERO);
+
+                if transfer_amount == U256::ZERO {
+                    // Already at/above target; nothing to do.
+                } else if transfer_amount > distributor_balance {
+                    tracing::error!(
+                        "Distributor {} has insufficient ETH to refill monitored {} {}: need {}, have {}",
+                        distributor_address,
+                        m.label,
+                        m.address,
+                        format_units(transfer_amount, "ether")?,
+                        format_units(distributor_balance, "ether")?
+                    );
+                } else {
+                    tracing::info!(
+                        "Refilling monitored {} {} with {} ETH (balance {} below trigger {}, target {})",
+                        m.label,
+                        m.address,
+                        format_units(transfer_amount, "ether")?,
+                        format_units(balance, "ether")?,
+                        format_units(m.warn, "ether")?,
+                        format_units(target, "ether")?
+                    );
+                    let tx = TransactionRequest::default()
+                        .with_from(distributor_address)
+                        .with_to(m.address)
+                        .with_value(transfer_amount);
+                    match provider.send_transaction(tx).await {
+                        Ok(pending) => match pending.with_timeout(Some(TX_TIMEOUT)).watch().await {
+                            Ok(receipt) => {
+                                tracing::info!(
+                                    "Monitored refill completed: {:x}. {} ETH to {} {}",
+                                    receipt,
+                                    format_units(transfer_amount, "ether")?,
+                                    m.label,
+                                    m.address
+                                );
+                                balance = provider.get_balance(m.address).await.unwrap_or(target);
+                            }
+                            Err(e) => tracing::error!(
+                                "Failed to watch monitored refill tx for {} {}: {:?}",
+                                m.label,
+                                m.address,
+                                e
+                            ),
+                        },
+                        Err(e) => tracing::error!(
+                            "Failed to send monitored refill tx for {} {}: {:?}",
+                            m.label,
+                            m.address,
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+
+        // Alarm on the (post-refill) balance.
+        if balance < m.crit {
+            tracing::warn!(
+                "[B-MON-{}-{}-CRIT]: monitored {} {} {} balance {} is below crit threshold {}",
+                m.label,
+                kind,
+                m.label,
+                m.address,
+                kind,
+                format_units(balance, "ether")?,
+                format_units(m.crit, "ether")?
+            );
+        } else if balance < m.warn {
+            tracing::warn!(
+                "[B-MON-{}-{}-LOW]: monitored {} {} {} balance {} is below warn threshold {}",
+                m.label,
+                kind,
+                m.label,
+                m.address,
+                kind,
+                format_units(balance, "ether")?,
+                format_units(m.warn, "ether")?
+            );
+        } else {
+            tracing::info!(
+                "Monitored {} {} {} balance {} OK (warn {}, crit {})",
+                m.label,
+                m.address,
+                kind,
+                format_units(balance, "ether")?,
+                format_units(m.warn, "ether")?,
+                format_units(m.crit, "ether")?
+            );
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use alloy::{
@@ -1093,6 +1385,7 @@ mod tests {
                 external_per_top_up_amount: "10".to_string(),
                 external_lifetime_allowance: "100".to_string(),
                 allowance_state_file: self.state_file(),
+                monitor_balances: vec![],
             }
         }
 
@@ -1204,6 +1497,7 @@ mod tests {
             external_per_top_up_amount: "10".to_string(),
             external_lifetime_allowance: "100".to_string(),
             allowance_state_file: PathBuf::from("./test-topup-state.json"),
+            monitor_balances: vec![],
         };
 
         run(&args).await.unwrap();
@@ -1438,5 +1732,201 @@ mod tests {
 
         assert!(logs_contain("External prover top-ups disabled"));
         assert!(!logs_contain("[B-TOPUP-OK]"));
+    }
+
+    #[test]
+    fn test_monitored_balance_parse() {
+        // eth entry with refill (the SIGNAL-SIGNER prod shape)
+        let e: MonitoredBalance =
+            "label=SIGNAL-SIGNER;addr=0x2f08f5d80dEB0CECCb0f4eF3BaB46451a6C47E16;kind=eth;warn=0.003;crit=0.001;refill=0.005"
+                .parse()
+                .unwrap();
+        assert_eq!(e.label, "SIGNAL-SIGNER");
+        assert_eq!(e.kind, BalanceKind::Eth);
+        assert_eq!(e.warn, parse_ether("0.003").unwrap());
+        assert_eq!(e.crit, parse_ether("0.001").unwrap());
+        assert_eq!(e.refill, Some(parse_ether("0.005").unwrap()));
+
+        let d: MonitoredBalance =
+            "label=SIGNAL-REQ;addr=0x734df7809c4ef94da037449c287166d114503198;kind=deposit;warn=1;crit=0.1"
+                .parse()
+                .unwrap();
+        assert_eq!(d.kind, BalanceKind::Deposit);
+        assert!(d.refill.is_none());
+
+        // refill is rejected on a deposit entry (no depositTo support)
+        assert!("label=X;addr=0x734df7809c4ef94da037449c287166d114503198;kind=deposit;warn=1;crit=0.1;refill=2"
+            .parse::<MonitoredBalance>()
+            .is_err());
+        // crit must be <= warn
+        assert!(
+            "label=X;addr=0x734df7809c4ef94da037449c287166d114503198;kind=eth;warn=0.1;crit=0.2"
+                .parse::<MonitoredBalance>()
+                .is_err()
+        );
+        // refill target must be >= warn
+        assert!("label=X;addr=0x734df7809c4ef94da037449c287166d114503198;kind=eth;warn=0.1;crit=0.05;refill=0.05"
+            .parse::<MonitoredBalance>()
+            .is_err());
+        // unknown kind
+        assert!(
+            "label=X;addr=0x734df7809c4ef94da037449c287166d114503198;kind=bogus;warn=1;crit=0.1"
+                .parse::<MonitoredBalance>()
+                .is_err()
+        );
+        // label must be [A-Z0-9-]+ (used in the alarm tag)
+        assert!(
+            "label=kog;addr=0x734df7809c4ef94da037449c287166d114503198;kind=eth;warn=1;crit=0.1"
+                .parse::<MonitoredBalance>()
+                .is_err()
+        );
+        // missing required field (addr)
+        assert!("label=X;kind=eth;warn=1;crit=0.1".parse::<MonitoredBalance>().is_err());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_monitor_eth_refill_success() {
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let distributor_signer = PrivateKeySigner::random();
+
+        let provider = ProviderBuilder::new().connect(&anvil.endpoint()).await.unwrap();
+        provider
+            .anvil_set_balance(distributor_signer.address(), parse_ether("10").unwrap())
+            .await
+            .unwrap();
+
+        let distributor_client = Client::builder()
+            .with_rpc_url(anvil.endpoint_url())
+            .with_private_key(distributor_signer.clone())
+            .with_deployment(ctx.deployment.clone())
+            .build()
+            .await
+            .unwrap();
+
+        // An eth entry below `warn`, with the distributor funded, is topped up to the
+        // refill target and stays silent (no alarm).
+        let signer_addr = PrivateKeySigner::random().address();
+        let monitored = vec![MonitoredBalance {
+            label: "SIGNAL-SIGNER".into(),
+            address: signer_addr,
+            kind: BalanceKind::Eth,
+            warn: parse_ether("0.003").unwrap(),
+            crit: parse_ether("0.001").unwrap(),
+            refill: Some(parse_ether("0.005").unwrap()),
+        }];
+
+        check_monitored_balances(
+            &monitored,
+            &distributor_client.provider(),
+            distributor_signer.address(),
+            &distributor_client.boundless_market,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            distributor_client.provider().get_balance(signer_addr).await.unwrap(),
+            parse_ether("0.005").unwrap()
+        );
+        assert!(!logs_contain("[B-MON-SIGNAL-SIGNER-ETH-LOW]"));
+        assert!(!logs_contain("[B-MON-SIGNAL-SIGNER-ETH-CRIT]"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_monitor_deposit_alert_no_refill() {
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let distributor_signer = PrivateKeySigner::random();
+
+        let provider = ProviderBuilder::new().connect(&anvil.endpoint()).await.unwrap();
+        provider
+            .anvil_set_balance(distributor_signer.address(), parse_ether("10").unwrap())
+            .await
+            .unwrap();
+
+        let distributor_client = Client::builder()
+            .with_rpc_url(anvil.endpoint_url())
+            .with_private_key(distributor_signer.clone())
+            .with_deployment(ctx.deployment.clone())
+            .build()
+            .await
+            .unwrap();
+
+        // Address with zero market deposit, below the crit threshold.
+        let depositor = PrivateKeySigner::random().address();
+        let monitored = vec![MonitoredBalance {
+            label: "KOG".into(),
+            address: depositor,
+            kind: BalanceKind::Deposit,
+            warn: parse_ether("1").unwrap(),
+            crit: parse_ether("0.1").unwrap(),
+            refill: None,
+        }];
+
+        check_monitored_balances(
+            &monitored,
+            &distributor_client.provider(),
+            distributor_signer.address(),
+            &distributor_client.boundless_market,
+        )
+        .await
+        .unwrap();
+
+        assert!(logs_contain("[B-MON-KOG-DEPOSIT-CRIT]"));
+        // Deposit entries are never refilled — the address's ETH is untouched.
+        assert_eq!(distributor_client.provider().get_balance(depositor).await.unwrap(), U256::ZERO);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_monitor_refill_insufficient_distributor() {
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let distributor_signer = PrivateKeySigner::random();
+
+        let provider = ProviderBuilder::new().connect(&anvil.endpoint()).await.unwrap();
+        // Distributor can't cover the 0.005 refill.
+        provider
+            .anvil_set_balance(distributor_signer.address(), parse_ether("0.001").unwrap())
+            .await
+            .unwrap();
+
+        let distributor_client = Client::builder()
+            .with_rpc_url(anvil.endpoint_url())
+            .with_private_key(distributor_signer.clone())
+            .with_deployment(ctx.deployment.clone())
+            .build()
+            .await
+            .unwrap();
+
+        let signer_addr = PrivateKeySigner::random().address();
+        let monitored = vec![MonitoredBalance {
+            label: "SIGNAL-SIGNER".into(),
+            address: signer_addr,
+            kind: BalanceKind::Eth,
+            warn: parse_ether("0.003").unwrap(),
+            crit: parse_ether("0.001").unwrap(),
+            refill: Some(parse_ether("0.005").unwrap()),
+        }];
+
+        check_monitored_balances(
+            &monitored,
+            &distributor_client.provider(),
+            distributor_signer.address(),
+            &distributor_client.boundless_market,
+        )
+        .await
+        .unwrap();
+
+        // Refill could not happen, and the (still-low) balance alarms.
+        assert!(logs_contain("insufficient ETH to refill"));
+        assert!(logs_contain("[B-MON-SIGNAL-SIGNER-ETH-CRIT]"));
+        assert_eq!(
+            distributor_client.provider().get_balance(signer_addr).await.unwrap(),
+            U256::ZERO
+        );
     }
 }

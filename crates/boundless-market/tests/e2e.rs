@@ -26,13 +26,13 @@ use boundless_market::{
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
-        AssessorReceipt, FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest,
-        RequestId, RequestStatus, Requirements,
+        FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest, RequestId,
+        RequestStatus, Requirements,
     },
     indexer_client::IndexerClient,
     input::GuestEnv,
     price_provider::{PricePercentiles, PriceProviderArc},
-    request_builder::{OfferParams, RequestParams},
+    request_builder::{OfferLayerConfigBuilder, OfferParams, RequestParams},
     storage::{HttpDownloader, MockStorageUploader},
     test_helpers::create_mock_indexer_client,
 };
@@ -296,15 +296,14 @@ async fn test_e2e() {
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
     // fulfill the request
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .fulfill(FulfillmentTx::new(
+            vec![request.clone()],
+            vec![fulfillment.clone()],
+            assessor_seal.clone(),
+            ctx.prover_signer.address(),
+        ))
         .await
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
@@ -368,20 +367,23 @@ async fn test_e2e_merged_submit_fulfill() {
         FulfillmentDataType::ImageIdAndJournal,
     );
 
+    let requests = vec![request.clone()];
     let fulfillments = vec![fulfillment];
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
     // publish the committed root + fulfillments
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone()).with_submit_root(
-            ctx.deployment.set_verifier_address,
-            root,
-            set_verifier_seal,
-        ))
+        .fulfill(
+            FulfillmentTx::new(
+                requests.clone(),
+                fulfillments.clone(),
+                assessor_seal.clone(),
+                ctx.prover_signer.address(),
+            )
+            .with_submit_root(
+                ctx.deployment.set_verifier_address,
+                root,
+                set_verifier_seal,
+            ),
+        )
         .await
         .unwrap();
 
@@ -431,20 +433,20 @@ async fn test_e2e_price_and_fulfill_batch() {
         FulfillmentDataType::ImageIdAndJournal,
     );
 
+    let requests = vec![request.clone()];
     let fulfillments = vec![fulfillment];
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
 
     // Price and fulfill the request
     ctx.prover_market
         .fulfill(
-            FulfillmentTx::new(fulfillments.clone(), assessor_fill.clone())
-                .with_submit_root(ctx.deployment.set_verifier_address, root, set_verifier_seal)
-                .with_unlocked_request(UnlockedRequest::new(request.clone(), customer_sig.clone())),
+            FulfillmentTx::new(
+                requests.clone(),
+                fulfillments.clone(),
+                assessor_seal.clone(),
+                ctx.prover_signer.address(),
+            )
+            .with_submit_root(ctx.deployment.set_verifier_address, root, set_verifier_seal)
+            .with_unlocked_request(UnlockedRequest::new(request.clone(), customer_sig.clone())),
         )
         .await
         .unwrap();
@@ -517,18 +519,16 @@ async fn test_e2e_no_payment() {
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-        let assessor_fill = AssessorReceipt {
-            seal: assessor_seal,
-            selectors: vec![],
-            prover: some_other_address,
-            callbacks: vec![],
-        };
-
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         // fulfill the request. This call emits a PaymentRequirementsFailed log since the lock
         // belongs to a different prover, but the request itself still becomes fulfilled on-chain.
         ctx.prover_market
-            .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+            .fulfill(FulfillmentTx::new(
+                vec![request.clone()],
+                vec![fulfillment.clone()],
+                assessor_seal.clone(),
+                some_other_address,
+            ))
             .await
             .expect("fulfillment should succeed even if payment requirements fail");
         assert!(logs_contain("Payment requirements failed for at least one fulfillment"));
@@ -560,16 +560,14 @@ async fn test_e2e_no_payment() {
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
-
     // fulfill the request, this time getting paid.
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .fulfill(FulfillmentTx::new(
+            vec![request.clone()],
+            vec![fulfillment.clone()],
+            assessor_seal.clone(),
+            ctx.prover_signer.address(),
+        ))
         .await
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
@@ -644,15 +642,14 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
     // publish the committed root
     ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-    let assessor_fill = AssessorReceipt {
-        seal: assessor_seal,
-        selectors: vec![],
-        prover: ctx.prover_signer.address(),
-        callbacks: vec![],
-    };
     // fulfill the request
     ctx.prover_market
-        .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+        .fulfill(FulfillmentTx::new(
+            vec![request.clone()],
+            vec![fulfillment.clone()],
+            assessor_seal.clone(),
+            ctx.prover_signer.address(),
+        ))
         .await
         .unwrap();
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
@@ -722,14 +719,27 @@ async fn test_client_builder_with_price_provider() {
     let mock_indexer_client = IndexerClient::new(mock_indexer_url).unwrap();
     let price_provider: PriceProviderArc = Arc::new(mock_indexer_client);
 
+    // Zero the gas estimates on both builds so maxPrice is purely the (buffered) proof price.
+    // The gas portion is fetched fresh per build_request (the eth_feeHistory base-fee projection
+    // drifts even on an idle anvil) and dwarfs the buffer delta, so comparing gas-inclusive
+    // totals is non-deterministic. Isolating the proof portion makes the buffer's effect exact.
+    fn zero_gas(c: &mut OfferLayerConfigBuilder) -> &mut OfferLayerConfigBuilder {
+        c.lock_gas_estimate(0)
+            .fulfill_gas_estimate(0)
+            .fulfill_journal_gas_per_byte(0)
+            .groth16_verify_gas_estimate(0)
+            .smart_contract_sig_verify_gas_estimate(0)
+    }
+
     // Test that ClientBuilder accepts a price_provider parameter and uses it
     let client = ClientBuilder::new()
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
         .with_uploader(Some(storage.clone()))
-        .with_price_provider(Some(price_provider))
+        .with_price_provider(Some(price_provider.clone()))
         .with_downloader(HttpDownloader::default())
+        .config_offer_layer(zero_gas)
         .build()
         .await
         .unwrap();
@@ -743,5 +753,28 @@ async fn test_client_builder_with_price_provider() {
     assert!(request.offer.minPrice == U256::ZERO);
     assert!(
         request.offer.maxPrice >= min(price_percentiles.p99, price_percentiles.p50 * U256::from(2))
+    );
+
+    // Build the same request with the market-price buffer disabled (100% = no buffer). With gas
+    // zeroed on both builds, maxPrice is exactly the proof portion, so the default +15% buffer
+    // makes the buffered maxPrice an exact 115/100 multiple of the no-buffer maxPrice.
+    let client_no_buffer = ClientBuilder::new()
+        .with_signer(ctx.customer_signer.clone())
+        .with_deployment(ctx.deployment.clone())
+        .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .with_uploader(Some(storage.clone()))
+        .with_price_provider(Some(price_provider))
+        .with_downloader(HttpDownloader::default())
+        .config_offer_layer(|c| zero_gas(c).market_price_buffer_multiplier_percentage(100))
+        .build()
+        .await
+        .unwrap();
+    let request_no_buffer = client_no_buffer
+        .build_request(RequestParams::new().with_program(ECHO_ELF).with_stdin(b"test"))
+        .await
+        .unwrap();
+    assert_eq!(
+        request.offer.maxPrice,
+        request_no_buffer.offer.maxPrice * U256::from(115) / U256::from(100),
     );
 }

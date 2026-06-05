@@ -149,9 +149,13 @@ export class IndexerShared extends pulumi.ComponentResource {
       }),
     }, { parent: this });
 
+    // engineVersion acts as a floor — AWS auto-applies minor upgrades, so the
+    // live cluster may be ahead of this value. ignoreChanges on engineVersion
+    // prevents Pulumi from trying to downgrade back to this floor on each run.
+    // Bump this when AWS deprecates the live version.
     const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-${databaseVersion}`, {
       engine: 'aurora-postgresql',
-      engineVersion: '17.4',
+      engineVersion: '17.7',
       clusterIdentifier: `${serviceName}-aurora-${databaseVersion}`,
       databaseName: rdsDbName,
       masterUsername: rdsUser,
@@ -164,7 +168,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       storageEncrypted: true,
       monitoringInterval: 60,
       monitoringRoleArn: enhancedMonitoringRole.arn,
-    }, { parent: this /* protect: true */ });
+    }, { parent: this, ignoreChanges: ['engineVersion'] /* protect: true */ });
 
     new aws.iam.RolePolicyAttachment(`${serviceName}-rds-mon-pol`, {
       role: enhancedMonitoringRole.name,
@@ -173,10 +177,11 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     const instanceClass = isDev ? 'db.r6g.large' : 'db.r6g.xlarge';
 
+    // engineVersion is a floor here too — see comment on auroraCluster above.
     new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-${databaseVersion}`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
-      engineVersion: '17.4',
+      engineVersion: '17.7',
       instanceClass: instanceClass,
       identifier: `${serviceName}-aurora-writer-${databaseVersion}`,
       publiclyAccessible: false,
@@ -186,12 +191,12 @@ export class IndexerShared extends pulumi.ComponentResource {
       monitoringInterval: 60,
       monitoringRoleArn: enhancedMonitoringRole.arn,
       applyImmediately: true,
-    }, { parent: this /* protect: true */ });
+    }, { parent: this, ignoreChanges: ['engineVersion'] /* protect: true */ });
 
     new aws.rds.ClusterInstance(`${serviceName}-aurora-reader-${databaseVersion}`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
-      engineVersion: '17.4',
+      engineVersion: '17.7',
       instanceClass: instanceClass,
       identifier: `${serviceName}-aurora-reader-${databaseVersion}`,
       publiclyAccessible: false,
@@ -201,7 +206,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       monitoringInterval: 60,
       monitoringRoleArn: enhancedMonitoringRole.arn,
       applyImmediately: true,
-    }, { parent: this /* protect: true */ });
+    }, { parent: this, ignoreChanges: ['engineVersion'] /* protect: true */ });
 
     // Writer secret: direct connection to Aurora cluster endpoint (for ECS indexer)
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;

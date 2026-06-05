@@ -24,15 +24,3 @@ config:
       chainId: "8453"
       alarmProfile: nightly
       proverType: bento
-    - name: prover-84532-prod-nightly
-      hostname: prover-84532-prod-nightly
-      role: prover
-      chainId: "84532"
-      alarmProfile: nightly
-      proverType: bento
-    - name: prover-11155111-prod-nightly
-      hostname: prover-11155111-prod-nightly
-      role: prover
-      chainId: "11155111"
-      alarmProfile: nightly
-      proverType: bento

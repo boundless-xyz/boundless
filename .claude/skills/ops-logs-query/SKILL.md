@@ -257,6 +257,7 @@ A deployment cycle looks like:
 2. `"Image ghcr.io/boundless-xyz/boundless/broker:<tag> Pulling"` — new image pulled (the tag contains the git commit, e.g. `nightly-3b8a71f`)
 3. `"Container bento-broker-1 Created"` / `"Starting"` — new containers come up
 4. Optionally: `"dependency failed to start: container ... is unhealthy"` — a container failed its healthcheck, cascading to broker failure
+5. If `"Starting Docker Compose"` is missing or far behind `"Stopping Docker Compose"`, the broker **may be in graceful shutdown drain** — search `?"starting graceful shutdown" ?"in-progress orders to complete" ?"Cancelling critical tasks"`. The broker waits up to 2h (`SHUTDOWN_GRACE_PERIOD_SECS`) for committed orders before exiting; during this window `bento_active=0` and `channel closed` errors from the chain monitor are **expected**, not an outage.
 
 Deployments are significant events -- they restart the broker (causing a brief gap in telemetry and fulfillments even when healthy) and deploy new code that could introduce bugs or behavior changes. Always note when a deployment occurred relative to the issue being investigated.
 

@@ -64,6 +64,10 @@ const MONTHLY_AGGREGATION_RECOMPUTE_MONTHS: u64 = 2;
 const GET_BLOCK_RECEIPTS_CHUNK_SIZE: usize = 250;
 const GET_BLOCK_BY_NUMBER_CHUNK_SIZE: usize = 250;
 const BLOCK_QUERY_SLEEP: u64 = 1;
+/// Retry count for per-tx `eth_getTransactionByHash` when the RPC returns
+/// either no transaction or a transaction with `block_number = null`.
+pub(super) const TX_FETCH_RETRY_COUNT: u64 = 2;
+pub(super) const TX_FETCH_RETRY_SLEEP_MS: u64 = 1000;
 
 /// Event signatures for market events that are indexed.
 const MARKET_EVENT_SIGNATURES: &[B256] = &[
@@ -100,22 +104,22 @@ type AnyNetworkProvider = FillProvider<
 
 #[derive(Error, Debug)]
 pub enum ServiceError {
-    #[error("Database error: {0}")]
+    #[error("Database error: {0:?}")]
     DatabaseError(#[from] DbError),
 
-    #[error("Database query error in {1}: {0}")]
+    #[error("Database query error in {1}: {0:?}")]
     DatabaseQueryError(DbError, String),
 
-    #[error("Boundless market error: {0}")]
+    #[error("Boundless market error: {0:?}")]
     BoundlessMarketError(#[from] MarketError),
 
-    #[error("RPC error: {0}")]
+    #[error("RPC error: {0:?}")]
     RpcError(#[from] RpcError<TransportErrorKind>),
 
-    #[error("Event query error: {0}")]
+    #[error("Event query error: {0:?}")]
     EventQueryError(#[from] alloy::contract::Error),
 
-    #[error("Error: {0}")]
+    #[error("Error: {0:#}")]
     Error(#[from] anyhow::Error),
 
     #[error("Maximum retries reached")]

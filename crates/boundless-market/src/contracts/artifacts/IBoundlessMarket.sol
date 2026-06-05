@@ -48,8 +48,11 @@ interface IBoundlessMarket {
     /// first event logged will always coincide with the `RequestFulfilled` event and the fulfilled flag on the request being set.
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover delivering the proof.
+    /// @param requestDigest The EIP-712 digest of the request.
     /// @param fulfillment The fulfillment details.
-    event ProofDelivered(RequestId indexed requestId, address indexed prover, Fulfillment fulfillment);
+    event ProofDelivered(
+        RequestId indexed requestId, address indexed prover, bytes32 requestDigest, Fulfillment fulfillment
+    );
 
     /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.
