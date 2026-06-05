@@ -243,7 +243,10 @@ export = () => {
         'START_BLOCK=$((FINALIZED - START_BLOCK_OFFSET))',
         'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT}"',
         `cd ${kailuaWorkdir}`,
-        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || [ $? -eq 111 ]',
+        // kailua retries RPC/contract calls forever on persistent errors, so a misconfig or stuck
+        // endpoint runs indefinitely and saturates MAX_RUNNING_TASKS. timeout kills it so the task
+        // exits non-zero and frees its slot. Override via ENV stack config (KAILUA_TASK_TIMEOUT_SECONDS).
+        'timeout -k 30 "${KAILUA_TASK_TIMEOUT_SECONDS:-1800}" just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || [ $? -eq 111 ]',
     ].join("\n");
 
     const containerCommand = config.get("KAILUA_COMMAND") ?? [
