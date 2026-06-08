@@ -10,6 +10,7 @@ import {console2} from "forge-std/console2.sol";
 import {Strings} from "openzeppelin/contracts/utils/Strings.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
@@ -71,8 +72,27 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
         // deployment config (the BOUNDLESS_ROUTER env var overrides it).
         address boundlessRouter =
             vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter).required("boundless-router");
-        address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
+        // Resolve the legacy impl (delegate-call target for the legacy ABI).
+        // Production sets BOUNDLESS_LEGACY_IMPL to the audited on-chain impl;
+        // when unset (dev / localnet / fresh networks) deploy a fresh one from
+        // contracts/src/legacy/ wired to the configured verifier and token.
+        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", address(0));
         vm.startBroadcast(getDeployer());
+        if (legacyImpl == address(0)) {
+            legacyImpl = address(
+                new BoundlessMarketLegacy(
+                    IRiscZeroVerifier(deploymentConfig.verifier),
+                    IRiscZeroVerifier(deploymentConfig.applicationVerifier),
+                    deploymentConfig.assessorImageId,
+                    bytes32(0),
+                    0,
+                    collateralToken
+                )
+            );
+            console2.log("Deployed legacy BoundlessMarket implementation to", legacyImpl);
+        } else {
+            console2.log("Using BOUNDLESS_LEGACY_IMPL from env:", legacyImpl);
+        }
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
         address newImplementation =
@@ -150,9 +170,11 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // config (the BOUNDLESS_ROUTER env var overrides it).
         address boundlessRouter =
             vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter).required("boundless-router");
-        address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
-
         BoundlessMarket market = BoundlessMarket(payable(marketAddress));
+        // Keep the existing delegate-call target by default so the audited
+        // legacy bytecode the proxy already points at is preserved across the
+        // upgrade; BOUNDLESS_LEGACY_IMPL can override it to intentionally repoint.
+        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", market.LEGACY_IMPL());
 
         // Upgrade requires build info from the currently deployed version.
         // You can get this build info with the following process.
