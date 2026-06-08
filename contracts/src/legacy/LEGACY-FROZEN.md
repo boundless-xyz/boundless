@@ -28,57 +28,57 @@ diff should be empty.)
 The on-chain identity that ultimately matters is the deployed bytecode at
 the BoundlessMarket proxy's pre-upgrade implementation address. On Base
 mainnet that is `0x22bb6bbe5d221ef3e738029dab4d1d27ec725cd3`. The
-bytecode-parity invariant under `contracts/test/legacy/deployed-bytecode.hex`
-+ `deployed-bytecode.meta.toml` is the load-bearing check, regardless of
+bytecode-parity invariant under `contracts/test/legacy/deployed-bytecode.hex` +
+`deployed-bytecode.meta.toml` is the load-bearing check, regardless of
 which git commit the source provenance points at.
 
 ## Architecture
 
 ```
-                      ┌──────────────────────────────────────┐
-                      │  Proxy (BoundlessMarket, address P)  │
-                      │  delegate-calls active impl          │
-                      └──────────────┬───────────────────────┘
-                                     │
-                                     ▼
-              ┌──────────────────────────────────────────────┐
-              │  NEW market impl (src/BoundlessMarket.sol)   │
-              │                                              │
-              │  • declared selectors run here:              │
-              │      lockRequest, slash, withdraw,           │
-              │      submitRequest, deposit*, every view     │
-              │      getter shared with legacy, and the      │
-              │      new-shape fulfill(FulfillmentBatch[])   │
-              │                                              │
-              │  • everything else falls through:            │
-              │      fallback() → delegatecall(LEGACY_IMPL)  │
-              └──────────────────────┬───────────────────────┘
-                                     │ msg.sender, msg.value,
-                                     │ proxy storage all preserved
-                                     ▼
-              ┌──────────────────────────────────────────────┐
-              │  LEGACY impl (src/legacy/                    │
-              │              BoundlessMarketLegacy.sol)      │
-              │                                              │
-              │  Audited deployed bytecode at the pre-       │
-              │  upgrade implementation address (Base        │
-              │  mainnet: 0x22bb...cd3).                     │
-              │                                              │
-              │  Reads + writes the same storage slots the   │
-              │  new market does (requestLocks at slot 0,    │
-              │  accounts at slot 1, imageUrl at slot 2).    │
-              └──────────────────────────────────────────────┘
+        ┌──────────────────────────────────────┐
+        │  Proxy (BoundlessMarket, address P)  │
+        │  delegate-calls active impl          │
+        └──────────────┬───────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│  NEW market impl (src/BoundlessMarket.sol)   │
+│                                              │
+│  • declared selectors run here:              │
+│      lockRequest, slash, withdraw,           │
+│      submitRequest, deposit*, every view     │
+│      getter shared with legacy, and the      │
+│      new-shape fulfill(FulfillmentBatch[])   │
+│                                              │
+│  • everything else falls through:            │
+│      fallback() → delegatecall(LEGACY_IMPL)  │
+└──────────────────────┬───────────────────────┘
+                       │ msg.sender, msg.value,
+                       │ proxy storage all preserved
+                       ▼
+┌──────────────────────────────────────────────┐
+│  LEGACY impl (src/legacy/                    │
+│              BoundlessMarketLegacy.sol)      │
+│                                              │
+│  Audited deployed bytecode at the pre-       │
+│  upgrade implementation address (Base        │
+│  mainnet: 0x22bb...cd3).                     │
+│                                              │
+│  Reads + writes the same storage slots the   │
+│  new market does (requestLocks at slot 0,    │
+│  accounts at slot 1, imageUrl at slot 2).    │
+└──────────────────────────────────────────────┘
 ```
 
 ## What's in here
 
-| Path | Role |
-|---|---|
-| `BoundlessMarketLegacy.sol` | Frozen copy of `main`'s `BoundlessMarket`. Renamed file basename only; the contract symbol stays `BoundlessMarket` so deployedBytecode matches the audited deployment byte-for-byte. |
-| `IBoundlessMarketLegacy.sol` | Frozen `IBoundlessMarket` interface (defines the legacy `Fulfillment[] + AssessorReceipt` shape, `imageInfo`, `verifyDelivery`, etc.). |
-| `IBoundlessMarketCallbackLegacy.sol` | Frozen callback interface. |
-| `libraries/{BoundlessMarketLib,MerkleProofish}.sol` | Frozen library deps. |
-| `types/*.sol` | Frozen type tree (`Account`, `RequestLock`, `Fulfillment` with `id`+`requestDigest`, `AssessorReceipt`, etc.) the legacy contract was deployed against. |
+| Path                                                | Role                                                                                                                                                                                 |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BoundlessMarketLegacy.sol`                         | Frozen copy of `main`'s `BoundlessMarket`. Renamed file basename only; the contract symbol stays `BoundlessMarket` so deployedBytecode matches the audited deployment byte-for-byte. |
+| `IBoundlessMarketLegacy.sol`                        | Frozen `IBoundlessMarket` interface (defines the legacy `Fulfillment[] + AssessorReceipt` shape, `imageInfo`, `verifyDelivery`, etc.).                                               |
+| `IBoundlessMarketCallbackLegacy.sol`                | Frozen callback interface.                                                                                                                                                           |
+| `libraries/{BoundlessMarketLib,MerkleProofish}.sol` | Frozen library deps.                                                                                                                                                                 |
+| `types/*.sol`                                       | Frozen type tree (`Account`, `RequestLock`, `Fulfillment` with `id`+`requestDigest`, `AssessorReceipt`, etc.) the legacy contract was deployed against.                              |
 
 File basenames are suffixed with `Legacy` so that forge writes artifacts to
 distinct `out/` directories from the equivalents in `src/`. **Contract and

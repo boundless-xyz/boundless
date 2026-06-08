@@ -75,9 +75,8 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
         vm.startBroadcast(getDeployer());
         // Deploy the proxy contract and initialize the contract
         bytes32 salt = bytes32(0);
-        address newImplementation = address(
-            new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl)
-        );
+        address newImplementation =
+            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl));
         address marketAddress = address(
             new ERC1967Proxy{salt: salt}(newImplementation, abi.encodeCall(BoundlessMarket.initialize, (admin)))
         );

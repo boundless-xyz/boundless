@@ -162,9 +162,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", address(0));
         if (legacyImpl == address(0)) {
             legacyImpl = address(
-                new BoundlessMarketLegacy(
-                    verifier, applicationVerifier, assessorImageId, bytes32(0), 0, stakeToken
-                )
+                new BoundlessMarketLegacy(verifier, applicationVerifier, assessorImageId, bytes32(0), 0, stakeToken)
             );
             console2.log("Deployed legacy BoundlessMarket implementation to", legacyImpl);
         } else {
