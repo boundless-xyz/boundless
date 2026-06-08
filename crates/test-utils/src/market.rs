@@ -257,10 +257,21 @@ pub async fn deploy_boundless_market<P: Provider + Clone>(
     )
     .await?;
 
-    let market_instance =
-        BoundlessMarket::deploy(&deployer_provider, router, hit_points, LEGACY_IMPL_STUB)
-            .await
-            .context("failed to deploy BoundlessMarket implementation")?;
+    // BoundlessMarket delegate-calls FulfillLib for the fulfill chain, so deploy the lib first
+    // (wired to the same router) and pass it as the constructor's `fulfillLib` argument.
+    let fulfill_lib_instance = FulfillLib::deploy(&deployer_provider, router)
+        .await
+        .context("failed to deploy FulfillLib")?;
+
+    let market_instance = BoundlessMarket::deploy(
+        &deployer_provider,
+        router,
+        hit_points,
+        LEGACY_IMPL_STUB,
+        *fulfill_lib_instance.address(),
+    )
+    .await
+    .context("failed to deploy BoundlessMarket implementation")?;
 
     let proxy_instance = ERC1967Proxy::deploy(
         &deployer_provider,

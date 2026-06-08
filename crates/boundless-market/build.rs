@@ -31,8 +31,9 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 13] = [
+const ARTIFACT_TARGET_CONTRACTS: [&str; 14] = [
     "BoundlessMarket",
+    "FulfillLib",
     "HitPoints",
     "RiscZeroMockVerifier",
     "RiscZeroSetVerifier",
@@ -269,9 +270,10 @@ fn get_interfaces(contract: &str) -> &str {
             "constructor(address verifier, bytes32 imageId, string memory imageUrl) {}"
         }
         "BoundlessMarket" => {
-            r#"constructor(address router, address collateralTokenContract, address legacyImpl) {}
+            r#"constructor(address router, address collateralTokenContract, address legacyImpl, address fulfillLib) {}
             function initialize(address initialOwner) {}"#
         }
+        "FulfillLib" => "constructor(address router) {}",
         "ERC1967Proxy" => "constructor(address implementation, bytes memory data) payable {}",
         "HitPoints" => "constructor(address initialOwner) payable {}",
         "RiscZeroVerifierRouter" => {

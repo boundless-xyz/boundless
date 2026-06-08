@@ -240,7 +240,7 @@ contract FulfillLib is EIP712Upgradeable {
         if (paymentError.length > 0) {
             emit IBoundlessMarket.PaymentRequirementsFailed(paymentError);
         }
-        emit IBoundlessMarket.ProofDelivered(id, prover, fill);
+        emit IBoundlessMarket.ProofDelivered(id, prover, requestDigest, fill);
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.

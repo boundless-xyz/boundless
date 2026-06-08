@@ -822,65 +822,62 @@ impl<P: Provider> BoundlessMarketService<P> {
             Vec::new()
         };
 
-        match root {
-            None => match (price, withdraw) {
-                (false, false) => {
+        // The batched ABI dropped the `*AndWithdraw` entrypoints, so dispatch on
+        // (root, price) alone. When a withdraw was requested we follow up with a
+        // separate `withdraw` below.
+        let result = match root {
+            None => {
+                if price {
+                    tracing::debug!("Fulfilling requests {:?} with price and fulfill", request_ids);
+                    self.price_and_fulfill(request_batches, fulfillment_batches).await
+                } else {
                     tracing::debug!("Fulfilling requests {:?} with fulfill", request_ids);
                     self._fulfill(fulfillment_batches).await
                 }
-                (false, true) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with fulfill and withdraw",
-                        request_ids
-                    );
-                    self.fulfill_and_withdraw(fulfillment_batches).await
-                }
-                (true, false) => {
-                    tracing::debug!("Fulfilling requests {:?} with price and fulfill", request_ids);
-                    self.price_and_fulfill(request_batches, fulfillment_batches).await
-                }
-                (true, true) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with price and fulfill and withdraw",
-                        request_ids
-                    );
-                    self.price_and_fulfill_and_withdraw(request_batches, fulfillment_batches).await
-                }
-            },
-            Some(root) => match (price, withdraw) {
-                (false, false) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with submitting root and fulfill",
-                        request_ids
-                    );
-                    self.submit_root_and_fulfill(root, fulfillment_batches).await
-                }
-                (false, true) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with submitting root and fulfill and withdraw",
-                        request_ids
-                    );
-                    self.submit_root_and_fulfill_and_withdraw(root, fulfillment_batches).await
-                }
-                (true, false) => {
+            }
+            Some(root) => {
+                if price {
                     tracing::debug!(
                         "Fulfilling requests {:?} with submitting root and price and fulfill",
                         request_ids
                     );
                     self.submit_root_and_price_fulfill(root, request_batches, fulfillment_batches)
                         .await
+                } else {
+                    tracing::debug!(
+                        "Fulfilling requests {:?} with submitting root and fulfill",
+                        request_ids
+                    );
+                    self.submit_root_and_fulfill(root, fulfillment_batches).await
                 }
-                (true, true) => {
-                    tracing::debug!("Fulfilling requests {:?} with submitting root and price and fulfill and withdraw", request_ids);
-                    self.submit_root_and_price_fulfill_and_withdraw(
-                        root,
-                        request_batches,
-                        fulfillment_batches,
-                    )
-                    .await
+            }
+        };
+        result?;
+
+        // The new batched fulfill credits the prover's market balance rather than
+        // pushing funds to the wallet, and the combined `*AndWithdraw` entrypoints
+        // were removed. Emulate the old fulfill-and-withdraw convenience with a
+        // separate withdraw of the caller's balance. Best-effort: the fulfillment
+        // has already settled on-chain, so a failed withdraw must not fail the call.
+        if withdraw {
+            match self.balance_of(self.caller).await {
+                Ok(balance) if !balance.is_zero() => {
+                    if let Err(err) = self.withdraw(balance).await {
+                        tracing::warn!(
+                            "Fulfillment succeeded but follow-up withdraw failed: {err}"
+                        );
+                    }
                 }
-            },
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::warn!(
+                        "Fulfillment succeeded but balance lookup for withdraw failed: {err}"
+                    );
+                }
+            }
         }
+
+        Ok(())
     }
 
     /// Fulfill a batch of requests by delivering the proof for each application.
@@ -892,26 +889,6 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<(), MarketError> {
         tracing::trace!("Calling fulfill({fulfillment_batches:?})");
         let call = self.instance.fulfill(fulfillment_batches).from(self.caller);
-        tracing::trace!("Calldata: {:x}", call.calldata());
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-
-        let receipt = self.get_receipt_with_retry(pending_tx).await?;
-
-        tracing::info!("Submitted proof for batch: {}", receipt.transaction_hash);
-
-        validate_fulfill_receipt(receipt)
-    }
-
-    /// Fulfill a batch of requests by delivering the proof for each application and withdraw from the prover balance.
-    ///
-    /// See [BoundlessMarketService::fulfill] for more details.
-    async fn fulfill_and_withdraw(
-        &self,
-        fulfillment_batches: Vec<FulfillmentBatch>,
-    ) -> Result<(), MarketError> {
-        tracing::trace!("Calling fulfillAndWithdraw({fulfillment_batches:?})");
-        let call = self.instance.fulfillAndWithdraw(fulfillment_batches).from(self.caller);
         tracing::trace!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -949,37 +926,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         validate_fulfill_receipt(tx_receipt)
     }
 
-    /// Combined function to submit a new merkle root to the set-verifier and call `fulfillAndWithdraw`.
-    /// Useful to reduce the transaction count for fulfillments
-    async fn submit_root_and_fulfill_and_withdraw(
-        &self,
-        root: Root,
-        fulfillment_batches: Vec<FulfillmentBatch>,
-    ) -> Result<(), MarketError> {
-        tracing::trace!(
-            "Calling submitRootAndFulfillAndWithdraw({:?}, {:x}, {fulfillment_batches:?})",
-            root.root,
-            root.seal
-        );
-        let call = self
-            .instance
-            .submitRootAndFulfillAndWithdraw(
-                root.verifier_address,
-                root.root,
-                root.seal,
-                fulfillment_batches,
-            )
-            .from(self.caller);
-        tracing::trace!("Calldata: {}", call.calldata());
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
-
-        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
-
-        validate_fulfill_receipt(tx_receipt)
-    }
-
     /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfill`.
     /// The caller should provide the signed request and signature for each unlocked request they
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
@@ -991,33 +937,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::trace!("Calling priceAndFulfill({request_batches:?}, {fulfillment_batches:?})");
         let call =
             self.instance.priceAndFulfill(request_batches, fulfillment_batches).from(self.caller);
-        tracing::trace!("Calldata: {}", call.calldata());
-
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-
-        let tx_receipt = self.get_receipt_with_retry(pending_tx).await?;
-
-        tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
-
-        validate_fulfill_receipt(tx_receipt)
-    }
-
-    /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillAndWithdraw`.
-    /// The caller should provide the signed request and signature for each unlocked request they
-    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
-    async fn price_and_fulfill_and_withdraw(
-        &self,
-        request_batches: Vec<ProofRequestBatch>,
-        fulfillment_batches: Vec<FulfillmentBatch>,
-    ) -> Result<(), MarketError> {
-        tracing::trace!(
-            "Calling priceAndFulfillAndWithdraw({request_batches:?}, {fulfillment_batches:?})"
-        );
-        let call = self
-            .instance
-            .priceAndFulfillAndWithdraw(request_batches, fulfillment_batches)
-            .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
 
         let pending_tx = call.send().await?;
@@ -1042,40 +961,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         let call = self
             .instance
             .submitRootAndPriceAndFulfill(
-                root.verifier_address,
-                root.root,
-                root.seal,
-                request_batches,
-                fulfillment_batches,
-            )
-            .from(self.caller);
-        tracing::trace!("Calldata: {}", call.calldata());
-        let pending_tx = call.send().await?;
-        tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
-        let tx_receipt = pending_tx
-            .with_timeout(Some(self.timeout))
-            .get_receipt()
-            .await
-            .context("failed to confirm tx")
-            .map_err(MarketError::TxnConfirmationError)?;
-
-        tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
-
-        validate_fulfill_receipt(tx_receipt)
-    }
-
-    /// Combined function to submit a new merkle root to the set-verifier and call `priceAndFulfillAndWithdraw`.
-    /// Useful to reduce the transaction count for fulfillments
-    async fn submit_root_and_price_fulfill_and_withdraw(
-        &self,
-        root: Root,
-        request_batches: Vec<ProofRequestBatch>,
-        fulfillment_batches: Vec<FulfillmentBatch>,
-    ) -> Result<(), MarketError> {
-        tracing::trace!("Calling submitRootAndPriceAndFulfillAndWithdraw({:?}, {:x}, {request_batches:?}, {fulfillment_batches:?})", root.root, root.seal);
-        let call = self
-            .instance
-            .submitRootAndPriceAndFulfillAndWithdraw(
                 root.verifier_address,
                 root.root,
                 root.seal,
