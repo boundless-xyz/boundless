@@ -329,6 +329,10 @@ jobs:
           DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          # Non-functional stub: the new ABI must never route through the legacy
+          # fallback, so DeploymentTest runs against a dead delegate target. Any
+          # accidental legacy-path call hits this address and fails to return.
+          BOUNDLESS_LEGACY_IMPL: "0xdededededededededededededededededededede"
 
       - name: forge test after new deployment
         env:
@@ -348,6 +352,9 @@ jobs:
           DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          # Keep the same stub as the deploy step so the upgraded impl also points
+          # its legacy fallback at a dead target (overrides the in-market default).
+          BOUNDLESS_LEGACY_IMPL: "0xdededededededededededededededededededede"
 
       - name: forge test after upgrade
         env:

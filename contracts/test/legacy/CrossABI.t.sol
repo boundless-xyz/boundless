@@ -7,7 +7,9 @@ pragma solidity ^0.8.26;
 
 import {Vm} from "forge-std/Vm.sol";
 import {
-    BoundlessMarketLegacyViaFallbackTest, ASSESSOR_IMAGE_ID, APP_JOURNAL
+    BoundlessMarketLegacyViaFallbackTest,
+    ASSESSOR_IMAGE_ID,
+    APP_JOURNAL
 } from "./BoundlessMarketLegacyViaFallback.t.sol";
 import {Client} from "./clients/Client.sol";
 import {ProofRequest} from "../../src/legacy/types/ProofRequest.sol";
