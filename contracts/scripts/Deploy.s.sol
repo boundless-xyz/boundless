@@ -19,6 +19,7 @@ import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 
@@ -151,9 +152,25 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         // var overrides it, e.g. when the router is deployed in the same run).
         address boundlessRouter = vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter);
         require(boundlessRouter != address(0), "boundless router must be set in deployment.toml or BOUNDLESS_ROUTER");
+
+        // Resolve the legacy impl (delegate-call target for the legacy ABI).
+        // Production deployments set BOUNDLESS_LEGACY_IMPL to the impl pointed
+        // to by the proxy before the upgrade (audited bytecode, already on
+        // chain). When the env var is unset — dev / localnet / fresh networks
+        // — deploy a fresh legacy impl from contracts/src/legacy/ wired to the
+        // same verifier and collateral token the new market is about to use.
+        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", address(0));
+        if (legacyImpl == address(0)) {
+            legacyImpl = address(
+                new BoundlessMarketLegacy(verifier, applicationVerifier, assessorImageId, bytes32(0), 0, stakeToken)
+            );
+            console2.log("Deployed legacy BoundlessMarket implementation to", legacyImpl);
+        } else {
+            console2.log("Using BOUNDLESS_LEGACY_IMPL from env:", legacyImpl);
+        }
         bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
         address newImplementation =
-            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken));
+            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken, legacyImpl));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(

@@ -60,6 +60,7 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/blake3_groth16",
     str(Path.cwd()) + "/contracts/src/HitPoints.sol",
     str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
+    str(Path.cwd()) + "/contracts/src/legacy/IBoundlessMarketLegacy.sol",
     str(Path.cwd()) + "/contracts/src/IHitPoints.sol",
     str(Path.cwd()) + "/contracts/src/povw/IPovwAccounting.sol",
     str(Path.cwd()) + "/contracts/src/povw/IPovwMint.sol",

@@ -149,9 +149,21 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy
+check: check-links check-license check-format check-clippy check-legacy-bytecode check-storage-layout
 
 check-main: check-format-main check-clippy-main check-license check-links
+
+# Verify contracts/src/legacy/ still compiles to the deployed OLD market bytecode
+check-legacy-bytecode:
+    @echo "Verifying legacy market bytecode parity..."
+    forge build --silent
+    uv run contracts/scripts/verify-legacy-bytecode.py
+
+# Verify storage layout interop between src/ and src/legacy/ markets
+check-storage-layout:
+    @echo "Verifying storage layout interop between markets..."
+    forge build --silent
+    uv run contracts/scripts/verify-storage-layout.py
 
 # Check links in markdown files
 check-links:
