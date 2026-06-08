@@ -243,10 +243,21 @@ export = () => {
         'START_BLOCK=$((FINALIZED - START_BLOCK_OFFSET))',
         'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT}"',
         `cd ${kailuaWorkdir}`,
-        // kailua retries RPC/contract calls forever on persistent errors, so a misconfig or stuck
-        // endpoint runs indefinitely and saturates MAX_RUNNING_TASKS. timeout kills it so the task
-        // exits non-zero and frees its slot. Override via ENV stack config (KAILUA_TASK_TIMEOUT_SECONDS).
-        'timeout -k 30 "${KAILUA_TASK_TIMEOUT_SECONDS:-1800}" just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || [ $? -eq 111 ]',
+        // Hard wall-clock cap on proving. A plain `timeout` does NOT bound this: `just`/the prover
+        // don't propagate the signal to the whole process tree, so orphaned proving processes keep
+        // running (observed: tasks ran ~52min under a 30min `timeout`, saturating MAX_RUNNING_TASKS).
+        // Run prove in its own process group (set -m) and have a watchdog SIGTERM/SIGKILL the WHOLE
+        // group on overrun, then exit so ECS tears the task down. Exit 111 stays the success/skip
+        // code. Override the limit via ENV stack config (KAILUA_TASK_TIMEOUT_SECONDS).
+        'set -m',
+        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 &',
+        'KAILUA_PROVE_PID=$!',
+        '( sleep "${KAILUA_TASK_TIMEOUT_SECONDS:-1800}"; echo "KAILUA_TASK_TIMEOUT exceeded; killing prove process group"; kill -TERM -"$KAILUA_PROVE_PID" 2>/dev/null; sleep 30; kill -KILL -"$KAILUA_PROVE_PID" 2>/dev/null ) &',
+        'KAILUA_WATCHDOG_PID=$!',
+        'KAILUA_RC=0; wait "$KAILUA_PROVE_PID" || KAILUA_RC=$?',
+        'kill "$KAILUA_WATCHDOG_PID" 2>/dev/null || true',
+        'if [ "$KAILUA_RC" -eq 111 ]; then KAILUA_RC=0; fi',
+        'exit "$KAILUA_RC"',
     ].join("\n");
 
     const containerCommand = config.get("KAILUA_COMMAND") ?? [
