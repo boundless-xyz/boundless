@@ -28,7 +28,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
-import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {IBoundlessVerifier} from "../src/router/interfaces/IBoundlessVerifier.sol";
 import {IBoundlessAssessor} from "../src/router/interfaces/IBoundlessAssessor.sol";
@@ -74,8 +73,10 @@ bytes32 constant APP_IMAGE_ID = 0x0000000000000000000000000000000000000000000000
 bytes32 constant APP_IMAGE_ID_2 = 0x0000000000000000000000000000000000000000000000000000000000000002;
 bytes32 constant SET_BUILDER_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000002;
 bytes32 constant ASSESSOR_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000003;
-bytes32 constant DEPRECATED_ASSESSOR_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000004;
-uint32 constant DEPRECATED_ASSESSOR_DURATION = 1 minutes;
+// Non-functional legacy-impl placeholder. The new market's constructor rejects the zero address,
+// but the new ABI never routes through the legacy fallback, so tests point legacyImpl at a dead
+// address rather than a real BoundlessMarketLegacy. Fallback coverage lives in test/legacy/.
+address constant LEGACY_IMPL_STUB = 0xdEDEDEDEdEdEdEDedEDeDedEdEdeDedEdEDedEdE;
 
 bytes constant APP_JOURNAL = bytes("GUEST JOURNAL");
 bytes constant APP_JOURNAL_2 = bytes("GUEST JOURNAL 2");
@@ -205,19 +206,10 @@ contract BoundlessMarketTest is Test {
         setVerifierAdapter = new R0BoundlessVerifierAdapter(setVerifier);
         router.instantiate(setVerifier.SELECTOR(), address(setVerifierAdapter), VERIFIER_CLASS_ID, 0);
 
-        // Deploy a fresh legacy market impl so the new market's fallback has a
-        // delegate-call target. On mainnet/Base this is the pre-upgrade impl
-        // address; tests stand one up from contracts/src/legacy/.
-        legacyImpl = address(
-            new BoundlessMarketLegacy(
-                setVerifier,
-                setVerifier,
-                ASSESSOR_IMAGE_ID,
-                DEPRECATED_ASSESSOR_IMAGE_ID,
-                DEPRECATED_ASSESSOR_DURATION,
-                address(collateralToken)
-            )
-        );
+        // The new ABI never routes through the legacy fallback, so the new market's
+        // delegate-call target is a non-functional stub rather than a real
+        // BoundlessMarketLegacy. Fallback compatibility is covered in test/legacy/.
+        legacyImpl = LEGACY_IMPL_STUB;
 
         // Deploy the UUPS proxy with the implementation
         boundlessMarketSource = address(new BoundlessMarket(router, address(collateralToken), legacyImpl));
