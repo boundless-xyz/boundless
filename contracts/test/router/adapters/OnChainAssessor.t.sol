@@ -68,7 +68,6 @@ contract OnChainAssessorTest is Test {
         (proverAddr, proverPk) = makeAddrAndKey("prover");
     }
 
-
     // ─── Single-fill happy paths ────────────────────────────────────────
 
     function test_singleFill_digestMatch_passes() external view {
@@ -163,8 +162,7 @@ contract OnChainAssessorTest is Test {
         // imageId mismatch even though the journal is otherwise pristine.
         (, bytes memory journal) = _imageAndJournal(0);
         (bytes32 wrongImageId,) = _imageAndJournal(1);
-        f[0].fulfillmentData =
-            abi.encode(FulfillmentDataImageIdAndJournal({imageId: wrongImageId, journal: journal}));
+        f[0].fulfillmentData = abi.encode(FulfillmentDataImageIdAndJournal({imageId: wrongImageId, journal: journal}));
         bytes memory seal = _buildSeal(s, f);
         vm.expectRevert(abi.encodeWithSelector(OnChainAssessor.ClaimDigestMismatch.selector, uint256(0)));
         adapter.verifyAssessor(_makeBatch(s, f, proverAddr, seal), rd);
@@ -177,8 +175,7 @@ contract OnChainAssessorTest is Test {
         // passes — isolating the prefix check as the failure path.
         (bytes32 imageId,) = _imageAndJournal(0);
         bytes memory newJournal = bytes("xxxxxxxxRESTOFTHEJOURNAL");
-        fill.fulfillmentData =
-            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: newJournal}));
+        fill.fulfillmentData = abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: newJournal}));
         fill.claimDigest = ReceiptClaimLib.ok(imageId, sha256(newJournal)).digest();
         ProofRequest[] memory r = _asArray(req);
         Fulfillment[] memory f = _asArray(fill);
@@ -345,8 +342,7 @@ contract OnChainAssessorTest is Test {
         (bytes32 imageId,) = _imageAndJournal(0);
         bytes memory newJournal = new bytes(9);
         newJournal[8] = 0xAA;
-        f[0].fulfillmentData =
-            abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: newJournal}));
+        f[0].fulfillmentData = abi.encode(FulfillmentDataImageIdAndJournal({imageId: imageId, journal: newJournal}));
         f[0].claimDigest = ReceiptClaimLib.ok(imageId, sha256(newJournal)).digest();
 
         vm.expectPartialRevert(OnChainAssessor.ProverSignatureMismatch.selector);
@@ -416,8 +412,12 @@ contract OnChainAssessorTest is Test {
         journal = new bytes(16);
         uint64 input = uint64(i) << 20;
         uint64 nonce = uint64(uint256(keccak256(abi.encodePacked("nonce", i))));
-        for (uint256 k = 0; k < 8; k++) journal[k] = bytes1(uint8(input >> (8 * k)));
-        for (uint256 k = 0; k < 8; k++) journal[8 + k] = bytes1(uint8(nonce >> (8 * k)));
+        for (uint256 k = 0; k < 8; k++) {
+            journal[k] = bytes1(uint8(input >> (8 * k)));
+        }
+        for (uint256 k = 0; k < 8; k++) {
+            journal[8 + k] = bytes1(uint8(nonce >> (8 * k)));
+        }
     }
 
     function _defaultOffer() internal view returns (Offer memory) {
@@ -458,9 +458,7 @@ contract OnChainAssessorTest is Test {
         req = ProofRequest({
             id: RequestIdLibrary.from(CLIENT, uint32(i + 1)),
             requirements: Requirements({
-                callback: Callback({addr: address(0), gasLimit: 0}),
-                predicate: predicate,
-                selector: VERIFIER_SEL
+                callback: Callback({addr: address(0), gasLimit: 0}), predicate: predicate, selector: VERIFIER_SEL
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
@@ -499,24 +497,20 @@ contract OnChainAssessorTest is Test {
     /// @dev PrefixMatch fixture: same (imageId, journal) layout as
     ///      `_makeFill`, with the predicate prefix set to the first 8 journal
     ///      bytes (the order-generator's `input` field).
-    function _makePrefixMatchFill(uint256 i)
-        internal
-        view
-        returns (ProofRequest memory req, Fulfillment memory fill)
-    {
+    function _makePrefixMatchFill(uint256 i) internal view returns (ProofRequest memory req, Fulfillment memory fill) {
         (bytes32 imageId, bytes memory journal) = _imageAndJournal(i);
         bytes32 claimDigest = ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
 
         bytes memory prefix = new bytes(8);
-        for (uint256 k = 0; k < 8; k++) prefix[k] = journal[k];
+        for (uint256 k = 0; k < 8; k++) {
+            prefix[k] = journal[k];
+        }
         Predicate memory predicate = PredicateLibrary.createPrefixMatchPredicate(imageId, prefix);
 
         req = ProofRequest({
             id: RequestIdLibrary.from(CLIENT, uint32(i + 1)),
             requirements: Requirements({
-                callback: Callback({addr: address(0), gasLimit: 0}),
-                predicate: predicate,
-                selector: VERIFIER_SEL
+                callback: Callback({addr: address(0), gasLimit: 0}), predicate: predicate, selector: VERIFIER_SEL
             }),
             imageUrl: "https://image.dev.null",
             input: Input({inputType: InputType.Url, data: bytes("https://input.dev.null")}),
