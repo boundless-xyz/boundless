@@ -10,6 +10,7 @@ import {Test} from "forge-std/Test.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
 
+import {OnChainAssessor} from "../../src/router/adapters/OnChainAssessor.sol";
 import {R0BoundlessAssessorAdapter} from "../../src/router/adapters/R0BoundlessAssessorAdapter.sol";
 import {IBoundlessAssessor} from "../../src/router/interfaces/IBoundlessAssessor.sol";
 import {IBoundlessVerifier} from "../../src/router/interfaces/IBoundlessVerifier.sol";
@@ -105,11 +106,11 @@ contract MultiCallRouterHarness {
 
 /// @title BenchBase — shared setup + fixtures for `AdapterBench` and `RouterBench`.
 ///
-/// @notice Stands up a `BoundlessRouter` with two assessor entries
-///         (`R0BoundlessAssessorAdapter`, `NullAssessor`) under one assessor
-///         class, and a single verifier entry (`NullVerifier`) under one
-///         verifier class flagged as the chain default. Constructs a prover
-///         wallet for ECDSA signing.
+/// @notice Stands up a `BoundlessRouter` with three assessor entries
+///         (`OnChainAssessor`, `R0BoundlessAssessorAdapter`, `NullAssessor`)
+///         under one assessor class, and a single verifier entry (`NullVerifier`)
+///         under one verifier class flagged as the chain default. Constructs a
+///         prover wallet for ECDSA signing.
 ///
 ///         Subclass and use the public fixture builders + harnesses to write
 ///         benches that target a specific layer of the stack.
@@ -117,6 +118,7 @@ abstract contract BenchBase is Test {
     using ReceiptClaimLib for ReceiptClaim;
 
     // Adapters under test.
+    OnChainAssessor internal onChainAssessor;
     R0BoundlessAssessorAdapter internal r0Assessor;
     NullAssessor internal nullAssessor;
     NullVerifier internal verifier;
@@ -124,6 +126,7 @@ abstract contract BenchBase is Test {
     BoundlessRouter internal router;
 
     // Harnesses bound to each adapter (for direct-call paths) + the router.
+    DirectHarness internal directOnChain;
     DirectHarness internal directR0;
     DirectHarness internal directNull;
     RouterHarness internal routerHarness;
@@ -139,6 +142,7 @@ abstract contract BenchBase is Test {
     bytes4 internal constant VERIFIER_CLASS_ID = 0x00000010;
     bytes4 internal constant VERIFIER_ENTRY_SEL = 0x00000011;
     bytes4 internal constant ASSESSOR_CLASS_ID = 0x00000020;
+    bytes4 internal constant ASSESSOR_ON_CHAIN_SEL = 0x00000021;
     bytes4 internal constant ASSESSOR_R0_SEL = 0x00000022;
     bytes4 internal constant ASSESSOR_NULL_SEL = 0x00000023;
 
@@ -154,6 +158,7 @@ abstract contract BenchBase is Test {
     function setUp() public virtual {
         (proverAddr, proverPk) = makeAddrAndKey("prover");
 
+        onChainAssessor = new OnChainAssessor();
         nullR0 = new NullRiscZeroVerifier();
         r0Assessor = new R0BoundlessAssessorAdapter(nullR0, R0_ASSESSOR_IMAGE_ID);
         nullAssessor = new NullAssessor();
@@ -179,6 +184,7 @@ abstract contract BenchBase is Test {
                 label: ""
             })
         );
+        router.instantiate(ASSESSOR_ON_CHAIN_SEL, address(onChainAssessor), ASSESSOR_CLASS_ID, 0);
         router.instantiate(ASSESSOR_R0_SEL, address(r0Assessor), ASSESSOR_CLASS_ID, 0);
         router.instantiate(ASSESSOR_NULL_SEL, address(nullAssessor), ASSESSOR_CLASS_ID, 0);
 
@@ -198,6 +204,7 @@ abstract contract BenchBase is Test {
         router.instantiate(VERIFIER_ENTRY_SEL, address(verifier), VERIFIER_CLASS_ID, 0);
         vm.stopPrank();
 
+        directOnChain = new DirectHarness(onChainAssessor);
         directR0 = new DirectHarness(r0Assessor);
         directNull = new DirectHarness(nullAssessor);
         routerHarness = new RouterHarness(router);
@@ -282,7 +289,10 @@ abstract contract BenchBase is Test {
         returns (ProofRequest memory req, Fulfillment memory fill)
     {
         (bytes32 imageId, bytes memory journal) = _imageAndJournal(i, journalBytes);
-        bytes32 journalDigest = sha256(abi.encode(journal));
+        // Journal hash convention is `sha256(journal)` over the raw bytes —
+        // matching the off-chain R0 STARK guest, `BoundlessMarketCallback`,
+        // and the broker's claim-digest computation. No `abi.encode` wrap.
+        bytes32 journalDigest = sha256(journal);
         bytes32 claimDigest = ReceiptClaimLib.ok(imageId, journalDigest).digest();
 
         Predicate memory predicate;
@@ -385,6 +395,29 @@ abstract contract BenchBase is Test {
     }
 
     // ─── Seal builders ────────────────────────────────────────────────────
+
+    /// @dev `OnChainAssessor` seal: `selector || ECDSA(prover signs FulfillmentBatchAuth)`.
+    function _buildOnChainSeal(SlimRequest[] memory slim, Fulfillment[] memory fills)
+        internal
+        view
+        returns (bytes memory)
+    {
+        uint256 n = slim.length;
+        bytes32[] memory rd = new bytes32[](n);
+        bytes32[] memory cd = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) {
+            rd[i] = SlimRequestLibrary.reconstructRequestDigest(slim[i]);
+            cd[i] = fills[i].claimDigest;
+        }
+        bytes32 typehash =
+            keccak256("FulfillmentBatchAuth(address prover,bytes32[] requestDigests,bytes32[] claimDigests)");
+        bytes32 structHash = keccak256(
+            abi.encode(typehash, proverAddr, keccak256(abi.encodePacked(rd)), keccak256(abi.encodePacked(cd)))
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", onChainAssessor.DOMAIN_SEPARATOR(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(proverPk, digest);
+        return abi.encodePacked(ASSESSOR_ON_CHAIN_SEL, r, s, v);
+    }
 
     /// @dev `R0BoundlessAssessorAdapter` seal: `selector || innerSeal`. The
     ///      mock R0 verifier ignores the inner seal; production seals are
