@@ -10,6 +10,7 @@ import {console2} from "forge-std/console2.sol";
 import {Strings} from "openzeppelin/contracts/utils/Strings.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {FulfillLib} from "../src/FulfillLib.sol";
 import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
@@ -77,9 +78,19 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
         // when unset (dev / localnet / fresh networks) deploy a fresh one from
         // contracts/src/legacy/ wired to the configured verifier and token.
         address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", address(0));
-        address fulfillLib = vm.envAddress("BOUNDLESS_FULFILL_LIB");
+        // Resolve the FulfillLib (delegate-call target for the fulfill chain).
+        // Production sets BOUNDLESS_FULFILL_LIB to the audited deployment; when
+        // unset (dev / localnet / fresh networks) deploy a fresh one wired to the
+        // same router, mirroring the legacy-impl handling below.
+        address fulfillLib = vm.envOr("BOUNDLESS_FULFILL_LIB", address(0));
 
         vm.startBroadcast(getDeployer());
+        if (fulfillLib == address(0)) {
+            fulfillLib = address(new FulfillLib(BoundlessRouter(boundlessRouter)));
+            console2.log("Deployed FulfillLib to", fulfillLib);
+        } else {
+            console2.log("Using BOUNDLESS_FULFILL_LIB from env:", fulfillLib);
+        }
         if (legacyImpl == address(0)) {
             legacyImpl = address(
                 new BoundlessMarketLegacy(
@@ -178,6 +189,9 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // legacy bytecode the proxy already points at is preserved across the
         // upgrade; BOUNDLESS_LEGACY_IMPL can override it to intentionally repoint.
         address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", market.LEGACY_IMPL());
+        // Keep the existing FulfillLib by default so the audited delegate target is
+        // preserved across the upgrade; BOUNDLESS_FULFILL_LIB can override it.
+        address fulfillLib = vm.envOr("BOUNDLESS_FULFILL_LIB", market.FULFILL_LIB());
 
         // Upgrade requires build info from the currently deployed version.
         // You can get this build info with the following process.
@@ -190,8 +204,9 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // cp -R out/build-info ../boundless/contracts/build-info-reference
         // ```
         UpgradeOptions memory opts;
-        opts.constructorData =
-            BoundlessMarketLib.encodeConstructorArgs(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl);
+        opts.constructorData = BoundlessMarketLib.encodeConstructorArgs(
+            BoundlessRouter(boundlessRouter), collateralToken, legacyImpl, fulfillLib
+        );
 
         if (skipSafetyChecks) {
             console2.log("WARNING: Skipping all upgrade safety checks and reference build!");
