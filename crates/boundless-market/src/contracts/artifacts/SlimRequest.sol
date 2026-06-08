@@ -17,40 +17,38 @@ using SlimRequestLibrary for SlimRequest global;
 /// @title SlimRequest — minimal per-fill payload bound to a signed `ProofRequest`.
 ///
 /// @notice The market needs the actual values of the fields it will act on
-///         (predicate for assessor evaluation, callback for dispatch, selector
-///         for router enforcement) and only the digests of fields it never
-///         reads at fulfill time (imageUrl, input, offer). `SlimRequest` carries
-///         the former in full and the latter as pre-computed digests, so the
-///         market can reconstruct the EIP-712 `requestDigest` and assert it
-///         matches the value stored at lock time.
+/// (predicate for assessor evaluation, callback for dispatch, selector for
+/// router enforcement) and only the digests of fields it never reads at fulfill
+/// time (imageUrl, input, offer). `SlimRequest` carries the former in full and
+/// the latter as pre-computed digests, so the market can reconstruct the EIP-712
+/// `requestDigest` and assert it matches the value stored at lock time.
 ///
-/// @dev    Reconstruction mirrors `ProofRequest.eip712Digest()` exactly. The
-///         prover (off-chain) pre-computes `imageUrlHash`, `inputDigest`, and
-///         `offerDigest` from the original `ProofRequest`. The market verifies
-///         the binding by:
+/// @dev Reconstruction mirrors `ProofRequest.eip712Digest()` exactly. The prover
+/// (off-chain) pre-computes `imageUrlHash`, `inputDigest`, and `offerDigest` from
+/// the original `ProofRequest`. The struct hash is what `reconstructRequestDigest`
+/// returns; the market wraps it with `_hashTypedDataV4` before comparing to the
+/// domain-bound value stored at lock time (or written to `FulfillmentContext` by
+/// `priceRequest`). Once this assertion passes, every field of `SlimRequest` is
+/// bound to the client's signed request, so downstream consumers (assessor
+/// adapter, callback dispatch) can trust the payload without re-verification.
 ///
-///             structHash = hash(
-///                 PROOF_REQUEST_TYPEHASH,
-///                 slim.id,
-///                 hash(REQ_TYPEHASH,
-///                      hash(CB_TYPEHASH, callback.addr, callback.gasLimit),
-///                      hash(PRED_TYPEHASH, predicate.type, keccak256(predicate.data)),
-///                      slim.selector),
-///                 slim.imageUrlHash,
-///                 slim.inputDigest,
-///                 slim.offerDigest
-///             )
-///             requestDigest = _hashTypedDataV4(structHash)
-///             assert requestDigest == requestLocks[slim.id].requestDigest;
+/// The market verifies the binding as:
 ///
-///         The struct hash is what `reconstructRequestDigest` returns; the
-///         market wraps it with `_hashTypedDataV4` before comparing to the
-///         domain-bound value stored at lock time (or written to
-///         `FulfillmentContext` by `priceRequest`).
-///
-///         Once this assertion passes, every field of `SlimRequest` is bound to
-///         the client's signed request. Downstream consumers (assessor adapter,
-///         callback dispatch) can trust the payload without re-verification.
+/// ```text
+/// structHash = hash(
+///     PROOF_REQUEST_TYPEHASH,
+///     slim.id,
+///     hash(REQ_TYPEHASH,
+///          hash(CB_TYPEHASH, callback.addr, callback.gasLimit),
+///          hash(PRED_TYPEHASH, predicate.type, keccak256(predicate.data)),
+///          slim.selector),
+///     slim.imageUrlHash,
+///     slim.inputDigest,
+///     slim.offerDigest
+/// )
+/// requestDigest = _hashTypedDataV4(structHash)
+/// assert requestDigest == requestLocks[slim.id].requestDigest;
+/// ```
 struct SlimRequest {
     /// @notice Request identifier (client address + 32-bit index).
     RequestId id;

@@ -14,12 +14,13 @@
 
 use super::{
     IndexerService, TransactionFetchStrategy, BLOCK_QUERY_SLEEP, GET_BLOCK_BY_NUMBER_CHUNK_SIZE,
-    GET_BLOCK_RECEIPTS_CHUNK_SIZE, MARKET_EVENT_SIGNATURES,
+    GET_BLOCK_RECEIPTS_CHUNK_SIZE, MARKET_EVENT_SIGNATURES, TX_FETCH_RETRY_COUNT,
+    TX_FETCH_RETRY_SLEEP_MS,
 };
 use crate::db::market::{IndexerDb, TxMetadata};
 use crate::market::ServiceError;
 use alloy::eips::{BlockId, BlockNumberOrTag};
-use alloy::network::{AnyNetwork, Ethereum};
+use alloy::network::{AnyNetwork, Ethereum, Network};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Filter, Log};
@@ -27,6 +28,64 @@ use anyhow::{anyhow, Context};
 use futures_util::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
+
+/// Fetch a single transaction by hash, retrying only when the RPC call
+/// succeeded but returned either no transaction or a transaction with
+/// `block_number = null`. Real transport errors propagate immediately so the
+/// outer loop's exponential backoff can handle them.
+async fn get_transaction_with_retry<P>(
+    provider: P,
+    tx_hash: B256,
+) -> Result<<Ethereum as Network>::TransactionResponse, ServiceError>
+where
+    P: Provider<Ethereum>,
+{
+    for attempt in 0..=TX_FETCH_RETRY_COUNT {
+        let tx_opt = provider.get_transaction_by_hash(tx_hash).await?;
+        if let Some(tx) = &tx_opt {
+            if tx.block_number.is_some() {
+                return Ok(tx_opt.unwrap());
+            }
+        }
+        let is_last_attempt = attempt == TX_FETCH_RETRY_COUNT;
+        match &tx_opt {
+            Some(tx) if is_last_attempt => {
+                return Err(ServiceError::Error(anyhow!(
+                    "transaction {} returned without block_number after {} retries; response: {:?}",
+                    hex::encode(tx_hash),
+                    TX_FETCH_RETRY_COUNT,
+                    tx
+                )));
+            }
+            Some(tx) => {
+                tracing::warn!(
+                    "get_transaction_by_hash for {} returned tx with null block_number, retry {}/{}; response: {:?}",
+                    hex::encode(tx_hash),
+                    attempt + 1,
+                    TX_FETCH_RETRY_COUNT,
+                    tx
+                );
+            }
+            None if is_last_attempt => {
+                return Err(ServiceError::Error(anyhow!(
+                    "transaction {} not found by RPC after {} retries",
+                    hex::encode(tx_hash),
+                    TX_FETCH_RETRY_COUNT
+                )));
+            }
+            None => {
+                tracing::warn!(
+                    "get_transaction_by_hash for {} returned no tx, retry {}/{}",
+                    hex::encode(tx_hash),
+                    attempt + 1,
+                    TX_FETCH_RETRY_COUNT
+                );
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(TX_FETCH_RETRY_SLEEP_MS)).await;
+    }
+    unreachable!()
+}
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -414,7 +473,7 @@ where
                 .map(|&tx_hash| {
                     let provider = self.boundless_market.instance().provider();
                     async move {
-                        let tx = provider.get_transaction_by_hash(tx_hash).await?;
+                        let tx = get_transaction_with_retry(provider, tx_hash).await?;
                         Ok::<_, ServiceError>((tx_hash, tx))
                     }
                 })
@@ -423,18 +482,8 @@ where
             let start = std::time::Instant::now();
             let results = try_join_all(futures).await?;
             tracing::debug!("Got {} transactions in {:?}", results.len(), start.elapsed());
-            for (tx_hash, tx_result) in results {
-                match tx_result {
-                    Some(tx) => {
-                        tx_map.insert(tx_hash, tx);
-                    }
-                    None => {
-                        return Err(ServiceError::Error(anyhow!(
-                            "Transaction {} not found",
-                            hex::encode(tx_hash)
-                        )));
-                    }
-                }
+            for (tx_hash, tx) in results {
+                tx_map.insert(tx_hash, tx);
             }
         }
 
@@ -504,18 +553,22 @@ where
 
         // Step 4: Build final map from tx_hash to TxMetadata and update service map
         for (tx_hash, tx) in tx_map {
-            let bn = tx.block_number.context("block number not found")?;
-            let tx_index = tx.transaction_index.context(anyhow!(
-                "Transaction index not found for transaction {}",
-                hex::encode(tx_hash)
-            ))?;
+            let bn = tx.block_number.with_context(|| {
+                format!(
+                    "block_number missing on transaction {} after eth_getTransactionByHash",
+                    hex::encode(tx_hash)
+                )
+            })?;
+            let tx_index = tx.transaction_index.with_context(|| {
+                format!("Transaction index not found for transaction {}", hex::encode(tx_hash))
+            })?;
 
             // Get timestamp from service block_timestamps map
             let ts = self
                 .block_num_to_timestamp
                 .get(&bn)
                 .copied()
-                .context(anyhow!("Block {} timestamp not found in map", bn))?;
+                .with_context(|| format!("Block {} timestamp not found in map", bn))?;
 
             let from = tx.inner.signer();
             let meta = TxMetadata::new(tx_hash, from, bn, ts, tx_index);

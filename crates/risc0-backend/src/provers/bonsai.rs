@@ -24,14 +24,33 @@ use risc0_zkvm::Receipt;
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
-use crate::config::ProverConfig;
-use crate::{
-    config::ConfigLock,
-    futures_retry::{retry, retry_only_with_context, retry_with_context},
-};
+use boundless_backend::futures_retry::{retry, retry_only_with_context, retry_with_context};
+use boundless_market::prover_utils::ProverConfig;
 
 fn sdk_err(err: SdkErr) -> ProverError {
     ProverError::ProverInternalError(format!("Bonsai SDK error: {err:?}"))
+}
+
+/// Construction-time prover settings the [`Bonsai`] client needs.
+pub struct BonsaiConfig {
+    pub bonsai_r0_zkvm_ver: Option<String>,
+    pub req_retry_count: u64,
+    pub req_retry_sleep_ms: u64,
+    pub status_poll_ms: u64,
+    pub status_poll_retry_count: u64,
+}
+
+impl Default for BonsaiConfig {
+    fn default() -> Self {
+        let pc = ProverConfig::default();
+        Self {
+            bonsai_r0_zkvm_ver: pc.bonsai_r0_zkvm_ver,
+            req_retry_count: pc.req_retry_count,
+            req_retry_sleep_ms: pc.req_retry_sleep_ms,
+            status_poll_ms: pc.status_poll_ms,
+            status_poll_retry_count: pc.status_poll_retry_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -47,26 +66,22 @@ pub struct Bonsai {
     status_poll_ms: u64,
     status_poll_retry_count: u64,
     prover_type: ProverType,
+    // Used for direct HTTP submission with priority — the SDK's `ProofReq`/`SnarkReq`
+    // omit the priority field, so we hit the API ourselves for High-priority paths.
+    api_url: String,
+    api_key: String,
+    http: reqwest::Client,
 }
 
 impl Bonsai {
-    pub fn new(config: ConfigLock, api_url: &str, api_key: &str) -> Result<Self, ProverError> {
-        let (
+    pub fn new(cfg: BonsaiConfig, api_url: &str, api_key: &str) -> Result<Self, ProverError> {
+        let BonsaiConfig {
             bonsai_r0_zkvm_ver,
             req_retry_count,
             req_retry_sleep_ms,
             status_poll_ms,
             status_poll_retry_count,
-        ) = {
-            let config = config.lock_all().unwrap();
-            (
-                config.prover.bonsai_r0_zkvm_ver.clone(),
-                config.prover.req_retry_count,
-                config.prover.req_retry_sleep_ms,
-                config.prover.status_poll_ms,
-                config.prover.status_poll_retry_count,
-            )
-        };
+        } = cfg;
 
         let prover_type = if api_key.is_empty() || api_key.starts_with("v1:reserved:") {
             ProverType::Bento
@@ -89,6 +104,45 @@ impl Bonsai {
             status_poll_ms,
             status_poll_retry_count,
             prover_type,
+            api_url: api_url.trim_end_matches('/').to_string(),
+            api_key: api_key.to_string(),
+            http: reqwest::Client::new(),
+        })
+    }
+
+    /// POST `body` to `{api_url}{path}` with the broker's api key and decode
+    /// `{ "uuid": String }` from the response. Used by the High-priority paths
+    /// because the SDK's request types omit the priority field.
+    async fn submit_high(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<String, ProverError> {
+        let url = format!("{}{}", self.api_url, path);
+        let res = self
+            .http
+            .post(&url)
+            .header("x-api-key", &self.api_key)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| {
+            ProverError::ProverInternalError(format!("submit_high {path}: {e}"))
+        })?;
+        if !res.status().is_success() {
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            return Err(ProverError::ProverInternalError(format!(
+                "submit_high {path} {status}: {text}"
+            )));
+        }
+        let parsed: serde_json::Value = res.json().await.map_err(|e| {
+            ProverError::ProverInternalError(format!("submit_high {path} decode: {e}"))
+        })?;
+        parsed.get("uuid").and_then(|v| v.as_str()).map(|s| s.to_string()).ok_or_else(|| {
+            ProverError::ProverInternalError(format!(
+                "submit_high {path}: missing 'uuid' in response"
+            ))
         })
     }
 
@@ -588,6 +642,51 @@ impl Prover for Bonsai {
             .context(format!("Failed to compress proof {proof_id:?}"))?;
 
         Ok(proof_id.uuid)
+    }
+
+    async fn prove_and_monitor_stark_high(
+        &self,
+        image_id: &str,
+        input_id: &str,
+        assumptions: Vec<String>,
+    ) -> Result<ProofResult, ProverError> {
+        // JSON shape matches `StarkApiReq` in prover/crates/api/src/lib.rs.
+        let body = serde_json::json!({
+            "img": image_id,
+            "input": input_id,
+            "assumptions": assumptions,
+            "execute_only": false,
+            "priority": "high",
+        });
+        let proof_id = self
+            .retry(
+                || async { self.submit_high("/sessions/create", &body).await },
+                "create session high",
+            )
+            .await?;
+        tracing::debug!("Created session for prove stark (high priority): {proof_id}");
+        self.wait_for_stark(&proof_id).await
+    }
+
+    async fn compress_high(&self, proof_id: &str) -> Result<String, ProverError> {
+        // JSON shape matches `SnarkApiReq` in prover/crates/api/src/lib.rs.
+        let body = serde_json::json!({
+            "session_id": proof_id,
+            "priority": "high",
+        });
+        let snark_uuid = self
+            .retry(|| async { self.submit_high("/snark/create", &body).await }, "create snark high")
+            .await?;
+        let snark_id = SnarkId { uuid: snark_uuid };
+        let poller = StatusPoller {
+            poll_sleep_ms: self.status_poll_ms,
+            retry_counts: self.status_poll_retry_count,
+        };
+        poller
+            .poll_with_retries_snark_id(&snark_id, &self.client)
+            .await
+            .context(format!("Failed to compress proof (high) {snark_id:?}"))?;
+        Ok(snark_id.uuid)
     }
 
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {

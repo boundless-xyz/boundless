@@ -67,11 +67,10 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
 
         address admin = deploymentConfig.admin.required("admin");
         address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
-        // Market dispatches verification via the BoundlessRouter; its address is
-        // supplied via the BOUNDLESS_ROUTER env var until the deployment.toml
-        // schema is updated to carry it. The legacy impl (fallback target for
-        // the legacy ABI) is supplied via BOUNDLESS_LEGACY_IMPL.
-        address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
+        // Market dispatches verification via the BoundlessRouter, read from the
+        // deployment config (the BOUNDLESS_ROUTER env var overrides it).
+        address boundlessRouter =
+            vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter).required("boundless-router");
         address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
         address fulfillLib = vm.envAddress("BOUNDLESS_FULFILL_LIB");
 
@@ -150,11 +149,10 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         // Market now dispatches verification via the BoundlessRouter; the
         // pre-existing `verifier` / `applicationVerifier` / `assessorImageId` fields
-        // are no longer market-level state. Read the router from BOUNDLESS_ROUTER
-        // env var until the deployment.toml schema is updated to carry it. The
-        // legacy impl (fallback target for the legacy ABI) is supplied via
-        // BOUNDLESS_LEGACY_IMPL, typically the previous market impl.
-        address boundlessRouter = vm.envAddress("BOUNDLESS_ROUTER");
+        // are no longer market-level state. Read the router from the deployment
+        // config (the BOUNDLESS_ROUTER env var overrides it).
+        address boundlessRouter =
+            vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter).required("boundless-router");
         address legacyImpl = vm.envAddress("BOUNDLESS_LEGACY_IMPL");
 
         BoundlessMarket market = BoundlessMarket(payable(marketAddress));

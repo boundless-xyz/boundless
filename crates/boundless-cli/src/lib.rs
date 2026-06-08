@@ -30,15 +30,12 @@ pub mod contracts;
 pub mod display;
 pub mod price_oracle_helper;
 
-use alloy::{
-    primitives::{Address, Bytes},
-    sol_types::{SolStruct, SolValue},
-};
+use alloy::primitives::{Address, Bytes, FixedBytes};
 use anyhow::{bail, Context, Result};
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use broker::{
-    provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover},
+    provers::{Bonsai, BonsaiConfig, DefaultProver as BrokerDefaultProver, Prover},
     utils::prune_receipt_claim_journal,
 };
 use risc0_aggregation::{
@@ -54,8 +51,8 @@ use std::sync::Arc;
 
 use boundless_market::{
     contracts::{
-        AssessorJournal, AssessorReceipt, EIP712DomainSaltless,
-        Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType, RequestInputType,
+        EIP712DomainSaltless, Fulfillment as BoundlessFulfillment, FulfillmentBatch,
+        FulfillmentData, PredicateType, RequestInputType, SlimRequest,
     },
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
@@ -79,19 +76,21 @@ alloy::sol!(
         bytes32 root;
         /// The seal of the root.
         bytes seal;
-        /// The fulfillments of the order.
-        BoundlessFulfillment[] fills;
-        /// The fulfillment of the assessor.
-        AssessorReceipt assessorReceipt;
+        /// The batched fulfillment to submit.
+        FulfillmentBatch fulfillmentBatch;
     }
 );
 
 impl OrderFulfilled {
-    /// Creates a new [OrderFulfilled],
+    /// Creates a new [OrderFulfilled] from the fulfilled requests, fills and assessor seal.
+    ///
+    /// `requests` and `fills` must be ordered consistently: `fills[i]` is the fill for `requests[i]`.
     pub fn new(
+        requests: &[ProofRequest],
         fills: Vec<BoundlessFulfillment>,
+        assessor_seal: Bytes,
+        prover: Address,
         root_receipt: Receipt,
-        assessor_receipt: AssessorReceipt,
     ) -> Result<Self> {
         let state = GuestState::decode(&root_receipt.journal.bytes)?;
         let root = state.mmr.finalized_root().context("failed to get finalized root")?;
@@ -101,8 +100,12 @@ impl OrderFulfilled {
         Ok(OrderFulfilled {
             root: <[u8; 32]>::from(root).into(),
             seal: root_seal.into(),
-            fills,
-            assessorReceipt: assessor_receipt,
+            fulfillmentBatch: FulfillmentBatch {
+                requests: requests.iter().map(SlimRequest::from_request).collect(),
+                fills,
+                assessorSeal: assessor_seal,
+                prover,
+            },
         })
     }
 }
@@ -211,6 +214,8 @@ pub struct OrderFulfiller {
     address: Address,
     domain: EIP712DomainSaltless,
     supported_selectors: SupportedSelectors,
+    /// The 4-byte router assessor selector prepended to the assessor seal.
+    assessor_selector: FixedBytes<4>,
 }
 
 impl OrderFulfiller {
@@ -222,6 +227,7 @@ impl OrderFulfiller {
         assessor_image_id: Digest,
         address: Address,
         domain: EIP712DomainSaltless,
+        assessor_selector: FixedBytes<4>,
     ) -> Result<Self> {
         let supported_selectors =
             SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
@@ -233,12 +239,14 @@ impl OrderFulfiller {
             address,
             domain,
             supported_selectors,
+            assessor_selector,
         })
     }
 
     pub(crate) async fn initialize_from_config<P, St, D, R, Si>(
         prover_config: &config::ProverConfig,
         client: &boundless_market::Client<P, St, D, R, Si>,
+        assessor_selector: FixedBytes<4>,
     ) -> Result<Self>
     where
         P: alloy::providers::Provider + Clone + 'static,
@@ -253,7 +261,7 @@ impl OrderFulfiller {
             if let Ok(url) = std::env::var("BONSAI_API_URL") {
                 tracing::info!("Default prover selected but BONSAI_API_URL is set, using Bonsai");
                 Arc::new(Bonsai::new(
-                    broker::config::ConfigLock::default(),
+                    BonsaiConfig::default(),
                     &url,
                     &std::env::var("BONSAI_API_KEY")
                         .clone()
@@ -264,7 +272,7 @@ impl OrderFulfiller {
             }
         } else {
             Arc::new(Bonsai::new(
-                broker::config::ConfigLock::default(),
+                BonsaiConfig::default(),
                 &prover_config.proving_backend.bento_api_url,
                 &prover_config
                     .proving_backend
@@ -274,13 +282,20 @@ impl OrderFulfiller {
             )?)
         };
 
-        Self::initialize(prover, client).await
+        Self::initialize(prover, client, assessor_selector, ASSESSOR_DEFAULT_IMAGE_URL).await
     }
 
     /// Initialize an OrderFulfiller from a provided Prover instance.
+    ///
+    /// `assessor_image_url` is the source for the assessor guest ELF; its image id must match the
+    /// one the deployed `R0BoundlessAssessorAdapter` verifies against. Production passes
+    /// [ASSESSOR_DEFAULT_IMAGE_URL]; tests point it at the locally-built guest so the proven image
+    /// matches the image deployed by the test harness.
     pub async fn initialize<P, St, D, R, Si>(
         prover: Arc<dyn Prover + Send + Sync>,
         client: &boundless_market::Client<P, St, D, R, Si>,
+        assessor_selector: FixedBytes<4>,
+        assessor_image_url: &str,
     ) -> Result<Self>
     where
         P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
@@ -289,20 +304,25 @@ impl OrderFulfiller {
         let downloader = Arc::new(client.downloader.clone());
         let domain = client.boundless_market.eip712_domain().await?;
 
-        let (assessor_image_id_bytes, assessor_url) = client.boundless_market.image_info().await?;
         let (set_builder_image_id_bytes, set_builder_url) =
             client.set_verifier.image_info().await?;
-
-        let assessor_image_id = Digest::try_from(assessor_image_id_bytes.as_slice())?;
         let set_builder_image_id = Digest::try_from(set_builder_image_id_bytes.as_slice())?;
+
+        // The market no longer exposes the assessor image info; derive it from the configured ELF.
+        let assessor_program = downloader
+            .download(assessor_image_url)
+            .await
+            .context("Failed to download assessor image")?;
+        let assessor_image_id =
+            compute_image_id(&assessor_program).context("Failed to compute assessor image ID")?;
 
         tracing::debug!("Fetching Assessor program (ID: {})", assessor_image_id);
         ensure_prover_has_image(
             &prover,
             "assessor",
             assessor_image_id,
-            ASSESSOR_DEFAULT_IMAGE_URL,
-            &assessor_url,
+            assessor_image_url,
+            assessor_image_url,
             &downloader,
         )
         .await?;
@@ -325,6 +345,7 @@ impl OrderFulfiller {
             assessor_image_id,
             client.boundless_market.caller(),
             domain,
+            assessor_selector,
         )
     }
 
@@ -393,11 +414,11 @@ impl OrderFulfiller {
     /// Fulfills a list of orders, returning the relevant data:
     /// * A list of [Fulfillment] of the orders.
     /// * The [Receipt] of the root set.
-    /// * The [SetInclusionReceipt] of the assessor.
+    /// * The router assessor seal (selector ++ inner seal).
     pub async fn fulfill(
         &self,
         orders: &[(ProofRequest, Bytes)],
-    ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
+    ) -> Result<(Vec<BoundlessFulfillment>, Receipt, Bytes)> {
         tracing::debug!("Fulfilling {} orders", orders.len());
         let orders_jobs = orders.iter().cloned().enumerate().map(move |(idx, (req, sig))| {
             let prover = self.prover.clone();
@@ -507,9 +528,6 @@ impl OrderFulfiller {
             self.assessor_image_id,
             assessor_journal.clone(),
         ));
-        let assessor_receipt_journal: AssessorJournal =
-            AssessorJournal::abi_decode(&assessor_journal)?;
-
         claims.push(assessor_claim.clone());
         claim_digests.push(assessor_claim.digest());
 
@@ -590,8 +608,6 @@ impl OrderFulfiller {
                 claimDigest: <[u8; 32]>::from(claim_digest).into(),
                 fulfillmentData: fulfillment_data.into(),
                 fulfillmentDataType: fulfillment_data_type,
-                id: req.id,
-                requestDigest: req.eip712_signing_hash(&self.domain.alloy_struct()),
                 seal: order_seal.into(),
             };
 
@@ -604,14 +620,14 @@ impl OrderFulfiller {
             verifier_parameters.digest(),
         );
 
-        let assessor_receipt = AssessorReceipt {
-            seal: assessor_inclusion_receipt.abi_encode_seal()?.into(),
-            prover: self.address,
-            selectors: assessor_receipt_journal.selectors,
-            callbacks: assessor_receipt_journal.callbacks,
-        };
+        // The on-chain assessor seal is `router assessor selector ++ inner seal`. Callbacks and
+        // selectors are no longer submitted; they are derived on-chain from the signed SlimRequest.
+        let assessor_seal = boundless_market::contracts::assessor_seal(
+            self.assessor_selector,
+            assessor_inclusion_receipt.abi_encode_seal()?,
+        );
 
-        Ok((boundless_fills, root_receipt, assessor_receipt))
+        Ok((boundless_fills, root_receipt, assessor_seal))
     }
 }
 
@@ -638,8 +654,8 @@ mod tests {
         storage::StandardDownloader,
     };
     use boundless_test_utils::{
-        guests::{ECHO_ID, ECHO_PATH},
-        market::create_test_ctx,
+        guests::{ASSESSOR_GUEST_PATH, ECHO_ID, ECHO_PATH},
+        market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
     };
     use std::sync::Arc;
 
@@ -682,7 +698,14 @@ mod tests {
         let (request, signature) =
             setup_proving_request_and_signature(&signer, Some(SelectorExt::groth16_latest())).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller = OrderFulfiller::initialize(
+            prover,
+            &client,
+            ASSESSOR_R0_SELECTOR,
+            &format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -702,7 +725,14 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller = OrderFulfiller::initialize(
+            prover,
+            &client,
+            ASSESSOR_R0_SELECTOR,
+            &format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
@@ -739,7 +769,14 @@ mod tests {
         let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
 
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller = OrderFulfiller::initialize(
+            prover,
+            &client,
+            ASSESSOR_R0_SELECTOR,
+            &format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();

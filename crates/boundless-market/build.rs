@@ -31,7 +31,7 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 10] = [
+const ARTIFACT_TARGET_CONTRACTS: [&str; 13] = [
     "BoundlessMarket",
     "HitPoints",
     "RiscZeroMockVerifier",
@@ -42,6 +42,9 @@ const ARTIFACT_TARGET_CONTRACTS: [&str; 10] = [
     "Blake3Groth16Verifier",
     "MockCallback",
     "VersionRegistry",
+    "BoundlessRouter",
+    "R0BoundlessAssessorAdapter",
+    "R0BoundlessVerifierAdapter",
 ];
 
 // Output filename for the generated types. The file is placed in the build directory.
@@ -266,8 +269,8 @@ fn get_interfaces(contract: &str) -> &str {
             "constructor(address verifier, bytes32 imageId, string memory imageUrl) {}"
         }
         "BoundlessMarket" => {
-            r#"constructor(address verifier, address applicationVerifier, bytes32 assessorId, bytes32 deprecatedAssessorId, uint32 deprecatedAssessorDuration, address stakeTokenContract) {}
-            function initialize(address initialOwner, string calldata imageUrl) {}"#
+            r#"constructor(address router, address collateralTokenContract, address legacyImpl) {}
+            function initialize(address initialOwner) {}"#
         }
         "ERC1967Proxy" => "constructor(address implementation, bytes memory data) payable {}",
         "HitPoints" => "constructor(address initialOwner) payable {}",
@@ -292,6 +295,26 @@ fn get_interfaces(contract: &str) -> &str {
             function setNotice(string calldata _notice) {}
             function getVersionInfo() external view returns (uint64 minimumVersion, string memory _notice) {}"#
         }
+        "BoundlessRouter" => {
+            r#"struct ClassMetadata {
+                bytes4 interfaceTag;
+                bool permissionlessInstantiate;
+                bool isDefault;
+                bytes4 requiredAssessorClass;
+                bytes32 schemaArtifact;
+                string schemaArtifactUrl;
+                uint64 defaultGasLimit;
+                string label;
+            }
+            constructor() {}
+            function initialize(address admin) {}
+            function addClass(bytes4 classId, ClassMetadata calldata metadata) {}
+            function instantiate(bytes4 selector, address impl, bytes4 parentClassId, uint64 gasLimit) {}"#
+        }
+        "R0BoundlessAssessorAdapter" => {
+            r#"constructor(address riscZeroVerifier, bytes32 assessorImageId) {}"#
+        }
+        "R0BoundlessVerifierAdapter" => r#"constructor(address riscZeroVerifier) {}"#,
         _ => "",
     }
 }

@@ -148,6 +148,7 @@ export = () => {
   const offchainMaxPricePerMCycle = offchainConfig.get('MAX_PRICE_PER_MCYCLE');
   const offchainMaxPriceCap = offchainConfig.get('MAX_PRICE_CAP');
   const offchainMaxOutstandingRequests = offchainConfig.get('MAX_OUTSTANDING_REQUESTS');
+  const offchainDesiredCount = offchainConfig.getNumber('DESIRED_COUNT') ?? 1;
 
   if (offchainPrivateKey) {
     new OrderGenerator('offchain', {
@@ -187,6 +188,7 @@ export = () => {
       useZeth: false,
       maxPriceCap: offchainMaxPriceCap,
       maxOutstandingRequests: offchainMaxOutstandingRequests,
+      desiredCount: offchainDesiredCount,
     });
   }
 
@@ -212,6 +214,7 @@ export = () => {
   const onchainMaxPricePerMCycle = onchainConfig.get('MAX_PRICE_PER_MCYCLE');
   const onchainMaxPriceCap = onchainConfig.get('MAX_PRICE_CAP');
   const onchainMaxOutstandingRequests = onchainConfig.get('MAX_OUTSTANDING_REQUESTS');
+  const onchainDesiredCount = onchainConfig.getNumber('DESIRED_COUNT') ?? 1;
 
   if (onchainPrivateKey) {
     new OrderGenerator('onchain', {
@@ -248,6 +251,7 @@ export = () => {
       useZeth: false,
       maxPriceCap: onchainMaxPriceCap,
       maxOutstandingRequests: onchainMaxOutstandingRequests,
+      desiredCount: onchainDesiredCount,
     });
   }
 
@@ -342,6 +346,7 @@ export = () => {
   const evmRequestorMaxPricePerMCycle = evmRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
   const evmRequestorMaxPriceCap = evmRequestorConfig.get('MAX_PRICE_CAP');
   const evmRequestorMaxOutstandingRequests = evmRequestorConfig.get('MAX_OUTSTANDING_REQUESTS');
+  const evmRequestorDesiredCount = evmRequestorConfig.getNumber('DESIRED_COUNT') ?? 1;
 
   if (evmRequestorPrivateKey) {
     new OrderGenerator('evm-requestor', {
@@ -378,6 +383,7 @@ export = () => {
       useZeth: true,
       maxPriceCap: evmRequestorMaxPriceCap,
       maxOutstandingRequests: evmRequestorMaxOutstandingRequests,
+      desiredCount: evmRequestorDesiredCount,
     });
   }
 

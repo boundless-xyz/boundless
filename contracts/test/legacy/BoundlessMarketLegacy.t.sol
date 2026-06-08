@@ -115,22 +115,11 @@ contract BoundlessMarketLegacyTest is Test {
         setVerifier = new RiscZeroSetVerifier(verifier, SET_BUILDER_IMAGE_ID, "https://set-builder.dev.null");
         collateralToken = new HitPoints(ownerWallet.addr);
 
-        // Deploy the UUPS proxy with the implementation
-        boundlessMarketSource = address(
-            new BoundlessMarket(
-                setVerifier,
-                setVerifier,
-                ASSESSOR_IMAGE_ID,
-                DEPRECATED_ASSESSOR_IMAGE_ID,
-                DEPRECATED_ASSESSOR_DURATION,
-                address(collateralToken)
-            )
-        );
-        proxy = UnsafeUpgrades.deployUUPSProxy(
-            boundlessMarketSource,
-            abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
-        );
-        boundlessMarket = BoundlessMarket(proxy);
+        // Deploy the market under test. Overridable so the via-fallback suite can
+        // deploy the new market in front of this legacy impl and exercise the same
+        // battery through BoundlessMarket.fallback() (see
+        // BoundlessMarketLegacyViaFallback.t.sol).
+        _deployMarket();
 
         // Initialize MockCallbacks
         mockCallback = new MockCallback(setVerifier, address(boundlessMarket), APP_IMAGE_ID, 10_000);
@@ -158,6 +147,29 @@ contract BoundlessMarketLegacyTest is Test {
             boundlessMarket.hasRole(boundlessMarket.ADMIN_ROLE(), ownerWallet.addr),
             "OWNER address does not have admin role after deployment"
         );
+    }
+
+    /// @dev Deploys the market under test behind a UUPS proxy and assigns
+    ///      `boundlessMarketSource`, `proxy`, and `boundlessMarket`. Called from
+    ///      setUp() after the verifier and collateral token are deployed. The
+    ///      via-fallback suite overrides this to deploy the new market in front of
+    ///      the legacy impl; everything else in the suite is shared.
+    function _deployMarket() internal virtual {
+        boundlessMarketSource = address(
+            new BoundlessMarket(
+                setVerifier,
+                setVerifier,
+                ASSESSOR_IMAGE_ID,
+                DEPRECATED_ASSESSOR_IMAGE_ID,
+                DEPRECATED_ASSESSOR_DURATION,
+                address(collateralToken)
+            )
+        );
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            boundlessMarketSource,
+            abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
+        );
+        boundlessMarket = BoundlessMarket(proxy);
     }
 
     function expectedSlashBurnAmount(uint256 amount) internal pure returns (uint96) {
@@ -974,6 +986,19 @@ contract BoundlessMarketLegacyBasicTest is BoundlessMarketLegacyTest {
         return _testLockRequestBadClientSignature(false);
     }
 
+    /// @dev Address recovered from a deliberately-mismatched prover signature in the
+    ///      two tests below. It is a deterministic function of the EIP-712 domain
+    ///      separator, which depends on the proxy address and thus on the setUp
+    ///      deployment sequence. The via-fallback suite overrides these because its
+    ///      extra CREATE (the new market impl) shifts the proxy address.
+    function _expectedIncorrectRequestSigner() internal pure virtual returns (address) {
+        return address(0x013a129A6254FDb452a94b92385645b7959A7c5A);
+    }
+
+    function _expectedIncorrectDomainSigner() internal pure virtual returns (address) {
+        return address(0x2949a308c21BD8bC839EFeCD4465cBebdE3F7388);
+    }
+
     function testLockRequestWithSignatureProverSignatureIncorrectRequest() public {
         Client client = getClient(1);
         ProofRequest memory request = client.request(1);
@@ -983,12 +1008,11 @@ contract BoundlessMarketLegacyBasicTest is BoundlessMarketLegacyTest {
 
         // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
         // It should be random and never correspond to a real account.
-        // TODO: This address will need to change anytime we change the ProofRequest struct or
-        // the way it is hashed for signatures. Find a good way to avoid this.
+        // TODO: The expected address (see _expectedIncorrectRequestSigner) will need to
+        // change anytime we change the ProofRequest struct or the way it is hashed for
+        // signatures. Find a good way to avoid this.
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x013a129A6254FDb452a94b92385645b7959A7c5A)
-            )
+            abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, _expectedIncorrectRequestSigner())
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
 
@@ -1007,12 +1031,11 @@ contract BoundlessMarketLegacyBasicTest is BoundlessMarketLegacyTest {
 
         // NOTE: Error is "InsufficientBalance" because we will recover _some_ address.
         // It should be random and never correspond to a real account.
-        // TODO: This address will need to change anytime we change the ProofRequest struct or
-        // the way it is hashed for signatures. Find a good way to avoid this.
+        // TODO: The expected address (see _expectedIncorrectDomainSigner) will need to
+        // change anytime we change the ProofRequest struct or the way it is hashed for
+        // signatures. Find a good way to avoid this.
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IBoundlessMarket.InsufficientBalance.selector, address(0x2949a308c21BD8bC839EFeCD4465cBebdE3F7388)
-            )
+            abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, _expectedIncorrectDomainSigner())
         );
         boundlessMarket.lockRequestWithSignature(request, clientSignature, badProverSignature);
 

@@ -38,6 +38,7 @@ export = () => {
   const premiumApiKey = config.getSecret('PREMIUM_API_KEY');
   const premiumRateLimit = config.getNumber('PREMIUM_RATE_LIMIT') ?? 10000;
   const standardRateLimit = config.getNumber('STANDARD_RATE_LIMIT') ?? 500;
+  const desiredCount = config.getNumber('DESIRED_COUNT') ?? 1;
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -78,6 +79,7 @@ export = () => {
     premiumApiKey,
     standardRateLimit,
     premiumRateLimit,
+    desiredCount,
     kinesisHeartbeatStreamName: telemetry.heartbeatStreamName,
     kinesisHeartbeatStreamArn: telemetry.heartbeatStreamArn,
     kinesisEvaluationsStreamName: telemetry.evaluationsStreamName,

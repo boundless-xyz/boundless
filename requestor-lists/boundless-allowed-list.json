@@ -241,6 +241,30 @@
       "description": "",
       "tags": [],
       "extensions": {}
+    },
+    {
+      "address": "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
+      "chainId": 167000,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x64e356256d87e5f7b36eb35eb62442386591c294",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x64e356256d87e5f7b36eb35eb62442386591c294",
+      "chainId": 167000,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
     }
   ]
 }

@@ -34,6 +34,7 @@ anyhow = { workspace = true }
 bincode = { workspace = true, optional = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
+serde_bytes = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
@@ -102,6 +103,7 @@ uuid = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+alloy = { workspace = true, features = ["json-rpc"] }
 boundless-test-utils = { workspace = true }
 guest-util = { workspace = true }
 temp-env = { version = "0.3.6", features = ["async_closure"] }
