@@ -4357,7 +4357,10 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
         vm.expectEmit(false, true, true, true);
         emit IERC1967.Upgraded(address(0));
         UnsafeUpgrades.upgradeProxy(
-            proxy, address(new BoundlessMarket(router, address(collateralToken), legacyImpl, address(fulfillLib))), "", ownerWallet.addr
+            proxy,
+            address(new BoundlessMarket(router, address(collateralToken), legacyImpl, address(fulfillLib))),
+            "",
+            ownerWallet.addr
         );
         vm.stopPrank();
         address implAddressV2 = UnsafeUpgrades.getImplementationAddress(proxy);

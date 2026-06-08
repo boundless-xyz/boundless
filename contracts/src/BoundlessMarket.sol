@@ -323,7 +323,6 @@ contract BoundlessMarket is
         }
     }
 
-
     /// @inheritdoc IBoundlessMarket
     function submitRoot(address setVerifierAddress, bytes32 root, bytes calldata seal) external {
         _submitRoot(setVerifierAddress, root, seal);
@@ -357,7 +356,6 @@ contract BoundlessMarket is
     function _submitRoot(address setVerifier, bytes32 root, bytes calldata seal) private {
         IRiscZeroSetVerifier(setVerifier).submitMerkleRoot(root, seal);
     }
-
 
     /// @inheritdoc IBoundlessMarket
     function slash(RequestId requestId) external {
