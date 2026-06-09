@@ -35,6 +35,8 @@ const OPTIONAL_SECRETS: SecretMapping[] = [];
 const DEFAULT_SCHEDULE_COUNT = 20;
 const DEFAULT_SCHEDULE_WINDOW_MINUTES = 20;
 const DEFAULT_TASKS_PER_MINUTE = 2;
+// Forcefully SIGKILL a kailua task that runs longer than this (see defaultProveScript).
+const DEFAULT_TASK_TIMEOUT_MINUTES = 20;
 
 export = () => {
     const config = new pulumi.Config();
@@ -61,6 +63,10 @@ export = () => {
     const scheduleCount = config.getNumber("SCHEDULE_COUNT") ?? DEFAULT_SCHEDULE_COUNT;
     const scheduleWindowMinutes = config.getNumber("SCHEDULE_WINDOW_MINUTES") ?? DEFAULT_SCHEDULE_WINDOW_MINUTES;
     const tasksPerMinute = config.getNumber("TASKS_PER_MINUTE") ?? DEFAULT_TASKS_PER_MINUTE;
+    const taskTimeoutMinutes = config.getNumber("TASK_TIMEOUT_MINUTES") ?? DEFAULT_TASK_TIMEOUT_MINUTES;
+    if (taskTimeoutMinutes < 1) {
+        throw new Error("TASK_TIMEOUT_MINUTES must be at least 1");
+    }
     if (scheduleCount < 1) {
         throw new Error("SCHEDULE_COUNT must be at least 1");
     }
@@ -189,6 +195,7 @@ export = () => {
         NUM_CONCURRENT_PROOFS: config.get("NUM_CONCURRENT_PROOFS") ?? "1",
         NUM_CONCURRENT_PROVERS: config.get("NUM_CONCURRENT_PROVERS") ?? "3",
         SEQ_WINDOW: config.get("SEQ_WINDOW") ?? "50",
+        TASK_TIMEOUT_MINUTES: taskTimeoutMinutes.toString(),
     };
 
     const extraEnvironment = config.getObject<Record<string, string>>("ENV") ?? {};
@@ -211,7 +218,12 @@ export = () => {
         'START_BLOCK=$((FINALIZED - START_BLOCK_OFFSET))',
         'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT}"',
         `cd ${kailuaWorkdir}`,
-        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || [ $? -eq 111 ]',
+        // Forcefully SIGKILL the prove run (and tear the task down) if it exceeds the timeout.
+        // timeout returns 124 (TERM) / 137 (128+KILL) on expiry; 111 is kailua's "no work" code.
+        'rc=0',
+        'timeout -s KILL "${TASK_TIMEOUT_MINUTES}m" just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || rc=$?',
+        'if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then echo "KAILUA_TIMEOUT killed after ${TASK_TIMEOUT_MINUTES}m"; exit 0; fi',
+        '[ "$rc" -eq 0 ] || [ "$rc" -eq 111 ]',
     ].join("\n");
 
     const containerCommand = config.get("KAILUA_COMMAND") ?? [
