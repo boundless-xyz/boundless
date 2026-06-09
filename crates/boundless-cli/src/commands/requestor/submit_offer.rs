@@ -167,7 +167,8 @@ impl RequestorSubmitOffer {
         // Prepare the input environment
         let mut env_builder = GuestEnvBuilder::default();
         if self.encode_input {
-            env_builder = env_builder.write(&stdin)?;
+            let encoded_stdin = risc0_zkvm::serde::to_vec(&stdin)?;
+            env_builder = env_builder.write_slice(&encoded_stdin);
         } else {
             env_builder = env_builder.write_slice(&stdin);
         }

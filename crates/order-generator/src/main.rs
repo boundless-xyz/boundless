@@ -352,7 +352,10 @@ async fn handle_loop_request(
             input
         }
     };
-    let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
+    let encoded_input = risc0_zkvm::serde::to_vec(&(input as u64))?;
+    let encoded_nonce = risc0_zkvm::serde::to_vec(&nonce)?;
+    let env =
+        GuestEnv::builder().write_slice(&encoded_input).write_slice(&encoded_nonce).build_env();
 
     let m_cycles = input >> 20;
 
@@ -475,7 +478,13 @@ async fn handle_zeth_request(
     let max_iterations = max_cycles.div_ceil(1000000000); // ~1B cycles per iteration
     let iterations: u32 = rng.random_range(1..=max_iterations as u32);
     tracing::info!("Iterations: {}", iterations);
-    let env = GuestEnv::builder().write_slice(input).write(&iterations)?.write(&nonce)?.build_env();
+    let encoded_iterations = risc0_zkvm::serde::to_vec(&iterations)?;
+    let encoded_nonce = risc0_zkvm::serde::to_vec(&nonce)?;
+    let env = GuestEnv::builder()
+        .write_slice(input)
+        .write_slice(&encoded_iterations)
+        .write_slice(&encoded_nonce)
+        .build_env();
     let request = client
         .new_request()
         .with_program(program.to_vec())

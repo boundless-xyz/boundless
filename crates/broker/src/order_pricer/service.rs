@@ -420,15 +420,15 @@ pub(crate) mod tests {
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
 
+            let encoded_cycles = risc0_zkvm::serde::to_vec(&cycles).unwrap();
+            let encoded_nonce = risc0_zkvm::serde::to_vec(&1u64).unwrap();
             let request = ProofRequest::new(
                 RequestId::new(self.provider.default_signer_address(), params.order_index),
                 Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
                 image_url,
                 RequestInput::builder()
-                    .write(&cycles)
-                    .unwrap()
-                    .write(&1u64)
-                    .unwrap() // nonce
+                    .write_slice(&encoded_cycles)
+                    .write_slice(&encoded_nonce)
                     .build_inline()
                     .unwrap(),
                 Offer {
