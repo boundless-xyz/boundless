@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use bytemuck::Pod;
-use risc0_zkvm::ExecutorEnv;
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 
@@ -71,11 +70,6 @@ pub enum Error {
 }
 
 /// Structured input used by the Boundless prover to execute the guest for the proof request.
-///
-/// This struct is related to the [ExecutorEnv] in that both represent the environments provided to
-/// the guest by the host that is executing and proving the execution. In contrast to the
-/// [ExecutorEnv] provided by [risc0_zkvm], this struct contains only the options that are
-/// supported by Boundless.
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[non_exhaustive]
@@ -119,17 +113,6 @@ impl GuestEnv {
     /// Create a [GuestEnv] with `stdin` set to the contents of the given `bytes`.
     pub fn from_stdin(bytes: impl Into<Vec<u8>>) -> Self {
         GuestEnv { stdin: bytes.into() }
-    }
-}
-
-impl TryFrom<GuestEnv> for ExecutorEnv<'_> {
-    type Error = anyhow::Error;
-
-    /// Create an [ExecutorEnv], which can be used for execution and proving through the
-    /// [risc0_zkvm] [Prover][risc0_zkvm::Prover] and [Executor][risc0_zkvm::Executor] traits, from
-    /// the given [GuestEnv].
-    fn try_from(env: GuestEnv) -> Result<Self, Self::Error> {
-        ExecutorEnv::builder().write_slice(&env.stdin).build()
     }
 }
 
