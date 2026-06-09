@@ -22,11 +22,6 @@ use boundless_market::{
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use risc0_zkvm::{
-    sha::{Impl as ShaImpl, Sha256},
-    MaybePruned, ReceiptClaim,
-};
-
 use crate::{config::ConfigLock, OrderRequest};
 
 /// A very small utility function to get the current unix timestamp in seconds.
@@ -65,23 +60,6 @@ pub(crate) fn is_dev_mode() -> bool {
         .map(|x| x.to_lowercase())
         .filter(|x| x == "1" || x == "true" || x == "yes")
         .is_some()
-}
-
-/// Replace the journal bytes in a [`ReceiptClaim`] with their digest to keep claims compact while
-/// preserving the existing `ReceiptClaim::digest` output.
-pub fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
-    if let MaybePruned::Value(Some(output)) = &mut claim.output {
-        let digest = match &output.journal {
-            MaybePruned::Value(bytes) => Some(*ShaImpl::hash_bytes(bytes)),
-            MaybePruned::Pruned(_) => None,
-        };
-
-        if let Some(digest) = digest {
-            output.journal = MaybePruned::Pruned(digest);
-        }
-    }
-
-    claim
 }
 
 /// Estimate of gas for locking a single order.

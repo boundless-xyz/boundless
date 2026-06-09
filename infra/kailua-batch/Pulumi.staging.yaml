@@ -4,7 +4,7 @@ config:
   aws:region: us-west-2
   kailua-batch:BASE_STACK: organization/bootstrap/services-staging
   kailua-batch:CHAIN_ID: "10"
-  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:1343d65
+  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:df322d3
   kailua-batch:TASK_CPU: "8"
   kailua-batch:TASK_MEMORY_MIB: "8192"
   kailua-batch:LOG_RETENTION_DAYS: "30"
@@ -22,7 +22,11 @@ config:
   kailua-batch:R2_DOMAIN: https://staging-signal-artifacts.beboundless.xyz
   kailua-batch:AWS_REGION: auto
   kailua-batch:LOG_VERBOSITY: -vvv
-  kailua-batch:BOUNDLESS_ORDER_STREAM_URL: https://eth-sepolia.boundless.network
+  kailua-batch:BOUNDLESS_MARKET_ADDRESS: "0x7abb16522f4599481361d318b765af988bfcca8e"
+  kailua-batch:BOUNDLESS_SET_VERIFIER_ADDRESS: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
+  kailua-batch:BOUNDLESS_COLLATERAL_TOKEN_ADDRESS: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
+  kailua-batch:BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER: "2"
+  kailua-batch:BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: "2"
   kailua-batch:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   kailua-batch:ENABLE_PAGERDUTY_ALERTS: "true"
   kailua-batch:L1_RPC:
@@ -38,8 +42,10 @@ config:
   kailua-batch:WALLET_KEY:
     secure: v1:lRAWZbowXgQkSqSX:Ut0Qvfyo1slJtxMZPc/WpvuLQlC2+bsPmPKhf5bOlGQP1u2bAv+o8DJEkfzEnozOHqMgma/5HtEqYJKtvTawf5p0VjFuv9DX3ByhwDJZeaI=
   kailua-batch:BOUNDLESS_RPC_URL:
-    secure: v1:UVr9zNWy+JYTpw8N:b/hsINpVPt9oRMnJBnVKyLi/F8AaMeq7qxXJNsOz/8e3kxSCNUEvZgPSG/7Gb98yH9qpiX4/1nrYXQGaHVomDXNBhoOyA+bZXGXwOdUyrf3R/UBpmn3oEL+fKclObTHqxqbZBJO/hjhXf4lPkkUL6g==
+    secure: v1:6Twx1ICtEXpBAuP9:5zjb9S1hfA8ZQCyMnBzfHsODQttEpPUyJ/lMquS6Dm1JPluU+JThVi/8aw2Ai7awi3Gd5YNn7TcmIi3ARIY5smNupuAMjXSCCYlyn3acMt1lxOmOyXOrBdu9XAO7CvmGQKWXXgTDlcJeUsZ5dqMd+w==
   kailua-batch:L1_BEACON:
     secure: v1:MQoNgD7ntu5BZh+0:SW9N5n+daQQJWr87m37OGvkfxfOOhW33EX3qxyjkEmNoLtCc0qecSENX8noGaVFmLShKzHTUl337gnvCbqS53ZhO9FwxENpan1MG6Lzam1IJHzJ4IZQ+pAo7EH/d0iEN
   kailua-batch:S3_URL:
     secure: v1:uic0XwOCVP8ecxaT:GwwYi64Gisrq7VKu+mTpqxYhdCWOpOkBGS+oEMvPGEA1qMcpiwalNOfS8WmgzCIdG0+l0h3+1xMZ/RqyPEWO43klUPk4+GbI4rjY0Xeen1bk
+  kailua-batch:BOUNDLESS_ORDER_STREAM_URL:
+    secure: v1:MPne/quadp5SpIJV:UTCRs341PjeijpWIBNIxIassKAYSZd+I9SOejCns4aDI3+4dgBHH1qCl6Iem9sH9GOVsSMNhh/XXfpgxgh1D0Ct3gPuLvTiZa2fSuUmMXDRnh+vRm2u3PrhbhO0=

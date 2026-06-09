@@ -35,13 +35,14 @@ use tracing::instrument;
 use url::Url;
 
 use crate::{
+    backend::{BackendBatchState, BackendId, BackendOrderState},
     db::{
         error::DbError,
-        types::{AggregationOrder, DbBatch, DbLockedRequest, DbOrder},
+        types::{BatchReadyOrder, DbBatch, DbLockedRequest, DbOrder},
         BrokerDb,
     },
-    proving_order_from_request, AggregationState, Batch, BatchStatus, FulfillmentType, Order,
-    OrderRequest, OrderStatus, ProofRequest,
+    proving_order_from_request, Batch, BatchStatus, FulfillmentType, Order, OrderRequest,
+    OrderStatus, ProofRequest,
 };
 
 /// Builds a per-chain SQLite connection URL from the broker's configured base URL.
@@ -147,8 +148,8 @@ impl SqliteDb {
         Ok(Self { pool })
     }
 
-    async fn new_batch(&self) -> Result<usize, DbError> {
-        let batch = Batch { start_time: Utc::now(), ..Default::default() };
+    async fn new_batch(&self, backend_id: &BackendId) -> Result<usize, DbError> {
+        let batch = Batch::new(backend_id.clone(), Utc::now());
 
         let res: i64 = sqlx::query_scalar("INSERT INTO batches (data) VALUES ($1) RETURNING id")
             .bind(sqlx::types::Json(&batch))
@@ -230,27 +231,19 @@ impl BrokerDb for SqliteDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError> {
+    ) -> Result<(ProofRequest, Bytes, String, U256, FulfillmentType), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
+            if order.status != OrderStatus::PendingSubmission {
+                return Err(DbError::InvalidOrder(id.to_string(), "status"));
+            }
             Ok((
                 order.request.clone(),
                 order.client_sig.clone(),
-                order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
                 order.image_id.ok_or(DbError::MissingElm("image_id"))?,
                 order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
                 order.fulfillment_type,
             ))
-        } else {
-            Err(DbError::OrderNotFound(id.to_string()))
-        }
-    }
-
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError> {
-        let order = self.get_order(id).await?;
-        if let Some(order) = order {
-            Ok(order.compressed_proof_id.ok_or(DbError::MissingElm("compressed_proof_id"))?)
         } else {
             Err(DbError::OrderNotFound(id.to_string()))
         }
@@ -316,9 +309,9 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForBatch)
+        .bind(OrderStatus::Batching)
+        .bind(OrderStatus::ReadyForSubmission)
         .bind(OrderStatus::PendingSubmission)
         .fetch_all(&self.pool)
         .await?;
@@ -340,8 +333,8 @@ impl BrokerDb for SqliteDb {
         )
         .bind(OrderStatus::PendingProving)
         .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForBatch)
+        .bind(OrderStatus::ReadyForSubmission)
         .bind(OrderStatus::PendingSubmission)
         .bind(Utc::now().timestamp().saturating_sub(grace_period_secs))
         .fetch_all(&self.pool)
@@ -355,7 +348,7 @@ impl BrokerDb for SqliteDb {
         let elm: Option<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
-            SET data = json_set(json_set(data, '$.status', $1), '$.update_at', $2)
+            SET data = json_set(json_set(data, '$.status', $1), '$.updated_at', $2)
             WHERE id =
                 (SELECT id
                 FROM orders
@@ -389,47 +382,22 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_proof_id(&self, id: &str, proof_id: &str) -> Result<(), DbError> {
-        let res = sqlx::query(
-            r#"
-            UPDATE orders
-            SET data = json_set(
-                       json_set(data,
-                       '$.proof_id', $1),
-                       '$.updated_at', $2)
-            WHERE
-                id = $3"#,
-        )
-        .bind(proof_id)
-        .bind(Utc::now().timestamp())
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-
-        if res.rows_affected() == 0 {
-            return Err(DbError::OrderNotFound(id.to_string()));
-        }
-
-        Ok(())
-    }
-
-    #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_compressed_proof_id(
+    async fn set_order_backend_state(
         &self,
         id: &str,
-        compressed_proof_id: &str,
+        state: &BackendOrderState,
     ) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
             SET data = json_set(
                        json_set(data,
-                       '$.compressed_proof_id', $1),
+                       '$.backend_state', json($1)),
                        '$.updated_at', $2)
             WHERE
                 id = $3"#,
         )
-        .bind(compressed_proof_id)
+        .bind(sqlx::types::Json(state))
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
@@ -443,18 +411,27 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_aggregation_status(&self, id: &str, status: OrderStatus) -> Result<(), DbError> {
+    async fn set_order_batch_status(
+        &self,
+        id: &str,
+        status: OrderStatus,
+        backend_id: &BackendId,
+    ) -> Result<(), DbError> {
+        let backend_id = backend_id.to_string();
         let res = sqlx::query(
             r#"
             UPDATE orders
             SET data = json_set(
+                       json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.updated_at', $2)
+                       '$.backend_id', $2),
+                       '$.updated_at', $3)
             WHERE
-                id = $3"#,
+                id = $4"#,
         )
         .bind(status)
+        .bind(backend_id)
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&self.pool)
@@ -468,35 +445,36 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_aggregation_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+    async fn get_pending_batch_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<BatchReadyOrder>, DbError> {
+        let backend_id = backend_id.to_string();
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
             SET data = json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.update_at', $2)
+                       '$.updated_at', $2)
             WHERE
                 data->>'status' IN ($3, $4)
+                AND data->>'backend_id' = $5
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::Batching)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
+        .bind(OrderStatus::ReadyForBatch)
+        .bind(OrderStatus::Batching)
+        .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
 
-        let mut agg_orders = vec![];
+        let mut batch_ready_orders = vec![];
         for order in orders.into_iter() {
-            agg_orders.push(AggregationOrder {
+            batch_ready_orders.push(BatchReadyOrder {
                 order_id: order.id.clone(),
-                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
-                proof_id: order
-                    .data
-                    .proof_id
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
                 expiration: order.data.request.expires_at(),
                 fee: order
                     .data
@@ -508,38 +486,39 @@ impl BrokerDb for SqliteDb {
             })
         }
 
-        Ok(agg_orders)
+        Ok(batch_ready_orders)
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_groth16_proofs(&self) -> Result<Vec<AggregationOrder>, DbError> {
+    async fn get_pending_direct_submission_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<BatchReadyOrder>, DbError> {
+        let backend_id = backend_id.to_string();
         let orders: Vec<DbOrder> = sqlx::query_as(
             r#"
             UPDATE orders
             SET data = json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.update_at', $2)
+                       '$.updated_at', $2)
             WHERE
-                data->>'status' == $3
+                data->>'status' = $3
+                AND data->>'backend_id' = $4
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForSubmission)
         .bind(Utc::now().timestamp())
-        .bind(OrderStatus::SkipAggregation)
+        .bind(OrderStatus::ReadyForSubmission)
+        .bind(backend_id)
         .fetch_all(&self.pool)
         .await?;
 
-        let mut agg_orders = vec![];
+        let mut batch_ready_orders = vec![];
         for order in orders.into_iter() {
-            agg_orders.push(AggregationOrder {
+            batch_ready_orders.push(BatchReadyOrder {
                 order_id: order.id.clone(),
-                // TODO(austin): https://github.com/boundless-xyz/boundless/issues/300
-                proof_id: order
-                    .data
-                    .proof_id
-                    .ok_or(DbError::InvalidOrder(order.id.clone(), "proof_id"))?,
                 expiration: order.data.request.expires_at(),
                 fee: order
                     .data
@@ -551,28 +530,27 @@ impl BrokerDb for SqliteDb {
             })
         }
 
-        Ok(agg_orders)
+        Ok(batch_ready_orders)
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn complete_batch(&self, batch_id: usize, g16_proof_id: &str) -> Result<(), DbError> {
-        let batch = self.get_batch(batch_id).await?;
-        if batch.aggregation_state.is_none() {
-            return Err(DbError::BatchAggregationStateIsNone(batch_id));
-        }
-
+    async fn complete_batch(
+        &self,
+        batch_id: usize,
+        backend_state: &BackendBatchState,
+    ) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE batches
             SET data = json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.aggregation_state.groth16_proof_id', $2)
+                       '$.backend_state', json($2))
             WHERE
                 id = $3"#,
         )
-        .bind(BatchStatus::Complete)
-        .bind(g16_proof_id)
+        .bind(BatchStatus::ReadyToSubmit)
+        .bind(sqlx::types::Json(backend_state))
         .bind(batch_id as i64)
         .execute(&self.pool)
         .await?;
@@ -600,7 +578,7 @@ impl BrokerDb for SqliteDb {
             "#,
         )
         .bind(BatchStatus::PendingSubmission)
-        .bind(BatchStatus::Complete)
+        .bind(BatchStatus::ReadyToSubmit)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -660,35 +638,37 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn get_current_batch(&self) -> Result<usize, DbError> {
+    async fn get_current_batch(&self, backend_id: &BackendId) -> Result<usize, DbError> {
         let batch_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM batches").fetch_one(&self.pool).await?;
 
         if batch_count == 0 {
-            self.new_batch().await
+            self.new_batch(backend_id).await
         } else {
-            let cur_batch: Option<DbBatch> =
-                sqlx::query_as("SELECT * FROM batches WHERE data->>'status' IN ($1, $2) LIMIT 1")
-                    .bind(BatchStatus::Aggregating)
-                    .bind(BatchStatus::PendingCompression)
-                    .fetch_optional(&self.pool)
-                    .await?;
+            let cur_batch: Option<DbBatch> = sqlx::query_as(
+                "SELECT * FROM batches WHERE data->>'status' IN ($1, $2) AND data->>'backend_id' = $3 LIMIT 1",
+            )
+            .bind(BatchStatus::Open)
+            .bind(BatchStatus::PendingCompression)
+            .bind(backend_id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
 
             if let Some(batch) = cur_batch {
                 Ok(batch.id as usize)
             } else {
-                self.new_batch().await
+                self.new_batch(backend_id).await
             }
         }
     }
 
-    #[instrument(level = "trace", skip(self, aggreagtion_state, orders, assessor_proof_id))]
+    #[instrument(level = "trace", skip(self, backend_state, orders))]
     async fn update_batch(
         &self,
         batch_id: usize,
-        aggreagtion_state: &AggregationState,
-        orders: &[AggregationOrder],
-        assessor_proof_id: Option<String>,
+        backend_state: &BackendBatchState,
+        orders: &[BatchReadyOrder],
+        finalize: bool,
     ) -> Result<(), DbError> {
         let mut txn = self.pool.begin().await?;
 
@@ -714,7 +694,7 @@ impl BrokerDb for SqliteDb {
         let db_fees = U256::from_str(&db_fees)?;
         let new_fees = orders.iter().fold(db_fees, |sum, order| sum + order.fee);
 
-        // Update the batch fees, deadline, and aggregation state.
+        // Update the batch fees, deadline, and backend state.
         let res = sqlx::query(
             r#"
             UPDATE batches
@@ -724,13 +704,13 @@ impl BrokerDb for SqliteDb {
                        json_set(data,
                        '$.deadline', $1),
                        '$.fees', $2),
-                       '$.aggregation_state', json($3))
+                       '$.backend_state', json($3))
             WHERE
                 id = $4"#,
         )
         .bind(new_deadline)
         .bind(format!("0x{new_fees:x}"))
-        .bind(sqlx::types::Json(aggreagtion_state))
+        .bind(sqlx::types::Json(backend_state))
         .bind(batch_id as i64)
         .execute(&mut *txn)
         .await?;
@@ -779,20 +759,16 @@ impl BrokerDb for SqliteDb {
             }
         }
 
-        if let Some(assessor_proof_id) = assessor_proof_id {
+        if finalize {
             let res = sqlx::query(
                 r#"
                 UPDATE batches
                 SET
-                    data = json_set(
-                           json_set(data,
-                           '$.status', $1),
-                           '$.assessor_proof_id', json($2))
+                    data = json_set(data, '$.status', $1)
                 WHERE
-                    id = $3"#,
+                    id = $2"#,
             )
             .bind(BatchStatus::PendingCompression)
-            .bind(sqlx::types::Json(assessor_proof_id))
             .bind(batch_id as i64)
             .execute(&mut *txn)
             .await?;
@@ -947,6 +923,28 @@ mod tests {
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
 
+    fn test_backend_id() -> BackendId {
+        BackendId::new("test_backend_id")
+    }
+
+    fn test_backend_state(
+        proof_id: &str,
+        compressed_proof_id: Option<&str>,
+        guest_state: GuestState,
+        claim_digests: Vec<Digest>,
+    ) -> BackendBatchState {
+        BackendBatchState(serde_json::json!({
+            "guest_state": guest_state,
+            "claim_digests": claim_digests,
+            "proof_id": proof_id,
+            "compressed_proof_id": compressed_proof_id,
+        }))
+    }
+
+    fn other_backend_id() -> BackendId {
+        BackendId::new("other_test_backend_id")
+    }
+
     fn create_order_request() -> OrderRequest {
         let mut request = OrderRequest::new(
             ProofRequest::new(
@@ -1027,18 +1025,17 @@ mod tests {
     async fn get_submission_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let mut order = create_order();
-        order.proof_id = Some("test".to_string());
+        order.status = OrderStatus::PendingSubmission;
         order.lock_price = Some(U256::from(10));
         db.add_order(&order).await.unwrap();
 
-        let submit_order: (ProofRequest, Bytes, String, String, U256, FulfillmentType) =
+        let submit_order: (ProofRequest, Bytes, String, U256, FulfillmentType) =
             db.get_submission_order(&order.id()).await.unwrap();
         assert_eq!(submit_order.0, order.request);
         assert_eq!(submit_order.1, order.client_sig);
-        assert_eq!(submit_order.2, order.proof_id.unwrap());
-        assert_eq!(submit_order.3, order.image_id.unwrap());
-        assert_eq!(submit_order.4, order.lock_price.unwrap());
-        assert_eq!(submit_order.5, order.fulfillment_type);
+        assert_eq!(submit_order.2, order.image_id.unwrap());
+        assert_eq!(submit_order.3, order.lock_price.unwrap());
+        assert_eq!(submit_order.4, order.fulfillment_type);
     }
 
     #[sqlx::test]
@@ -1084,7 +1081,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn set_order_proof_id(pool: SqlitePool) {
+    async fn set_order_backend_state(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let id = U256::ZERO;
@@ -1092,11 +1089,11 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        let proof_id = "test";
-        db.set_order_proof_id(&order.id(), proof_id).await.unwrap();
+        let state = BackendOrderState(serde_json::json!({ "proof_id": "test" }));
+        db.set_order_backend_state(&order.id(), &state).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.proof_id, Some(proof_id.into()));
+        assert_eq!(db_order.backend_state, Some(state));
     }
 
     #[sqlx::test]
@@ -1121,7 +1118,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn set_aggregation_status(pool: SqlitePool) {
+    async fn set_order_batch_status(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let id = U256::ZERO;
@@ -1129,86 +1126,102 @@ mod tests {
         order.request.id = id;
         db.add_order(&order).await.unwrap();
 
-        db.set_aggregation_status(&order.id(), OrderStatus::PendingAgg).await.unwrap();
+        db.set_order_batch_status(&order.id(), OrderStatus::ReadyForBatch, &test_backend_id())
+            .await
+            .unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
 
-        assert_eq!(db_order.status, OrderStatus::PendingAgg);
+        assert_eq!(db_order.status, OrderStatus::ReadyForBatch);
+        assert_eq!(db_order.backend_id, Some(test_backend_id()));
     }
 
     #[sqlx::test]
-    async fn get_aggregation_proofs(pool: SqlitePool) {
+    async fn get_pending_batch_orders_claims_by_backend(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let mut orders = [
             Order {
                 status: OrderStatus::PendingProving,
-                proof_id: Some("test_id3".to_string()),
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id3"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
-                proof_id: Some("test_id1".to_string()),
+                status: OrderStatus::ReadyForBatch,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id1"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::Aggregating,
-                proof_id: Some("test_id2".to_string()),
+                status: OrderStatus::Batching,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id2"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
                 ..create_order()
             },
             Order {
                 status: OrderStatus::PendingSubmission,
-                proof_id: Some("test_id4".to_string()),
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id4"}))),
                 expire_timestamp: Some(10),
                 lock_price: Some(U256::from(10u64)),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::ReadyForBatch,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "test_id5"}))),
+                expire_timestamp: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                backend_id: Some(other_backend_id()),
                 ..create_order()
             },
         ];
         for (i, order) in orders.iter_mut().enumerate() {
             order.request.id = U256::from(i);
+            order.backend_id.get_or_insert_with(test_backend_id);
             db.add_order(order).await.unwrap();
         }
 
-        let agg_proofs = db.get_aggregation_proofs().await.unwrap();
+        let batch_orders = db.get_pending_batch_orders(&test_backend_id()).await.unwrap();
 
-        assert_eq!(agg_proofs.len(), 2);
+        assert_eq!(batch_orders.len(), 2);
 
-        let agg_proof = &agg_proofs[0];
-        assert_eq!(agg_proof.order_id, orders[1].id());
-        assert_eq!(agg_proof.proof_id, "test_id1");
+        let batch_order = &batch_orders[0];
+        assert_eq!(batch_order.order_id, orders[1].id());
         // expiration is now derived from request.expires_at() (rampUpStart + timeout = 0 + 100)
-        assert_eq!(agg_proof.expiration, orders[1].request.expires_at());
-        assert_eq!(agg_proof.fee, U256::from(10u64));
+        assert_eq!(batch_order.expiration, orders[1].request.expires_at());
+        assert_eq!(batch_order.fee, U256::from(10u64));
 
-        let agg_proof = &agg_proofs[1];
-        assert_eq!(agg_proof.order_id, orders[2].id());
-        assert_eq!(agg_proof.proof_id, "test_id2");
-        assert_eq!(agg_proof.expiration, orders[2].request.expires_at());
-        assert_eq!(agg_proof.fee, U256::from(10u64));
+        let batch_order = &batch_orders[1];
+        assert_eq!(batch_order.order_id, orders[2].id());
+        assert_eq!(batch_order.expiration, orders[2].request.expires_at());
+        assert_eq!(batch_order.fee, U256::from(10u64));
 
-        let db_order = db.get_order(&agg_proofs[0].order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Aggregating);
-        let db_order = db.get_order(&agg_proofs[1].order_id).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Aggregating);
+        let db_order = db.get_order(&batch_orders[0].order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Batching);
+        let db_order = db.get_order(&batch_orders[1].order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Batching);
+
+        let other_backend_batch_orders =
+            db.get_pending_batch_orders(&other_backend_id()).await.unwrap();
+        assert_eq!(other_backend_batch_orders.len(), 1);
+        assert_eq!(other_backend_batch_orders[0].order_id, orders[4].id());
     }
 
     #[sqlx::test]
     async fn get_current_batch(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         assert_eq!(batch_id, 1);
 
         let batch = db.get_batch(batch_id).await.unwrap();
-        assert_eq!(batch.status, BatchStatus::Aggregating);
+        assert_eq!(batch.backend_id, test_backend_id());
+        assert_eq!(batch.status, BatchStatus::Open);
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         assert_eq!(batch_id, 1);
 
         db.set_batch_status(1, BatchStatus::PendingCompression).await.unwrap();
@@ -1216,7 +1229,13 @@ mod tests {
         let batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(batch.status, BatchStatus::PendingCompression);
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
+        assert_eq!(batch_id, 1);
+
+        let other_batch_id = db.get_current_batch(&other_backend_id()).await.unwrap();
+        assert_eq!(other_batch_id, 2);
+
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         assert_eq!(batch_id, 1);
     }
 
@@ -1225,11 +1244,11 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let batch = Batch { start_time: Utc::now(), ..Default::default() };
+        let batch = Batch::new(test_backend_id(), Utc::now());
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
         let batch = db.get_batch(batch_id).await.unwrap();
-        assert_eq!(batch.status, BatchStatus::Aggregating);
+        assert_eq!(batch.status, BatchStatus::Open);
     }
 
     #[sqlx::test]
@@ -1238,22 +1257,25 @@ mod tests {
 
         let batch_id = 1;
         let batch = Batch {
-            aggregation_state: Some(AggregationState {
-                guest_state: GuestState::initial([1u32; 8]),
-                claim_digests: vec![],
-                groth16_proof_id: None,
-                proof_id: "a".to_string(),
-            }),
-            ..Default::default()
+            backend_id: test_backend_id(),
+            backend_state: Some(test_backend_state(
+                "a",
+                None,
+                GuestState::initial([1u32; 8]),
+                vec![],
+            )),
+            ..Batch::new(test_backend_id(), Utc::now())
         };
         db.add_batch(batch_id, batch).await.unwrap();
 
-        let g16_proof_id = "Testg16";
-        db.complete_batch(batch_id, g16_proof_id).await.unwrap();
+        let new_state = BackendBatchState(serde_json::json!({
+            "compressed_proof_id": "Testg16",
+        }));
+        db.complete_batch(batch_id, &new_state).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
-        assert_eq!(db_batch.status, BatchStatus::Complete);
-        assert_eq!(db_batch.aggregation_state.unwrap().groth16_proof_id.unwrap(), g16_proof_id);
+        assert_eq!(db_batch.status, BatchStatus::ReadyToSubmit);
+        assert_eq!(db_batch.backend_state.unwrap().0, new_state.0);
     }
 
     #[sqlx::test]
@@ -1261,8 +1283,10 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
         let batch_id = 1;
-        let batch =
-            Batch { start_time: Utc::now(), status: BatchStatus::Complete, ..Default::default() };
+        let batch = Batch {
+            status: BatchStatus::ReadyToSubmit,
+            ..Batch::new(test_backend_id(), Utc::now())
+        };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
 
@@ -1275,7 +1299,7 @@ mod tests {
     async fn set_batch_submitted(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         db.set_batch_submitted(batch_id).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
@@ -1286,7 +1310,7 @@ mod tests {
     async fn set_batch_failure(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
-        let batch_id = db.get_current_batch().await.unwrap();
+        let batch_id = db.get_current_batch(&test_backend_id()).await.unwrap();
         let err_msg = "test_err";
         db.set_batch_failure(batch_id, err_msg.into()).await.unwrap();
 
@@ -1315,9 +1339,8 @@ mod tests {
         db.add_order(&order2).await.unwrap();
 
         let batch_id = 1;
-        let agg_proofs = [
-            AggregationOrder {
-                proof_id: "a".to_string(),
+        let batch_orders = [
+            BatchReadyOrder {
                 order_id: order1.id(),
                 expiration: 20,
                 fee: U256::from(5),
@@ -1325,8 +1348,7 @@ mod tests {
                 request_id: order1.request.id,
                 lock_expiration: order1.request.lock_expires_at(),
             },
-            AggregationOrder {
-                proof_id: "b".to_string(),
+            BatchReadyOrder {
                 order_id: order2.id(),
                 expiration: 25,
                 fee: U256::from(10),
@@ -1338,37 +1360,35 @@ mod tests {
         let claim_digests = vec![[1u32; 8].into(), [2u32; 8].into()];
         let mut guest_state = GuestState::initial([3u32; 8]);
         guest_state.mmr.extend(&claim_digests);
-        let agg_state = AggregationState {
-            guest_state,
-            proof_id: "c".to_string(),
-            claim_digests: claim_digests.clone(),
-            groth16_proof_id: None,
-        };
+        let backend_state = test_backend_state("c", None, guest_state, claim_digests.clone());
 
         let base_fees = U256::from(10);
         let batch = Batch {
+            backend_id: test_backend_id(),
             start_time: Utc::now(),
             deadline: Some(100),
             fees: base_fees,
-            ..Default::default()
+            ..Batch::new(test_backend_id(), Utc::now())
         };
 
         db.add_batch(batch_id, batch.clone()).await.unwrap();
-        db.update_batch(batch_id, &agg_state, &agg_proofs, Some("proof_id".to_string()))
-            .await
-            .unwrap();
+        db.update_batch(batch_id, &backend_state, &batch_orders, true).await.unwrap();
 
         let db_batch = db.get_batch(batch_id).await.unwrap();
         assert_eq!(db_batch.status, BatchStatus::PendingCompression);
         assert_eq!(db_batch.orders, vec![order1.id(), order2.id()]);
         assert_eq!(db_batch.deadline, Some(20));
         assert_eq!(db_batch.fees, U256::from(25));
-        assert!(db_batch.aggregation_state.is_some());
-        let agg_state = db_batch.aggregation_state.unwrap();
-        assert_eq!(agg_state.groth16_proof_id.as_ref(), None);
-        assert!(!agg_state.guest_state.is_initial());
-        assert_eq!(&agg_state.proof_id, "c");
-        assert_eq!(&agg_state.claim_digests, &claim_digests);
+        assert!(db_batch.backend_state.is_some());
+        let backend_state = db_batch.backend_state.unwrap();
+        assert!(backend_state.0.get("compressed_proof_id").is_none_or(|v| v.is_null()));
+        assert_eq!(backend_state.0["proof_id"].as_str(), Some("c"));
+        let guest_state: GuestState =
+            serde_json::from_value(backend_state.0["guest_state"].clone()).unwrap();
+        let persisted_claim_digests: Vec<Digest> =
+            serde_json::from_value(backend_state.0["claim_digests"].clone()).unwrap();
+        assert!(!guest_state.is_initial());
+        assert_eq!(&persisted_claim_digests, &claim_digests);
     }
 
     #[sqlx::test]
@@ -1432,12 +1452,12 @@ mod tests {
                 ..create_order()
             },
             Order {
-                status: OrderStatus::PendingAgg,
+                status: OrderStatus::ReadyForBatch,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
             Order {
-                status: OrderStatus::SkipAggregation,
+                status: OrderStatus::ReadyForSubmission,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
@@ -1448,7 +1468,7 @@ mod tests {
             },
             // Non-expired orders (should NOT be returned)
             Order {
-                status: OrderStatus::Aggregating,
+                status: OrderStatus::Batching,
                 expire_timestamp: Some(past_time),
                 ..create_order()
             },
@@ -1498,8 +1518,8 @@ mod tests {
                 order.status,
                 OrderStatus::PendingProving
                     | OrderStatus::Proving
-                    | OrderStatus::PendingAgg
-                    | OrderStatus::SkipAggregation
+                    | OrderStatus::ReadyForBatch
+                    | OrderStatus::ReadyForSubmission
                     | OrderStatus::PendingSubmission
             ));
         }

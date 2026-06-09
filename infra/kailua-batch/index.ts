@@ -35,7 +35,8 @@ const OPTIONAL_SECRETS: SecretMapping[] = [];
 const DEFAULT_SCHEDULE_COUNT = 20;
 const DEFAULT_SCHEDULE_WINDOW_MINUTES = 20;
 const DEFAULT_TASKS_PER_MINUTE = 2;
-// Forcefully SIGKILL a kailua task that runs longer than this (see defaultProveScript).
+// Hard wall-clock cap on a kailua task; the watchdog in defaultProveScript SIGTERM/SIGKILLs
+// the whole prove process group past this and the task exits.
 const DEFAULT_TASK_TIMEOUT_MINUTES = 20;
 
 export = () => {
@@ -162,14 +163,35 @@ export = () => {
         });
     }
 
-    const orderStreamUrl = config.get("BOUNDLESS_ORDER_STREAM_URL");
-    if (!orderStreamUrl) {
-        throw new Error("BOUNDLESS_ORDER_STREAM_URL must be set in stack config");
+    const deploymentOverrideKeys = [
+        "BOUNDLESS_MARKET_ADDRESS",
+        "BOUNDLESS_SET_VERIFIER_ADDRESS",
+        "BOUNDLESS_COLLATERAL_TOKEN_ADDRESS",
+    ] as const;
+    const deploymentOverrides: Record<string, string> = {};
+    for (const key of deploymentOverrideKeys) {
+        const value = config.get(key);
+        if (value) {
+            deploymentOverrides[key] = value;
+        }
     }
+    if (
+        Boolean(deploymentOverrides.BOUNDLESS_MARKET_ADDRESS) !==
+        Boolean(deploymentOverrides.BOUNDLESS_SET_VERIFIER_ADDRESS)
+    ) {
+        throw new Error(
+            "BOUNDLESS_MARKET_ADDRESS and BOUNDLESS_SET_VERIFIER_ADDRESS must be set together " +
+            "(the kailua image requires both to build an explicit deployment; setting only one " +
+            "silently falls back to the canonical production deployment)",
+        );
+    }
+
+    const dynamicPricingTimeoutModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER");
+    const dynamicPricingRampUpModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER");
 
     const defaultEnvironment: Record<string, string> = {
         MODE: config.get("MODE") ?? "debug",
-        BOUNDLESS_ORDER_STREAM_URL: orderStreamUrl,
+        ...deploymentOverrides,
         BOUNDLESS_ORDER_SUBMISSION_COOLDOWN: "1",
         EXPORT_PROFILE_CSV: "true",
         BOUNDLESS_ORDER_FUNDING_MODE: config.get("BOUNDLESS_ORDER_FUNDING_MODE") ?? "available-balance",
@@ -179,6 +201,12 @@ export = () => {
         NO_COLOR: "1",
         R2_DOMAIN: config.require("R2_DOMAIN"),
         BOUNDLESS_DYNAMIC_PRICING: config.get("BOUNDLESS_DYNAMIC_PRICING") ?? "true",
+        ...(dynamicPricingTimeoutModifier
+            ? { BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER: dynamicPricingTimeoutModifier }
+            : {}),
+        ...(dynamicPricingRampUpModifier
+            ? { BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: dynamicPricingRampUpModifier }
+            : {}),
         S3_BUCKET: config.require("S3_BUCKET"),
         AWS_REGION: config.get("AWS_REGION") ?? "auto",
         LOG_VERBOSITY: config.get("LOG_VERBOSITY") ?? "-vvv",
@@ -195,12 +223,18 @@ export = () => {
         NUM_CONCURRENT_PROOFS: config.get("NUM_CONCURRENT_PROOFS") ?? "1",
         NUM_CONCURRENT_PROVERS: config.get("NUM_CONCURRENT_PROVERS") ?? "3",
         SEQ_WINDOW: config.get("SEQ_WINDOW") ?? "50",
-        TASK_TIMEOUT_MINUTES: taskTimeoutMinutes.toString(),
+        // Consumed by the prove watchdog in defaultProveScript; ENV stack config can override.
+        KAILUA_TASK_TIMEOUT_SECONDS: (taskTimeoutMinutes * 60).toString(),
     };
 
+    const orderStreamUrl = config.requireSecret("BOUNDLESS_ORDER_STREAM_URL");
+
     const extraEnvironment = config.getObject<Record<string, string>>("ENV") ?? {};
-    const environment = Object.entries({ ...defaultEnvironment, ...extraEnvironment })
-        .map(([name, value]) => ({ name, value }));
+    const environment: { name: string; value: pulumi.Input<string> }[] = [
+        ...Object.entries({ ...defaultEnvironment, ...extraEnvironment })
+            .map(([name, value]) => ({ name, value })),
+        { name: "BOUNDLESS_ORDER_STREAM_URL", value: orderStreamUrl },
+    ];
 
     const ecsSecrets = taskSecrets.map(secret => ({
         name: secret.name,
@@ -214,16 +248,28 @@ export = () => {
         ': "${S3_SECRET_KEY:?S3_SECRET_KEY is required for R2}"',
         'export AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY}"',
         'export AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY}"',
-        'FINALIZED=$(cast bn finalized -r "$L2_RPC")',
+        // Bound the pre-prove RPC call too: a dead/hung L2 RPC here would otherwise hang the
+        // task forever, since the prove watchdog below has not started yet.
+        'FINALIZED=$(timeout 60 cast bn finalized -r "$L2_RPC")',
         'START_BLOCK=$((FINALIZED - START_BLOCK_OFFSET))',
         'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT}"',
         `cd ${kailuaWorkdir}`,
-        // Forcefully SIGKILL the prove run (and tear the task down) if it exceeds the timeout.
-        // timeout returns 124 (TERM) / 137 (128+KILL) on expiry; 111 is kailua's "no work" code.
-        'rc=0',
-        'timeout -s KILL "${TASK_TIMEOUT_MINUTES}m" just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || rc=$?',
-        'if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then echo "KAILUA_TIMEOUT killed after ${TASK_TIMEOUT_MINUTES}m"; exit 0; fi',
-        '[ "$rc" -eq 0 ] || [ "$rc" -eq 111 ]',
+        // Hard wall-clock cap on proving. A plain `timeout` does NOT bound this: `just`/the prover
+        // don't propagate the signal to the whole process tree, so orphaned proving processes keep
+        // running (observed: tasks ran ~52min under a 30min `timeout`, saturating MAX_RUNNING_TASKS).
+        // Run prove in its own process group (set -m) and have a watchdog SIGTERM/SIGKILL the WHOLE
+        // group on overrun, then exit so ECS tears the task down. Exit 111 stays the success/skip
+        // code. The limit comes from TASK_TIMEOUT_MINUTES stack config (default 20m); override the
+        // raw seconds via ENV stack config (KAILUA_TASK_TIMEOUT_SECONDS) if needed.
+        'set -m',
+        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 &',
+        'KAILUA_PROVE_PID=$!',
+        '( sleep "${KAILUA_TASK_TIMEOUT_SECONDS:-1800}"; echo "KAILUA_TASK_TIMEOUT exceeded after ${KAILUA_TASK_TIMEOUT_SECONDS:-1800}s; killing prove process group"; kill -TERM -"$KAILUA_PROVE_PID" 2>/dev/null; sleep 30; kill -KILL -"$KAILUA_PROVE_PID" 2>/dev/null ) &',
+        'KAILUA_WATCHDOG_PID=$!',
+        'KAILUA_RC=0; wait "$KAILUA_PROVE_PID" || KAILUA_RC=$?',
+        'kill "$KAILUA_WATCHDOG_PID" 2>/dev/null || true',
+        'if [ "$KAILUA_RC" -eq 111 ]; then KAILUA_RC=0; fi',
+        'exit "$KAILUA_RC"',
     ].join("\n");
 
     const containerCommand = config.get("KAILUA_COMMAND") ?? [

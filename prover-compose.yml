@@ -243,6 +243,10 @@ services:
 
     environment:
       <<: *base-environment
+      STORAGE_DIR: /app/data/object_store
+
+    volumes:
+      - object-store-data:/app/data/object_store
 
     ports:
       - "8081:8081"
@@ -348,4 +352,5 @@ volumes:
   broker-data:
   caddy-data:
   caddy-config:
+  object-store-data:
   # broker2-data:
