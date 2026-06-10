@@ -25,6 +25,7 @@ use alloy::{
 };
 use derive_builder::Builder;
 use risc0_zkvm::{Digest, Journal};
+use std::sync::Arc;
 use url::Url;
 
 use crate::{
@@ -244,9 +245,26 @@ where
         let provider = std::sync::Arc::new(self.offer_layer.provider.clone());
         let price_provider = self.offer_layer.price_provider.clone();
 
+        // Create preflight cache - the LocalExecutor handles execution deduplication internally
+        let preflight_cache = Arc::new(
+            moka::future::Cache::builder()
+                .eviction_policy(moka::policy::EvictionPolicy::lru())
+                .max_capacity(32)
+                .build(),
+        );
+
+        // Create a standard downloader for fetching images and inputs
+        let downloader = Arc::new(StandardDownloader::new().await);
+
+        let evaluator = Arc::new(crate::risc0::request_evaluator::Risc0Evaluator::new(
+            Arc::new(self.preflight_layer.executor_cloned()),
+            downloader,
+            preflight_cache,
+        ));
+
         if let Err(e) = requestor_order_preflight(
             request.clone(),
-            self.preflight_layer.executor_cloned(),
+            evaluator,
             provider,
             market_address,
             chain_id,

@@ -32,11 +32,10 @@ use async_trait::async_trait;
 use moka::future::Cache;
 use moka::policy::EvictionPolicy;
 
-use super::local_executor::LocalExecutor;
 use super::{
     Erc1271GasCache, EvaluationLimits, EvaluationRequest, FulfillmentType, MarketConfig,
-    OrderPricingContext, OrderPricingError, OrderPricingOutcome, OrderRequest, PreflightCache,
-    RequestEvaluation, RequestEvaluator,
+    OrderPricingContext, OrderPricingError, OrderPricingOutcome, OrderRequest, RequestEvaluation,
+    RequestEvaluator,
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
@@ -44,7 +43,6 @@ use crate::dynamic_gas_filler::PriorityMode;
 use crate::price_oracle::{Amount, Asset, PriceOracleManager};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
-use crate::storage::StandardDownloader;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
@@ -62,7 +60,7 @@ const ONE_MILLION: U256 = uint!(1_000_000_U256);
 /// `MarketConf::default()`.
 pub async fn requestor_order_preflight<P>(
     request: ProofRequest,
-    executor: LocalExecutor,
+    evaluator: Arc<dyn RequestEvaluator + Sync + Send>,
     provider: Arc<P>,
     market_address: Address,
     chain_id: u64,
@@ -81,10 +79,6 @@ where
         .await
         .context("Failed to fetch collateral token decimals")?;
 
-    // Create preflight cache - the LocalExecutor handles execution deduplication internally
-    let preflight_cache: PreflightCache =
-        Arc::new(Cache::builder().eviction_policy(EvictionPolicy::lru()).max_capacity(32).build());
-
     // Small ERC1271 gas cache scoped to this single preflight call.
     // No TTL is needed: the context and cache are dropped together once preflight returns.
     let erc1271_gas_cache: Erc1271GasCache =
@@ -92,15 +86,6 @@ where
 
     // Build market config, using price provider if available
     let market_config = build_market_config(price_provider).await;
-
-    // Create a standard downloader for fetching images and inputs
-    let downloader = Arc::new(StandardDownloader::new().await);
-
-    let evaluator = Arc::new(crate::risc0::request_evaluator::Risc0Evaluator::new(
-        Arc::new(executor),
-        downloader,
-        preflight_cache,
-    ));
 
     let pricing_context = RequestorPricingContext::new(
         provider.clone(),
