@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use alloy::primitives::Bytes;
 use anyhow::Context as _;
+use async_trait::async_trait;
 use hex::FromHex as _;
 
 use crate::{
@@ -109,6 +110,7 @@ impl Risc0Evaluator {
     }
 }
 
+#[async_trait]
 impl RequestEvaluator for Risc0Evaluator {
     async fn evaluate_request(
         &self,
