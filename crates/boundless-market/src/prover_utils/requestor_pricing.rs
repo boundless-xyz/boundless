@@ -36,7 +36,7 @@ use super::prover::ProverObj;
 use super::{
     Erc1271GasCache, EvaluationLimits, EvaluationRequest, FulfillmentType, MarketConfig,
     OrderPricingContext, OrderPricingError, OrderPricingOutcome, OrderRequest, PreflightCache,
-    RequestEvaluation, RequestEvaluator, Risc0Evaluator,
+    RequestEvaluation, RequestEvaluator,
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
@@ -201,7 +201,7 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 /// verification and requestor allowlists.
 pub struct RequestorPricingContext<P> {
     provider: Arc<P>,
-    evaluator: Risc0Evaluator,
+    evaluator: crate::risc0::request_evaluator::Risc0Evaluator,
     market_config: MarketConfig,
     supported_selectors: SupportedSelectors,
     erc1271_gas_cache: Erc1271GasCache,
@@ -225,7 +225,11 @@ where
         downloader: Arc<StandardDownloader>,
         price_oracle: Option<Arc<PriceOracleManager>>,
     ) -> Self {
-        let evaluator = Risc0Evaluator::new(prover, downloader, preflight_cache);
+        let evaluator = crate::risc0::request_evaluator::Risc0Evaluator::new(
+            prover,
+            downloader,
+            preflight_cache,
+        );
         Self {
             provider,
             evaluator,
