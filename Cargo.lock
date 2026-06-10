@@ -2993,13 +2993,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "boundless-risc0-sdk"
-version = "2.1.0-alpha.0"
-dependencies = [
- "boundless-market",
-]
-
-[[package]]
 name = "boundless-slasher"
 version = "2.1.0-alpha.0"
 dependencies = [
