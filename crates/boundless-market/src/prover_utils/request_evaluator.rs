@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use alloy::primitives::{Address, Bytes, FixedBytes};
 use anyhow::Context;
+use async_trait::async_trait;
 use moka::future::Cache;
 use sha2::{Digest, Sha256};
 
@@ -215,7 +216,7 @@ impl EvaluationLimits {
 }
 
 /// Executes request preflight for pricing.
-#[allow(async_fn_in_trait)]
+#[async_trait]
 pub trait RequestEvaluator {
     async fn evaluate_request(
         &self,

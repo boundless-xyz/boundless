@@ -28,11 +28,11 @@ use alloy::primitives::{Address, Bytes, U256};
 use alloy::providers::Provider;
 use alloy::uint;
 use anyhow::Context;
+use async_trait::async_trait;
 use moka::future::Cache;
 use moka::policy::EvictionPolicy;
 
 use super::local_executor::LocalExecutor;
-use super::prover::ProverObj;
 use super::{
     Erc1271GasCache, EvaluationLimits, EvaluationRequest, FulfillmentType, MarketConfig,
     OrderPricingContext, OrderPricingError, OrderPricingOutcome, OrderRequest, PreflightCache,
@@ -96,14 +96,18 @@ where
     // Create a standard downloader for fetching images and inputs
     let downloader = Arc::new(StandardDownloader::new().await);
 
+    let evaluator = Arc::new(crate::risc0::request_evaluator::Risc0Evaluator::new(
+        Arc::new(executor),
+        downloader,
+        preflight_cache,
+    ));
+
     let pricing_context = RequestorPricingContext::new(
         provider.clone(),
         collateral_token_decimals,
         market_config,
-        preflight_cache,
+        evaluator,
         erc1271_gas_cache,
-        Arc::new(executor),
-        downloader,
         price_oracle,
     );
 
@@ -201,7 +205,7 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 /// verification and requestor allowlists.
 pub struct RequestorPricingContext<P> {
     provider: Arc<P>,
-    evaluator: crate::risc0::request_evaluator::Risc0Evaluator,
+    evaluator: Arc<dyn RequestEvaluator + Sync + Send>,
     market_config: MarketConfig,
     supported_selectors: SupportedSelectors,
     erc1271_gas_cache: Erc1271GasCache,
@@ -219,17 +223,10 @@ where
         provider: Arc<P>,
         collateral_token_decimals: u8,
         market_config: MarketConfig,
-        preflight_cache: PreflightCache,
+        evaluator: Arc<dyn RequestEvaluator + Sync + Send>,
         erc1271_gas_cache: Erc1271GasCache,
-        prover: ProverObj,
-        downloader: Arc<StandardDownloader>,
         price_oracle: Option<Arc<PriceOracleManager>>,
     ) -> Self {
-        let evaluator = crate::risc0::request_evaluator::Risc0Evaluator::new(
-            prover,
-            downloader,
-            preflight_cache,
-        );
         Self {
             provider,
             evaluator,
@@ -242,10 +239,8 @@ where
     }
 }
 
-impl<P> RequestEvaluator for RequestorPricingContext<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+#[async_trait]
+impl<P: Sync + Send> RequestEvaluator for RequestorPricingContext<P> {
     async fn evaluate_request(
         &self,
         request: EvaluationRequest,
