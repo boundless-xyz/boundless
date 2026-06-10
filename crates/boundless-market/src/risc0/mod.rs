@@ -14,3 +14,6 @@
 
 /// Contains RequestEvaluator implementation for risc0
 pub mod request_evaluator;
+
+/// Contains LocalExector implementation for risc0
+pub mod local_executor;
