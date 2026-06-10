@@ -23,7 +23,10 @@ use alloy::{
     network::Ethereum,
     providers::{DynProvider, Provider},
 };
+use anyhow::anyhow;
+use async_trait::async_trait;
 use derive_builder::Builder;
+use risc0_zkvm::Receipt;
 use risc0_zkvm::{Digest, Journal};
 use std::sync::Arc;
 use url::Url;
@@ -31,7 +34,10 @@ use url::Url;
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
-    prover_utils::requestor_pricing::requestor_order_preflight,
+    prover_utils::{
+        prover::{ExecutorResp, ProofResult, Prover, ProverError},
+        requestor_pricing::requestor_order_preflight,
+    },
     selector::SelectorExt,
     storage::{StandardDownloader, StorageDownloader},
     util::{now_timestamp, NotProvided},
@@ -157,6 +163,144 @@ where
     }
 }
 
+/// Executes a program locally
+#[async_trait]
+pub trait LocalExecutor: Prover + Sync + Send {
+    /// Execute a program with the given input, deduplicating by content.
+    ///
+    /// Returns the execution stats and journal. If the same image_id + input
+    /// combination was already executed, returns the cached result.
+    async fn execute_program(
+        &self,
+        image_id: &str,
+        program: &[u8],
+        input: &[u8],
+    ) -> Result<(ExecutorResp, Vec<u8>), ProverError>;
+
+    /// Manually insert execution data directly into the cache.
+    async fn insert_execution_data(
+        &self,
+        image_id: &str,
+        input: &[u8],
+        total_cycles: u64,
+        journal: Vec<u8>,
+    );
+}
+
+/// This local executor only errors when asked to execute a program.
+///
+/// The `RequestBuilder` usage in `ClientBuilder` prevents this from happening but is useful to
+/// make the `RequestBuilder` and `PreflightLayer` compile when the code paths that call this
+/// aren't configured to be used (`skip_preflight`).
+pub struct AbsentLocalExecutor;
+
+#[async_trait]
+impl LocalExecutor for AbsentLocalExecutor {
+    async fn execute_program(
+        &self,
+        _image_id: &str,
+        _program: &[u8],
+        _input: &[u8],
+    ) -> Result<(ExecutorResp, Vec<u8>), ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn insert_execution_data(
+        &self,
+        _image_id: &str,
+        _input: &[u8],
+        _total_cycles: u64,
+        _journal: Vec<u8>,
+    ) {
+    }
+}
+
+#[async_trait]
+impl Prover for AbsentLocalExecutor {
+    async fn has_image(&self, _image_id: &str) -> Result<bool, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn upload_input(&self, _input: Vec<u8>) -> Result<String, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn upload_image(&self, _image_id: &str, _image: Vec<u8>) -> Result<(), ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn preflight(
+        &self,
+        _image_id: &str,
+        _input_id: &str,
+        _assumptions: Vec<String>,
+        _executor_limit: Option<u64>,
+        _order_id: &str,
+    ) -> Result<ProofResult, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn prove_stark(
+        &self,
+        _image_id: &str,
+        _input_id: &str,
+        _assumptions: Vec<String>,
+    ) -> Result<String, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn prove_and_monitor_stark(
+        &self,
+        _image_id: &str,
+        _input_id: &str,
+        _assumptions: Vec<String>,
+    ) -> Result<ProofResult, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn wait_for_stark(&self, _proof_id: &str) -> Result<ProofResult, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn cancel_stark(&self, _proof_id: &str) -> Result<(), ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn get_receipt(&self, _proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn get_preflight_journal(&self, _proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn get_journal(&self, _proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn compress(&self, _proof_id: &str) -> Result<String, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn get_compressed_receipt(
+        &self,
+        _proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn compress_blake3_groth16(&self, _proof_id: &str) -> Result<String, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+
+    async fn get_blake3_groth16_receipt(
+        &self,
+        _proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
+        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
+    }
+}
+
 /// A standard implementation of [RequestBuilder] that uses a layered architecture.
 ///
 /// This builder composes multiple layers, each handling a specific aspect of request building:
@@ -257,7 +401,7 @@ where
         let downloader = Arc::new(StandardDownloader::new().await);
 
         let evaluator = Arc::new(crate::risc0::request_evaluator::Risc0Evaluator::new(
-            Arc::new(self.preflight_layer.executor_cloned()),
+            self.preflight_layer.executor_cloned(),
             downloader,
             preflight_cache,
         ));
@@ -1002,6 +1146,8 @@ mod parameterization_mode_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::sync::Arc;
 
     use alloy::{
@@ -1015,15 +1161,7 @@ mod tests {
     use tracing_test::traced_test;
     use url::Url;
 
-    use super::{
-        Adapt, Layer, OfferLayer, OfferLayerConfig, OfferParams, ParameterizationMode,
-        PreflightLayer, RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerConfig,
-        RequestIdLayerMode, RequestParams, RequirementsLayer, StandardRequestBuilder, StorageLayer,
-        StorageLayerConfig,
-    };
-
     use crate::price_oracle::{Amount, Asset};
-    use crate::prover_utils::{local_executor::LocalExecutor, prover::Prover};
     use crate::storage::HttpDownloader;
     use crate::{
         contracts::{
@@ -1037,6 +1175,10 @@ mod tests {
     };
     use alloy_primitives::{utils::parse_ether, U256};
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
+
+    fn executor() -> Arc<dyn LocalExecutor + Sync + Send> {
+        Arc::new(crate::risc0::local_executor::Risc0LocalExecutor::default())
+    }
 
     #[tokio::test]
     #[traced_test]
@@ -1053,7 +1195,7 @@ mod tests {
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -1079,7 +1221,7 @@ mod tests {
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(Some(storage))
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder().build()?,
@@ -1108,7 +1250,7 @@ mod tests {
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder()
@@ -1139,7 +1281,7 @@ mod tests {
         );
 
         let request_builder = StandardRequestBuilder::builder::<_, NotProvided, _>()
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -1237,7 +1379,7 @@ mod tests {
         let uploader = MockStorageUploader::new();
         let downloader = HttpDownloader::new(None, None);
         let program_url = uploader.upload_program(ECHO_ELF).await?;
-        let layer = PreflightLayer::new(LocalExecutor::default(), Some(downloader));
+        let layer = PreflightLayer::new(executor(), Some(downloader));
         let data = b"hello_zkvm".to_vec();
         let env = GuestEnv::from_stdin(data.clone());
         let input = RequestInput::inline(env.encode()?);
@@ -1256,8 +1398,8 @@ mod tests {
     #[traced_test]
     async fn test_preflight_layer_cache_prefill() -> anyhow::Result<()> {
         // Create layer with shared executor
-        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::default();
-        let executor = layer.executor_cloned();
+        let executor = executor();
+        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::new(executor.clone(), None);
 
         // Create params with pre-computed values
         let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;

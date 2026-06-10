@@ -47,12 +47,11 @@ use crate::{
     price_provider::{
         MarketPricing, MarketPricingConfigBuilder, PriceProviderArc, StandardPriceProvider,
     },
-    prover_utils::local_executor::LocalExecutor,
     request_builder::{
-        Finalizer, FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder,
-        ParameterizationMode, PreflightLayer, RequestBuilder, RequestIdLayer,
-        RequestIdLayerConfigBuilder, StandardRequestBuilder, StandardRequestBuilderBuilderError,
-        StorageLayer, StorageLayerConfigBuilder,
+        AbsentLocalExecutor, Finalizer, FinalizerConfigBuilder, LocalExecutor, OfferLayer,
+        OfferLayerConfigBuilder, ParameterizationMode, PreflightLayer, RequestBuilder,
+        RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
+        StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
     },
     storage::{
         StandardDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
@@ -136,6 +135,9 @@ pub struct ClientBuilder<U, D, S> {
     /// If `Some(false)`, preflight checks are run.
     /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     pub skip_preflight: Option<bool>,
+
+    /// The executor to use for doing preflight
+    pub preflight_executor: Option<Arc<dyn LocalExecutor>>,
 }
 
 impl<U, D, S> Default for ClientBuilder<U, D, S> {
@@ -157,6 +159,7 @@ impl<U, D, S> Default for ClientBuilder<U, D, S> {
             request_finalizer_config: Default::default(),
             funding_mode: FundingMode::Always,
             skip_preflight: None,
+            preflight_executor: None,
         }
     }
 }
@@ -474,7 +477,9 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
                 self.storage_layer_config.build()?,
             ))
             .preflight_layer(PreflightLayer::new(
-                LocalExecutor::default(),
+                self.preflight_executor
+                    .clone()
+                    .unwrap_or_else(|| Arc::new(AbsentLocalExecutor) as Arc<dyn LocalExecutor>),
                 Some(downloader.clone()),
             ))
             .offer_layer(
@@ -510,6 +515,8 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
 
         if let Some(skip_preflight) = self.skip_preflight {
             client = client.with_skip_preflight(skip_preflight);
+        } else if self.preflight_executor.is_none() {
+            bail!("preflight not skipped and no preflight executor provided");
         }
 
         Ok(client)
@@ -629,6 +636,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             request_finalizer_config: self.request_finalizer_config,
             funding_mode: self.funding_mode,
             skip_preflight: self.skip_preflight,
+            preflight_executor: self.preflight_executor,
         }
     }
 
@@ -664,6 +672,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             offer_layer_config: self.offer_layer_config,
             funding_mode: self.funding_mode,
             skip_preflight: self.skip_preflight,
+            preflight_executor: self.preflight_executor,
         }
     }
 
@@ -687,6 +696,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             offer_layer_config: self.offer_layer_config,
             funding_mode: self.funding_mode,
             skip_preflight: self.skip_preflight,
+            preflight_executor: self.preflight_executor,
         }
     }
 
@@ -829,6 +839,11 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     /// If not called, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     pub fn with_skip_preflight(self, skip: bool) -> Self {
         Self { skip_preflight: Some(skip), ..self }
+    }
+
+    /// Sets the executor to use for preflight.
+    pub fn with_preflight_executor(self, preflight_executor: Arc<dyn LocalExecutor>) -> Self {
+        Self { preflight_executor: Some(preflight_executor), ..self }
     }
 }
 
