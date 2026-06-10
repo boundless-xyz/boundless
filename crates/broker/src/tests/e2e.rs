@@ -43,7 +43,9 @@ use boundless_market::{
 };
 use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, SET_BUILDER_PATH},
-    market::{create_test_ctx, deploy_mock_callback, get_mock_callback_count},
+    market::{
+        create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_R0_SELECTOR,
+    },
 };
 use risc0_zkvm::{
     sha::{Digest, Digestible},
@@ -152,6 +154,7 @@ pub(super) async fn new_config_with_extra_market(
     let mut base_config = Config::default();
     base_config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
     base_config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+    base_config.market.assessor_selector = ASSESSOR_R0_SELECTOR;
     if !is_dev_mode() {
         base_config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
     }

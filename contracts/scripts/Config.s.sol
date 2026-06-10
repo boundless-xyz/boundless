@@ -23,6 +23,10 @@ struct DeploymentConfig {
     bytes32 assessorImageId;
     string assessorGuestUrl;
     uint32 deprecatedAssessorDuration;
+    // BoundlessRouter address the market dispatches through, and the router entry selector
+    // registered for the R0 STARK assessor adapter (brokers prepend it to the assessor seal).
+    address boundlessRouter;
+    bytes4 r0AssessorSelector;
     // PoVW contract addresses
     address povwAccounting;
     address povwAccountingImpl;
@@ -122,6 +126,10 @@ library ConfigParser {
         deploymentConfig.assessorGuestUrl = stdToml.readString(config, string.concat(chain, ".assessor-guest-url"));
         deploymentConfig.deprecatedAssessorDuration =
             uint32(stdToml.readUint(config, string.concat(chain, ".deprecated-assessor-duration")));
+        deploymentConfig.boundlessRouter =
+            stdToml.readAddressOr(config, string.concat(chain, ".boundless-router"), address(0));
+        deploymentConfig.r0AssessorSelector =
+            bytes4(stdToml.readBytes32Or(config, string.concat(chain, ".r0-assessor-selector"), bytes32(0)));
 
         // PoVW contract addresses
         deploymentConfig.povwAccounting =

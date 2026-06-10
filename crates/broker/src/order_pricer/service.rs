@@ -308,7 +308,7 @@ pub(crate) mod tests {
         storage::{MockStorageUploader, StorageUploader},
     };
     use boundless_test_utils::{
-        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
+        guests::{ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID, SET_BUILDER_ID},
         market::{deploy_boundless_market, deploy_hit_points},
     };
     use price_oracle::TradingPair;
@@ -503,7 +503,7 @@ pub(crate) mod tests {
                 address!("0x0000000000000000000000000000000000000001"),
                 hp_contract,
                 Digest::from(ASSESSOR_GUEST_ID),
-                format!("file://{ASSESSOR_GUEST_PATH}"),
+                Digest::from(SET_BUILDER_ID),
                 Some(signer.address()),
             )
             .await

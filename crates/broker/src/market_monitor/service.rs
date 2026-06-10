@@ -671,14 +671,14 @@ mod tests {
         contracts::{
             boundless_market::{BoundlessMarketService, FulfillmentTx},
             hit_points::default_allowance,
-            AssessorReceipt, FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest,
-            RequestInput, RequestInputType, Requirements,
+            FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest, RequestInput,
+            RequestInputType, Requirements,
         },
         dynamic_gas_filler::PriorityMode,
         input::GuestEnv,
     };
     use boundless_test_utils::{
-        guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ID},
+        guests::{ASSESSOR_GUEST_ID, ECHO_ID, SET_BUILDER_ID},
         market::{create_test_ctx, deploy_boundless_market, mock_singleton, TestCtx},
     };
     use risc0_zkvm::sha::Digest;
@@ -701,7 +701,7 @@ mod tests {
             address!("0x0000000000000000000000000000000000000001"),
             address!("0x0000000000000000000000000000000000000002"),
             Digest::from(ASSESSOR_GUEST_ID),
-            format!("file://{ASSESSOR_GUEST_PATH}"),
+            Digest::from(SET_BUILDER_ID),
             Some(signer.address()),
         )
         .await
@@ -848,15 +848,14 @@ mod tests {
         // publish the committed root
         ctx.set_verifier.submit_merkle_root(root, set_verifier_seal).await.unwrap();
 
-        let assessor_fill = AssessorReceipt {
-            seal: assessor_seal,
-            selectors: vec![],
-            prover: ctx.prover_signer.address(),
-            callbacks: vec![],
-        };
         // fulfill the request
         ctx.prover_market
-            .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
+            .fulfill(FulfillmentTx::new(
+                vec![request.clone()],
+                vec![fulfillment.clone()],
+                assessor_seal,
+                ctx.prover_signer.address(),
+            ))
             .await
             .unwrap();
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
