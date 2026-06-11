@@ -94,6 +94,7 @@ alloy::sol! {
             function initialize(address admin) {}
             function addClass(bytes4 classId, ClassMetadata calldata metadata) {}
             function instantiate(bytes4 selector, address impl, bytes4 parentClassId, uint64 gasLimit) {}
+            function removeEntry(bytes4 selector) {}
             function entries(bytes4 selector) external view returns (address implementation, bytes4 classId, uint64 gasLimit) {}
     }
 }
