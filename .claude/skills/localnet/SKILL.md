@@ -62,7 +62,7 @@ source .env.localnet && cargo run --example submit_echo -- \
 **Why these values:**
 
 - `--bidding-start "$(date +%s)"`: Sets `rampUpStart` to now. Without this, the default is `now() + 30s` (`DEFAULT_BASE_RAMP_UP_DELAY`), which delays when the auction begins.
-- `--min-price "0.001 ETH"`: Above the broker's estimated lock+fulfill gas cost (~0.0007 ETH on anvil). If max-price is below that estimate the broker *skips* the order outright ("estimated gas cost ... exceeds max price"); if only min-price is low, it delays the lock until the auction ramps past its threshold.
+- `--min-price "0.001 ETH"`: Above the broker's estimated lock+fulfill gas cost (~0.0007 ETH on anvil). If max-price is below that estimate the broker _skips_ the order outright ("estimated gas cost ... exceeds max price"); if only min-price is low, it delays the lock until the auction ramps past its threshold.
 - `--max-price "0.003 ETH"`: ~3x min-price, reasonable ceiling
 
 ### Full Proving Mode
