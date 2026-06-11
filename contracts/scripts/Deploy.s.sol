@@ -136,15 +136,15 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         }
 
         bool deployedNewCollateralToken;
-        if (deploymentConfig.collateralToken == address(0) || deploymentConfig.collateralToken.code.length == 0) {
+        if (isReusableCollateralToken(deploymentConfig.collateralToken)) {
+            stakeToken = deploymentConfig.collateralToken;
+            console2.log("Using collateral token deployed at", stakeToken);
+        } else {
             // Deploy the HitPoints contract
             stakeToken = address(new HitPoints(boundlessMarketOwner));
             HitPoints(stakeToken).grantMinterRole(boundlessMarketOwner);
             console2.log("Deployed HitPoints collateral token to", stakeToken);
             deployedNewCollateralToken = true;
-        } else {
-            stakeToken = deploymentConfig.collateralToken;
-            console2.log("Using collateral token deployed at", stakeToken);
         }
 
         // Deploy the Boundless market. The market dispatches verification via the
@@ -217,6 +217,21 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
 
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Deployment");
+    }
+
+    /// @notice Whether the configured collateral token can be reused. Deploy runs write the
+    ///         deployed address back into deployment.toml, so on a *fresh* chain the configured
+    ///         address is stale — and because deploys are deterministic, a different contract
+    ///         (not a token) usually occupies it. Code existence alone is therefore not enough:
+    ///         probe an ERC20 view to check the contract actually behaves like a token, so a
+    ///         stale address self-heals into a fresh HitPoints deployment instead of producing
+    ///         a market whose collateral token cannot be minted or deposited.
+    function isReusableCollateralToken(address token) internal view returns (bool) {
+        if (token == address(0) || token.code.length == 0) {
+            return false;
+        }
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSignature("balanceOf(address)", address(0)));
+        return ok && data.length == 32;
     }
 
     /// @notice Deploy either a test or fully verifying `Blake3Groth16Verifier` depending on `devMode()`.

@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
-# Configuration
-ANVIL_RPC="http://anvil:8545"
+# Configuration. The defaults target the compose deployer container; the paths/URL are
+# env-overridable so the script can also run directly on the host (e.g. on arm64 machines,
+# where the amd64-only builder-base image blocks the deployer container build).
+ANVIL_RPC="${ANVIL_RPC:-http://anvil:8545}"
 DEPLOYER_PRIVATE_KEY="${DEPLOYER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 CHAIN_KEY="${CHAIN_KEY:-anvil}"
 RISC0_DEV_MODE="${RISC0_DEV_MODE:-1}"
@@ -10,26 +12,28 @@ BOUNDLESS_MARKET_OWNER="${BOUNDLESS_MARKET_OWNER:-0xf39Fd6e51aad88F6F4ce6aB88272
 CHAIN_ID="${CHAIN_ID:-31337}"
 DEPOSIT_AMOUNT="${DEPOSIT_AMOUNT:-100000000000000000000}"
 DEFAULT_ADDRESS="${DEFAULT_ADDRESS:-0x90F79bf6EB2c4f870365E785982E1f101E93b906}"
-SHARED_DIR="/shared"
+SHARED_DIR="${SHARED_DIR:-/shared}"
 DEPLOYER_ENV="$SHARED_DIR/deployer.env"
-HOST_ENV_FILE="/host/.env.localnet"
-TEMPLATE_FILE="/src/.env.localnet-template"
+HOST_ENV_FILE="${HOST_ENV_FILE:-/host/.env.localnet}"
+TEMPLATE_FILE="${TEMPLATE_FILE:-/src/.env.localnet-template}"
 ANVIL_PORT=8545
 
 # Generate .env.localnet from template with current addresses.
-# Uses a temp file because sed -i doesn't work on bind-mounted files.
+# A single sed pass into the target (via temp file, since the host file may be bind-mounted);
+# avoids `sed -i`, whose syntax differs between GNU and BSD sed (the script also runs on macOS).
 generate_env_localnet() {
     local tmpfile
     tmpfile=$(mktemp)
-    cp "$TEMPLATE_FILE" "$tmpfile"
-    sed -i "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" "$tmpfile"
-    sed -i "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" "$tmpfile"
-    sed -i "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" "$tmpfile"
-    sed -i "s/^export COLLATERAL_TOKEN_ADDRESS=.*/export COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS/" "$tmpfile"
-    sed -i "s|^export RPC_URL=.*|export RPC_URL=\"http://localhost:$ANVIL_PORT\"|" "$tmpfile"
-    sed -i "s|^export PROVER_RPC_URL=.*|export PROVER_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" "$tmpfile"
-    sed -i "s|^export REQUESTOR_RPC_URL=.*|export REQUESTOR_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" "$tmpfile"
-    sed -i "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" "$tmpfile"
+    sed \
+        -e "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" \
+        -e "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" \
+        -e "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" \
+        -e "s/^export COLLATERAL_TOKEN_ADDRESS=.*/export COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS/" \
+        -e "s|^export RPC_URL=.*|export RPC_URL=\"http://localhost:$ANVIL_PORT\"|" \
+        -e "s|^export PROVER_RPC_URL=.*|export PROVER_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" \
+        -e "s|^export REQUESTOR_RPC_URL=.*|export REQUESTOR_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" \
+        -e "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" \
+        "$TEMPLATE_FILE" > "$tmpfile"
     cat "$tmpfile" > "$HOST_ENV_FILE"
     rm "$tmpfile"
 }
