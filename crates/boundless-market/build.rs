@@ -31,7 +31,7 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 13] = [
+const ARTIFACT_TARGET_CONTRACTS: [&str; 14] = [
     "BoundlessMarket",
     "HitPoints",
     "RiscZeroMockVerifier",
@@ -45,6 +45,7 @@ const ARTIFACT_TARGET_CONTRACTS: [&str; 13] = [
     "BoundlessRouter",
     "R0BoundlessAssessorAdapter",
     "R0BoundlessVerifierAdapter",
+    "OnChainAssessor",
 ];
 
 // Output filename for the generated types. The file is placed in the build directory.
@@ -309,12 +310,17 @@ fn get_interfaces(contract: &str) -> &str {
             constructor() {}
             function initialize(address admin) {}
             function addClass(bytes4 classId, ClassMetadata calldata metadata) {}
-            function instantiate(bytes4 selector, address impl, bytes4 parentClassId, uint64 gasLimit) {}"#
+            function instantiate(bytes4 selector, address impl, bytes4 parentClassId, uint64 gasLimit) {}
+            function entries(bytes4 selector) external view returns (address implementation, bytes4 classId, uint64 gasLimit) {}"#
         }
         "R0BoundlessAssessorAdapter" => {
             r#"constructor(address riscZeroVerifier, bytes32 assessorImageId) {}"#
         }
         "R0BoundlessVerifierAdapter" => r#"constructor(address riscZeroVerifier) {}"#,
+        "OnChainAssessor" => {
+            r#"constructor() {}
+            function DOMAIN_SEPARATOR() external view returns (bytes32) {}"#
+        }
         _ => "",
     }
 }

@@ -13,6 +13,7 @@ import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {R0BoundlessVerifierAdapter} from "../src/router/adapters/R0BoundlessVerifierAdapter.sol";
 import {R0BoundlessAssessorAdapter} from "../src/router/adapters/R0BoundlessAssessorAdapter.sol";
+import {OnChainAssessor} from "../src/router/adapters/OnChainAssessor.sol";
 import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 
 /// @dev Common base for router-management scripts. Reads the router proxy
@@ -101,6 +102,31 @@ contract RegisterR0Assessor is RouterManageBase {
         console2.log("Registered R0BoundlessAssessorAdapter at", address(adapter));
         console2.log("Image id:");
         console2.logBytes32(imageId);
+        console2.log("Selector:");
+        console2.logBytes4(selector);
+    }
+}
+
+/// @notice Deploy a native `OnChainAssessor` and register it under the `R0_ASSESSOR`
+///         class at the supplied selector. Brokers select it over the R0 STARK assessor
+///         by putting this selector in the first 4 bytes of the assessor seal; the broker
+///         then signs an EIP-712 `FulfillmentBatchAuth` instead of proving the assessor guest.
+/// @dev    Required env:
+///           BOUNDLESS_ROUTER          — router proxy address
+///           DEPLOYER_PRIVATE_KEY      — broadcaster (must hold ADMIN_ROLE)
+///           ONCHAIN_ASSESSOR_SELECTOR — bytes4 selector under R0_ASSESSOR
+contract RegisterOnChainAssessor is RouterManageBase {
+    function run() external {
+        BoundlessRouter router = _router();
+        bytes4 selector = bytes4(vm.envBytes32("ONCHAIN_ASSESSOR_SELECTOR"));
+        require(selector != bytes4(0), "ONCHAIN_ASSESSOR_SELECTOR must be non-zero");
+
+        _broadcast();
+        OnChainAssessor adapter = new OnChainAssessor();
+        router.instantiate(selector, address(adapter), R0_ASSESSOR_CLASS_ID, 0);
+        vm.stopBroadcast();
+
+        console2.log("Registered OnChainAssessor at", address(adapter));
         console2.log("Selector:");
         console2.logBytes4(selector);
     }

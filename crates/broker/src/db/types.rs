@@ -18,7 +18,7 @@
 //! [`DbOrder`] / [`DbBatch`] / [`DbLockedRequest`] are crate-private row shapes
 //! used by the SQLite-backed implementation in `db/sqlite.rs`.
 
-use alloy::primitives::U256;
+use alloy::primitives::{FixedBytes, U256};
 
 use crate::{Batch, FulfillmentType, Order};
 
@@ -31,6 +31,11 @@ pub struct BatchReadyOrder {
     pub fulfillment_type: FulfillmentType,
     pub request_id: U256,
     pub lock_expiration: u64,
+    /// The order's requestor-signed verifier selector, used by the batcher to derive the order's
+    /// assessor group so a batch stays single assessor class. Copied out of the loaded request at
+    /// claim time like every other field here — this is a projection, so reading it later would
+    /// otherwise cost a full order reload per claimed order.
+    pub selector: FixedBytes<4>,
 }
 
 #[derive(sqlx::FromRow)]

@@ -1044,7 +1044,15 @@ pub mod boundless_market;
 /// Helpers for building the batched fulfillment payloads (`FulfillmentBatch`, `SlimRequest`).
 mod fulfillment_batch;
 #[cfg(not(target_os = "zkvm"))]
-pub use fulfillment_batch::assessor_seal;
+pub use fulfillment_batch::{
+    assessor_seal, build_onchain_assessor_seal, fulfillment_batch_auth_signing_hash,
+    onchain_assessor_eip712_domain, sign_fulfillment_batch_auth, FulfillmentBatchAuth,
+};
+#[cfg(not(target_os = "zkvm"))]
+/// In-memory snapshot of the `BoundlessRouter` selector registry.
+pub mod router_registry;
+#[cfg(not(target_os = "zkvm"))]
+pub use router_registry::{RouterEntry, RouterRegistry};
 #[cfg(not(target_os = "zkvm"))]
 /// The Hit Points module.
 pub mod hit_points;
@@ -1191,6 +1199,22 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP712DomainSaltless {
 
 /// Constant to specify when no selector is specified.
 pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0; 4]);
+
+/// Canonical router entry selector for the native `OnChainAssessor` adapter.
+///
+/// Brokers prepend this to the assessor seal so the on-chain `BoundlessRouter` dispatches the
+/// fulfillment batch to the `OnChainAssessor`, which verifies a prover signature instead of a STARK
+/// proof. This is a stable protocol constant: the deploy scripts and broker agree on it by
+/// convention (the on-chain assessor has no guest image to rotate).
+pub const ONCHAIN_ASSESSOR_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0x00, 0x00, 0x00, 0x22]);
+
+/// Canonical router entry selector for the guest-based R0 STARK assessor adapter
+/// (`R0BoundlessAssessorAdapter`).
+///
+/// Brokers prepend this to the assessor seal to select the R0 STARK assessor over the on-chain
+/// assessor. Unlike [`ONCHAIN_ASSESSOR_SELECTOR`], this is version-coupled to the assessor guest
+/// image the broker ships and is bumped alongside it (same coupling as verifier selectors).
+pub const R0_ASSESSOR_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0x00, 0x00, 0x00, 0x24]);
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]

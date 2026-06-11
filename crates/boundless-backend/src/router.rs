@@ -114,6 +114,20 @@ impl BackendRouter {
         ids
     }
 
+    /// The assessor grouping key a backend assigns to an order with this signed verifier selector.
+    /// Orders under the same backend that share this key may co-batch (see [`Backend::assessor_group`]).
+    ///
+    /// Resolved through the backend because the key is backend policy, not an on-chain fact: it
+    /// depends on the backend's router snapshot and its assessor candidates/priority, and it must
+    /// agree with the assessor the same backend later seals the batch with in `build_fulfillments`.
+    pub fn assessor_group(
+        &self,
+        backend_id: &BackendId,
+        selector: FixedBytes<4>,
+    ) -> Result<Option<FixedBytes<4>>> {
+        self.backend_for_id(backend_id)?.assessor_group(selector)
+    }
+
     pub async fn evaluate_request(
         &self,
         request: EvaluationRequest,
@@ -360,6 +374,10 @@ mod tests {
 
         fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
             self.proof_types.get(&selector).copied()
+        }
+
+        fn assessor_group(&self, _selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>> {
+            Ok(None)
         }
 
         async fn evaluate_request(

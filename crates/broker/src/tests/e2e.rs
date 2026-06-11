@@ -43,9 +43,7 @@ use boundless_market::{
 };
 use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, SET_BUILDER_PATH},
-    market::{
-        create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_R0_SELECTOR,
-    },
+    market::{create_test_ctx, deploy_mock_callback, get_mock_callback_count, VERIFIER_CLASS_ID},
 };
 use risc0_zkvm::{
     sha::{Digest, Digestible},
@@ -154,7 +152,6 @@ pub(super) async fn new_config_with_extra_market(
     let mut base_config = Config::default();
     base_config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
     base_config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-    base_config.market.assessor_selector = ASSESSOR_R0_SELECTOR;
     if !is_dev_mode() {
         base_config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
     }
@@ -681,6 +678,80 @@ async fn e2e_with_selector() {
         let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_groth16_selector(selector));
+    })
+    .await;
+}
+
+/// A requestor can sign a verifier *class id* (not only a specific entry selector or the default
+/// sentinel). The broker must recognize the class via its startup-resolved `verifier_classes`,
+/// produce a seal whose entry lives in that class, and the router must accept it. (Signing the
+/// default sentinel and a specific selector are covered by `simple_e2e` and `e2e_with_selector`.)
+#[tokio::test]
+#[traced_test]
+async fn e2e_with_signed_verifier_class() {
+    let anvil = Anvil::new().spawn();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
+    let args = broker_args(
+        config.base_path(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer.clone(),
+        Some(ctx.version_registry_address),
+    );
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
+    )
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
+
+    let storage = MockStorageUploader::new();
+    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+
+    let mut request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+    // Sign against the verifier class id rather than a specific entry selector or the default.
+    request.requirements.selector = VERIFIER_CLASS_ID;
+
+    run_with_broker(broker, vec![chain], async move {
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        let fulfillment = ctx
+            .customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+        // The class id resolved to the set-inclusion entry (the producible selector in that class),
+        // not a direct groth16/blake3 proof.
+        let seal = fulfillment.seal;
+        let selector = FixedBytes(seal[0..4].try_into().unwrap());
+        assert!(!is_groth16_selector(selector) && !is_blake3_groth16_selector(selector));
     })
     .await;
 }

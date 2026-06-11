@@ -14,6 +14,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
+use alloy::signers::local::PrivateKeySigner;
 use alloy::sol_types::SolValue;
 use alloy::{
     network::Ethereum,
@@ -25,9 +26,11 @@ use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use boundless_market::{
     contracts::{
-        eip712_domain, encode_seal, AssessorJournal, Fulfillment as MarketFulfillment,
-        FulfillmentData, FulfillmentDataImageIdAndJournal, FulfillmentDataType, Predicate,
-        PredicateType, RequestInputType, UNSPECIFIED_SELECTOR,
+        boundless_market::BoundlessMarketService, build_onchain_assessor_seal, eip712_domain,
+        encode_seal, AssessorJournal, Fulfillment as MarketFulfillment, FulfillmentData,
+        FulfillmentDataImageIdAndJournal, FulfillmentDataType, Predicate, PredicateType,
+        RequestInputType, RouterRegistry, ONCHAIN_ASSESSOR_SELECTOR, R0_ASSESSOR_SELECTOR,
+        UNSPECIFIED_SELECTOR,
     },
     input::GuestEnv,
     prover_utils::{
@@ -69,6 +72,15 @@ const SELECTOR_FAKE_RECEIPT: FixedBytes<4> =
 const SELECTOR_FAKE_BLAKE3_GROTH16: FixedBytes<4> =
     FixedBytes::new((SelectorExt::FakeBlake3Groth16 as u32).to_be_bytes());
 
+/// Candidate assessor selectors this broker can satisfy, in descending priority. When a verifier
+/// class's `requiredAssessorClass` registers more than one of these, the broker uses the first
+/// that's present — preferring the native on-chain assessor (an EIP-712 signature, no STARK proof)
+/// over the R0 STARK guest.
+///
+/// These selectors are protocol conventions the deploy must honor (see [`ONCHAIN_ASSESSOR_SELECTOR`]
+/// / [`R0_ASSESSOR_SELECTOR`]); the R0 one is version-coupled to the assessor guest the broker ships.
+const ASSESSOR_PRIORITY: [FixedBytes<4>; 2] = [ONCHAIN_ASSESSOR_SELECTOR, R0_ASSESSOR_SELECTOR];
+
 use crate::provers::{BonsaiConfig, ProverObj};
 use anyhow::{Context, Result};
 use boundless_backend::futures_retry::retry_with_context;
@@ -85,8 +97,6 @@ pub struct Risc0BackendConfig {
     pub assessor_set_guest_path: Option<PathBuf>,
     pub set_builder_default_image_url: String,
     pub assessor_default_image_url: String,
-    /// The 4-byte router assessor selector prepended to the assessor seal.
-    pub assessor_selector: FixedBytes<4>,
     pub txn_timeout: u64,
 }
 
@@ -98,7 +108,7 @@ use boundless_backend::{
     BatchProcessor, BatchProcessorObj, BatchSizeEstimate, BatchSizeEstimateRequest, BatchUpdate,
     CancelOrder, ClaimDigest, CloseBatch, FailedFulfillmentOrder, FulfillmentBatch,
     OrderFulfillmentArtifact, OrderProcessProgress, OrderProvingData, ProcessOrder, ProcessedOrder,
-    ProofId, SubmissionAssessorArtifact, SubmissionPath, SubmissionPlan, UpdateBatch,
+    ProofId, RouterPolicy, SubmissionAssessorArtifact, SubmissionPath, SubmissionPlan, UpdateBatch,
     VerifierUpdate, VerifierUpdateError,
 };
 
@@ -167,8 +177,15 @@ pub struct Risc0Backend {
     set_verifier_addr: Option<Address>,
     set_verifier: Option<SetVerifierService<DynProvider>>,
     batch_processor: Option<BatchProcessorObj>,
-    /// The 4-byte router assessor selector prepended to the assessor seal in `build_fulfillments`.
-    assessor_selector: FixedBytes<4>,
+    /// Prover key for signing the on-chain assessor `FulfillmentBatchAuth`.
+    prover_signer: Option<PrivateKeySigner>,
+    /// Address credited/slashed for the batch; bound into the on-chain assessor signature.
+    prover_addr: Option<Address>,
+    /// Chain id of the deployment, for the on-chain assessor EIP-712 domain.
+    chain_id: u64,
+    /// Router snapshot + derived broker policy, resolved once at construction. Always present:
+    /// production snapshots the on-chain registry, tests supply a fixture.
+    router_policy: RouterPolicy,
 }
 
 impl Risc0Backend {
@@ -176,27 +193,165 @@ impl Risc0Backend {
         BackendId::new(RISC0_V3_BACKEND_ID)
     }
 
-    /// Production constructor: builds the prover backends from the projected config.
-    pub fn new(
+    /// Builds the [`RouterPolicy`] for this backend's capabilities: its producible verifier
+    /// selectors (groth16 / blake3, the dev fakes, and the set-inclusion entry at
+    /// `set_inclusion_selector`) and its candidate assessors ([`ASSESSOR_PRIORITY`]).
+    pub fn router_policy(
+        registry: RouterRegistry,
+        set_inclusion_selector: FixedBytes<4>,
+        dev_mode: bool,
+    ) -> RouterPolicy {
+        RouterPolicy::new(
+            registry,
+            Self::producible(set_inclusion_selector, dev_mode),
+            ASSESSOR_PRIORITY.to_vec(),
+        )
+    }
+
+    /// The router selectors this backend's policy consults — the producible verifier selectors
+    /// plus the candidate assessor selectors. Use to scope the on-chain registry snapshot.
+    fn selectors_of_interest(
+        set_inclusion_selector: FixedBytes<4>,
+        dev_mode: bool,
+    ) -> Vec<FixedBytes<4>> {
+        Self::producible(set_inclusion_selector, dev_mode)
+            .into_iter()
+            .map(|(selector, _)| selector)
+            .chain(ASSESSOR_PRIORITY)
+            .collect()
+    }
+
+    /// The verifier selectors this backend can produce, each paired with the selector it emits in
+    /// a seal (`UNSPECIFIED_SELECTOR` denotes set-inclusion). The set-inclusion entry is listed
+    /// last so it wins the policy's class-to-producible mapping (its batched path is preferred for
+    /// class-id / chain-default signatures).
+    fn producible(
+        set_inclusion_selector: FixedBytes<4>,
+        dev_mode: bool,
+    ) -> Vec<(FixedBytes<4>, FixedBytes<4>)> {
+        let mut producible: Vec<(FixedBytes<4>, FixedBytes<4>)> = vec![
+            (SELECTOR_GROTH16_V3_0, SELECTOR_GROTH16_V3_0),
+            (SELECTOR_BLAKE3_GROTH16_V0_1, SELECTOR_BLAKE3_GROTH16_V0_1),
+        ];
+        if dev_mode {
+            producible.push((SELECTOR_FAKE_RECEIPT, SELECTOR_FAKE_RECEIPT));
+            producible.push((SELECTOR_FAKE_BLAKE3_GROTH16, SELECTOR_FAKE_BLAKE3_GROTH16));
+        }
+        producible.push((set_inclusion_selector, UNSPECIFIED_SELECTOR));
+        producible
+    }
+
+    /// Production constructor: builds the prover backends from the projected config, snapshots the
+    /// on-chain router registry into a [`RouterPolicy`], and — unless `listen_only` — fetches and
+    /// uploads the guest images and wires the batch processor. A listen-only broker never proves or
+    /// fulfills, so it skips the proving infrastructure but still resolves the registry (selector
+    /// support and assessor grouping are not optional).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn from_deployment<P>(
         config: Risc0BackendConfig,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
         bento_api_url: Option<&url::Url>,
         downloader: Arc<dyn StorageDownloader>,
         priority_check: PriorityRequestorCheck,
-    ) -> Result<Self> {
+        proof_retry: ProofRetryPolicy,
+        provider: &Arc<P>,
+        deployment: &Deployment,
+        prover_addr: Address,
+        prover_signer: PrivateKeySigner,
+        chain_id: u64,
+        listen_only: bool,
+    ) -> Result<Self>
+    where
+        P: Provider<Ethereum> + Clone + 'static,
+    {
         let (prover, snark_prover) =
             Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
-        Ok(Self::with_provers(prover, snark_prover, downloader, priority_check)
-            .with_assessor_selector(config.assessor_selector))
+
+        // The set-builder image id pinned by the set-verifier contract; its verifier-parameters
+        // digest prefix is the set-inclusion verifier selector.
+        let set_verifier = SetVerifierService::new(
+            deployment.set_verifier_address,
+            DynProvider::new(provider.clone()),
+            prover_addr,
+        )
+        .with_timeout(std::time::Duration::from_secs(config.txn_timeout));
+        let (image_id, set_builder_url) =
+            set_verifier.image_info().await.context("Failed to get set builder image_info")?;
+        let set_builder_img_id = Risc0Digest::from_bytes(image_id.0);
+        let set_inclusion_selector = FixedBytes::<4>::from_slice(
+            &SetInclusionReceiptVerifierParameters { image_id: set_builder_img_id }
+                .digest()
+                .as_bytes()[..4],
+        );
+
+        // Snapshot the router once: one read per selector of interest plus the classes they
+        // reference. Afterwards verifier-class and assessor resolution are pure in-memory lookups
+        // (no per-submission RPC).
+        let market = BoundlessMarketService::new_for_broker(
+            deployment.boundless_market_address,
+            provider.clone(),
+            prover_addr,
+        );
+        let registry = market
+            .load_router_registry(&Self::selectors_of_interest(
+                set_inclusion_selector,
+                is_dev_mode(),
+            ))
+            .await?;
+        let router_policy = Self::router_policy(registry, set_inclusion_selector, is_dev_mode());
+        tracing::info!("Resolved router policy: {router_policy:?}");
+
+        let mut backend = Self::with_provers(
+            prover,
+            snark_prover,
+            downloader,
+            priority_check,
+            router_policy.clone(),
+        );
+        backend.set_builder_program_id = Some(set_builder_img_id);
+        backend.set_verifier_addr = Some(deployment.set_verifier_address);
+        backend.set_verifier = Some(set_verifier);
+        backend.prover_signer = Some(prover_signer);
+        backend.prover_addr = Some(prover_addr);
+        backend.chain_id = chain_id;
+
+        if !listen_only {
+            backend
+                .fetch_and_upload_image(
+                    "set builder",
+                    set_builder_img_id,
+                    set_builder_url,
+                    config.set_builder_guest_path.clone(),
+                    config.set_builder_default_image_url.clone(),
+                )
+                .await
+                .context("uploading set builder image")?;
+            let assessor_img_id = backend.fetch_and_upload_assessor_image(&config).await?;
+            backend.batch_processor = Some(Arc::new(Risc0BatchProcessor::new(
+                proof_retry,
+                backend.snark_prover.clone(),
+                set_builder_img_id,
+                assessor_img_id,
+                deployment.boundless_market_address,
+                prover_addr,
+                chain_id,
+                router_policy,
+            )));
+        }
+
+        Ok(backend)
     }
 
-    /// Constructor that takes the prover backends explicitly. Used by tests.
+    /// Constructor that takes the prover backends and a router policy explicitly. Used by tests,
+    /// which build the [`RouterPolicy`] from an in-memory registry fixture so they exercise the
+    /// same resolution logic as production.
     pub fn with_provers(
         prover: ProverObj,
         snark_prover: ProverObj,
         downloader: Arc<dyn StorageDownloader>,
         priority_check: PriorityRequestorCheck,
+        router_policy: RouterPolicy,
     ) -> Self {
         let preflight_cache: PreflightCache = std::sync::Arc::new(
             moka::future::Cache::builder()
@@ -227,14 +382,11 @@ impl Risc0Backend {
             set_verifier_addr: None,
             set_verifier: None,
             batch_processor: None,
-            assessor_selector: FixedBytes::ZERO,
+            prover_signer: None,
+            prover_addr: None,
+            chain_id: 0,
+            router_policy,
         }
-    }
-
-    /// Sets the 4-byte router assessor selector prepended to the assessor seal.
-    pub fn with_assessor_selector(mut self, assessor_selector: FixedBytes<4>) -> Self {
-        self.assessor_selector = assessor_selector;
-        self
     }
 
     fn build_provers(
@@ -298,6 +450,14 @@ impl Risc0Backend {
         selectors
     }
 
+    /// Maps a requestor-signed selector to the concrete verifier selector this backend produces:
+    /// a signed router verifier *class id* becomes the producible entry selector for that class
+    /// (`UNSPECIFIED_SELECTOR` → set-inclusion); a specific entry selector or the default sentinel
+    /// passes through unchanged.
+    fn normalize_selector(&self, signed: FixedBytes<4>) -> FixedBytes<4> {
+        self.router_policy.producible_selector(signed).unwrap_or(signed)
+    }
+
     pub fn with_set_builder_program_id(mut self, set_builder_program_id: Risc0Digest) -> Self {
         self.set_builder_program_id = Some(set_builder_program_id);
         self
@@ -337,49 +497,10 @@ impl Risc0Backend {
             market_addr,
             prover_addr,
             chain_id,
+            self.router_policy.clone(),
         ));
         self.batch_processor = Some(batch_processor);
         self
-    }
-
-    pub async fn with_batch_processor_from_deployment<P>(
-        mut self,
-        config: Risc0BackendConfig,
-        proof_retry: ProofRetryPolicy,
-        provider: &Arc<P>,
-        deployment: &Deployment,
-        prover_addr: Address,
-        chain_id: u64,
-    ) -> Result<Self>
-    where
-        P: Provider<Ethereum> + Clone + 'static,
-    {
-        let set_builder_img_id =
-            self.fetch_and_upload_set_builder_image(provider, deployment, &config).await?;
-        let assessor_img_id = self.fetch_and_upload_assessor_image(&config).await?;
-
-        let set_verifier = SetVerifierService::new(
-            deployment.set_verifier_address,
-            DynProvider::new(provider.clone()),
-            prover_addr,
-        )
-        .with_timeout(std::time::Duration::from_secs(config.txn_timeout));
-
-        let batch_processor = Arc::new(Risc0BatchProcessor::new(
-            proof_retry,
-            self.snark_prover.clone(),
-            set_builder_img_id,
-            assessor_img_id,
-            deployment.boundless_market_address,
-            prover_addr,
-            chain_id,
-        ));
-
-        self.set_builder_program_id = Some(set_builder_img_id);
-        self.set_verifier_addr = Some(deployment.set_verifier_address);
-        self.set_verifier = Some(set_verifier);
-        self.batch_processor = Some(batch_processor);
-        Ok(self)
     }
 
     fn require_set_verifier(&self, verifier: Address) -> Result<&SetVerifierService<DynProvider>> {
@@ -391,39 +512,6 @@ impl Risc0Backend {
             self.set_verifier_addr,
         );
         Ok(set_verifier)
-    }
-
-    async fn fetch_and_upload_set_builder_image<P>(
-        &self,
-        provider: &Arc<P>,
-        deployment: &Deployment,
-        config: &Risc0BackendConfig,
-    ) -> Result<Risc0Digest>
-    where
-        P: Provider<Ethereum> + Clone + 'static,
-    {
-        let set_verifier_contract = SetVerifierService::new(
-            deployment.set_verifier_address,
-            provider.clone(),
-            Address::ZERO,
-        );
-
-        let (image_id, image_url_str) = set_verifier_contract
-            .image_info()
-            .await
-            .context("Failed to get set builder image_info")?;
-        let image_id = Risc0Digest::from_bytes(image_id.0);
-
-        self.fetch_and_upload_image(
-            "set builder",
-            image_id,
-            image_url_str,
-            config.set_builder_guest_path.clone(),
-            config.set_builder_default_image_url.clone(),
-        )
-        .await
-        .context("uploading set builder image")?;
-        Ok(image_id)
     }
 
     async fn fetch_and_upload_assessor_image(
@@ -776,11 +864,30 @@ impl Backend for Risc0Backend {
     }
 
     fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
-        Self::selectors()
+        // The hardcoded entry selectors + default sentinel this backend can produce AND seal (the
+        // router must register them and a candidate assessor for their verifier class), plus the
+        // fully-supported router verifier class ids a requestor may sign against.
+        let mut selectors: Vec<FixedBytes<4>> = Self::selectors()
+            .into_iter()
+            .filter(|sel| self.router_policy.assessor_selector_for_signed(*sel).is_some())
+            .collect();
+        selectors.extend(self.router_policy.supported_classes().iter().copied());
+        selectors
     }
 
     fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
-        proof_type_for_selector(selector)
+        proof_type_for_selector(self.normalize_selector(selector))
+    }
+
+    fn assessor_group(&self, selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>> {
+        let group =
+            self.router_policy.assessor_selector_for_signed(selector).with_context(|| {
+                format!(
+                    "signed verifier selector {selector} resolves to no supported assessor in the \
+                 router registry"
+                )
+            })?;
+        Ok(Some(group))
     }
 
     async fn evaluate_request(
@@ -810,7 +917,11 @@ impl Backend for Risc0Backend {
             .await
             .context("Monitoring proof (stark) failed")?;
 
-        let compression_type = compression_type_for_selector(cmd.request.requirements.selector);
+        // A requestor may sign a verifier *class id* rather than a specific entry selector; map it
+        // to the concrete selector this backend produces in that class before deciding compression
+        // / submission path.
+        let selector = self.normalize_selector(cmd.request.requirements.selector);
+        let compression_type = compression_type_for_selector(selector);
         if compression_type != CompressionType::None && state.compressed_proof_id.is_none() {
             let compressed_proof_id =
                 self.compress_order_proof(&order_id, &state.proof_id, compression_type).await?;
@@ -818,7 +929,7 @@ impl Backend for Risc0Backend {
             return Ok(OrderProcessProgress::InProgress { state: state.encode()? });
         }
 
-        let submission_path = submission_path_for_risc0_selector(cmd.request.requirements.selector);
+        let submission_path = submission_path_for_risc0_selector(selector);
         let compressed = state.compressed_proof_id.is_some();
 
         tracing::info!(
@@ -866,10 +977,9 @@ impl Backend for Risc0Backend {
         let backend_state =
             cmd.state.as_ref().context("Cannot submit batch with no recorded backend state")?;
         let aggregation_state = Risc0BatchState::from_backend_state(backend_state)?;
-        let assessor_proof_id = aggregation_state
-            .assessor_proof_id
-            .as_deref()
-            .context("Cannot submit batch with no assessor receipt")?;
+        // Only the R0 guest path needs an aggregated assessor receipt; the on-chain assessor signs
+        // instead, so its absence is expected there.
+        let assessor_proof_id = aggregation_state.assessor_proof_id.as_deref();
         let set_builder_program_id = self
             .set_builder_program_id
             .context("RISC0 backend is missing set-builder program id")?;
@@ -879,35 +989,39 @@ impl Backend for Risc0Backend {
         let submission = Risc0Submission::new(self.snark_prover.clone());
         let inclusion_params =
             SetInclusionReceiptVerifierParameters { image_id: set_builder_program_id };
-        let groth16_proof_id = aggregation_state
-            .compressed_proof_id
-            .as_ref()
-            .context("Cannot submit batch with no recorded Groth16 proof ID")?;
-        anyhow::ensure!(
-            !aggregation_state.claim_digests.is_empty(),
-            "Cannot submit batch with no claim digests"
-        );
-        anyhow::ensure!(
-            aggregation_state.guest_state.mmr.is_finalized(),
-            "Cannot submit guest state that is not finalized"
-        );
+        // The set-builder merkle root is only submitted when the batch aggregated something. An
+        // all-direct-submit batch under the on-chain assessor has no aggregated root (each fill
+        // carries its own groth16 seal), so there is no root to submit.
+        let verifier_updates =
+            if let Some(groth16_proof_id) = aggregation_state.compressed_proof_id.as_ref() {
+                anyhow::ensure!(
+                    !aggregation_state.claim_digests.is_empty(),
+                    "Cannot submit batch with no claim digests"
+                );
+                anyhow::ensure!(
+                    aggregation_state.guest_state.mmr.is_finalized(),
+                    "Cannot submit guest state that is not finalized"
+                );
 
-        let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
-        let finalized_root = aggregation_state
-            .guest_state
-            .mmr
-            .clone()
-            .finalized_root()
-            .expect("invariant: finalized MMR has a root");
-        anyhow::ensure!(
-            finalized_root == batch_root,
-            "Guest state finalized root is inconsistent with claim digests"
-        );
-        let verifier_update = VerifierUpdate::SubmitMerkleRoot {
-            verifier: set_verifier_addr,
-            root: B256::from_slice(batch_root.as_bytes()),
-            seal: submission.encode_groth16_seal(groth16_proof_id.as_str()).await?.into(),
-        };
+                let batch_root = risc0_aggregation::merkle_root(&aggregation_state.claim_digests);
+                let finalized_root = aggregation_state
+                    .guest_state
+                    .mmr
+                    .clone()
+                    .finalized_root()
+                    .expect("invariant: finalized MMR has a root");
+                anyhow::ensure!(
+                    finalized_root == batch_root,
+                    "Guest state finalized root is inconsistent with claim digests"
+                );
+                vec![VerifierUpdate::SubmitMerkleRoot {
+                    verifier: set_verifier_addr,
+                    root: B256::from_slice(batch_root.as_bytes()),
+                    seal: submission.encode_groth16_seal(groth16_proof_id.as_str()).await?.into(),
+                }]
+            } else {
+                vec![]
+            };
 
         let order_states: std::collections::HashMap<String, Risc0OrderState> = cmd
             .orders
@@ -918,6 +1032,11 @@ impl Backend for Risc0Backend {
                     .map(|raw| Risc0OrderState::decode(raw).map(|s| (o.order_id.clone(), s)))
             })
             .collect::<Result<_>>()?;
+
+        // A batch is single verifier class; capture any order's signed selector before the
+        // consuming loop so the assessor selection (below) can resolve the batch's verifier class
+        // even if some orders fail to build.
+        let batch_signed_selector = cmd.orders.first().map(|o| o.request.requirements.selector);
 
         let mut orders = Vec::with_capacity(cmd.orders.len());
         let mut failed_orders = Vec::new();
@@ -943,18 +1062,17 @@ impl Backend for Risc0Backend {
                 let order_claim_digest =
                     submission.claim_digest(order_img_id, order_journal_digest);
 
-                let seal = if is_groth16_selector(order.request.requirements.selector)
-                    || is_blake3_groth16_selector(order.request.requirements.selector)
+                // Normalize a signed verifier class id to the concrete selector this backend
+                // produces in that class (see `normalize_selector`).
+                let selector = self.normalize_selector(order.request.requirements.selector);
+                let seal = if is_groth16_selector(selector) || is_blake3_groth16_selector(selector)
                 {
                     let compressed_proof_id =
                         state.compressed_proof_id.as_deref().with_context(|| {
                             format!("Order {order_id} missing compressed proof ID for submission")
                         })?;
                     submission
-                        .encode_seal_for_selector(
-                            order.request.requirements.selector,
-                            compressed_proof_id,
-                        )
+                        .encode_seal_for_selector(selector, compressed_proof_id)
                         .await
                         .with_context(|| {
                             format!("Failed to encode seal for order {}", order.order_id)
@@ -1042,47 +1160,93 @@ impl Backend for Risc0Backend {
             }
         }
 
-        let assessor = submission.assessor_receipt(assessor_proof_id).await?;
-        let assessor_claim: Risc0Digest = assessor.claim_digest.to_native();
-        let assessor_claim_index = aggregation_state
-            .claim_digests
-            .iter()
-            .position(|claim| *claim == assessor_claim)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Failed to find assessor claim {assessor_claim:x?} from proof {assessor_proof_id} in aggregated claims"
-                )
+        // Per-batch assessor selection. The batch shares one assessor group, so resolve it from the
+        // captured signed selector.
+        let signed = batch_signed_selector.context("cannot select assessor for an empty batch")?;
+        let assessor_selector =
+            self.router_policy.assessor_selector_for_signed(signed).with_context(|| {
+                format!("signed verifier selector {signed} resolves to no supported assessor")
             })?;
-        let assessor_path =
-            risc0_aggregation::merkle_path(&aggregation_state.claim_digests, assessor_claim_index);
-        tracing::debug!("Merkle path for assessor : {:x?} : {assessor_path:x?}", assessor_claim);
 
-        let inner_assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
-            // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
-            // derived from the claim. So instead of constructing the journal, we simply use the
-            // zero digest. We should either plumb through the data for the assessor journal, or we
-            // should make an explicit way to encode an inclusion proof without the claim.
-            ReceiptClaim::ok(Risc0Digest::ZERO, MaybePruned::Pruned(Risc0Digest::ZERO)),
-            assessor_path,
-            inclusion_params.digest(),
-        );
-        let inner_assessor_seal = inner_assessor_seal
-            .abi_encode_seal()
-            .context("ABI encode assessor set inclusion receipt")?;
-        // The on-chain assessor seal is `router assessor selector ++ inner seal`.
-        let assessor_seal =
-            boundless_market::contracts::assessor_seal(self.assessor_selector, inner_assessor_seal);
+        // Assessor seal. The on-chain assessor signs an EIP-712 `FulfillmentBatchAuth` over the
+        // batch (no guest proof); any other selected assessor is the R0 STARK guest, which submits
+        // a set-inclusion proof of the aggregated assessor receipt. Selectors/callbacks are derived
+        // on-chain from the client-signed SlimRequest, so they are unused downstream and left empty
+        // for on-chain.
+        let assessor = if assessor_selector == ONCHAIN_ASSESSOR_SELECTOR {
+            let signer = self
+                .prover_signer
+                .as_ref()
+                .context("on-chain assessor selected but no prover signer configured")?;
+            let prover = self
+                .prover_addr
+                .context("on-chain assessor selected but no prover address configured")?;
+            let address = self
+                .router_policy
+                .entry(assessor_selector)
+                .map(|entry| entry.implementation)
+                .context("on-chain assessor selected but its adapter address is unknown")?;
+            let requests: Vec<_> = orders.iter().map(|o| o.request.clone()).collect();
+            let fulfillments: Vec<_> = orders.iter().map(|o| o.fulfillment.clone()).collect();
+            let seal = build_onchain_assessor_seal(
+                signer,
+                assessor_selector,
+                address,
+                self.chain_id,
+                &cmd.eip712_domain.alloy_struct(),
+                prover,
+                &requests,
+                &fulfillments,
+            )
+            .await
+            .context("Failed to build on-chain assessor seal")?;
+            SubmissionAssessorArtifact { seal, selectors: vec![], callbacks: vec![] }
+        } else {
+            let assessor_proof_id =
+                assessor_proof_id.context("Cannot submit batch with no assessor receipt")?;
+            let assessor = submission.assessor_receipt(assessor_proof_id).await?;
+            let assessor_claim: Risc0Digest = assessor.claim_digest.to_native();
+            let assessor_claim_index = aggregation_state
+                    .claim_digests
+                    .iter()
+                    .position(|claim| *claim == assessor_claim)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Failed to find assessor claim {assessor_claim:x?} from proof {assessor_proof_id} in aggregated claims"
+                        )
+                    })?;
+            let assessor_path = risc0_aggregation::merkle_path(
+                &aggregation_state.claim_digests,
+                assessor_claim_index,
+            );
+            tracing::debug!(
+                "Merkle path for assessor : {:x?} : {assessor_path:x?}",
+                assessor_claim
+            );
 
-        Ok(SubmissionPlan {
-            verifier_updates: vec![verifier_update],
-            failed_orders,
-            orders,
-            assessor: SubmissionAssessorArtifact {
-                seal: assessor_seal,
+            let inner_assessor_seal = SetInclusionReceipt::from_path_with_verifier_params(
+                // TODO: Set inclusion proofs, when ABI encoded, currently don't contain anything
+                // derived from the claim. So instead of constructing the journal, we simply use the
+                // zero digest. We should either plumb through the data for the assessor journal, or we
+                // should make an explicit way to encode an inclusion proof without the claim.
+                ReceiptClaim::ok(Risc0Digest::ZERO, MaybePruned::Pruned(Risc0Digest::ZERO)),
+                assessor_path,
+                inclusion_params.digest(),
+            );
+            let inner_assessor_seal = inner_assessor_seal
+                .abi_encode_seal()
+                .context("ABI encode assessor set inclusion receipt")?;
+            // The assessor seal is `router assessor selector ++ inner seal`.
+            let seal =
+                boundless_market::contracts::assessor_seal(assessor_selector, inner_assessor_seal);
+            SubmissionAssessorArtifact {
+                seal,
                 selectors: assessor.selectors,
                 callbacks: assessor.callbacks,
-            },
-        })
+            }
+        };
+
+        Ok(SubmissionPlan { verifier_updates, failed_orders, orders, assessor })
     }
 
     async fn verifier_update_applied(&self, update: &VerifierUpdate) -> Result<bool> {
@@ -1199,13 +1363,103 @@ mod tests {
         assert!(dev.contains(&fake_receipt) && dev.contains(&fake_blake3));
     }
 
+    /// With both assessors registered in the required class, the broker prefers the on-chain
+    /// assessor — for the chain-default sentinel and for a specific entry selector alike (they
+    /// resolve to the same verifier class).
+    #[test]
+    fn router_policy_prefers_onchain_assessor() {
+        let policy = Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(Risc0Digest::ZERO, true),
+            boundless_test_utils::market::set_verifier_selector(Risc0Digest::ZERO),
+            true,
+        );
+        assert_eq!(
+            policy.assessor_selector_for_signed(UNSPECIFIED_SELECTOR),
+            Some(ONCHAIN_ASSESSOR_SELECTOR)
+        );
+        assert_eq!(
+            policy.assessor_selector_for_signed(SELECTOR_GROTH16_V3_0),
+            Some(ONCHAIN_ASSESSOR_SELECTOR)
+        );
+    }
+
+    /// Without an on-chain assessor entry, the R0 STARK guest assessor is selected.
+    #[test]
+    fn router_policy_falls_back_to_r0_guest_assessor() {
+        let policy = Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(Risc0Digest::ZERO, false),
+            boundless_test_utils::market::set_verifier_selector(Risc0Digest::ZERO),
+            true,
+        );
+        assert_eq!(
+            policy.assessor_selector_for_signed(UNSPECIFIED_SELECTOR),
+            Some(R0_ASSESSOR_SELECTOR)
+        );
+    }
+
+    /// A verifier class whose required assessor class registers none of the broker's candidate
+    /// assessors is unsupported: no class is advertised and no selector resolves to an assessor.
+    #[test]
+    fn router_policy_requires_a_candidate_assessor() {
+        use boundless_market::contracts::{RouterEntry, RouterRegistry};
+
+        let verifier_class = FixedBytes([0x00, 0x00, 0x00, 0x10]);
+        let assessor_class = FixedBytes([0x00, 0x00, 0x00, 0x20]);
+        let registry = RouterRegistry::from_parts(
+            verifier_class,
+            std::collections::HashMap::from([(
+                SELECTOR_GROTH16_V3_0,
+                RouterEntry {
+                    implementation: Address::repeat_byte(0x01),
+                    class_id: verifier_class,
+                    gas_limit: 0,
+                },
+            )]),
+            std::collections::HashMap::from([
+                (verifier_class, assessor_class),
+                (assessor_class, FixedBytes::ZERO),
+            ]),
+        );
+        let policy =
+            Risc0Backend::router_policy(registry, FixedBytes([0xAB, 0xCD, 0xEF, 0x01]), true);
+        assert!(policy.supported_classes().is_empty());
+        assert_eq!(policy.assessor_selector_for_signed(SELECTOR_GROTH16_V3_0), None);
+        assert_eq!(policy.assessor_selector_for_signed(UNSPECIFIED_SELECTOR), None);
+    }
+
+    /// `supported_selectors` only advertises what the backend can actually seal: the static
+    /// selectors registered with a reachable assessor, plus the supported verifier class ids.
+    #[tokio::test]
+    async fn supported_selectors_follow_assessor_availability() {
+        let backend = guard_test_backend().await;
+        let selectors = backend.supported_selectors();
+        assert!(selectors.contains(&UNSPECIFIED_SELECTOR));
+        assert!(selectors.contains(&SELECTOR_GROTH16_V3_0));
+        assert!(selectors.contains(&boundless_test_utils::market::VERIFIER_CLASS_ID));
+    }
+
     async fn guard_test_backend() -> Risc0Backend {
         let downloader: Arc<dyn StorageDownloader> = Arc::new(
             boundless_market::storage::StandardDownloader::from_config(Default::default()).await,
         );
         let priority_check: PriorityRequestorCheck = Arc::new(|_| false);
         let prover: ProverObj = std::sync::Arc::new(provers::DefaultProver::new());
-        Risc0Backend::with_provers(prover.clone(), prover, downloader, priority_check)
+        // A non-connecting provider: the guard tests reach `build_fulfillments` error paths before
+        // any set-verifier RPC, so the URL is never dialed. Set-builder id + set-verifier address
+        // are present only so those upfront checks pass and the assessor-path guards are reachable.
+        let provider = Arc::new(
+            alloy::providers::ProviderBuilder::new()
+                .connect_http("http://localhost:8545".parse().unwrap()),
+        );
+        // R0-only registry fixture so resolution selects the guest-assessor path.
+        let policy = Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(Risc0Digest::ZERO, false),
+            boundless_test_utils::market::set_verifier_selector(Risc0Digest::ZERO),
+            true,
+        );
+        Risc0Backend::with_provers(prover.clone(), prover, downloader, priority_check, policy)
+            .with_set_builder_program_id(Risc0Digest::ZERO)
+            .with_set_verifier(Address::ZERO, provider, Address::ZERO)
     }
 
     fn guard_fulfillment_batch(
@@ -1299,12 +1553,58 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_fulfillments_requires_assessor_receipt() {
+    async fn build_fulfillments_rejects_empty_batch() {
         let backend = guard_test_backend().await;
         let cmd = guard_fulfillment_batch(
             Risc0Backend::default_id(),
             Some(decodable_backend_state(None)),
         );
+        let err = expect_build_fulfillments_err(&backend, cmd).await;
+        assert!(err.to_string().contains("empty batch"), "unexpected error: {err:#}");
+    }
+
+    #[tokio::test]
+    async fn build_fulfillments_requires_assessor_receipt() {
+        use boundless_market::contracts::{
+            Offer, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+        };
+
+        let backend = guard_test_backend().await;
+        let mut cmd = guard_fulfillment_batch(
+            Risc0Backend::default_id(),
+            Some(decodable_backend_state(None)),
+        );
+        // One order with a bogus proof id: its per-order artifact fails (tolerated, collected in
+        // `failed_orders`), but its default-sentinel selector drives the per-batch assessor
+        // selection to the R0 guest path, whose missing aggregated receipt must error.
+        let request = ProofRequest::new(
+            RequestId::new(Address::ZERO, 1),
+            Requirements::new(Predicate::prefix_match(
+                Risc0Digest::ZERO,
+                alloy::primitives::Bytes::default(),
+            )),
+            "test",
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(1),
+                maxPrice: U256::from(10),
+                rampUpStart: 0,
+                timeout: 1000,
+                lockTimeout: 1000,
+                rampUpPeriod: 1,
+                lockCollateral: U256::ZERO,
+            },
+        );
+        cmd.orders.push(boundless_backend::FulfillmentOrder {
+            order_id: "order-1".to_string(),
+            request,
+            program_id: [0u8; 32].into(),
+            backend_state: Some(
+                Risc0OrderState { proof_id: "missing".to_string(), ..Default::default() }
+                    .encode()
+                    .unwrap(),
+            ),
+        });
         let err = expect_build_fulfillments_err(&backend, cmd).await;
         assert!(err.to_string().contains("no assessor receipt"), "unexpected error: {err:#}");
     }

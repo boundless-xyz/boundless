@@ -163,6 +163,19 @@ forge script contracts/scripts/Manage.Router.s.sol:RegisterR0Assessor \
     --rpc-url "$ANVIL_RPC" \
     --broadcast -vv || { echo "Failed to register R0 assessor adapter"; exit 1; }
 
+# Register the native OnChainAssessor under the same assessor class. The broker selects it
+# (over the R0 STARK assessor) by setting broker.localnet.toml `assessor_selector` to this value;
+# it then signs the batch on-chain instead of proving the assessor guest.
+ONCHAIN_ASSESSOR_SELECTOR="0x00000022"
+ONCHAIN_ASSESSOR_SELECTOR_BYTES32="0x0000002200000000000000000000000000000000000000000000000000000000"
+echo "Registering OnChainAssessor adapter (selector $ONCHAIN_ASSESSOR_SELECTOR)..."
+DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
+ONCHAIN_ASSESSOR_SELECTOR="$ONCHAIN_ASSESSOR_SELECTOR_BYTES32" \
+forge script contracts/scripts/Manage.Router.s.sol:RegisterOnChainAssessor \
+    --rpc-url "$ANVIL_RPC" \
+    --broadcast -vv || { echo "Failed to register OnChainAssessor adapter"; exit 1; }
+
 echo "Contract deployed at addresses:"
 echo "  BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER"
 echo "  VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
