@@ -494,7 +494,7 @@ mod tests {
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, LOOP_PATH, SET_BUILDER_PATH},
-        market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
+        market::create_test_ctx,
     };
     use broker::{
         broker_sqlite_url_for_chain,
@@ -570,9 +570,6 @@ mod tests {
         // otherwise the broker would fetch the remote guests and fail set verification.
         config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
         config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-        // The router rejects a zero assessor selector (ZeroSelectorReserved); use the same selector
-        // the test harness registers the assessor adapter under.
-        config.market.assessor_selector = ASSESSOR_R0_SELECTOR;
         if !is_dev_mode() {
             config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
         }
