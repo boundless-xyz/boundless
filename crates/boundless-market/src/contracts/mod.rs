@@ -919,7 +919,7 @@ impl RequestInput {
     /// ```
     /// use boundless_market::contracts::RequestInput;
     ///
-    /// let input_vec = RequestInput::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
+    /// let input_vec = RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_vec()?;
     /// let input = RequestInput::inline(input_vec);
     /// # anyhow::Ok(())
     /// ```
