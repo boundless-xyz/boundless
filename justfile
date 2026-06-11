@@ -340,6 +340,10 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
     if [ -n "${BLAKE3_GROTH16_SETUP_DIR:-}" ]; then
         COMPOSE_FILE_FLAG="$COMPOSE_FILE_FLAG -f compose.blake3-local.yml"
     fi
+    # Route broker → bento through the MultiZKVM proving service when opted in.
+    if [ -n "${MULTI_ZKVM:-}" ]; then
+        COMPOSE_FILE_FLAG="$COMPOSE_FILE_FLAG -f compose.multi-zkvm.yml"
+    fi
 
     if [ "{{action}}" = "up" ]; then
         if [ -n "{{env_file}}" ] && [ ! -f "{{env_file}}" ]; then
@@ -367,12 +371,13 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
         # instead of pulling pre-built images.
         if [ "$BOUNDLESS_BUILD" = "all" ]; then
             if [ "${PROVER_STACK:-}" != "legacy" ]; then
-                export PROVER_AGENT_IMAGE="" PROVER_CPU_AGENT_IMAGE="" BROKER_IMAGE="" PROVER_REST_API_IMAGE="" PROVER_CLI_IMAGE=""
+                export PROVER_AGENT_IMAGE="" PROVER_CPU_AGENT_IMAGE="" BROKER_IMAGE="" PROVER_REST_API_IMAGE="" PROVER_CLI_IMAGE="" MULTI_ZKVM_PROVER_IMAGE=""
                 export PROVER_CPU_AGENT_DOCKERFILE="dockerfiles/prover/agent.cpu.dockerfile"
                 export PROVER_AGENT_DOCKERFILE="dockerfiles/prover/agent.dockerfile"
                 export BROKER_DOCKERFILE="dockerfiles/broker.dockerfile"
                 export PROVER_REST_API_DOCKERFILE="dockerfiles/prover/rest_api.dockerfile"
                 export PROVER_CLI_DOCKERFILE="dockerfiles/prover/prover_cli.dockerfile"
+                export MULTI_ZKVM_PROVER_DOCKERFILE="dockerfiles/multi_zkvm_prover.dockerfile"
             else
                 export AGENT_IMAGE="" CPU_AGENT_IMAGE="" BROKER_IMAGE="" REST_API_IMAGE="" BENTO_CLI_IMAGE=""
                 export CPU_AGENT_DOCKERFILE="dockerfiles/agent.cpu.dockerfile"
@@ -389,8 +394,9 @@ bento action="up" env_file="" compose_flags="" detached="true" services="":
                         exec_agent|aux_agent) export PROVER_CPU_AGENT_IMAGE="" PROVER_CPU_AGENT_DOCKERFILE="${PROVER_CPU_AGENT_DOCKERFILE:-dockerfiles/prover/agent.cpu.dockerfile}" ;;
                         gpu_prove_agent) export PROVER_AGENT_IMAGE="" PROVER_AGENT_DOCKERFILE="${PROVER_AGENT_DOCKERFILE:-dockerfiles/prover/agent.dockerfile}" ;;
                         miner) export PROVER_CLI_IMAGE="" PROVER_CLI_DOCKERFILE="${PROVER_CLI_DOCKERFILE:-dockerfiles/prover/prover_cli.dockerfile}" ;;
-                        broker)        export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
-                        rest_api)      export PROVER_REST_API_IMAGE="" PROVER_REST_API_DOCKERFILE="${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}" ;;
+                        broker)             export BROKER_IMAGE="" BROKER_DOCKERFILE="${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}" ;;
+                        rest_api)           export PROVER_REST_API_IMAGE="" PROVER_REST_API_DOCKERFILE="${PROVER_REST_API_DOCKERFILE:-dockerfiles/prover/rest_api.dockerfile}" ;;
+                        multi_zkvm_prover)  export MULTI_ZKVM_PROVER_IMAGE="" MULTI_ZKVM_PROVER_DOCKERFILE="${MULTI_ZKVM_PROVER_DOCKERFILE:-dockerfiles/multi_zkvm_prover.dockerfile}" ;;
                         *) echo "WARNING: unrecognized BOUNDLESS_BUILD service '$svc' — will not clear its image tag" ;;
                     esac
                 else

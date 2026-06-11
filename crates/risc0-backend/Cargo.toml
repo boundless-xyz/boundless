@@ -22,6 +22,7 @@ boundless-backend = { workspace = true }
 boundless-market = { workspace = true, features = ["prover_utils"] }
 hex = { workspace = true }
 moka = { version = "0.12", features = ["future"] }
+multi-zkvm-types = { workspace = true }
 reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }

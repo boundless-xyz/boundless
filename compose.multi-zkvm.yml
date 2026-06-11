@@ -1,0 +1,39 @@
+# Multi-ZKVM proving service overlay.
+#
+# Interposes a multi-zkvm-prover between the broker and Bento, enabling the
+# broker to route proof requests through the MultiZKVM RPC layer.
+#
+# Usage:
+#   docker compose -f prover-compose.yml -f compose.multi-zkvm.yml --profile broker up
+#
+# The multi_zkvm_prover service connects to Bento on localhost:8081 and
+# listens for broker connections on localhost:7777 (MULTI_ZKVM_PORT).
+
+services:
+  multi_zkvm_prover:
+    image: ${MULTI_ZKVM_PROVER_IMAGE:-ghcr.io/boundless-xyz/boundless/multi-zkvm-prover:latest}
+    restart: always
+    build:
+      context: .
+      dockerfile: ${MULTI_ZKVM_PROVER_DOCKERFILE:-dockerfiles/multi_zkvm_prover.dockerfile}
+      args:
+        RELEASE: ${BOUNDLESS_RELEASE:-true}
+    network_mode: host
+    depends_on:
+      rest_api:
+        condition: service_healthy
+    environment:
+      BENTO_API_URL: http://localhost:8081
+      BIND_ADDR: 0.0.0.0:${MULTI_ZKVM_PORT:-7777}
+      RUST_LOG: ${RUST_LOG:-info}
+
+  broker:
+    depends_on:
+      multi_zkvm_prover:
+        condition: service_started
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "exec /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --multi-zkvm-endpoint localhost:${MULTI_ZKVM_PORT:-7777} ${BROKER_EXTRA_ARGS:-}",
+      ]

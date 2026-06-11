@@ -83,6 +83,8 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/crates/ops-lambdas",
     str(Path.cwd()) + "/crates/order-generator",
     str(Path.cwd()) + "/crates/order-stream",
+    str(Path.cwd()) + "/crates/multi-zkvm-prover",
+    str(Path.cwd()) + "/crates/multi-zkvm-types",
     str(Path.cwd()) + "/crates/requestor-lists",
     str(Path.cwd()) + "/crates/risc0-backend",
     str(Path.cwd()) + "/crates/slasher",

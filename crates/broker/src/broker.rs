@@ -132,7 +132,6 @@ impl Broker {
             tracing::warn!(
                 "LISTEN-ONLY MODE: Broker will monitor the market and evaluate orders but will NOT \
                  lock, prove, or submit. No on-chain transactions will be sent."
-
             );
         }
 
@@ -579,9 +578,11 @@ impl Broker {
             self.args.bonsai_api_key.as_deref(),
             self.args.bonsai_api_url.as_ref(),
             self.args.bento_api_url.as_ref(),
+            self.args.multi_zkvm_endpoint.as_ref(),
             Arc::new(self.downloader.clone()),
             priority_requestors.as_check(),
-        )?;
+        )
+        .await?;
 
         if !self.args.listen_only {
             risc0_backend = risc0_backend
