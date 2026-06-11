@@ -23,18 +23,10 @@ export AWS_DEFAULT_REGION="us-west-2"
 
 ### Prover log groups
 
-As of 2026-06 the prover fleet was consolidated to **two provers**, each in its **own AWS account**, both shipping to a log group literally named `boundless/hlc/prover` (note: no leading slash) with a single stream per prover. Pick the prover by exporting the matching account credentials — the group name is identical in both accounts.
-
 | AWS account (creds)   | Log group              | Stream           | Prover / role                                                                                          |
 | --------------------- | ---------------------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
 | prod (`[aws.prod]`)   | `boundless/hlc/prover` | `prover-prod`    | **prod / "release"** — serves the prod market. Full broker logs flow here.                             |
 | staging (`[aws.staging]`) | `boundless/hlc/prover` | `prover-staging` | **staging / "nightly"** — serves staging markets **and** the prod market.                          |
-
-Notes:
-
-- **Message envelope differs by account.** Prod messages are `{"message":"<log line>"}`. Staging wraps each line: `{"host":"prover-staging","identifier":"prover","unit":"docker.service","severity":"info","pid":"...","message":"<log line>"}`. Parse uniformly with `jq -r '.events[]?.message | (fromjson?.message // .)'` — i.e. try to decode the inner JSON, fall back to the raw string for prod.
-- **Prod carries the full broker log set** (`broker::chain_monitor_v2`, `broker::offchain_market_monitor`, `order_picker`, `bento_cli`, `boundless_market::*`, including DEBUG). Search it for `Detected new`, request IDs, fulfillment, skips, etc.
-- ⚠️ **Staging shipping gap (as of 2026-06-09):** the `prover-staging` stream ships **only the `bento_cli` agent stdout** (the `STARK Job running....` heartbeat) under journal unit `docker.service` / identifier `prover`. The broker's structured module logs (chain/market monitors, order picker, fulfillment) and kernel messages are **not** reaching CloudWatch. Treat absence-of-broker-logs on staging as a monitoring gap, not as "the broker is idle." Confirm broker behavior via telemetry/indexer until shipping is fixed.
 
 Legacy / decommissioned prover groups (stopped shipping 2026-05-29; the per-host syslog content moved into `boundless/hlc/prover`). Kept only for historical queries:
 
