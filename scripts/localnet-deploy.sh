@@ -137,48 +137,26 @@ if [ -z "$COLLATERAL_TOKEN_ADDRESS" ] || [ "$COLLATERAL_TOKEN_ADDRESS" = "0x0000
     COLLATERAL_TOKEN_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -n 1 || echo "")
 fi
 
-# Register the R0 verifier + assessor adapters in the BoundlessRouter. The verifier
-# adapter wraps the set verifier at its own selector (set-inclusion seals carry it);
-# the assessor adapter binds the assessor image id at ASSESSOR_SELECTOR, which brokers
-# prepend to the assessor seal (broker.localnet.toml must use the same selector).
+# Configure the BoundlessRouter in one idempotent run: all proof-type classes plus every
+# entry this chain serves — the set-inclusion verifier adapter at the set verifier's own
+# selector, and both assessor entries (the R0 STARK assessor bound to ASSESSOR_IMAGE_ID at
+# 0x00000024 and the native OnChainAssessor at 0x00000022, which brokers prepend to the
+# assessor seal). The canonical groth16 / blake3 selectors are skipped here: the dev-mode
+# upstream verifiers use dynamic selectors that never match them.
 ASSESSOR_IMAGE_ID="0x$(r0vm --id --elf "$ASSESSOR_PATH")"
-ASSESSOR_SELECTOR="0x00000024"
+# The R0 assessor selector as bytes4 right-padded to bytes32, for configs read via
+# `bytes4(readBytes32(...))`. Must match RouterConfig.R0_ASSESSOR_SELECTOR.
 ASSESSOR_SELECTOR_BYTES32="0x0000002400000000000000000000000000000000000000000000000000000000"
-# `SELECTOR()` returns a bytes4 right-padded into a 32-byte word — exactly the form the
-# router scripts' `vm.envBytes32(...)` expects.
-SET_VERIFIER_SELECTOR=$(cast call "$SET_VERIFIER_ADDRESS" "SELECTOR()" --rpc-url "$ANVIL_RPC")
 
-echo "Registering R0 verifier adapter (selector $SET_VERIFIER_SELECTOR)..."
+echo "Bootstrapping BoundlessRouter classes and entries..."
 DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
 BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
 R0_ROUTER="$VERIFIER_ADDRESS" \
-R0_SELECTOR="$SET_VERIFIER_SELECTOR" \
-forge script contracts/scripts/Manage.Router.s.sol:RegisterR0Verifier \
-    --rpc-url "$ANVIL_RPC" \
-    --broadcast -vv || { echo "Failed to register R0 verifier adapter"; exit 1; }
-
-echo "Registering R0 assessor adapter (selector $ASSESSOR_SELECTOR)..."
-DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
-BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
-R0_VERIFIER="$SET_VERIFIER_ADDRESS" \
+SET_VERIFIER="$SET_VERIFIER_ADDRESS" \
 ASSESSOR_IMAGE_ID="$ASSESSOR_IMAGE_ID" \
-ASSESSOR_SELECTOR="$ASSESSOR_SELECTOR_BYTES32" \
-forge script contracts/scripts/Manage.Router.s.sol:RegisterR0Assessor \
+forge script contracts/scripts/Manage.Router.s.sol:BootstrapRouter \
     --rpc-url "$ANVIL_RPC" \
-    --broadcast -vv || { echo "Failed to register R0 assessor adapter"; exit 1; }
-
-# Register the native OnChainAssessor under the same assessor class. The broker selects it
-# (over the R0 STARK assessor) by setting broker.localnet.toml `assessor_selector` to this value;
-# it then signs the batch on-chain instead of proving the assessor guest.
-ONCHAIN_ASSESSOR_SELECTOR="0x00000022"
-ONCHAIN_ASSESSOR_SELECTOR_BYTES32="0x0000002200000000000000000000000000000000000000000000000000000000"
-echo "Registering OnChainAssessor adapter (selector $ONCHAIN_ASSESSOR_SELECTOR)..."
-DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
-BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
-ONCHAIN_ASSESSOR_SELECTOR="$ONCHAIN_ASSESSOR_SELECTOR_BYTES32" \
-forge script contracts/scripts/Manage.Router.s.sol:RegisterOnChainAssessor \
-    --rpc-url "$ANVIL_RPC" \
-    --broadcast -vv || { echo "Failed to register OnChainAssessor adapter"; exit 1; }
+    --broadcast -vv || { echo "Failed to bootstrap BoundlessRouter"; exit 1; }
 
 echo "Contract deployed at addresses:"
 echo "  BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER"

@@ -120,7 +120,7 @@ abstract contract BoundlessScriptBase is Script {
     /// the LEGACY_ASSESSOR_GUEST_URL env var when set, otherwise the URL served by the market
     /// being replaced (the LEGACY_MARKET env var, falling back to `oldMarket`). Empty when no
     /// source yields a URL.
-    function resolveLegacyImageUrl(address oldMarket) internal returns (string memory) {
+    function resolveLegacyImageUrl(address oldMarket) internal view returns (string memory) {
         string memory url = vm.envOr("LEGACY_ASSESSOR_GUEST_URL", string(""));
         if (bytes(url).length > 0) {
             return url;

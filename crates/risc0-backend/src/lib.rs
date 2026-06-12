@@ -1435,7 +1435,12 @@ mod tests {
         let selectors = backend.supported_selectors();
         assert!(selectors.contains(&UNSPECIFIED_SELECTOR));
         assert!(selectors.contains(&SELECTOR_GROTH16_V3_0));
-        assert!(selectors.contains(&boundless_test_utils::market::VERIFIER_CLASS_ID));
+        // One supported class id per proof type the backend can produce in.
+        assert!(selectors.contains(&boundless_test_utils::market::R0_SET_INCLUSION_CLASS_ID));
+        assert!(selectors.contains(&boundless_test_utils::market::R0_GROTH16_CLASS_ID));
+        assert!(selectors.contains(&boundless_test_utils::market::R0_GROTH16_BLAKE3_CLASS_ID));
+
+        // TODO: shouldn't it have all entry selectors here as well?
     }
 
     async fn guard_test_backend() -> Risc0Backend {

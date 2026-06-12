@@ -100,17 +100,19 @@ pub fn is_dev_mode() -> bool {
     VerifierContext::default().dev_mode()
 }
 
-/// Deploy the verifiers a broker may produce non-set-inclusion seals for — the groth16 and blake3
-/// groth16 verifiers, or their dev-mode mocks — and return the `(selector, verifier address)` pairs.
+/// Deploy the verifiers a broker may produce root-proof seals for — the groth16 and blake3
+/// groth16 verifiers, or their dev-mode mocks — and return `(selector, verifier address,
+/// proof-type class id)` triples.
 ///
 /// [`deploy_router`](crate::market::deploy_router) registers one `R0BoundlessVerifierAdapter` per
-/// pair so BoundlessRouter can dispatch a groth16 / blake3 / fake-receipt seal to a verifier pinned
-/// to that selector, mirroring the entries [`setup_verifiers`] registers in the existing
-/// `RiscZeroVerifierRouter`. The selector must equal the verifier's pinned value (the underlying
-/// verifier re-checks `seal[0:4]`), so it is computed the same way `setup_verifiers` does.
+/// triple under its proof-type class so BoundlessRouter can dispatch a groth16 / blake3 /
+/// fake-receipt seal to a verifier pinned to that selector, mirroring the entries
+/// [`setup_verifiers`] registers in the existing `RiscZeroVerifierRouter`. The selector must equal
+/// the verifier's pinned value (the underlying verifier re-checks `seal[0:4]`), so it is computed
+/// the same way `setup_verifiers` does.
 pub async fn deploy_verifier_class_entries<P: Provider + Clone>(
     deployer_provider: P,
-) -> Result<Vec<(FixedBytes<4>, Address)>> {
+) -> Result<Vec<(FixedBytes<4>, Address, FixedBytes<4>)>> {
     let (groth16_verifier, groth16_selector): (Address, [u8; 4]) = match is_dev_mode() {
         true => (deploy_mock_verifier(&deployer_provider).await?, [0xFFu8; 4]),
         false => {
@@ -147,7 +149,18 @@ pub async fn deploy_verifier_class_entries<P: Provider + Clone>(
         }
     };
 
-    Ok(vec![(groth16_selector.into(), groth16_verifier), (blake3_selector.into(), blake3_verifier)])
+    Ok(vec![
+        (
+            groth16_selector.into(),
+            groth16_verifier,
+            boundless_market::contracts::R0_GROTH16_CLASS_ID,
+        ),
+        (
+            blake3_selector.into(),
+            blake3_verifier,
+            boundless_market::contracts::R0_GROTH16_BLAKE3_CLASS_ID,
+        ),
+    ])
 }
 
 /// Setup verifiers with router and register them

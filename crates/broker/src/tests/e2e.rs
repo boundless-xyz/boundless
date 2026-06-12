@@ -46,7 +46,7 @@ use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, SET_BUILDER_PATH},
     market::{
         create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_ONCHAIN_SELECTOR,
-        ASSESSOR_R0_SELECTOR, VERIFIER_CLASS_ID,
+        ASSESSOR_R0_SELECTOR, R0_SET_INCLUSION_CLASS_ID,
     },
 };
 use risc0_zkvm::{
@@ -810,8 +810,9 @@ async fn e2e_with_signed_verifier_class() {
         None,
         None,
     );
-    // Sign against the verifier class id rather than a specific entry selector or the default.
-    request.requirements.selector = VERIFIER_CLASS_ID;
+    // Sign against a verifier class id ("any version of this proof type") rather than a
+    // specific entry selector or the default sentinel.
+    request.requirements.selector = R0_SET_INCLUSION_CLASS_ID;
 
     run_with_broker(broker, vec![chain], async move {
         ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();

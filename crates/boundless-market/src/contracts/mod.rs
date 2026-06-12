@@ -1216,6 +1216,26 @@ pub const ONCHAIN_ASSESSOR_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0x00, 0x00
 /// image the broker ships and is bumped alongside it (same coupling as verifier selectors).
 pub const R0_ASSESSOR_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0x00, 0x00, 0x00, 0x24]);
 
+/// Canonical router class id for set-inclusion proofs against the aggregated batch root — the
+/// chain-default class: sentinel-signed requests are fulfilled with aggregated seals.
+///
+/// A router class is a proof-type version family; its entries are versions of that proof type.
+/// Requestors sign one of three selector forms: the `0x00000000` sentinel (chain default), a class
+/// id ("any version of this proof type"), or an entry selector (exact version pin). These ids
+/// mirror `contracts/scripts/RouterConfig.s.sol`.
+pub const R0_SET_INCLUSION_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x01]);
+
+/// Canonical router class id of the assessor class required by every R0 verifier class. Holds the
+/// R0 STARK assessor ([`R0_ASSESSOR_SELECTOR`]) and the native on-chain assessor
+/// ([`ONCHAIN_ASSESSOR_SELECTOR`]) entries.
+pub const R0_ASSESSOR_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x02]);
+
+/// Canonical router class id for per-fill R0 groth16 root proofs.
+pub const R0_GROTH16_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x03]);
+
+/// Canonical router class id for per-fill R0 blake3-groth16 root proofs.
+pub const R0_GROTH16_BLAKE3_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x04]);
+
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]
 pub mod bytecode;
