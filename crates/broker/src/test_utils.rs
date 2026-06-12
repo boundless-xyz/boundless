@@ -69,9 +69,11 @@ impl BrokerBuilder {
             rpc_url: Some(rpc_url.to_string()),
             rpc_urls: Vec::new(),
             private_key: Some(ctx.prover_signer.clone()),
-            bento_api_url: None,
-            bonsai_api_key: None,
-            bonsai_api_url: None,
+            // Honor a Bento cluster or Bonsai credentials from the environment so real-proving
+            // runs (RISC0_DEV_MODE unset) can offload instead of proving via the local r0vm.
+            bento_api_url: std::env::var("BENTO_API_URL").ok().and_then(|s| s.parse().ok()),
+            bonsai_api_key: std::env::var("BONSAI_API_KEY").ok(),
+            bonsai_api_url: std::env::var("BONSAI_API_URL").ok().and_then(|s| s.parse().ok()),
             deposit_amount: None,
             rpc_retry_max: 0,
             rpc_retry_backoff: 200,
