@@ -1044,7 +1044,15 @@ pub mod boundless_market;
 /// Helpers for building the batched fulfillment payloads (`FulfillmentBatch`, `SlimRequest`).
 mod fulfillment_batch;
 #[cfg(not(target_os = "zkvm"))]
-pub use fulfillment_batch::assessor_seal;
+pub use fulfillment_batch::{
+    assessor_seal, build_onchain_assessor_seal, fulfillment_batch_auth_signing_hash,
+    onchain_assessor_eip712_domain, sign_fulfillment_batch_auth, FulfillmentBatchAuth,
+};
+#[cfg(not(target_os = "zkvm"))]
+/// In-memory snapshot of the `BoundlessRouter` selector registry.
+pub mod router_registry;
+#[cfg(not(target_os = "zkvm"))]
+pub use router_registry::{RouterEntry, RouterRegistry};
 #[cfg(not(target_os = "zkvm"))]
 /// The Hit Points module.
 pub mod hit_points;
@@ -1191,6 +1199,42 @@ pub fn eip712_domain(addr: Address, chain_id: u64) -> EIP712DomainSaltless {
 
 /// Constant to specify when no selector is specified.
 pub const UNSPECIFIED_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0; 4]);
+
+/// Canonical router entry selector for the native `OnChainAssessor` adapter.
+///
+/// Brokers prepend this to the assessor seal so the on-chain `BoundlessRouter` dispatches the
+/// fulfillment batch to the `OnChainAssessor`, which verifies a prover signature instead of a STARK
+/// proof. This is a stable protocol constant: the deploy scripts and broker agree on it by
+/// convention (the on-chain assessor has no guest image to rotate).
+pub const ONCHAIN_ASSESSOR_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0x00, 0x00, 0x00, 0x22]);
+
+/// Canonical router entry selector for the guest-based R0 STARK assessor adapter
+/// (`R0BoundlessAssessorAdapter`).
+///
+/// Brokers prepend this to the assessor seal to select the R0 STARK assessor over the on-chain
+/// assessor. Unlike [`ONCHAIN_ASSESSOR_SELECTOR`], this is version-coupled to the assessor guest
+/// image the broker ships and is bumped alongside it (same coupling as verifier selectors).
+pub const R0_ASSESSOR_SELECTOR: FixedBytes<4> = FixedBytes::<4>([0x00, 0x00, 0x00, 0x24]);
+
+/// Canonical router class id for set-inclusion proofs against the aggregated batch root — the
+/// chain-default class: sentinel-signed requests are fulfilled with aggregated seals.
+///
+/// A router class is a proof-type version family; its entries are versions of that proof type.
+/// Requestors sign one of three selector forms: the `0x00000000` sentinel (chain default), a class
+/// id ("any version of this proof type"), or an entry selector (exact version pin). These ids
+/// mirror `contracts/scripts/RouterConfig.s.sol`.
+pub const R0_SET_INCLUSION_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x01]);
+
+/// Canonical router class id of the assessor class required by every R0 verifier class. Holds the
+/// R0 STARK assessor ([`R0_ASSESSOR_SELECTOR`]) and the native on-chain assessor
+/// ([`ONCHAIN_ASSESSOR_SELECTOR`]) entries.
+pub const R0_ASSESSOR_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x02]);
+
+/// Canonical router class id for per-fill R0 groth16 root proofs.
+pub const R0_GROTH16_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x03]);
+
+/// Canonical router class id for per-fill R0 blake3-groth16 root proofs.
+pub const R0_GROTH16_BLAKE3_CLASS_ID: FixedBytes<4> = FixedBytes::<4>([0xAA, 0x00, 0x00, 0x04]);
 
 #[cfg(feature = "test-utils")]
 #[allow(missing_docs)]

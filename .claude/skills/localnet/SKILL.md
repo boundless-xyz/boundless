@@ -50,20 +50,20 @@ RISC0_DEV_MODE=1 just localnet
 
 Submit in a **background task**, then monitor status through order-stream, on-chain, and broker logs while it waits for fulfillment.
 
-For **immediate broker acceptance**, the offer's `min-price` must exceed the broker's minimum profitable price (gas costs + min_mcycle_price). On anvil, gas costs are ~0.00003 ETH, so `0.0001 ETH` is safely above the threshold. The price starts at `min-price` before `rampUpStart` (defaults to `now() + 30s`), so setting `min-price` high enough means the broker accepts before the ramp even begins.
+For **immediate broker acceptance**, the offer's `max-price` must cover the broker's estimated lock+fulfill gas cost (its `lockin_gas_estimate` + `fulfill_gas_estimate` config, ~620k gas ≈ 0.0007 ETH on anvil at 1 gwei), and `min-price` should sit above it for an instant lock. `0.001 ETH` min / `0.003 ETH` max clears both. The price starts at `min-price` before `rampUpStart` (defaults to `now() + 30s`), so setting `min-price` high enough means the broker accepts before the ramp even begins.
 
 ```bash
 source .env.localnet && cargo run --example submit_echo -- \
   --bidding-start "$(date +%s)" \
-  --min-price "0.0001 ETH" \
-  --max-price "0.0004 ETH"
+  --min-price "0.001 ETH" \
+  --max-price "0.003 ETH"
 ```
 
 **Why these values:**
 
 - `--bidding-start "$(date +%s)"`: Sets `rampUpStart` to now. Without this, the default is `now() + 30s` (`DEFAULT_BASE_RAMP_UP_DELAY`), which delays when the auction begins.
-- `--min-price "0.0001 ETH"`: Above broker's minimum profitable price (~0.00003 ETH gas on anvil). If min-price is too low, the broker schedules a delayed lock attempt and waits for the auction price to ramp up past its threshold.
-- `--max-price "0.0004 ETH"`: ~4x min-price, reasonable ceiling
+- `--min-price "0.001 ETH"`: Above the broker's estimated lock+fulfill gas cost (~0.0007 ETH on anvil). If max-price is below that estimate the broker _skips_ the order outright ("estimated gas cost ... exceeds max price"); if only min-price is low, it delays the lock until the auction ramps past its threshold.
+- `--max-price "0.003 ETH"`: ~3x min-price, reasonable ceiling
 
 ### Full Proving Mode
 
@@ -79,8 +79,8 @@ source .env.localnet && just prover
 # Terminal 3: Submit a test request
 source .env.localnet && cargo run --example submit_echo -- \
   --bidding-start "$(date +%s)" \
-  --min-price "0.0001 ETH" \
-  --max-price "0.0004 ETH"
+  --min-price "0.001 ETH" \
+  --max-price "0.003 ETH"
 ```
 
 ## Checking Order Status
@@ -157,7 +157,7 @@ just localnet clean
 
 ### Broker delays lock ("scheduled for lock attempt in Ns")
 
-The broker waits until the auction price exceeds its minimum profitable price (gas costs + min_mcycle_price). To avoid this delay, set `--min-price` above the broker's gas cost threshold (~0.0001 ETH on anvil). The price sits at `min-price` before `rampUpStart` (default `now() + 30s`), so a sufficiently high `min-price` means instant acceptance.
+The broker waits until the auction price exceeds its minimum profitable price (gas costs + min_mcycle_price). To avoid this delay, set `--min-price` above the broker's estimated lock+fulfill gas cost (~0.0007 ETH on anvil). The price sits at `min-price` before `rampUpStart` (default `now() + 30s`), so a sufficiently high `min-price` means instant acceptance.
 
 ### Broker not picking up orders
 

@@ -8,7 +8,14 @@ pragma solidity ^0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
+
+/// @notice The slice of the legacy market ABI the deploy and upgrade flows reach through the
+/// proxy fallback.
+interface ILegacyBoundlessMarket {
+    function setImageUrl(string calldata imageUrl) external;
+}
 
 library BoundlessScript {
     /// @notice Validates that an address value is not zero, with descriptive error message
@@ -93,6 +100,59 @@ abstract contract BoundlessScriptBase is Script {
         address deployer = vm.envOr("DEPLOYER_ADDRESS", address(0));
         require(deployer != address(0), "env var DEPLOYER_ADDRESS or DEPLOYER_PRIVATE_KEY required");
         return deployer;
+    }
+
+    /// @notice Reads the legacy assessor guest URL (`imageInfo()`) from a market proxy.
+    /// @dev Returns an empty string when the call fails or returns nothing, e.g. when the
+    /// address has no code or the market does not serve the legacy ABI.
+    function readLegacyImageUrl(address market) internal view returns (string memory) {
+        (bool ok, bytes memory data) = market.staticcall(abi.encodeWithSignature("imageInfo()"));
+        // imageInfo() returns (bytes32 imageId, string imageUrl): the id word, the string
+        // offset and the string length make 96 bytes minimum.
+        if (!ok || data.length < 96) {
+            return "";
+        }
+        (, string memory url) = abi.decode(data, (bytes32, string));
+        return url;
+    }
+
+    /// @notice Resolves the URL a fresh market proxy's legacy `imageUrl` slot should serve:
+    /// the LEGACY_ASSESSOR_GUEST_URL env var when set, otherwise the URL served by the market
+    /// being replaced (the LEGACY_MARKET env var, falling back to `oldMarket`). Empty when no
+    /// source yields a URL.
+    function resolveLegacyImageUrl(address oldMarket) internal view returns (string memory) {
+        string memory url = vm.envOr("LEGACY_ASSESSOR_GUEST_URL", string(""));
+        if (bytes(url).length > 0) {
+            return url;
+        }
+        return readLegacyImageUrl(vm.envOr("LEGACY_MARKET", oldMarket));
+    }
+
+    /// @notice Ensures the legacy `imageUrl` slot of `market` serves `url`. The legacy ABI
+    /// serves `imageInfo()` from proxy storage, which a fresh proxy leaves empty, and the
+    /// legacy initializer can never run on it (the new `initialize` already consumed the
+    /// shared Initializable version) — the admin-only `setImageUrl` setter, reached through
+    /// the legacy fallback, is the only way to populate it. Old brokers fetch the assessor
+    /// guest from this URL, so it must serve the guest matching the legacy impl's immutable
+    /// assessor image id. Must run inside a broadcast; when the broadcaster lacks ADMIN_ROLE
+    /// (e.g. Safe-administered markets) the transaction to send is printed instead.
+    function ensureLegacyImageUrl(address market, string memory url) internal {
+        if (bytes(url).length == 0) {
+            console2.log("No legacy assessor guest URL resolved; legacy imageInfo() URL stays empty");
+            return;
+        }
+        if (keccak256(bytes(readLegacyImageUrl(market))) == keccak256(bytes(url))) {
+            console2.log("Legacy imageUrl already serves:", url);
+            return;
+        }
+        // ADMIN_ROLE is DEFAULT_ADMIN_ROLE (zero) in both the legacy and the current market.
+        if (IAccessControl(market).hasRole(bytes32(0), getDeployer())) {
+            ILegacyBoundlessMarket(market).setImageUrl(url);
+            console2.log("Set legacy imageUrl via fallback:", url);
+        } else {
+            console2.log("WARNING: broadcaster lacks ADMIN_ROLE; send as admin:");
+            console2.log("  cast send", market, "'setImageUrl(string)'", url);
+        }
     }
 
     /// @notice Reads a 32-byte image ID from a .bin file using r0vm --id

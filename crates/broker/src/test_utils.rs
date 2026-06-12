@@ -28,7 +28,7 @@ use boundless_market::price_oracle::config::PriceValue;
 use boundless_market::price_oracle::Amount;
 use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
-    market::{TestCtx, ASSESSOR_R0_SELECTOR},
+    market::TestCtx,
 };
 use tempfile::NamedTempFile;
 use url::Url;
@@ -52,7 +52,6 @@ impl BrokerBuilder {
         let mut config = Config::default();
         config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
         config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-        config.market.assessor_selector = ASSESSOR_R0_SELECTOR;
         config.market.min_mcycle_price = Amount::parse("0.0 ETH", None).unwrap();
         config.batcher.min_batch_size = 1;
         config.market.min_deadline = 30;
@@ -70,9 +69,11 @@ impl BrokerBuilder {
             rpc_url: Some(rpc_url.to_string()),
             rpc_urls: Vec::new(),
             private_key: Some(ctx.prover_signer.clone()),
-            bento_api_url: None,
-            bonsai_api_key: None,
-            bonsai_api_url: None,
+            // Honor a Bento cluster or Bonsai credentials from the environment so real-proving
+            // runs (RISC0_DEV_MODE unset) can offload instead of proving via the local r0vm.
+            bento_api_url: std::env::var("BENTO_API_URL").ok().and_then(|s| s.parse().ok()),
+            bonsai_api_key: std::env::var("BONSAI_API_KEY").ok(),
+            bonsai_api_url: std::env::var("BONSAI_API_URL").ok().and_then(|s| s.parse().ok()),
             deposit_amount: None,
             rpc_retry_max: 0,
             rpc_retry_backoff: 200,

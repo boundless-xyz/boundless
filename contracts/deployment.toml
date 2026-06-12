@@ -339,6 +339,8 @@ set-verifier = "0x0000000000000000000000000000000000000000"
 boundless-market = "0x040f415663c37676920485535f23b45e2a87f243"
 boundless-market-impl = "0x1685bd88d9a62022bd6d902c27b057ca4bc6086d"
 boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+# Auto-written by deploy runs. A stale value from a previous chain is harmless: Deploy.s.sol
+# probes the address and deploys a fresh HitPoints when the contract there is not a token.
 collateral-token = "0xa513e6e4b8f2a923d98304ec87f64353c4d5c853"
 
 # Guests info

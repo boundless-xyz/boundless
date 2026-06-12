@@ -483,6 +483,7 @@ impl BrokerDb for SqliteDb {
                 fulfillment_type: order.data.fulfillment_type,
                 request_id: order.data.request.id,
                 lock_expiration: order.data.request.lock_expires_at(),
+                selector: order.data.request.requirements.selector,
             })
         }
 
@@ -527,6 +528,7 @@ impl BrokerDb for SqliteDb {
                 fulfillment_type: order.data.fulfillment_type,
                 request_id: order.data.request.id,
                 lock_expiration: order.data.request.lock_expires_at(),
+                selector: order.data.request.requirements.selector,
             })
         }
 
@@ -1347,6 +1349,7 @@ mod tests {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 request_id: order1.request.id,
                 lock_expiration: order1.request.lock_expires_at(),
+                selector: order1.request.requirements.selector,
             },
             BatchReadyOrder {
                 order_id: order2.id(),
@@ -1355,6 +1358,7 @@ mod tests {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 request_id: order2.request.id,
                 lock_expiration: order2.request.lock_expires_at(),
+                selector: order2.request.requirements.selector,
             },
         ];
         let claim_digests = vec![[1u32; 8].into(), [2u32; 8].into()];
