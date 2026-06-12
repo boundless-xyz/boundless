@@ -32,8 +32,9 @@ use boundless_market::{
     input::GuestEnv,
     prover_utils::{
         EvaluationLimits, EvaluationRequest, ImageUploadCache, OrderPricingError, PreflightCache,
-        PriorityRequestorCheck, RequestEvaluation, RequestEvaluator, Risc0Evaluator,
+        PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
     },
+    risc0::request_evaluator::Risc0Evaluator,
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
     storage::StorageDownloader,
     Deployment,

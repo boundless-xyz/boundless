@@ -60,7 +60,7 @@ use boundless_market::{
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
     storage::StorageDownloader,
-    ProofRequest,
+    NotProvided, ProofRequest,
 };
 
 /// Default URL for assessor image - matches broker config defaults
@@ -238,7 +238,7 @@ impl OrderFulfiller {
 
     pub(crate) async fn initialize_from_config<P, St, D, R, Si>(
         prover_config: &config::ProverConfig,
-        client: &boundless_market::Client<P, St, D, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, D, R, Si>,
     ) -> Result<Self>
     where
         P: alloy::providers::Provider + Clone + 'static,
@@ -280,7 +280,7 @@ impl OrderFulfiller {
     /// Initialize an OrderFulfiller from a provided Prover instance.
     pub async fn initialize<P, St, D, R, Si>(
         prover: Arc<dyn Prover + Send + Sync>,
-        client: &boundless_market::Client<P, St, D, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, D, R, Si>,
     ) -> Result<Self>
     where
         P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,

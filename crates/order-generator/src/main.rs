@@ -31,6 +31,7 @@ use boundless_market::{
     indexer_client::{GetRequestsByRequestorParams, IndexerClient, RequestStatus},
     input::GuestEnv,
     request_builder::StandardRequestBuilder,
+    risc0::Risc0ZkvmOps,
     storage::{HttpDownloader, StandardDownloader, StorageDownloader},
     StandardUploader, StorageUploaderConfig,
 };
@@ -190,7 +191,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let mut client = Client::builder();
+    let mut client = Client::builder().with_zkvm(Risc0ZkvmOps::new().await);
     if let Some(rpc_url) = &args.rpc_url {
         client = client.with_rpc_url(rpc_url.clone());
     }
@@ -331,10 +332,11 @@ async fn run(args: &MainArgs) -> Result<()> {
 async fn handle_loop_request(
     args: &MainArgs,
     client: &Client<
+        Risc0ZkvmOps,
         DynProvider,
         StandardUploader,
         StandardDownloader,
-        StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+        StandardRequestBuilder<Risc0ZkvmOps, DynProvider, StandardUploader, StandardDownloader>,
         PrivateKeySigner,
     >,
     program: &[u8],
@@ -352,7 +354,10 @@ async fn handle_loop_request(
             input
         }
     };
-    let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
+    let encoded_input = risc0_zkvm::serde::to_vec(&(input as u64))?;
+    let encoded_nonce = risc0_zkvm::serde::to_vec(&nonce)?;
+    let env =
+        GuestEnv::builder().write_slice(&encoded_input).write_slice(&encoded_nonce).build_env();
 
     let m_cycles = input >> 20;
 
@@ -459,10 +464,11 @@ async fn handle_loop_request(
 async fn handle_zeth_request(
     args: &MainArgs,
     client: &Client<
+        Risc0ZkvmOps,
         DynProvider,
         StandardUploader,
         StandardDownloader,
-        StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+        StandardRequestBuilder<Risc0ZkvmOps, DynProvider, StandardUploader, StandardDownloader>,
         PrivateKeySigner,
     >,
     program: &[u8],
@@ -475,7 +481,13 @@ async fn handle_zeth_request(
     let max_iterations = max_cycles.div_ceil(1000000000); // ~1B cycles per iteration
     let iterations: u32 = rng.random_range(1..=max_iterations as u32);
     tracing::info!("Iterations: {}", iterations);
-    let env = GuestEnv::builder().write_slice(input).write(&iterations)?.write(&nonce)?.build_env();
+    let encoded_iterations = risc0_zkvm::serde::to_vec(&iterations)?;
+    let encoded_nonce = risc0_zkvm::serde::to_vec(&nonce)?;
+    let env = GuestEnv::builder()
+        .write_slice(input)
+        .write_slice(&encoded_iterations)
+        .write_slice(&encoded_nonce)
+        .build_env();
     let request = client
         .new_request()
         .with_program(program.to_vec())

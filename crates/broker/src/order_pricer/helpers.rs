@@ -30,6 +30,7 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::Context;
+use async_trait::async_trait;
 use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::prover_utils::apply_secondary_fulfillment_discount;
 use boundless_market::prover_utils::{
@@ -456,6 +457,7 @@ where
     }
 }
 
+#[async_trait]
 impl<P> RequestEvaluator for OrderPricer<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,

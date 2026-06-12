@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Adapt, RequestParams};
+use super::{AbsentLocalExecutor, Adapt, LocalExecutor, RequestParams};
 use crate::{
     contracts::{RequestInput, RequestInputType},
     input::GuestEnv,
-    prover_utils::local_executor::LocalExecutor,
     storage::StorageDownloader,
     NotProvided,
 };
 use anyhow::{bail, ensure, Context};
+use std::sync::Arc;
 
 /// A layer that performs preflight execution of the guest program.
 ///
@@ -37,14 +37,15 @@ use anyhow::{bail, ensure, Context};
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct PreflightLayer<D> {
-    executor: LocalExecutor,
+    executor: Arc<dyn LocalExecutor>,
+
     /// The downloader used to fetch programs and inputs from URLs.
     downloader: Option<D>,
 }
 
 impl<D> Default for PreflightLayer<D> {
     fn default() -> Self {
-        Self { executor: LocalExecutor::default(), downloader: None }
+        Self { executor: Arc::new(AbsentLocalExecutor) as Arc<dyn LocalExecutor>, downloader: None }
     }
 }
 
@@ -53,12 +54,12 @@ where
     D: StorageDownloader,
 {
     /// Creates a new [PreflightLayer] with the given executor and downloader.
-    pub fn new(executor: LocalExecutor, downloader: Option<D>) -> Self {
+    pub fn new(executor: Arc<dyn LocalExecutor>, downloader: Option<D>) -> Self {
         Self { executor, downloader }
     }
 
     /// Get a clone of the executor used by this layer.
-    pub fn executor_cloned(&self) -> LocalExecutor {
+    pub fn executor_cloned(&self) -> Arc<dyn LocalExecutor> {
         self.executor.clone()
     }
 
