@@ -186,6 +186,12 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             );
         }
 
+        // Carry the legacy assessor guest URL onto the fresh proxy so old brokers — which
+        // fetch the assessor guest from `imageInfo()` — keep working. Read from the market
+        // this deployment replaces (deployment.toml's boundless-market; LEGACY_MARKET
+        // overrides the address, LEGACY_ASSESSOR_GUEST_URL overrides the URL outright).
+        ensureLegacyImageUrl(boundlessMarketAddress, resolveLegacyImageUrl(deploymentConfig.boundlessMarket));
+
         vm.stopBroadcast();
 
         // Update deployment.toml with deployment information

@@ -101,6 +101,12 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
             new ERC1967Proxy{salt: salt}(newImplementation, abi.encodeCall(BoundlessMarket.initialize, (admin)))
         );
 
+        // Carry the legacy assessor guest URL onto the fresh proxy so old brokers — which
+        // fetch the assessor guest from `imageInfo()` — keep working. Read from the market
+        // this deployment replaces (deployment.toml's boundless-market; LEGACY_MARKET
+        // overrides the address, LEGACY_ASSESSOR_GUEST_URL overrides the URL outright).
+        ensureLegacyImageUrl(marketAddress, resolveLegacyImageUrl(deploymentConfig.boundlessMarket));
+
         vm.stopBroadcast();
 
         // Verify the deployment
@@ -175,6 +181,11 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // legacy bytecode the proxy already points at is preserved across the
         // upgrade; BOUNDLESS_LEGACY_IMPL can override it to intentionally repoint.
         address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", market.LEGACY_IMPL());
+        // The legacy assessor guest URL lives in proxy storage and is served through the
+        // legacy fallback after the upgrade; capture it up front so the flow can guarantee
+        // `imageInfo()` still serves it afterwards. LEGACY_ASSESSOR_GUEST_URL overrides the
+        // captured value.
+        string memory legacyImageUrl = vm.envOr("LEGACY_ASSESSOR_GUEST_URL", readLegacyImageUrl(marketAddress));
 
         // Upgrade requires build info from the currently deployed version.
         // You can get this build info with the following process.
@@ -248,7 +259,7 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
             console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
             console2.log("Upgraded BoundlessMarket router contract at %s", boundlessRouter);
-            // The assessor guest URL is no longer market-level state.
+            ensureLegacyImageUrl(marketAddress, legacyImageUrl);
         }
         vm.stopBroadcast();
 
