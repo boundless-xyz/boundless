@@ -29,21 +29,9 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
             { dependsOn: [role] }
         );
 
-        const prodDeploymentBaseSepolia = new aws.codebuild.Project(
-            `l-${this.config.appName}-prod-84532-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
-
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            { dependsOn: [role] }
-        );
-
-        const prodDeploymentEthSepolia = new aws.codebuild.Project(
-            `l-${this.config.appName}-prod-11155111-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
             { dependsOn: [role] }
         );
 
@@ -126,32 +114,6 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                             version: "1",
                             runOrder: 1,
                             configuration: {}
-                        },
-                        {
-                            name: "DeployProductionBaseSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 2,
-                            configuration: {
-                                ProjectName: prodDeploymentBaseSepolia.name
-                            },
-                            outputArtifacts: ["production_output_base_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        },
-                        {
-                            name: "DeployProductionEthSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            runOrder: 2,
-                            configuration: {
-                                ProjectName: prodDeploymentEthSepolia.name
-                            },
-                            outputArtifacts: ["production_output_eth_sepolia"],
-                            inputArtifacts: ["source_output"],
                         },
                         {
                             name: "DeployProductionBaseMainnet",

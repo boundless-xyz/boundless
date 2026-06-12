@@ -12,15 +12,9 @@ config:
       role: explorer
       chainId: "8453"
       alarmProfile: prod
-    - name: prover-8453-prod-release
-      hostname: prover-8453-prod-release
+    - name: prover-prod
+      hostname: prover-prod
       role: prover
       chainId: "8453"
       alarmProfile: prod
-      proverType: bento
-    - name: prover-8453-prod-nightly
-      hostname: prover-8453-prod-nightly
-      role: prover
-      chainId: "8453"
-      alarmProfile: nightly
       proverType: bento

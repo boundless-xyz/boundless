@@ -9,6 +9,9 @@ host_vars/
 .env.local
 .env.*.local
 
+# Runtime inventory (contains real hosts/secrets) - DO NOT COMMIT
+inventory.yml
+
 # Deployment configuration files - DO NOT COMMIT
 .deploy_cluster_config.json
 
