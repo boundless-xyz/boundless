@@ -176,11 +176,18 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // config (the BOUNDLESS_ROUTER env var overrides it).
         address boundlessRouter =
             vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter).required("boundless-router");
-        BoundlessMarket market = BoundlessMarket(payable(marketAddress));
         // Keep the existing delegate-call target by default so the audited
         // legacy bytecode the proxy already points at is preserved across the
         // upgrade; BOUNDLESS_LEGACY_IMPL can override it to intentionally repoint.
-        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", market.LEGACY_IMPL());
+        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", address(0));
+        if (legacyImpl == address(0)) {
+            // A proxy already on the router-aware impl exposes LEGACY_IMPL(); a proxy still
+            // on the legacy impl does not (no such getter, no fallback) — there the
+            // implementation being replaced IS the legacy bytecode the fallback must keep
+            // serving.
+            (bool ok, bytes memory data) = marketAddress.staticcall(abi.encodeWithSignature("LEGACY_IMPL()"));
+            legacyImpl = (ok && data.length == 32) ? abi.decode(data, (address)) : currentImplementation;
+        }
         // The legacy assessor guest URL lives in proxy storage and is served through the
         // legacy fallback after the upgrade; capture it up front so the flow can guarantee
         // `imageInfo()` still serves it afterwards. LEGACY_ASSESSOR_GUEST_URL overrides the
@@ -319,7 +326,14 @@ contract RollbackBoundlessMarket is BoundlessScriptBase {
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
         console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
-        console2.log("Upgraded BoundlessMarket router contract at %s", address(upgradedMarket.ROUTER()));
+        // ROUTER() only exists on the router-aware impl; a rollback to the legacy impl
+        // (the emergency exit of an in-place production upgrade) has none.
+        (bool routerOk, bytes memory routerData) = marketAddress.staticcall(abi.encodeWithSignature("ROUTER()"));
+        if (routerOk && routerData.length == 32) {
+            console2.log("Upgraded BoundlessMarket router contract at %s", abi.decode(routerData, (address)));
+        } else {
+            console2.log("Rolled back to a legacy implementation (no ROUTER())");
+        }
 
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         require(
