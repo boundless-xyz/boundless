@@ -42,8 +42,11 @@ impl RequestorDepositTo {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
         requestor_config.require_private_key_with_help()?;
 
-        let client =
-            requestor_config.client_builder_with_signer(global_config.tx_timeout)?.build().await?;
+        let client = requestor_config
+            .client_builder_with_signer(global_config.tx_timeout)
+            .await?
+            .build()
+            .await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
 
         let display = DisplayManager::with_network(network_name);

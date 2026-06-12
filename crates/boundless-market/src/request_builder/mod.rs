@@ -301,6 +301,15 @@ impl Prover for AbsentLocalExecutor {
     }
 }
 
+/// Trait containing ZKVM types and functions
+pub trait ZkvmOps {
+    /// A local executor for preflight
+    fn executor(&self) -> Arc<dyn LocalExecutor + Sync + Send>;
+
+    /// Figures out the pricing from preflight
+    fn evaluator(&self) -> Arc<dyn crate::prover_utils::RequestEvaluator + Sync + Send>;
+}
+
 /// A standard implementation of [RequestBuilder] that uses a layered architecture.
 ///
 /// This builder composes multiple layers, each handling a specific aspect of request building:
@@ -374,6 +383,7 @@ impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided, NotProvided> 
 
 impl<Z, P, S, D> StandardRequestBuilder<Z, P, S, D>
 where
+    Z: ZkvmOps,
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
 {
@@ -397,26 +407,14 @@ where
         let provider = std::sync::Arc::new(self.offer_layer.provider.clone());
         let price_provider = self.offer_layer.price_provider.clone();
 
-        // Create preflight cache - the LocalExecutor handles execution deduplication internally
-        let preflight_cache = Arc::new(
-            moka::future::Cache::builder()
-                .eviction_policy(moka::policy::EvictionPolicy::lru())
-                .max_capacity(32)
-                .build(),
-        );
-
-        // Create a standard downloader for fetching images and inputs
-        let downloader = Arc::new(StandardDownloader::new().await);
-
-        let evaluator = Arc::new(crate::risc0::request_evaluator::Risc0Evaluator::new(
-            self.preflight_layer.executor_cloned(),
-            downloader,
-            preflight_cache,
-        ));
+        let Some(zkvm_ops) = &self.zkvm_ops else {
+            tracing::error!("Missing ZkvmOps");
+            return;
+        };
 
         if let Err(e) = requestor_order_preflight(
             request.clone(),
-            evaluator,
+            zkvm_ops.evaluator(),
             provider,
             market_address,
             chain_id,
@@ -451,6 +449,7 @@ where
 
 impl<Z, P> StandardRequestBuilder<Z, P, NotProvided>
 where
+    Z: ZkvmOps,
     P: Provider<Ethereum> + 'static + Clone,
 {
     /// Build a proof request.
@@ -470,6 +469,7 @@ where
 
 impl<Z, P, S, D> Layer<RequestParams> for StandardRequestBuilder<Z, P, S, D>
 where
+    Z: ZkvmOps,
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
     RequestParams: Adapt<StorageLayer<S>, Output = RequestParams, Error = anyhow::Error>,
@@ -1177,16 +1177,13 @@ mod tests {
             RequestInputType, Requirements,
         },
         input::GuestEnv,
+        risc0::Risc0ZkvmOps,
         storage::{MockStorageUploader, StandardDownloader, StorageDownloader, StorageUploader},
         util::NotProvided,
         StandardUploader,
     };
     use alloy_primitives::{utils::parse_ether, U256};
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
-
-    fn executor() -> Arc<dyn LocalExecutor + Sync + Send> {
-        Arc::new(crate::risc0::local_executor::Risc0LocalExecutor::default())
-    }
 
     #[tokio::test]
     #[traced_test]
@@ -1201,13 +1198,15 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder: StandardRequestBuilder<NotProvided, _, _, _> =
-            StandardRequestBuilder::builder()
-                .storage_layer(Some(uploader))
-                .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
-                .offer_layer(test_ctx.customer_provider.clone())
-                .request_id_layer(market)
-                .build()?;
+        let zkvm = Risc0ZkvmOps::new().await;
+
+        let request_builder = StandardRequestBuilder::builder()
+            .zkvm_ops(zkvm.clone())
+            .storage_layer(Some(uploader))
+            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
+            .offer_layer(test_ctx.customer_provider.clone())
+            .request_id_layer(market)
+            .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
@@ -1228,16 +1227,18 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder: StandardRequestBuilder<NotProvided, _, _, _> =
-            StandardRequestBuilder::builder()
-                .storage_layer(Some(storage))
-                .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
-                .offer_layer(OfferLayer::new(
-                    test_ctx.customer_provider.clone(),
-                    OfferLayerConfig::builder().build()?,
-                ))
-                .request_id_layer(market)
-                .build()?;
+        let zkvm = Risc0ZkvmOps::new().await;
+
+        let request_builder = StandardRequestBuilder::builder()
+            .zkvm_ops(zkvm.clone())
+            .storage_layer(Some(storage))
+            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
+            .offer_layer(OfferLayer::new(
+                test_ctx.customer_provider.clone(),
+                OfferLayerConfig::builder().build()?,
+            ))
+            .request_id_layer(market)
+            .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
@@ -1258,19 +1259,21 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder: StandardRequestBuilder<NotProvided, _, _, _> =
-            StandardRequestBuilder::builder()
-                .storage_layer(Some(uploader))
-                .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
-                .offer_layer(OfferLayer::new(
-                    test_ctx.customer_provider.clone(),
-                    OfferLayerConfig::builder()
-                        .ramp_up_period(27)
-                        .lock_collateral(Amount::new(parse_ether("10").unwrap(), Asset::ZKC))
-                        .build()?,
-                ))
-                .request_id_layer(market)
-                .build()?;
+        let zkvm = Risc0ZkvmOps::new().await;
+
+        let request_builder = StandardRequestBuilder::builder()
+            .zkvm_ops(zkvm.clone())
+            .storage_layer(Some(uploader))
+            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
+            .offer_layer(OfferLayer::new(
+                test_ctx.customer_provider.clone(),
+                OfferLayerConfig::builder()
+                    .ramp_up_period(27)
+                    .lock_collateral(Amount::new(parse_ether("10").unwrap(), Asset::ZKC))
+                    .build()?,
+            ))
+            .request_id_layer(market)
+            .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
@@ -1291,8 +1294,11 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder::<NotProvided, _, NotProvided, _>()
-            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
+        let zkvm = Risc0ZkvmOps::new().await;
+
+        let request_builder = StandardRequestBuilder::builder::<Risc0ZkvmOps, _, NotProvided, _>()
+            .zkvm_ops(zkvm.clone())
+            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -1390,7 +1396,8 @@ mod tests {
         let uploader = MockStorageUploader::new();
         let downloader = HttpDownloader::new(None, None);
         let program_url = uploader.upload_program(ECHO_ELF).await?;
-        let layer = PreflightLayer::new(executor(), Some(downloader));
+        let zkvm = Risc0ZkvmOps::new().await;
+        let layer = PreflightLayer::new(zkvm.executor(), Some(downloader));
         let data = b"hello_zkvm".to_vec();
         let env = GuestEnv::from_stdin(data.clone());
         let input = RequestInput::inline(env.encode()?);
@@ -1409,8 +1416,8 @@ mod tests {
     #[traced_test]
     async fn test_preflight_layer_cache_prefill() -> anyhow::Result<()> {
         // Create layer with shared executor
-        let executor = executor();
-        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::new(executor.clone(), None);
+        let zkvm = Risc0ZkvmOps::new().await;
+        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::new(zkvm.executor(), None);
 
         // Create params with pre-computed values
         let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
@@ -1438,11 +1445,13 @@ mod tests {
 
         // Verify cache was pre-filled by checking we can get preflight result
         // First, upload image so preflight can find it
-        executor.upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
-        let input_id = executor.upload_input(input_data.to_vec()).await?;
+        zkvm.executor().upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
+        let input_id = zkvm.executor().upload_input(input_data.to_vec()).await?;
 
-        let preflight_result =
-            executor.preflight(&image_id.to_string(), &input_id, vec![], None, "test").await?;
+        let preflight_result = zkvm
+            .executor()
+            .preflight(&image_id.to_string(), &input_id, vec![], None, "test")
+            .await?;
 
         assert_eq!(preflight_result.stats.unwrap().total_cycles, cycles);
 

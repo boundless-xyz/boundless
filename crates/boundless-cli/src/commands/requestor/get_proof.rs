@@ -45,7 +45,8 @@ impl RequestorGetProof {
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
-        let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
+        let client =
+            requestor_config.client_builder(global_config.tx_timeout).await?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
 
         let display = DisplayManager::with_network(network_name);

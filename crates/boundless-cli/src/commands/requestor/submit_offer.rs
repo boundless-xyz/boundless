@@ -117,7 +117,8 @@ impl RequestorSubmitOffer {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
         requestor_config.require_private_key_with_help()?;
 
-        let mut builder = requestor_config.client_builder_with_signer(global_config.tx_timeout)?;
+        let mut builder =
+            requestor_config.client_builder_with_signer(global_config.tx_timeout).await?;
 
         // build the price oracle manager and add it to the client builder
         let rpc_url = requestor_config.require_rpc_url()?;
