@@ -251,7 +251,9 @@ pub async fn deploy_router<P: Provider + Clone>(
                 requiredAssessorClass: ASSESSOR_CLASS_ID,
                 schemaArtifact: B256::ZERO,
                 schemaArtifactUrl: String::new(),
-                defaultGasLimit: 100_000,
+                // Real Groth16 verification costs ~250k gas (blake3-groth16 more); mirrors the
+                // production router deploy. Mock verifiers stay far below either value.
+                defaultGasLimit: 500_000,
                 label: String::new(),
             },
         )

@@ -81,7 +81,11 @@ contract DeployRouter is BoundlessScriptBase {
             requiredAssessorClass: R0_ASSESSOR_CLASS_ID,
             schemaArtifact: bytes32(0),
             schemaArtifactUrl: "",
-            defaultGasLimit: 50_000,
+            // Must cover the most expensive curated verifier plus adapter overhead: a real
+            // Groth16 verification costs ~250k gas (blake3-groth16 slightly more). The cap bounds
+            // what a runaway adapter can burn per fill, not the expected cost — dev-mode mock
+            // verifiers masked this until real-proving runs hit VerifierFailed at 50k.
+            defaultGasLimit: 500_000,
             label: "R0 STARK verifier"
         });
         router.addClass(R0_VERIFIER_CLASS_ID, verifierMeta);
