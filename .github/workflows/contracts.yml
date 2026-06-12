@@ -256,12 +256,15 @@ jobs:
           ref: main
           submodules: recursive
 
+      # Restore/save are split deliberately: a unified actions/cache saves at job end, by which
+      # time the workspace holds the PR branch — caching the PR's build-info under the main key
+      # and poisoning the upgrade-safety reference for every later run.
       - name: Cache forge build (main)
         id: forge-main-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: contracts/out/build-info
-          key: forge-main-buildinfo-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          key: forge-main-buildinfo-v2-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
 
       - name: Forge build on main branch
         if: steps.forge-main-cache.outputs.cache-hit != 'true'
@@ -269,6 +272,13 @@ jobs:
         env:
           FOUNDRY_PROFILE: reference-contract
           FOUNDRY_OUT: contracts/out
+
+      - name: Save main build-info cache
+        if: steps.forge-main-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: contracts/out/build-info
+          key: forge-main-buildinfo-v2-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
 
       - name: Save main build-info
         run: |

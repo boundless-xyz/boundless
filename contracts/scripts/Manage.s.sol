@@ -194,8 +194,11 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             console2.log("WARNING: Skipping all upgrade safety checks and reference build!");
             opts.unsafeSkipAllChecks = true;
         } else {
-            // Only set reference contract when doing safety checks
-            opts.referenceContract = "build-info-reference:BoundlessMarket";
+            // Only set reference contract when doing safety checks. The file-qualified name is
+            // required: the legacy fallback source (BoundlessMarketLegacy.sol) also declares a
+            // contract named BoundlessMarket, so the bare name is ambiguous in any build that
+            // includes contracts/src/legacy/.
+            opts.referenceContract = "build-info-reference:contracts/src/BoundlessMarket.sol:BoundlessMarket";
             opts.referenceBuildInfoDir = "contracts/build-info-reference";
         }
 
