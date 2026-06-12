@@ -32,7 +32,7 @@ use boundless_market::{
     input::GuestEnv,
     request_builder::StandardRequestBuilder,
     storage::{HttpDownloader, StandardDownloader, StorageDownloader},
-    StandardUploader, StorageUploaderConfig,
+    NotProvided, StandardUploader, StorageUploaderConfig,
 };
 use clap::Parser;
 use rand::Rng;
@@ -331,10 +331,11 @@ async fn run(args: &MainArgs) -> Result<()> {
 async fn handle_loop_request(
     args: &MainArgs,
     client: &Client<
+        NotProvided,
         DynProvider,
         StandardUploader,
         StandardDownloader,
-        StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+        StandardRequestBuilder<NotProvided, DynProvider, StandardUploader, StandardDownloader>,
         PrivateKeySigner,
     >,
     program: &[u8],
@@ -462,10 +463,11 @@ async fn handle_loop_request(
 async fn handle_zeth_request(
     args: &MainArgs,
     client: &Client<
+        NotProvided,
         DynProvider,
         StandardUploader,
         StandardDownloader,
-        StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+        StandardRequestBuilder<NotProvided, DynProvider, StandardUploader, StandardDownloader>,
         PrivateKeySigner,
     >,
     program: &[u8],

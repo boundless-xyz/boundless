@@ -315,7 +315,8 @@ impl Prover for AbsentLocalExecutor {
 /// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = StandardDownloader> {
+pub struct StandardRequestBuilder<Z, P = DynProvider, U = StandardUploader, D = StandardDownloader>
+{
     /// Handles uploading and preparing program and input data.
     #[builder(setter(into), default)]
     pub storage_layer: StorageLayer<U>,
@@ -347,24 +348,31 @@ pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = Sta
     /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     #[builder(setter(into, strip_option), default)]
     pub skip_preflight: Option<bool>,
+
+    /// The ZKVM specific functions and types
+    #[allow(dead_code)]
+    #[builder(setter(into), default)]
+    zkvm_ops: Option<Z>,
 }
 
-impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
+impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided, NotProvided> {
     /// Creates a new builder for constructing a [StandardRequestBuilder].
     ///
     /// This is the entry point for creating a request builder with specific
     /// provider and storage implementations.
     ///
     /// # Type Parameters
+    /// # `Z` - The ZKVM specific functions and types.
     /// * `P` - An Ethereum RPC provider, using alloy.
     /// * `S` - The storage uploader type for storing programs and inputs.
     /// * `D` - The storage downloader type for fetching programs and inputs during preflight.
-    pub fn builder<P: Clone, S: Clone, D: Clone>() -> StandardRequestBuilderBuilder<P, S, D> {
+    pub fn builder<Z: Clone, P: Clone, S: Clone, D: Clone>(
+    ) -> StandardRequestBuilderBuilder<Z, P, S, D> {
         Default::default()
     }
 }
 
-impl<P, S, D> StandardRequestBuilder<P, S, D>
+impl<Z, P, S, D> StandardRequestBuilder<Z, P, S, D>
 where
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
@@ -441,7 +449,7 @@ where
     }
 }
 
-impl<P> StandardRequestBuilder<P, NotProvided>
+impl<Z, P> StandardRequestBuilder<Z, P, NotProvided>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -460,7 +468,7 @@ where
     }
 }
 
-impl<P, S, D> Layer<RequestParams> for StandardRequestBuilder<P, S, D>
+impl<Z, P, S, D> Layer<RequestParams> for StandardRequestBuilder<Z, P, S, D>
 where
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
@@ -1193,12 +1201,13 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
-            .offer_layer(test_ctx.customer_provider.clone())
-            .request_id_layer(market)
-            .build()?;
+        let request_builder: StandardRequestBuilder<NotProvided, _, _, _> =
+            StandardRequestBuilder::builder()
+                .storage_layer(Some(uploader))
+                .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
+                .offer_layer(test_ctx.customer_provider.clone())
+                .request_id_layer(market)
+                .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
@@ -1219,15 +1228,16 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(Some(storage))
-            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
-            .offer_layer(OfferLayer::new(
-                test_ctx.customer_provider.clone(),
-                OfferLayerConfig::builder().build()?,
-            ))
-            .request_id_layer(market)
-            .build()?;
+        let request_builder: StandardRequestBuilder<NotProvided, _, _, _> =
+            StandardRequestBuilder::builder()
+                .storage_layer(Some(storage))
+                .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
+                .offer_layer(OfferLayer::new(
+                    test_ctx.customer_provider.clone(),
+                    OfferLayerConfig::builder().build()?,
+                ))
+                .request_id_layer(market)
+                .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
@@ -1248,18 +1258,19 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
-            .offer_layer(OfferLayer::new(
-                test_ctx.customer_provider.clone(),
-                OfferLayerConfig::builder()
-                    .ramp_up_period(27)
-                    .lock_collateral(Amount::new(parse_ether("10").unwrap(), Asset::ZKC))
-                    .build()?,
-            ))
-            .request_id_layer(market)
-            .build()?;
+        let request_builder: StandardRequestBuilder<NotProvided, _, _, _> =
+            StandardRequestBuilder::builder()
+                .storage_layer(Some(uploader))
+                .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
+                .offer_layer(OfferLayer::new(
+                    test_ctx.customer_provider.clone(),
+                    OfferLayerConfig::builder()
+                        .ramp_up_period(27)
+                        .lock_collateral(Amount::new(parse_ether("10").unwrap(), Asset::ZKC))
+                        .build()?,
+                ))
+                .request_id_layer(market)
+                .build()?;
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
@@ -1280,7 +1291,7 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder::<_, NotProvided, _>()
+        let request_builder = StandardRequestBuilder::builder::<NotProvided, _, NotProvided, _>()
             .preflight_layer(PreflightLayer::new(executor(), Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)

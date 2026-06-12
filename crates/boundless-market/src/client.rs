@@ -98,7 +98,7 @@ pub enum FundingMode {
 }
 /// Builder for the [Client] with standard implementations for the required components.
 #[derive(Clone)]
-pub struct ClientBuilder<U, D, S> {
+pub struct ClientBuilder<Z, U, D, S> {
     deployment: Option<Deployment>,
     rpc_url: Option<Url>,
     rpc_urls: Vec<Url>,
@@ -138,9 +138,12 @@ pub struct ClientBuilder<U, D, S> {
 
     /// The executor to use for doing preflight
     pub preflight_executor: Option<Arc<dyn LocalExecutor>>,
+
+    /// The ZKVM specific functions and types
+    pub zkvm_ops: Option<Z>,
 }
 
-impl<U, D, S> Default for ClientBuilder<U, D, S> {
+impl<Z, U, D, S> Default for ClientBuilder<Z, U, D, S> {
     fn default() -> Self {
         Self {
             deployment: None,
@@ -160,11 +163,11 @@ impl<U, D, S> Default for ClientBuilder<U, D, S> {
             funding_mode: FundingMode::Always,
             skip_preflight: None,
             preflight_executor: None,
+            zkvm_ops: None,
         }
     }
 }
-
-impl ClientBuilder<NotProvided, NotProvided, NotProvided> {
+impl ClientBuilder<NotProvided, NotProvided, NotProvided, NotProvided> {
     /// Create a new client builder.
     pub fn new() -> Self {
         // When GCS feature is enabled, install aws-lc-rs as the default crypto provider.
@@ -194,7 +197,7 @@ pub trait ClientProviderBuilder {
     fn signer_address(&self) -> Option<Address>;
 }
 
-impl<U, D, S> ClientBuilder<U, D, S> {
+impl<Z, U, D, S> ClientBuilder<Z, U, D, S> {
     /// Collect all RPC URLs by merging rpc_url and rpc_urls.
     /// If both are provided, they are merged into a single list.
     fn collect_rpc_urls(&self) -> Result<Vec<Url>, anyhow::Error> {
@@ -237,7 +240,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     }
 }
 
-impl<U, D, S> ClientProviderBuilder for ClientBuilder<U, D, S>
+impl<Z, U, D, S> ClientProviderBuilder for ClientBuilder<Z, U, D, S>
 where
     S: TxSigner<Signature> + Send + Sync + Clone + 'static,
 {
@@ -303,7 +306,7 @@ where
     }
 }
 
-impl<U, D> ClientProviderBuilder for ClientBuilder<U, D, NotProvided> {
+impl<Z, U, D> ClientProviderBuilder for ClientBuilder<Z, U, D, NotProvided> {
     type Error = anyhow::Error;
 
     async fn build_provider(&self, rpc_urls: Vec<Url>) -> Result<DynProvider, Self::Error> {
@@ -328,33 +331,36 @@ impl<U, D> ClientProviderBuilder for ClientBuilder<U, D, NotProvided> {
     }
 }
 
-impl<U, S> ClientBuilder<U, NotProvided, S> {
+impl<Z, U, S> ClientBuilder<Z, U, NotProvided, S> {
     /// Build the client with the [StandardDownloader].
     pub async fn build(
         self,
     ) -> Result<
         Client<
+            Z,
             DynProvider,
             U,
             StandardDownloader,
-            StandardRequestBuilder<DynProvider, U, StandardDownloader>,
+            StandardRequestBuilder<Z, DynProvider, U, StandardDownloader>,
             S,
         >,
     >
     where
+        Z: Clone,
         U: Clone,
-        ClientBuilder<U, StandardDownloader, S>: ClientProviderBuilder<Error = anyhow::Error>,
+        ClientBuilder<Z, U, StandardDownloader, S>: ClientProviderBuilder<Error = anyhow::Error>,
     {
         self.with_downloader(StandardDownloader::new().await).build().await
     }
 }
 
-impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
+impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
     /// Build the client.
     pub async fn build(
         self,
-    ) -> Result<Client<DynProvider, U, D, StandardRequestBuilder<DynProvider, U, D>, S>>
+    ) -> Result<Client<Z, DynProvider, U, D, StandardRequestBuilder<Z, DynProvider, U, D>, S>>
     where
+        Z: Clone,
         U: Clone,
         D: Clone,
         Self: ClientProviderBuilder<Error = anyhow::Error>,
@@ -507,6 +513,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
             request_builder: Some(request_builder),
             deployment,
             funding_mode: self.funding_mode,
+            zkvm_ops: self.zkvm_ops,
         };
 
         if let Some(timeout) = self.tx_timeout {
@@ -523,7 +530,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
     }
 }
 
-impl<U, D, S> ClientBuilder<U, D, S> {
+impl<Z, U, D, S> ClientBuilder<Z, U, D, S> {
     /// Set the [Deployment] of the Boundless Market that this client will use.
     ///
     /// If `None`, the builder will attempt to infer the deployment from the chain ID.
@@ -594,7 +601,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     pub fn with_private_key(
         self,
         private_key: impl Into<PrivateKeySigner>,
-    ) -> ClientBuilder<U, D, PrivateKeySigner> {
+    ) -> ClientBuilder<Z, U, D, PrivateKeySigner> {
         self.with_signer(private_key.into())
     }
 
@@ -609,14 +616,14 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     pub fn with_private_key_str(
         self,
         private_key: impl AsRef<str>,
-    ) -> Result<ClientBuilder<U, D, PrivateKeySigner>, LocalSignerError> {
+    ) -> Result<ClientBuilder<Z, U, D, PrivateKeySigner>, LocalSignerError> {
         Ok(self.with_signer(PrivateKeySigner::from_str(private_key.as_ref())?))
     }
 
     /// Set the signer and wallet.
-    pub fn with_signer<Zi>(self, signer: impl Into<Option<Zi>>) -> ClientBuilder<U, D, Zi>
+    pub fn with_signer<Si>(self, signer: impl Into<Option<Si>>) -> ClientBuilder<Z, U, D, Si>
     where
-        Zi: Signer + Clone + TxSigner<Signature> + Send + Sync + 'static,
+        Si: Signer + Clone + TxSigner<Signature> + Send + Sync + 'static,
     {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
@@ -637,6 +644,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             funding_mode: self.funding_mode,
             skip_preflight: self.skip_preflight,
             preflight_executor: self.preflight_executor,
+            zkvm_ops: self.zkvm_ops,
         }
     }
 
@@ -653,7 +661,10 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     /// Set the storage uploader.
     ///
     /// The returned [ClientBuilder] will be generic over the provider [StorageUploader] type.
-    pub fn with_uploader<Z: StorageUploader>(self, uploader: Option<Z>) -> ClientBuilder<Z, D, S> {
+    pub fn with_uploader<U2: StorageUploader>(
+        self,
+        uploader: Option<U2>,
+    ) -> ClientBuilder<Z, U2, D, S> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
             deployment: self.deployment,
@@ -673,11 +684,15 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             funding_mode: self.funding_mode,
             skip_preflight: self.skip_preflight,
             preflight_executor: self.preflight_executor,
+            zkvm_ops: self.zkvm_ops,
         }
     }
 
     /// Sets the storage downloader for fetching data from URLs.
-    pub fn with_downloader<Z: StorageDownloader>(self, downloader: Z) -> ClientBuilder<U, Z, S> {
+    pub fn with_downloader<D2: StorageDownloader>(
+        self,
+        downloader: D2,
+    ) -> ClientBuilder<Z, U, D2, S> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
             deployment: self.deployment,
@@ -697,6 +712,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             funding_mode: self.funding_mode,
             skip_preflight: self.skip_preflight,
             preflight_executor: self.preflight_executor,
+            zkvm_ops: self.zkvm_ops,
         }
     }
 
@@ -704,7 +720,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     pub async fn with_uploader_config(
         self,
         config: &StorageUploaderConfig,
-    ) -> Result<ClientBuilder<StandardUploader, D, S>, StorageError> {
+    ) -> Result<ClientBuilder<Z, StandardUploader, D, S>, StorageError> {
         let storage_uploader = match StandardUploader::from_config(config).await {
             Ok(storage_uploader) => Some(storage_uploader),
             Err(StorageError::NoUploader) => None,
@@ -851,10 +867,11 @@ impl<U, D, S> ClientBuilder<U, D, S> {
 #[non_exhaustive]
 /// Client for interacting with the boundless market.
 pub struct Client<
+    Z,
     P = DynProvider,
     U = StandardUploader,
     D = StandardDownloader,
-    R = StandardRequestBuilder,
+    R = StandardRequestBuilder<Z>,
     Si = PrivateKeySigner,
 > {
     /// Boundless market service.
@@ -889,18 +906,21 @@ pub struct Client<
     /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
     /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
     pub funding_mode: FundingMode,
+
+    /// The ZKVM specific functions and types
+    pub zkvm_ops: Option<Z>,
 }
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
-pub type StandardClient = Client<
+pub type StandardClient<Z> = Client<
     DynProvider,
     StandardUploader,
     StandardDownloader,
-    StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+    StandardRequestBuilder<Z, DynProvider, StandardUploader, StandardDownloader>,
     PrivateKeySigner,
 >;
 
-impl<P, U, D, Si> Client<P, U, D, StandardRequestBuilder<P, U, D>, Si> {
+impl<Z, P, U, D, Si> Client<Z, P, U, D, StandardRequestBuilder<Z, P, U, D>, Si> {
     fn with_skip_preflight(mut self, skip: bool) -> Self {
         if let Some(ref mut builder) = self.request_builder {
             builder.skip_preflight = Some(skip);
@@ -932,12 +952,12 @@ pub enum ClientError {
 
 impl Client<NotProvided, NotProvided, NotProvided, NotProvided, NotProvided> {
     /// Create a [ClientBuilder] to construct a [Client].
-    pub fn builder() -> ClientBuilder<NotProvided, NotProvided, NotProvided> {
+    pub fn builder() -> ClientBuilder<NotProvided, NotProvided, NotProvided, NotProvided> {
         ClientBuilder::new()
     }
 }
 
-impl<P, D> Client<P, NotProvided, D, NotProvided, NotProvided>
+impl<P, D> Client<NotProvided, P, NotProvided, D, NotProvided, NotProvided>
 where
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
@@ -969,6 +989,7 @@ where
             signer: None,
             request_builder: None,
             funding_mode: FundingMode::Always,
+            zkvm_ops: None,
         }
     }
 }
@@ -1012,7 +1033,7 @@ fn funding_value_for_balance(balance: U256, max_price: U256, funding_mode: Fundi
     }
 }
 
-impl<P, St, D, R, Si> Client<P, St, D, R, Si>
+impl<Z, P, St, D, R, Si> Client<Z, P, St, D, R, Si>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -1088,7 +1109,7 @@ where
     ///     .unwrap());
     /// # };
     /// ```
-    pub fn with_signer<Zi>(self, signer: Zi) -> Client<P, St, D, R, Zi> {
+    pub fn with_signer<Si2>(self, signer: Si2) -> Client<Z, P, St, D, R, Si2> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         Client {
             signer: Some(signer),
@@ -1100,6 +1121,7 @@ where
             request_builder: self.request_builder,
             deployment: self.deployment,
             funding_mode: self.funding_mode,
+            zkvm_ops: self.zkvm_ops,
         }
     }
 
@@ -1179,7 +1201,7 @@ where
     }
 }
 
-impl<P, U, D, R, Si> Client<P, U, D, R, Si>
+impl<Z, P, U, D, R, Si> Client<Z, P, U, D, R, Si>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {

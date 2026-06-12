@@ -19,6 +19,8 @@ use chrono::{DateTime, Utc};
 use clap::Args;
 use colored::Colorize;
 
+use boundless_market::NotProvided;
+
 use crate::chain::block_number_near_timestamp;
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
@@ -185,7 +187,7 @@ impl RequestorStatus {
     /// When no order: searches backwards from current block.
     async fn find_event_search_blocks<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
     ) -> (u64, u64)
     where
@@ -278,7 +280,7 @@ impl RequestorStatus {
 
     async fn build_timeline<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, U, R, Si>,
         _requestor_config: &crate::config::RequestorConfig,
     ) -> Result<(Vec<TimelineEntry>, Option<ProofRequest>)>
     where
@@ -516,7 +518,7 @@ impl RequestorStatus {
 
     async fn query_submission_info<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,
@@ -567,7 +569,7 @@ impl RequestorStatus {
 
     async fn get_proof_request<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,
