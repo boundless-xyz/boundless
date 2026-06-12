@@ -36,6 +36,7 @@ use boundless_market::{
     deployments::Deployment,
     input::GuestEnv,
     request_builder::OfferParams,
+    risc0::Risc0ZkvmOps,
     storage::StorageUploaderConfig,
 };
 use clap::Parser;
@@ -128,6 +129,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
     let boundless_client = ClientBuilder::new()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url.clone())
         .with_uploader_config(&args.storage_config)
         .await?

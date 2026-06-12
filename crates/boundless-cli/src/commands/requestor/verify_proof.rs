@@ -52,7 +52,8 @@ impl RequestorVerifyProof {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config
-            .client_builder(global_config.tx_timeout)?
+            .client_builder(global_config.tx_timeout)
+            .await?
             .build()
             .await
             .context("Failed to build Boundless Client")?;

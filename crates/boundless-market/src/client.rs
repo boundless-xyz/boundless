@@ -648,6 +648,31 @@ impl<Z, U, D, S> ClientBuilder<Z, U, D, S> {
         }
     }
 
+    /// Set the signer and wallet.
+    pub fn with_zkvm<Zi>(self, zkvm_ops: Zi) -> ClientBuilder<Zi, U, D, S> {
+        // NOTE: We can't use the ..self syntax here because return is not Self.
+        ClientBuilder {
+            zkvm_ops: Some(zkvm_ops),
+            signer: self.signer,
+            deployment: self.deployment,
+            uploader: self.uploader,
+            downloader: self.downloader,
+            rpc_url: self.rpc_url,
+            rpc_urls: self.rpc_urls,
+            tx_timeout: self.tx_timeout,
+            balance_alerts: self.balance_alerts,
+            price_provider: self.price_provider.clone(),
+            price_oracle_manager: self.price_oracle_manager.clone(),
+            offer_layer_config: self.offer_layer_config,
+            storage_layer_config: self.storage_layer_config,
+            request_id_layer_config: self.request_id_layer_config,
+            request_finalizer_config: self.request_finalizer_config,
+            funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
+            preflight_executor: self.preflight_executor,
+        }
+    }
+
     /// Set the transaction timeout in seconds
     pub fn with_timeout(self, tx_timeout: impl Into<Option<Duration>>) -> Self {
         Self { tx_timeout: tx_timeout.into(), ..self }

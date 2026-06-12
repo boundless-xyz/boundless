@@ -31,8 +31,9 @@ use boundless_market::{
     indexer_client::{GetRequestsByRequestorParams, IndexerClient, RequestStatus},
     input::GuestEnv,
     request_builder::StandardRequestBuilder,
+    risc0::Risc0ZkvmOps,
     storage::{HttpDownloader, StandardDownloader, StorageDownloader},
-    NotProvided, StandardUploader, StorageUploaderConfig,
+    StandardUploader, StorageUploaderConfig,
 };
 use clap::Parser;
 use rand::Rng;
@@ -190,7 +191,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let mut client = Client::builder();
+    let mut client = Client::builder().with_zkvm(Risc0ZkvmOps::new().await);
     if let Some(rpc_url) = &args.rpc_url {
         client = client.with_rpc_url(rpc_url.clone());
     }
@@ -331,11 +332,11 @@ async fn run(args: &MainArgs) -> Result<()> {
 async fn handle_loop_request(
     args: &MainArgs,
     client: &Client<
-        NotProvided,
+        Risc0ZkvmOps,
         DynProvider,
         StandardUploader,
         StandardDownloader,
-        StandardRequestBuilder<NotProvided, DynProvider, StandardUploader, StandardDownloader>,
+        StandardRequestBuilder<Risc0ZkvmOps, DynProvider, StandardUploader, StandardDownloader>,
         PrivateKeySigner,
     >,
     program: &[u8],
@@ -463,11 +464,11 @@ async fn handle_loop_request(
 async fn handle_zeth_request(
     args: &MainArgs,
     client: &Client<
-        NotProvided,
+        Risc0ZkvmOps,
         DynProvider,
         StandardUploader,
         StandardDownloader,
-        StandardRequestBuilder<NotProvided, DynProvider, StandardUploader, StandardDownloader>,
+        StandardRequestBuilder<Risc0ZkvmOps, DynProvider, StandardUploader, StandardDownloader>,
         PrivateKeySigner,
     >,
     program: &[u8],

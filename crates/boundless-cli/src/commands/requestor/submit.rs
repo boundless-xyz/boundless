@@ -64,7 +64,8 @@ impl RequestorSubmit {
         requestor_config.require_private_key_with_help()?;
 
         let client = requestor_config
-            .client_builder_with_signer(global_config.tx_timeout)?
+            .client_builder_with_signer(global_config.tx_timeout)
+            .await?
             .with_uploader_config(&self.storage_config)
             .await?
             .with_skip_preflight(self.no_preflight)
