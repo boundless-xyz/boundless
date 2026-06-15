@@ -109,10 +109,15 @@ async fn main() -> Result<()> {
             .wait_for_request_fulfillment(request_id, Duration::from_secs(5), expires_at)
             .await?;
 
-        println!(
-            "Fulfilled {selector} ({request_id:x})! Journal: {}",
-            String::from_utf8_lossy(fulfillment.data()?.journal().unwrap())
-        );
+        // The journal is absent for claim-digest-match fulfillments (e.g. blake3-groth16), where
+        // verification binds the claim digest rather than the journal bytes.
+        match fulfillment.data()?.journal() {
+            Some(journal) => println!(
+                "Fulfilled {selector} ({request_id:x})! Journal: {}",
+                String::from_utf8_lossy(journal)
+            ),
+            None => println!("Fulfilled {selector} ({request_id:x})! (no journal in fulfillment)"),
+        }
     }
     Ok(())
 }
