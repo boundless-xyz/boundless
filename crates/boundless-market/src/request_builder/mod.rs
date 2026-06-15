@@ -23,10 +23,8 @@ use alloy::{
     network::Ethereum,
     providers::{DynProvider, Provider},
 };
-use anyhow::anyhow;
 use async_trait::async_trait;
 use derive_builder::Builder;
-use risc0_zkvm::Receipt;
 use risc0_zkvm::{Digest, Journal};
 use std::sync::Arc;
 use url::Url;
@@ -35,7 +33,7 @@ use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
     prover_utils::{
-        prover::{ExecutorResp, ProofResult, Prover, ProverError},
+        prover::{ExecutorResp, Prover, ProverError},
         requestor_pricing::requestor_order_preflight,
     },
     selector::SelectorExt,
@@ -185,117 +183,6 @@ pub trait LocalExecutor: Prover + Sync + Send {
         total_cycles: u64,
         journal: Vec<u8>,
     );
-}
-
-/// This local executor only errors when asked to execute a program.
-#[allow(dead_code)]
-pub struct AbsentLocalExecutor;
-
-#[async_trait]
-impl LocalExecutor for AbsentLocalExecutor {
-    async fn execute_program(
-        &self,
-        _image_id: &str,
-        _program: &[u8],
-        _input: &[u8],
-    ) -> Result<(ExecutorResp, Vec<u8>), ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn insert_execution_data(
-        &self,
-        _image_id: &str,
-        _input: &[u8],
-        _total_cycles: u64,
-        _journal: Vec<u8>,
-    ) {
-    }
-}
-
-#[async_trait]
-impl Prover for AbsentLocalExecutor {
-    async fn has_image(&self, _image_id: &str) -> Result<bool, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn upload_input(&self, _input: Vec<u8>) -> Result<String, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn upload_image(&self, _image_id: &str, _image: Vec<u8>) -> Result<(), ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn preflight(
-        &self,
-        _image_id: &str,
-        _input_id: &str,
-        _assumptions: Vec<String>,
-        _executor_limit: Option<u64>,
-        _order_id: &str,
-    ) -> Result<ProofResult, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn prove_stark(
-        &self,
-        _image_id: &str,
-        _input_id: &str,
-        _assumptions: Vec<String>,
-    ) -> Result<String, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn prove_and_monitor_stark(
-        &self,
-        _image_id: &str,
-        _input_id: &str,
-        _assumptions: Vec<String>,
-    ) -> Result<ProofResult, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn wait_for_stark(&self, _proof_id: &str) -> Result<ProofResult, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn cancel_stark(&self, _proof_id: &str) -> Result<(), ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn get_receipt(&self, _proof_id: &str) -> Result<Option<Receipt>, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn get_preflight_journal(&self, _proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn get_journal(&self, _proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn compress(&self, _proof_id: &str) -> Result<String, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn get_compressed_receipt(
-        &self,
-        _proof_id: &str,
-    ) -> Result<Option<Vec<u8>>, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn compress_blake3_groth16(&self, _proof_id: &str) -> Result<String, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
-
-    async fn get_blake3_groth16_receipt(
-        &self,
-        _proof_id: &str,
-    ) -> Result<Option<Vec<u8>>, ProverError> {
-        Err(ProverError::UnexpectedError(anyhow!("No local executor provided")))
-    }
 }
 
 /// Trait containing ZKVM types and functions
