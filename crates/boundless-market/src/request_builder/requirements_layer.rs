@@ -128,24 +128,6 @@ impl RequirementParams {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn rejects_class_signed_blake3() {
-        let layer = RequirementsLayer::default();
-        let params: RequirementParams =
-            RequirementParams::builder().selector(R0_GROTH16_BLAKE3_CLASS_ID).into();
-        let journal = Journal::new(vec![0u8; 32]);
-        let err = layer
-            .process((Digest::default(), &journal, &params))
-            .await
-            .expect_err("class-signed blake3 must be rejected");
-        assert!(err.to_string().contains("is not supported"), "unexpected error: {err}");
-    }
-}
-
 impl RequirementsLayer {
     /// Creates a new builder for constructing a [RequirementsLayer].
     ///
@@ -276,5 +258,23 @@ impl Adapt<RequirementsLayer> for RequestParams {
         };
 
         Ok(self.with_requirements(RequirementParams::try_from(requirements)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn rejects_class_signed_blake3() {
+        let layer = RequirementsLayer::default();
+        let params: RequirementParams =
+            RequirementParams::builder().selector(R0_GROTH16_BLAKE3_CLASS_ID).into();
+        let journal = Journal::new(vec![0u8; 32]);
+        let err = layer
+            .process((Digest::default(), &journal, &params))
+            .await
+            .expect_err("class-signed blake3 must be rejected");
+        assert!(err.to_string().contains("is not supported"), "unexpected error: {err}");
     }
 }
