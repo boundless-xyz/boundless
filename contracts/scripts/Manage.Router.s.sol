@@ -16,14 +16,20 @@ import {R0BoundlessVerifierAdapter} from "../src/router/adapters/R0BoundlessVeri
 import {R0BoundlessAssessorAdapter} from "../src/router/adapters/R0BoundlessAssessorAdapter.sol";
 import {OnChainAssessor} from "../src/router/adapters/OnChainAssessor.sol";
 import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
+import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {RouterConfig} from "./RouterConfig.s.sol";
 
-/// @dev Common base for router-management scripts. Reads the router proxy
-///      address and broadcaster key from the environment.
+/// @dev Common base for router-management scripts. Inputs resolve from the `CHAIN_KEY`
+///      section of `deployment.toml`, each overridable by an env var of the listed name.
 abstract contract RouterManageBase is BoundlessScriptBase {
-    function _router() internal view returns (BoundlessRouter) {
-        address routerAddress = vm.envAddress("BOUNDLESS_ROUTER");
-        require(routerAddress != address(0), "BOUNDLESS_ROUTER must be set");
+    function _config() internal view returns (DeploymentConfig memory) {
+        return ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
+    }
+
+    /// @dev Router proxy: `BOUNDLESS_ROUTER`, else the section's `boundless-router`.
+    function _router(DeploymentConfig memory deploymentConfig) internal view returns (BoundlessRouter) {
+        address routerAddress = vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter);
+        require(routerAddress != address(0), "set boundless-router in deployment.toml or BOUNDLESS_ROUTER");
         return BoundlessRouter(routerAddress);
     }
 
@@ -79,23 +85,27 @@ abstract contract RouterManageBase is BoundlessScriptBase {
 ///         dynamic selectors), and the set verifier's own `SELECTOR()` (guest-version
 ///         derived, read on-chain).
 ///
-///         Required env:
-///           BOUNDLESS_ROUTER       — router proxy address
-///           DEPLOYER_PRIVATE_KEY   — broadcaster (must hold ADMIN_ROLE on the router)
-///           R0_ROUTER              — upstream `RiscZeroVerifierRouter`
-///           SET_VERIFIER           — `RiscZeroSetVerifier` address (set-inclusion entry
-///                                    + underlying verifier of the R0 assessor adapter)
-///           ASSESSOR_IMAGE_ID      — assessor guest image id bound by the R0 assessor entry
+///         Inputs come from the `CHAIN_KEY` section of `deployment.toml`, each
+///         overridable by env var:
+///           BOUNDLESS_ROUTER    <- boundless-router      router proxy address
+///           R0_ROUTER           <- application-verifier  upstream verifier router serving
+///                                  the canonical groth16 / blake3-groth16 selectors
+///           SET_VERIFIER        <- set-verifier          set-inclusion entry + underlying
+///                                  verifier of the R0 assessor adapter
+///           ASSESSOR_IMAGE_ID   <- assessor-image-id     bound by the R0 assessor entry
+///         DEPLOYER_PRIVATE_KEY — broadcaster (must hold ADMIN_ROLE on the router).
 contract BootstrapRouter is RouterManageBase {
     function run() external {
-        BoundlessRouter router = _router();
-        RiscZeroVerifierRouter r0Router = RiscZeroVerifierRouter(vm.envAddress("R0_ROUTER"));
-        address setVerifier = vm.envAddress("SET_VERIFIER");
-        bytes32 assessorImageId = vm.envBytes32("ASSESSOR_IMAGE_ID");
+        DeploymentConfig memory deploymentConfig = _config();
+        BoundlessRouter router = _router(deploymentConfig);
+        RiscZeroVerifierRouter r0Router =
+            RiscZeroVerifierRouter(vm.envOr("R0_ROUTER", deploymentConfig.applicationVerifier));
+        address setVerifier = vm.envOr("SET_VERIFIER", deploymentConfig.setVerifier);
+        bytes32 assessorImageId = vm.envOr("ASSESSOR_IMAGE_ID", deploymentConfig.assessorImageId);
 
-        require(address(r0Router) != address(0), "R0_ROUTER must be set");
-        require(setVerifier != address(0), "SET_VERIFIER must be set");
-        require(assessorImageId != bytes32(0), "ASSESSOR_IMAGE_ID must be set");
+        require(address(r0Router) != address(0), "set application-verifier in deployment.toml or R0_ROUTER");
+        require(setVerifier != address(0), "set set-verifier in deployment.toml or SET_VERIFIER");
+        require(assessorImageId != bytes32(0), "set assessor-image-id in deployment.toml or ASSESSOR_IMAGE_ID");
 
         _broadcast();
 
@@ -182,13 +192,13 @@ contract BootstrapRouter is RouterManageBase {
 /// @notice Tombstone an entry in the router. Once removed, the bytes4 cannot
 ///         be reused for any class or impl. Use after a broker rollover when
 ///         a deprecated assessor or verifier is no longer reachable.
-/// @dev    Required env:
-///           BOUNDLESS_ROUTER       — router proxy address
+/// @dev    Router from the `CHAIN_KEY` section's `boundless-router` (env-overridable).
+///         Required env:
 ///           DEPLOYER_PRIVATE_KEY   — broadcaster (must hold ADMIN_ROLE)
 ///           ENTRY_SELECTOR         — bytes4 to tombstone
 contract RemoveEntry is RouterManageBase {
     function run() external {
-        BoundlessRouter router = _router();
+        BoundlessRouter router = _router(_config());
         bytes4 selector = bytes4(vm.envBytes32("ENTRY_SELECTOR"));
         require(selector != bytes4(0), "ENTRY_SELECTOR must be non-zero");
 
@@ -205,13 +215,13 @@ contract RemoveEntry is RouterManageBase {
 ///         ADMIN_ROLE to the new admin and renounces the deployer's role, so the
 ///         bootstrap can run as a plain EOA and governance receives a configured
 ///         router. Future class / entry mutations are then admin transactions.
-/// @dev    Required env:
-///           BOUNDLESS_ROUTER       — router proxy address
+/// @dev    Router from the `CHAIN_KEY` section's `boundless-router` (env-overridable).
+///         Required env:
 ///           DEPLOYER_PRIVATE_KEY   — current admin (the bring-up EOA)
 ///           NEW_ADMIN              — address receiving ADMIN_ROLE
 contract TransferRouterAdmin is RouterManageBase {
     function run() external {
-        BoundlessRouter router = _router();
+        BoundlessRouter router = _router(_config());
         address newAdmin = vm.envAddress("NEW_ADMIN");
         require(newAdmin != address(0), "NEW_ADMIN must be set");
 

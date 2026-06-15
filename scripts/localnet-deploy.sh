@@ -104,6 +104,7 @@ echo "Deploying BoundlessRouter..."
 ROUTER_ADMIN="${ROUTER_ADMIN:-$BOUNDLESS_MARKET_OWNER}"
 DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
 ROUTER_ADMIN="$ROUTER_ADMIN" \
+CHAIN_KEY="$CHAIN_KEY" \
 forge script contracts/scripts/Deploy.Router.s.sol \
     --rpc-url "$ANVIL_RPC" \
     --broadcast -vv || { echo "Failed to deploy BoundlessRouter"; exit 1; }
@@ -150,6 +151,7 @@ ASSESSOR_SELECTOR_BYTES32="0x000000240000000000000000000000000000000000000000000
 
 echo "Bootstrapping BoundlessRouter classes and entries..."
 DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+CHAIN_KEY="$CHAIN_KEY" \
 BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
 R0_ROUTER="$VERIFIER_ADDRESS" \
 SET_VERIFIER="$SET_VERIFIER_ADDRESS" \
