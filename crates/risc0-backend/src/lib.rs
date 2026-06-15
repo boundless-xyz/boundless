@@ -202,7 +202,7 @@ impl Risc0Backend {
         dev_mode: bool,
     ) -> RouterPolicy {
         RouterPolicy::new(
-            registry,
+            Arc::new(registry),
             Self::producible(set_inclusion_selector, dev_mode),
             ASSESSOR_PRIORITY.to_vec(),
         )
@@ -222,21 +222,24 @@ impl Risc0Backend {
     }
 
     /// The verifier selectors this backend can produce, each paired with the selector it emits in
-    /// a seal (`UNSPECIFIED_SELECTOR` denotes set-inclusion). The set-inclusion entry is listed
-    /// last so it wins the policy's class-to-producible mapping (its batched path is preferred for
-    /// class-id / chain-default signatures).
+    /// a seal (`UNSPECIFIED_SELECTOR` denotes set-inclusion), **in descending preference**. When a
+    /// requestor signs a class id that holds several of these, [`RouterPolicy`] emits the first
+    /// (most-preferred) one registered in that class. In dev mode the broker produces fake
+    /// receipts, so the fake selectors are listed first — they win their proof-type class over the
+    /// real selectors, which the broker cannot actually produce under `RISC0_DEV_MODE`.
     fn producible(
         set_inclusion_selector: FixedBytes<4>,
         dev_mode: bool,
     ) -> Vec<(FixedBytes<4>, FixedBytes<4>)> {
-        let mut producible: Vec<(FixedBytes<4>, FixedBytes<4>)> = vec![
-            (SELECTOR_GROTH16_V3_0, SELECTOR_GROTH16_V3_0),
-            (SELECTOR_BLAKE3_GROTH16_V0_1, SELECTOR_BLAKE3_GROTH16_V0_1),
-        ];
+        let mut producible: Vec<(FixedBytes<4>, FixedBytes<4>)> = Vec::new();
+        // Dev fakes first: under RISC0_DEV_MODE the broker emits fake-receipt seals, so they are
+        // the preferred (and only producible) version for their proof-type classes.
         if dev_mode {
             producible.push((SELECTOR_FAKE_RECEIPT, SELECTOR_FAKE_RECEIPT));
             producible.push((SELECTOR_FAKE_BLAKE3_GROTH16, SELECTOR_FAKE_BLAKE3_GROTH16));
         }
+        producible.push((SELECTOR_GROTH16_V3_0, SELECTOR_GROTH16_V3_0));
+        producible.push((SELECTOR_BLAKE3_GROTH16_V0_1, SELECTOR_BLAKE3_GROTH16_V0_1));
         producible.push((set_inclusion_selector, UNSPECIFIED_SELECTOR));
         producible
     }
@@ -434,26 +437,11 @@ impl Risc0Backend {
         Ok((Arc::clone(&prover), prover))
     }
 
-    fn selectors() -> Vec<FixedBytes<4>> {
-        Self::selectors_for(is_dev_mode())
-    }
-
-    /// Verifier selectors this backend serves. `dev_mode` adds the dev-only fake-proof
-    /// selectors; production selector routing uses only the non-dev set.
-    fn selectors_for(dev_mode: bool) -> Vec<FixedBytes<4>> {
-        let mut selectors =
-            vec![UNSPECIFIED_SELECTOR, SELECTOR_GROTH16_V3_0, SELECTOR_BLAKE3_GROTH16_V0_1];
-        if dev_mode {
-            selectors.push(SELECTOR_FAKE_RECEIPT);
-            selectors.push(SELECTOR_FAKE_BLAKE3_GROTH16);
-        }
-        selectors
-    }
-
     /// Maps a requestor-signed selector to the concrete verifier selector this backend produces:
-    /// a signed router verifier *class id* becomes the producible entry selector for that class
-    /// (`UNSPECIFIED_SELECTOR` → set-inclusion); a specific entry selector or the default sentinel
-    /// passes through unchanged.
+    /// a signed router verifier *class id* becomes the producible entry selector for that class,
+    /// a producible entry selector becomes the selector its seal is emitted with (the
+    /// set-inclusion entry → `UNSPECIFIED_SELECTOR`, root-proof entries are identity), and the
+    /// default sentinel passes through unchanged.
     fn normalize_selector(&self, signed: FixedBytes<4>) -> FixedBytes<4> {
         self.router_policy.producible_selector(signed).unwrap_or(signed)
     }
@@ -864,15 +852,7 @@ impl Backend for Risc0Backend {
     }
 
     fn supported_selectors(&self) -> Vec<FixedBytes<4>> {
-        // The hardcoded entry selectors + default sentinel this backend can produce AND seal (the
-        // router must register them and a candidate assessor for their verifier class), plus the
-        // fully-supported router verifier class ids a requestor may sign against.
-        let mut selectors: Vec<FixedBytes<4>> = Self::selectors()
-            .into_iter()
-            .filter(|sel| self.router_policy.assessor_selector_for_signed(*sel).is_some())
-            .collect();
-        selectors.extend(self.router_policy.supported_classes().iter().copied());
-        selectors
+        self.router_policy.supported_selectors()
     }
 
     fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType> {
@@ -1289,6 +1269,21 @@ mod tests {
         FixedBytes::from(selector as u32)
     }
 
+    /// The static selector table the backend can produce root or aggregated seals for.
+    /// `dev_mode` adds the dev-only fake-proof selectors; the guest-version-derived
+    /// set-inclusion selector is deliberately absent (it is supported via the router policy's
+    /// producible set, not this constant table) — these tests only assert the constant
+    /// selectors classify and route consistently.
+    fn static_selectors_for(dev_mode: bool) -> Vec<FixedBytes<4>> {
+        let mut selectors =
+            vec![UNSPECIFIED_SELECTOR, SELECTOR_GROTH16_V3_0, SELECTOR_BLAKE3_GROTH16_V0_1];
+        if dev_mode {
+            selectors.push(SELECTOR_FAKE_RECEIPT);
+            selectors.push(SELECTOR_FAKE_BLAKE3_GROTH16);
+        }
+        selectors
+    }
+
     #[test]
     fn risc0_supports_current_risc0_selectors() {
         assert!(supports_risc0_selector(UNSPECIFIED_SELECTOR));
@@ -1319,7 +1314,7 @@ mod tests {
     fn every_supported_selector_is_classified() {
         // Every selector the backend serves must classify, for both the dev and production sets.
         for dev_mode in [false, true] {
-            for selector in Risc0Backend::selectors_for(dev_mode) {
+            for selector in static_selectors_for(dev_mode) {
                 assert!(
                     proof_type_for_selector(selector).is_some(),
                     "selector {selector:?} (dev_mode={dev_mode}) is served but not classified"
@@ -1332,7 +1327,7 @@ mod tests {
     fn classification_and_routing_dispatchers_agree() {
         // Compressed-seal selectors must submit directly; non-compressed selectors must batch.
         for dev_mode in [false, true] {
-            for selector in Risc0Backend::selectors_for(dev_mode) {
+            for selector in static_selectors_for(dev_mode) {
                 let compression = compression_type_for_selector(selector);
                 let submission_path = submission_path_for_risc0_selector(selector);
                 let expects_direct = !matches!(compression, CompressionType::None);
@@ -1348,7 +1343,7 @@ mod tests {
 
     #[test]
     fn production_selectors_exclude_dev_fakes() {
-        let prod = Risc0Backend::selectors_for(false);
+        let prod = static_selectors_for(false);
         let fake_receipt = selector_ext(SelectorExt::FakeReceipt);
         let fake_blake3 = selector_ext(SelectorExt::FakeBlake3Groth16);
         assert!(prod.contains(&UNSPECIFIED_SELECTOR));
@@ -1356,7 +1351,7 @@ mod tests {
         assert!(!prod.contains(&fake_blake3), "production set must not include FakeBlake3Groth16");
 
         // The dev set is a strict superset of the production set.
-        let dev = Risc0Backend::selectors_for(true);
+        let dev = static_selectors_for(true);
         for selector in &prod {
             assert!(dev.contains(selector), "dev set is missing production selector {selector:?}");
         }
@@ -1427,20 +1422,34 @@ mod tests {
         assert_eq!(policy.assessor_selector_for_signed(UNSPECIFIED_SELECTOR), None);
     }
 
-    /// `supported_selectors` only advertises what the backend can actually seal: the static
-    /// selectors registered with a reachable assessor, plus the supported verifier class ids.
+    /// `supported_selectors` advertises only what the backend can actually seal: the default
+    /// sentinel, every registry-covered producible entry selector with a reachable assessor, and
+    /// the supported verifier class ids.
     #[tokio::test]
     async fn supported_selectors_follow_assessor_availability() {
         let backend = guard_test_backend().await;
         let selectors = backend.supported_selectors();
         assert!(selectors.contains(&UNSPECIFIED_SELECTOR));
+        // Every registry-covered producible entry selector — root proofs, the dev-mode fakes
+        // (the test policy is built with dev_mode), and the guest-version-derived set-inclusion
+        // selector, so an exact-version pin of the default proof type is accepted.
         assert!(selectors.contains(&SELECTOR_GROTH16_V3_0));
+        assert!(selectors.contains(&SELECTOR_BLAKE3_GROTH16_V0_1));
+        assert!(selectors.contains(&SELECTOR_FAKE_RECEIPT));
+        assert!(selectors.contains(&SELECTOR_FAKE_BLAKE3_GROTH16));
+        let set_inclusion = boundless_test_utils::market::set_verifier_selector(Risc0Digest::ZERO);
+        assert!(
+            selectors.contains(&set_inclusion),
+            "set-inclusion entry selector {set_inclusion} must be supported (the default proof path)"
+        );
         // One supported class id per proof type the backend can produce in.
         assert!(selectors.contains(&boundless_test_utils::market::R0_SET_INCLUSION_CLASS_ID));
         assert!(selectors.contains(&boundless_test_utils::market::R0_GROTH16_CLASS_ID));
         assert!(selectors.contains(&boundless_test_utils::market::R0_GROTH16_BLAKE3_CLASS_ID));
 
-        // TODO: shouldn't it have all entry selectors here as well?
+        // A set-inclusion pin normalizes to the seal the backend emits for it (the
+        // unspecified-selector aggregated path), so pricing classifies it as a known proof type.
+        assert_eq!(backend.proof_type(set_inclusion), Some(ProofType::Any));
     }
 
     async fn guard_test_backend() -> Risc0Backend {
