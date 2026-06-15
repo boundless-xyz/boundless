@@ -51,7 +51,7 @@ use crate::{
         AbsentLocalExecutor, Finalizer, FinalizerConfigBuilder, LocalExecutor, OfferLayer,
         OfferLayerConfigBuilder, ParameterizationMode, PreflightLayer, RequestBuilder,
         RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
-        StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
+        StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder, ZkvmOps,
     },
     storage::{
         StandardDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
@@ -520,11 +520,9 @@ impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
             client = client.with_timeout(timeout);
         }
 
-        if let Some(skip_preflight) = self.skip_preflight {
-            client = client.with_skip_preflight(skip_preflight);
-        } else if self.preflight_executor.is_none() {
-            bail!("preflight not skipped and no preflight executor provided");
-        }
+        let skip_preflight =
+            self.skip_preflight.unwrap_or_else(|| self.preflight_executor.is_none());
+        client = client.with_skip_preflight(skip_preflight);
 
         Ok(client)
     }
@@ -648,9 +646,12 @@ impl<Z, U, D, S> ClientBuilder<Z, U, D, S> {
         }
     }
 
-    /// Set the signer and wallet.
-    pub fn with_zkvm<Zi>(self, zkvm_ops: Zi) -> ClientBuilder<Zi, U, D, S> {
+    /// Set the ZKVM ops used for preflight execution and request evaluation.
+    ///
+    /// Automatically uses the zkvm's executor for preflight if none was explicitly provided.
+    pub fn with_zkvm<Zi: ZkvmOps>(self, zkvm_ops: Zi) -> ClientBuilder<Zi, U, D, S> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
+        let executor = zkvm_ops.executor();
         ClientBuilder {
             zkvm_ops: Some(zkvm_ops),
             signer: self.signer,
@@ -669,7 +670,7 @@ impl<Z, U, D, S> ClientBuilder<Z, U, D, S> {
             request_finalizer_config: self.request_finalizer_config,
             funding_mode: self.funding_mode,
             skip_preflight: self.skip_preflight,
-            preflight_executor: self.preflight_executor,
+            preflight_executor: self.preflight_executor.or_else(|| Some(executor)),
         }
     }
 

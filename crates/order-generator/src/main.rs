@@ -37,6 +37,15 @@ use boundless_market::{
 };
 use clap::Parser;
 use rand::Rng;
+
+type Risc0Client = Client<
+    Risc0ZkvmOps,
+    DynProvider,
+    StandardUploader,
+    StandardDownloader,
+    StandardRequestBuilder<Risc0ZkvmOps, DynProvider, StandardUploader, StandardDownloader>,
+    PrivateKeySigner,
+>;
 use risc0_zkvm::Journal;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
@@ -331,14 +340,7 @@ async fn run(args: &MainArgs) -> Result<()> {
 
 async fn handle_loop_request(
     args: &MainArgs,
-    client: &Client<
-        Risc0ZkvmOps,
-        DynProvider,
-        StandardUploader,
-        StandardDownloader,
-        StandardRequestBuilder<Risc0ZkvmOps, DynProvider, StandardUploader, StandardDownloader>,
-        PrivateKeySigner,
-    >,
+    client: &Risc0Client,
     program: &[u8],
     program_url: &url::Url,
 ) -> Result<()> {
@@ -463,14 +465,7 @@ async fn handle_loop_request(
 
 async fn handle_zeth_request(
     args: &MainArgs,
-    client: &Client<
-        Risc0ZkvmOps,
-        DynProvider,
-        StandardUploader,
-        StandardDownloader,
-        StandardRequestBuilder<Risc0ZkvmOps, DynProvider, StandardUploader, StandardDownloader>,
-        PrivateKeySigner,
-    >,
+    client: &Risc0Client,
     program: &[u8],
     program_url: &url::Url,
     input: &[u8],
