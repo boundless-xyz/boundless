@@ -58,11 +58,6 @@ where
         Self { executor, downloader }
     }
 
-    /// Get a clone of the executor used by this layer.
-    pub fn executor_cloned(&self) -> Arc<dyn LocalExecutor> {
-        self.executor.clone()
-    }
-
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             RequestInputType::Inline => GuestEnv::decode(&input.data)?,
