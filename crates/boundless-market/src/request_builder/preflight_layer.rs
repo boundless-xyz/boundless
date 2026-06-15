@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{AbsentLocalExecutor, Adapt, LocalExecutor, RequestParams};
+use super::{LocalExecutor, RequestParams, ZkvmOps};
 use crate::{
     contracts::{RequestInput, RequestInputType},
     input::GuestEnv,
     storage::StorageDownloader,
-    NotProvided,
 };
 use anyhow::{bail, ensure, Context};
-use std::sync::Arc;
 
 /// A layer that performs preflight execution of the guest program.
 ///
@@ -37,15 +35,13 @@ use std::sync::Arc;
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct PreflightLayer<D> {
-    executor: Arc<dyn LocalExecutor>,
-
     /// The downloader used to fetch programs and inputs from URLs.
     downloader: Option<D>,
 }
 
 impl<D> Default for PreflightLayer<D> {
     fn default() -> Self {
-        Self { executor: Arc::new(AbsentLocalExecutor) as Arc<dyn LocalExecutor>, downloader: None }
+        Self { downloader: None }
     }
 }
 
@@ -53,9 +49,9 @@ impl<D> PreflightLayer<D>
 where
     D: StorageDownloader,
 {
-    /// Creates a new [PreflightLayer] with the given executor and downloader.
-    pub fn new(executor: Arc<dyn LocalExecutor>, downloader: Option<D>) -> Self {
-        Self { executor, downloader }
+    /// Creates a new [PreflightLayer] with the given downloader.
+    pub fn new(downloader: Option<D>) -> Self {
+        Self { downloader }
     }
 
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
@@ -97,7 +93,11 @@ where
     }
 
     /// Best-effort: fills executor cache when we have all precomputed data.
-    async fn fill_executor_cache_if_ready(&self, params: &RequestParams) {
+    async fn fill_executor_cache_if_ready(
+        &self,
+        executor: &dyn LocalExecutor,
+        params: &RequestParams,
+    ) {
         let (Some(image_id), Some(request_input), Some(cycles), Some(journal)) = (
             params.image_id,
             params.request_input.as_ref(),
@@ -110,14 +110,15 @@ where
             return;
         };
         tracing::debug!("Filling executor cache for {image_id} with {cycles} cycles");
-        self.executor
+        executor
             .insert_execution_data(&image_id.to_string(), &env.stdin, cycles, journal.bytes.clone())
             .await;
     }
 }
 
-impl<D> Adapt<PreflightLayer<D>> for RequestParams
+impl<'a, Z, D> super::Adapt<(&'a PreflightLayer<D>, &'a Z)> for RequestParams
 where
+    Z: ZkvmOps,
     D: StorageDownloader,
 {
     type Output = RequestParams;
@@ -125,11 +126,13 @@ where
 
     async fn process_with(
         mut self,
-        layer: &PreflightLayer<D>,
+        (layer, zkvm_ops): &(&'a PreflightLayer<D>, &'a Z),
     ) -> Result<Self::Output, Self::Error> {
+        let executor = zkvm_ops.executor();
+
         if self.cycles.is_some() && self.journal.is_some() {
             self = layer.ensure_image_id(self).await?;
-            layer.fill_executor_cache_if_ready(&self).await;
+            layer.fill_executor_cache_if_ready(&*executor, &self).await;
             return Ok(self);
         }
 
@@ -138,21 +141,16 @@ where
         let program_url = self.require_program_url().context("failed to preflight request")?;
         let request_input = self.require_request_input().context("failed to preflight request")?;
 
-        // Fetch program and input
         let downloader =
             layer.downloader.as_ref().context("cannot preflight URL request without downloader")?;
         let program = downloader.download(program_url.as_str()).await?;
         let env = layer.fetch_env(request_input).await?;
-        // Use env.stdin directly - this matches what the pricing logic uses for hashing
         let input_bytes = env.stdin;
 
-        // Compute image_id from the program
         let image_id = risc0_zkvm::compute_image_id(&program)?;
         let image_id_str = image_id.to_string();
 
-        // Execute using LocalExecutor (with deduplication)
-        let (stats, journal) = layer
-            .executor
+        let (stats, journal) = executor
             .execute_program(&image_id_str, &program, &input_bytes)
             .await
             .map_err(|e| anyhow::anyhow!("preflight execution failed: {}", e))?;
@@ -160,7 +158,6 @@ where
         let cycles = stats.total_cycles;
         let journal = risc0_zkvm::Journal::new(journal);
 
-        // Verify image_id if one was provided
         if let Some(provided_image_id) = self.image_id {
             ensure!(
                 provided_image_id == image_id,
@@ -169,21 +166,5 @@ where
         }
 
         Ok(self.with_cycles(cycles).with_journal(journal).with_image_id(image_id))
-    }
-}
-
-impl Adapt<PreflightLayer<NotProvided>> for RequestParams {
-    type Output = RequestParams;
-    type Error = anyhow::Error;
-
-    async fn process_with(
-        self,
-        _: &PreflightLayer<NotProvided>,
-    ) -> Result<Self::Output, Self::Error> {
-        if self.cycles.is_some() && self.journal.is_some() {
-            return Ok(self);
-        }
-
-        bail!("cannot preflight program without downloader")
     }
 }

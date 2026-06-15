@@ -188,10 +188,7 @@ pub trait LocalExecutor: Prover + Sync + Send {
 }
 
 /// This local executor only errors when asked to execute a program.
-///
-/// The `RequestBuilder` usage in `ClientBuilder` prevents this from happening but is useful to
-/// make the `RequestBuilder` and `PreflightLayer` compile when the code paths that call this
-/// aren't configured to be used (`skip_preflight`).
+#[allow(dead_code)]
 pub struct AbsentLocalExecutor;
 
 #[async_trait]
@@ -431,9 +428,12 @@ where
         &self,
         params: RequestParams,
     ) -> Result<ProofRequest, anyhow::Error> {
+        let params = if let Some(zkvm_ops) = &self.zkvm_ops {
+            params.process_with(&(&self.preflight_layer, zkvm_ops)).await?
+        } else {
+            params
+        };
         let params = params
-            .process_with(&self.preflight_layer)
-            .await?
             .process_with(&self.requirements_layer)
             .await?
             .process_with(&self.request_id_layer)
@@ -473,7 +473,6 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
     RequestParams: Adapt<StorageLayer<S>, Output = RequestParams, Error = anyhow::Error>,
-    RequestParams: Adapt<PreflightLayer<D>, Output = RequestParams, Error = anyhow::Error>,
 {
     type Output = ProofRequest;
     type Error = anyhow::Error;
@@ -1203,7 +1202,7 @@ mod tests {
         let request_builder = StandardRequestBuilder::builder()
             .zkvm_ops(zkvm.clone())
             .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -1232,7 +1231,7 @@ mod tests {
         let request_builder = StandardRequestBuilder::builder()
             .zkvm_ops(zkvm.clone())
             .storage_layer(Some(storage))
-            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder().build()?,
@@ -1264,7 +1263,7 @@ mod tests {
         let request_builder = StandardRequestBuilder::builder()
             .zkvm_ops(zkvm.clone())
             .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder()
@@ -1298,7 +1297,7 @@ mod tests {
 
         let request_builder = StandardRequestBuilder::builder::<Risc0ZkvmOps, _, NotProvided, _>()
             .zkvm_ops(zkvm.clone())
-            .preflight_layer(PreflightLayer::new(zkvm.executor(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -1397,14 +1396,14 @@ mod tests {
         let downloader = HttpDownloader::new(None, None);
         let program_url = uploader.upload_program(ECHO_ELF).await?;
         let zkvm = Risc0ZkvmOps::new().await;
-        let layer = PreflightLayer::new(zkvm.executor(), Some(downloader));
+        let layer = PreflightLayer::new(Some(downloader));
         let data = b"hello_zkvm".to_vec();
         let env = GuestEnv::from_stdin(data.clone());
         let input = RequestInput::inline(env.encode()?);
 
         // Create RequestParams and process through the layer
         let params = RequestParams::new().with_program_url(program_url)?.with_request_input(input);
-        let result = params.process_with(&layer).await?;
+        let result = params.process_with(&(&layer, &zkvm)).await?;
 
         assert_eq!(result.journal.unwrap().bytes, data);
         // Verify non-zero cycle count
@@ -1417,7 +1416,7 @@ mod tests {
     async fn test_preflight_layer_cache_prefill() -> anyhow::Result<()> {
         // Create layer with shared executor
         let zkvm = Risc0ZkvmOps::new().await;
-        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::new(zkvm.executor(), None);
+        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::new(None);
 
         // Create params with pre-computed values
         let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
@@ -1437,7 +1436,7 @@ mod tests {
             .with_request_input(request_input);
 
         // Process through layer (should return early since cycles and journal are provided)
-        let result = params.process_with(&layer).await?;
+        let result = params.process_with(&(&layer, &zkvm)).await?;
 
         // Verify params unchanged
         assert_eq!(result.cycles, Some(cycles));
