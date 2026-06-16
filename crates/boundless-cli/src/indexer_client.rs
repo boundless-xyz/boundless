@@ -202,27 +202,56 @@ impl IndexerClient {
     }
 
     /// Get reward delegation history for a specific address
-    /// Returns the epochs where this address receives delegated reward power
+    /// Returns the epochs where this address receives delegated reward power.
+    ///
+    /// The endpoint returns epochs newest-first and caps `limit` at 100, so we
+    /// walk every page. Fetching only the default first page would silently drop
+    /// older epochs and understate the address's unclaimed rewards.
     pub async fn get_reward_delegation_history(
         &self,
         address: Address,
     ) -> Result<RewardDelegationHistoryResponse> {
-        let url = self
-            .base_url
-            .join(&format!("v1/delegations/rewards/addresses/{:#x}", address))
-            .context("Failed to build URL")?;
+        const PAGE_SIZE: u32 = 100;
 
-        let response =
-            self.client.get(url.clone()).send().await.with_context(|| {
+        let mut entries = Vec::new();
+        let mut offset = 0u32;
+
+        loop {
+            let url = self
+                .base_url
+                .join(&format!(
+                    "v1/delegations/rewards/addresses/{:#x}?limit={}&offset={}",
+                    address, PAGE_SIZE, offset
+                ))
+                .context("Failed to build URL")?;
+
+            let response = self.client.get(url.clone()).send().await.with_context(|| {
                 format!("Failed to fetch reward delegation history from {}", url)
             })?;
 
-        if !response.status().is_success() {
-            bail!("API error from {}: {}", url, response.status());
+            if !response.status().is_success() {
+                bail!("API error from {}: {}", url, response.status());
+            }
+
+            let page: RewardDelegationHistoryResponse =
+                response.json().await.with_context(|| {
+                    format!("Failed to parse reward delegation history response from {}", url)
+                })?;
+
+            let page_len = page.entries.len();
+            entries.extend(page.entries);
+
+            // A short (or empty) page means we've reached the end of the history.
+            if page_len < PAGE_SIZE as usize {
+                break;
+            }
+            offset += PAGE_SIZE;
         }
 
-        response.json().await.with_context(|| {
-            format!("Failed to parse reward delegation history response from {}", url)
+        let count = entries.len() as u32;
+        Ok(RewardDelegationHistoryResponse {
+            entries,
+            pagination: PaginationInfo { count, offset: 0, limit: count },
         })
     }
 }

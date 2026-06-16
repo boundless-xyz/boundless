@@ -103,9 +103,18 @@ impl RewardsListStakingRewards {
             .context("Failed to query current epoch")?
             .to::<u64>();
 
-        // Set epoch range with defaults
+        // Set epoch range with defaults. Default the start to the address's first
+        // participating epoch so the full claimable history is shown rather than a
+        // recent window, which would understate unclaimed rewards.
         let end_epoch = self.end_epoch.unwrap_or(current_epoch);
-        let start_epoch = self.start_epoch.unwrap_or_else(|| end_epoch.saturating_sub(5));
+        let start_epoch = self.start_epoch.unwrap_or_else(|| {
+            delegation_history
+                .entries
+                .iter()
+                .filter_map(|entry| entry.epoch)
+                .min()
+                .unwrap_or_else(|| end_epoch.saturating_sub(5))
+        });
 
         // Create epoch data structures
         struct EpochRewardData {
