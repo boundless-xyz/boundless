@@ -73,7 +73,11 @@ where
     }
 
     /// Ensures image_id is set, computing from program (inline or fetched) if needed.
-    async fn ensure_image_id(&self, params: RequestParams) -> anyhow::Result<RequestParams> {
+    async fn ensure_image_id<Z: ZkvmOps>(
+        &self,
+        zkvm_ops: &Z,
+        params: RequestParams,
+    ) -> anyhow::Result<RequestParams> {
         if params.image_id.is_some() {
             return Ok(params);
         }
@@ -88,7 +92,7 @@ where
                 downloader.download(url.as_str()).await?
             }
         };
-        let image_id = risc0_zkvm::compute_image_id(&program)?;
+        let image_id = zkvm_ops.compute_image_id(&program)?;
         Ok(params.with_image_id(image_id))
     }
 
@@ -126,12 +130,12 @@ where
 
     async fn process_with(
         mut self,
-        (layer, zkvm_ops): &(&'a PreflightLayer<D>, &'a Z),
+        &(layer, zkvm_ops): &(&'a PreflightLayer<D>, &'a Z),
     ) -> Result<Self::Output, Self::Error> {
         let executor = zkvm_ops.executor();
 
         if self.cycles.is_some() && self.journal.is_some() {
-            self = layer.ensure_image_id(self).await?;
+            self = layer.ensure_image_id(zkvm_ops, self).await?;
             layer.fill_executor_cache_if_ready(&*executor, &self).await;
             return Ok(self);
         }
@@ -147,7 +151,7 @@ where
         let env = layer.fetch_env(request_input).await?;
         let input_bytes = env.stdin;
 
-        let image_id = risc0_zkvm::compute_image_id(&program)?;
+        let image_id = zkvm_ops.compute_image_id(&program)?;
         let image_id_str = image_id.to_string();
 
         let (stats, journal) = executor
