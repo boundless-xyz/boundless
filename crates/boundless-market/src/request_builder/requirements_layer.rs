@@ -15,7 +15,7 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 #[cfg(feature = "blake3-groth16")]
 use crate::blake3_groth16;
-use crate::contracts::{Callback, Predicate, Requirements, R0_GROTH16_BLAKE3_CLASS_ID};
+use crate::contracts::{Callback, Predicate, Requirements};
 #[cfg(feature = "blake3-groth16")]
 use crate::selector::is_blake3_groth16_selector;
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
@@ -159,29 +159,6 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         &self,
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
-        // TODO: validate the signed selector against a live on-chain BoundlessRouter
-        // snapshot instead of this single hardcoded rule. The SDK holds no registry view
-        // today, so it accepts any selector and only rejects the one provably-broken case
-        // below; an unknown or unsupported selector fails silently downstream (no broker
-        // locks it, or the router reverts EntryUnknown at fulfillment). Reusing the
-        // RouterRegistry/RouterPolicy the broker already builds would let the SDK warn when
-        // a signed selector has no registered entry or class, surface whether a class is
-        // permissionless, and derive the blake3-class rejection from registry semantics
-        // rather than a hardcoded constant.
-        //
-        // Blake3-groth16 is the one proof type whose claim-digest construction folds the
-        // verifier's control root into the digest (see `Blake3Groth16ReceiptClaim`), so its
-        // predicate binds one specific verifier version. That contradicts the any-version
-        // meaning of signing a class id, so class-signed blake3 cannot be expressed and is
-        // rejected here.
-        ensure!(
-            params.selector != Some(R0_GROTH16_BLAKE3_CLASS_ID),
-            "signing the blake3-groth16 class id ({R0_GROTH16_BLAKE3_CLASS_ID}) is not supported: \
-             blake3's claim-digest construction embeds the verifier's control root, binding the \
-             predicate to one verifier version, so an any-version class request cannot be \
-             expressed; sign the registered blake3 entry selector instead"
-        );
-
         #[allow(unused_mut)]
         let mut predicate = params.predicate.clone();
         #[cfg(feature = "blake3-groth16")]
