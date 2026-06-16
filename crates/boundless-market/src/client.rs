@@ -474,6 +474,7 @@ impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
 
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
+            .zkvm_ops(self.zkvm_ops.clone())
             .storage_layer(StorageLayer::new(
                 self.uploader.clone(),
                 self.storage_layer_config.build()?,
@@ -1103,9 +1104,9 @@ where
 
     /// Set the signer that will be used for signing [ProofRequest].
     /// ```rust
-    /// # use boundless_market::Client;
+    /// # use boundless_market::{Client, NotProvided};
     /// # use std::str::FromStr;
-    /// # |client: Client| {
+    /// # |client: Client<NotProvided>| {
     /// use alloy::signers::local::PrivateKeySigner;
     ///
     /// client.with_signer(PrivateKeySigner::from_str(
