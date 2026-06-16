@@ -317,14 +317,17 @@ where
         &self,
         params: RequestParams,
     ) -> Result<ProofRequest, anyhow::Error> {
-        let params = if let Some(zkvm_ops) = &self.zkvm_ops {
-            params.process_with(&(&self.preflight_layer, zkvm_ops)).await?
-        } else {
-            params
+        let params = match &self.zkvm_ops {
+            Some(zkvm_ops) => {
+                params
+                    .process_with(&(&self.preflight_layer, zkvm_ops))
+                    .await?
+                    .process_with(&(&self.requirements_layer, zkvm_ops))
+                    .await?
+            }
+            None => params.process_with(&self.requirements_layer).await?,
         };
         let params = params
-            .process_with(&self.requirements_layer)
-            .await?
             .process_with(&self.request_id_layer)
             .await?
             .process_with(&self.offer_layer)
@@ -1353,11 +1356,12 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_requirements_layer() -> anyhow::Result<()> {
+        let zkvm = Risc0ZkvmOps::new().await;
         let layer = RequirementsLayer::default();
         let program = ECHO_ELF;
         let bytes = b"journal_data".to_vec();
         let journal = Journal::new(bytes.clone());
-        let req = layer.process((program, &journal, &Default::default())).await?;
+        let req = layer.process((program, &journal, &Default::default(), &zkvm)).await?;
         let predicate = Predicate::try_from(req.predicate.clone())?;
         let fulfillment_data = FulfillmentData::from_image_id_and_journal(
             predicate.image_id().unwrap(),
