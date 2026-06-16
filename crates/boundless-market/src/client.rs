@@ -1132,11 +1132,12 @@ where
     /// Upload a program binary to the storage uploader.
     pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
     where
+        Z: ZkvmOps,
         St: StorageUploader,
     {
         let uploader = self.uploader.as_ref().context("Storage uploader not set")?;
-        let image_id =
-            risc0_zkvm::compute_image_id(program).context("Failed to compute image ID")?;
+        let zkvm_ops = self.zkvm_ops.as_ref().context("ZkvmOps not set")?;
+        let image_id = zkvm_ops.compute_image_id(program).context("Failed to compute image ID")?;
         Ok(uploader
             .upload_bytes(program, &format!("{image_id}.bin"))
             .await
