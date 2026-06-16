@@ -61,4 +61,8 @@ impl crate::request_builder::ZkvmOps for Risc0ZkvmOps {
     fn evaluator(&self) -> Arc<dyn crate::prover_utils::RequestEvaluator + Sync + Send> {
         self.evaluator.clone()
     }
+
+    fn compute_image_id(&self, program: &[u8]) -> anyhow::Result<risc0_zkvm::sha::Digest> {
+        risc0_zkvm::compute_image_id(program)
+    }
 }

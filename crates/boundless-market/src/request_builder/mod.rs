@@ -192,6 +192,9 @@ pub trait ZkvmOps {
 
     /// Figures out the pricing from preflight
     fn evaluator(&self) -> Arc<dyn crate::prover_utils::RequestEvaluator + Sync + Send>;
+
+    /// Compute the image ID for a given ELF program.
+    fn compute_image_id(&self, program: &[u8]) -> anyhow::Result<Digest>;
 }
 
 /// A standard implementation of [RequestBuilder] that uses a layered architecture.
