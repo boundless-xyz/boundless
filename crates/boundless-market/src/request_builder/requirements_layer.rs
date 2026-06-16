@@ -238,20 +238,23 @@ impl Adapt<RequirementsLayer> for RequestParams {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "blake3-groth16"))]
 mod tests {
     use super::*;
+    use crate::contracts::{PredicateType, R0_GROTH16_BLAKE3_CLASS_ID};
 
+    /// A blake3 class-signed request resolves to the blake3 entry on-chain, so the builder gives it
+    /// the same ClaimDigestMatch predicate (over a 32-byte journal) as the blake3 entry selector.
     #[tokio::test]
-    async fn rejects_class_signed_blake3() {
+    async fn accepts_class_signed_blake3() {
         let layer = RequirementsLayer::default();
         let params: RequirementParams =
             RequirementParams::builder().selector(R0_GROTH16_BLAKE3_CLASS_ID).into();
         let journal = Journal::new(vec![0u8; 32]);
-        let err = layer
+        let requirements = layer
             .process((Digest::default(), &journal, &params))
             .await
-            .expect_err("class-signed blake3 must be rejected");
-        assert!(err.to_string().contains("is not supported"), "unexpected error: {err}");
+            .expect("class-signed blake3 must be accepted");
+        assert_eq!(requirements.predicate.predicateType, PredicateType::ClaimDigestMatch);
     }
 }
