@@ -235,7 +235,7 @@ application-verifier = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0x7abb16522f4599481361d318b765af988bfcca8e"
-boundless-market-impl = "0xe1c986e28e59c19ce625c6b7e62cbe2ce2ca1fd0"
+boundless-market-impl = "0xd60e833ea8ff4e44222e15df4db7c043b9748664"
 boundless-market-old-impl = "0x4896bb4e1fb52ed283d505de79532e2b01e2a066"
 boundless-market-deployment-commit = "bda3b118"
 collateral-token = "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
@@ -245,7 +245,7 @@ deployment-commit = "bda3b118" # v0.15.0 main
 assessor-image-id = "0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100"
 assessor-guest-url = "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq"
 deprecated-assessor-duration = 1296000  # 15 days
-boundless-router = "0x067d4e774dcde195b8c2b45b6c92df9e734699fe"
+boundless-router = "0x9045fa3c9ad018cef3d185b1e275af100fe6915c"
 
 [deployment.taiko-staging]
 name = "Taiko Staging"
