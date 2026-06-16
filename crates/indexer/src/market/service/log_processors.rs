@@ -581,7 +581,7 @@ where
                 .log_decode::<IBoundlessMarket::ProofDelivered>()
                 .context("Failed to decode ProofDelivered log")?;
             let event = decoded.inner.data;
-            let request_digest = event.requestDigest;
+            let request_digest = event.fulfillment.requestDigest;
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
 
@@ -595,15 +595,8 @@ where
 
             proof_delivered_events.push((request_digest, event.requestId, event.prover, metadata));
 
-            // Collect proof for batch insert. The on-chain Fulfillment no longer carries the
-            // request id/digest, so they are taken from the event's top-level fields.
-            proofs.push((
-                request_digest,
-                event.requestId,
-                event.fulfillment,
-                event.prover,
-                metadata,
-            ));
+            // Collect proof for batch insert
+            proofs.push((event.fulfillment, event.prover, metadata));
 
             touched_requests.insert(request_digest);
         }

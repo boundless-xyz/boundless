@@ -35,8 +35,8 @@ use thiserror::Error;
 use super::{
     eip712_domain, EIP712DomainSaltless, Fulfillment, FulfillmentBatch,
     IBoundlessMarket::{self, IBoundlessMarketErrors, IBoundlessMarketInstance, ProofDelivered},
-    Offer, ProofRequest, ProofRequestBatch, RequestError, RequestId, RequestStatus, SlimRequest,
-    TxnErr, TXN_CONFIRM_TIMEOUT,
+    LegacyFulfillment, Offer, ProofRequest, ProofRequestBatch, RequestError, RequestId,
+    RequestStatus, SlimRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 use crate::{
     contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
@@ -1593,7 +1593,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<Fulfillment, MarketError> {
+    ) -> Result<LegacyFulfillment, MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
@@ -1660,7 +1660,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         retry_interval: Duration,
         expires_at: u64,
-    ) -> Result<Fulfillment, MarketError> {
+    ) -> Result<LegacyFulfillment, MarketError> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
