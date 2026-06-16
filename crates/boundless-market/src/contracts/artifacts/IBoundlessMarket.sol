@@ -14,7 +14,7 @@
 
 pragma solidity ^0.8.26;
 
-import {Fulfillment} from "./types/Fulfillment.sol";
+import {Fulfillment, LegacyFulfillment} from "./types/Fulfillment.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
 import {ProofRequestBatch} from "./types/ProofRequestBatch.sol";
@@ -46,13 +46,15 @@ interface IBoundlessMarket {
     /// @notice Event logged when a proof is delivered that satisfies the request's requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. The
     /// first event logged will always coincide with the `RequestFulfilled` event and the fulfilled flag on the request being set.
+    /// @dev Carries the legacy (pre-router) fulfillment shape, which still embeds `id`/`requestDigest`
+    /// inline. This keeps the event's ABI — and therefore its topic0 — identical to the pre-router
+    /// version, so clients that have not upgraded their SDK can still filter and decode it. The
+    /// current `Fulfillment` dropped those fields to save batch calldata; the market reconstructs
+    /// the legacy shape here from the request identity and the current fulfillment.
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover delivering the proof.
-    /// @param requestDigest The EIP-712 digest of the request.
-    /// @param fulfillment The fulfillment details.
-    event ProofDelivered(
-        RequestId indexed requestId, address indexed prover, bytes32 requestDigest, Fulfillment fulfillment
-    );
+    /// @param fulfillment The fulfillment details (legacy shape).
+    event ProofDelivered(RequestId indexed requestId, address indexed prover, LegacyFulfillment fulfillment);
 
     /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.

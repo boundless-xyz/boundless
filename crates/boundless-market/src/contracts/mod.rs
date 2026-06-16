@@ -62,7 +62,7 @@ include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
     AssessorCallback, AssessorCommitment, AssessorJournal, Callback, Fulfillment, FulfillmentBatch,
     FulfillmentContext, FulfillmentDataImageIdAndJournal, FulfillmentDataType, IBoundlessMarket,
-    Input as RequestInput, InputType as RequestInputType, LockRequest, Offer,
+    Input as RequestInput, InputType as RequestInputType, LegacyFulfillment, LockRequest, Offer,
     Predicate as RequestPredicate, PredicateType, ProofRequest, ProofRequestBatch, RequestLock,
     Requirements, Selector as AssessorSelector, SlimRequest,
 };
@@ -709,6 +709,13 @@ impl From<FulfillmentDataImageIdAndJournal> for FulfillmentData {
 
 impl Fulfillment {
     /// Decode and return the [FulfillmentData] for the this fulfillment.
+    pub fn data(&self) -> Result<FulfillmentData, FulfillmentDataError> {
+        FulfillmentData::decode_with_type(self.fulfillmentDataType, &self.fulfillmentData)
+    }
+}
+
+impl LegacyFulfillment {
+    /// Decode and return the [FulfillmentData] for this fulfillment.
     pub fn data(&self) -> Result<FulfillmentData, FulfillmentDataError> {
         FulfillmentData::decode_with_type(self.fulfillmentDataType, &self.fulfillmentData)
     }

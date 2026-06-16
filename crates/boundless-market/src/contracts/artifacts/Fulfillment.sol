@@ -5,6 +5,7 @@
 pragma solidity ^0.8.26;
 
 import {FulfillmentDataType} from "./FulfillmentData.sol";
+import {RequestId} from "./RequestId.sol";
 
 using FulfillmentLibrary for Fulfillment global;
 
@@ -23,6 +24,29 @@ struct Fulfillment {
     bytes fulfillmentData;
     /// @notice Cryptographic proof for the validity of the execution results.
     /// @dev This will be sent to the `IRiscZeroVerifier` associated with this contract.
+    bytes seal;
+}
+
+/// @title LegacyFulfillment Struct
+/// @notice The pre-router fulfillment shape, carried by the `ProofDelivered` event for backwards
+///         compatibility. The current `Fulfillment` dropped `id`/`requestDigest` (they ride on the
+///         paired `SlimRequest`, saving batch calldata), which would otherwise change the
+///         `ProofDelivered` ABI and break un-upgraded clients that filter and decode the legacy
+///         event. This struct's tuple shape is byte-identical to the pre-router `Fulfillment`, so
+///         the event keeps the original topic0 and remains decodable by those clients. The market
+///         reconstructs it at emit time from the request identity plus the current `Fulfillment`.
+struct LegacyFulfillment {
+    /// @notice ID of the request that was fulfilled.
+    RequestId id;
+    /// @notice EIP-712 digest of the request struct.
+    bytes32 requestDigest;
+    /// @notice Claim digest.
+    bytes32 claimDigest;
+    /// @notice The type of data included in the fulfillment.
+    FulfillmentDataType fulfillmentDataType;
+    /// @notice The fulfillment data.
+    bytes fulfillmentData;
+    /// @notice Cryptographic proof for the validity of the execution results.
     bytes seal;
 }
 
