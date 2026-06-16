@@ -1134,11 +1134,11 @@ where
     where
         St: StorageUploader,
     {
-        Ok(self
-            .uploader
-            .as_ref()
-            .context("Storage uploader not set")?
-            .upload_program(program)
+        let uploader = self.uploader.as_ref().context("Storage uploader not set")?;
+        let image_id =
+            risc0_zkvm::compute_image_id(program).context("Failed to compute image ID")?;
+        Ok(uploader
+            .upload_bytes(program, &format!("{image_id}.bin"))
             .await
             .context("Failed to upload program")?)
     }

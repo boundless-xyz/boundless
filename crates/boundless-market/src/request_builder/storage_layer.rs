@@ -114,7 +114,9 @@ where
             .uploader
             .as_ref()
             .context("cannot upload program using StorageLayer with no storage_uploader")?;
-        let program_url = storage_uploader.upload_program(program).await?;
+        let image_id = risc0_zkvm::compute_image_id(program)?;
+        let program_url =
+            storage_uploader.upload_bytes(program, &format!("{image_id}.bin")).await?;
         Ok(program_url)
     }
 

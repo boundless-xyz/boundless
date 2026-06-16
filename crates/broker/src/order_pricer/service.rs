@@ -380,8 +380,13 @@ pub(crate) mod tests {
         }
 
         pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
-            let image_url = self.uploader.upload_program(ECHO_ELF).await.unwrap().to_string();
             let image_id = Digest::from(ECHO_ID);
+            let image_url = self
+                .uploader
+                .upload_bytes(ECHO_ELF, &format!("{image_id}.bin"))
+                .await
+                .unwrap()
+                .to_string();
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
 
@@ -415,8 +420,13 @@ pub(crate) mod tests {
             params: OrderParams,
             cycles: u64,
         ) -> Box<OrderRequest> {
-            let image_url = self.uploader.upload_program(LOOP_ELF).await.unwrap().to_string();
             let image_id = Digest::from(LOOP_ID);
+            let image_url = self
+                .uploader
+                .upload_bytes(LOOP_ELF, &format!("{image_id}.bin"))
+                .await
+                .unwrap()
+                .to_string();
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
 

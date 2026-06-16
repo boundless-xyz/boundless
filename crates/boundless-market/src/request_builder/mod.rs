@@ -1199,7 +1199,8 @@ mod tests {
 
         // Try again after uploading the program first.
         let uploader = Arc::new(MockStorageUploader::new());
-        let program_url = uploader.upload_program(ECHO_ELF).await?;
+        let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
+        let program_url = uploader.upload_bytes(ECHO_ELF, &format!("{image_id}.bin")).await?;
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
@@ -1284,7 +1285,8 @@ mod tests {
     async fn test_preflight_layer() -> anyhow::Result<()> {
         let uploader = MockStorageUploader::new();
         let downloader = HttpDownloader::new(None, None);
-        let program_url = uploader.upload_program(ECHO_ELF).await?;
+        let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
+        let program_url = uploader.upload_bytes(ECHO_ELF, &format!("{image_id}.bin")).await?;
         let zkvm = Risc0ZkvmOps::new().await;
         let layer = PreflightLayer::new(Some(downloader));
         let data = b"hello_zkvm".to_vec();
