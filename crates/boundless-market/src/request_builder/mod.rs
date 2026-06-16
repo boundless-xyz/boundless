@@ -246,7 +246,6 @@ pub struct StandardRequestBuilder<Z, P = DynProvider, U = StandardUploader, D = 
     pub skip_preflight: Option<bool>,
 
     /// The ZKVM specific functions and types
-    #[allow(dead_code)]
     #[builder(setter(into), default)]
     zkvm_ops: Option<Z>,
 }
@@ -1199,7 +1198,7 @@ mod tests {
 
         // Try again after uploading the program first.
         let uploader = Arc::new(MockStorageUploader::new());
-        let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
+        let image_id = zkvm.compute_image_id(ECHO_ELF)?;
         let program_url = uploader.upload_bytes(ECHO_ELF, &format!("{image_id}.bin")).await?;
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
@@ -1213,12 +1212,13 @@ mod tests {
     async fn test_storage_layer() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
         let downloader = HttpDownloader::new(None, None);
+        let zkvm = Risc0ZkvmOps::new().await;
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
         let env = GuestEnv::from_stdin(b"inline_data");
-        let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
+        let (program_url, request_input) = layer.process((ECHO_ELF, &env, &zkvm)).await?;
 
         // Program should be uploaded and input inline.
         assert_eq!(downloader.download_url(program_url).await?, ECHO_ELF);
@@ -1248,12 +1248,13 @@ mod tests {
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
         let downloader = HttpDownloader::new(None, None);
+        let zkvm = Risc0ZkvmOps::new().await;
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
         let env = GuestEnv::from_stdin(rand::random_iter().take(2048).collect::<Vec<u8>>());
-        let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
+        let (program_url, request_input) = layer.process((ECHO_ELF, &env, &zkvm)).await?;
 
         // Program and input should be uploaded.
         assert_eq!(downloader.download_url(program_url).await?, ECHO_ELF);
@@ -1285,9 +1286,9 @@ mod tests {
     async fn test_preflight_layer() -> anyhow::Result<()> {
         let uploader = MockStorageUploader::new();
         let downloader = HttpDownloader::new(None, None);
-        let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
-        let program_url = uploader.upload_bytes(ECHO_ELF, &format!("{image_id}.bin")).await?;
         let zkvm = Risc0ZkvmOps::new().await;
+        let image_id = zkvm.compute_image_id(ECHO_ELF)?;
+        let program_url = uploader.upload_bytes(ECHO_ELF, &format!("{image_id}.bin")).await?;
         let layer = PreflightLayer::new(Some(downloader));
         let data = b"hello_zkvm".to_vec();
         let env = GuestEnv::from_stdin(data.clone());

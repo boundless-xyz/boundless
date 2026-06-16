@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Adapt, Layer, RequestParams};
+use super::{Adapt, Layer, RequestParams, ZkvmOps};
 use crate::{
     contracts::RequestInput, input::GuestEnv, storage::StorageUploader, util::NotProvided,
     StandardUploader,
@@ -105,21 +105,6 @@ impl<S> StorageLayer<S>
 where
     S: StorageUploader,
 {
-    /// Uploads a program binary and returns its URL.
-    ///
-    /// This method requires a configured storage uploader and will return an error
-    /// if none is available.
-    pub async fn process_program(&self, program: &[u8]) -> anyhow::Result<Url> {
-        let storage_uploader = self
-            .uploader
-            .as_ref()
-            .context("cannot upload program using StorageLayer with no storage_uploader")?;
-        let image_id = risc0_zkvm::compute_image_id(program)?;
-        let program_url =
-            storage_uploader.upload_bytes(program, &format!("{image_id}.bin")).await?;
-        Ok(program_url)
-    }
-
     /// Processes a guest environment into a [RequestInput].
     ///
     /// Small inputs (as determined by configuration) will be included inline in the request.
@@ -162,8 +147,9 @@ impl<S> StorageLayer<S> {
     }
 }
 
-impl<S> Layer<(&[u8], &GuestEnv)> for StorageLayer<S>
+impl<'a, Z, S> Layer<(&'a [u8], &'a GuestEnv, &'a Z)> for StorageLayer<S>
 where
+    Z: ZkvmOps,
     S: StorageUploader,
 {
     type Output = (Url, RequestInput);
@@ -171,9 +157,15 @@ where
 
     async fn process(
         &self,
-        (program, env): (&[u8], &GuestEnv),
+        (program, env, zkvm_ops): (&[u8], &GuestEnv, &Z),
     ) -> Result<Self::Output, Self::Error> {
-        let program_url = self.process_program(program).await?;
+        let image_id = zkvm_ops.compute_image_id(program)?;
+        let storage_uploader = self
+            .uploader
+            .as_ref()
+            .context("cannot upload program using StorageLayer with no storage_uploader")?;
+        let program_url =
+            storage_uploader.upload_bytes(program, &format!("{image_id}.bin")).await?;
         let request_input = self.process_env(env).await?;
         Ok((program_url, request_input))
     }
@@ -201,7 +193,40 @@ where
 
         let mut params = self;
         if params.program_url.is_none() {
-            let program_url = layer.process_program(params.require_program()?).await?;
+            anyhow::bail!("program_url must be set when processing StorageLayer without ZkvmOps");
+        }
+        if params.request_input.is_none() {
+            let input = layer.process_env(params.require_env()?).await?;
+            params = params.with_request_input(input);
+        }
+        Ok(params)
+    }
+}
+
+impl<'a, Z, S> Adapt<(&'a StorageLayer<S>, &'a Z)> for RequestParams
+where
+    Z: ZkvmOps,
+    S: StorageUploader,
+{
+    type Output = RequestParams;
+    type Error = anyhow::Error;
+
+    async fn process_with(
+        self,
+        &(layer, zkvm_ops): &(&'a StorageLayer<S>, &'a Z),
+    ) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with StorageLayer");
+
+        let mut params = self;
+        if params.program_url.is_none() {
+            let program = params.require_program()?;
+            let image_id = zkvm_ops.compute_image_id(program)?;
+            let storage_uploader = layer
+                .uploader
+                .as_ref()
+                .context("cannot upload program using StorageLayer with no storage_uploader")?;
+            let program_url =
+                storage_uploader.upload_bytes(program, &format!("{image_id}.bin")).await?;
             params = params.with_program_url(program_url)?;
         }
         if params.request_input.is_none() {
