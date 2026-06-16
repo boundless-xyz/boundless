@@ -117,9 +117,14 @@ contract BootstrapRouter is RouterManageBase {
         _ensureClass(router, RouterConfig.R0_GROTH16_BLAKE3_CLASS_ID, RouterConfig.groth16Blake3Class());
 
         // Set-inclusion entry at the set verifier's own (set-builder-version-derived) selector.
+        // Verify through whatever the upstream router registers for that selector (an
+        // emergency-stop wrapper on staging/prod), matching the legacy market; fall back to the
+        // bare set verifier on chains where the router does not front it. The selector itself is
+        // read from the bare set verifier, since the emergency-stop wrapper has no SELECTOR().
         bytes4 setSelector = IRiscZeroSelectable(setVerifier).SELECTOR();
+        IRiscZeroVerifier setInclusionVerifier = _resolveUpstream(r0Router, setSelector, setVerifier);
         if (_entryFree(router, setSelector, "set-inclusion verifier")) {
-            R0BoundlessVerifierAdapter adapter = new R0BoundlessVerifierAdapter(IRiscZeroVerifier(setVerifier));
+            R0BoundlessVerifierAdapter adapter = new R0BoundlessVerifierAdapter(setInclusionVerifier);
             router.instantiate(setSelector, address(adapter), RouterConfig.R0_SET_INCLUSION_CLASS_ID, 0);
             console2.log("Registered set-inclusion verifier adapter at", address(adapter));
             console2.logBytes4(setSelector);
@@ -140,7 +145,7 @@ contract BootstrapRouter is RouterManageBase {
         // Both assessor entries under the shared assessor class.
         if (_entryFree(router, RouterConfig.R0_ASSESSOR_SELECTOR, "R0 STARK assessor")) {
             R0BoundlessAssessorAdapter assessorAdapter =
-                new R0BoundlessAssessorAdapter(IRiscZeroVerifier(setVerifier), assessorImageId);
+                new R0BoundlessAssessorAdapter(setInclusionVerifier, assessorImageId);
             router.instantiate(
                 RouterConfig.R0_ASSESSOR_SELECTOR, address(assessorAdapter), RouterConfig.R0_ASSESSOR_CLASS_ID, 0
             );
@@ -185,6 +190,21 @@ contract BootstrapRouter is RouterManageBase {
         } catch {
             console2.log("Upstream router does not serve selector, skipping:", label);
             console2.logBytes4(selector);
+        }
+    }
+
+    /// @dev The verifier the legacy market uses for `selector`: whatever the upstream R0 router
+    ///      registers (an emergency-stop wrapper on staging/prod). Falls back to `fallbackVerifier`
+    ///      on chains where the router does not front the selector (e.g. localnet / fresh deploys).
+    function _resolveUpstream(RiscZeroVerifierRouter r0Router, bytes4 selector, address fallbackVerifier)
+        internal
+        view
+        returns (IRiscZeroVerifier)
+    {
+        try r0Router.getVerifier(selector) returns (IRiscZeroVerifier underlying) {
+            return underlying;
+        } catch {
+            return IRiscZeroVerifier(fallbackVerifier);
         }
     }
 }
