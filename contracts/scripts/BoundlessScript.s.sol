@@ -220,29 +220,17 @@ abstract contract BoundlessScriptBase is Script {
         console2.log("=== GNOSIS SAFE UPGRADE INFO ===");
         console2.log("Target Address (To): ", proxyAddress);
 
-        if (initializerData.length > 0) {
-            // For upgradeToAndCall
-            bytes memory callData = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImpl, initializerData);
-            console2.log("Function: upgradeToAndCall(address,bytes)");
-            console2.log("New Implementation: ", newImpl);
-            console2.log("Calldata:");
-            console2.logBytes(callData);
-            console2.log("");
-            console2.log("Expected Events on Successful Execution:");
-            console2.log("1. Upgraded(address indexed implementation)");
-            console2.log("   - implementation: ", newImpl);
-        } else {
-            // For upgradeTo
-            bytes memory callData = abi.encodeWithSignature("upgradeTo(address)", newImpl);
-            console2.log("Function: upgradeTo(address)");
-            console2.log("New Implementation: ", newImpl);
-            console2.log("Calldata:");
-            console2.logBytes(callData);
-            console2.log("");
-            console2.log("Expected Events on Successful Execution:");
-            console2.log("1. Upgraded(address indexed implementation)");
-            console2.log("   - implementation: ", newImpl);
-        }
+        // UUPS upgrades go through upgradeToAndCall(address,bytes); OpenZeppelin v5 removed the bare
+        // upgradeTo(address), so always emit upgradeToAndCall (empty initializerData = no init call).
+        bytes memory callData = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImpl, initializerData);
+        console2.log("Function: upgradeToAndCall(address,bytes)");
+        console2.log("New Implementation: ", newImpl);
+        console2.log("Calldata:");
+        console2.logBytes(callData);
+        console2.log("");
+        console2.log("Expected Events on Successful Execution:");
+        console2.log("1. Upgraded(address indexed implementation)");
+        console2.log("   - implementation: ", newImpl);
         console2.log("================================");
     }
 }
