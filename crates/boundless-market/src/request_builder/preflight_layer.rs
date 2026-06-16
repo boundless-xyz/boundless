@@ -160,7 +160,7 @@ where
             .map_err(|e| anyhow::anyhow!("preflight execution failed: {}", e))?;
 
         let cycles = stats.total_cycles;
-        let journal = risc0_zkvm::Journal::new(journal);
+        let journal = zkvm_ops.create_journal(journal);
 
         if let Some(provided_image_id) = self.image_id {
             ensure!(

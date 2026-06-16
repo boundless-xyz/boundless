@@ -195,6 +195,11 @@ pub trait ZkvmOps {
 
     /// Compute the image ID for a given ELF program.
     fn compute_image_id(&self, program: &[u8]) -> anyhow::Result<Digest>;
+
+    /// Create a [Journal] from raw bytes.
+    fn create_journal(&self, bytes: Vec<u8>) -> Journal {
+        Journal::new(bytes)
+    }
 }
 
 /// A standard implementation of [RequestBuilder] that uses a layered architecture.
