@@ -289,7 +289,7 @@ export = () => {
                 cpu: taskCpu,
                 memory: taskMemory,
                 essential: true,
-                entryPoint: ["/bin/sh", "-c"],
+                entryPoint: ["/bin/bash", "-c"],
                 command: [containerCommand],
                 environment,
                 secrets: ecsSecrets,
