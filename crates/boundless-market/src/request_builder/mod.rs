@@ -370,12 +370,18 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
     RequestParams: Adapt<StorageLayer<S>, Output = RequestParams, Error = anyhow::Error>,
+    for<'a> RequestParams:
+        Adapt<(&'a StorageLayer<S>, &'a Z), Output = RequestParams, Error = anyhow::Error>,
 {
     type Output = ProofRequest;
     type Error = anyhow::Error;
 
     async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
-        let params = input.process_with(&self.storage_layer).await?;
+        let params = if let Some(zkvm_ops) = &self.zkvm_ops {
+            input.process_with(&(&self.storage_layer, zkvm_ops)).await?
+        } else {
+            input.process_with(&self.storage_layer).await?
+        };
         self.build_from_params(params).await
     }
 }

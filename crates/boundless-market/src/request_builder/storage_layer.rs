@@ -258,3 +258,18 @@ impl Adapt<StorageLayer<NotProvided>> for RequestParams {
         Ok(params)
     }
 }
+
+impl<'a, Z> Adapt<(&'a StorageLayer<NotProvided>, &'a Z)> for RequestParams
+where
+    Z: ZkvmOps,
+{
+    type Output = RequestParams;
+    type Error = anyhow::Error;
+
+    async fn process_with(
+        self,
+        &(layer, _zkvm_ops): &(&'a StorageLayer<NotProvided>, &'a Z),
+    ) -> Result<Self::Output, Self::Error> {
+        Adapt::<StorageLayer<NotProvided>>::process_with(self, layer).await
+    }
+}
