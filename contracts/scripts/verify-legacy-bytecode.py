@@ -24,14 +24,21 @@ produced the legacy artifact under
 """
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ARTIFACT = REPO_ROOT / "out" / "BoundlessMarketLegacy.sol" / "BoundlessMarket.json"
-DEPLOYED_HEX = REPO_ROOT / "contracts" / "test" / "legacy" / "deployed-bytecode.hex"
-META_TOML = REPO_ROOT / "contracts" / "test" / "legacy" / "deployed-bytecode.meta.toml"
+# Defaults check the Cancun/Base legacy. Override via env to check the Taiko legacy compiled under
+# FOUNDRY_PROFILE=shanghai:
+#   BOUNDLESS_OUT_DIR=out-shanghai
+#   BOUNDLESS_LEGACY_SNAPSHOT_DIR=contracts/shanghai/legacy
+_OUT_DIR = REPO_ROOT / os.environ.get("BOUNDLESS_OUT_DIR", "out")
+_SNAPSHOT_DIR = REPO_ROOT / os.environ.get("BOUNDLESS_LEGACY_SNAPSHOT_DIR", "contracts/test/legacy")
+ARTIFACT = _OUT_DIR / "BoundlessMarketLegacy.sol" / "BoundlessMarket.json"
+DEPLOYED_HEX = _SNAPSHOT_DIR / "deployed-bytecode.hex"
+META_TOML = _SNAPSHOT_DIR / "deployed-bytecode.meta.toml"
 
 
 def strip0x(s: str) -> str:

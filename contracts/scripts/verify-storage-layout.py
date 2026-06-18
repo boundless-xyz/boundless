@@ -25,13 +25,17 @@ root, or via `just check-storage-layout`. Requires `forge build` to have run.
 """
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-NEW_ARTIFACT = REPO_ROOT / "out" / "BoundlessMarket.sol" / "BoundlessMarket.json"
-LEGACY_ARTIFACT = REPO_ROOT / "out" / "BoundlessMarketLegacy.sol" / "BoundlessMarket.json"
+# Default profile writes to ./out; the shanghai profile writes to ./out-shanghai. Point the script
+# at the latter with `BOUNDLESS_OUT_DIR=out-shanghai` to verify the Taiko market/legacy pair.
+_OUT_DIR = REPO_ROOT / os.environ.get("BOUNDLESS_OUT_DIR", "out")
+NEW_ARTIFACT = _OUT_DIR / "BoundlessMarket.sol" / "BoundlessMarket.json"
+LEGACY_ARTIFACT = _OUT_DIR / "BoundlessMarketLegacy.sol" / "BoundlessMarket.json"
 
 # Top-level storage variables shared between the two contracts. Order +
 # expected slot are part of the contract — any change here is a real

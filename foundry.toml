@@ -127,7 +127,7 @@ remappings = [
     "boundless-market/=contracts/shanghai/variants/",
 ]
 skip = [
-    "*/legacy/**",
+    "contracts/src/legacy/**",
     "contracts/src/BoundlessMarket.sol",
     "contracts/src/types/FulfillmentContext.sol",
 ]
