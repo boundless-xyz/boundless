@@ -72,6 +72,18 @@ impl From<[u32; 8]> for crate::Digest {
     }
 }
 
+impl From<risc0_zkvm::Journal> for crate::Journal {
+    fn from(j: risc0_zkvm::Journal) -> Self {
+        crate::Journal::new(j.bytes)
+    }
+}
+
+impl From<crate::Journal> for risc0_zkvm::Journal {
+    fn from(j: crate::Journal) -> Self {
+        risc0_zkvm::Journal::new(j.bytes)
+    }
+}
+
 impl crate::request_builder::ZkvmOps for Risc0ZkvmOps {
     fn executor(&self) -> Arc<dyn crate::request_builder::LocalExecutor + Sync + Send> {
         self.local_executor.clone()
