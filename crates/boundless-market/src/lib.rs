@@ -122,6 +122,10 @@ pub use storage::{
     StandardDownloader, StandardUploader, StorageDownloaderConfig, StorageUploaderConfig,
 };
 
+/// A 32-byte hash digest type for image IDs and journal digests.
+pub mod digest;
+pub use digest::Digest;
+
 /// Utility functions and types used elsewhere.
 pub(crate) mod util;
 pub use util::NotProvided;
