@@ -25,7 +25,9 @@ use alloy::{
 };
 use async_trait::async_trait;
 use derive_builder::Builder;
-use risc0_zkvm::{Digest, Journal};
+use risc0_zkvm::Journal;
+
+use crate::Digest;
 use std::sync::Arc;
 use url::Url;
 
