@@ -48,6 +48,12 @@ impl From<Journal> for Vec<u8> {
     }
 }
 
+impl AsRef<[u8]> for Journal {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

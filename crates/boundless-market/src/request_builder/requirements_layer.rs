@@ -18,12 +18,11 @@ use crate::blake3_groth16;
 use crate::contracts::{Callback, Predicate, Requirements};
 #[cfg(feature = "blake3-groth16")]
 use crate::selector::is_blake3_groth16_selector;
-use crate::Digest;
+use crate::{Digest, Journal};
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
-use risc0_zkvm::{sha::Digestible, Journal};
 
 const DEFAULT_CALLBACK_GAS_LIMT: u64 = 100000u64;
 
@@ -187,7 +186,7 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
                             image_id,
                             journal.bytes.clone(),
                         )
-                        .digest();
+                        .claim_digest();
                         Predicate::claim_digest_match(blake3_claim_digest)
                     }));
                 }

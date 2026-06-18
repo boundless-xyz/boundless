@@ -19,15 +19,13 @@ use std::{
     future::Future,
 };
 
+use crate::{Digest, Journal};
 use alloy::{
     network::Ethereum,
     providers::{DynProvider, Provider},
 };
 use async_trait::async_trait;
 use derive_builder::Builder;
-use risc0_zkvm::Journal;
-
-use crate::Digest;
 use std::sync::Arc;
 use url::Url;
 
@@ -1084,10 +1082,10 @@ mod tests {
         risc0::Risc0ZkvmOps,
         storage::{MockStorageUploader, StandardDownloader, StorageDownloader, StorageUploader},
         util::NotProvided,
-        StandardUploader,
+        Digest, Journal, StandardUploader,
     };
     use alloy_primitives::{utils::parse_ether, U256};
-    use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
+    use risc0_zkvm::compute_image_id;
 
     #[tokio::test]
     #[traced_test]
@@ -1221,7 +1219,7 @@ mod tests {
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
         assert_eq!(
             predicate.image_id().unwrap(),
-            crate::Digest::from(risc0_zkvm::compute_image_id(ECHO_ELF)?)
+            Digest::from(risc0_zkvm::compute_image_id(ECHO_ELF)?)
         );
         Ok(())
     }
@@ -1334,7 +1332,7 @@ mod tests {
         let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
         let input_data = b"test input";
         let cycles = 9999999u64;
-        let journal = risc0_zkvm::Journal::new(input_data.to_vec());
+        let journal = Journal::new(input_data.to_vec());
 
         // Build GuestEnv and encode as request input
         let env = GuestEnv { stdin: input_data.to_vec(), ..Default::default() };
