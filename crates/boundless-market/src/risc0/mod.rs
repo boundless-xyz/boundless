@@ -53,6 +53,25 @@ impl Risc0ZkvmOps {
     }
 }
 
+impl From<risc0_zkvm::sha::Digest> for crate::Digest {
+    fn from(d: risc0_zkvm::sha::Digest) -> Self {
+        let bytes: [u8; 32] = d.as_bytes().try_into().expect("sha::Digest is always 32 bytes");
+        crate::Digest::from_bytes(bytes)
+    }
+}
+
+impl From<crate::Digest> for risc0_zkvm::sha::Digest {
+    fn from(d: crate::Digest) -> Self {
+        risc0_zkvm::sha::Digest::try_from(d.as_bytes()).expect("crate::Digest is always 32 bytes")
+    }
+}
+
+impl From<[u32; 8]> for crate::Digest {
+    fn from(words: [u32; 8]) -> Self {
+        crate::Digest::from(risc0_zkvm::sha::Digest::from(words))
+    }
+}
+
 impl crate::request_builder::ZkvmOps for Risc0ZkvmOps {
     fn executor(&self) -> Arc<dyn crate::request_builder::LocalExecutor + Sync + Send> {
         self.local_executor.clone()
