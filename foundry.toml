@@ -24,6 +24,7 @@ test = "./contracts/test"
 remappings = [
     "bytes-compat/=lib/openzeppelin-contracts/contracts/utils/",
     "boundless-market/=contracts/src/",
+    "boundless-market-legacy/=contracts/src/legacy/",
 ]
 ffi = true
 evm_version = 'cancun'
@@ -119,17 +120,37 @@ fs_permissions = [
 [profile.shanghai]
 src = "./contracts/src"
 out = "./out-shanghai"
+# Separate gas-snapshot dir so shanghai test runs don't clobber the default profile's cancun
+# snapshots under contracts/snapshots (gitignored — the shanghai variant has no snapshot CI gate).
+snapshots = "./out-shanghai/snapshots"
 libs = ["./lib"]
-script = "./contracts/shanghai/scripts"
-test = "./contracts/shanghai/test"
+script = "./contracts/scripts"
+test = "./contracts/test"
 remappings = [
     "bytes-compat/=contracts/shanghai/compat/",
     "boundless-market/=contracts/shanghai/variants/",
+    "boundless-market-legacy/=contracts/shanghai/legacy/",
 ]
 skip = [
     "contracts/src/legacy/**",
     "contracts/src/BoundlessMarket.sol",
     "contracts/src/types/FulfillmentContext.sol",
+    # The Cancun/Base legacy ABI test suites exercise the mainline frozen legacy (tstore); the
+    # Taiko legacy is covered by the bytecode/storage parity checks instead.
+    "contracts/test/legacy/**",
+    # Unit test for the transient-storage FulfillmentContext library (uses tstore directly). The
+    # shanghai sstore/clear variant's behaviour is exercised end-to-end by the price-then-fulfill
+    # paths in BoundlessMarket.t.sol, which run under this profile.
+    "contracts/test/types/FulfillmentContext.t.sol",
+    # PoVW is a separate contract suite (rewards), not part of the market router work, and its zkc
+    # Supply library uses transient storage. It is out of scope for the Taiko market port; skip the
+    # PoVW contracts and their deploy scripts under shanghai.
+    "contracts/src/povw/**",
+    "contracts/scripts/Deploy.PoVW.s.sol",
+    "contracts/scripts/Manage.PoVW.s.sol",
+    # ZKC test fixtures pull in the transient zkc Supply library; only PoVW tests use them.
+    "contracts/test/MockZKC.sol",
+    "contracts/test/TestUtilsZKC.sol",
 ]
 ffi = true
 evm_version = 'shanghai'
