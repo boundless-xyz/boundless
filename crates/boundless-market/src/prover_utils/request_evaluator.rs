@@ -237,7 +237,7 @@ mod tests {
 
     fn test_request() -> EvaluationRequest {
         let predicate: crate::contracts::RequestPredicate =
-            Predicate::DigestMatch(Risc0Digest::ZERO, Risc0Digest::ZERO).into();
+            Predicate::DigestMatch(crate::Digest::ZERO, crate::Digest::ZERO).into();
         let stdin = GuestEnv::builder().build_vec().unwrap();
         EvaluationRequest {
             request_id: "test-1".into(),

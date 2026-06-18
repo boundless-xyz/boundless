@@ -1219,7 +1219,10 @@ mod tests {
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
-        assert_eq!(predicate.image_id().unwrap(), risc0_zkvm::compute_image_id(ECHO_ELF)?);
+        assert_eq!(
+            predicate.image_id().unwrap(),
+            crate::Digest::from(risc0_zkvm::compute_image_id(ECHO_ELF)?)
+        );
         Ok(())
     }
 

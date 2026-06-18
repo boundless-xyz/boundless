@@ -15,9 +15,9 @@
 use alloy::primitives::{B256, U256};
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{FulfillmentData, Predicate};
+use boundless_market::Digest;
 use clap::Args;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
-use risc0_zkvm::sha::Digest;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;

@@ -13,10 +13,11 @@
 // limitations under the License.
 
 use alloy::primitives::B256;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A 32-byte hash digest representing an image ID or journal digest.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Digest([u8; 32]);
 
 impl Digest {
