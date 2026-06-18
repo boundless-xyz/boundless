@@ -126,6 +126,10 @@ pub use storage::{
 pub mod digest;
 pub use digest::Digest;
 
+/// Guest program execution journal type.
+pub mod journal;
+pub use journal::Journal;
+
 /// Utility functions and types used elsewhere.
 pub(crate) mod util;
 pub use util::NotProvided;
