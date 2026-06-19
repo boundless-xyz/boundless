@@ -24,7 +24,7 @@ The on-chain identity that ultimately matters is the deployed bytecode at the Ta
 `BoundlessMarket` proxy's pre-upgrade implementation address:
 
 - proxy: `0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b`
-- impl:  `0x6c2d2c33e9a7cd0e1b39dc218f472e4bf534523b`
+- impl: `0x6c2d2c33e9a7cd0e1b39dc218f472e4bf534523b`
 
 The bytecode-parity invariant under `deployed-bytecode.hex` + `deployed-bytecode.meta.toml` (in this
 directory) is the load-bearing check.
