@@ -49,3 +49,7 @@ config:
     secure: v1:uic0XwOCVP8ecxaT:GwwYi64Gisrq7VKu+mTpqxYhdCWOpOkBGS+oEMvPGEA1qMcpiwalNOfS8WmgzCIdG0+l0h3+1xMZ/RqyPEWO43klUPk4+GbI4rjY0Xeen1bk
   kailua-batch:BOUNDLESS_ORDER_STREAM_URL:
     secure: v1:MPne/quadp5SpIJV:UTCRs341PjeijpWIBNIxIassKAYSZd+I9SOejCns4aDI3+4dgBHH1qCl6Iem9sH9GOVsSMNhh/XXfpgxgh1D0Ct3gPuLvTiZa2fSuUmMXDRnh+vRm2u3PrhbhO0=
+  kailua-batch:L2_RPC_STAGGER:
+    secure: v1:XyaIsbU621WmZdw/:rkUc0a98PormMt6yFLY+tAbgmLmzMHi2mjFw4LdbXPmHyNEh6pyX0WZopcwaMzfhzMEd91b1ivuQ9DAXMBAkTW7BeAhsVepyWkQ44eQL2dmiWM6jew==
+  kailua-batch:L1_RPC_STAGGER:
+    secure: v1:z0kAYmaQF3gN6gAv:M5sunxuu1/nrE1Xx3MFA8TnObaCEw+eNu/TjTTdm4Kv2lSw0GA29hUfDuLKshPGGjIUIFDCdPZPEEl5Y952Xh2xke2kFt5WMg9bZq6p2Do/sNAJMlw==

@@ -30,7 +30,10 @@ const REQUIRED_SECRETS: SecretMapping[] = [
     { configKey: "BOUNDLESS_RPC_URL", envName: "BOUNDLESS_RPC_URL" },
 ];
 
-const OPTIONAL_SECRETS: SecretMapping[] = [];
+const OPTIONAL_SECRETS: SecretMapping[] = [
+    { configKey: "L1_RPC_STAGGER", envName: "L1_RPC_STAGGER" },
+    { configKey: "L2_RPC_STAGGER", envName: "L2_RPC_STAGGER" },
+];
 
 const DEFAULT_SCHEDULE_COUNT = 20;
 const DEFAULT_SCHEDULE_WINDOW_MINUTES = 20;
@@ -248,11 +251,17 @@ export = () => {
         ': "${S3_SECRET_KEY:?S3_SECRET_KEY is required for R2}"',
         'export AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY}"',
         'export AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY}"',
+        'L1_RPC_SELECTED="$L1_RPC"',
+        'L2_RPC_SELECTED="$L2_RPC"',
+        'L1_RPC_SOURCE="primary"',
+        'L2_RPC_SOURCE="primary"',
+        'if [ -n "${L1_RPC_STAGGER:-}" ] && [ $((START_BLOCK_OFFSET % 2)) -eq 1 ]; then L1_RPC_SELECTED="$L1_RPC_STAGGER"; L1_RPC_SOURCE="stagger"; fi',
+        'if [ -n "${L2_RPC_STAGGER:-}" ] && [ $((START_BLOCK_OFFSET % 2)) -eq 1 ]; then L2_RPC_SELECTED="$L2_RPC_STAGGER"; L2_RPC_SOURCE="stagger"; fi',
         // Bound the pre-prove RPC call too: a dead/hung L2 RPC here would otherwise hang the
         // task forever, since the prove watchdog below has not started yet.
-        'FINALIZED=$(timeout 60 cast bn finalized -r "$L2_RPC")',
+        'FINALIZED=$(timeout 60 cast bn finalized -r "$L2_RPC_SELECTED")',
         'START_BLOCK=$((FINALIZED - START_BLOCK_OFFSET))',
-        'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT}"',
+        'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT} l1_rpc=${L1_RPC_SOURCE} l2_rpc=${L2_RPC_SOURCE}"',
         `cd ${kailuaWorkdir}`,
         // Hard wall-clock cap on proving. A plain `timeout` does NOT bound this: `just`/the prover
         // don't propagate the signal to the whole process tree, so orphaned proving processes keep
@@ -262,7 +271,7 @@ export = () => {
         // code. The limit comes from TASK_TIMEOUT_MINUTES stack config (default 20m); override the
         // raw seconds via ENV stack config (KAILUA_TASK_TIMEOUT_SECONDS) if needed.
         'set -m',
-        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 &',
+        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC_SELECTED" "$L1_BEACON" "$L2_RPC_SELECTED" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 &',
         'KAILUA_PROVE_PID=$!',
         '( sleep "${KAILUA_TASK_TIMEOUT_SECONDS:-1800}"; echo "KAILUA_TASK_TIMEOUT exceeded after ${KAILUA_TASK_TIMEOUT_SECONDS:-1800}s; killing prove process group"; kill -TERM -"$KAILUA_PROVE_PID" 2>/dev/null; sleep 30; kill -KILL -"$KAILUA_PROVE_PID" 2>/dev/null ) &',
         'KAILUA_WATCHDOG_PID=$!',
@@ -278,6 +287,21 @@ export = () => {
     ].join("\n");
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
+
+    const clusterCapacityProviders = new aws.ecs.ClusterCapacityProviders(
+        `${serviceName}-capacity-providers`,
+        {
+            clusterName: cluster.name,
+            capacityProviders: ["FARGATE", "FARGATE_SPOT"],
+            defaultCapacityProviderStrategies: [
+                {
+                    capacityProvider: "FARGATE_SPOT",
+                    weight: 1,
+                    base: 0,
+                },
+            ],
+        },
+    );
 
     const fargateTask = new awsx.ecs.FargateTaskDefinition(
         `${serviceName}-task`,
@@ -385,7 +409,7 @@ export = () => {
                 TASKS_PER_MINUTE: tasksPerMinute.toString(),
             },
         },
-    }, { dependsOn: [triggerLambdaRole, fargateTask, triggerLambdaLogGroup] });
+    }, { dependsOn: [triggerLambdaRole, fargateTask, triggerLambdaLogGroup, clusterCapacityProviders] });
 
     const schedulerRole = new aws.iam.Role(`${serviceName}-scheduler-role`, {
         assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({

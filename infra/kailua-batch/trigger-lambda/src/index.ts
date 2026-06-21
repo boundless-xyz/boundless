@@ -85,7 +85,12 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
         const runInput: RunTaskCommandInput = {
             cluster,
             taskDefinition: process.env.TASK_DEFINITION_ARN!,
-            launchType: "FARGATE",
+            capacityProviderStrategy: [
+                {
+                    capacityProvider: "FARGATE_SPOT",
+                    weight: 1,
+                },
+            ],
             networkConfiguration: {
                 awsvpcConfiguration: {
                     subnets,
