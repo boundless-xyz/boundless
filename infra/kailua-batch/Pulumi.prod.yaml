@@ -46,7 +46,3 @@ config:
     secure: v1:28azRHlRESdVxw0y:/nt8/hwDH6VVnJLuMYCkJvfQpSe+eqNlctlq2oWhqlfATQeTj9pri2Gikyjn2M9cWXD7iSeCsR3O89GP17Ghq22UNRUraRhyY4k9WQ6t0dRdpmuU0EWERITyuMFBxho4
   kailua-batch:S3_URL:
     secure: v1:KnQH/QXfYlfsJYVc:WHcgc6ohOa6FrIKOvD6NUblBJTXQeTGBy9ZxG3JIhsmALeUYooYDsANVnuiREHFgM/O0lGhda8HCYtAQRXAKG6M+E8l+MHeHthP5VCNzGCHo
-  kailua-batch:L2_RPC_STAGGER:
-    secure: v1:uwq3kdib4zaBP+zt:s7dmAVNmFXNM82e9kygXrBUfBwZeznt8yrA6QfhYVsG9UjBtr6lTlu9z5lnBl3D+G/8uLJRYcuQtJoVHbNf++0+jwnDjUjualeShqjKZUL44e23vEw==
-  kailua-batch:L1_RPC_STAGGER:
-    secure: v1:rsH6vjkkH7fPVKM3:x4eMStABlXHRd6saLtuH6IKZIVIpsbTOhBi3U/KT8l69WbH1vbGSqFxBYzKVFwtxJsSmPeY9BI7m/+jtQErTWiV4sJgH72oC12/4A7TtpcBAIEz4/Q==

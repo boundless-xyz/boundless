@@ -57,6 +57,7 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
     const ecs = new ECSClient({ region: process.env.AWS_REGION || "us-west-2" });
     const cluster = process.env.CLUSTER_ARN!;
     const family = process.env.TASK_DEFINITION_FAMILY!;
+    const capacityProvider = process.env.TASK_CAPACITY_PROVIDER || "FARGATE_SPOT";
 
     const listed = await ecs.send(new ListTasksCommand({
         cluster,
@@ -87,7 +88,7 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
             taskDefinition: process.env.TASK_DEFINITION_ARN!,
             capacityProviderStrategy: [
                 {
-                    capacityProvider: "FARGATE_SPOT",
+                    capacityProvider,
                     weight: 1,
                 },
             ],
@@ -112,7 +113,8 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
         };
 
         const response = await ecs.send(new RunTaskCommand(runInput));
-        const taskArn = response.tasks?.[0]?.taskArn;
+        const task = response.tasks?.[0];
+        const taskArn = task?.taskArn;
         if (!taskArn) {
             const failures = response.failures?.map(f => `${f.reason}: ${f.arn ?? "unknown"}`).join("; ");
             throw new Error(`RunTask returned no task ARN${failures ? ` (${failures})` : ""}`);
@@ -126,6 +128,8 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
             taskArn,
             runningCount,
             maxRunning,
+            requestedCapacityProvider: capacityProvider,
+            capacityProvider: task?.capacityProviderName,
             startBlockOffset,
             blockCount,
         }));
