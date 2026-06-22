@@ -88,7 +88,6 @@ boundless prover setup
 boundless rewards setup
 ```
 
-**Tip:** Set `AWS_EC2_METADATA_DISABLED=true` on all `boundless` commands to avoid 2–4s AWS IMDS timeout warnings on non-EC2 machines.
 
 ## Key Environment Variables
 

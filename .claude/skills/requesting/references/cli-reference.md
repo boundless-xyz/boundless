@@ -131,7 +131,6 @@ boundless requestor submit-file request.yaml --no-preflight
 
 See `examples/request.yaml` for the YAML format.
 
-**Environment tip:** Set `AWS_EC2_METADATA_DISABLED=true` to avoid AWS IMDS timeout warnings on non-EC2 machines.
 
 ### `boundless requestor status <REQUEST_ID> [EXPIRES_AT]`
 
