@@ -18,9 +18,15 @@ import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 ///         handled by `Manage.Router.s.sol:BootstrapRouter` — run it next.
 /// @dev    Admin comes from the `CHAIN_KEY` section's `admin` in `deployment.toml`,
 ///         overridable via ROUTER_ADMIN. The admin holds ADMIN_ROLE on the router
-///         (governs class / entry mutations and UUPS upgrades); bring-up typically
-///         uses the deployer EOA and hands the role to the Safe/timelock afterwards
-///         via `TransferRouterAdmin`. DEPLOYER_PRIVATE_KEY is the broadcaster.
+///         (governs class / entry mutations and UUPS upgrades) from this deploy
+///         transaction onward — `initialize` grants it atomically.
+///
+///         For staging/prod, set `ROUTER_ADMIN=$SAFE` so the Safe is admin from genesis
+///         and the deployer EOA never holds the role; then run `BootstrapRouter` with
+///         `GNOSIS_EXECUTE=true` to register classes/entries via a Safe batch. Only the
+///         dev / EOA-bring-up path uses the deployer EOA as admin and later hands the role
+///         to the Safe/timelock via `TransferRouterAdmin`. DEPLOYER_PRIVATE_KEY is the
+///         broadcaster in either case.
 contract DeployRouter is BoundlessScriptBase {
     function run() external {
         uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
