@@ -26,6 +26,10 @@ test: test-foundry test-cargo
 test-foundry:
     forge test -vvv --isolate
 
+# Run the contract suite under the Shanghai-EVM profile (Taiko variant)
+test-foundry-shanghai:
+    FOUNDRY_PROFILE=shanghai forge test -vvv --isolate
+
 # Run all Cargo tests
 test-cargo: test-cargo-root test-cargo-example test-cargo-db
 

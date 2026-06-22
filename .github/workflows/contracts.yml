@@ -114,6 +114,9 @@ jobs:
       - name: Verify shanghai market/legacy storage layout interop
         run: BOUNDLESS_OUT_DIR=out-shanghai python3 contracts/scripts/verify-storage-layout.py
 
+      - name: Run the contract suite under the shanghai profile
+        run: FOUNDRY_PROFILE=shanghai forge test --isolate
+
   upgradability:
     runs-on: ubuntu-latest
     needs: contracts-changed
