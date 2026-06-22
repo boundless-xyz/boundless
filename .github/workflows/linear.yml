@@ -17,6 +17,8 @@ concurrency:
 
 jobs:
   create-linear-issue-pr:
+    # Skip if PR not from within org
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: checkout code
