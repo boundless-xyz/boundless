@@ -918,6 +918,7 @@ pub struct Client<
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
 pub type StandardClient<Z> = Client<
+      Z,
     DynProvider,
     StandardUploader,
     StandardDownloader,
