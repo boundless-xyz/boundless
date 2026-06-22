@@ -513,10 +513,10 @@ impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
         }
 
         match self.skip_preflight {
-              Some(skip) => client = client.with_skip_preflight(skip),
-              None if client.zkvm_ops.is_none() => client = client.with_skip_preflight(true),
-              None => {} // leave None so BOUNDLESS_IGNORE_PREFLIGHT fallback applies
-          }
+            Some(skip) => client = client.with_skip_preflight(skip),
+            None if client.zkvm_ops.is_none() => client = client.with_skip_preflight(true),
+            None => {} // leave None so BOUNDLESS_IGNORE_PREFLIGHT fallback applies
+        }
 
         Ok(client)
     }
@@ -921,7 +921,7 @@ pub struct Client<
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
 pub type StandardClient<Z> = Client<
-      Z,
+    Z,
     DynProvider,
     StandardUploader,
     StandardDownloader,
