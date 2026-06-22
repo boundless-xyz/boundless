@@ -311,7 +311,7 @@ mod tests {
     use alloy_primitives::{Address, FixedBytes};
     use async_trait::async_trait;
     use moka::future::Cache;
-    use risc0_zkvm::{sha::Digest as Risc0Digest, Receipt};
+    use risc0_zkvm::Receipt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use url::Url;
 

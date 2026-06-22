@@ -233,7 +233,6 @@ mod tests {
     use super::*;
 
     use crate::{contracts::Predicate, GuestEnv};
-    use risc0_zkvm::sha::Digest as Risc0Digest;
 
     fn test_request() -> EvaluationRequest {
         let predicate: crate::contracts::RequestPredicate =

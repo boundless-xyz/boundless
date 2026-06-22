@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::B256;
+use alloy_primitives::B256;
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(target_os = "zkvm"))]
 use std::fmt;
 
 /// A 32-byte hash digest representing an image ID or journal digest.
@@ -35,6 +37,7 @@ impl Digest {
     }
 
     /// Parses a hex-encoded digest (64 lowercase hex chars).
+    #[cfg(not(target_os = "zkvm"))]
     pub fn from_hex(s: &str) -> Result<Self, hex::FromHexError> {
         let mut bytes = [0u8; 32];
         hex::decode_to_slice(s, &mut bytes)?;
@@ -42,11 +45,13 @@ impl Digest {
     }
 
     /// Encodes the digest as a lowercase hex string.
+    #[cfg(not(target_os = "zkvm"))]
     pub fn to_hex(&self) -> String {
         hex::encode(self.0)
     }
 }
 
+#[cfg(not(target_os = "zkvm"))]
 impl fmt::Display for Digest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", hex::encode(self.0))
@@ -96,6 +101,7 @@ mod tests {
         assert_eq!(<[u8; 32]>::from(d), bytes);
     }
 
+    #[cfg(not(target_os = "zkvm"))]
     #[test]
     fn roundtrip_hex() {
         let d = Digest::from_bytes([0xab; 32]);
@@ -103,6 +109,7 @@ mod tests {
         assert_eq!(Digest::from_hex(&hex).unwrap(), d);
     }
 
+    #[cfg(not(target_os = "zkvm"))]
     #[test]
     fn display() {
         let d = Digest::from_bytes([0u8; 32]);
