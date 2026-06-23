@@ -9,6 +9,8 @@ type ChainStageAlarms = {
 type AlarmConfig = {
   severity: Severity;
   description?: string;
+  /** When false, suppress the automatic Ops Query investigation (default: on). */
+  autoInvestigate?: boolean;
   metricConfig: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric> & {
     period: number;
   };

@@ -214,41 +214,45 @@ export class MonitorLambda extends pulumi.ComponentResource {
       const { createMetricAlarm, createSuccessRateAlarm } = buildCreateMetricFns(serviceName, marketMetricsNamespace, alarmActions);
       const { fulfilledRequests, submittedRequests, expiredRequests, slashedRequests } = chainStageAlarmConfig.topLevel;
 
-      fulfilledRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      fulfilledRequests.forEach(({ severity, description, autoInvestigate, metricConfig, alarmConfig }) => {
         createMetricAlarm({
           metricName: "fulfilled_requests_number",
           severity,
           description,
+          autoInvestigate,
           metricConfig,
           alarmConfig,
         });
       });
 
-      submittedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      submittedRequests.forEach(({ severity, description, autoInvestigate, metricConfig, alarmConfig }) => {
         createMetricAlarm({
           metricName: "requests_number",
           severity,
           description,
+          autoInvestigate,
           metricConfig,
           alarmConfig,
         });
       });
 
-      expiredRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      expiredRequests.forEach(({ severity, description, autoInvestigate, metricConfig, alarmConfig }) => {
         createMetricAlarm({
           metricName: "expired_requests_number",
           severity,
           description,
+          autoInvestigate,
           metricConfig,
           alarmConfig,
         });
       });
 
-      slashedRequests.forEach(({ severity, description, metricConfig, alarmConfig }) => {
+      slashedRequests.forEach(({ severity, description, autoInvestigate, metricConfig, alarmConfig }) => {
         createMetricAlarm({
           metricName: "slashed_requests_number",
           severity,
           description,
+          autoInvestigate,
           metricConfig,
           alarmConfig,
         });
@@ -260,12 +264,13 @@ export class MonitorLambda extends pulumi.ComponentResource {
         const { submissionRate, successRate, expiredRequests, name, address } = client;
         if (submissionRate != null) {
           submissionRate.forEach((cfg) => {
-            const { severity, description, metricConfig, alarmConfig } = cfg;
+            const { severity, description, autoInvestigate, metricConfig, alarmConfig } = cfg;
             createMetricAlarm({
               metricName: "requests_number_from",
               severity,
               target: { name, address },
               description,
+              autoInvestigate,
               metricConfig,
               alarmConfig,
             });
@@ -274,19 +279,20 @@ export class MonitorLambda extends pulumi.ComponentResource {
 
         if (successRate != null) {
           successRate.forEach((cfg) => {
-            const { severity, description, metricConfig, alarmConfig } = cfg;
-            createSuccessRateAlarm({ name, address }, severity, description, metricConfig, alarmConfig);
+            const { severity, description, autoInvestigate, metricConfig, alarmConfig } = cfg;
+            createSuccessRateAlarm({ name, address }, severity, description, metricConfig, alarmConfig, autoInvestigate);
           });
         };
 
         if (expiredRequests != null) {
           expiredRequests.forEach((cfg) => {
-            const { severity, description, metricConfig, alarmConfig } = cfg;
+            const { severity, description, autoInvestigate, metricConfig, alarmConfig } = cfg;
             createMetricAlarm({
               metricName: "expired_requests_number_from",
               severity,
               target: { name, address },
               description,
+              autoInvestigate,
               metricConfig,
               alarmConfig,
             });

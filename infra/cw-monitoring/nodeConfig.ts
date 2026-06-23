@@ -19,6 +19,8 @@ import { buildProverLogPatterns, ProverType } from "./proverAlarms";
 export type AlarmConfig = {
     severity: Severity;
     description: string;
+    /** When false, suppress the automatic Ops Query investigation (default: on). */
+    autoInvestigate?: boolean;
     metricConfig: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric> & {
         /** Evaluation period in seconds. Required — no hidden defaults. */
         period: number;
@@ -46,6 +48,8 @@ export type LogPatternAlarmConfig = {
     alarm?: {
         severity: Severity;
         description: string;
+        /** When false, suppress the automatic Ops Query investigation (default: on). */
+        autoInvestigate?: boolean;
         metricConfig: { period: number };
         alarmConfig: {
             evaluationPeriods: number;
