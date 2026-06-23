@@ -27,9 +27,7 @@ use alloy::{
 };
 use alloy_primitives::{utils::format_ether, Signature, B256};
 use anyhow::{anyhow, bail, Context, Result};
-use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use tower::ServiceBuilder;
 use url::Url;
 
@@ -58,6 +56,7 @@ use crate::{
         StorageUploaderConfig,
     },
     util::NotProvided,
+    Journal,
 };
 
 /// Funding mode for requests submission.
@@ -1508,9 +1507,11 @@ where
             .await?)
     }
 
-    /// Get the [SetInclusionReceipt] for a request.
+    /// Get the set inclusion receipt for a request.
     ///
-    /// This method fetches the fulfillment data for a request and constructs the set inclusion receipt.
+    /// This method fetches the fulfillment data for a request and constructs the set inclusion
+    /// receipt via the [ZkvmOps] implementation. The zkvm ops must have been configured with a
+    /// set verifier (e.g. via [`Risc0ZkvmOps::with_set_verifier`]) before calling this method.
     ///
     /// # Parameters
     ///
@@ -1527,45 +1528,17 @@ where
     /// Without explicit block bounds, the onchain search covers blocks according to
     /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
     /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use anyhow::Result;
-    /// use alloy::primitives::{B256, Bytes, U256};
-    /// use boundless_market::client::ClientBuilder;
-    /// use risc0_aggregation::SetInclusionReceipt;
-    /// use risc0_zkvm::ReceiptClaim;
-    ///
-    /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
-    ///     let client = ClientBuilder::new().build().await?;
-    ///
-    ///     // For recent requests
-    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
-    ///         request_id,
-    ///         image_id,
-    ///         None,
-    ///         None,
-    ///     ).await?;
-    ///
-    ///     // For old requests with explicit block range
-    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
-    ///         request_id,
-    ///         image_id,
-    ///         Some(1000000),  // search_to_block
-    ///         Some(1500000),  // search_from_block
-    ///     ).await?;
-    ///
-    ///     Ok((journal, receipt))
-    /// }
-    /// ```
     pub async fn fetch_set_inclusion_receipt(
         &self,
         request_id: U256,
         image_id: B256,
         search_to_block: Option<u64>,
         search_from_block: Option<u64>,
-    ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
+    ) -> Result<(Bytes, Z::SetInclusionReceipt), ClientError>
+    where
+        Z: ZkvmOps,
+    {
+        let zkvm_ops = self.zkvm_ops.as_ref().context("zkvm_ops not set on client")?;
         // TODO(#646): This logic is only correct under the assumption there is a single set
         // verifier.
         let fulfillment = self
@@ -1577,10 +1550,12 @@ where
                 "No fulfillment data found for set inclusion receipt"
             ))),
             FulfillmentData::ImageIdAndJournal(_, journal) => {
-                let claim = ReceiptClaim::ok(Digest::from(image_id.0), journal.to_vec());
-                let receipt = self
-                    .set_verifier
-                    .fetch_receipt_with_claim(fulfillment.seal, claim, journal.to_vec())
+                let receipt = zkvm_ops
+                    .fetch_set_inclusion_receipt(
+                        fulfillment.seal,
+                        image_id,
+                        Journal::new(journal.to_vec()),
+                    )
                     .await?;
                 Ok((journal, receipt))
             }

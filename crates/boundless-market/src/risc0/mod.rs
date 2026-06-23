@@ -23,12 +23,18 @@ pub mod local_executor;
 #[cfg(not(target_os = "zkvm"))]
 use std::sync::Arc;
 
+#[cfg(not(target_os = "zkvm"))]
+use async_trait::async_trait;
+
 /// Risc0 ZKVM boundless market objects
 #[cfg(not(target_os = "zkvm"))]
 #[derive(Clone)]
 pub struct Risc0ZkvmOps {
     evaluator: Arc<request_evaluator::Risc0Evaluator>,
     local_executor: Arc<local_executor::Risc0LocalExecutor>,
+    set_verifier: Option<
+        risc0_ethereum_contracts::set_verifier::SetVerifierService<alloy::providers::DynProvider>,
+    >,
 }
 
 #[cfg(not(target_os = "zkvm"))]
@@ -54,7 +60,18 @@ impl Risc0ZkvmOps {
             preflight_cache,
         ));
 
-        Self { evaluator, local_executor }
+        Self { evaluator, local_executor, set_verifier: None }
+    }
+
+    /// Attach a [SetVerifierService] so that [ZkvmOps::fetch_set_inclusion_receipt] can be used.
+    pub fn with_set_verifier(
+        mut self,
+        sv: risc0_ethereum_contracts::set_verifier::SetVerifierService<
+            alloy::providers::DynProvider,
+        >,
+    ) -> Self {
+        self.set_verifier = Some(sv);
+        self
     }
 }
 
@@ -90,7 +107,10 @@ impl From<crate::Journal> for risc0_zkvm::Journal {
 }
 
 #[cfg(not(target_os = "zkvm"))]
+#[async_trait]
 impl crate::request_builder::ZkvmOps for Risc0ZkvmOps {
+    type SetInclusionReceipt = risc0_aggregation::SetInclusionReceipt<risc0_zkvm::ReceiptClaim>;
+
     fn executor(&self) -> Arc<dyn crate::request_builder::LocalExecutor + Sync + Send> {
         self.local_executor.clone()
     }
@@ -101,5 +121,23 @@ impl crate::request_builder::ZkvmOps for Risc0ZkvmOps {
 
     fn compute_image_id(&self, program: &[u8]) -> anyhow::Result<crate::Digest> {
         Ok(risc0_zkvm::compute_image_id(program)?.into())
+    }
+
+    async fn fetch_set_inclusion_receipt(
+        &self,
+        seal: alloy::primitives::Bytes,
+        image_id: alloy::primitives::B256,
+        journal: crate::Journal,
+    ) -> anyhow::Result<risc0_aggregation::SetInclusionReceipt<risc0_zkvm::ReceiptClaim>> {
+        let set_verifier = self
+            .set_verifier
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("set_verifier not set; call with_set_verifier first"))?;
+        let claim = risc0_zkvm::ReceiptClaim::ok(
+            risc0_zkvm::sha::Digest::from(image_id.0),
+            journal.bytes.clone(),
+        );
+        let receipt = set_verifier.fetch_receipt_with_claim(seal, claim, journal.bytes).await?;
+        Ok(receipt)
     }
 }

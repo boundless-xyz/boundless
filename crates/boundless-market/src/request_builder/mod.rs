@@ -22,6 +22,7 @@ use std::{
 use crate::{Digest, Journal};
 use alloy::{
     network::Ethereum,
+    primitives::{Bytes, B256},
     providers::{DynProvider, Provider},
 };
 use async_trait::async_trait;
@@ -186,7 +187,11 @@ pub trait LocalExecutor: Prover + Sync + Send {
 }
 
 /// Trait containing ZKVM types and functions
+#[async_trait]
 pub trait ZkvmOps {
+    /// Receipt type returned by [ZkvmOps::fetch_set_inclusion_receipt].
+    type SetInclusionReceipt: Send;
+
     /// A local executor for preflight
     fn executor(&self) -> Arc<dyn LocalExecutor + Sync + Send>;
 
@@ -200,6 +205,14 @@ pub trait ZkvmOps {
     fn create_journal(&self, bytes: Vec<u8>) -> Journal {
         Journal::new(bytes)
     }
+
+    /// Fetch the set inclusion receipt for the given seal, image ID, and journal.
+    async fn fetch_set_inclusion_receipt(
+        &self,
+        seal: Bytes,
+        image_id: B256,
+        journal: Journal,
+    ) -> anyhow::Result<Self::SetInclusionReceipt>;
 }
 
 /// A standard implementation of [RequestBuilder] that uses a layered architecture.
