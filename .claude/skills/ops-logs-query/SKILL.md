@@ -23,26 +23,24 @@ export AWS_DEFAULT_REGION="us-west-2"
 
 ### Prover log groups
 
-Prover log groups follow the pattern `/boundless/bento/<hostname>`. The hostnames are defined in the Pulumi config files:
+| AWS account (creds)   | Log group              | Stream           | Prover / role                                                                                          |
+| --------------------- | ---------------------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
+| prod (`[aws.prod]`)   | `boundless/hlc/prover` | `prover-prod`    | **prod / "release"** — serves the prod market. Full broker logs flow here.                             |
+| staging (`[aws.staging]`) | `boundless/hlc/prover` | `prover-staging` | **staging / "nightly"** — serves staging markets **and** the prod market.                          |
 
-- **Staging**: `infra/cw-monitoring/Pulumi.staging.yaml`
-- **Prod**: `infra/cw-monitoring/Pulumi.production.yaml`
+Legacy / decommissioned prover groups (stopped shipping 2026-05-29; the per-host syslog content moved into `boundless/hlc/prover`). Kept only for historical queries:
 
-Read the relevant Pulumi config to find current hostnames. As of now:
+| Legacy log group                               | Label (`network_address_labels.json`) |
+| ---------------------------------------------- | -------------------------------------- |
+| `/boundless/bento/prover-8453-prod-release`    | `BPLatitudeRelease`                    |
+| `/boundless/bento/prover-8453-prod-nightly`    | `BPLatitudeNightly`                    |
+| `/boundless/bento/prover-01`                   | `BPProver01DC` (idle since ~2026-05-01) |
+| `/boundless/bento/prover-02`                   | `BPProver02DC` (idle since ~2026-05-01) |
+| `/boundless/bento/prover-<chainid>-*-nightly`  | testnet variants                       |
 
-| Log Group                                       | Environment | Chain ID               | Label (approx, in `network_address_labels`) | Description                                                                      |
-| ----------------------------------------------- | ----------- | ---------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| `/boundless/bento/prover-84532-staging-nightly` | staging     | 84532 (Base Sepolia)   |                                             | Staging nightly prover                                                           |
-| `/boundless/bento/prover-8453-prod-release`     | prod        | 8453 (Base)            | `BPLatitudeRelease`                         | Prod release prover. Legacy name: `/boundless/bento/base-mainnet-prover-release` |
-| `/boundless/bento/prover-8453-prod-nightly`     | prod        | 8453 (Base)            | `BPLatitudeNightly`                         | Prod nightly prover. Legacy name: `/boundless/bento/base-mainnet-prover-nightly` |
-| `/boundless/bento/prover-84532-prod-nightly`    | prod        | 84532 (Base Sepolia)   |                                             | Prod Base Sepolia nightly prover                                                 |
-| `/boundless/bento/prover-11155111-prod-nightly` | prod        | 11155111 (Eth Sepolia) |                                             | Prod Eth Sepolia nightly prover                                                  |
-| `/boundless/bento/prover-01`                    | prod        | 8453 (Base)            | `BPProver01DC`                              | Prod datacenter prover 01                                                        |
-| `/boundless/bento/prover-02`                    | prod        | 8453 (Base)            | `BPProver02DC`                              | Prod datacenter prover 02                                                        |
+Even older, fully dead: `l-prod-<chainid>-bento-prover-*` and `prod-<chainid>-bento-prover-*` (last active Jan 2026 / Sept 2025).
 
-The label column lists the `network_address_labels.json` label that the log group is believed to correspond to. Names may not match exactly -- always confirm against `network_address_labels.json` and Pulumi config before relying on the mapping.
-
-If these are out of date, check the Pulumi config files for the current list.
+Always confirm a label mapping against `network_address_labels.json` before relying on it.
 
 We only have prover log groups for provers we operate. External provers do not have queryable logs.
 
@@ -111,7 +109,7 @@ Common service name fragments to search for:
 | Slasher         | `slasher`                                                  |
 | Distributor     | `distributor`                                              |
 | Signal          | `prod-8453-signal` (no `l-` prefix)                        |
-| Prover (bento)  | `/boundless/bento/prover` or `/boundless/bento/*-prover-*` |
+| Prover (bento)  | `boundless/hlc/prover` (current; stream `prover-prod` / `prover-staging`). Legacy: `/boundless/bento/*-prover-*` |
 
 ## Querying Logs
 
@@ -239,7 +237,7 @@ done
 
 When investigating fulfillment rate drops, prover downtime, or success rate alarms for provers we operate, **always check for recent deployments first**. Nightly deployments restart the bento Docker Compose stack and can cause extended outages if the new image is broken.
 
-Deployment events appear in the bento prover log groups (e.g. `/boundless/bento/prover-11155111-prod-nightly`). Look for these patterns:
+Deployment events appear in the prover log group (`boundless/hlc/prover`, stream `prover-prod`). Look for these patterns (on **prod**; staging currently does not ship these — see the staging shipping-gap note above):
 
 ```bash
 # Find recent deployments in a time window
