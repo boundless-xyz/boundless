@@ -13,20 +13,25 @@
 // limitations under the License.
 
 /// Contains RequestEvaluator implementation for risc0
+#[cfg(not(target_os = "zkvm"))]
 pub mod request_evaluator;
 
 /// Contains LocalExector implementation for risc0
+#[cfg(not(target_os = "zkvm"))]
 pub mod local_executor;
 
+#[cfg(not(target_os = "zkvm"))]
 use std::sync::Arc;
 
 /// Risc0 ZKVM boundless market objects
+#[cfg(not(target_os = "zkvm"))]
 #[derive(Clone)]
 pub struct Risc0ZkvmOps {
     evaluator: Arc<request_evaluator::Risc0Evaluator>,
     local_executor: Arc<local_executor::Risc0LocalExecutor>,
 }
 
+#[cfg(not(target_os = "zkvm"))]
 impl Risc0ZkvmOps {
     /// Creates a new Risc0ZkvmOps
     pub async fn new() -> Self {
@@ -84,6 +89,7 @@ impl From<crate::Journal> for risc0_zkvm::Journal {
     }
 }
 
+#[cfg(not(target_os = "zkvm"))]
 impl crate::request_builder::ZkvmOps for Risc0ZkvmOps {
     fn executor(&self) -> Arc<dyn crate::request_builder::LocalExecutor + Sync + Send> {
         self.local_executor.clone()

@@ -135,5 +135,4 @@ pub(crate) mod util;
 pub use util::NotProvided;
 
 /// risc0 specific objects
-#[cfg(not(target_os = "zkvm"))]
 pub mod risc0;
