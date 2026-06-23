@@ -267,7 +267,7 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
 
     let client = boundless_market::Client::new(
         ctx.customer_market.clone(),
-        ctx.set_verifier.clone(),
+        ctx.deployment.set_verifier_address,
         StandardDownloader::new().await,
     );
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());

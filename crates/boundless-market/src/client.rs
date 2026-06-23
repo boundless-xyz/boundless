@@ -27,7 +27,6 @@ use alloy::{
 };
 use alloy_primitives::{utils::format_ether, Signature, B256};
 use anyhow::{anyhow, bail, Context, Result};
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use tower::ServiceBuilder;
 use url::Url;
 
@@ -384,12 +383,6 @@ impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
             provider.clone(),
             self.signer_address().unwrap_or(Address::ZERO),
         );
-        let set_verifier = SetVerifierService::new(
-            deployment.set_verifier_address,
-            provider.clone(),
-            self.signer_address().unwrap_or(Address::ZERO),
-        );
-
         // Safe unwrap: Since D is not NotProvided a downloader must be set
         let downloader = self.downloader.unwrap();
 
@@ -496,7 +489,6 @@ impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
 
         let mut client = Client {
             boundless_market,
-            set_verifier,
             uploader: self.uploader,
             downloader,
             offchain_client,
@@ -883,8 +875,6 @@ pub struct Client<
 > {
     /// Boundless market service.
     pub boundless_market: BoundlessMarketService<P>,
-    /// Set verifier service.
-    pub set_verifier: SetVerifierService<P>,
     /// [StandardUploader] to upload programs and inputs.
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
@@ -973,15 +963,13 @@ where
     /// Create a new client
     pub fn new(
         boundless_market: BoundlessMarketService<P>,
-        set_verifier: SetVerifierService<P>,
+        set_verifier_address: Address,
         downloader: D,
     ) -> Self {
-        let boundless_market = boundless_market.clone();
-        let set_verifier = set_verifier.clone();
         Self {
             deployment: Deployment {
                 boundless_market_address: *boundless_market.instance().address(),
-                set_verifier_address: *set_verifier.instance().address(),
+                set_verifier_address,
                 market_chain_id: None,
                 order_stream_url: None,
                 collateral_token_address: None,
@@ -990,7 +978,6 @@ where
                 deployment_block: None,
             },
             boundless_market,
-            set_verifier,
             uploader: None,
             downloader,
             offchain_client: None,
@@ -1067,18 +1054,6 @@ where
         }
     }
 
-    /// Set the set verifier service
-    pub fn with_set_verifier(self, set_verifier: SetVerifierService<P>) -> Self {
-        Self {
-            deployment: Deployment {
-                set_verifier_address: *set_verifier.instance().address(),
-                ..self.deployment
-            },
-            set_verifier,
-            ..self
-        }
-    }
-
     /// Set the offchain client
     pub fn with_offchain_client(self, offchain_client: OrderStreamClient) -> Self {
         Self {
@@ -1093,11 +1068,7 @@ where
 
     /// Set the transaction timeout
     pub fn with_timeout(self, tx_timeout: Duration) -> Self {
-        Self {
-            boundless_market: self.boundless_market.with_timeout(tx_timeout),
-            set_verifier: self.set_verifier.with_timeout(tx_timeout),
-            ..self
-        }
+        Self { boundless_market: self.boundless_market.with_timeout(tx_timeout), ..self }
     }
 
     /// Set the funding mode for onchain requests.
@@ -1122,7 +1093,6 @@ where
         Client {
             signer: Some(signer),
             boundless_market: self.boundless_market,
-            set_verifier: self.set_verifier,
             uploader: self.uploader,
             downloader: self.downloader,
             offchain_client: self.offchain_client,
