@@ -13,8 +13,6 @@
 // limitations under the License.
 
 use bytemuck::Pod;
-use risc0_zkvm::serde::to_vec;
-use risc0_zkvm::ExecutorEnv;
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 
@@ -72,11 +70,6 @@ pub enum Error {
 }
 
 /// Structured input used by the Boundless prover to execute the guest for the proof request.
-///
-/// This struct is related to the [ExecutorEnv] in that both represent the environments provided to
-/// the guest by the host that is executing and proving the execution. In contrast to the
-/// [ExecutorEnv] provided by [risc0_zkvm], this struct contains only the options that are
-/// supported by Boundless.
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[non_exhaustive]
@@ -123,17 +116,6 @@ impl GuestEnv {
     }
 }
 
-impl TryFrom<GuestEnv> for ExecutorEnv<'_> {
-    type Error = anyhow::Error;
-
-    /// Create an [ExecutorEnv], which can be used for execution and proving through the
-    /// [risc0_zkvm] [Prover][risc0_zkvm::Prover] and [Executor][risc0_zkvm::Executor] traits, from
-    /// the given [GuestEnv].
-    fn try_from(env: GuestEnv) -> Result<Self, Self::Error> {
-        ExecutorEnv::builder().write_slice(&env.stdin).build()
-    }
-}
-
 impl From<GuestEnvBuilder> for GuestEnv {
     fn from(builder: GuestEnvBuilder) -> Self {
         builder.build_env()
@@ -172,34 +154,6 @@ impl GuestEnvBuilder {
     /// Build and encode the [GuestEnv] into an inline [RequestInput] for inclusion in a proof request.
     pub fn build_inline(self) -> Result<RequestInput, Error> {
         Ok(RequestInput::inline(self.build_env().encode()?))
-    }
-
-    /// Write input data.
-    ///
-    /// This function will serialize `data` using the RISC Zero default codec that
-    /// can be deserialized in the guest with a corresponding `risc0_zkvm::env::read` with
-    /// the same data type.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use boundless_market::GuestEnv;
-    /// use serde::Serialize;
-    ///
-    /// #[derive(Serialize)]
-    /// struct Input {
-    ///     a: u32,
-    ///     b: u32,
-    /// }
-    ///
-    /// let input1 = Input{ a: 1, b: 2 };
-    /// let input2 = Input{ a: 3, b: 4 };
-    /// let input = GuestEnv::builder()
-    ///     .write(&input1).unwrap()
-    ///     .write(&input2).unwrap();
-    /// ```
-    pub fn write<T: Serialize>(self, data: &T) -> Result<Self, Error> {
-        Ok(self.write_slice(&to_vec(data)?))
     }
 
     /// Write input data.

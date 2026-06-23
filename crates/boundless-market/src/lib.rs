@@ -122,6 +122,17 @@ pub use storage::{
     StandardDownloader, StandardUploader, StorageDownloaderConfig, StorageUploaderConfig,
 };
 
+/// A 32-byte hash digest type for image IDs and journal digests.
+pub mod digest;
+pub use digest::Digest;
+
+/// Guest program execution journal type.
+pub mod journal;
+pub use journal::Journal;
+
 /// Utility functions and types used elsewhere.
 pub(crate) mod util;
 pub use util::NotProvided;
+
+/// risc0 specific objects
+pub mod risc0;

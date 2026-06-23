@@ -117,7 +117,8 @@ impl RequestorSubmitOffer {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
         requestor_config.require_private_key_with_help()?;
 
-        let mut builder = requestor_config.client_builder_with_signer(global_config.tx_timeout)?;
+        let mut builder =
+            requestor_config.client_builder_with_signer(global_config.tx_timeout).await?;
 
         // build the price oracle manager and add it to the client builder
         let rpc_url = requestor_config.require_rpc_url()?;
@@ -167,7 +168,8 @@ impl RequestorSubmitOffer {
         // Prepare the input environment
         let mut env_builder = GuestEnvBuilder::default();
         if self.encode_input {
-            env_builder = env_builder.write(&stdin)?;
+            let encoded_stdin = risc0_zkvm::serde::to_vec(&stdin)?;
+            env_builder = env_builder.write_slice(&encoded_stdin);
         } else {
             env_builder = env_builder.write_slice(&stdin);
         }

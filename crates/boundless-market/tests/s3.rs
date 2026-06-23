@@ -20,6 +20,7 @@ use alloy::node_bindings::Anvil;
 use boundless_market::{
     client::ClientBuilder,
     contracts::RequestInputType,
+    risc0::Risc0ZkvmOps,
     storage::{S3StorageDownloader, StorageDownloader, StorageUploaderType},
     test_helpers::S3Mock,
     StorageUploaderConfig,
@@ -49,6 +50,7 @@ async fn test_s3_storage() {
 
         // Build client with s3:// storage
         let client = ClientBuilder::new()
+            .with_zkvm(Risc0ZkvmOps::new().await)
             .with_signer(ctx.customer_signer.clone())
             .with_deployment(ctx.deployment.clone())
             .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())

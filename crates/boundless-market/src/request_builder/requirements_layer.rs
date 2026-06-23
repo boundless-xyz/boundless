@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Adapt, Layer, MissingFieldError, RequestParams};
+use super::{Adapt, Layer, MissingFieldError, RequestParams, ZkvmOps};
 #[cfg(feature = "blake3-groth16")]
 use crate::blake3_groth16;
 use crate::contracts::{Callback, Predicate, Requirements};
 #[cfg(feature = "blake3-groth16")]
 use crate::selector::is_blake3_groth16_selector;
+use crate::{Digest, Journal};
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
-use risc0_zkvm::{compute_image_id, Journal};
-use risc0_zkvm::{sha::Digestible, Digest};
 
 const DEFAULT_CALLBACK_GAS_LIMT: u64 = 100000u64;
 
@@ -137,16 +136,19 @@ impl RequirementsLayer {
     }
 }
 
-impl Layer<(&[u8], &Journal, &RequirementParams)> for RequirementsLayer {
+impl<'a, Z> Layer<(&'a [u8], &'a Journal, &'a RequirementParams, &'a Z)> for RequirementsLayer
+where
+    Z: ZkvmOps,
+{
     type Output = Requirements;
     type Error = anyhow::Error;
 
     async fn process(
         &self,
-        (program, journal, params): (&[u8], &Journal, &RequirementParams),
+        (program, journal, params, zkvm_ops): (&[u8], &Journal, &RequirementParams, &Z),
     ) -> Result<Self::Output, Self::Error> {
         let image_id =
-            compute_image_id(program).context("failed to compute image ID for program")?;
+            zkvm_ops.compute_image_id(program).context("failed to compute image ID for program")?;
         self.process((image_id, journal, params)).await
     }
 }
@@ -184,7 +186,7 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
                             image_id,
                             journal.bytes.clone(),
                         )
-                        .digest();
+                        .claim_digest();
                         Predicate::claim_digest_match(blake3_claim_digest)
                     }));
                 }
@@ -220,7 +222,37 @@ impl Adapt<RequirementsLayer> for RequestParams {
     async fn process_with(self, layer: &RequirementsLayer) -> Result<Self::Output, Self::Error> {
         tracing::trace!("Processing {self:?} with RequirementsLayer");
 
-        // If the two required paramters of image ID and predicate are already set, skip this
+        // If the two required parameters of image ID and predicate are already set, skip this
+        // layer.
+        if self.requirements.predicate.is_some() && self.requirements.image_id.is_some() {
+            return Ok(self);
+        }
+
+        let journal = self.require_journal().context("failed to build Requirements for request")?;
+        let requirements = if let Some(image_id) = self.image_id {
+            layer.process((image_id, journal, &self.requirements)).await?
+        } else {
+            anyhow::bail!("image_id must be set when processing RequirementsLayer without ZkvmOps");
+        };
+
+        Ok(self.with_requirements(RequirementParams::try_from(requirements)?))
+    }
+}
+
+impl<'a, Z> Adapt<(&'a RequirementsLayer, &'a Z)> for RequestParams
+where
+    Z: ZkvmOps,
+{
+    type Output = RequestParams;
+    type Error = anyhow::Error;
+
+    async fn process_with(
+        self,
+        &(layer, zkvm_ops): &(&'a RequirementsLayer, &'a Z),
+    ) -> Result<Self::Output, Self::Error> {
+        tracing::trace!("Processing {self:?} with RequirementsLayer");
+
+        // If the two required parameters of image ID and predicate are already set, skip this
         // layer.
         if self.requirements.predicate.is_some() && self.requirements.image_id.is_some() {
             return Ok(self);
@@ -231,7 +263,9 @@ impl Adapt<RequirementsLayer> for RequestParams {
             layer.process((image_id, journal, &self.requirements)).await?
         } else {
             let program = self.require_program()?;
-            layer.process((program, journal, &self.requirements)).await?
+            let image_id =
+                zkvm_ops.compute_image_id(program).context("failed to compute image ID")?;
+            layer.process((image_id, journal, &self.requirements)).await?
         };
 
         Ok(self.with_requirements(RequirementParams::try_from(requirements)?))

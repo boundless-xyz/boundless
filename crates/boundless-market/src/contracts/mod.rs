@@ -41,10 +41,8 @@ use token::{
 };
 use url::Url;
 
-use risc0_zkvm::{
-    sha::{Digest, Digestible},
-    MaybePruned, ReceiptClaim,
-};
+use crate::Digest;
+use risc0_zkvm::{sha::Digestible, MaybePruned, ReceiptClaim};
 
 #[cfg(not(target_os = "zkvm"))]
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
@@ -827,7 +825,8 @@ impl Predicate {
         let claim_digest_data = match fulfillment_data {
             FulfillmentData::None => None,
             FulfillmentData::ImageIdAndJournal(image_id, journal) => {
-                Some(ReceiptClaim::ok(*image_id, journal.to_vec()).digest())
+                let r0_image_id = risc0_zkvm::sha::Digest::from(*image_id);
+                Some(Digest::from(ReceiptClaim::ok(r0_image_id, journal.to_vec()).digest()))
             }
         };
         let claim_digest_predicate = match self {
@@ -837,7 +836,11 @@ impl Predicate {
                 let FulfillmentData::ImageIdAndJournal(_, _) = &fulfillment_data else {
                     return None;
                 };
-                Some(ReceiptClaim::ok(*image_id, MaybePruned::Pruned(*journal)).digest())
+                let r0_image_id = risc0_zkvm::sha::Digest::from(*image_id);
+                let r0_journal = risc0_zkvm::sha::Digest::from(*journal);
+                Some(Digest::from(
+                    ReceiptClaim::ok(r0_image_id, MaybePruned::Pruned(r0_journal)).digest(),
+                ))
             }
             Predicate::PrefixMatch(image_id, prefix) => {
                 // With the PrefixMatch predicate, we need to check the condition on the journal.
@@ -919,7 +922,7 @@ impl RequestInput {
     /// ```
     /// use boundless_market::contracts::RequestInput;
     ///
-    /// let input_vec = RequestInput::builder().write(&[0x41, 0x41, 0x41, 0x41])?.build_vec()?;
+    /// let input_vec = RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_vec()?;
     /// let input = RequestInput::inline(input_vec);
     /// # anyhow::Ok(())
     /// ```
