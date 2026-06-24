@@ -19,8 +19,11 @@ use std::fmt::{self, Display, Formatter};
 
 use alloy_primitives::FixedBytes;
 use clap::ValueEnum;
+#[cfg(feature = "risc0")]
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
+#[cfg(feature = "risc0")]
 use risc0_ethereum_contracts::selector::Selector;
+#[cfg(feature = "risc0")]
 use risc0_zkvm::sha::Digestible;
 
 use crate::Digest;
@@ -67,9 +70,9 @@ pub enum SelectorExt {
     /// A fake Blake3 Groth16 proof selector.
     FakeBlake3Groth16 = 0xFFFF0000,
     /// Groth16 proof selector version 3.0.
-    Groth16V3_0 = Selector::Groth16V3_0 as u32,
+    Groth16V3_0 = 0x73c457ba,
     /// Set verifier selector version 0.9.
-    SetVerifierV0_9 = Selector::SetVerifierV0_9 as u32,
+    SetVerifierV0_9 = 0x242f9d5b,
     /// Blake3 Groth16 selector version 0.1.
     Blake3Groth16V0_1 = 0x62f049f6,
 }
@@ -95,6 +98,7 @@ impl TryFrom<u32> for SelectorExt {
     }
 }
 
+#[cfg(feature = "risc0")]
 impl TryFrom<Selector> for SelectorExt {
     type Error = SelectorExtError;
 
@@ -224,16 +228,24 @@ impl SupportedSelectors {
     ///
     /// The selector is calculated by constructing the [SetInclusionReceiptVerifierParameters]
     /// using the given image ID. The resulting selector has [ProofType::Inclusion].
+    /// Without the `risc0` feature this is a no-op and returns self unchanged.
     pub fn with_set_builder_image_id(&self, set_builder_image_id: impl Into<Digest>) -> Self {
-        let r0_image_id = risc0_zkvm::sha::Digest::from(set_builder_image_id.into());
-        let verifier_params =
-            SetInclusionReceiptVerifierParameters { image_id: r0_image_id }.digest();
-        let set_builder_selector: FixedBytes<4> =
-            verifier_params.as_bytes()[0..4].try_into().unwrap();
-        let mut selectors = self.selectors.clone();
-        selectors.insert(set_builder_selector, ProofType::Inclusion);
-
-        Self { selectors }
+        #[cfg(feature = "risc0")]
+        {
+            let r0_image_id = risc0_zkvm::sha::Digest::from(set_builder_image_id.into());
+            let verifier_params =
+                SetInclusionReceiptVerifierParameters { image_id: r0_image_id }.digest();
+            let set_builder_selector: FixedBytes<4> =
+                verifier_params.as_bytes()[0..4].try_into().unwrap();
+            let mut selectors = self.selectors.clone();
+            selectors.insert(set_builder_selector, ProofType::Inclusion);
+            return Self { selectors };
+        }
+        #[cfg(not(feature = "risc0"))]
+        {
+            let _ = set_builder_image_id;
+            Self { selectors: self.selectors.clone() }
+        }
     }
 }
 
