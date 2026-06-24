@@ -27,9 +27,14 @@ pub use config::{
 };
 #[allow(unused_imports)]
 pub use request_evaluator::{
-    EvaluationLimits, EvaluationMetrics, EvaluationRequest, ImageUploadCache, ImageUploadCacheKey,
-    InputCacheKey, NativeWork, NormalizedWork, PreflightCache, PreflightCacheKey,
-    PreflightCacheValue, PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
+    EvaluationLimits, EvaluationMetrics, EvaluationRequest, InputCacheKey, NativeWork,
+    NormalizedWork, PreflightCacheKey, PreflightCacheValue, RequestEvaluation, RequestEvaluator,
+};
+#[cfg(feature = "risc0")]
+#[allow(unused_imports)]
+pub use request_evaluator::{
+    ImageUploadCache, ImageUploadCacheKey, PreflightCache, PreflightErrorKind,
+    PriorityRequestorCheck,
 };
 
 use crate::{

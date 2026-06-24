@@ -62,6 +62,7 @@ impl From<bincode::Error> for ProverError {
 }
 
 /// Result of a proof operation.
+#[cfg(feature = "risc0")]
 #[derive(Clone, Debug, Default)]
 pub struct ProofResult {
     /// Unique identifier for this proof.

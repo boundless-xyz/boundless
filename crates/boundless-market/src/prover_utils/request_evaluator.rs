@@ -17,6 +17,7 @@ use std::sync::Arc;
 use alloy::primitives::{Address, Bytes, FixedBytes};
 use anyhow::Context;
 use async_trait::async_trait;
+#[cfg(feature = "risc0")]
 use moka::future::Cache;
 use sha2::{Digest, Sha256};
 
@@ -83,6 +84,7 @@ impl EvaluationMetrics {
     }
 }
 
+#[cfg(feature = "risc0")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PreflightErrorKind {
     LimitExceeded,
@@ -117,9 +119,11 @@ pub struct PreflightCacheKey {
 }
 
 /// Cache for preflight results.
+#[cfg(feature = "risc0")]
 pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 
 /// Key for the image-upload coalescing cache.
+#[cfg(feature = "risc0")]
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct ImageUploadCacheKey {
     program_url: String,
@@ -127,6 +131,7 @@ pub struct ImageUploadCacheKey {
     predicate_data: Vec<u8>,
 }
 
+#[cfg(feature = "risc0")]
 impl ImageUploadCacheKey {
     pub fn new(program_url: &str, predicate: &crate::contracts::RequestPredicate) -> Self {
         Self {
@@ -138,6 +143,7 @@ impl ImageUploadCacheKey {
 }
 
 /// Cache that coalesces concurrent image uploads, keyed by [`ImageUploadCacheKey`].
+#[cfg(feature = "risc0")]
 pub type ImageUploadCache = Arc<Cache<ImageUploadCacheKey, String>>;
 
 /// Backend-neutral request data needed to execute an evaluation/preflight.
@@ -226,6 +232,7 @@ pub trait RequestEvaluator {
 }
 
 /// Predicate that flags priority requestors. Defaults to none if absent.
+#[cfg(feature = "risc0")]
 pub type PriorityRequestorCheck = Arc<dyn Fn(&Address) -> bool + Send + Sync>;
 
 #[cfg(test)]
