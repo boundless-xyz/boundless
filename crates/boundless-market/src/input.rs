@@ -59,6 +59,7 @@ pub enum Error {
     #[error("MessagePack serde decoding error: {0}")]
     MessagePackSerdeDecode(#[from] rmp_serde::decode::Error),
     /// risc0-zkvm Serde error
+    #[cfg(feature = "risc0")]
     #[error("risc0-zkvm Serde error: {0}")]
     ZkvmSerde(#[from] risc0_zkvm::serde::Error),
     /// Unsupported version

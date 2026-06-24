@@ -42,9 +42,10 @@ use token::{
 use url::Url;
 
 use crate::Digest;
+#[cfg(feature = "risc0")]
 use risc0_zkvm::{sha::Digestible, MaybePruned, ReceiptClaim};
 
-#[cfg(not(target_os = "zkvm"))]
+#[cfg(all(feature = "risc0", not(target_os = "zkvm")))]
 pub use risc0_ethereum_contracts::{encode_seal, selector::Selector, IRiscZeroSetVerifier};
 
 #[cfg(not(target_os = "zkvm"))]
@@ -825,8 +826,16 @@ impl Predicate {
         let claim_digest_data = match fulfillment_data {
             FulfillmentData::None => None,
             FulfillmentData::ImageIdAndJournal(image_id, journal) => {
-                let r0_image_id = risc0_zkvm::sha::Digest::from(*image_id);
-                Some(Digest::from(ReceiptClaim::ok(r0_image_id, journal.to_vec()).digest()))
+                #[cfg(feature = "risc0")]
+                {
+                    let r0_image_id = risc0_zkvm::sha::Digest::from(*image_id);
+                    Some(Digest::from(ReceiptClaim::ok(r0_image_id, journal.to_vec()).digest()))
+                }
+                #[cfg(not(feature = "risc0"))]
+                {
+                    let _ = (image_id, journal);
+                    None
+                }
             }
         };
         let claim_digest_predicate = match self {
@@ -836,11 +845,19 @@ impl Predicate {
                 let FulfillmentData::ImageIdAndJournal(_, _) = &fulfillment_data else {
                     return None;
                 };
-                let r0_image_id = risc0_zkvm::sha::Digest::from(*image_id);
-                let r0_journal = risc0_zkvm::sha::Digest::from(*journal);
-                Some(Digest::from(
-                    ReceiptClaim::ok(r0_image_id, MaybePruned::Pruned(r0_journal)).digest(),
-                ))
+                #[cfg(feature = "risc0")]
+                {
+                    let r0_image_id = risc0_zkvm::sha::Digest::from(*image_id);
+                    let r0_journal = risc0_zkvm::sha::Digest::from(*journal);
+                    Some(Digest::from(
+                        ReceiptClaim::ok(r0_image_id, MaybePruned::Pruned(r0_journal)).digest(),
+                    ))
+                }
+                #[cfg(not(feature = "risc0"))]
+                {
+                    let _ = (image_id, journal);
+                    None
+                }
             }
             Predicate::PrefixMatch(image_id, prefix) => {
                 // With the PrefixMatch predicate, we need to check the condition on the journal.
@@ -1037,7 +1054,7 @@ impl Offer {
 
 #[cfg(not(target_os = "zkvm"))]
 use IBoundlessMarket::IBoundlessMarketErrors;
-#[cfg(not(target_os = "zkvm"))]
+#[cfg(all(feature = "risc0", not(target_os = "zkvm")))]
 use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
 
 #[cfg(not(target_os = "zkvm"))]
@@ -1057,6 +1074,7 @@ pub mod pricing;
 /// Errors that can occur when interacting with the contracts.
 pub enum TxnErr {
     /// Error from the SetVerifier contract.
+    #[cfg(feature = "risc0")]
     #[error("SetVerifier error: {0:?}")]
     SetVerifierErr(IRiscZeroSetVerifierErrors),
 
@@ -1119,11 +1137,13 @@ impl From<ContractErr> for TxnErr {
                     Self::BoundlessMarketErr(decoded_error)
                 } else if let Ok(decoded_error) = IHitPointsErrors::abi_decode(&data) {
                     Self::HitPointsErr(decoded_error)
-                } else if let Ok(decoded_error) = IRiscZeroSetVerifierErrors::abi_decode(&data) {
-                    Self::SetVerifierErr(decoded_error)
                 } else if let Ok(decoded_error) = IERC20Errors::abi_decode(&data) {
                     Self::ERC20Err(decoded_error)
                 } else {
+                    #[cfg(all(feature = "risc0", not(target_os = "zkvm")))]
+                    if let Ok(decoded_error) = IRiscZeroSetVerifierErrors::abi_decode(&data) {
+                        return Self::SetVerifierErr(decoded_error);
+                    }
                     Self::ContractErr(err)
                 }
             }
