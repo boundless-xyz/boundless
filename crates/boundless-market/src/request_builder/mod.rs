@@ -34,7 +34,7 @@ use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
     prover_utils::{
-        prover::{ExecutorResp, Prover, ProverError},
+        prover::{ExecutorResp, ProverError},
         requestor_pricing::requestor_order_preflight,
     },
     selector::SelectorExt,
@@ -164,7 +164,7 @@ where
 
 /// Executes a program locally
 #[async_trait]
-pub trait LocalExecutor: Prover + Sync + Send {
+pub trait LocalExecutor: Sync + Send {
     /// Execute a program with the given input, deduplicating by content.
     ///
     /// Returns the execution stats and journal. If the same image_id + input
@@ -1085,6 +1085,7 @@ mod tests {
     use url::Url;
 
     use crate::price_oracle::{Amount, Asset};
+    use crate::prover_utils::prover::Prover;
     use crate::storage::HttpDownloader;
     use crate::{
         contracts::{
@@ -1367,11 +1368,11 @@ mod tests {
 
         // Verify cache was pre-filled by checking we can get preflight result
         // First, upload image so preflight can find it
-        zkvm.executor().upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
-        let input_id = zkvm.executor().upload_input(input_data.to_vec()).await?;
+        zkvm.local_executor().upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
+        let input_id = zkvm.local_executor().upload_input(input_data.to_vec()).await?;
 
         let preflight_result = zkvm
-            .executor()
+            .local_executor()
             .preflight(&image_id.to_string(), &input_id, vec![], None, "test")
             .await?;
 

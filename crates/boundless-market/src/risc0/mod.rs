@@ -63,6 +63,11 @@ impl Risc0ZkvmOps {
         Self { evaluator, local_executor, set_verifier: None }
     }
 
+    /// Returns the underlying local executor.
+    pub fn local_executor(&self) -> &Arc<local_executor::Risc0LocalExecutor> {
+        &self.local_executor
+    }
+
     /// Attach a [SetVerifierService] so that [ZkvmOps::fetch_set_inclusion_receipt] can be used.
     pub fn with_set_verifier(
         mut self,
