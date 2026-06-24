@@ -63,6 +63,7 @@ export function buildProverLogPatterns(
             metricName: "low-balance-alert-eth",
             alarm: {
                 severity: Severity.SEV2,
+                autoInvestigate: false,
                 description: "low ETH balance warning in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 1 },
@@ -73,6 +74,7 @@ export function buildProverLogPatterns(
             metricName: "low-balance-alert-stk",
             alarm: {
                 severity: Severity.SEV2,
+                autoInvestigate: false,
                 description: "low stake balance warning in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 1 },
@@ -83,6 +85,7 @@ export function buildProverLogPatterns(
             metricName: "low-balance-alert-eth",
             alarm: {
                 severity: Severity.SEV2,
+                autoInvestigate: false,
                 description: "critical ETH balance error in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 1 },
@@ -93,6 +96,7 @@ export function buildProverLogPatterns(
             metricName: "low-balance-alert-stk",
             alarm: {
                 severity: Severity.SEV2,
+                autoInvestigate: false,
                 description: "critical stake balance error in 1 hour",
                 metricConfig: { period: 3600 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 1 },
