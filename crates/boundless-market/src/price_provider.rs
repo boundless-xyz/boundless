@@ -679,17 +679,17 @@ fn try_extract_cycle_count(input: &RequestInput) -> Option<u64> {
                                     "Successfully decoded cycle count: {}",
                                     cycle_count
                                 );
-                                return Some(cycle_count);
+                                Some(cycle_count)
                             }
                             Err(e) => {
                                 tracing::debug!("Failed to decode cycle count from stdin: {}", e);
-                                return None;
+                                None
                             }
                         }
                     }
                     Err(e) => {
                         tracing::debug!("Failed to convert stdin bytes to u32 words: {}", e);
-                        return None;
+                        None
                     }
                 }
             }

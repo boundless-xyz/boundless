@@ -239,7 +239,7 @@ impl SupportedSelectors {
                 verifier_params.as_bytes()[0..4].try_into().unwrap();
             let mut selectors = self.selectors.clone();
             selectors.insert(set_builder_selector, ProofType::Inclusion);
-            return Self { selectors };
+            Self { selectors }
         }
         #[cfg(not(feature = "risc0"))]
         {
