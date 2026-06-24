@@ -125,6 +125,9 @@ jobs:
       - name: cargo test (doctests)
         run: cargo test --locked --doc --features test-r0vm,test-rpc
 
+      - name: cargo check boundless-market (no-default-features)
+        run: cargo check --locked -p boundless-market --no-default-features
+
         # build script for boundless-market copies Solidity build artifacts.
         # check that these are not modified, which would indicate they need to be updated.
       - name: check for changes to files in git index
