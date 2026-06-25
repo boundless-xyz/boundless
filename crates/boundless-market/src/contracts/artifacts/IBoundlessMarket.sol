@@ -189,6 +189,12 @@ interface IBoundlessMarket {
     /// @dev selector 0x1c26714c
     error InsufficientGas();
 
+    /// @notice Error when an open-path fulfillment (never-locked or after the lock deadline) is
+    ///         submitted without a matching `commitFulfillment` recorded in a strictly earlier block.
+    /// @dev Anti-front-running guard: the open fulfillment paths have no prior on-chain prover
+    ///      binding, so a copied proof could otherwise be re-submitted under a different prover.
+    error MissingFulfillmentCommitment();
+
     /// @notice Check if the given request has been locked (i.e. accepted) by a prover.
     /// @dev When a request is locked, only the prover it is locked to can be paid to fulfill the job.
     /// @param requestId The ID of the request.
@@ -294,6 +300,17 @@ interface IBoundlessMarket {
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external;
+
+    /// @notice Commit, ahead of time, to an open-path fulfillment to defend against front-running.
+    /// @dev    The open fulfillment paths (never-locked, or locked-but-past-deadline) carry no prior
+    ///         on-chain prover binding, so a copied proof could be re-submitted under a different
+    ///         prover. Before such a fulfillment is accepted, the prover must record this commitment
+    ///         in a strictly earlier block (`COMMIT_REVEAL_MIN_BLOCKS`). The locked-before-deadline
+    ///         path is already bound by the lock and needs no commitment.
+    /// @param commitment `keccak256(abi.encode(fulfillmentBatches))` — the exact `fulfillmentBatches`
+    ///        argument of the upcoming `fulfill` / `priceAndFulfill` / `submitRoot…` call. It binds
+    ///        the prover and every seal, so it cannot be precomputed without already holding the proof.
+    function commitFulfillment(bytes32 commitment) external;
 
     /// @notice Fulfills one or more single-class fulfillment batches of requests.
     /// @dev    Every request in each fulfillment batch must already be locked. Use
