@@ -312,6 +312,8 @@ export function buildProverLogPatterns(
             metricName: "order-locker-insufficient-balance",
             alarm: {
                 severity: Severity.SEV2,
+                // Balance alarm: remediation is to fund the prover's account, nothing to investigate.
+                autoInvestigate: false,
                 description: ">=2 insufficient balance for lock in 2 hours",
                 metricConfig: { period: 7200 },
                 alarmConfig: { evaluationPeriods: 1, datapointsToAlarm: 1, threshold: 2 },

@@ -2,7 +2,7 @@ import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
 import * as docker_build from '@pulumi/docker-build';
-import { getServiceNameV1, getEnvVar, Severity, getGhcrImageUri } from '../util';
+import { getServiceNameV1, getEnvVar, Severity, getGhcrImageUri, withAutoInvestigate } from '../util';
 import * as crypto from 'crypto';
 require('dotenv').config();
 
@@ -595,7 +595,8 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `Distributor unable to send stake. Send stake to distributor: ${distributorAddress} on ${chainId}`,
+    // Balance alarm: remediation is to top up the distributor, nothing to investigate.
+    alarmDescription: withAutoInvestigate(`Distributor unable to send stake. Send stake to distributor: ${distributorAddress} on ${chainId}`, false),
     actionsEnabled: true,
     alarmActions,
   });
@@ -619,7 +620,8 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `Distributor unable to send ETH. Send ETH to distributor: ${distributorAddress} on ${chainId}`,
+    // Balance alarm: remediation is to top up the distributor, nothing to investigate.
+    alarmDescription: withAutoInvestigate(`Distributor unable to send ETH. Send ETH to distributor: ${distributorAddress} on ${chainId}`, false),
     actionsEnabled: true,
     alarmActions,
   });
@@ -643,7 +645,8 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `Distributor stake balance low. Send stake to distributor: ${distributorAddress} on ${chainId}`,
+    // Balance alarm: remediation is to top up the distributor, nothing to investigate.
+    alarmDescription: withAutoInvestigate(`Distributor stake balance low. Send stake to distributor: ${distributorAddress} on ${chainId}`, false),
     actionsEnabled: true,
     alarmActions,
   });
@@ -667,7 +670,8 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `WARNING: Distributor ETH balance low. Send ETH to distributor: ${distributorAddress} on ${chainId}`,
+    // Balance alarm: remediation is to top up the distributor, nothing to investigate.
+    alarmDescription: withAutoInvestigate(`WARNING: Distributor ETH balance low. Send ETH to distributor: ${distributorAddress} on ${chainId}`, false),
     actionsEnabled: true,
     alarmActions,
   });
@@ -721,7 +725,8 @@ export = () => {
           evaluationPeriods: 1,
           datapointsToAlarm: 1,
           treatMissingData: 'notBreaching',
-          alarmDescription: `${level === 'CRIT' ? 'CRITICAL' : 'WARNING'}: monitored ${spec.label} ${spec.kind} balance below ${level.toLowerCase()} threshold on ${chainId}`,
+          // Balance alarm: remediation is to top up the monitored address, nothing to investigate.
+          alarmDescription: withAutoInvestigate(`${level === 'CRIT' ? 'CRITICAL' : 'WARNING'}: monitored ${spec.label} ${spec.kind} balance below ${level.toLowerCase()} threshold on ${chainId}`, false),
           actionsEnabled: true,
           alarmActions,
         });
