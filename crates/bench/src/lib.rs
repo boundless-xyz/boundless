@@ -553,6 +553,7 @@ mod tests {
             bento_api_url: None,
             bonsai_api_key,
             bonsai_api_url,
+            multi_zkvm_endpoint: None,
             deposit_amount: None,
             rpc_retry_max: 3,
             rpc_retry_backoff: 200,

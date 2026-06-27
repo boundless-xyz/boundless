@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use anyhow::bail;
 use std::{path::PathBuf, sync::Arc};
 
 use alloy::sol_types::{SolStruct, SolValue};
@@ -174,16 +175,23 @@ impl Risc0Backend {
     }
 
     /// Production constructor: builds the prover backends from the projected config.
-    pub fn new(
+    pub async fn new(
         config: Risc0BackendConfig,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
         bento_api_url: Option<&url::Url>,
+        multi_zkvm_endpoint: Option<&String>,
         downloader: Arc<dyn StorageDownloader>,
         priority_check: PriorityRequestorCheck,
     ) -> Result<Self> {
-        let (prover, snark_prover) =
-            Self::build_provers(&config, bonsai_api_key, bonsai_api_url, bento_api_url)?;
+        let (prover, snark_prover) = Self::build_provers(
+            &config,
+            bonsai_api_key,
+            bonsai_api_url,
+            bento_api_url,
+            multi_zkvm_endpoint,
+        )
+        .await?;
         Ok(Self::with_provers(prover, snark_prover, downloader, priority_check))
     }
 
@@ -226,11 +234,12 @@ impl Risc0Backend {
         }
     }
 
-    fn build_provers(
+    async fn build_provers(
         config: &Risc0BackendConfig,
         bonsai_api_key: Option<&str>,
         bonsai_api_url: Option<&url::Url>,
         bento_api_url: Option<&url::Url>,
+        multi_zkvm_endpoint: Option<&String>,
     ) -> Result<(ProverObj, ProverObj)> {
         let bonsai_cfg = || BonsaiConfig {
             bonsai_r0_zkvm_ver: config.bonsai_r0_zkvm_ver.clone(),
@@ -245,6 +254,13 @@ impl Risc0Backend {
                  Receipts generated from this process are invalid and should never be used in production."
             );
             let prover: ProverObj = Arc::new(provers::DefaultProver::new());
+            return Ok((Arc::clone(&prover), prover));
+        }
+        if let Some(endpoint) = multi_zkvm_endpoint {
+            tracing::info!("Configured to run with MultiZKVM proving service");
+
+            let prover: ProverObj =
+                Arc::new(multi_zkvm_types::MultiZkvmClient::new(endpoint).await?);
             return Ok((Arc::clone(&prover), prover));
         }
         if let (Some(key), Some(url)) = (bonsai_api_key, bonsai_api_url) {
@@ -499,12 +515,7 @@ impl Risc0Backend {
         let computed_id = compute_image_id(&program_bytes).context("Failed to compute image ID")?;
 
         if computed_id != image_id {
-            anyhow::bail!(
-                "{} image ID mismatch: expected {}, got {}",
-                image_label,
-                image_id,
-                computed_id
-            );
+            bail!("{} image ID mismatch: expected {}, got {}", image_label, image_id, computed_id);
         }
 
         tracing::debug!("Uploading {} image to bento", image_label);
@@ -619,7 +630,7 @@ impl Risc0Backend {
 
                 self.prover.upload_input(input_data).await.context("Failed to upload input")?
             }
-            _ => anyhow::bail!("Invalid input type: {:?}", request.input.inputType),
+            _ => bail!("Invalid input type: {:?}", request.input.inputType),
         })
     }
 
@@ -1002,7 +1013,7 @@ impl Backend for Risc0Backend {
                         .abi_encode(),
                         FulfillmentDataType::ImageIdAndJournal,
                     ),
-                    _ => anyhow::bail!("Invalid predicate type: {predicate_type:?}"),
+                    _ => bail!("Invalid predicate type: {predicate_type:?}"),
                 };
 
                 Ok(OrderFulfillmentArtifact {

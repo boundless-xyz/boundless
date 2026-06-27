@@ -66,7 +66,7 @@ impl From<bincode::Error> for ProverError {
 }
 
 /// Result of a proof operation.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ProofResult {
     /// Unique identifier for this proof.
     pub id: String,

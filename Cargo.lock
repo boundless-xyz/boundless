@@ -6953,6 +6953,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "multi-zkvm-prover"
+version = "2.1.0-alpha.0"
+dependencies = [
+ "anyhow",
+ "boundless-market",
+ "clap",
+ "multi-zkvm-types",
+ "risc0-backend",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+ "url",
+]
+
+[[package]]
+name = "multi-zkvm-types"
+version = "2.1.0-alpha.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "boundless-market",
+ "risc0-zkvm",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "multiaddr"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8787,6 +8816,7 @@ dependencies = [
  "boundless-test-utils",
  "hex",
  "moka",
+ "multi-zkvm-types",
  "reqwest 0.13.1",
  "risc0-aggregation",
  "risc0-ethereum-contracts",

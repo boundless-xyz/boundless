@@ -66,21 +66,36 @@ pub struct CoreArgs {
     /// local prover API (Bento)
     ///
     /// Setting this value toggles using Bento for proving and disables Bonsai
-    #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"]
+    #[clap(
+        long,
+        env,
+        default_value = "http://localhost:8081",
+        conflicts_with_all = ["bonsai_api_url", "bonsai_api_key", "multi_zkvm_endpoint"]
     )]
     pub bento_api_url: Option<Url>,
 
     /// Bonsai API URL
     ///
     /// Toggling this disables Bento proving and uses Bonsai as a backend
-    #[clap(long, env, conflicts_with = "bento_api_url")]
+    #[clap(long, env, conflicts_with_all = ["bento_api_url", "multi_zkvm_endpoint"])]
     pub bonsai_api_url: Option<Url>,
 
     /// Bonsai API Key
     ///
     /// Required if using BONSAI_API_URL
-    #[clap(long, env, conflicts_with = "bento_api_url")]
+    #[clap(long, env, conflicts_with_all = ["bento_api_url", "multi_zkvm_endpoint"])]
     pub bonsai_api_key: Option<String>,
+
+    /// Endpoint for the MultiZKVM proving service
+    ///
+    /// Use the MultiZKVM orchestrator as the proving service, which supports requests from
+    /// multiple ZKVMs (risc0, OpenVM, etc.). Mutually exclusive with Bento and Bonsai.
+    #[clap(
+        long,
+        env,
+        conflicts_with_all = ["bento_api_url", "bonsai_api_url", "bonsai_api_key"]
+    )]
+    pub multi_zkvm_endpoint: Option<String>,
 
     /// Config file path
     #[clap(short, long, default_value = "broker.toml")]
