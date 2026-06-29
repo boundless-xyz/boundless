@@ -4,8 +4,8 @@ config:
   aws:region: us-west-2
   kailua-batch:BASE_STACK: organization/bootstrap/services-prod
   kailua-batch:CHAIN_ID: "10"
-  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:1343d65
-  # BLOCK_COUNT per launched task: task index 0 -> 1, task index 1 -> 2 (see trigger Lambda)
+  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:df322d3
+  # BLOCK_COUNT per launched task: task index 0 -> 1, task index 1 -> 2, task index 2 -> 3 (see trigger Lambda)
   kailua-batch:TASK_CPU: "8"
   kailua-batch:TASK_MEMORY_MIB: "8192"
   kailua-batch:LOG_RETENTION_DAYS: "30"
@@ -13,8 +13,8 @@ config:
   kailua-batch:ASSIGN_PUBLIC_IP: "false"
   kailua-batch:SCHEDULE_COUNT: "20"
   kailua-batch:SCHEDULE_WINDOW_MINUTES: "20"
-  kailua-batch:TASKS_PER_MINUTE: "2"
-  kailua-batch:MAX_RUNNING_TASKS: "40"
+  kailua-batch:TASKS_PER_MINUTE: "3"
+  kailua-batch:MAX_RUNNING_TASKS: "60"
   kailua-batch:SKIP_AWAIT_PROOF: "true"
   kailua-batch:KAILUA_WORKDIR: /kailua
   kailua-batch:MODE: debug
@@ -24,6 +24,8 @@ config:
   kailua-batch:AWS_REGION: auto
   kailua-batch:LOG_VERBOSITY: -vvv
   kailua-batch:BOUNDLESS_ORDER_STREAM_URL: https://base-mainnet.beboundless.xyz
+  kailua-batch:BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER: "2"
+  kailua-batch:BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: "2"
   kailua-batch:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch"
   kailua-batch:ENABLE_PAGERDUTY_ALERTS: "true"
   kailua-batch:L1_RPC:

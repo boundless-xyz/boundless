@@ -13,7 +13,7 @@ use boundless_market::contracts::{
     EIP712DomainSaltless, FulfillmentData, FulfillmentDataError, Predicate, PredicateError,
     ProofRequest, RequestError,
 };
-use risc0_zkvm::sha::Digest;
+use boundless_market::Digest;
 use serde::{Deserialize, Serialize};
 
 /// Errors that may occur in the assessor.

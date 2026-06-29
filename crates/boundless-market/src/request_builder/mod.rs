@@ -19,18 +19,23 @@ use std::{
     future::Future,
 };
 
+use crate::{Digest, Journal};
 use alloy::{
     network::Ethereum,
     providers::{DynProvider, Provider},
 };
+use async_trait::async_trait;
 use derive_builder::Builder;
-use risc0_zkvm::{Digest, Journal};
+use std::sync::Arc;
 use url::Url;
 
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
-    prover_utils::requestor_pricing::requestor_order_preflight,
+    prover_utils::{
+        prover::{ExecutorResp, Prover, ProverError},
+        requestor_pricing::requestor_order_preflight,
+    },
     selector::SelectorExt,
     storage::{StandardDownloader, StorageDownloader},
     util::{now_timestamp, NotProvided},
@@ -156,6 +161,47 @@ where
     }
 }
 
+/// Executes a program locally
+#[async_trait]
+pub trait LocalExecutor: Prover + Sync + Send {
+    /// Execute a program with the given input, deduplicating by content.
+    ///
+    /// Returns the execution stats and journal. If the same image_id + input
+    /// combination was already executed, returns the cached result.
+    async fn execute_program(
+        &self,
+        image_id: &str,
+        program: &[u8],
+        input: &[u8],
+    ) -> Result<(ExecutorResp, Vec<u8>), ProverError>;
+
+    /// Manually insert execution data directly into the cache.
+    async fn insert_execution_data(
+        &self,
+        image_id: &str,
+        input: &[u8],
+        total_cycles: u64,
+        journal: Vec<u8>,
+    );
+}
+
+/// Trait containing ZKVM types and functions
+pub trait ZkvmOps {
+    /// A local executor for preflight
+    fn executor(&self) -> Arc<dyn LocalExecutor + Sync + Send>;
+
+    /// Figures out the pricing from preflight
+    fn evaluator(&self) -> Arc<dyn crate::prover_utils::RequestEvaluator + Sync + Send>;
+
+    /// Compute the image ID for a given ELF program.
+    fn compute_image_id(&self, program: &[u8]) -> anyhow::Result<Digest>;
+
+    /// Create a [Journal] from raw bytes.
+    fn create_journal(&self, bytes: Vec<u8>) -> Journal {
+        Journal::new(bytes)
+    }
+}
+
 /// A standard implementation of [RequestBuilder] that uses a layered architecture.
 ///
 /// This builder composes multiple layers, each handling a specific aspect of request building:
@@ -170,7 +216,8 @@ where
 /// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = StandardDownloader> {
+pub struct StandardRequestBuilder<Z, P = DynProvider, U = StandardUploader, D = StandardDownloader>
+{
     /// Handles uploading and preparing program and input data.
     #[builder(setter(into), default)]
     pub storage_layer: StorageLayer<U>,
@@ -202,25 +249,32 @@ pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = Sta
     /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     #[builder(setter(into, strip_option), default)]
     pub skip_preflight: Option<bool>,
+
+    /// The ZKVM specific functions and types
+    #[builder(setter(into), default)]
+    zkvm_ops: Option<Z>,
 }
 
-impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
+impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided, NotProvided> {
     /// Creates a new builder for constructing a [StandardRequestBuilder].
     ///
     /// This is the entry point for creating a request builder with specific
     /// provider and storage implementations.
     ///
     /// # Type Parameters
+    /// # `Z` - The ZKVM specific functions and types.
     /// * `P` - An Ethereum RPC provider, using alloy.
     /// * `S` - The storage uploader type for storing programs and inputs.
     /// * `D` - The storage downloader type for fetching programs and inputs during preflight.
-    pub fn builder<P: Clone, S: Clone, D: Clone>() -> StandardRequestBuilderBuilder<P, S, D> {
+    pub fn builder<Z: Clone, P: Clone, S: Clone, D: Clone>(
+    ) -> StandardRequestBuilderBuilder<Z, P, S, D> {
         Default::default()
     }
 }
 
-impl<P, S, D> StandardRequestBuilder<P, S, D>
+impl<Z, P, S, D> StandardRequestBuilder<Z, P, S, D>
 where
+    Z: ZkvmOps,
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
 {
@@ -244,9 +298,14 @@ where
         let provider = std::sync::Arc::new(self.offer_layer.provider.clone());
         let price_provider = self.offer_layer.price_provider.clone();
 
+        let Some(zkvm_ops) = &self.zkvm_ops else {
+            tracing::error!("Missing ZkvmOps");
+            return;
+        };
+
         if let Err(e) = requestor_order_preflight(
             request.clone(),
-            self.preflight_layer.executor_cloned(),
+            zkvm_ops.evaluator(),
             provider,
             market_address,
             chain_id,
@@ -263,11 +322,17 @@ where
         &self,
         params: RequestParams,
     ) -> Result<ProofRequest, anyhow::Error> {
+        let params = match &self.zkvm_ops {
+            Some(zkvm_ops) => {
+                params
+                    .process_with(&(&self.preflight_layer, zkvm_ops))
+                    .await?
+                    .process_with(&(&self.requirements_layer, zkvm_ops))
+                    .await?
+            }
+            None => params.process_with(&self.requirements_layer).await?,
+        };
         let params = params
-            .process_with(&self.preflight_layer)
-            .await?
-            .process_with(&self.requirements_layer)
-            .await?
             .process_with(&self.request_id_layer)
             .await?
             .process_with(&self.offer_layer)
@@ -279,8 +344,9 @@ where
     }
 }
 
-impl<P> StandardRequestBuilder<P, NotProvided>
+impl<Z, P> StandardRequestBuilder<Z, P, NotProvided>
 where
+    Z: ZkvmOps,
     P: Provider<Ethereum> + 'static + Clone,
 {
     /// Build a proof request.
@@ -298,18 +364,24 @@ where
     }
 }
 
-impl<P, S, D> Layer<RequestParams> for StandardRequestBuilder<P, S, D>
+impl<Z, P, S, D> Layer<RequestParams> for StandardRequestBuilder<Z, P, S, D>
 where
+    Z: ZkvmOps,
     P: Provider<Ethereum> + 'static + Clone,
     D: StorageDownloader,
     RequestParams: Adapt<StorageLayer<S>, Output = RequestParams, Error = anyhow::Error>,
-    RequestParams: Adapt<PreflightLayer<D>, Output = RequestParams, Error = anyhow::Error>,
+    for<'a> RequestParams:
+        Adapt<(&'a StorageLayer<S>, &'a Z), Output = RequestParams, Error = anyhow::Error>,
 {
     type Output = ProofRequest;
     type Error = anyhow::Error;
 
     async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
-        let params = input.process_with(&self.storage_layer).await?;
+        let params = if let Some(zkvm_ops) = &self.zkvm_ops {
+            input.process_with(&(&self.storage_layer, zkvm_ops)).await?
+        } else {
+            input.process_with(&self.storage_layer).await?
+        };
         self.build_from_params(params).await
     }
 }
@@ -984,6 +1056,8 @@ mod parameterization_mode_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::sync::Arc;
 
     use alloy::{
@@ -997,15 +1071,7 @@ mod tests {
     use tracing_test::traced_test;
     use url::Url;
 
-    use super::{
-        Adapt, Layer, OfferLayer, OfferLayerConfig, OfferParams, ParameterizationMode,
-        PreflightLayer, RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerConfig,
-        RequestIdLayerMode, RequestParams, RequirementsLayer, StandardRequestBuilder, StorageLayer,
-        StorageLayerConfig,
-    };
-
     use crate::price_oracle::{Amount, Asset};
-    use crate::prover_utils::{local_executor::LocalExecutor, prover::Prover};
     use crate::storage::HttpDownloader;
     use crate::{
         contracts::{
@@ -1013,12 +1079,13 @@ mod tests {
             RequestInputType, Requirements,
         },
         input::GuestEnv,
+        risc0::Risc0ZkvmOps,
         storage::{MockStorageUploader, StandardDownloader, StorageDownloader, StorageUploader},
         util::NotProvided,
-        StandardUploader,
+        Digest, Journal, StandardUploader,
     };
     use alloy_primitives::{utils::parse_ether, U256};
-    use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
+    use risc0_zkvm::compute_image_id;
 
     #[tokio::test]
     #[traced_test]
@@ -1033,9 +1100,12 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
+        let zkvm = Risc0ZkvmOps::new().await;
+
         let request_builder = StandardRequestBuilder::builder()
+            .zkvm_ops(zkvm.clone())
             .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -1059,9 +1129,12 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
+        let zkvm = Risc0ZkvmOps::new().await;
+
         let request_builder = StandardRequestBuilder::builder()
+            .zkvm_ops(zkvm.clone())
             .storage_layer(Some(storage))
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder().build()?,
@@ -1088,9 +1161,12 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
+        let zkvm = Risc0ZkvmOps::new().await;
+
         let request_builder = StandardRequestBuilder::builder()
+            .zkvm_ops(zkvm.clone())
             .storage_layer(Some(uploader))
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder()
@@ -1120,8 +1196,11 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder::<_, NotProvided, _>()
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader)))
+        let zkvm = Risc0ZkvmOps::new().await;
+
+        let request_builder = StandardRequestBuilder::builder::<Risc0ZkvmOps, _, NotProvided, _>()
+            .zkvm_ops(zkvm.clone())
+            .preflight_layer(PreflightLayer::new(Some(downloader)))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -1133,11 +1212,15 @@ mod tests {
 
         // Try again after uploading the program first.
         let uploader = Arc::new(MockStorageUploader::new());
-        let program_url = uploader.upload_program(ECHO_ELF).await?;
+        let image_id = zkvm.compute_image_id(ECHO_ELF)?;
+        let program_url = uploader.upload_bytes(ECHO_ELF, &format!("{image_id}.bin")).await?;
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
-        assert_eq!(predicate.image_id().unwrap(), risc0_zkvm::compute_image_id(ECHO_ELF)?);
+        assert_eq!(
+            predicate.image_id().unwrap(),
+            Digest::from(risc0_zkvm::compute_image_id(ECHO_ELF)?)
+        );
         Ok(())
     }
 
@@ -1146,12 +1229,13 @@ mod tests {
     async fn test_storage_layer() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
         let downloader = HttpDownloader::new(None, None);
+        let zkvm = Risc0ZkvmOps::new().await;
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
         let env = GuestEnv::from_stdin(b"inline_data");
-        let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
+        let (program_url, request_input) = layer.process((ECHO_ELF, &env, &zkvm)).await?;
 
         // Program should be uploaded and input inline.
         assert_eq!(downloader.download_url(program_url).await?, ECHO_ELF);
@@ -1181,12 +1265,13 @@ mod tests {
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
         let downloader = HttpDownloader::new(None, None);
+        let zkvm = Risc0ZkvmOps::new().await;
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
         let env = GuestEnv::from_stdin(rand::random_iter().take(2048).collect::<Vec<u8>>());
-        let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
+        let (program_url, request_input) = layer.process((ECHO_ELF, &env, &zkvm)).await?;
 
         // Program and input should be uploaded.
         assert_eq!(downloader.download_url(program_url).await?, ECHO_ELF);
@@ -1218,15 +1303,17 @@ mod tests {
     async fn test_preflight_layer() -> anyhow::Result<()> {
         let uploader = MockStorageUploader::new();
         let downloader = HttpDownloader::new(None, None);
-        let program_url = uploader.upload_program(ECHO_ELF).await?;
-        let layer = PreflightLayer::new(LocalExecutor::default(), Some(downloader));
+        let zkvm = Risc0ZkvmOps::new().await;
+        let image_id = zkvm.compute_image_id(ECHO_ELF)?;
+        let program_url = uploader.upload_bytes(ECHO_ELF, &format!("{image_id}.bin")).await?;
+        let layer = PreflightLayer::new(Some(downloader));
         let data = b"hello_zkvm".to_vec();
         let env = GuestEnv::from_stdin(data.clone());
         let input = RequestInput::inline(env.encode()?);
 
         // Create RequestParams and process through the layer
         let params = RequestParams::new().with_program_url(program_url)?.with_request_input(input);
-        let result = params.process_with(&layer).await?;
+        let result = params.process_with(&(&layer, &zkvm)).await?;
 
         assert_eq!(result.journal.unwrap().bytes, data);
         // Verify non-zero cycle count
@@ -1238,14 +1325,14 @@ mod tests {
     #[traced_test]
     async fn test_preflight_layer_cache_prefill() -> anyhow::Result<()> {
         // Create layer with shared executor
-        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::default();
-        let executor = layer.executor_cloned();
+        let zkvm = Risc0ZkvmOps::new().await;
+        let layer: PreflightLayer<HttpDownloader> = PreflightLayer::new(None);
 
         // Create params with pre-computed values
         let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
         let input_data = b"test input";
         let cycles = 9999999u64;
-        let journal = risc0_zkvm::Journal::new(input_data.to_vec());
+        let journal = Journal::new(input_data.to_vec());
 
         // Build GuestEnv and encode as request input
         let env = GuestEnv { stdin: input_data.to_vec(), ..Default::default() };
@@ -1259,7 +1346,7 @@ mod tests {
             .with_request_input(request_input);
 
         // Process through layer (should return early since cycles and journal are provided)
-        let result = params.process_with(&layer).await?;
+        let result = params.process_with(&(&layer, &zkvm)).await?;
 
         // Verify params unchanged
         assert_eq!(result.cycles, Some(cycles));
@@ -1267,11 +1354,13 @@ mod tests {
 
         // Verify cache was pre-filled by checking we can get preflight result
         // First, upload image so preflight can find it
-        executor.upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
-        let input_id = executor.upload_input(input_data.to_vec()).await?;
+        zkvm.executor().upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
+        let input_id = zkvm.executor().upload_input(input_data.to_vec()).await?;
 
-        let preflight_result =
-            executor.preflight(&image_id.to_string(), &input_id, vec![], None, "test").await?;
+        let preflight_result = zkvm
+            .executor()
+            .preflight(&image_id.to_string(), &input_id, vec![], None, "test")
+            .await?;
 
         assert_eq!(preflight_result.stats.unwrap().total_cycles, cycles);
 
@@ -1281,11 +1370,12 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_requirements_layer() -> anyhow::Result<()> {
+        let zkvm = Risc0ZkvmOps::new().await;
         let layer = RequirementsLayer::default();
         let program = ECHO_ELF;
         let bytes = b"journal_data".to_vec();
         let journal = Journal::new(bytes.clone());
-        let req = layer.process((program, &journal, &Default::default())).await?;
+        let req = layer.process((program, &journal, &Default::default(), &zkvm)).await?;
         let predicate = Predicate::try_from(req.predicate.clone())?;
         let fulfillment_data = FulfillmentData::from_image_id_and_journal(
             predicate.image_id().unwrap(),

@@ -29,17 +29,6 @@ pub trait StorageUploader: Send + Sync {
     /// This is the core upload method that implementations must provide.
     async fn upload_bytes(&self, data: &[u8], key: &str) -> Result<Url, StorageError>;
 
-    /// Upload a risc0-zkvm program binary.
-    ///
-    /// Returns the URL which can be used to publicly access the uploaded program. This URL can be
-    /// included in a request sent to Boundless.
-    ///
-    /// The default implementation computes the image ID and delegates to [`upload_bytes`](Self::upload_bytes).
-    async fn upload_program(&self, program: &[u8]) -> Result<Url, StorageError> {
-        let image_id = risc0_zkvm::compute_image_id(program)?;
-        self.upload_bytes(program, &format!("{image_id}.bin")).await
-    }
-
     /// Upload the input for use in a proof request.
     ///
     /// Returns the URL which can be used to publicly access the uploaded input. This URL can be

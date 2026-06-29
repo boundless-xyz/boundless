@@ -29,7 +29,7 @@ pub use boundless_market::prover_utils::prover::{
 
 /// Encode inputs for Prover::upload_slice()
 pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Error> {
-    Ok(GuestEnv::builder().write(input)?.stdin)
+    Ok(GuestEnv::builder().write_slice(&risc0_zkvm::serde::to_vec(input)?).stdin)
 }
 
 /// Verify a Groth16 compressed receipt

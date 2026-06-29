@@ -14,7 +14,10 @@
 
 use alloy::primitives::{Address, B256, U256};
 use anyhow::Result;
-use boundless_market::contracts::{Offer, ProofRequest};
+use boundless_market::{
+    contracts::{Offer, ProofRequest},
+    risc0::Risc0ZkvmOps,
+};
 use chrono::{DateTime, Utc};
 use clap::Args;
 use colored::Colorize;
@@ -130,7 +133,8 @@ impl RequestorStatus {
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
-        let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
+        let client =
+            requestor_config.client_builder(global_config.tx_timeout).await?.build().await?;
         let status = client.boundless_market.get_status(self.request_id, self.expires_at).await?;
 
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
@@ -185,7 +189,7 @@ impl RequestorStatus {
     /// When no order: searches backwards from current block.
     async fn find_event_search_blocks<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<Risc0ZkvmOps, P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
     ) -> (u64, u64)
     where
@@ -278,7 +282,7 @@ impl RequestorStatus {
 
     async fn build_timeline<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<Risc0ZkvmOps, P, St, U, R, Si>,
         _requestor_config: &crate::config::RequestorConfig,
     ) -> Result<(Vec<TimelineEntry>, Option<ProofRequest>)>
     where
@@ -516,7 +520,7 @@ impl RequestorStatus {
 
     async fn query_submission_info<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<Risc0ZkvmOps, P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,
@@ -567,7 +571,7 @@ impl RequestorStatus {
 
     async fn get_proof_request<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, U, R, Si>,
+        client: &boundless_market::Client<Risc0ZkvmOps, P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,

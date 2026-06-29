@@ -16,7 +16,8 @@ use boundless_market::contracts::{
     AssessorCallback, AssessorCommitment, AssessorJournal, AssessorSelector, FulfillmentData,
     RequestId, UNSPECIFIED_SELECTOR,
 };
-use risc0_zkvm::{guest::env, sha::Digest};
+use boundless_market::Digest;
+use risc0_zkvm::guest::env;
 
 risc0_zkvm::guest::entry!(main);
 
