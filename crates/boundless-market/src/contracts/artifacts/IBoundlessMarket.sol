@@ -140,9 +140,10 @@ interface IBoundlessMarket {
 
     /// @notice Error when a request is no longer valid, as the deadline has passed.
     /// @param requestId The ID of the request.
-    /// @param deadline The deadline of the request.
-    /// @dev selector 0x873fd26b
-    error RequestIsExpired(RequestId requestId, uint64 deadline);
+    /// @dev selector 0xfc54471a
+    /// @dev Encoded at the fulfillment sites with only `requestId`; the declaration matches that so
+    ///      the ABI is decodable off-chain (the deadline is not available on the priced/never-locked path).
+    error RequestIsExpired(RequestId requestId);
 
     /// @notice Error when a request is still valid, as the deadline has yet to pass.
     /// @param requestId The ID of the request.
