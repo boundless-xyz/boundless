@@ -16,6 +16,8 @@ use alloy::primitives::{utils::parse_units, Address, U256};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Args;
 
+use boundless_market::NotProvided;
+
 use crate::config::{GlobalConfig, ProverConfig};
 use crate::config_ext::ProverConfigExt;
 use crate::contracts::{get_token_balance, get_token_info};
@@ -146,7 +148,7 @@ impl ProverDepositCollateralTo {
     async fn display_success<P, St, D, Rb, Si>(
         &self,
         display: &DisplayManager,
-        client: &boundless_market::Client<P, St, D, Rb, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, D, Rb, Si>,
         token_info: &crate::contracts::TokenInfo,
         formatted_amount: &str,
         collateral_label: &str,

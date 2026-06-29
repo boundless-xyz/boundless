@@ -321,7 +321,8 @@ async fn simple_e2e() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -393,7 +394,8 @@ async fn simple_e2e_rpc_mode_legacy() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -477,7 +479,8 @@ async fn simple_e2e_with_callback() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order with callback
     let request = generate_request(
@@ -569,7 +572,8 @@ async fn e2e_fulfill_after_lock_expiry() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -650,7 +654,8 @@ async fn e2e_with_selector() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -724,7 +729,8 @@ async fn e2e_with_blake3_groth16_selector() {
     let broker = Broker::new(args, config_watcher).await.unwrap();
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -803,7 +809,8 @@ async fn e2e_with_multiple_requests() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap().to_string();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap().to_string();
 
     // Submit the first order
     let request = generate_request(
@@ -904,7 +911,8 @@ async fn e2e_with_claim_digest_match() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     let input_bytes = vec![0x41, 0x41, 0x41, 0x41];
     let input = RequestInput::builder().write_slice(&input_bytes).build_inline().unwrap();
@@ -984,7 +992,8 @@ async fn gas_estimation_matches_actual_tx_cost() {
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -1132,7 +1141,8 @@ async fn multi_chain_e2e() {
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     let multi_chain_offer = Offer {
         minPrice: parse_ether("0.02").unwrap(),
