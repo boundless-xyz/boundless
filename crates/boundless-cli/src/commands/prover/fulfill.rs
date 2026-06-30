@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{OrderFulfilled, OrderFulfiller};
-use alloy::primitives::{B256, U256};
+use alloy::primitives::{FixedBytes, B256, U256};
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::boundless_market::{FulfillmentTx, UnlockedRequest};
 use clap::Args;
@@ -40,6 +40,10 @@ pub struct ProverFulfill {
     /// Withdraw the funds after fulfilling the requests
     #[arg(long, default_value = "false")]
     pub withdraw: bool,
+
+    /// The 4-byte BoundlessRouter assessor selector to prepend to the assessor seal (hex, e.g. 0x00000022)
+    #[arg(long)]
+    pub assessor_selector: FixedBytes<4>,
 
     /// Lower bound: search events backwards down to this block
     #[clap(long)]
@@ -88,7 +92,9 @@ impl ProverFulfill {
         display.status("Status", "Initializing prover and fetching images", "yellow");
 
         // Initialize fulfiller with prover setup and image uploads
-        let fulfiller = OrderFulfiller::initialize_from_config(&prover_config, &client).await?;
+        let fulfiller =
+            OrderFulfiller::initialize_from_config(&prover_config, &client, self.assessor_selector)
+                .await?;
 
         let fetch_order_jobs = self.request_ids.iter().enumerate().map(|(i, request_id)| {
             let client = client.clone();
@@ -137,19 +143,27 @@ impl ProverFulfill {
         }
 
         display.status("Status", "Generating proofs", "yellow");
-        let (fills, root_receipt, assessor_receipt) = fulfiller.fulfill(&orders).await?;
-        let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
+        let (fills, root_receipt, assessor_seal) = fulfiller.fulfill(&orders).await?;
+        let requests: Vec<_> = orders.iter().map(|(req, _)| req.clone()).collect();
+        let prover = client.boundless_market.caller();
+        // OrderFulfilled extracts the finalized set root and seal from the root receipt.
+        let order_fulfilled = OrderFulfilled::new(
+            &requests,
+            fills.clone(),
+            assessor_seal.clone(),
+            prover,
+            root_receipt,
+        )?;
         let boundless_market = client.boundless_market.clone();
 
-        let fulfillment_tx =
-            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
-                .with_submit_root(
-                    client.deployment.set_verifier_address,
-                    order_fulfilled.root,
-                    order_fulfilled.seal,
-                )
-                .with_unlocked_requests(unlocked_requests)
-                .with_withdraw(self.withdraw);
+        let fulfillment_tx = FulfillmentTx::new(requests, fills, assessor_seal, prover)
+            .with_submit_root(
+                client.deployment.set_verifier_address,
+                order_fulfilled.root,
+                order_fulfilled.seal,
+            )
+            .with_unlocked_requests(unlocked_requests)
+            .with_withdraw(self.withdraw);
 
         display.status("Status", "Submitting fulfillment", "yellow");
         match boundless_market.fulfill(fulfillment_tx).await {

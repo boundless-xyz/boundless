@@ -58,11 +58,11 @@ const TXN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(45);
 // See the build.rs script in this crate for more details.
 include!(concat!(env!("OUT_DIR"), "/boundless_market_generated.rs"));
 pub use boundless_market_contract::{
-    AssessorCallback, AssessorCommitment, AssessorJournal, AssessorReceipt, Callback, Fulfillment,
+    AssessorCallback, AssessorCommitment, AssessorJournal, Callback, Fulfillment, FulfillmentBatch,
     FulfillmentContext, FulfillmentDataImageIdAndJournal, FulfillmentDataType, IBoundlessMarket,
     Input as RequestInput, InputType as RequestInputType, LockRequest, Offer,
-    Predicate as RequestPredicate, PredicateType, ProofRequest, RequestLock, Requirements,
-    Selector as AssessorSelector,
+    Predicate as RequestPredicate, PredicateType, ProofRequest, ProofRequestBatch, RequestLock,
+    Requirements, Selector as AssessorSelector, SlimRequest,
 };
 
 #[allow(missing_docs)]
@@ -1043,6 +1043,11 @@ use IRiscZeroSetVerifier::IRiscZeroSetVerifierErrors;
 #[cfg(not(target_os = "zkvm"))]
 /// The Boundless market module.
 pub mod boundless_market;
+#[cfg(not(target_os = "zkvm"))]
+/// Helpers for building the batched fulfillment payloads (`FulfillmentBatch`, `SlimRequest`).
+mod fulfillment_batch;
+#[cfg(not(target_os = "zkvm"))]
+pub use fulfillment_batch::assessor_seal;
 #[cfg(not(target_os = "zkvm"))]
 /// The Hit Points module.
 pub mod hit_points;
