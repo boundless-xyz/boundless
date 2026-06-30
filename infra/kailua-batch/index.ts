@@ -38,6 +38,8 @@ const DEFAULT_TASKS_PER_MINUTE = 2;
 // Hard wall-clock cap on a kailua task; the watchdog in defaultProveScript SIGTERM/SIGKILLs
 // the whole prove process group past this and the task exits.
 const DEFAULT_TASK_TIMEOUT_MINUTES = 20;
+// External ECS watchdog Lambda stops tasks still RUNNING past this age (StopTask → SIGKILL).
+const DEFAULT_TASK_KILL_AFTER_MINUTES = 30;
 
 export = () => {
     const config = new pulumi.Config();
@@ -65,8 +67,12 @@ export = () => {
     const scheduleWindowMinutes = config.getNumber("SCHEDULE_WINDOW_MINUTES") ?? DEFAULT_SCHEDULE_WINDOW_MINUTES;
     const tasksPerMinute = config.getNumber("TASKS_PER_MINUTE") ?? DEFAULT_TASKS_PER_MINUTE;
     const taskTimeoutMinutes = config.getNumber("TASK_TIMEOUT_MINUTES") ?? DEFAULT_TASK_TIMEOUT_MINUTES;
+    const taskKillAfterMinutes = config.getNumber("TASK_KILL_AFTER_MINUTES") ?? DEFAULT_TASK_KILL_AFTER_MINUTES;
     if (taskTimeoutMinutes < 1) {
         throw new Error("TASK_TIMEOUT_MINUTES must be at least 1");
+    }
+    if (taskKillAfterMinutes < 1) {
+        throw new Error("TASK_KILL_AFTER_MINUTES must be at least 1");
     }
     if (scheduleCount < 1) {
         throw new Error("SCHEDULE_COUNT must be at least 1");
@@ -338,7 +344,7 @@ export = () => {
                 Statement: [
                     {
                         Effect: "Allow",
-                        Action: ["ecs:ListTasks"],
+                        Action: ["ecs:ListTasks", "ecs:DescribeTasks", "ecs:StopTask"],
                         Resource: "*",
                         Condition: {
                             ArnEquals: {
@@ -442,6 +448,97 @@ export = () => {
         },
     }, { dependsOn: [triggerLambda] });
 
+    const watchdogLambdaRole = new aws.iam.Role(`${serviceName}-watchdog-lambda-role`, {
+        assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+            Service: "lambda.amazonaws.com",
+        }),
+        managedPolicyArns: [aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole],
+    });
+
+    new aws.iam.RolePolicy(`${serviceName}-watchdog-lambda-policy`, {
+        role: watchdogLambdaRole.id,
+        policy: cluster.arn.apply(clusterArn => JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: ["ecs:ListTasks", "ecs:DescribeTasks", "ecs:StopTask"],
+                    Resource: "*",
+                    Condition: {
+                        ArnEquals: {
+                            "ecs:cluster": clusterArn,
+                        },
+                    },
+                },
+            ],
+        })),
+    });
+
+    const watchdogLambdaLogGroup = new aws.cloudwatch.LogGroup(`${serviceName}-watchdog-logs`, {
+        name: pulumi.interpolate`${serviceName}-watchdog`,
+        retentionInDays: logRetentionDays,
+    });
+
+    const watchdogLambda = new aws.lambda.Function(`${serviceName}-watchdog`, {
+        name: `${serviceName}-watchdog`,
+        role: watchdogLambdaRole.arn,
+        runtime: "nodejs20.x",
+        handler: "index.handler",
+        timeout: 60,
+        loggingConfig: {
+            logGroup: watchdogLambdaLogGroup.name,
+            logFormat: "Text",
+        },
+        code: new pulumi.asset.AssetArchive({
+            ".": new pulumi.asset.FileArchive("watchdog-lambda/build"),
+        }),
+        environment: {
+            variables: {
+                CLUSTER_ARN: cluster.arn,
+                TASK_DEFINITION_FAMILY: serviceName,
+                TASK_KILL_AFTER_MINUTES: taskKillAfterMinutes.toString(),
+            },
+        },
+    }, { dependsOn: [watchdogLambdaRole, watchdogLambdaLogGroup] });
+
+    const watchdogSchedulerRole = new aws.iam.Role(`${serviceName}-watchdog-scheduler-role`, {
+        assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+            Service: "scheduler.amazonaws.com",
+        }),
+    });
+
+    new aws.iam.RolePolicy(`${serviceName}-watchdog-scheduler-policy`, {
+        role: watchdogSchedulerRole.id,
+        policy: watchdogLambda.arn.apply(lambdaArn => JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: ["lambda:InvokeFunction"],
+                    Resource: lambdaArn,
+                },
+            ],
+        })),
+    });
+
+    new aws.scheduler.Schedule(`${serviceName}-watchdog-schedule`, {
+        name: `${serviceName}-watchdog-schedule`,
+        description: `Every minute; stop kailua-batch tasks running longer than ${taskKillAfterMinutes} minutes`,
+        flexibleTimeWindow: {
+            mode: "OFF",
+        },
+        scheduleExpression: "cron(* * * * ? *)",
+        target: {
+            arn: "arn:aws:scheduler:::aws-sdk:lambda:invoke",
+            roleArn: watchdogSchedulerRole.arn,
+            input: watchdogLambda.arn.apply(lambdaArn => JSON.stringify({
+                FunctionName: lambdaArn,
+                InvocationType: "Event",
+                Payload: "{}",
+            })),
+        },
+    }, { dependsOn: [watchdogLambda] });
+
     const metricsNamespace = `Boundless/Services/${serviceName}`;
     createMetricFilter("running", "\"KAILUA_RUNNING\"", `${serviceName}-running`);
     createMetricFilter("error", "ERROR", `${serviceName}-log-err`);
@@ -459,6 +556,18 @@ export = () => {
         },
         pattern: "KAILUA_TASK_SKIPPED",
     }, { dependsOn: [triggerLambda, triggerLambdaLogGroup] });
+
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-task-killed-filter`, {
+        name: `${serviceName}-task-killed-filter`,
+        logGroupName: watchdogLambdaLogGroup.name,
+        metricTransformation: {
+            namespace: metricsNamespace,
+            name: `${serviceName}-task-killed`,
+            value: "1",
+            defaultValue: "0",
+        },
+        pattern: "KAILUA_TASK_KILLED",
+    }, { dependsOn: [watchdogLambda, watchdogLambdaLogGroup] });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-not-running-alarm-${Severity.SEV2}`, {
         name: `${serviceName}-not-running-${Severity.SEV2}`,

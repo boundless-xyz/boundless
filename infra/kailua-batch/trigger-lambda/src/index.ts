@@ -1,7 +1,9 @@
 import {
+    DescribeTasksCommand,
     ECSClient,
     ListTasksCommand,
     RunTaskCommand,
+    StopTaskCommand,
     type RunTaskCommandInput,
 } from "@aws-sdk/client-ecs";
 import type { Handler } from "aws-lambda";
@@ -120,6 +122,20 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
             throw new Error(`RunTask returned no task ARN${failures ? ` (${failures})` : ""}`);
         }
 
+        const placedTask = await describePlacedTask(ecs, cluster, taskArn);
+        const actualCapacityProvider = placedTask?.capacityProviderName ?? task?.capacityProviderName;
+        if (actualCapacityProvider !== capacityProvider) {
+            await ecs.send(new StopTaskCommand({
+                cluster,
+                task: taskArn,
+                reason: `Expected capacity provider ${capacityProvider}, got ${actualCapacityProvider ?? "unknown"}`,
+            }));
+            throw new Error(
+                `RunTask placed ${taskArn} on capacity provider ${actualCapacityProvider ?? "unknown"} ` +
+                `instead of ${capacityProvider}; stopped task to avoid non-Spot spend`,
+            );
+        }
+
         taskArns.push(taskArn);
         runningCount++;
 
@@ -129,7 +145,8 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
             runningCount,
             maxRunning,
             requestedCapacityProvider: capacityProvider,
-            capacityProvider: task?.capacityProviderName,
+            capacityProvider: actualCapacityProvider,
+            launchType: placedTask?.launchType ?? task?.launchType,
             startBlockOffset,
             blockCount,
         }));
@@ -194,4 +211,23 @@ function parsePositiveInteger(name: string, defaultValue: string): number {
         throw new Error(`Invalid ${name}: ${process.env[name]}`);
     }
     return value;
+}
+
+async function describePlacedTask(ecs: ECSClient, cluster: string, taskArn: string) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const described = await ecs.send(new DescribeTasksCommand({
+            cluster,
+            tasks: [taskArn],
+        }));
+        const task = described.tasks?.[0];
+        if (task?.capacityProviderName) {
+            return task;
+        }
+        await sleep(500);
+    }
+    return undefined;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
