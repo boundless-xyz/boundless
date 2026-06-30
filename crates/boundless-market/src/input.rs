@@ -77,9 +77,10 @@ pub struct GuestEnv {
     /// Input data to be provided to the guest as stdin.
     ///
     /// The data here will be provided to the guest without further encoding (e.g. the bytes will
-    /// be provided directly). When the guest calls `env::read_slice` these are the bytes that will
-    /// be read. If the guest uses `env::read`, this should be encoded using the default RISC Zero
-    /// codec. [GuestEnvBuilder::write] will encode the data given using the default codec.
+    /// be provided directly).
+    ///
+    /// RISC0: If the guest calls `env::read_slice` these are the bytes that will be read. If the
+    /// guest uses `env::read`, this should be encoded using the appropriate RISC Zero codec.
     #[serde(with = "serde_bytes")]
     pub stdin: Vec<u8>,
 }
