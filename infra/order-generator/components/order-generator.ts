@@ -1,7 +1,7 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
-import { getServiceNameV1, Severity } from '../../util';
+import { getServiceNameV1, Severity, withAutoInvestigate } from '../../util';
 import * as crypto from 'crypto';
 
 const FARGATE_CPU = 512;
@@ -441,7 +441,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
       evaluationPeriods: 60,
       datapointsToAlarm: 3,
       treatMissingData: 'notBreaching',
-      alarmDescription: `${name} ETH bal < ${args.warnBalanceBelow} ${Severity.SEV2}`,
+      // Balance alarm: remediation is to top up the order generator, nothing to investigate.
+      alarmDescription: withAutoInvestigate(`${name} ETH bal < ${args.warnBalanceBelow} ${Severity.SEV2}`, false),
       actionsEnabled: true,
       alarmActions,
     });
@@ -466,7 +467,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
         evaluationPeriods: 60,
         datapointsToAlarm: 3,
         treatMissingData: 'notBreaching',
-        alarmDescription: `${name} ETH bal < ${args.errorBalanceBelow} ${Severity.SEV1}`,
+        // Balance alarm: remediation is to top up the order generator, nothing to investigate.
+        alarmDescription: withAutoInvestigate(`${name} ETH bal < ${args.errorBalanceBelow} ${Severity.SEV1}`, false),
         actionsEnabled: true,
         alarmActions,
       });

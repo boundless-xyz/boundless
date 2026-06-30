@@ -28,7 +28,7 @@ use boundless_market::price_oracle::config::PriceValue;
 use boundless_market::price_oracle::Amount;
 use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
-    market::TestCtx,
+    market::{TestCtx, ASSESSOR_R0_SELECTOR},
 };
 use tempfile::NamedTempFile;
 use url::Url;
@@ -52,6 +52,7 @@ impl BrokerBuilder {
         let mut config = Config::default();
         config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
         config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+        config.market.assessor_selector = ASSESSOR_R0_SELECTOR;
         config.market.min_mcycle_price = Amount::parse("0.0 ETH", None).unwrap();
         config.batcher.min_batch_size = 1;
         config.market.min_deadline = 30;
