@@ -192,6 +192,14 @@ impl GcsStorageDownloader {
             builder = builder.with_endpoint(url);
         }
 
+        // If no Application Default Credentials are configured, fall back to
+        // anonymous credentials.
+        if env::var("GOOGLE_APPLICATION_CREDENTIALS").is_err() {
+            builder = builder.with_credentials(
+                google_cloud_auth::credentials::anonymous::Builder::new().build(),
+            );
+        }
+
         builder = if let Some(max_retries) = max_retries {
             builder.with_retry_policy(AlwaysRetry.with_attempt_limit(max_retries as u32))
         } else {

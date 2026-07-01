@@ -27,6 +27,8 @@ name = "market-indexer-backfill"
 path = "src/bin/market-indexer-backfill.rs"
 
 [features]
+default = ["gcs"]
+gcs = ["boundless-market/gcs"]
 # Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
 test-r0vm = []
 # Enable this feature to run tests that require RPC URLs (ETH_MAINNET_RPC_URL, etc.)
