@@ -14,36 +14,17 @@ The UNLOAD per env happened at various times during 2026-04-24; treating all of 
 
 ## Prerequisites
 
-Before running any queries, check if `REDSHIFT_URL` is already exported in the shell.
+Before running any queries, check if `REDSHIFT_URL` is already exported in the shell. If not, load it from Bitwarden via the shared helpers (full setup in [`../ops-query/references/bw-credentials.md`](../ops-query/references/bw-credentials.md)):
 
-If not, try to read `network_secrets.toml` from the repo root. If it exists, extract the telemetry credentials for the selected environment from `[environments.<env>.telemetry]`:
+```bash
+source .claude/skills/ops-query/references/bw-credentials.sh
+bw_ensure_ready || exit 1
+bw_load_redshift_url "$ENV"     # e.g. prod_base, staging_taiko
+```
 
-- `db_url` -- the Redshift hostname:port/database?sslmode path
-- `readonly_password` -- the readonly user password
+`bw_load_redshift_url` reads `db_url` and the readonly password from the `boundless-ops-telemetry-<env>` item and exports a fully-formed `postgres://readonly:<password>@<db_url>` URL. If the item is missing, the call fails loud and prints which item to add.
 
-Construct the connection string: `postgres://readonly:<password>@<db_url>`
-
-Also read `network_address_labels.json` (same directory) for translating addresses to human-readable labels in output.
-
-If `network_secrets.toml` is not present, recommend the user create it -- instructions and credentials are in the **Boundless runbook**. Alternatively, they can provide credentials directly:
-
-1. The Redshift **endpoint** (hostname or full connection string)
-2. The **readonly password**
-
-They can either:
-
-- Export them as env vars: `export REDSHIFT_ENDPOINT="..."` and `export REDSHIFT_PASSWORD="..."`
-- Provide them directly in the chat
-
-If `network_address_labels.json` is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**. The file is plain JSON (`{"0xaddr": "label", ...}`).
-
-The user may provide a full `postgres://...` URL or just a hostname. Normalize to a valid connection string:
-
-- If the URL is missing `/telemetry` at the end of the path, append it
-- If the URL is missing `?sslmode=require`, append it
-- If only a hostname is given, construct: `postgres://readonly:<password>@<hostname>:5439/telemetry?sslmode=require`
-
-Export the result as `REDSHIFT_URL` before running queries.
+Also read `network_address_labels.json` from the repo root for translating addresses to human-readable labels in output. If it is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**. The file is plain JSON (`{"0xaddr": "label", ...}`).
 
 ## Routing by Time Window
 
@@ -78,20 +59,21 @@ Parquet column names and types match the Redshift typed views exactly (Redshift 
 
 ### Credentials
 
-Read AWS creds from `network_secrets.toml` at the repo root:
+Load AWS creds from Bitwarden via the shared helpers:
 
-- `[aws.prod]` for any `prod_*` env
-- `[aws.staging]` for any `staging_*` env
+```bash
+source .claude/skills/ops-query/references/bw-credentials.sh
+bw_ensure_ready || exit 1
+bw_load_aws prod       # for any prod_* env  (or `staging` for staging_*)
+```
 
-Both have `s3:GetObject` on their respective buckets. Region is `us-west-2`.
+Both tiers have `s3:GetObject` on their respective buckets. Region is `us-west-2`.
 
 ### Running a query
 
 Mirror the psql heredoc pattern. Install `httpfs` once per `duckdb` invocation, set the creds, then `read_parquet` the glob. Heredoc keeps zsh from mangling `!=`.
 
 ```bash
-AWS_ACCESS_KEY_ID=<from network_secrets.toml> \
-AWS_SECRET_ACCESS_KEY=<from network_secrets.toml> \
 duckdb <<SQL
 INSTALL httpfs; LOAD httpfs;
 SET s3_region='us-west-2';
@@ -120,8 +102,8 @@ When rewriting a Redshift query for the archive path, watch for these:
 ### Fail-loud rules
 
 - If the user asks for a pre-cutover window on an env not in the bucket table → stop and say the archive doesn't exist for that env.
-- If DuckDB returns `HTTP 403` / AccessDenied → stop and report the bucket name and which `[aws.*]` profile was used; do not silently retry.
-- If `network_secrets.toml` is missing the needed `[aws.*]` block → stop and ask the user.
+- If DuckDB returns `HTTP 403` / AccessDenied → stop and report the bucket name and which AWS tier (`bw_load_aws prod` vs `staging`) was loaded; do not silently retry.
+- If `bw_load_aws` or `bw_load_redshift_url` fails → stop, surface the missing Bitwarden item name printed by the helper, and ask the user to add it (see [`../ops-query/references/bw-credentials.md`](../ops-query/references/bw-credentials.md)).
 
 ## Known Addresses
 
