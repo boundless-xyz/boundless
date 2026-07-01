@@ -15,7 +15,7 @@ contract UpgradeTest is Test {
         // File-qualify the reference: the legacy fallback source (src/legacy/BoundlessMarketLegacy.sol)
         // also declares a contract named `BoundlessMarket`, so the bare name is ambiguous in any
         // reference build that includes contracts/src/legacy/. Match the qualified new-side lookup below.
-        opts.referenceContract = "build-info-reference:BoundlessMarket.sol:BoundlessMarket";
+        opts.referenceContract = "build-info-reference:contracts/src/BoundlessMarket.sol:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
         Upgrades.validateUpgrade("BoundlessMarket.sol:BoundlessMarket", opts);
     }
