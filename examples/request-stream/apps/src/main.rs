@@ -45,6 +45,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{RequestId, RequestInput},
+    risc0::Risc0ZkvmOps,
     storage::StorageUploaderConfig,
     Client, Deployment,
 };
@@ -317,6 +318,7 @@ async fn run(args: Args) -> Result<()> {
     // - Signing transactions with your private key
     // - Tracking request status and fulfillment
     let client = Client::builder()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url) // Ethereum RPC endpoint
         .with_deployment(args.deployment) // Contract addresses (optional, uses defaults if not provided)
         .with_uploader_config(&args.storage_config)
