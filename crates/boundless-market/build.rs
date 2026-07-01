@@ -269,7 +269,7 @@ fn get_interfaces(contract: &str) -> &str {
             "constructor(address verifier, bytes32 imageId, string memory imageUrl) {}"
         }
         "BoundlessMarket" => {
-            r#"constructor(address router, address collateralTokenContract) {}
+            r#"constructor(address router, address collateralTokenContract, address legacyImpl) {}
             function initialize(address initialOwner) {}"#
         }
         "ERC1967Proxy" => "constructor(address implementation, bytes memory data) payable {}",

@@ -1,0 +1,34 @@
+# Reference snapshot of the BoundlessMarket implementation currently
+# deployed at the Base mainnet proxy. Used by
+# `scripts/verify-legacy-bytecode.py` to assert that contracts/src/legacy/
+# compiles to the same bytecode (modulo immutable slots that are baked in at
+# deploy time).
+#
+# Refresh procedure:
+#   cast code 0x22bb6bbe5d221ef3e738029dab4d1d27ec725cd3 \
+#     --rpc-url https://base.drpc.org \
+#     > contracts/test/legacy/deployed-bytecode.hex
+# and update `fetched_at_block` below.
+
+network = "base-mainnet"
+chain_id = 8453
+proxy = "0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
+impl = "0x22bb6bbe5d221ef3e738029dab4d1d27ec725cd3"
+fetched_at_block = 46576272
+
+# Constructor immutables baked into the deployed bytecode. The compiled
+# legacy/ artifact has zeros at these positions; the verification script
+# masks them out for the body-match check and then re-extracts each baked-in
+# value and asserts it matches the expected value below. Mismatch on either
+# check means the legacy/ source or this metadata has drifted from production.
+#
+# Types: address values are 20 bytes; bytes32 values are 32 bytes; uint64
+# values are decoded as integers. All addresses are lowercase-normalized
+# before comparison.
+[immutables]
+VERIFIER = "0x0b144E07A0826182B6b59788c34b32Bfa86Fb711"
+ASSESSOR_ID = "0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100"
+COLLATERAL_TOKEN_CONTRACT = "0xAA61bB7777bD01B684347961918f1E07fBbCe7CF"
+DEPRECATED_ASSESSOR_ID = "0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100"
+DEPRECATED_ASSESSOR_EXPIRES_AT = 1775212527
+APPLICATION_VERIFIER = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"

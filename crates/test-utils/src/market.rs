@@ -230,6 +230,14 @@ pub async fn deploy_router<P: Provider + Clone>(
     Ok(*proxy_instance.address())
 }
 
+/// Placeholder `legacyImpl` for the new `BoundlessMarket` constructor, which rejects the zero
+/// address. The legacy fallback exists only so pre-router clients can keep hitting the deployed
+/// contract during migration; nothing in the current broker/SDK should ever route through it, so
+/// tests deliberately point it at a non-functional address instead of deploying a real
+/// `BoundlessMarketLegacy`. Any call that did reach the fallback would fail to return usable data,
+/// surfacing the misuse rather than silently succeeding.
+const LEGACY_IMPL_STUB: Address = Address::new([0xde; 20]);
+
 #[allow(clippy::too_many_arguments)]
 pub async fn deploy_boundless_market<P: Provider + Clone>(
     owner_address: Address,
@@ -249,9 +257,10 @@ pub async fn deploy_boundless_market<P: Provider + Clone>(
     )
     .await?;
 
-    let market_instance = BoundlessMarket::deploy(&deployer_provider, router, hit_points)
-        .await
-        .context("failed to deploy BoundlessMarket implementation")?;
+    let market_instance =
+        BoundlessMarket::deploy(&deployer_provider, router, hit_points, LEGACY_IMPL_STUB)
+            .await
+            .context("failed to deploy BoundlessMarket implementation")?;
 
     let proxy_instance = ERC1967Proxy::deploy(
         &deployer_provider,

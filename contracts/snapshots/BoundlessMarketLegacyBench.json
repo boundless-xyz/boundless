@@ -1,0 +1,22 @@
+{
+  "fulfill (with callback): batch of 001": "129170",
+  "fulfill (with callback): batch of 002": "211957",
+  "fulfill (with callback): batch of 004": "378227",
+  "fulfill (with callback): batch of 008": "709522",
+  "fulfill (with callback): batch of 016": "1208438",
+  "fulfill (with callback): batch of 032": "2238870",
+  "fulfill (with selector): batch of 001": "89529",
+  "fulfill (with selector): batch of 002": "132769",
+  "fulfill (with selector): batch of 004": "221274",
+  "fulfill (with selector): batch of 008": "388324",
+  "fulfill (with selector): batch of 016": "723114",
+  "fulfill (with selector): batch of 032": "1417729",
+  "fulfill: batch of 001": "87281",
+  "fulfill: batch of 002": "128256",
+  "fulfill: batch of 004": "212234",
+  "fulfill: batch of 008": "370240",
+  "fulfill: batch of 016": "686422",
+  "fulfill: batch of 032": "1343691",
+  "fulfill: batch of 064": "2722486",
+  "fulfill: batch of 128": "5673869"
+}
