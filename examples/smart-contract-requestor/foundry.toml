@@ -5,6 +5,11 @@ libs = ["../../lib", "../../contracts/src"]
 script = "contracts/scripts"
 test = "contracts/test"
 ffi = true
+# Match the root contracts config: BoundlessRouter and friends require the
+# IR pipeline + optimizer to compile without "Stack too deep".
+via_ir = true
+optimizer = true
+optimizer_runs = 100
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
