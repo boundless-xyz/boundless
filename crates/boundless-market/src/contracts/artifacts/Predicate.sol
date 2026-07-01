@@ -64,14 +64,18 @@ library PredicateLibrary {
         if (predicate.predicateType == PredicateType.DigestMatch) {
             require(predicate.data.length == 64, "Invalid DigestMatch data length");
             bytes memory dataJournal = Bytes.slice(predicate.data, 32);
-            return bytes32(dataJournal) == sha256(abi.encode(journal)) && bytes32(predicate.data) == imageId;
+            // Journal hash convention: `sha256(journal)` over the raw bytes,
+            // matching what the off-chain R0 STARK guest commits (via
+            // `ReceiptClaim::ok(image_id, journal_bytes)`) and what
+            // `BoundlessMarketCallback` re-derives. No `abi.encode` wrap.
+            return bytes32(dataJournal) == sha256(journal) && bytes32(predicate.data) == imageId;
         } else if (predicate.predicateType == PredicateType.PrefixMatch) {
             require(predicate.data.length >= 32, "Invalid PrefixMatch data length");
             bytes memory dataJournal = Bytes.slice(predicate.data, 32);
             return startsWith(journal, dataJournal) && bytes32(predicate.data) == imageId;
         } else if (predicate.predicateType == PredicateType.ClaimDigestMatch) {
             require(predicate.data.length == 32, "Invalid ClaimDigestMatch data length");
-            return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, sha256(abi.encode(journal))).digest();
+            return bytes32(predicate.data) == ReceiptClaimLib.ok(imageId, sha256(journal)).digest();
         } else {
             revert("Unreachable code");
         }
