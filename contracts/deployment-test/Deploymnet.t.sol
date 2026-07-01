@@ -12,6 +12,12 @@ import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 
+// The deployment-test exercises the deployed market via its current ABI:
+// requests are fulfilled through the new batched fulfill path on the new
+// BoundlessMarket, so all struct + interface imports come from
+// contracts/src/. The legacy ABI served via the fallback is not exercised
+// here; in this deployment the legacy impl is a non-functional stub that
+// the new path never invokes.
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
 import {Callback} from "../src/types/Callback.sol";
 import {Fulfillment} from "../src/types/Fulfillment.sol";
@@ -103,7 +109,7 @@ contract DeploymentTest is Test {
         require(keccak256(address(verifier).code) != keccak256(bytes("")), "verifier code is empty");
         require(deployment.boundlessRouter != address(0), "no boundless router address is set");
         require(
-            deployment.boundlessRouter == address(BoundlessMarket(address(boundlessMarket)).ROUTER()),
+            deployment.boundlessRouter == address(BoundlessMarket(payable(address(boundlessMarket))).ROUTER()),
             "boundless router address does not match boundless market"
         );
     }
@@ -122,15 +128,15 @@ contract DeploymentTest is Test {
         require(address(stakeToken) != address(0), "no collateral token address is set");
         require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "collateral token code is empty");
         require(
-            address(stakeToken) == BoundlessMarket(address(boundlessMarket)).COLLATERAL_TOKEN_CONTRACT(),
+            address(stakeToken) == BoundlessMarket(payable(address(boundlessMarket))).COLLATERAL_TOKEN_CONTRACT(),
             "collateral token address does not match boundless market"
         );
     }
 
     function testBoundlessMarketOwner() external view {
         require(
-            BoundlessMarket(address(boundlessMarket))
-                .hasRole(BoundlessMarket(address(boundlessMarket)).ADMIN_ROLE(), deployment.admin2),
+            BoundlessMarket(payable(address(boundlessMarket)))
+                .hasRole(BoundlessMarket(payable(address(boundlessMarket))).ADMIN_ROLE(), deployment.admin2),
             "boundless market admin role does not match admin"
         );
     }
@@ -191,7 +197,7 @@ contract DeploymentTest is Test {
 
         // The market reconstructs and emits the domain-bound request digest from the SlimRequest.
         bytes32 requestDigest = MessageHashUtils.toTypedDataHash(
-            BoundlessMarket(address(boundlessMarket)).eip712DomainSeparator(), request.eip712Digest()
+            BoundlessMarket(payable(address(boundlessMarket))).eip712DomainSeparator(), request.eip712Digest()
         );
 
         vm.expectEmit(true, true, true, true);
