@@ -482,38 +482,38 @@ mod tests {
             BrokerBuilder::new_test(&ctx, anvil.endpoint_url()).await.build(&ctx).await?;
         tasks.spawn(async move { broker.start_service(vec![chain]).await });
 
-        // Start the run function in a separate task so we can cancel it
-        let mut run_handle = {
-            let args = Args {
-                rpc_url: anvil.endpoint_url(),
-                private_key: ctx.customer_signer,
-                blocks_per_request: 2, // Use default value for testing
-                storage_config: StorageUploaderConfig::builder()
-                    .storage_uploader(StorageUploaderType::Mock)
-                    .build()
-                    .unwrap(),
-                deployment: Some(ctx.deployment),
-            };
-            tokio::spawn(async move { run(args).await })
+        let args = Args {
+            rpc_url: anvil.endpoint_url(),
+            private_key: ctx.customer_signer,
+            blocks_per_request: 2, // Use default value for testing
+            storage_config: StorageUploaderConfig::builder()
+                .storage_uploader(StorageUploaderType::Mock)
+                .build()
+                .unwrap(),
+            deployment: Some(ctx.deployment),
         };
+
+        // Drive the run function inline via select! rather than tokio::spawn: the request
+        // builder's higher-ranked (`for<'a>`) bounds make the spawned future's Send inference
+        // fail, and select! polls on the current task, which does not require Send. Dropping
+        // the future (when another branch wins) cancels it.
+        let run_fut = run(args);
+        tokio::pin!(run_fut);
 
         // Wait for at least one block range to be processed
         // The stream will wait for blocks_per_request blocks (default: 2), collect hashes, submit a request, and wait for fulfillment
         const TEST_TIMEOUT_SECS: u64 = 120; // 2 minutes should be enough for at least one request
 
         tokio::select! {
-            run_result = &mut run_handle => {
+            run_result = &mut run_fut => {
                 // If run completes (shouldn't happen normally), check if it was an error
                 match run_result {
-                    Ok(Ok(())) => {
+                    Ok(()) => {
                         // This is unexpected but not necessarily a failure
                         tracing::info!("Run function completed normally");
                     }
-                    Ok(Err(e)) => {
-                        panic!("Run function returned an error: {:?}", e);
-                    }
                     Err(e) => {
-                        panic!("Run task panicked: {:?}", e);
+                        panic!("Run function returned an error: {:?}", e);
                     }
                 }
             },
@@ -523,14 +523,7 @@ mod tests {
             },
 
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(TEST_TIMEOUT_SECS)) => {
-                // After waiting, we've verified the stream is working
-                // Cancel the run task to clean up
-                run_handle.abort();
-                // Wait a bit for cleanup
-                let _ = tokio::time::timeout(
-                    tokio::time::Duration::from_secs(5),
-                    run_handle
-                ).await;
+                // After waiting, we've verified the stream is working.
                 tracing::info!("Test completed: stream processed events successfully");
             }
         }
