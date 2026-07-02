@@ -24,7 +24,7 @@ pub mod sequential_fallback;
 pub(crate) mod storage;
 // Re-export the standalone helpers at the `crate::utils` root.
 pub(crate) use helpers::{
-    estimate_gas_to_fulfill, estimate_gas_to_lock, format_expiries, is_dev_mode, now_timestamp,
+    estimate_gas_to_lock, format_expiries, fulfill_gas_units, is_dev_mode, now_timestamp,
 };
 
 pub use crate::backend::prune_receipt_claim_journal;

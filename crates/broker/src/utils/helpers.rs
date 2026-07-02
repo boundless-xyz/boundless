@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{network::Ethereum, primitives::aliases::U96, providers::Provider};
+use alloy::{network::Ethereum, providers::Provider};
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{PredicateType, ProofRequest},
-    prover_utils::{estimate_erc1271_gas, Erc1271GasCache},
-    selector::{ProofType, SupportedSelectors},
+    prover_utils::{callback_gas, estimate_erc1271_gas, Erc1271GasCache},
 };
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -78,54 +77,29 @@ pub(crate) async fn estimate_gas_to_lock<P: Provider<Ethereum> + 'static>(
     Ok(lockin_gas + erc1271_gas)
 }
 
-/// Estimate of gas for to fulfill a single order
-/// Currently just uses the config estimate but this may change in the future
-pub(crate) async fn estimate_gas_to_fulfill(
+/// Total on-chain gas to fulfill a single order (excluding lock gas): the path-aware `base`
+/// (verifier + assessor + settlement, resolved by the caller via the backend's `fulfillment_gas`)
+/// plus journal calldata and callback gas, both added here selector-agnostically.
+pub(crate) fn fulfill_gas_units(
+    base: u64,
     config: &ConfigLock,
-    supported_selectors: &SupportedSelectors,
     request: &ProofRequest,
     journal_bytes: Option<usize>,
 ) -> Result<u64> {
-    let (base, groth16, journal_gas_per_byte, max_journal_bytes) = {
+    let (journal_gas_per_byte, max_journal_bytes) = {
         let config = config.lock_all().context("Failed to read config")?;
-        (
-            config.market.fulfill_gas_estimate,
-            config.market.groth16_verify_gas_estimate,
-            config.market.fulfill_journal_gas_per_byte,
-            config.market.max_journal_bytes,
-        )
+        (config.market.fulfill_journal_gas_per_byte, config.market.max_journal_bytes)
     };
-
-    let journal_size = journal_bytes.unwrap_or(max_journal_bytes);
-
-    let mut estimate = base;
 
     // Add gas for journal calldata when the predicate requires journal submission.
-    if request.requirements.predicate.predicateType != PredicateType::ClaimDigestMatch {
-        estimate += journal_size as u64 * journal_gas_per_byte;
-    }
-
-    // Add gas for orders that make use of the callbacks feature.
-    estimate += u64::try_from(
-        request
-            .requirements
-            .callback
-            .as_option()
-            .map(|callback| callback.gasLimit)
-            .unwrap_or(U96::ZERO),
-    )?;
-
-    estimate += match supported_selectors
-        .proof_type(request.requirements.selector)
-        .context("unsupported selector")?
-    {
-        ProofType::Any | ProofType::Inclusion => 0,
-        ProofType::Groth16 | ProofType::Blake3Groth16 => groth16,
-        proof_type => {
-            tracing::warn!("Unknown proof type in gas cost estimation: {proof_type:?}");
+    let journal_gas =
+        if request.requirements.predicate.predicateType != PredicateType::ClaimDigestMatch {
+            journal_bytes.unwrap_or(max_journal_bytes) as u64 * journal_gas_per_byte
+        } else {
             0
-        }
-    };
+        };
 
-    Ok(estimate)
+    // Callback gas is universal across fulfillment paths and backends, so it is priced here on
+    // top of the backend-resolved base rather than inside the backend.
+    Ok(base + journal_gas + callback_gas(request)?)
 }

@@ -218,6 +218,14 @@ mod tests {
             Ok(None)
         }
 
+        fn fulfillment_gas(&self, _request: &ProofRequest) -> anyhow::Result<u64> {
+            Ok(500_000)
+        }
+
+        fn additional_proof_cycles(&self, _request: &ProofRequest) -> anyhow::Result<u64> {
+            Ok(2_000_000 + 270_000)
+        }
+
         async fn evaluate_request(
             &self,
             _request: boundless_market::prover_utils::EvaluationRequest,

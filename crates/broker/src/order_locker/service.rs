@@ -48,6 +48,7 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
+use boundless_backend::BackendRouter;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, MarketError},
@@ -55,7 +56,6 @@ use boundless_market::{
         RequestStatus, TxnErr,
     },
     dynamic_gas_filler::PriorityMode,
-    selector::SupportedSelectors,
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -66,11 +66,12 @@ use super::types::{CapacityResult, OrderCommitmentMeta, OrderLockerConfig, RpcRe
 
 fn estimate_proving_time_no_load(
     order_cycles: Option<u64>,
+    additional_proof_cycles: u64,
     config: &OrderLockerConfig,
 ) -> Option<u64> {
     let cycles = order_cycles?;
     let peak_prove_khz = config.peak_prove_khz?;
-    let total = cycles + config.additional_proof_cycles;
+    let total = cycles + additional_proof_cycles;
     Some(total.div_ceil(1_000).div_ceil(peak_prove_khz))
 }
 
@@ -89,7 +90,8 @@ pub struct OrderLocker<P> {
     provider: Arc<P>,
     prover_addr: Address,
     priced_order_rx: SharedReceiver<Box<OrderRequest>>,
-    supported_selectors: SupportedSelectors,
+    /// Resolves the path-aware fulfill-gas base per order (the broker stays selector-agnostic).
+    backend: Arc<BackendRouter>,
     erc1271_gas_cache: Erc1271GasCache,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
@@ -118,7 +120,7 @@ where
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
         gas_estimation_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
         erc1271_gas_cache: Erc1271GasCache,
-        supported_selectors: SupportedSelectors,
+        backend: Arc<BackendRouter>,
         listen_only: bool,
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
@@ -159,7 +161,7 @@ where
             provider,
             prover_addr,
             priced_order_rx: priced_orders_rx,
-            supported_selectors,
+            backend,
             erc1271_gas_cache,
             rpc_retry_config,
             gas_priority_mode,
@@ -366,7 +368,11 @@ where
             }
         };
 
-        let no_load = estimate_proving_time_no_load(order.total_cycles, config);
+        let no_load = estimate_proving_time_no_load(
+            order.total_cycles,
+            order.additional_proof_cycles.unwrap_or(config.additional_proof_cycles),
+            config,
+        );
         let monitor_wait =
             order.priced_at_timestamp.map(|t| now_timestamp().saturating_sub(t) * 1000);
         let pending = 0u32;
@@ -636,7 +642,15 @@ where
         order: &OrderRequest,
         gas_price: u128,
     ) -> Result<U256, OrderLockerErr> {
-        // Calculate gas units needed for this order (lock + fulfill)
+        // Calculate gas units needed for this order (lock + fulfill). The path-aware fulfill base
+        // is resolved by the backend that serves the order's selector.
+        let fulfill_base = self.backend.fulfillment_gas(&order.request)?;
+        let fulfill_gas = utils::fulfill_gas_units(
+            fulfill_base,
+            &self.config,
+            &order.request,
+            order.journal_bytes,
+        )?;
         let order_gas_units = if order.fulfillment_type == FulfillmentType::LockAndFulfill {
             U256::from(
                 utils::estimate_gas_to_lock(
@@ -647,25 +661,9 @@ where
                 )
                 .await?,
             )
-            .saturating_add(U256::from(
-                utils::estimate_gas_to_fulfill(
-                    &self.config,
-                    &self.supported_selectors,
-                    &order.request,
-                    order.journal_bytes,
-                )
-                .await?,
-            ))
+            .saturating_add(U256::from(fulfill_gas))
         } else {
-            U256::from(
-                utils::estimate_gas_to_fulfill(
-                    &self.config,
-                    &self.supported_selectors,
-                    &order.request,
-                    order.journal_bytes,
-                )
-                .await?,
-            )
+            U256::from(fulfill_gas)
         };
 
         let order_cost_wei = U256::from(gas_price) * order_gas_units;
@@ -692,17 +690,14 @@ where
         };
 
         let committed_orders = self.db.get_committed_orders().await?;
-        let committed_gas_units =
-            futures::future::try_join_all(committed_orders.iter().map(|order| {
-                utils::estimate_gas_to_fulfill(
-                    &self.config,
-                    &self.supported_selectors,
-                    &order.request,
-                    order.journal_bytes,
-                )
-            }))
-            .await?
+        let committed_gas_units = committed_orders
             .iter()
+            .map(|order| {
+                let base = self.backend.fulfillment_gas(&order.request)?;
+                utils::fulfill_gas_units(base, &self.config, &order.request, order.journal_bytes)
+            })
+            .collect::<Result<Vec<u64>>>()?
+            .into_iter()
             .sum::<u64>();
 
         let committed_cost_wei = U256::from(gas_price) * U256::from(committed_gas_units);
@@ -744,7 +739,11 @@ where
                 continue;
             }
 
-            let no_load = estimate_proving_time_no_load(order.total_cycles, config);
+            let no_load = estimate_proving_time_no_load(
+                order.total_cycles,
+                order.additional_proof_cycles.unwrap_or(config.additional_proof_cycles),
+                config,
+            );
             meta.insert(
                 order.id(),
                 OrderCommitmentMeta {
@@ -941,6 +940,7 @@ pub(crate) mod tests {
         node_bindings::{Anvil, AnvilInstance},
         primitives::{address, Address, Bytes, U256},
         providers::{
+            ext::AnvilApi,
             fillers::{
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
                 WalletFiller,
@@ -983,6 +983,7 @@ pub(crate) mod tests {
         pub priced_order_tx: mpsc::Sender<Box<OrderRequest>>,
         pub signer: PrivateKeySigner,
         pub market_service: BoundlessMarketService<Arc<TestProvider>>,
+        pub backend: Arc<BackendRouter>,
         next_order_id: u32,
     }
 
@@ -1095,6 +1096,30 @@ pub(crate) mod tests {
 
         let (proving_completion_tx, _proving_completion_rx) = mpsc::channel(100);
 
+        // Backend router so the locker can resolve path-aware fulfill gas (RISC0 backend with an
+        // in-memory router fixture + stub provers; the gas tests only exercise cost resolution).
+        let router_policy = crate::backend::Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(Default::default(), false),
+            boundless_test_utils::market::set_verifier_selector(Default::default()),
+            true,
+        );
+        let downloader = crate::ConfigurableDownloader::new(config.clone()).await.unwrap();
+        let priority_check: boundless_market::prover_utils::PriorityRequestorCheck =
+            Arc::new(|_| false);
+        let backend_router = Arc::new(
+            crate::backend::BackendRouter::new()
+                .register_backend(crate::backend::BackendEntry::new(Arc::new(
+                    crate::backend::Risc0Backend::with_provers(
+                        Arc::new(crate::provers::DefaultProver::new()),
+                        Arc::new(crate::provers::DefaultProver::new()),
+                        Arc::new(downloader),
+                        priority_check,
+                        router_policy,
+                    ),
+                )))
+                .unwrap(),
+        );
+
         let monitor = OrderLocker::new(
             db.clone(),
             provider.clone(),
@@ -1109,7 +1134,7 @@ pub(crate) mod tests {
             gas_priority_mode,
             gas_estimation_priority_mode,
             Arc::new(Cache::builder().build()),
-            SupportedSelectors::default(),
+            backend_router.clone(),
             false,
             anvil.chain_id(),
             proving_completion_tx,
@@ -1125,6 +1150,7 @@ pub(crate) mod tests {
             priced_order_tx,
             signer,
             market_service,
+            backend: backend_router,
             next_order_id: 1,
         }
     }
@@ -1374,16 +1400,25 @@ pub(crate) mod tests {
     async fn test_insufficient_balance_committed_orders() {
         let mut ctx = setup_oc_test_context().await;
 
-        let balance = ctx.monitor.provider.get_balance(ctx.signer.address()).await.unwrap();
-        let gas_price = ctx.monitor.chain_monitor.current_gas_price().await.unwrap();
-        let gas_remaining: u64 = (balance / U256::from(gas_price)).try_into().unwrap();
-        ctx.config.load_write().unwrap().market.fulfill_gas_estimate = gas_remaining / 2;
-        ctx.config.load_write().unwrap().market.lockin_gas_estimate = gas_remaining / 3;
-
-        let incoming_order =
+        // Per-order fulfill gas now comes from the backend (path-aware), not config. Compute it so
+        // we can size the balance precisely, and zero out the lock gas so each order's cost is
+        // exactly this fulfill cost.
+        let sample =
             ctx.create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200).await;
+        let base = ctx.backend.fulfillment_gas(&sample.request).unwrap();
+        let per_order =
+            utils::fulfill_gas_units(base, &ctx.config, &sample.request, sample.journal_bytes)
+                .unwrap();
+        ctx.config.load_write().unwrap().market.lockin_gas_estimate = 0;
 
-        let mut orders = vec![Arc::from(incoming_order)];
+        // Fund the signer with exactly 1.5 orders' worth of gas: one candidate fits, a second does
+        // not, and the committed orders below push the total over the balance entirely.
+        let gas_price = ctx.monitor.chain_monitor.current_gas_price().await.unwrap();
+        let balance =
+            U256::from(per_order) * U256::from(gas_price) * U256::from(3u64) / U256::from(2u64);
+        ctx.monitor.provider.anvil_set_balance(ctx.signer.address(), balance).await.unwrap();
+
+        let mut orders = vec![Arc::from(sample)];
 
         let gas_result = ctx
             .monitor

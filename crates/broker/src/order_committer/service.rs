@@ -183,7 +183,6 @@ impl OrderCommitter {
     fn estimate_prover_available_at(
         in_flight: &HashMap<String, InFlightOrder>,
         peak_prove_khz: u64,
-        additional_proof_cycles: u64,
     ) -> u64 {
         let now = now_timestamp();
 
@@ -193,7 +192,7 @@ impl OrderCommitter {
 
         let total_committed_cycles: u64 = in_flight
             .values()
-            .filter_map(|o| o.total_cycles.map(|c| c + additional_proof_cycles))
+            .filter_map(|o| o.total_cycles.map(|c| c + o.additional_proof_cycles))
             .sum();
 
         let started_proving_at =
@@ -283,11 +282,8 @@ impl OrderCommitter {
         }
 
         if let Some(peak_prove_khz) = committer_config.peak_prove_khz {
-            let mut prover_available_at = Self::estimate_prover_available_at(
-                in_flight,
-                peak_prove_khz,
-                committer_config.additional_proof_cycles,
-            );
+            let mut prover_available_at =
+                Self::estimate_prover_available_at(in_flight, peak_prove_khz);
 
             let now = now_timestamp();
             let mut kept = Vec::with_capacity(selected.len());
@@ -297,7 +293,10 @@ impl OrderCommitter {
                     continue;
                 };
 
-                let total_cycles = order_cycles + committer_config.additional_proof_cycles;
+                let total_cycles = order_cycles
+                    + order
+                        .additional_proof_cycles
+                        .unwrap_or(committer_config.additional_proof_cycles);
                 let proof_time_seconds = total_cycles.div_ceil(1_000).div_ceil(peak_prove_khz);
                 let completion_time = prover_available_at + proof_time_seconds;
                 let expiration = order.expiry();
@@ -345,6 +344,8 @@ impl OrderCommitter {
             let order_id = order.id();
             let chain_id = order.chain_id;
             let total_cycles = order.total_cycles;
+            let additional_proof_cycles =
+                order.additional_proof_cycles.unwrap_or(committer_config.additional_proof_cycles);
 
             let Some(locker_tx) = self.locker_dispatchers.get(&chain_id) else {
                 tracing::warn!(
@@ -359,6 +360,7 @@ impl OrderCommitter {
                 InFlightOrder {
                     dispatched_at: Instant::now(),
                     total_cycles,
+                    additional_proof_cycles,
                     proving_started_at: Some(now_timestamp()),
                 },
             );
@@ -990,6 +992,7 @@ mod tests {
             InFlightOrder {
                 dispatched_at: Instant::now() - Duration::from_secs(8000),
                 total_cycles: Some(1_000_000),
+                additional_proof_cycles: 0,
                 proving_started_at: Some(now_timestamp().saturating_sub(8000)),
             },
         );
@@ -998,6 +1001,7 @@ mod tests {
             InFlightOrder {
                 dispatched_at: Instant::now(),
                 total_cycles: Some(1_000_000),
+                additional_proof_cycles: 0,
                 proving_started_at: Some(now_timestamp()),
             },
         );

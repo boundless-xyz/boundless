@@ -2050,6 +2050,12 @@ mod tests {
         fn assessor_group(&self, selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>> {
             Ok(self.groups.get(&selector).copied().flatten())
         }
+        fn fulfillment_gas(&self, _request: &ProofRequest) -> Result<u64> {
+            Ok(500_000)
+        }
+        fn additional_proof_cycles(&self, _request: &ProofRequest) -> Result<u64> {
+            Ok(2_000_000 + 270_000)
+        }
         async fn evaluate_request(
             &self,
             _request: boundless_market::prover_utils::EvaluationRequest,

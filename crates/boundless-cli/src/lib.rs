@@ -60,9 +60,11 @@ use boundless_market::{
     NotProvided, ProofRequest,
 };
 
-/// Default URL for assessor image - matches broker config defaults
+/// Default URL for assessor image - matches broker config defaults. The assessor guest currently
+/// deployed on-chain (image id 0x6c5a03c0…56694100), matching the market `imageInfo()` and the
+/// router R0 assessor adapter's pinned `ASSESSOR_IMAGE_ID`.
 pub const ASSESSOR_DEFAULT_IMAGE_URL: &str =
-    "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin";
+    "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq";
 
 /// Default URL for set builder image - matches broker config defaults
 pub const SET_BUILDER_DEFAULT_IMAGE_URL: &str =
