@@ -111,7 +111,7 @@ x-broker-common: &broker-common
     dockerfile: ${BROKER_DOCKERFILE:-dockerfiles/broker.dockerfile}
     args:
       RELEASE: ${BOUNDLESS_RELEASE:-true}
-  mem_limit: 2G
+  mem_limit: 4G
   cpus: 2
   stop_grace_period: 3h
   network_mode: host
