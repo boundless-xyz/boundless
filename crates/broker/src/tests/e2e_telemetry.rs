@@ -78,7 +78,8 @@ async fn e2e_telemetry_events() {
     let broker = crate::Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),

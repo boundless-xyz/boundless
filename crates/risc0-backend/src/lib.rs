@@ -35,8 +35,9 @@ use boundless_market::{
     input::GuestEnv,
     prover_utils::{
         EvaluationLimits, EvaluationRequest, ImageUploadCache, OrderPricingError, PreflightCache,
-        PriorityRequestorCheck, RequestEvaluation, RequestEvaluator, Risc0Evaluator,
+        PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
     },
+    risc0::request_evaluator::Risc0Evaluator,
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType, SelectorExt},
     storage::StorageDownloader,
     Deployment,
@@ -97,6 +98,8 @@ pub struct Risc0BackendConfig {
     pub assessor_set_guest_path: Option<PathBuf>,
     pub set_builder_default_image_url: String,
     pub assessor_default_image_url: String,
+    /// The 4-byte router assessor selector prepended to the assessor seal.
+    pub assessor_selector: FixedBytes<4>,
     pub txn_timeout: u64,
 }
 

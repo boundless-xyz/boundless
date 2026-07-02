@@ -46,7 +46,8 @@ impl RequestorBalance {
         )?;
 
         // Build client with standard configuration
-        let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
+        let client =
+            requestor_config.client_builder(global_config.tx_timeout).await?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
 
         // Create display manager with network context

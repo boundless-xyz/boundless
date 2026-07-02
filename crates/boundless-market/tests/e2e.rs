@@ -33,6 +33,7 @@ use boundless_market::{
     input::GuestEnv,
     price_provider::{PricePercentiles, PriceProviderArc},
     request_builder::{OfferLayerConfigBuilder, OfferParams, RequestParams},
+    risc0::Risc0ZkvmOps,
     storage::{HttpDownloader, MockStorageUploader},
     test_helpers::create_mock_indexer_client,
 };
@@ -733,6 +734,7 @@ async fn test_client_builder_with_price_provider() {
 
     // Test that ClientBuilder accepts a price_provider parameter and uses it
     let client = ClientBuilder::new()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
@@ -759,6 +761,7 @@ async fn test_client_builder_with_price_provider() {
     // zeroed on both builds, maxPrice is exactly the proof portion, so the default +15% buffer
     // makes the buffered maxPrice an exact 115/100 multiple of the no-buffer maxPrice.
     let client_no_buffer = ClientBuilder::new()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())

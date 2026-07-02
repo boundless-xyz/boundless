@@ -570,6 +570,7 @@ impl Broker {
                 assessor_set_guest_path: c.prover.assessor_set_guest_path.clone(),
                 set_builder_default_image_url: c.market.set_builder_default_image_url.clone(),
                 assessor_default_image_url: c.market.assessor_default_image_url.clone(),
+                assessor_selector: c.market.assessor_selector,
                 txn_timeout: c.batcher.txn_timeout,
             }
         };

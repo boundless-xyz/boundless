@@ -77,6 +77,20 @@ export enum Severity {
   SEV2 = 'SEV2',
 }
 
+// Opt-out marker for the automatic "Ops Query" Slack investigation. When an
+// alarm should NOT get an automatic first-pass investigation, this token is
+// appended to its CloudWatch alarm description. The alert-bot poller detects it
+// in the rendered Slack text and skips the investigation; the alarm still fires
+// to Slack as usual and humans can pull the bot in via @mention.
+export const NO_AUTO_INVESTIGATE_MARKER = '[no-auto-investigate]';
+
+// Appends the opt-out marker to an alarm description when autoInvestigate is
+// explicitly false. Undefined/true leaves the description unchanged, so alarms
+// are auto-investigated by default.
+export function withAutoInvestigate(description: string, autoInvestigate?: boolean): string {
+  return autoInvestigate === false ? `${description} ${NO_AUTO_INVESTIGATE_MARKER}` : description;
+}
+
 export const GHCR_IMAGE_PREFIX = 'ghcr.io/boundless-xyz/boundless';
 
 /**

@@ -28,15 +28,14 @@ use alloy::primitives::{Address, Bytes, U256};
 use alloy::providers::Provider;
 use alloy::uint;
 use anyhow::Context;
+use async_trait::async_trait;
 use moka::future::Cache;
 use moka::policy::EvictionPolicy;
 
-use super::local_executor::LocalExecutor;
-use super::prover::ProverObj;
 use super::{
     Erc1271GasCache, EvaluationLimits, EvaluationRequest, FulfillmentType, MarketConfig,
-    OrderPricingContext, OrderPricingError, OrderPricingOutcome, OrderRequest, PreflightCache,
-    RequestEvaluation, RequestEvaluator, Risc0Evaluator,
+    OrderPricingContext, OrderPricingError, OrderPricingOutcome, OrderRequest, RequestEvaluation,
+    RequestEvaluator,
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
@@ -44,7 +43,6 @@ use crate::dynamic_gas_filler::PriorityMode;
 use crate::price_oracle::{Amount, Asset, PriceOracleManager};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
-use crate::storage::StandardDownloader;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
@@ -62,7 +60,7 @@ const ONE_MILLION: U256 = uint!(1_000_000_U256);
 /// `MarketConf::default()`.
 pub async fn requestor_order_preflight<P>(
     request: ProofRequest,
-    executor: LocalExecutor,
+    evaluator: Arc<dyn RequestEvaluator + Sync + Send>,
     provider: Arc<P>,
     market_address: Address,
     chain_id: u64,
@@ -81,10 +79,6 @@ where
         .await
         .context("Failed to fetch collateral token decimals")?;
 
-    // Create preflight cache - the LocalExecutor handles execution deduplication internally
-    let preflight_cache: PreflightCache =
-        Arc::new(Cache::builder().eviction_policy(EvictionPolicy::lru()).max_capacity(32).build());
-
     // Small ERC1271 gas cache scoped to this single preflight call.
     // No TTL is needed: the context and cache are dropped together once preflight returns.
     let erc1271_gas_cache: Erc1271GasCache =
@@ -93,17 +87,12 @@ where
     // Build market config, using price provider if available
     let market_config = build_market_config(price_provider).await;
 
-    // Create a standard downloader for fetching images and inputs
-    let downloader = Arc::new(StandardDownloader::new().await);
-
     let pricing_context = RequestorPricingContext::new(
         provider.clone(),
         collateral_token_decimals,
         market_config,
-        preflight_cache,
+        evaluator,
         erc1271_gas_cache,
-        Arc::new(executor),
-        downloader,
         price_oracle,
     );
 
@@ -201,7 +190,7 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 /// verification and requestor allowlists.
 pub struct RequestorPricingContext<P> {
     provider: Arc<P>,
-    evaluator: Risc0Evaluator,
+    evaluator: Arc<dyn RequestEvaluator + Sync + Send>,
     market_config: MarketConfig,
     supported_selectors: SupportedSelectors,
     erc1271_gas_cache: Erc1271GasCache,
@@ -219,13 +208,10 @@ where
         provider: Arc<P>,
         collateral_token_decimals: u8,
         market_config: MarketConfig,
-        preflight_cache: PreflightCache,
+        evaluator: Arc<dyn RequestEvaluator + Sync + Send>,
         erc1271_gas_cache: Erc1271GasCache,
-        prover: ProverObj,
-        downloader: Arc<StandardDownloader>,
         price_oracle: Option<Arc<PriceOracleManager>>,
     ) -> Self {
-        let evaluator = Risc0Evaluator::new(prover, downloader, preflight_cache);
         Self {
             provider,
             evaluator,
@@ -238,10 +224,8 @@ where
     }
 }
 
-impl<P> RequestEvaluator for RequestorPricingContext<P>
-where
-    P: Provider<Ethereum> + 'static + Clone,
-{
+#[async_trait]
+impl<P: Sync + Send> RequestEvaluator for RequestorPricingContext<P> {
     async fn evaluate_request(
         &self,
         request: EvaluationRequest,

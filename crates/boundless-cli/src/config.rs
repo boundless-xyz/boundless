@@ -23,7 +23,9 @@ use risc0_zkvm::ProverOpts;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
-use boundless_market::{client::ClientBuilder, Client, Deployment, NotProvided};
+use boundless_market::{
+    client::ClientBuilder, risc0::Risc0ZkvmOps, Client, Deployment, NotProvided,
+};
 use boundless_zkc;
 
 use crate::commands::setup::network::{normalize_market_network, normalize_rewards_network};
@@ -219,22 +221,23 @@ impl RequestorConfig {
     }
 
     /// Create a partially initialized [ClientBuilder] from the options in this struct.
-    pub fn client_builder(
+    pub async fn client_builder(
         &self,
         tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, NotProvided>> {
+    ) -> Result<ClientBuilder<Risc0ZkvmOps, NotProvided, NotProvided, NotProvided>> {
         Ok(Client::builder()
+            .with_zkvm(Risc0ZkvmOps::new().await)
             .with_rpc_url(self.require_rpc_url()?)
             .with_deployment(self.deployment.clone())
             .with_timeout(tx_timeout))
     }
 
     /// Create a partially initialized [ClientBuilder] with signer from the options in this struct.
-    pub fn client_builder_with_signer(
+    pub async fn client_builder_with_signer(
         &self,
         tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, PrivateKeySigner>> {
-        Ok(self.client_builder(tx_timeout)?.with_private_key(self.require_private_key()?))
+    ) -> Result<ClientBuilder<Risc0ZkvmOps, NotProvided, NotProvided, PrivateKeySigner>> {
+        Ok(self.client_builder(tx_timeout).await?.with_private_key(self.require_private_key()?))
     }
 }
 
@@ -690,7 +693,7 @@ impl ProverConfig {
     pub fn client_builder(
         &self,
         tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, NotProvided>> {
+    ) -> Result<ClientBuilder<NotProvided, NotProvided, NotProvided, NotProvided>> {
         Ok(Client::builder()
             .with_rpc_url(self.require_rpc_url()?)
             .with_deployment(self.deployment.clone())
@@ -701,7 +704,7 @@ impl ProverConfig {
     pub fn client_builder_with_signer(
         &self,
         tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, PrivateKeySigner>> {
+    ) -> Result<ClientBuilder<NotProvided, NotProvided, NotProvided, PrivateKeySigner>> {
         Ok(self.client_builder(tx_timeout)?.with_private_key(self.require_private_key()?))
     }
 
