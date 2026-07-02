@@ -12,7 +12,10 @@ import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.s
 contract UpgradeTest is Test {
     function testUpgradeability() public {
         UpgradeOptions memory opts;
-        opts.referenceContract = "build-info-reference:BoundlessMarket";
+        // File-qualify the reference: the legacy fallback source (src/legacy/BoundlessMarketLegacy.sol)
+        // also declares a contract named `BoundlessMarket`, so the bare name is ambiguous in any
+        // reference build that includes contracts/src/legacy/. Match the qualified new-side lookup below.
+        opts.referenceContract = "build-info-reference:contracts/src/BoundlessMarket.sol:BoundlessMarket";
         opts.referenceBuildInfoDir = "contracts/reference-contract/build-info-reference";
         Upgrades.validateUpgrade("BoundlessMarket.sol:BoundlessMarket", opts);
     }

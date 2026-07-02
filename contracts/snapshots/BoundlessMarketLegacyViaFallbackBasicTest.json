@@ -1,6 +1,6 @@
 {
   "ERC20 approve: required for depositCollateral": "45966",
-  "bytecode size implementation": "22150",
+  "bytecode size implementation": "22496",
   "bytecode size proxy": "89",
   "deposit: first ever deposit": "50863",
   "deposit: second deposit": "33763",
@@ -19,8 +19,8 @@
   "fulfill: fulfilled by the locked prover for payment (request already fulfilled by another prover)": "86181",
   "fulfillAndWithdraw: a batch of 8": "387284",
   "fulfillAndWithdraw: a locked request": "103215",
-  "lockinRequest: base case": "149390",
-  "lockinRequest: with prover signature": "159376",
+  "lockinRequest: base case": "149359",
+  "lockinRequest: with prover signature": "159314",
   "priceAndFulfill: a single request": "113451",
   "priceAndFulfill: a single request (smart contract signature)": "119589",
   "priceAndFulfill: a single request (with selector)": "115763",

@@ -483,6 +483,7 @@ impl BrokerDb for SqliteDb {
                 fulfillment_type: order.data.fulfillment_type,
                 request_id: order.data.request.id,
                 lock_expiration: order.data.request.lock_expires_at(),
+                selector: order.data.request.requirements.selector,
             })
         }
 
@@ -527,10 +528,144 @@ impl BrokerDb for SqliteDb {
                 fulfillment_type: order.data.fulfillment_type,
                 request_id: order.data.request.id,
                 lock_expiration: order.data.request.lock_expires_at(),
+                selector: order.data.request.requirements.selector,
             })
         }
 
         Ok(batch_ready_orders)
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    async fn peek_pending_batch_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<(BatchReadyOrder, OrderStatus)>, DbError> {
+        let backend_id = backend_id.to_string();
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            r#"
+            SELECT * FROM orders
+            WHERE
+                data->>'status' IN ($1, $2)
+                AND data->>'backend_id' = $3
+            "#,
+        )
+        .bind(OrderStatus::ReadyForBatch)
+        .bind(OrderStatus::Batching)
+        .bind(backend_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut batch_ready_orders = vec![];
+        for order in orders.into_iter() {
+            let status = order.data.status;
+            batch_ready_orders.push((
+                BatchReadyOrder {
+                    order_id: order.id.clone(),
+                    expiration: order.data.request.expires_at(),
+                    fee: order
+                        .data
+                        .lock_price
+                        .ok_or(DbError::InvalidOrder(order.id.clone(), "lock_price"))?,
+                    fulfillment_type: order.data.fulfillment_type,
+                    request_id: order.data.request.id,
+                    lock_expiration: order.data.request.lock_expires_at(),
+                    selector: order.data.request.requirements.selector,
+                },
+                status,
+            ))
+        }
+
+        Ok(batch_ready_orders)
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    async fn peek_pending_direct_submission_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<(BatchReadyOrder, OrderStatus)>, DbError> {
+        let backend_id = backend_id.to_string();
+        let orders: Vec<DbOrder> = sqlx::query_as(
+            r#"
+            SELECT * FROM orders
+            WHERE
+                data->>'status' = $1
+                AND data->>'backend_id' = $2
+            "#,
+        )
+        .bind(OrderStatus::ReadyForSubmission)
+        .bind(backend_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut batch_ready_orders = vec![];
+        for order in orders.into_iter() {
+            let status = order.data.status;
+            batch_ready_orders.push((
+                BatchReadyOrder {
+                    order_id: order.id.clone(),
+                    expiration: order.data.request.expires_at(),
+                    fee: order
+                        .data
+                        .lock_price
+                        .ok_or(DbError::InvalidOrder(order.id.clone(), "lock_price"))?,
+                    fulfillment_type: order.data.fulfillment_type,
+                    request_id: order.data.request.id,
+                    lock_expiration: order.data.request.lock_expires_at(),
+                    selector: order.data.request.requirements.selector,
+                },
+                status,
+            ))
+        }
+
+        Ok(batch_ready_orders)
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    async fn claim_orders_for_batch(
+        &self,
+        ids: &[String],
+        backend_id: &BackendId,
+    ) -> Result<Vec<String>, DbError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let backend_id = backend_id.to_string();
+
+        // Build the `IN (?, ?, …)` list from the id count; ids are bound as parameters below and
+        // never interpolated into the SQL string.
+        let placeholders = std::iter::repeat_n("?", ids.len()).collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            r#"
+            UPDATE orders
+            SET data = json_set(
+                       json_set(
+                       json_set(data,
+                       '$.status', ?),
+                       '$.backend_id', ?),
+                       '$.updated_at', ?)
+            WHERE
+                id IN ({placeholders})
+                AND data->>'status' IN (?, ?)
+                AND data->>'backend_id' = ?
+            RETURNING id
+            "#
+        );
+
+        let mut query = sqlx::query_scalar::<_, String>(&sql)
+            .bind(OrderStatus::Batching)
+            .bind(backend_id.as_str())
+            .bind(Utc::now().timestamp());
+        for id in ids {
+            query = query.bind(id.as_str());
+        }
+        let claimed = query
+            .bind(OrderStatus::ReadyForBatch)
+            .bind(OrderStatus::Batching)
+            .bind(backend_id.as_str())
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(claimed)
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -1211,6 +1346,145 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn peek_pending_orders_does_not_mutate_status(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        let mut orders = [
+            Order {
+                status: OrderStatus::ReadyForBatch,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "id1"}))),
+                expire_timestamp: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::Batching,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "id2"}))),
+                expire_timestamp: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                ..create_order()
+            },
+            Order {
+                status: OrderStatus::ReadyForSubmission,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "id3"}))),
+                expire_timestamp: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                ..create_order()
+            },
+            // A different backend's ready order must not appear in either peek.
+            Order {
+                status: OrderStatus::ReadyForBatch,
+                backend_state: Some(BackendOrderState(serde_json::json!({"proof_id": "id4"}))),
+                expire_timestamp: Some(10),
+                lock_price: Some(U256::from(10u64)),
+                backend_id: Some(other_backend_id()),
+                ..create_order()
+            },
+        ];
+        for (i, order) in orders.iter_mut().enumerate() {
+            order.request.id = U256::from(i);
+            order.backend_id.get_or_insert_with(test_backend_id);
+            db.add_order(order).await.unwrap();
+        }
+
+        // The batch peek returns ReadyForBatch and Batching orders with their current status.
+        let batch_peek = db.peek_pending_batch_orders(&test_backend_id()).await.unwrap();
+        assert_eq!(batch_peek.len(), 2);
+        assert_eq!(batch_peek[0].0.order_id, orders[0].id());
+        assert_eq!(batch_peek[0].1, OrderStatus::ReadyForBatch);
+        assert_eq!(batch_peek[1].0.order_id, orders[1].id());
+        assert_eq!(batch_peek[1].1, OrderStatus::Batching);
+
+        // The direct peek returns only ReadyForSubmission orders.
+        let direct_peek =
+            db.peek_pending_direct_submission_orders(&test_backend_id()).await.unwrap();
+        assert_eq!(direct_peek.len(), 1);
+        assert_eq!(direct_peek[0].0.order_id, orders[2].id());
+        assert_eq!(direct_peek[0].1, OrderStatus::ReadyForSubmission);
+
+        // Crucially, peeking must NOT claim: statuses are unchanged after both peeks.
+        assert_eq!(
+            db.get_order(&orders[0].id()).await.unwrap().unwrap().status,
+            OrderStatus::ReadyForBatch
+        );
+        assert_eq!(
+            db.get_order(&orders[1].id()).await.unwrap().unwrap().status,
+            OrderStatus::Batching
+        );
+        assert_eq!(
+            db.get_order(&orders[2].id()).await.unwrap().unwrap().status,
+            OrderStatus::ReadyForSubmission
+        );
+    }
+
+    /// The guarded bulk claim only transitions orders still in a claimable state
+    /// (`ReadyForBatch`/`Batching`) on the right backend, and returns exactly those. A `Failed`
+    /// order (as if a reaper raced in after the peek) and a wrong-backend order are neither returned
+    /// nor mutated — this is what closes the resurrect-an-expired-order clobber.
+    #[sqlx::test]
+    async fn claim_orders_for_batch_guards_against_racers(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+
+        let mut orders = [
+            // Claimable: ReadyForBatch on the right backend.
+            Order { status: OrderStatus::ReadyForBatch, ..create_order() },
+            // Claimable: already Batching on the right backend (re-claim is idempotent).
+            Order { status: OrderStatus::Batching, ..create_order() },
+            // Not claimable: a racer flipped it to Failed after the peek.
+            Order { status: OrderStatus::Failed, ..create_order() },
+            // Not claimable: ReadyForBatch but owned by a different backend.
+            Order {
+                status: OrderStatus::ReadyForBatch,
+                backend_id: Some(other_backend_id()),
+                ..create_order()
+            },
+        ];
+        for (i, order) in orders.iter_mut().enumerate() {
+            order.request.id = U256::from(i);
+            order.backend_id.get_or_insert_with(test_backend_id);
+            db.add_order(order).await.unwrap();
+        }
+
+        let ids: Vec<String> = orders.iter().map(|o| o.id()).collect();
+        let claimed: std::collections::HashSet<String> = db
+            .claim_orders_for_batch(&ids, &test_backend_id())
+            .await
+            .unwrap()
+            .into_iter()
+            .collect();
+
+        // Only the ReadyForBatch/Batching orders on the right backend are claimed and returned.
+        assert_eq!(claimed.len(), 2);
+        assert!(claimed.contains(&orders[0].id()));
+        assert!(claimed.contains(&orders[1].id()));
+        assert!(!claimed.contains(&orders[2].id()));
+        assert!(!claimed.contains(&orders[3].id()));
+
+        // Claimed orders are now Batching.
+        assert_eq!(
+            db.get_order(&orders[0].id()).await.unwrap().unwrap().status,
+            OrderStatus::Batching
+        );
+        assert_eq!(
+            db.get_order(&orders[1].id()).await.unwrap().unwrap().status,
+            OrderStatus::Batching
+        );
+
+        // The guard left the Failed and wrong-backend orders untouched — neither returned above nor
+        // mutated here (a status write would resurrect the expired order into the batch).
+        assert_eq!(
+            db.get_order(&orders[2].id()).await.unwrap().unwrap().status,
+            OrderStatus::Failed
+        );
+        let wrong_backend = db.get_order(&orders[3].id()).await.unwrap().unwrap();
+        assert_eq!(wrong_backend.status, OrderStatus::ReadyForBatch);
+        assert_eq!(wrong_backend.backend_id, Some(other_backend_id()));
+
+        // Empty input is a no-op.
+        assert!(db.claim_orders_for_batch(&[], &test_backend_id()).await.unwrap().is_empty());
+    }
+
+    #[sqlx::test]
     async fn get_current_batch(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
 
@@ -1347,6 +1621,7 @@ mod tests {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 request_id: order1.request.id,
                 lock_expiration: order1.request.lock_expires_at(),
+                selector: order1.request.requirements.selector,
             },
             BatchReadyOrder {
                 order_id: order2.id(),
@@ -1355,6 +1630,7 @@ mod tests {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 request_id: order2.request.id,
                 lock_expiration: order2.request.lock_expires_at(),
+                selector: order2.request.requirements.selector,
             },
         ];
         let claim_digests = vec![[1u32; 8].into(), [2u32; 8].into()];

@@ -21,7 +21,9 @@
 
 pub mod futures_retry;
 mod router;
+mod router_policy;
 mod types;
 
 pub use router::BackendRouter;
+pub use router_policy::RouterPolicy;
 pub use types::*;

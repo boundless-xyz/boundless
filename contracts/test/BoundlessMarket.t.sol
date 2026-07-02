@@ -51,7 +51,7 @@ import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {MerkleProofish} from "../src/libraries/MerkleProofish.sol";
 import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {LockRequest} from "../src/types/LockRequest.sol";
-import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {Fulfillment, LegacyFulfillment} from "../src/types/Fulfillment.sol";
 import {FulfillmentBatch} from "../src/types/FulfillmentBatch.sol";
 import {ProofRequestBatch} from "../src/types/ProofRequestBatch.sol";
 import {SlimRequest, SlimRequestLibrary} from "../src/types/SlimRequest.sol";
@@ -306,6 +306,23 @@ contract BoundlessMarketTest is Test {
     function expectRequestFulfilled(RequestId requestId) internal view {
         require(boundlessMarket.requestIsFulfilled(requestId), "Request should be fulfilled");
         require(!boundlessMarket.requestIsSlashed(requestId), "Request should not be slashed");
+    }
+
+    /// Reconstructs the legacy-shaped `ProofDelivered` payload from the request identity and the
+    /// current `Fulfillment`, mirroring what `BoundlessMarket` emits. Used by `expectEmit` checks.
+    function _legacyFill(RequestId id, bytes32 requestDigest, Fulfillment memory fill)
+        internal
+        pure
+        returns (LegacyFulfillment memory)
+    {
+        return LegacyFulfillment({
+            id: id,
+            requestDigest: requestDigest,
+            claimDigest: fill.claimDigest,
+            fulfillmentDataType: fill.fulfillmentDataType,
+            fulfillmentData: fill.fulfillmentData,
+            seal: fill.seal
+        });
     }
 
     function expectRequestFulfilledAndSlashed(RequestId requestId) internal view {
@@ -1581,7 +1598,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
 
         if (lockinMethod == LockRequestMethod.None) {
             // Build a `ProofRequestBatch` for the un-locked request so the
@@ -1637,7 +1656,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
 
         if (lockinMethod == LockRequestMethod.None) {
             boundlessMarket.priceAndFulfillAndWithdraw(
@@ -1697,7 +1718,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         if (lockinMethod == LockRequestMethod.None) {
             boundlessMarket.submitRootAndPriceAndFulfill(
                 address(setVerifier),
@@ -1762,7 +1785,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         if (lockinMethod == LockRequestMethod.None) {
             boundlessMarket.submitRootAndPriceAndFulfillAndWithdraw(
                 address(setVerifier),
@@ -1858,7 +1883,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         boundlessMarket.fulfill(_asArray(batch));
         vm.snapshotGasLastCall("fulfill: a locked request with 10kB journal");
 
@@ -2075,7 +2102,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, otherProver.addr(), expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, otherProver.addr(), expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, otherProver.addr(), _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
 
         boundlessMarket.priceAndFulfill(
             _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
@@ -2179,7 +2208,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, lockerAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, lockerAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, lockerAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
 
         boundlessMarket.priceAndFulfill(
             _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
@@ -2511,7 +2542,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
 
         boundlessMarket.priceAndFulfill(
             _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
@@ -2573,8 +2606,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         emit IBoundlessMarket.ProofDelivered(
             request.id,
             locker.addr(),
-            MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest()),
-            batch.fills[0]
+            _legacyFill(
+                request.id,
+                MessageHashUtils.toTypedDataHash(boundlessMarket.eip712DomainSeparator(), request.eip712Digest()),
+                batch.fills[0]
+            )
         );
 
         // The fulfillment should not revert, as we support multiple proofs being delivered for a single request.
@@ -2974,7 +3010,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             emit IBoundlessMarket.RequestFulfilled(requests[i].id, testProverAddress, expectedRequestDigest);
             vm.expectEmit(true, true, true, false);
             emit IBoundlessMarket.ProofDelivered(
-                requests[i].id, testProverAddress, expectedRequestDigest, batch.fills[i]
+                requests[i].id, testProverAddress, _legacyFill(requests[i].id, expectedRequestDigest, batch.fills[i])
             );
         }
         boundlessMarket.fulfill(_asArray(batch));
@@ -3040,7 +3076,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             emit IBoundlessMarket.RequestFulfilled(requests[i].id, testProverAddress, expectedRequestDigest);
             vm.expectEmit(true, true, true, false);
             emit IBoundlessMarket.ProofDelivered(
-                requests[i].id, testProverAddress, expectedRequestDigest, batch.fills[i]
+                requests[i].id, testProverAddress, _legacyFill(requests[i].id, expectedRequestDigest, batch.fills[i])
             );
         }
         boundlessMarket.fulfill(_asArray(batch));
@@ -3162,7 +3198,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, requestHash);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, requestHash, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, requestHash, batch.fills[0])
+        );
         // Expect isValidSignature to be called on the smart contract wallet
         vm.expectCall(
             client.addr(), abi.encodeWithSelector(IERC1271.isValidSignature.selector, requestHash, clientSignature)
@@ -3227,7 +3265,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
             emit IBoundlessMarket.RequestFulfilled(requests[i].id, testProverAddress, expectedRequestDigest);
             vm.expectEmit(true, true, true, false);
             emit IBoundlessMarket.ProofDelivered(
-                requests[i].id, testProverAddress, expectedRequestDigest, batch.fills[i]
+                requests[i].id, testProverAddress, _legacyFill(requests[i].id, expectedRequestDigest, batch.fills[i])
             );
         }
         boundlessMarket.fulfillAndWithdraw(_asArray(batch));
@@ -3254,7 +3292,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         boundlessMarket.priceAndFulfill(
             _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
             _asArray(batch)
@@ -3288,7 +3328,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         boundlessMarket.submitRootAndPriceAndFulfill(
             address(setVerifier),
             root,
@@ -3343,7 +3385,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         boundlessMarket.priceAndFulfill(
             _asArray(ProofRequestBatch({requests: _asArray(request), signatures: _asArray(clientSignature)})),
             _asArray(batch)
@@ -4036,7 +4080,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         vm.expectEmit(true, true, true, false);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
         emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
@@ -4102,7 +4148,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.CallbackFailed(request.id, address(mockHighGasCallback), "");
         boundlessMarket.fulfill(_asArray(batch));
@@ -4146,7 +4194,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 IBoundlessMarket.RequestIsLocked.selector, request.id
             ));
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, otherProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
         emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
@@ -4193,7 +4243,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
                 IBoundlessMarket.RequestIsLocked.selector, request.id
             ));
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, otherProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
         emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
@@ -4259,7 +4311,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, otherProver.addr(), expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, otherProver.addr(), expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, otherProver.addr(), _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(request.requirements.predicate.data);
         emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
@@ -4340,7 +4394,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(requestB.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(requestB.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            requestB.id, testProverAddress, _legacyFill(requestB.id, expectedRequestDigest, batch.fills[0])
+        );
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(requestB.requirements.predicate.data);
         emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, batch.fills[0].seal);
@@ -4397,7 +4453,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         boundlessMarket.fulfill(_asArray(batch));
 
         // Verify request state and balances
@@ -4432,7 +4490,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         boundlessMarket.fulfill(_asArray(batch));
 
         // Verify request state and balances
@@ -4504,7 +4564,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         vm.expectEmit(true, true, true, true);
         emit MockCallback.MockCallbackCalled(APP_IMAGE_ID, APP_JOURNAL, batch.fills[0].seal);
 
@@ -4574,7 +4636,9 @@ contract BoundlessMarketOnChainAssessorTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, testProverAddress, expectedRequestDigest);
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, testProverAddress, expectedRequestDigest, batch.fills[0]);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id, testProverAddress, _legacyFill(request.id, expectedRequestDigest, batch.fills[0])
+        );
         boundlessMarket.fulfill(_asArray(batch));
 
         expectRequestFulfilled(request.id);

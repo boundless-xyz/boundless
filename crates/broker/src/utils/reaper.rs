@@ -211,6 +211,13 @@ mod tests {
             self.selectors.contains(&selector).then_some(ProofType::Any)
         }
 
+        fn assessor_group(
+            &self,
+            _selector: FixedBytes<4>,
+        ) -> anyhow::Result<Option<FixedBytes<4>>> {
+            Ok(None)
+        }
+
         async fn evaluate_request(
             &self,
             _request: boundless_market::prover_utils::EvaluationRequest,
