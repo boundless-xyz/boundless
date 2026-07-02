@@ -14,7 +14,6 @@
 #![allow(missing_docs)]
 
 pub mod config;
-pub(crate) mod local_executor;
 pub mod prover;
 pub mod request_evaluator;
 pub(crate) mod requestor_pricing;
@@ -31,7 +30,6 @@ pub use request_evaluator::{
     EvaluationLimits, EvaluationMetrics, EvaluationRequest, ImageUploadCache, ImageUploadCacheKey,
     InputCacheKey, NativeWork, NormalizedWork, PreflightCache, PreflightCacheKey,
     PreflightCacheValue, PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
-    Risc0Evaluator,
 };
 
 use crate::{

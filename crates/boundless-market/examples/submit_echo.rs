@@ -18,6 +18,7 @@ use alloy::{primitives::FixedBytes, signers::local::PrivateKeySigner};
 use anyhow::Result;
 use boundless_market::{
     request_builder::{OfferParams, RequirementParams},
+    risc0::Risc0ZkvmOps,
     selector::is_blake3_groth16_selector,
     Client, Deployment, StorageUploaderConfig,
 };
@@ -65,6 +66,7 @@ async fn main() -> Result<()> {
 
     // Create Boundless client
     let client = Client::builder()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
         .with_uploader_config(&args.storage_config)

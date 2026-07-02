@@ -36,6 +36,7 @@ use boundless_market::{
     deployments::Deployment,
     input::GuestEnv,
     request_builder::OfferParams,
+    risc0::Risc0ZkvmOps,
     storage::StorageUploaderConfig,
 };
 use clap::Parser;
@@ -128,6 +129,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
     let boundless_client = ClientBuilder::new()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url.clone())
         .with_uploader_config(&args.storage_config)
         .await?
@@ -155,9 +157,11 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     };
     let image_id = compute_image_id(&program)?;
 
+    let encoded_cycle_count = risc0_zkvm::serde::to_vec(&(bench.cycle_count_per_request as u64))?;
+    let encoded_time = risc0_zkvm::serde::to_vec(&now_timestamp())?;
     let env = GuestEnv::builder()
-        .write(&(bench.cycle_count_per_request as u64))?
-        .write(&now_timestamp())?
+        .write_slice(&encoded_cycle_count)
+        .write_slice(&encoded_time)
         .build_env();
 
     // start the indexer
@@ -304,9 +308,11 @@ pub async fn run(args: &MainArgs) -> Result<()> {
 
             for i in (i..bench.requests_count as usize).step_by(threads) {
                 let ramp_up_start = now_timestamp() + 10;
+                let encoded_iterations = risc0_zkvm::serde::to_vec(&(i as u64))?;
+                let encoded_ramp_up_start = risc0_zkvm::serde::to_vec(&ramp_up_start)?;
                 let request_input = GuestEnv::builder()
-                    .write(&(i as u64))?
-                    .write(&ramp_up_start)?
+                    .write_slice(&encoded_iterations)
+                    .write_slice(&encoded_ramp_up_start)
                     .build_inline()?;
                 let journal = Journal::new(bytemuck::pod_collect_to_vec(&to_vec(&(
                     i as u64,
@@ -494,7 +500,7 @@ mod tests {
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, LOOP_PATH, SET_BUILDER_PATH},
-        market::create_test_ctx,
+        market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
     };
     use broker::{
         broker_sqlite_url_for_chain,
@@ -570,6 +576,9 @@ mod tests {
         // otherwise the broker would fetch the remote guests and fail set verification.
         config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
         config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+        // The router rejects a zero assessor selector (ZeroSelectorReserved); use the same selector
+        // the test harness registers the assessor adapter under.
+        config.market.assessor_selector = ASSESSOR_R0_SELECTOR;
         if !is_dev_mode() {
             config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
         }
