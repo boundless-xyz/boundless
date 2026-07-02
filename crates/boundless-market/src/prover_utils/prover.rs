@@ -14,10 +14,6 @@
 
 //! Prover trait and types for zkVM proving operations.
 
-use std::sync::Arc;
-
-use async_trait::async_trait;
-use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -66,6 +62,7 @@ impl From<bincode::Error> for ProverError {
 }
 
 /// Result of a proof operation.
+#[cfg(feature = "risc0")]
 #[derive(Clone, Debug, Default)]
 pub struct ProofResult {
     /// Unique identifier for this proof.
@@ -77,10 +74,19 @@ pub struct ProofResult {
     pub elapsed_time: f64,
 }
 
+#[cfg(feature = "risc0")]
+use std::sync::Arc;
+
+#[cfg(feature = "risc0")]
+use async_trait::async_trait;
+#[cfg(feature = "risc0")]
+use risc0_zkvm::Receipt;
+
 /// Trait for prover implementations.
 ///
 /// This trait defines the interface for zkVM proving operations including
 /// image/input management, preflight execution, STARK proving, and compression.
+#[cfg(feature = "risc0")]
 #[async_trait]
 pub trait Prover {
     /// Check if an image exists in the prover's storage.
@@ -183,4 +189,5 @@ pub trait Prover {
 }
 
 /// Type alias for a boxed Prover trait object.
+#[cfg(feature = "risc0")]
 pub type ProverObj = Arc<dyn Prover + Send + Sync>;

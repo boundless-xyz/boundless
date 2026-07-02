@@ -135,4 +135,5 @@ pub(crate) mod util;
 pub use util::NotProvided;
 
 /// risc0 specific objects
+#[cfg(feature = "risc0")]
 pub mod risc0;

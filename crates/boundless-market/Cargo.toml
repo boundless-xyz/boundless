@@ -13,9 +13,15 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-blake3-groth16 = ["dep:blake3", "dep:risc0-circuit-recursion"]
-default = ["s3"]
+blake3-groth16 = ["dep:blake3", "dep:risc0-circuit-recursion", "risc0"]
+default = ["s3", "risc0"]
 openapi = []
+risc0 = [
+    "dep:risc0-zkvm",
+    "dep:risc0-aggregation",
+    "dep:risc0-binfmt",
+    "dep:risc0-ethereum-contracts",
+]
 s3 = ["dep:aws-sdk-s3", "dep:aws-config"]
 gcs = [
     "dep:google-cloud-storage",
@@ -32,7 +38,7 @@ alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
 bincode = { workspace = true, optional = true }
-risc0-zkvm = { workspace = true, features = ["std"] }
+risc0-zkvm = { workspace = true, features = ["std"], optional = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 sha2 = { workspace = true }
@@ -77,11 +83,11 @@ hyper-util = { version = "0.1", optional = true, features = ["server-auto", "tok
 moka = { version = "0.12.12", features = ["future"] }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart", "stream", "rustls"] }
-risc0-aggregation = { workspace = true }
-risc0-binfmt = { workspace = true }
+risc0-aggregation = { workspace = true, optional = true }
+risc0-binfmt = { workspace = true, optional = true }
 risc0-circuit-recursion = { workspace = true, optional = true }
-risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
-risc0-zkvm = { workspace = true, features = ["std", "client"] }
+risc0-ethereum-contracts = { workspace = true, features = ["unstable"], optional = true }
+risc0-zkvm = { workspace = true, features = ["std", "client"], optional = true }
 rmp-serde = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"], optional = true }
 s3s = { version = "0.11", optional = true }

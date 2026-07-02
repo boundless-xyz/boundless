@@ -27,9 +27,6 @@ use alloy::{
 };
 use alloy_primitives::{utils::format_ether, Signature, B256};
 use anyhow::{anyhow, bail, Context, Result};
-use risc0_aggregation::SetInclusionReceipt;
-use risc0_ethereum_contracts::set_verifier::SetVerifierService;
-use risc0_zkvm::{sha::Digest, ReceiptClaim};
 use tower::ServiceBuilder;
 use url::Url;
 
@@ -58,6 +55,7 @@ use crate::{
         StorageUploaderConfig,
     },
     util::NotProvided,
+    Journal,
 };
 
 /// Funding mode for requests submission.
@@ -385,12 +383,6 @@ impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
             provider.clone(),
             self.signer_address().unwrap_or(Address::ZERO),
         );
-        let set_verifier = SetVerifierService::new(
-            deployment.set_verifier_address,
-            provider.clone(),
-            self.signer_address().unwrap_or(Address::ZERO),
-        );
-
         // Safe unwrap: Since D is not NotProvided a downloader must be set
         let downloader = self.downloader.unwrap();
 
@@ -497,7 +489,6 @@ impl<Z, U, D: StorageDownloader, S> ClientBuilder<Z, U, D, S> {
 
         let mut client = Client {
             boundless_market,
-            set_verifier,
             uploader: self.uploader,
             downloader,
             offchain_client,
@@ -884,8 +875,6 @@ pub struct Client<
 > {
     /// Boundless market service.
     pub boundless_market: BoundlessMarketService<P>,
-    /// Set verifier service.
-    pub set_verifier: SetVerifierService<P>,
     /// [StandardUploader] to upload programs and inputs.
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
@@ -974,15 +963,13 @@ where
     /// Create a new client
     pub fn new(
         boundless_market: BoundlessMarketService<P>,
-        set_verifier: SetVerifierService<P>,
+        set_verifier_address: Address,
         downloader: D,
     ) -> Self {
-        let boundless_market = boundless_market.clone();
-        let set_verifier = set_verifier.clone();
         Self {
             deployment: Deployment {
                 boundless_market_address: *boundless_market.instance().address(),
-                set_verifier_address: *set_verifier.instance().address(),
+                set_verifier_address,
                 market_chain_id: None,
                 order_stream_url: None,
                 collateral_token_address: None,
@@ -991,7 +978,6 @@ where
                 deployment_block: None,
             },
             boundless_market,
-            set_verifier,
             uploader: None,
             downloader,
             offchain_client: None,
@@ -1068,18 +1054,6 @@ where
         }
     }
 
-    /// Set the set verifier service
-    pub fn with_set_verifier(self, set_verifier: SetVerifierService<P>) -> Self {
-        Self {
-            deployment: Deployment {
-                set_verifier_address: *set_verifier.instance().address(),
-                ..self.deployment
-            },
-            set_verifier,
-            ..self
-        }
-    }
-
     /// Set the offchain client
     pub fn with_offchain_client(self, offchain_client: OrderStreamClient) -> Self {
         Self {
@@ -1094,11 +1068,7 @@ where
 
     /// Set the transaction timeout
     pub fn with_timeout(self, tx_timeout: Duration) -> Self {
-        Self {
-            boundless_market: self.boundless_market.with_timeout(tx_timeout),
-            set_verifier: self.set_verifier.with_timeout(tx_timeout),
-            ..self
-        }
+        Self { boundless_market: self.boundless_market.with_timeout(tx_timeout), ..self }
     }
 
     /// Set the funding mode for onchain requests.
@@ -1123,7 +1093,6 @@ where
         Client {
             signer: Some(signer),
             boundless_market: self.boundless_market,
-            set_verifier: self.set_verifier,
             uploader: self.uploader,
             downloader: self.downloader,
             offchain_client: self.offchain_client,
@@ -1508,9 +1477,11 @@ where
             .await?)
     }
 
-    /// Get the [SetInclusionReceipt] for a request.
+    /// Get the set inclusion receipt for a request.
     ///
-    /// This method fetches the fulfillment data for a request and constructs the set inclusion receipt.
+    /// This method fetches the fulfillment data for a request and constructs the set inclusion
+    /// receipt via the [ZkvmOps] implementation. The zkvm ops must have been configured with a
+    /// set verifier (e.g. via [`Risc0ZkvmOps::with_set_verifier`]) before calling this method.
     ///
     /// # Parameters
     ///
@@ -1527,45 +1498,17 @@ where
     /// Without explicit block bounds, the onchain search covers blocks according to
     /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
     /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use anyhow::Result;
-    /// use alloy::primitives::{B256, Bytes, U256};
-    /// use boundless_market::client::ClientBuilder;
-    /// use risc0_aggregation::SetInclusionReceipt;
-    /// use risc0_zkvm::ReceiptClaim;
-    ///
-    /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
-    ///     let client = ClientBuilder::new().build().await?;
-    ///
-    ///     // For recent requests
-    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
-    ///         request_id,
-    ///         image_id,
-    ///         None,
-    ///         None,
-    ///     ).await?;
-    ///
-    ///     // For old requests with explicit block range
-    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
-    ///         request_id,
-    ///         image_id,
-    ///         Some(1000000),  // search_to_block
-    ///         Some(1500000),  // search_from_block
-    ///     ).await?;
-    ///
-    ///     Ok((journal, receipt))
-    /// }
-    /// ```
     pub async fn fetch_set_inclusion_receipt(
         &self,
         request_id: U256,
         image_id: B256,
         search_to_block: Option<u64>,
         search_from_block: Option<u64>,
-    ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
+    ) -> Result<(Bytes, Z::SetInclusionReceipt), ClientError>
+    where
+        Z: ZkvmOps,
+    {
+        let zkvm_ops = self.zkvm_ops.as_ref().context("zkvm_ops not set on client")?;
         // TODO(#646): This logic is only correct under the assumption there is a single set
         // verifier.
         let fulfillment = self
@@ -1577,10 +1520,12 @@ where
                 "No fulfillment data found for set inclusion receipt"
             ))),
             FulfillmentData::ImageIdAndJournal(_, journal) => {
-                let claim = ReceiptClaim::ok(Digest::from(image_id.0), journal.to_vec());
-                let receipt = self
-                    .set_verifier
-                    .fetch_receipt_with_claim(fulfillment.seal, claim, journal.to_vec())
+                let receipt = zkvm_ops
+                    .fetch_set_inclusion_receipt(
+                        fulfillment.seal,
+                        image_id,
+                        Journal::new(journal.to_vec()),
+                    )
                     .await?;
                 Ok((journal, receipt))
             }
