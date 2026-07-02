@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{Address, Bytes, U256};
+use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use chrono::Utc;
 use elsa::sync::FrozenVec;
 use proptest::prelude::*;
@@ -290,6 +290,7 @@ proptest! {
                                                     fulfillment_type: FulfillmentType::LockAndFulfill,
                                                     request_id: U256::ZERO,
                                                     lock_expiration: 1000,
+                                                    selector: FixedBytes::ZERO,
                                                 });
                                             }
 

@@ -20,7 +20,7 @@ import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 // the new path never invokes.
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
 import {Callback} from "../src/types/Callback.sol";
-import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {Fulfillment, LegacyFulfillment} from "../src/types/Fulfillment.sol";
 import {FulfillmentBatch} from "../src/types/FulfillmentBatch.sol";
 import {ProofRequestBatch} from "../src/types/ProofRequestBatch.sol";
 import {Input, InputType} from "../src/types/Input.sol";
@@ -202,9 +202,21 @@ contract DeploymentTest is Test {
 
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), requestDigest);
+        // ProofDelivered carries the legacy fulfillment shape (id/requestDigest inline) for
+        // pre-router client compatibility; reconstruct it from the request identity and the fill.
+        Fulfillment memory fill = result.fulfillmentBatch.fills[0];
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(
-            request.id, address(testProver), requestDigest, result.fulfillmentBatch.fills[0]
+            request.id,
+            address(testProver),
+            LegacyFulfillment({
+                id: request.id,
+                requestDigest: requestDigest,
+                claimDigest: fill.claimDigest,
+                fulfillmentDataType: fill.fulfillmentDataType,
+                fulfillmentData: fill.fulfillmentData,
+                seal: fill.seal
+            })
         );
 
         ProofRequestBatch[] memory requestBatches = new ProofRequestBatch[](1);

@@ -5,8 +5,8 @@ libs = ["../../lib", "../../contracts/src"]
 script = "contracts/scripts"
 test = "contracts/test"
 ffi = true
-# Match the root contracts config: BoundlessRouter and friends require the
-# IR pipeline + optimizer to compile without "Stack too deep".
+# The example's contracts transitively import BoundlessRouter, which needs via-ir to compile
+# (stack too deep in legacy codegen). Mirrors the root foundry.toml settings.
 via_ir = true
 optimizer = true
 optimizer_runs = 100

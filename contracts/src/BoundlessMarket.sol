@@ -21,7 +21,7 @@ import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {IBoundlessMarket} from "./IBoundlessMarket.sol";
 import {IBoundlessMarketCallback} from "./IBoundlessMarketCallback.sol";
 import {Account} from "./types/Account.sol";
-import {Fulfillment} from "./types/Fulfillment.sol";
+import {Fulfillment, LegacyFulfillment} from "./types/Fulfillment.sol";
 import {FulfillmentDataLibrary, FulfillmentDataType} from "./types/FulfillmentData.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {LockRequestLibrary} from "./types/LockRequest.sol";
@@ -476,7 +476,23 @@ contract BoundlessMarket is
         if (paymentError.length > 0) {
             emit PaymentRequirementsFailed(paymentError);
         }
-        emit ProofDelivered(id, prover, requestDigest, fill);
+
+        // `ProofDelivered` carries the legacy (pre-router) fulfillment shape — `id`/`requestDigest`
+        // embedded inline — so the event's topic0 and payload stay decodable by clients that have
+        // not upgraded their SDK. The current `Fulfillment` dropped those fields to save batch
+        // calldata, so reconstruct the legacy shape here from the request identity and the fill.
+        emit ProofDelivered(
+            id,
+            prover,
+            LegacyFulfillment({
+                id: id,
+                requestDigest: requestDigest,
+                claimDigest: fill.claimDigest,
+                fulfillmentDataType: fill.fulfillmentDataType,
+                fulfillmentData: fill.fulfillmentData,
+                seal: fill.seal
+            })
+        );
     }
 
     /// @notice For a request that is currently locked. Marks the request as fulfilled, and transfers payment if eligible.

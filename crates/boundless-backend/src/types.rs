@@ -393,6 +393,14 @@ pub trait Backend: Send + Sync {
 
     fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType>;
 
+    /// The assessor grouping key for an order with this signed verifier selector: orders that
+    /// return the same key may share a batch, since a batch carries a single assessor seal and
+    /// must therefore be single assessor class. `Ok(None)` means the backend does not distinguish
+    /// assessor classes, so all of its orders may batch together. `Err` means the backend groups
+    /// but cannot resolve this order (e.g. no supported assessor is registered for its verifier
+    /// class) — such an order can never be sealed and must not be batched.
+    fn assessor_group(&self, selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>>;
+
     async fn evaluate_request(
         &self,
         request: EvaluationRequest,

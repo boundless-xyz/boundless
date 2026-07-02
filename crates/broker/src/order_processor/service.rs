@@ -71,11 +71,17 @@ impl OrderProcessor {
         chain_id: u64,
         proving_completion_tx: mpsc::Sender<CommitmentComplete>,
     ) -> Self {
+        let router_policy = risc0_backend::Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(Default::default(), false),
+            boundless_test_utils::market::set_verifier_selector(Default::default()),
+            true,
+        );
         let backend = Arc::new(Risc0Backend::with_provers(
             prover.clone(),
             snark_prover,
             Arc::new(downloader),
             priority_requestors.as_check(),
+            router_policy,
         ));
         let backend_router = Arc::new(
             BackendRouter::new()

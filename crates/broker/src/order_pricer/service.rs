@@ -553,6 +553,11 @@ pub(crate) mod tests {
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
             let allow_requestors = AllowRequestors::new(config.clone(), chain_id);
             let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
+            let router_policy = risc0_backend::Risc0Backend::router_policy(
+                boundless_test_utils::market::test_router_registry(Default::default(), false),
+                boundless_test_utils::market::set_verifier_selector(Default::default()),
+                true,
+            );
             let backend_router = Arc::new(
                 BackendRouter::new()
                     .register_backend(BackendEntry::new(Arc::new(Risc0Backend::with_provers(
@@ -560,6 +565,7 @@ pub(crate) mod tests {
                         Arc::new(DefaultProver::new()),
                         Arc::new(downloader),
                         priority_requestors.as_check(),
+                        router_policy,
                     ))))
                     .unwrap(),
             );

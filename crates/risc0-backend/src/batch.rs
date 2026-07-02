@@ -99,6 +99,10 @@ pub(super) struct Risc0BatchProcessor {
     market_addr: Address,
     prover_addr: Address,
     chain_id: u64,
+    /// Router snapshot + derived policy, shared with the backend.
+    /// [`Risc0BatchProcessor::skip_assessor_guest`] consults it per batch to decide whether to skip
+    /// proving the assessor guest (on-chain assessor) or prove it (R0 guest).
+    router_policy: RouterPolicy,
 }
 
 #[derive(Clone)]
@@ -200,6 +204,7 @@ impl Risc0BatchProcessor {
         market_addr: Address,
         prover_addr: Address,
         chain_id: u64,
+        router_policy: RouterPolicy,
     ) -> Self {
         Self {
             proof_retry,
@@ -209,7 +214,29 @@ impl Risc0BatchProcessor {
             market_addr,
             prover_addr,
             chain_id,
+            router_policy,
         }
+    }
+
+    /// Whether to skip proving the assessor guest for this batch: true when the batch's verifier
+    /// class selects the on-chain assessor (sealed by a prover signature in `build_fulfillments`,
+    /// not a STARK proof), false for the R0 guest. A batch is single assessor group, so any order's
+    /// signed selector determines it; a selector that resolves to no supported assessor is an error
+    /// (such an order can never be sealed and must not have been batched).
+    fn skip_assessor_guest(&self, cmd: &UpdateBatch) -> Result<bool> {
+        let signed = cmd
+            .new_orders
+            .first()
+            .map(|o| o.proving.request.requirements.selector)
+            .or_else(|| cmd.existing_orders.first().map(|o| o.request.requirements.selector));
+        let Some(signed) = signed else {
+            return Ok(false);
+        };
+        let selector =
+            self.router_policy.assessor_selector_for_signed(signed).with_context(|| {
+                format!("signed verifier selector {signed} resolves to no supported assessor")
+            })?;
+        Ok(selector == ONCHAIN_ASSESSOR_SELECTOR)
     }
 
     async fn validate_and_extract_claim(&self, proof_id: &str) -> Result<ReceiptClaim> {
@@ -525,7 +552,11 @@ impl BatchProcessor for Risc0BatchProcessor {
         );
 
         let mut assessor_secs = None;
-        let assessor_proof_id: Option<String> = if cmd.finalize {
+        // With the on-chain assessor, skip proving + aggregating the assessor guest entirely; the
+        // broker signs the batch in `build_fulfillments` instead. Decided per batch from its
+        // verifier class.
+        let skip_assessor_guest = self.skip_assessor_guest(&cmd)?;
+        let assessor_proof_id: Option<String> = if cmd.finalize && !skip_assessor_guest {
             tracing::debug!(
                 "Running assessor for batch {} with orders {:?}",
                 cmd.batch_id,
@@ -580,15 +611,33 @@ impl BatchProcessor for Risc0BatchProcessor {
             proof_ids.iter().map(|proof_id| proof_id.as_str()).collect::<Vec<_>>()
         );
         let set_builder_start = std::time::Instant::now();
-        let aggregation_state = self
-            .prove_set_builder(cmd.state.as_ref(), &proof_ids, cmd.finalize, &all_orders)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to prove set builder for batch {} with orders {:?}",
-                    cmd.batch_id, all_orders
-                )
-            })?;
+        // The set-builder only has work when there are proofs to aggregate: set-inclusion app
+        // proofs and/or the R0 assessor guest. An all-direct-submit batch (groth16/blake3) under
+        // the on-chain assessor aggregates nothing, so skip the set-builder entirely and carry the
+        // batch state forward (or start empty). `build_fulfillments` then submits no merkle root.
+        let aggregation_state = if proof_ids.is_empty() {
+            let state = match cmd.state.as_ref() {
+                Some(state) => Risc0BatchState::from_backend_state(state)?,
+                None => Risc0BatchState {
+                    version: RISC0_BATCH_STATE_VERSION,
+                    guest_state: GuestState::initial(self.set_builder_guest_id),
+                    claim_digests: vec![],
+                    proof_id: None,
+                    compressed_proof_id: None,
+                    assessor_proof_id: None,
+                },
+            };
+            state.into_backend_state()?
+        } else {
+            self.prove_set_builder(cmd.state.as_ref(), &proof_ids, cmd.finalize, &all_orders)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to prove set builder for batch {} with orders {:?}",
+                        cmd.batch_id, all_orders
+                    )
+                })?
+        };
         let batch_update_secs = Some(set_builder_start.elapsed().as_secs_f64());
 
         tracing::debug!(
@@ -622,16 +671,15 @@ impl BatchProcessor for Risc0BatchProcessor {
             .map_err(BackendError::operation)?;
         let mut state =
             Risc0BatchState::from_backend_state(backend_state).map_err(BackendError::operation)?;
-        let proof_id = state
-            .proof_id
-            .clone()
-            .with_context(|| format!("Batch {} has no recorded set-builder proof id", cmd.batch_id))
-            .map_err(BackendError::operation)?;
-        let compressed_proof_id = self
-            .compress_batch_proof(cmd.batch_id, &proof_id, &cmd.order_ids)
-            .await
-            .map_err(BackendError::from)?;
-        state.compressed_proof_id = Some(compressed_proof_id);
+        // No set-builder proof means the batch aggregated nothing (all direct-submit orders under
+        // the on-chain assessor), so there is no merkle root to compress.
+        if let Some(proof_id) = state.proof_id.clone() {
+            let compressed_proof_id = self
+                .compress_batch_proof(cmd.batch_id, &proof_id, &cmd.order_ids)
+                .await
+                .map_err(BackendError::from)?;
+            state.compressed_proof_id = Some(compressed_proof_id);
+        }
 
         Ok(BatchClose {
             state: state.into_backend_state().map_err(BackendError::operation)?,
@@ -718,6 +766,60 @@ mod tests {
         )
     }
 
+    fn test_processor(include_onchain_assessor: bool) -> Risc0BatchProcessor {
+        let policy = Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(
+                Risc0Digest::ZERO,
+                include_onchain_assessor,
+            ),
+            boundless_test_utils::market::set_verifier_selector(Risc0Digest::ZERO),
+            true,
+        );
+        let prover: crate::provers::ProverObj = Arc::new(DefaultProver::new());
+        Risc0BatchProcessor::new(
+            Arc::new(|| (0, 0)),
+            prover,
+            Risc0Digest::ZERO,
+            Risc0Digest::ZERO,
+            Address::ZERO,
+            Address::ZERO,
+            1,
+            policy,
+        )
+    }
+
+    fn update_batch_cmd(request: ProofRequest) -> super::super::UpdateBatch {
+        super::super::UpdateBatch {
+            batch_id: 0,
+            existing_orders: Vec::new(),
+            state: None,
+            new_orders: vec![BatchOrder {
+                proving: OrderProvingData {
+                    order_id: "order-1".to_string(),
+                    request: request.clone(),
+                    client_sig: Bytes::new(),
+                    image_id: None,
+                    backend_state: None,
+                },
+                expiration: 100,
+                fee: U256::ZERO,
+                fulfillment_type: FulfillmentType::LockAndFulfill,
+                request_id: request.id,
+                lock_expiration: 100,
+            }],
+            finalize: true,
+        }
+    }
+
+    /// The guest skip follows the batch's resolved assessor: skipped when the verifier class
+    /// selects the on-chain assessor, proven when it selects the R0 guest.
+    #[test]
+    fn skip_assessor_guest_follows_batch_assessor() {
+        let cmd = update_batch_cmd(test_request(1));
+        assert!(test_processor(true).skip_assessor_guest(&cmd).unwrap());
+        assert!(!test_processor(false).skip_assessor_guest(&cmd).unwrap());
+    }
+
     #[tokio::test]
     async fn update_batch_errors_when_new_order_missing_backend_state() {
         let prover: crate::provers::ProverObj = Arc::new(DefaultProver::new());
@@ -725,6 +827,11 @@ mod tests {
         let request = test_request(7);
         let order_id = "order-7".to_string();
 
+        let policy = Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(Risc0Digest::ZERO, false),
+            boundless_test_utils::market::set_verifier_selector(Risc0Digest::ZERO),
+            true,
+        );
         let processor = Risc0BatchProcessor::new(
             Arc::new(|| (0, 0)),
             prover,
@@ -733,6 +840,7 @@ mod tests {
             Address::ZERO,
             Address::ZERO,
             1,
+            policy,
         );
 
         let res = processor
