@@ -86,10 +86,6 @@ interface IBoundlessMarket {
     /// @param value The value of the withdrawal.
     event CollateralWithdrawal(address indexed account, uint256 value);
 
-    /// @notice Event when the contract is upgraded to a new version.
-    /// @param version The new version of the contract.
-    event Upgraded(uint64 indexed version);
-
     /// @notice Event emitted during fulfillment if a request was fulfilled, but payment was not
     /// transferred because at least one condition was not met. See the documentation on
     /// `IBoundlessMarket.fulfill` for more information.
