@@ -21,7 +21,8 @@ use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol_types::SolCall};
 use anyhow::{Context, Result};
 use boundless_market::{
-    request_builder::RequirementParams, Client, Deployment, StorageUploaderConfig,
+    request_builder::RequirementParams, risc0::Risc0ZkvmOps, Client, Deployment,
+    StorageUploaderConfig,
 };
 use clap::Parser;
 use guest_util::ECHO_ELF;
@@ -80,6 +81,7 @@ async fn main() -> Result<()> {
 async fn run(args: Args) -> Result<()> {
     // Create a Boundless client from the provided parameters.
     let client = Client::builder()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
         .with_uploader_config(&args.storage_config)

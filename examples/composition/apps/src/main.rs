@@ -25,7 +25,8 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use boundless_market::{
-    input::GuestEnv, request_builder::OfferParams, Client, Deployment, StorageUploaderConfig,
+    input::GuestEnv, request_builder::OfferParams, risc0::Risc0ZkvmOps, Client, Deployment,
+    StorageUploaderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
@@ -85,6 +86,7 @@ async fn main() -> Result<()> {
 async fn run(args: Args) -> Result<()> {
     // Create a Boundless client from the provided parameters.
     let client = Client::builder()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
         .with_uploader_config(&args.storage_config)
