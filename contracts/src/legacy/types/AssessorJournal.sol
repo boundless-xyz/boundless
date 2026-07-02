@@ -1,0 +1,25 @@
+// Copyright 2026 Boundless Foundation, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+pragma solidity ^0.8.26;
+
+import {AssessorCallback} from "./AssessorCallback.sol";
+import {Selector} from "./Selector.sol";
+
+/// @title Assessor Journal Struct
+/// @notice Represents the structured journal of the Assessor guest which verifies the signature(s)
+/// from client(s) and that the requirements are met by claim digest(s) in the Merkle tree committed
+/// to by the given root.
+struct AssessorJournal {
+    /// @notice The (optional) callbacks for the requests committed by the assessor.
+    AssessorCallback[] callbacks;
+    /// @notice The (optional) selectors for the requests committed by the assessor.
+    /// @dev This is used to verify the fulfillment of the request against its selector's seal.
+    Selector[] selectors;
+    /// @notice Root of the Merkle tree committing to the set of proven claims.
+    /// @dev In the case of a batch of size one, this may simply be the eip712Digest of the `AssessorCommitment`.
+    bytes32 root;
+    /// @notice The address of the prover that produced the assessor receipt.
+    address prover;
+}

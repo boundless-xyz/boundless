@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
-# Configuration
-ANVIL_RPC="http://anvil:8545"
+# Configuration. The defaults target the compose deployer container; the paths/URL are
+# env-overridable so the script can also run directly on the host (e.g. on arm64 machines,
+# where the amd64-only builder-base image blocks the deployer container build).
+ANVIL_RPC="${ANVIL_RPC:-http://anvil:8545}"
 DEPLOYER_PRIVATE_KEY="${DEPLOYER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 CHAIN_KEY="${CHAIN_KEY:-anvil}"
 RISC0_DEV_MODE="${RISC0_DEV_MODE:-1}"
@@ -10,26 +12,28 @@ BOUNDLESS_MARKET_OWNER="${BOUNDLESS_MARKET_OWNER:-0xf39Fd6e51aad88F6F4ce6aB88272
 CHAIN_ID="${CHAIN_ID:-31337}"
 DEPOSIT_AMOUNT="${DEPOSIT_AMOUNT:-100000000000000000000}"
 DEFAULT_ADDRESS="${DEFAULT_ADDRESS:-0x90F79bf6EB2c4f870365E785982E1f101E93b906}"
-SHARED_DIR="/shared"
+SHARED_DIR="${SHARED_DIR:-/shared}"
 DEPLOYER_ENV="$SHARED_DIR/deployer.env"
-HOST_ENV_FILE="/host/.env.localnet"
-TEMPLATE_FILE="/src/.env.localnet-template"
+HOST_ENV_FILE="${HOST_ENV_FILE:-/host/.env.localnet}"
+TEMPLATE_FILE="${TEMPLATE_FILE:-/src/.env.localnet-template}"
 ANVIL_PORT=8545
 
 # Generate .env.localnet from template with current addresses.
-# Uses a temp file because sed -i doesn't work on bind-mounted files.
+# A single sed pass into the target (via temp file, since the host file may be bind-mounted);
+# avoids `sed -i`, whose syntax differs between GNU and BSD sed (the script also runs on macOS).
 generate_env_localnet() {
     local tmpfile
     tmpfile=$(mktemp)
-    cp "$TEMPLATE_FILE" "$tmpfile"
-    sed -i "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" "$tmpfile"
-    sed -i "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" "$tmpfile"
-    sed -i "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" "$tmpfile"
-    sed -i "s/^export COLLATERAL_TOKEN_ADDRESS=.*/export COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS/" "$tmpfile"
-    sed -i "s|^export RPC_URL=.*|export RPC_URL=\"http://localhost:$ANVIL_PORT\"|" "$tmpfile"
-    sed -i "s|^export PROVER_RPC_URL=.*|export PROVER_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" "$tmpfile"
-    sed -i "s|^export REQUESTOR_RPC_URL=.*|export REQUESTOR_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" "$tmpfile"
-    sed -i "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" "$tmpfile"
+    sed \
+        -e "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" \
+        -e "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" \
+        -e "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" \
+        -e "s/^export COLLATERAL_TOKEN_ADDRESS=.*/export COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS/" \
+        -e "s|^export RPC_URL=.*|export RPC_URL=\"http://localhost:$ANVIL_PORT\"|" \
+        -e "s|^export PROVER_RPC_URL=.*|export PROVER_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" \
+        -e "s|^export REQUESTOR_RPC_URL=.*|export REQUESTOR_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" \
+        -e "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" \
+        "$TEMPLATE_FILE" > "$tmpfile"
     cat "$tmpfile" > "$HOST_ENV_FILE"
     rm "$tmpfile"
 }
@@ -94,11 +98,28 @@ else
     forge build || { echo "Failed to build contracts"; exit 1; }
 fi
 
+# Deploy the BoundlessRouter first: the market dispatches verification through it,
+# so its address must exist before BoundlessMarket is deployed.
+echo "Deploying BoundlessRouter..."
+ROUTER_ADMIN="${ROUTER_ADMIN:-$BOUNDLESS_MARKET_OWNER}"
+DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+ROUTER_ADMIN="$ROUTER_ADMIN" \
+CHAIN_KEY="$CHAIN_KEY" \
+forge script contracts/scripts/Deploy.Router.s.sol \
+    --rpc-url "$ANVIL_RPC" \
+    --broadcast -vv || { echo "Failed to deploy BoundlessRouter"; exit 1; }
+
+ROUTER_BROADCAST="./broadcast/Deploy.Router.s.sol/$CHAIN_ID/run-latest.json"
+BOUNDLESS_ROUTER=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' "$ROUTER_BROADCAST" | head -n 1)
+export BOUNDLESS_ROUTER
+echo "  BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER"
+
 echo "Deploying contracts..."
 DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
 CHAIN_KEY="$CHAIN_KEY" \
 RISC0_DEV_MODE="$RISC0_DEV_MODE" \
 BOUNDLESS_MARKET_OWNER="$BOUNDLESS_MARKET_OWNER" \
+BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
 ASSESSOR_GUEST_URL="${ASSESSOR_GUEST_URL:-}" \
 SET_BUILDER_GUEST_URL="${SET_BUILDER_GUEST_URL:-}" \
 forge script contracts/scripts/Deploy.s.sol \
@@ -117,7 +138,30 @@ if [ -z "$COLLATERAL_TOKEN_ADDRESS" ] || [ "$COLLATERAL_TOKEN_ADDRESS" = "0x0000
     COLLATERAL_TOKEN_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -n 1 || echo "")
 fi
 
+# Configure the BoundlessRouter in one idempotent run: all proof-type classes plus every
+# entry this chain serves — the set-inclusion verifier adapter at the set verifier's own
+# selector, and both assessor entries (the R0 STARK assessor bound to ASSESSOR_IMAGE_ID at
+# 0x00000024 and the native OnChainAssessor at 0x00000022, which brokers prepend to the
+# assessor seal). The canonical groth16 / blake3 selectors are skipped here: the dev-mode
+# upstream verifiers use dynamic selectors that never match them.
+ASSESSOR_IMAGE_ID="0x$(r0vm --id --elf "$ASSESSOR_PATH")"
+# The R0 assessor selector as bytes4 right-padded to bytes32, for configs read via
+# `bytes4(readBytes32(...))`. Must match RouterConfig.R0_ASSESSOR_SELECTOR.
+ASSESSOR_SELECTOR_BYTES32="0x0000002400000000000000000000000000000000000000000000000000000000"
+
+echo "Bootstrapping BoundlessRouter classes and entries..."
+DEPLOYER_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY" \
+CHAIN_KEY="$CHAIN_KEY" \
+BOUNDLESS_ROUTER="$BOUNDLESS_ROUTER" \
+R0_ROUTER="$VERIFIER_ADDRESS" \
+SET_VERIFIER="$SET_VERIFIER_ADDRESS" \
+ASSESSOR_IMAGE_ID="$ASSESSOR_IMAGE_ID" \
+forge script contracts/scripts/Manage.Router.s.sol:BootstrapRouter \
+    --rpc-url "$ANVIL_RPC" \
+    --broadcast -vv || { echo "Failed to bootstrap BoundlessRouter"; exit 1; }
+
 echo "Contract deployed at addresses:"
+echo "  BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER"
 echo "  VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
 echo "  SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
 echo "  BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
@@ -151,6 +195,7 @@ cat > "$DEPLOYER_ENV" <<EOF
 VERIFIER_ADDRESS=$VERIFIER_ADDRESS
 SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS
 BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS
+BOUNDLESS_ROUTER=$BOUNDLESS_ROUTER
 COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS
 EOF
 
@@ -172,26 +217,27 @@ etherscan-api-key = "none"
 EOF
     echo "Created contracts/deployment_secrets.toml"
 
-    # Compute assessor image ID
-    ASSESSOR_BIN="target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin"
-    ASSESSOR_ID="0x$(r0vm --id --elf "$ASSESSOR_BIN")"
-
     # Use host path for guest URL (manage script runs on the host, not in Docker)
+    ASSESSOR_BIN="target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin"
     if [ -n "${REPO_ROOT:-}" ]; then
         ASSESSOR_GUEST_URL="file://${REPO_ROOT}/${ASSESSOR_BIN}"
     else
         ASSESSOR_GUEST_URL="file://$(realpath "$ASSESSOR_BIN")"
     fi
 
-    # Update deployment.toml with deployed addresses
+    # Update deployment.toml with deployed addresses. The assessor image id and selector
+    # match the R0 assessor adapter registered in the router above; ASSESSOR_SELECTOR_BYTES32
+    # is the bytes4 right-padded to bytes32 so the config's `bytes4(readBytes32(...))` recovers it.
     CHAIN_KEY="${CHAIN_KEY:-anvil}" python3 contracts/update_deployment_toml.py \
         --verifier "$VERIFIER_ADDRESS" \
         --application-verifier "$VERIFIER_ADDRESS" \
         --set-verifier "$SET_VERIFIER_ADDRESS" \
         --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
+        --boundless-router "$BOUNDLESS_ROUTER" \
         --collateral-token "$COLLATERAL_TOKEN_ADDRESS" \
-        --assessor-image-id "$ASSESSOR_ID" \
-        --assessor-guest-url "$ASSESSOR_GUEST_URL"
+        --assessor-image-id "$ASSESSOR_IMAGE_ID" \
+        --assessor-guest-url "$ASSESSOR_GUEST_URL" \
+        --r0-assessor-selector "$ASSESSOR_SELECTOR_BYTES32"
 
     echo "CI deployment config updated."
 fi

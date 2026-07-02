@@ -27,7 +27,6 @@ use boundless_market::{
     contracts::boundless_market::{
         BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest,
     },
-    contracts::AssessorReceipt,
     telemetry::CompletionOutcome,
 };
 use tokio::sync::mpsc;
@@ -110,6 +109,7 @@ where
         }
 
         let mut fulfillments = vec![];
+        let mut fulfilled_requests = vec![];
         let mut requests_to_price: Vec<UnlockedRequest> = vec![];
 
         struct OrderPrice {
@@ -230,7 +230,8 @@ where
         }
 
         for artifact in artifacts.orders {
-            fulfillment_to_order_id.insert(artifact.fulfillment.id, artifact.order_id);
+            fulfillment_to_order_id.insert(artifact.request.id, artifact.order_id);
+            fulfilled_requests.push(artifact.request);
             fulfillments.push(artifact.fulfillment);
         }
 
@@ -249,15 +250,19 @@ where
             (config.batcher.single_txn_fulfill, config.batcher.withdraw)
         };
 
-        let assessor_receipt = AssessorReceipt {
-            seal: artifacts.assessor.seal,
-            callbacks: artifacts.assessor.callbacks,
-            selectors: artifacts.assessor.selectors,
-            prover: self.prover_address,
-        };
-        let mut fulfillment_tx = FulfillmentTx::new(fulfillments.clone(), assessor_receipt)
-            .with_withdraw(withdraw)
-            .with_unlocked_requests(requests_to_price);
+        // The on-chain Fulfillment no longer carries the request id, so order tracking keys on the
+        // request id derived from the fulfilled requests (same order as `fulfillments`).
+        let request_ids: Vec<U256> = fulfilled_requests.iter().map(|req| req.id).collect();
+        // The backend already assembled the full router assessor seal (selector ++ inner seal);
+        // callbacks/selectors are now derived on-chain from the client-signed SlimRequest.
+        let mut fulfillment_tx = FulfillmentTx::new(
+            fulfilled_requests,
+            fulfillments,
+            artifacts.assessor.seal,
+            self.prover_address,
+        )
+        .with_withdraw(withdraw)
+        .with_unlocked_requests(requests_to_price);
         for verifier_update in artifacts.verifier_updates {
             if single_txn_fulfill {
                 match verifier_update {
@@ -268,7 +273,6 @@ where
                 continue;
             }
 
-            let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
             let applied = match self
                 .backend
                 .verifier_update_applied(&batch.backend_id, &verifier_update)
@@ -303,9 +307,9 @@ where
             if let Err(err) =
                 self.backend.apply_verifier_update(&batch.backend_id, &verifier_update).await
             {
-                let order_ids: Vec<&str> = fulfillments
+                let order_ids: Vec<&str> = request_ids
                     .iter()
-                    .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
+                    .map(|id| fulfillment_to_order_id.get(id).unwrap().as_str())
                     .collect();
                 tracing::warn!("Failed to submit verifier update for orders: {order_ids:?}");
 
@@ -321,21 +325,21 @@ where
         }
 
         if let Err(err) = self.market.fulfill(fulfillment_tx).await {
-            let order_ids: Vec<&str> = fulfillments
+            let order_ids: Vec<&str> = request_ids
                 .iter()
-                .map(|f| fulfillment_to_order_id.get(&f.id).unwrap().as_str())
+                .map(|id| fulfillment_to_order_id.get(id).unwrap().as_str())
                 .collect();
             tracing::warn!("Failed to fulfill batch for orders {order_ids:?}: {err:?}");
             return Err(Self::classify_fulfillment_error(err, batch_id));
         }
 
-        for fulfillment in fulfillments.iter() {
-            let order_id = fulfillment_to_order_id.get(&fulfillment.id).unwrap();
+        for request_id in request_ids.iter() {
+            let order_id = fulfillment_to_order_id.get(request_id).unwrap();
 
             if let Err(db_err) = self.db.set_order_complete(order_id).await {
                 tracing::error!(
                     "Failed to set order complete during proof submission: {:x} {db_err:?}",
-                    fulfillment.id
+                    request_id
                 );
                 continue;
             }
@@ -363,19 +367,19 @@ where
             // If we expect a stake reward, check if we won the proof race to be the first secondary prover.
             if order_price.collateral_reward > U256::ZERO {
                 let prover =
-                    self.market.get_request_fulfillment_prover(fulfillment.id, None, None).await;
+                    self.market.get_request_fulfillment_prover(*request_id, None, None).await;
                 if let Ok(prover) = prover {
                     if prover != self.prover_address {
                         collateral_reward_log = format!("collateral_reward: 0 (lost secondary prover race to {prover} for {collateral_reward})");
                     }
                 } else {
-                    tracing::warn!("Failed to confirm if we were the first secondary prover for fulfillment {:x}", fulfillment.id);
+                    tracing::warn!("Failed to confirm if we were the first secondary prover for fulfillment {:x}", request_id);
                 }
             }
 
             tracing::info!(
                 "✨ Completed order: 0x{:x} {} {} ✨",
-                fulfillment.id,
+                request_id,
                 eth_reward_log,
                 collateral_reward_log
             );
@@ -589,8 +593,8 @@ mod tests {
     };
     use boundless_test_utils::{
         guests::{
-            ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID,
-            SET_BUILDER_ELF, SET_BUILDER_ID, SET_BUILDER_PATH,
+            ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF,
+            SET_BUILDER_ID, SET_BUILDER_PATH,
         },
         market::{deploy_boundless_market, deploy_hit_points},
         verifier::{deploy_mock_verifier, deploy_set_verifier},
@@ -670,7 +674,7 @@ mod tests {
             set_verifier,
             hit_points,
             Digest::from(ASSESSOR_GUEST_ID),
-            format!("file://{ASSESSOR_GUEST_PATH}"),
+            Digest::from(SET_BUILDER_ID),
             Some(prover_addr),
         )
         .await
@@ -899,12 +903,20 @@ mod tests {
         let (commitment_tx, commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
         let priority_requestors = PriorityRequestors::new(config.clone(), anvil.chain_id());
+        // R0-only registry fixture: the batches under test carry guest-assessor set-inclusion
+        // seals, so resolution must select the R0 assessor.
+        let router_policy = risc0_backend::Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(set_builder_id, false),
+            boundless_test_utils::market::set_verifier_selector(set_builder_id),
+            true,
+        );
         let risc0_backend = Arc::new(
             Risc0Backend::with_provers(
                 prover.clone(),
                 prover.clone(),
                 Arc::new(downloader),
                 priority_requestors.as_check(),
+                router_policy,
             )
             .with_set_builder_program_id(set_builder_id)
             .with_set_verifier(set_verifier, provider.clone(), prover_addr),

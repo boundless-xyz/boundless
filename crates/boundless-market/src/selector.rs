@@ -261,8 +261,14 @@ pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
     }
 }
 
-/// Check if a selector is a blake3 groth16 selector.
+/// Check if a selector is a blake3 groth16 selector. Also matches the blake3-groth16 router class
+/// id (`R0_GROTH16_BLAKE3_CLASS_ID`): a request may sign the class rather than the concrete entry,
+/// and it resolves to that entry on-chain, so request building and predicate evaluation — which key
+/// off the signed selector — must treat the class the same as the entry.
 pub fn is_blake3_groth16_selector(selector: FixedBytes<4>) -> bool {
+    if selector == crate::contracts::R0_GROTH16_BLAKE3_CLASS_ID {
+        return true;
+    }
     let sel = SelectorExt::from_bytes(selector.into());
     match sel {
         Some(selector) => {

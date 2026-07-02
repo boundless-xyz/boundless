@@ -17,6 +17,11 @@
 # This config is NOT suitable for any real network.
 
 [market]
+# The broker selects the assessor per request's verifier class: it snapshots the on-chain
+# BoundlessRouter at startup and, for each verifier class, prefers the native OnChainAssessor
+# (selector 0x00000022, signed) over the R0 STARK assessor guest (selector 0x00000024) when both
+# are registered in the class's required assessor class. No assessor selector is configured here;
+# the deploy registers the adapters (see scripts/localnet-deploy.sh).
 min_mcycle_price = "0 ETH"
 min_mcycle_price_collateral_token = "0 ZKC"
 skip_gas_profitability_check = true

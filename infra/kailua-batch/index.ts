@@ -1,7 +1,7 @@
 import * as aws from "@pulumi/aws";
 import * as awsx from "@pulumi/awsx";
 import * as pulumi from "@pulumi/pulumi";
-import { getServiceNameV1, Severity } from "../util";
+import { getServiceNameV1, Severity, withAutoInvestigate } from "../util";
 
 require("dotenv").config();
 
@@ -487,7 +487,8 @@ export = () => {
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             treatMissingData: "notBreaching",
-            alarmDescription: `${Severity.SEV2}: Kailua emitted a low-funds log in 1 hour`,
+            // Balance alarm: remediation is to top up Kailua, nothing to investigate.
+            alarmDescription: withAutoInvestigate(`${Severity.SEV2}: Kailua emitted a low-funds log in 1 hour`, false),
             actionsEnabled: true,
             alarmActions,
         });

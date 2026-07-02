@@ -22,7 +22,7 @@ use alloy::{
     consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{utils::format_ether, Address, Bytes, B256, U256},
+    primitives::{utils::format_ether, Address, Bytes, FixedBytes, B256, U256},
     providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
@@ -32,10 +32,25 @@ use alloy_sol_types::{SolCall, SolEvent, SolInterface};
 use anyhow::{anyhow, Context, Result};
 use thiserror::Error;
 
+alloy::sol! {
+    /// Read-only view binding for the `BoundlessRouter` selector registry: enough to snapshot the
+    /// entry pins, the per-class metadata, and the chain-default class id. Used to build a
+    /// [`super::RouterRegistry`].
+    #[sol(rpc)]
+    contract BoundlessRouterView {
+        function entries(bytes4 selector) external view returns (address implementation, bytes4 classId, uint64 gasLimit);
+        function classes(bytes4 classId) external view returns (bytes4 interfaceTag, bool permissionlessInstantiate, bool isDefault, bytes4 requiredAssessorClass, bytes32 schemaArtifact, string schemaArtifactUrl, uint64 defaultGasLimit, string label);
+        function defaultClassId() external view returns (bytes4);
+    }
+}
+
 use super::{
-    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
+    eip712_domain,
+    router_registry::{RouterEntry, RouterRegistry},
+    EIP712DomainSaltless, Fulfillment, FulfillmentBatch,
     IBoundlessMarket::{self, IBoundlessMarketErrors, IBoundlessMarketInstance, ProofDelivered},
-    Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+    LegacyFulfillment, Offer, ProofRequest, ProofRequestBatch, RequestError, RequestId,
+    RequestStatus, SlimRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 use crate::{
     contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
@@ -466,6 +481,104 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
     }
 
+    /// Returns the `BoundlessRouter` address the market dispatches verification through.
+    pub async fn router_address(&self) -> Result<Address, MarketError> {
+        Ok(self.instance.ROUTER().call().await?)
+    }
+
+    /// Resolves the adapter implementation registered in the router under `selector`.
+    ///
+    /// Used to discover the deployed `OnChainAssessor` address (needed to build its EIP-712
+    /// domain) from the assessor selector the broker is configured with.
+    pub async fn router_entry_impl(&self, selector: FixedBytes<4>) -> Result<Address, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.entries(selector).call().await?.implementation)
+    }
+
+    /// Resolves the router class id a `selector` entry belongs to, or `bytes4(0)` if the selector
+    /// is not a registered entry. Used to map the verifier selectors a broker can produce onto the
+    /// router classes a requestor may sign against.
+    pub async fn router_entry_class_id(
+        &self,
+        selector: FixedBytes<4>,
+    ) -> Result<FixedBytes<4>, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.entries(selector).call().await?.classId)
+    }
+
+    /// Reads the chain-default verifier class id from the router (`bytes4(0)` if none is set).
+    pub async fn router_default_class_id(&self) -> Result<FixedBytes<4>, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.defaultClassId().call().await?)
+    }
+
+    /// Reads the `requiredAssessorClass` of a router class (`bytes4(0)` for assessor/joint classes
+    /// or a class that is not registered).
+    pub async fn router_required_assessor_class(
+        &self,
+        class_id: FixedBytes<4>,
+    ) -> Result<FixedBytes<4>, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.classes(class_id).call().await?.requiredAssessorClass)
+    }
+
+    /// Snapshots the router registry for a fixed set of selectors of interest into an in-memory
+    /// [`RouterRegistry`]. Reads `defaultClassId`, one `entries` lookup per selector, and one
+    /// `classes` lookup per referenced class; the resulting registry answers resolution queries
+    /// with no further RPC.
+    ///
+    /// `selectors_of_interest` are the selectors the caller cares about — typically the verifier
+    /// selectors a backend can produce plus the assessor selectors it can satisfy. Selectors that
+    /// are not registered as entries are simply absent from the snapshot.
+    pub async fn load_router_registry(
+        &self,
+        selectors_of_interest: &[FixedBytes<4>],
+    ) -> Result<RouterRegistry, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+
+        let default_class_id = router.defaultClassId().call().await?;
+
+        let mut entries = std::collections::HashMap::new();
+        let mut class_ids = std::collections::HashSet::new();
+        if default_class_id != FixedBytes::<4>::ZERO {
+            class_ids.insert(default_class_id);
+        }
+        for &selector in selectors_of_interest {
+            // The chain-default sentinel is never a registered entry.
+            if selector == super::UNSPECIFIED_SELECTOR {
+                continue;
+            }
+            let entry = router.entries(selector).call().await?;
+            if entry.implementation != Address::ZERO {
+                entries.insert(
+                    selector,
+                    RouterEntry {
+                        implementation: entry.implementation,
+                        class_id: entry.classId,
+                        gas_limit: entry.gasLimit,
+                    },
+                );
+                class_ids.insert(entry.classId);
+            }
+        }
+
+        let mut required_assessor_class = std::collections::HashMap::new();
+        for class_id in class_ids {
+            let meta = router.classes(class_id).call().await?;
+            // A zero interfaceTag means the class is not registered; skip it.
+            if meta.interfaceTag != FixedBytes::<4>::ZERO {
+                required_assessor_class.insert(class_id, meta.requiredAssessorClass);
+            }
+        }
+
+        Ok(RouterRegistry::from_parts(default_class_id, entries, required_assessor_class))
+    }
+
     /// Deposit Ether into the market to pay for proof and/or lockin collateral.
     pub async fn deposit(&self, value: U256) -> Result<(), MarketError> {
         tracing::trace!("Calling deposit() value: {value}");
@@ -789,39 +902,61 @@ impl<P: Provider> BoundlessMarketService<P> {
 
     /// Submits a `FulfillmentTx`.
     pub async fn fulfill(&self, tx: FulfillmentTx) -> Result<(), MarketError> {
-        let FulfillmentTx { root, unlocked_requests, fulfillments, assessor_receipt, withdraw } =
-            tx;
+        let FulfillmentTx {
+            root,
+            unlocked_requests,
+            fulfilled_requests,
+            fulfillments,
+            assessor_seal,
+            prover,
+            withdraw,
+        } = tx;
         let price = !unlocked_requests.is_empty();
-        let request_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
+        let request_ids = fulfilled_requests.iter().map(|req| req.id).collect::<Vec<_>>();
+
+        // The broker submits a single fulfillment batch per transaction: one prover and one
+        // assessor seal cover all of the fills. The per-fill `SlimRequest`s are derived from the
+        // full requests and paired with the fills in order.
+        // TODO: PR 1982: we can adjust FulfillmentTx to support submission of multiple batches
+        let fulfillment_batches = vec![FulfillmentBatch {
+            requests: fulfilled_requests.iter().map(SlimRequest::from_request).collect(),
+            fills: fulfillments,
+            assessorSeal: assessor_seal,
+            prover,
+        }];
+
+        // Requests that are not locked must be priced in the same transaction.
+        let request_batches = if price {
+            let (requests, signatures): (Vec<_>, Vec<_>) =
+                unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
+            vec![ProofRequestBatch { requests, signatures }]
+        } else {
+            Vec::new()
+        };
 
         match root {
             None => match (price, withdraw) {
                 (false, false) => {
                     tracing::debug!("Fulfilling requests {:?} with fulfill", request_ids);
-                    self._fulfill(fulfillments, assessor_receipt).await
+                    self._fulfill(fulfillment_batches).await
                 }
                 (false, true) => {
                     tracing::debug!(
                         "Fulfilling requests {:?} with fulfill and withdraw",
                         request_ids
                     );
-                    self.fulfill_and_withdraw(fulfillments, assessor_receipt).await
+                    self.fulfill_and_withdraw(fulfillment_batches).await
                 }
                 (true, false) => {
                     tracing::debug!("Fulfilling requests {:?} with price and fulfill", request_ids);
-                    self.price_and_fulfill(unlocked_requests, fulfillments, assessor_receipt).await
+                    self.price_and_fulfill(request_batches, fulfillment_batches).await
                 }
                 (true, true) => {
                     tracing::debug!(
                         "Fulfilling requests {:?} with price and fulfill and withdraw",
                         request_ids
                     );
-                    self.price_and_fulfill_and_withdraw(
-                        unlocked_requests,
-                        fulfillments,
-                        assessor_receipt,
-                    )
-                    .await
+                    self.price_and_fulfill_and_withdraw(request_batches, fulfillment_batches).await
                 }
             },
             Some(root) => match (price, withdraw) {
@@ -830,36 +965,29 @@ impl<P: Provider> BoundlessMarketService<P> {
                         "Fulfilling requests {:?} with submitting root and fulfill",
                         request_ids
                     );
-                    self.submit_root_and_fulfill(root, fulfillments, assessor_receipt).await
+                    self.submit_root_and_fulfill(root, fulfillment_batches).await
                 }
                 (false, true) => {
                     tracing::debug!(
                         "Fulfilling requests {:?} with submitting root and fulfill and withdraw",
                         request_ids
                     );
-                    self.submit_root_and_fulfill_and_withdraw(root, fulfillments, assessor_receipt)
-                        .await
+                    self.submit_root_and_fulfill_and_withdraw(root, fulfillment_batches).await
                 }
                 (true, false) => {
                     tracing::debug!(
                         "Fulfilling requests {:?} with submitting root and price and fulfill",
                         request_ids
                     );
-                    self.submit_root_and_price_fulfill(
-                        root,
-                        unlocked_requests,
-                        fulfillments,
-                        assessor_receipt,
-                    )
-                    .await
+                    self.submit_root_and_price_fulfill(root, request_batches, fulfillment_batches)
+                        .await
                 }
                 (true, true) => {
                     tracing::debug!("Fulfilling requests {:?} with submitting root and price and fulfill and withdraw", request_ids);
                     self.submit_root_and_price_fulfill_and_withdraw(
                         root,
-                        unlocked_requests,
-                        fulfillments,
-                        assessor_receipt,
+                        request_batches,
+                        fulfillment_batches,
                     )
                     .await
                 }
@@ -872,19 +1000,17 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// See [BoundlessMarketService::fulfill] for more details.
     async fn _fulfill(
         &self,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
-        let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
-        tracing::trace!("Calling fulfill({fulfillments:?}, {assessor_fill:?})");
-        let call = self.instance.fulfill(fulfillments, assessor_fill).from(self.caller);
+        tracing::trace!("Calling fulfill({fulfillment_batches:?})");
+        let call = self.instance.fulfill(fulfillment_batches).from(self.caller);
         tracing::trace!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
-        tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
+        tracing::info!("Submitted proof for batch: {}", receipt.transaction_hash);
 
         validate_fulfill_receipt(receipt)
     }
@@ -894,19 +1020,17 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// See [BoundlessMarketService::fulfill] for more details.
     async fn fulfill_and_withdraw(
         &self,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
-        let fill_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
-        tracing::trace!("Calling fulfillAndWithdraw({fulfillments:?}, {assessor_fill:?})");
-        let call = self.instance.fulfillAndWithdraw(fulfillments, assessor_fill).from(self.caller);
+        tracing::trace!("Calling fulfillAndWithdraw({fulfillment_batches:?})");
+        let call = self.instance.fulfillAndWithdraw(fulfillment_batches).from(self.caller);
         tracing::trace!("Calldata: {:x}", call.calldata());
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
 
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
 
-        tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
+        tracing::info!("Submitted proof for batch: {}", receipt.transaction_hash);
 
         validate_fulfill_receipt(receipt)
     }
@@ -916,23 +1040,16 @@ impl<P: Provider> BoundlessMarketService<P> {
     async fn submit_root_and_fulfill(
         &self,
         root: Root,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
         tracing::trace!(
-            "Calling submitRootAndFulfill({:?}, {:x}, {fulfillments:?}, {assessor_fill:?})",
+            "Calling submitRootAndFulfill({:?}, {:x}, {fulfillment_batches:?})",
             root.root,
             root.seal
         );
         let call = self
             .instance
-            .submitRootAndFulfill(
-                root.verifier_address,
-                root.root,
-                root.seal,
-                fulfillments,
-                assessor_fill,
-            )
+            .submitRootAndFulfill(root.verifier_address, root.root, root.seal, fulfillment_batches)
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
         let pending_tx = call.send().await?;
@@ -949,18 +1066,20 @@ impl<P: Provider> BoundlessMarketService<P> {
     async fn submit_root_and_fulfill_and_withdraw(
         &self,
         root: Root,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
-        tracing::trace!("Calling submitRootAndFulfillAndWithdraw({:?}, {:x}, {fulfillments:?}, {assessor_fill:?})", root.root, root.seal);
+        tracing::trace!(
+            "Calling submitRootAndFulfillAndWithdraw({:?}, {:x}, {fulfillment_batches:?})",
+            root.root,
+            root.seal
+        );
         let call = self
             .instance
             .submitRootAndFulfillAndWithdraw(
                 root.verifier_address,
                 root.root,
                 root.seal,
-                fulfillments,
-                assessor_fill,
+                fulfillment_batches,
             )
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
@@ -978,18 +1097,12 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     async fn price_and_fulfill(
         &self,
-        unlocked_requests: Vec<UnlockedRequest>,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        request_batches: Vec<ProofRequestBatch>,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
-        tracing::trace!("Calling priceAndFulfill({fulfillments:?}, {assessor_fill:?})");
-
-        let (requests, client_sigs): (Vec<_>, Vec<_>) =
-            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
-        let call = self
-            .instance
-            .priceAndFulfill(requests, client_sigs, fulfillments, assessor_fill)
-            .from(self.caller);
+        tracing::trace!("Calling priceAndFulfill({request_batches:?}, {fulfillment_batches:?})");
+        let call =
+            self.instance.priceAndFulfill(request_batches, fulfillment_batches).from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
 
         let pending_tx = call.send().await?;
@@ -1007,17 +1120,15 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
     async fn price_and_fulfill_and_withdraw(
         &self,
-        unlocked_requests: Vec<UnlockedRequest>,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        request_batches: Vec<ProofRequestBatch>,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
-        tracing::trace!("Calling priceAndFulfillAndWithdraw({fulfillments:?}, {assessor_fill:?})");
-
-        let (requests, client_sigs): (Vec<_>, Vec<_>) =
-            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
+        tracing::trace!(
+            "Calling priceAndFulfillAndWithdraw({request_batches:?}, {fulfillment_batches:?})"
+        );
         let call = self
             .instance
-            .priceAndFulfillAndWithdraw(requests, client_sigs, fulfillments, assessor_fill)
+            .priceAndFulfillAndWithdraw(request_batches, fulfillment_batches)
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
 
@@ -1036,23 +1147,18 @@ impl<P: Provider> BoundlessMarketService<P> {
     async fn submit_root_and_price_fulfill(
         &self,
         root: Root,
-        unlocked_requests: Vec<UnlockedRequest>,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        request_batches: Vec<ProofRequestBatch>,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
-        let (requests, client_sigs): (Vec<_>, Vec<_>) =
-            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
-        tracing::trace!("Calling submitRootAndPriceAndFulfill({:?}, {:x}, {:?}, {:?}, {fulfillments:?}, {assessor_fill:?})", root.root, root.seal, requests, client_sigs);
+        tracing::trace!("Calling submitRootAndPriceAndFulfill({:?}, {:x}, {request_batches:?}, {fulfillment_batches:?})", root.root, root.seal);
         let call = self
             .instance
             .submitRootAndPriceAndFulfill(
                 root.verifier_address,
                 root.root,
                 root.seal,
-                requests,
-                client_sigs,
-                fulfillments,
-                assessor_fill,
+                request_batches,
+                fulfillment_batches,
             )
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
@@ -1075,23 +1181,18 @@ impl<P: Provider> BoundlessMarketService<P> {
     async fn submit_root_and_price_fulfill_and_withdraw(
         &self,
         root: Root,
-        unlocked_requests: Vec<UnlockedRequest>,
-        fulfillments: Vec<Fulfillment>,
-        assessor_fill: AssessorReceipt,
+        request_batches: Vec<ProofRequestBatch>,
+        fulfillment_batches: Vec<FulfillmentBatch>,
     ) -> Result<(), MarketError> {
-        let (requests, client_sigs): (Vec<_>, Vec<_>) =
-            unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
-        tracing::trace!("Calling submitRootAndPriceAndFulfillAndWithdraw({:?}, {:x}, {:?}, {:?}, {fulfillments:?}, {assessor_fill:?})", root.root, root.seal, requests, client_sigs);
+        tracing::trace!("Calling submitRootAndPriceAndFulfillAndWithdraw({:?}, {:x}, {request_batches:?}, {fulfillment_batches:?})", root.root, root.seal);
         let call = self
             .instance
             .submitRootAndPriceAndFulfillAndWithdraw(
                 root.verifier_address,
                 root.root,
                 root.seal,
-                requests,
-                client_sigs,
-                fulfillments,
-                assessor_fill,
+                request_batches,
+                fulfillment_batches,
             )
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
@@ -1604,7 +1705,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
-    ) -> Result<Fulfillment, MarketError> {
+    ) -> Result<LegacyFulfillment, MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
@@ -1671,7 +1772,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         request_id: U256,
         retry_interval: Duration,
         expires_at: u64,
-    ) -> Result<Fulfillment, MarketError> {
+    ) -> Result<LegacyFulfillment, MarketError> {
         loop {
             let status = self.get_status(request_id, Some(expires_at)).await?;
             match status {
@@ -1745,15 +1846,6 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn request_id_from_rand(&self) -> Result<U256, MarketError> {
         let index = self.index_from_rand().await?;
         Ok(RequestId::u256(self.caller, index))
-    }
-
-    /// Returns the image ID and URL of the assessor guest.
-    pub async fn image_info(&self) -> Result<(B256, String)> {
-        tracing::trace!("Calling imageInfo()");
-        let (image_id, image_url) =
-            self.instance.imageInfo().call().await.context("call failed")?.into();
-
-        Ok((image_id, image_url))
     }
 
     /// Get the chain ID.
@@ -2166,24 +2258,39 @@ impl UnlockedRequest {
 pub struct FulfillmentTx {
     /// The parameters for submitting a Merkle Root
     pub root: Option<Root>,
-    /// The list of unlocked requests.
+    /// The list of unlocked requests to price in the same transaction.
     pub unlocked_requests: Vec<UnlockedRequest>,
-    /// The fulfillments to be submitted
+    /// The full requests being fulfilled, in the same order as `fulfillments`. Used to derive the
+    /// per-fill [SlimRequest] the market binds against the value stored at lock time.
+    pub fulfilled_requests: Vec<ProofRequest>,
+    /// The fulfillments to be submitted, paired with `fulfilled_requests` by index.
     pub fulfillments: Vec<Fulfillment>,
-    /// The assessor receipt
-    pub assessor_receipt: AssessorReceipt,
+    /// The router assessor seal: the 4-byte assessor selector followed by the inner assessor seal.
+    pub assessor_seal: Bytes,
+    /// The prover credited with (and slashable for) the fulfillments.
+    pub prover: Address,
     /// Whether to withdraw the fee
     pub withdraw: bool,
 }
 
 impl FulfillmentTx {
-    /// Creates a new instance of the `Fulfill` struct.
-    pub fn new(fulfillments: Vec<Fulfillment>, assessor_receipt: AssessorReceipt) -> Self {
+    /// Creates a new instance of the `FulfillmentTx` struct.
+    ///
+    /// `fulfilled_requests` and `fulfillments` must be the same length and ordered consistently:
+    /// `fulfillments[i]` is the fill for `fulfilled_requests[i]`.
+    pub fn new(
+        fulfilled_requests: Vec<ProofRequest>,
+        fulfillments: Vec<Fulfillment>,
+        assessor_seal: impl Into<Bytes>,
+        prover: impl Into<Address>,
+    ) -> Self {
         Self {
             root: None,
             unlocked_requests: Vec::new(),
+            fulfilled_requests,
             fulfillments,
-            assessor_receipt,
+            assessor_seal: assessor_seal.into(),
+            prover: prover.into(),
             withdraw: false,
         }
     }

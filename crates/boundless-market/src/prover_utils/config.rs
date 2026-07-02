@@ -110,7 +110,13 @@ pub mod defaults {
     }
 
     pub fn assessor_default_image_url() -> String {
-        "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin".to_string()
+        // The assessor guest currently deployed on-chain (image id
+        // 0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100): matches the market
+        // `imageInfo()` and the router R0 assessor adapter's pinned `ASSESSOR_IMAGE_ID`. The broker
+        // trusts this URL without verifying it against the chain so it must track the deployed
+        // assessor; in practice the R0 STARK assessor path is not exercised while the
+        // on-chain assessor is preferred.
+        "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq".to_string()
     }
 
     pub const fn max_fetch_retries() -> Option<u8> {
@@ -561,6 +567,13 @@ pub struct MarketConfig {
     /// This URL will be tried first before falling back to the contract URL
     #[serde(default = "defaults::set_builder_default_image_url")]
     pub set_builder_default_image_url: String,
+    /// The 4-byte BoundlessRouter assessor selector prepended to the assessor seal.
+    ///
+    /// Identifies which assessor adapter the router dispatches to. This is a per-deployment router
+    /// registration value and must match the deployed assessor entry; the default (all zeros) is
+    /// not a valid selector and must be overridden for fulfillment to succeed.
+    #[serde(default)]
+    pub assessor_selector: FixedBytes<4>,
     /// Maximum number of orders to concurrently work on pricing
     ///
     /// Used to limit pricing tasks spawned to prevent overwhelming the system
@@ -663,6 +676,7 @@ impl Default for MarketConfig {
             ipfs_gateway_fallback: defaults::ipfs_gateway(),
             assessor_default_image_url: defaults::assessor_default_image_url(),
             set_builder_default_image_url: defaults::set_builder_default_image_url(),
+            assessor_selector: FixedBytes::ZERO,
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),

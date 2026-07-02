@@ -14,10 +14,12 @@
 
 pragma solidity ^0.8.26;
 
-import {Fulfillment} from "./types/Fulfillment.sol";
-import {AssessorReceipt} from "./types/AssessorReceipt.sol";
+import {Fulfillment, LegacyFulfillment} from "./types/Fulfillment.sol";
 import {ProofRequest} from "./types/ProofRequest.sol";
 import {RequestId} from "./types/RequestId.sol";
+import {ProofRequestBatch} from "./types/ProofRequestBatch.sol";
+import {FulfillmentBatch} from "./types/FulfillmentBatch.sol";
+import {IBoundlessRouter} from "./router/interfaces/IBoundlessRouter.sol";
 
 interface IBoundlessMarket {
     /// @notice Event logged when a new proof request is submitted by a client.
@@ -44,10 +46,15 @@ interface IBoundlessMarket {
     /// @notice Event logged when a proof is delivered that satisfies the request's requirements.
     /// @dev It is possible for this event to be logged multiple times for a single request. The
     /// first event logged will always coincide with the `RequestFulfilled` event and the fulfilled flag on the request being set.
+    /// @dev Carries the legacy (pre-router) fulfillment shape, which still embeds `id`/`requestDigest`
+    /// inline. This keeps the event's ABI — and therefore its topic0 — identical to the pre-router
+    /// version, so clients that have not upgraded their SDK can still filter and decode it. The
+    /// current `Fulfillment` dropped those fields to save batch calldata; the market reconstructs
+    /// the legacy shape here from the request identity and the current fulfillment.
     /// @param requestId The ID of the request.
     /// @param prover The address of the prover delivering the proof.
-    /// @param fulfillment The fulfillment details.
-    event ProofDelivered(RequestId indexed requestId, address indexed prover, Fulfillment fulfillment);
+    /// @param fulfillment The fulfillment details (legacy shape).
+    event ProofDelivered(RequestId indexed requestId, address indexed prover, LegacyFulfillment fulfillment);
 
     /// Event when a prover is slashed is made to the market.
     /// @param requestId The ID of the request.
@@ -288,28 +295,18 @@ interface IBoundlessMarket {
         bytes calldata proverSignature
     ) external;
 
-    /// @notice Fulfills a batch of requests. See IBoundlessMarket.fulfill for more information.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function fulfill(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
+    /// @notice Fulfills one or more single-class fulfillment batches of requests.
+    /// @dev    Every request in each fulfillment batch must already be locked. Use
+    ///         `priceAndFulfill` for unlocked requests. Returns a flat array of
+    ///         per-fill `paymentError` blobs in document order (fulfillment batches in
+    ///         order, fills in order within each fulfillment batch).
+    function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) external returns (bytes[] memory paymentError);
+
+    /// @notice Fulfills fulfillment batches and withdraws the resulting balance for each
+    ///         fulfillment batch's prover. See `fulfill` for the locked-only requirement.
+    function fulfillAndWithdraw(FulfillmentBatch[] calldata fulfillmentBatches)
         external
         returns (bytes[] memory paymentError);
-
-    /// @notice Fulfills a batch of requests and withdraw from the prover balance. See IBoundlessMarket.fulfill for more information.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function fulfillAndWithdraw(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt)
-        external
-        returns (bytes[] memory paymentError);
-
-    /// @notice Verify the application and assessor receipts for the batch, ensuring that the provided
-    /// fulfillments satisfy the requests.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
-    function verifyDelivery(Fulfillment[] calldata fills, AssessorReceipt calldata assessorReceipt) external view;
 
     /// @notice Checks the validity of the request and then writes the current auction price to
     /// transient storage.
@@ -321,34 +318,19 @@ interface IBoundlessMarket {
     /// @param clientSignature The signature of the client.
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;
 
-    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfill`.
-    /// The caller should provide the signed request and signature for each unlocked request they
-    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
-    /// @param requests The array of proof requests.
-    /// @param clientSignatures The array of client signatures.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
+    /// @notice A combined call to `priceRequest` (per request) and `fulfill`.
+    ///         Each `ProofRequestBatch` carries the requests and matching
+    ///         client signatures that need pricing in this tx (typically the
+    ///         un-locked entries that the fulfillment batches will then settle).
     function priceAndFulfill(
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
-    /// @notice A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillAndWithdraw`.
-    /// The caller should provide the signed request and signature for each unlocked request they
-    /// want to fulfill. Payment for unlocked requests will go to the provided `prover` address.
-    /// @param requests The array of proof requests.
-    /// @param clientSignatures The array of client signatures.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
+    /// @notice A combined call to `priceRequest` (per request) and `fulfillAndWithdraw`.
     function priceAndFulfillAndWithdraw(
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
     /// @notice Submit a new root to a set-verifier.
@@ -358,72 +340,38 @@ interface IBoundlessMarket {
     /// @param seal The seal of the new merkle root.
     function submitRoot(address setVerifier, bytes32 root, bytes calldata seal) external;
 
-    /// @notice Combined function to submit a new root to a set-verifier and call fulfill.
-    /// @dev Useful to reduce the transaction count for fulfillments.
-    /// @param setVerifier The address of the set-verifier contract.
-    /// @param root The new merkle root.
-    /// @param seal The seal of the new merkle root.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
+    /// @notice Submit a set-verifier root and then call `fulfill` in one tx.
     function submitRootAndFulfill(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
-    /// @notice Combined function to submit a new root to a set-verifier and call fulfillAndWithdraw.
-    /// @dev Useful to reduce the transaction count for fulfillments.
-    /// @param setVerifier The address of the set-verifier contract.
-    /// @param root The new merkle root.
-    /// @param seal The seal of the new merkle root.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
+    /// @notice Submit a set-verifier root and then call `fulfillAndWithdraw` in one tx.
     function submitRootAndFulfillAndWithdraw(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
-    /// @notice Combined function to submit a new root to a set-verifier and call priceAndFulfill.
-    /// @dev Useful to reduce the transaction count for fulfillments.
-    /// @param setVerifier The address of the set-verifier contract.
-    /// @param root The new merkle root.
-    /// @param seal The seal of the new merkle root.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
+    /// @notice Submit a set-verifier root and then call `priceAndFulfill` in one tx.
     function submitRootAndPriceAndFulfill(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
-    /// @notice Combined function to submit a new root to a set-verifier and call priceAndFulfillAndWithdraw.
-    /// @dev Useful to reduce the transaction count for fulfillments.
-    /// @param setVerifier The address of the set-verifier contract.
-    /// @param root The new merkle root.
-    /// @param seal The seal of the new merkle root.
-    /// @param fills The array of fulfillment information.
-    /// @param assessorReceipt The Assessor's guest fulfillment information verified to confirm the
-    /// request's requirements are met.
+    /// @notice Submit a set-verifier root and then call `priceAndFulfillAndWithdraw` in one tx.
     function submitRootAndPriceAndFulfillAndWithdraw(
         address setVerifier,
         bytes32 root,
         bytes calldata seal,
-        ProofRequest[] calldata requests,
-        bytes[] calldata clientSignatures,
-        Fulfillment[] calldata fills,
-        AssessorReceipt calldata assessorReceipt
+        ProofRequestBatch[] calldata requestBatches,
+        FulfillmentBatch[] calldata fulfillmentBatches
     ) external returns (bytes[] memory paymentError);
 
     /// @notice When a prover fails to fulfill a request by the deadline, this method can be used to burn
@@ -437,11 +385,11 @@ interface IBoundlessMarket {
     /// @return The EIP 712 domain separator.
     function eip712DomainSeparator() external view returns (bytes32);
 
-    /// @notice Returns the assessor imageId and its url.
-    /// @return The imageId and its url.
-    function imageInfo() external view returns (bytes32, string memory);
-
     /// Returns the address of the token used for collateral deposits.
     // forge-lint: disable-next-item(mixed-case-function)
     function COLLATERAL_TOKEN_CONTRACT() external view returns (address);
+
+    /// Returns the BoundlessRouter that owns verification dispatch.
+    // forge-lint: disable-next-item(mixed-case-function)
+    function ROUTER() external view returns (IBoundlessRouter);
 }

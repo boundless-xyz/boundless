@@ -76,6 +76,34 @@ jobs:
       - name: Ensure gas snapshots have been updated. TODO Fix this. Snapshot checks are currently disabled as they don't match in CI.
         run: FORGE_SNAPSHOT_CHECK=false forge test --isolate
 
+  legacy-bytecode-parity:
+    runs-on: ubuntu-latest
+    needs: contracts-changed
+    if: needs.contracts-changed.outputs.src == 'true' ||
+        needs.contracts-changed.outputs.foundry == 'true' ||
+        needs.contracts-changed.outputs.test == 'true' ||
+        needs.contracts-changed.outputs.scripts == 'true' ||
+        needs.contracts-changed.outputs.ci == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: forge build
+        run: forge build --silent
+
+      - name: Verify legacy/ bytecode matches deployed OLD impl
+        run: python3 contracts/scripts/verify-legacy-bytecode.py
+
+      - name: Verify storage layout interop between src/ and src/legacy/
+        run: python3 contracts/scripts/verify-storage-layout.py
+
   upgradability:
     runs-on: ubuntu-latest
     needs: contracts-changed
@@ -228,12 +256,15 @@ jobs:
           ref: main
           submodules: recursive
 
+      # Restore/save are split deliberately: a unified actions/cache saves at job end, by which
+      # time the workspace holds the PR branch — caching the PR's build-info under the main key
+      # and poisoning the upgrade-safety reference for every later run.
       - name: Cache forge build (main)
         id: forge-main-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: contracts/out/build-info
-          key: forge-main-buildinfo-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
+          key: forge-main-buildinfo-v2-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
 
       - name: Forge build on main branch
         if: steps.forge-main-cache.outputs.cache-hit != 'true'
@@ -241,6 +272,13 @@ jobs:
         env:
           FOUNDRY_PROFILE: reference-contract
           FOUNDRY_OUT: contracts/out
+
+      - name: Save main build-info cache
+        if: steps.forge-main-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: contracts/out/build-info
+          key: forge-main-buildinfo-v2-${{ hashFiles('contracts/src/**', 'foundry.toml') }}
 
       - name: Save main build-info
         run: |
@@ -301,6 +339,10 @@ jobs:
           DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          # Non-functional stub: the new ABI must never route through the legacy
+          # fallback, so DeploymentTest runs against a dead delegate target. Any
+          # accidental legacy-path call hits this address and fails to return.
+          BOUNDLESS_LEGACY_IMPL: "0xdededededededededededededededededededede"
 
       - name: forge test after new deployment
         env:
@@ -320,6 +362,9 @@ jobs:
           DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
           ADMIN_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          # Keep the same stub as the deploy step so the upgraded impl also points
+          # its legacy fallback at a dead target (overrides the in-market default).
+          BOUNDLESS_LEGACY_IMPL: "0xdededededededededededededededededededede"
 
       - name: forge test after upgrade
         env:

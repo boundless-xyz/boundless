@@ -804,20 +804,28 @@ async fn test_aggregation_percentiles(pool: sqlx::PgPool) {
         .map(|(req, sig, _)| (req.clone(), sig.as_bytes().to_vec().into()))
         .collect();
 
+    let prover_address = fixture.ctx.prover_market.caller();
     for chunk in fulfillment_requests.chunks(5) {
-        let (fill, root_receipt, assessor_receipt) = fixture.prover.fulfill(chunk).await.unwrap();
+        let (fills, root_receipt, assessor_seal) = fixture.prover.fulfill(chunk).await.unwrap();
+        let requests: Vec<ProofRequest> = chunk.iter().map(|(req, _)| req.clone()).collect();
         let order_fulfilled =
-            OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+            OrderFulfilled::new(&requests, fills, assessor_seal, prover_address, root_receipt)
+                .unwrap();
         fixture
             .ctx
             .prover_market
             .fulfill(
-                FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
-                    .with_submit_root(
-                        fixture.ctx.deployment.set_verifier_address,
-                        order_fulfilled.root,
-                        order_fulfilled.seal,
-                    ),
+                FulfillmentTx::new(
+                    requests,
+                    order_fulfilled.fulfillmentBatch.fills,
+                    order_fulfilled.fulfillmentBatch.assessorSeal,
+                    prover_address,
+                )
+                .with_submit_root(
+                    fixture.ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
             )
             .await
             .unwrap();
@@ -1879,20 +1887,27 @@ async fn test_request_status_lock_expired_then_slashed(pool: sqlx::PgPool) {
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Fulfill request (late fulfillment)
-    let (fill, root_receipt, assessor_receipt) =
-        fixture.prover.fulfill(&[(req.clone(), sig_bytes.clone())]).await.unwrap();
+    let prover_address = fixture.ctx.prover_market.caller();
+    let orders = [(req.clone(), sig_bytes.clone())];
+    let (fills, root_receipt, assessor_seal) = fixture.prover.fulfill(&orders).await.unwrap();
+    let requests: Vec<ProofRequest> = orders.iter().map(|(req, _)| req.clone()).collect();
     let order_fulfilled =
-        OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+        OrderFulfilled::new(&requests, fills, assessor_seal, prover_address, root_receipt).unwrap();
     fixture
         .ctx
         .prover_market
         .fulfill(
-            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
-                .with_submit_root(
-                    fixture.ctx.deployment.set_verifier_address,
-                    order_fulfilled.root,
-                    order_fulfilled.seal,
-                ),
+            FulfillmentTx::new(
+                requests,
+                order_fulfilled.fulfillmentBatch.fills,
+                order_fulfilled.fulfillmentBatch.assessorSeal,
+                prover_address,
+            )
+            .with_submit_root(
+                fixture.ctx.deployment.set_verifier_address,
+                order_fulfilled.root,
+                order_fulfilled.seal,
+            ),
         )
         .await
         .unwrap();

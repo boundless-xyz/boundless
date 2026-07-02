@@ -260,6 +260,9 @@ pub enum VerifierUpdate {
 
 pub struct OrderFulfillmentArtifact {
     pub order_id: String,
+    /// The full request being fulfilled. The broker derives the on-chain `SlimRequest` from this
+    /// and keys order tracking on its id (the `Fulfillment` no longer carries the request id).
+    pub request: ProofRequest,
     pub fulfillment: MarketFulfillment,
 }
 
@@ -389,6 +392,25 @@ pub trait Backend: Send + Sync {
     fn supported_selectors(&self) -> Vec<FixedBytes<4>>;
 
     fn proof_type(&self, selector: FixedBytes<4>) -> Option<ProofType>;
+
+    /// The assessor grouping key for an order with this signed verifier selector: orders that
+    /// return the same key may share a batch, since a batch carries a single assessor seal and
+    /// must therefore be single assessor class. `Ok(None)` means the backend does not distinguish
+    /// assessor classes, so all of its orders may batch together. `Err` means the backend groups
+    /// but cannot resolve this order (e.g. no supported assessor is registered for its verifier
+    /// class) — such an order can never be sealed and must not be batched.
+    fn assessor_group(&self, selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>>;
+
+    /// Estimated on-chain gas to fulfill `request` via the path and assessor this backend would
+    /// actually use, resolved from its router policy. Excludes journal calldata (added separately,
+    /// selector-agnostically, during pricing) and lock gas. Required: every backend models its own
+    /// cost — there is no safe default.
+    fn fulfillment_gas(&self, request: &ProofRequest) -> Result<u64>;
+
+    /// Extra proving cycles beyond the order's own guest cycles for the path this backend would
+    /// take to fulfill `request` (direct groth16 → its groth16 wrap only; batched → assessor STARK
+    /// + set builder). Required: every backend models its own cost — there is no safe default.
+    fn additional_proof_cycles(&self, request: &ProofRequest) -> Result<u64>;
 
     async fn evaluate_request(
         &self,

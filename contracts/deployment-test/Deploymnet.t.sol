@@ -10,11 +10,19 @@ import {Vm} from "forge-std/Vm.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
+import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 
+// The deployment-test exercises the deployed market via its current ABI:
+// requests are fulfilled through the new batched fulfill path on the new
+// BoundlessMarket, so all struct + interface imports come from
+// contracts/src/. The legacy ABI served via the fallback is not exercised
+// here; in this deployment the legacy impl is a non-functional stub that
+// the new path never invokes.
 import {IBoundlessMarket} from "../src/IBoundlessMarket.sol";
-import {AssessorReceipt} from "../src/types/AssessorReceipt.sol";
 import {Callback} from "../src/types/Callback.sol";
-import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {Fulfillment, LegacyFulfillment} from "../src/types/Fulfillment.sol";
+import {FulfillmentBatch} from "../src/types/FulfillmentBatch.sol";
+import {ProofRequestBatch} from "../src/types/ProofRequestBatch.sol";
 import {Input, InputType} from "../src/types/Input.sol";
 import {Requirements} from "../src/types/Requirements.sol";
 import {Offer} from "../src/types/Offer.sol";
@@ -51,10 +59,8 @@ contract DeploymentTest is Test {
         bytes32 root;
         /// The seal of the root.
         bytes seal;
-        /// The fulfillments of the order.
-        Fulfillment[] fills;
-        /// The fulfillment of the assessor.
-        AssessorReceipt assessorReceipt;
+        /// The batched fulfillment to submit.
+        FulfillmentBatch fulfillmentBatch;
     }
 
     // Creates a client account with the given index, gives it some Ether, and deposits from Ether in the market.
@@ -101,9 +107,10 @@ contract DeploymentTest is Test {
     function testRouterIsDeployed() external view {
         require(address(verifier) != address(0), "no verifier (router) address is set");
         require(keccak256(address(verifier).code) != keccak256(bytes("")), "verifier code is empty");
+        require(deployment.boundlessRouter != address(0), "no boundless router address is set");
         require(
-            address(verifier) == address(BoundlessMarket(address(boundlessMarket)).VERIFIER()),
-            "verifier address does not match boundless market"
+            deployment.boundlessRouter == address(BoundlessMarket(payable(address(boundlessMarket))).ROUTER()),
+            "boundless router address does not match boundless market"
         );
     }
 
@@ -121,32 +128,33 @@ contract DeploymentTest is Test {
         require(address(stakeToken) != address(0), "no collateral token address is set");
         require(keccak256(address(stakeToken).code) != keccak256(bytes("")), "collateral token code is empty");
         require(
-            address(stakeToken) == BoundlessMarket(address(boundlessMarket)).COLLATERAL_TOKEN_CONTRACT(),
+            address(stakeToken) == BoundlessMarket(payable(address(boundlessMarket))).COLLATERAL_TOKEN_CONTRACT(),
             "collateral token address does not match boundless market"
         );
     }
 
     function testBoundlessMarketOwner() external view {
         require(
-            BoundlessMarket(address(boundlessMarket)).hasRole(BoundlessMarket(address(boundlessMarket)).ADMIN_ROLE(), deployment.admin2),
+            BoundlessMarket(payable(address(boundlessMarket)))
+                .hasRole(BoundlessMarket(payable(address(boundlessMarket))).ADMIN_ROLE(), deployment.admin2),
             "boundless market admin role does not match admin"
         );
     }
 
     function testAssessorInfo() external view {
-        (bytes32 assessorImageId, string memory assessorGuestUrl) = boundlessMarket.imageInfo();
-        require(deployment.assessorImageId == assessorImageId, "assessor image ID does not match");
-        require(
-            keccak256(abi.encode(deployment.assessorGuestUrl)) == keccak256(abi.encode(assessorGuestUrl)),
-            "assessor guest URL does not match"
-        );
+        // The market no longer exposes imageInfo(); the assessor image id/url and the router
+        // assessor selector live in the deployment config (the adapter is registered in the router).
+        require(deployment.assessorImageId != bytes32(0), "no assessor image ID is set");
+        require(bytes(deployment.assessorGuestUrl).length != 0, "no assessor guest URL is set");
+        require(deployment.r0AssessorSelector != bytes4(0), "no R0 assessor selector is set");
     }
 
     function testPriceAndFulfillWithSelector() external {
-        // Test with a selector that matches the default requirements.
-        // 0xbb001d44 is the selector for ZKVM_V2.2, update when necessary
-        bytes memory selector = VM.envBytes("SELECTOR");
-        _testPriceAndFulfillWithSelector(bytes4(selector));
+        // The fulfillment seal is a set-inclusion seal, so it leads with the set
+        // verifier's selector. Sign that exact selector: the router resolves the
+        // verifier entry from the seal's leading bytes4 and requires the signed
+        // selector to match the entry, its class, or the chain default.
+        _testPriceAndFulfillWithSelector(IRiscZeroSelectable(address(setVerifier)).SELECTOR());
     }
 
     function _testPriceAndFulfillWithSelector(bytes4 selector) internal {
@@ -161,15 +169,17 @@ contract DeploymentTest is Test {
         clientSignatures[0] = client.sign(request);
 
         (, string memory setBuilderUrl) = setVerifier.imageInfo();
-        (, string memory assessorUrl) = boundlessMarket.imageInfo();
+        string memory assessorUrl = deployment.assessorGuestUrl;
 
-        string[] memory argv = new string[](15);
+        string[] memory argv = new string[](17);
         uint256 i = 0;
         argv[i++] = "boundless-ffi";
         argv[i++] = "--set-builder-url";
         argv[i++] = setBuilderUrl;
         argv[i++] = "--assessor-url";
         argv[i++] = assessorUrl;
+        argv[i++] = "--assessor-selector";
+        argv[i++] = vm.toString(abi.encodePacked(deployment.r0AssessorSelector));
         argv[i++] = "--boundless-market-address";
         argv[i++] = vm.toString(address(boundlessMarket));
         argv[i++] = "--chain-id";
@@ -185,14 +195,37 @@ contract DeploymentTest is Test {
 
         setVerifier.submitMerkleRoot(result.root, result.seal);
 
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), result.fills[0].requestDigest);
-        vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.ProofDelivered(request.id, address(testProver), result.fills[0]);
+        // The market reconstructs and emits the domain-bound request digest from the SlimRequest.
+        bytes32 requestDigest = MessageHashUtils.toTypedDataHash(
+            BoundlessMarket(payable(address(boundlessMarket))).eip712DomainSeparator(), request.eip712Digest()
+        );
 
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, result.fills, result.assessorReceipt);
-        Fulfillment memory fill = result.fills[0];
-        assertTrue(boundlessMarket.requestIsFulfilled(fill.id), "Request should have fulfilled status");
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), requestDigest);
+        // ProofDelivered carries the legacy fulfillment shape (id/requestDigest inline) for
+        // pre-router client compatibility; reconstruct it from the request identity and the fill.
+        Fulfillment memory fill = result.fulfillmentBatch.fills[0];
+        vm.expectEmit(true, true, true, false);
+        emit IBoundlessMarket.ProofDelivered(
+            request.id,
+            address(testProver),
+            LegacyFulfillment({
+                id: request.id,
+                requestDigest: requestDigest,
+                claimDigest: fill.claimDigest,
+                fulfillmentDataType: fill.fulfillmentDataType,
+                fulfillmentData: fill.fulfillmentData,
+                seal: fill.seal
+            })
+        );
+
+        ProofRequestBatch[] memory requestBatches = new ProofRequestBatch[](1);
+        requestBatches[0] = ProofRequestBatch({requests: requests, signatures: clientSignatures});
+        FulfillmentBatch[] memory fulfillmentBatches = new FulfillmentBatch[](1);
+        fulfillmentBatches[0] = result.fulfillmentBatch;
+        boundlessMarket.priceAndFulfill(requestBatches, fulfillmentBatches);
+
+        assertTrue(boundlessMarket.requestIsFulfilled(request.id), "Request should have fulfilled status");
     }
 }
 

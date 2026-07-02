@@ -14,10 +14,12 @@ import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {Blake3Groth16Verifier} from "../src/blake3-groth16/Blake3Groth16Verifier.sol";
+import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 
@@ -134,26 +136,45 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         }
 
         bool deployedNewCollateralToken;
-        if (deploymentConfig.collateralToken == address(0) || deploymentConfig.collateralToken.code.length == 0) {
+        if (isReusableCollateralToken(deploymentConfig.collateralToken)) {
+            stakeToken = deploymentConfig.collateralToken;
+            console2.log("Using collateral token deployed at", stakeToken);
+        } else {
             // Deploy the HitPoints contract
             stakeToken = address(new HitPoints(boundlessMarketOwner));
             HitPoints(stakeToken).grantMinterRole(boundlessMarketOwner);
             console2.log("Deployed HitPoints collateral token to", stakeToken);
             deployedNewCollateralToken = true;
-        } else {
-            stakeToken = deploymentConfig.collateralToken;
-            console2.log("Using collateral token deployed at", stakeToken);
         }
 
-        // Deploy the Boundless market
+        // Deploy the Boundless market. The market dispatches verification via the
+        // BoundlessRouter, read from the deployment config (the BOUNDLESS_ROUTER env
+        // var overrides it, e.g. when the router is deployed in the same run).
+        address boundlessRouter = vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter);
+        require(boundlessRouter != address(0), "boundless router must be set in deployment.toml or BOUNDLESS_ROUTER");
+
+        // Resolve the legacy impl (delegate-call target for the legacy ABI).
+        // Production deployments set BOUNDLESS_LEGACY_IMPL to the impl pointed
+        // to by the proxy before the upgrade (audited bytecode, already on
+        // chain). When the env var is unset — dev / localnet / fresh networks
+        // — deploy a fresh legacy impl from contracts/src/legacy/ wired to the
+        // same verifier and collateral token the new market is about to use.
+        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", address(0));
+        if (legacyImpl == address(0)) {
+            legacyImpl = address(
+                new BoundlessMarketLegacy(verifier, applicationVerifier, assessorImageId, bytes32(0), 0, stakeToken)
+            );
+            console2.log("Deployed legacy BoundlessMarket implementation to", legacyImpl);
+        } else {
+            console2.log("Using BOUNDLESS_LEGACY_IMPL from env:", legacyImpl);
+        }
         bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
-        address newImplementation = address(
-            new BoundlessMarket{salt: salt}(verifier, applicationVerifier, assessorImageId, bytes32(0), 0, stakeToken)
-        );
+        address newImplementation =
+            address(new BoundlessMarket{salt: salt}(BoundlessRouter(boundlessRouter), stakeToken, legacyImpl));
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
-                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner, assessorGuestUrl))
+                newImplementation, abi.encodeCall(BoundlessMarket.initialize, (boundlessMarketOwner))
             )
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
@@ -164,6 +185,12 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
                 "Granted AUTHORIZED_TRANSFER role to BoundlessMarket on HitPoints collateral token", stakeToken
             );
         }
+
+        // Carry the legacy assessor guest URL onto the fresh proxy so old brokers — which
+        // fetch the assessor guest from `imageInfo()` — keep working. Read from the market
+        // this deployment replaces (deployment.toml's boundless-market; LEGACY_MARKET
+        // overrides the address, LEGACY_ASSESSOR_GUEST_URL overrides the URL outright).
+        ensureLegacyImageUrl(boundlessMarketAddress, resolveLegacyImageUrl(deploymentConfig.boundlessMarket));
 
         vm.stopBroadcast();
 
@@ -196,6 +223,21 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
 
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Deployment");
+    }
+
+    /// @notice Whether the configured collateral token can be reused. Deploy runs write the
+    ///         deployed address back into deployment.toml, so on a *fresh* chain the configured
+    ///         address is stale — and because deploys are deterministic, a different contract
+    ///         (not a token) usually occupies it. Code existence alone is therefore not enough:
+    ///         probe an ERC20 view to check the contract actually behaves like a token, so a
+    ///         stale address self-heals into a fresh HitPoints deployment instead of producing
+    ///         a market whose collateral token cannot be minted or deposited.
+    function isReusableCollateralToken(address token) internal view returns (bool) {
+        if (token == address(0) || token.code.length == 0) {
+            return false;
+        }
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSignature("balanceOf(address)", address(0)));
+        return ok && data.length == 32;
     }
 
     /// @notice Deploy either a test or fully verifying `Blake3Groth16Verifier` depending on `devMode()`.

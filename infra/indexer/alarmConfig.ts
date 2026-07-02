@@ -9,6 +9,8 @@ type ChainStageAlarms = {
 type AlarmConfig = {
   severity: Severity;
   description?: string;
+  /** When false, suppress the automatic Ops Query investigation (default: on). */
+  autoInvestigate?: boolean;
   metricConfig: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric> & {
     period: number;
   };
@@ -89,6 +91,7 @@ export const alarmConfig: ChainStageAlarms = {
           expiredRequests: [{
             description: "greater than or equal to 3 expired orders for two consecutive hours from og_offchain",
             severity: Severity.SEV2,
+            autoInvestigate: false,
             metricConfig: {
               period: 3600,
             },
@@ -176,6 +179,7 @@ export const alarmConfig: ChainStageAlarms = {
           expiredRequests: [{
             description: "greater than or equal to 50 expired orders over 6 hours from og_onchain",
             severity: Severity.SEV2,
+            autoInvestigate: false,
             metricConfig: {
               period: 21600,
             },
@@ -231,6 +235,7 @@ export const alarmConfig: ChainStageAlarms = {
         expiredRequests: [{
           description: "greater than 15 expired orders in 60 minutes",
           severity: Severity.SEV2,
+          autoInvestigate: false,
           metricConfig: {
             period: 3600,
           },

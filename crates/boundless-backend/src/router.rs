@@ -19,6 +19,7 @@ use std::{
 
 use alloy::primitives::FixedBytes;
 use anyhow::{Context, Result};
+use boundless_market::contracts::ProofRequest;
 use boundless_market::prover_utils::{
     EvaluationLimits, EvaluationRequest, OrderPricingError, RequestEvaluation,
 };
@@ -112,6 +113,32 @@ impl BackendRouter {
         let mut ids: Vec<_> = self.backends.keys().cloned().collect();
         ids.sort();
         ids
+    }
+
+    /// The assessor grouping key a backend assigns to an order with this signed verifier selector.
+    /// Orders under the same backend that share this key may co-batch (see [`Backend::assessor_group`]).
+    ///
+    /// Resolved through the backend because the key is backend policy, not an on-chain fact: it
+    /// depends on the backend's router snapshot and its assessor candidates/priority, and it must
+    /// agree with the assessor the same backend later seals the batch with in `build_fulfillments`.
+    pub fn assessor_group(
+        &self,
+        backend_id: &BackendId,
+        selector: FixedBytes<4>,
+    ) -> Result<Option<FixedBytes<4>>> {
+        self.backend_for_id(backend_id)?.assessor_group(selector)
+    }
+
+    /// Estimated on-chain gas to fulfill `request`, resolved through the backend that serves its
+    /// selector (see [`Backend::fulfillment_gas`]). Excludes journal calldata and lock gas.
+    pub fn fulfillment_gas(&self, request: &ProofRequest) -> Result<u64> {
+        self.backend_for_selector(request.requirements.selector)?.fulfillment_gas(request)
+    }
+
+    /// Extra proving cycles beyond the order's own guest cycles for `request`'s fulfillment path,
+    /// resolved through the backend that serves its selector (see [`Backend::additional_proof_cycles`]).
+    pub fn additional_proof_cycles(&self, request: &ProofRequest) -> Result<u64> {
+        self.backend_for_selector(request.requirements.selector)?.additional_proof_cycles(request)
     }
 
     pub async fn evaluate_request(
@@ -362,6 +389,18 @@ mod tests {
             self.proof_types.get(&selector).copied()
         }
 
+        fn assessor_group(&self, _selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>> {
+            Ok(None)
+        }
+
+        fn fulfillment_gas(&self, _request: &ProofRequest) -> Result<u64> {
+            Ok(500_000)
+        }
+
+        fn additional_proof_cycles(&self, _request: &ProofRequest) -> Result<u64> {
+            Ok(2_000_000 + 270_000)
+        }
+
         async fn evaluate_request(
             &self,
             _request: EvaluationRequest,
@@ -400,9 +439,8 @@ mod tests {
                     .into_iter()
                     .map(|order| OrderFulfillmentArtifact {
                         order_id: order.order_id,
+                        request: order.request,
                         fulfillment: MarketFulfillment {
-                            id: alloy::primitives::U256::ZERO,
-                            requestDigest: Default::default(),
                             fulfillmentData: Default::default(),
                             fulfillmentDataType: FulfillmentDataType::None,
                             claimDigest: Default::default(),
@@ -493,6 +531,23 @@ mod tests {
                 compressed: false,
             })
         );
+    }
+
+    #[test]
+    fn router_forwards_cost_queries_to_serving_backend() {
+        let backend = Arc::new(MockBackend::new("mock_a", vec![selector(1)]));
+        let router =
+            BackendRouter::new().register_backend(BackendEntry::new(backend.clone())).unwrap();
+
+        // Cost queries route to the backend that serves the request's selector, which here uses
+        // the `Backend` trait defaults (real backends resolve per-path via their router policy).
+        let request = test_request(selector(1));
+        assert_eq!(router.fulfillment_gas(&request).unwrap(), 500_000);
+        assert_eq!(router.additional_proof_cycles(&request).unwrap(), 2_000_000 + 270_000);
+
+        // A selector no backend serves is an error, not a silent default.
+        assert!(router.fulfillment_gas(&test_request(selector(9))).is_err());
+        assert!(router.additional_proof_cycles(&test_request(selector(9))).is_err());
     }
 
     #[tokio::test]

@@ -163,14 +163,14 @@ EOF
 
         # Run forge via fireblocks
         fireblocks-json-rpc --verbose --rpcUrl ${RPC_URL:?} --http --apiKey ${FIREBLOCKS_API_KEY:?} -- \
-            forge script ${FORGE_SCRIPT_FLAGS} \
+            forge script "${FORGE_SCRIPT_FLAGS[@]}" \
             --slow --unlocked \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url {} \
             "$target" "$@"
     else
         # Run forge
-        forge script ${FORGE_SCRIPT_FLAGS} \
+        forge script "${FORGE_SCRIPT_FLAGS[@]}" \
             --private-key=${DEPLOYER_PRIVATE_KEY:?} \
             --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
             --rpc-url ${RPC_URL:?} \

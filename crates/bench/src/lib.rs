@@ -498,7 +498,10 @@ mod tests {
         providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
     };
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
+    use boundless_test_utils::{
+        guests::{ASSESSOR_GUEST_PATH, LOOP_PATH, SET_BUILDER_PATH},
+        market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
+    };
     use broker::{
         broker_sqlite_url_for_chain,
         config::{Config, ConfigWatcher},
@@ -568,6 +571,14 @@ mod tests {
     async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) -> NamedTempFile {
         let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
         let mut config = Config::default();
+        // Prove with the locally-built guests so their image ids match the ones the test harness
+        // deploys (the BoundlessRouter assessor adapter verifies against the local ASSESSOR_GUEST_ID);
+        // otherwise the broker would fetch the remote guests and fail set verification.
+        config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
+        config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
+        // The router rejects a zero assessor selector (ZeroSelectorReserved); use the same selector
+        // the test harness registers the assessor adapter under.
+        config.market.assessor_selector = ASSESSOR_R0_SELECTOR;
         if !is_dev_mode() {
             config.prover.bonsai_r0_zkvm_ver = Some(risc0_zkvm::VERSION.to_string());
         }

@@ -23,7 +23,7 @@ use super::DbError;
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorReceipt, Fulfillment, FulfillmentDataType, Predicate, PredicateType, ProofRequest,
+    FulfillmentDataType, LegacyFulfillment, Predicate, PredicateType, ProofRequest,
     RequestInputType,
 };
 use log::LevelFilter;
@@ -661,14 +661,9 @@ pub trait IndexerDb {
         request_ids: &[U256],
     ) -> Result<HashMap<U256, Vec<B256>>, DbError>;
 
-    async fn add_assessor_receipts(
-        &self,
-        receipts: &[(AssessorReceipt, TxMetadata)],
-    ) -> Result<(), DbError>;
-
     async fn add_proofs(
         &self,
-        proofs: &[(Fulfillment, Address, TxMetadata)],
+        proofs: &[(LegacyFulfillment, Address, TxMetadata)],
     ) -> Result<(), DbError>;
 
     async fn get_last_order_stream_timestamp(
@@ -1598,86 +1593,9 @@ impl IndexerDb for MarketDb {
         Ok(())
     }
 
-    async fn add_assessor_receipts(
-        &self,
-        receipts: &[(AssessorReceipt, TxMetadata)],
-    ) -> Result<(), DbError> {
-        if receipts.is_empty() {
-            return Ok(());
-        }
-
-        // First, batch insert unique transactions
-        let unique_txs: Vec<TxMetadata> = receipts
-            .iter()
-            .map(|(_, metadata)| *metadata)
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-
-        self.add_txs(&unique_txs).await?;
-
-        // Then batch insert assessor receipts in chunks
-        let mut tx = self.pool.begin().await?;
-
-        const BATCH_SIZE: usize = 1000;
-        for chunk in receipts.chunks(BATCH_SIZE) {
-            if chunk.is_empty() {
-                continue;
-            }
-
-            let mut query = String::from(
-                "INSERT INTO assessor_receipts (
-                    tx_hash,
-                    prover_address,
-                    seal,
-                    block_number,
-                    block_timestamp
-                ) VALUES ",
-            );
-
-            let mut params_count = 0;
-            for i in 0..chunk.len() {
-                if i > 0 {
-                    query.push_str(", ");
-                }
-                query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${})",
-                    params_count + 1,
-                    params_count + 2,
-                    params_count + 3,
-                    params_count + 4,
-                    params_count + 5
-                ));
-                params_count += 5;
-            }
-            query.push_str(
-                " ON CONFLICT (tx_hash) DO UPDATE SET
-                    prover_address = EXCLUDED.prover_address,
-                    seal = EXCLUDED.seal,
-                    block_number = EXCLUDED.block_number,
-                    block_timestamp = EXCLUDED.block_timestamp",
-            );
-
-            let mut query_builder = sqlx::query(&query);
-            for (receipt, metadata) in chunk {
-                query_builder = query_builder
-                    .bind(format!("{:x}", metadata.tx_hash))
-                    .bind(format!("{:x}", receipt.prover))
-                    .bind(format!("{:x}", receipt.seal))
-                    .bind(metadata.block_number as i64)
-                    .bind(metadata.block_timestamp as i64);
-            }
-
-            query_builder.execute(&mut *tx).await?;
-        }
-
-        tx.commit().await?;
-        Ok(())
-    }
-
     async fn add_proofs(
         &self,
-        proofs: &[(Fulfillment, Address, TxMetadata)],
+        proofs: &[(LegacyFulfillment, Address, TxMetadata)],
     ) -> Result<(), DbError> {
         if proofs.is_empty() {
             return Ok(());
@@ -4707,8 +4625,8 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
-        AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
-        RequestId, RequestInput, Requirements,
+        FulfillmentDataType, LegacyFulfillment, Offer, Predicate, ProofRequest, RequestId,
+        RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
     use tracing_test::traced_test;
@@ -4908,31 +4826,6 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn test_assessor_receipts(pool: sqlx::PgPool) {
-        let test_db = test_db(pool).await;
-        let db: DbObj = test_db.db;
-
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
-
-        let receipt = AssessorReceipt {
-            prover: Address::ZERO,
-            callbacks: vec![],
-            selectors: vec![],
-            seal: Bytes::default(),
-        };
-
-        db.add_assessor_receipts(&[(receipt.clone(), metadata)]).await.unwrap();
-
-        // Verify assessor receipt was added
-        let result = sqlx::query("SELECT * FROM assessor_receipts WHERE tx_hash = $1")
-            .bind(format!("{:x}", metadata.tx_hash))
-            .fetch_one(&test_db.pool)
-            .await
-            .unwrap();
-        assert_eq!(result.get::<String, _>("prover_address"), format!("{:x}", receipt.prover));
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
     async fn test_add_proofs(pool: sqlx::PgPool) {
         let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
@@ -4949,7 +4842,7 @@ mod tests {
             digest_bytes[2] = ((i / 65536) % 256) as u8;
             let request_digest = B256::from(digest_bytes);
 
-            let fulfillment = Fulfillment {
+            let fulfillment = LegacyFulfillment {
                 requestDigest: request_digest,
                 id: U256::from(i),
                 claimDigest: B256::from([(i % 256) as u8; 32]),
@@ -6053,7 +5946,7 @@ mod tests {
         let seal_wrong_prover = Bytes::from(vec![99, 99, 99]);
         let metadata_wrong_prover =
             TxMetadata::new(B256::from([19; 32]), Address::ZERO, 103, 1250, 0);
-        let fulfillment_wrong_prover = Fulfillment {
+        let fulfillment_wrong_prover = LegacyFulfillment {
             requestDigest: request_digest,
             id: request.id,
             claimDigest: B256::from([29; 32]),
@@ -6066,7 +5959,7 @@ mod tests {
         let seal_late = Bytes::from(vec![5, 6, 7, 8]);
 
         let metadata_early = TxMetadata::new(B256::from([20; 32]), Address::ZERO, 104, 1300, 0);
-        let fulfillment_early = Fulfillment {
+        let fulfillment_early = LegacyFulfillment {
             requestDigest: request_digest,
             id: request.id,
             claimDigest: B256::from([30; 32]),
@@ -6076,7 +5969,7 @@ mod tests {
         };
 
         let metadata_late = TxMetadata::new(B256::from([21; 32]), Address::ZERO, 105, 1400, 1);
-        let fulfillment_late = Fulfillment {
+        let fulfillment_late = LegacyFulfillment {
             requestDigest: request_digest,
             id: request.id,
             claimDigest: B256::from([31; 32]),
@@ -6171,7 +6064,7 @@ mod tests {
             .await
             .unwrap();
         let seal1 = Bytes::from(vec![1, 1, 1]);
-        let fulfillment1 = Fulfillment {
+        let fulfillment1 = LegacyFulfillment {
             requestDigest: digest1,
             id: request1.id,
             claimDigest: B256::from([201; 32]),
@@ -6244,7 +6137,7 @@ mod tests {
             .await
             .unwrap();
         let seal4 = Bytes::from(vec![4, 4, 4]);
-        let fulfillment4 = Fulfillment {
+        let fulfillment4 = LegacyFulfillment {
             requestDigest: digest4,
             id: request4.id,
             claimDigest: B256::from([204; 32]),

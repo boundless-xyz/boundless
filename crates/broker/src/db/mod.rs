@@ -84,6 +84,34 @@ pub trait BrokerDb {
         &self,
         backend_id: &BackendId,
     ) -> Result<Vec<BatchReadyOrder>, DbError>;
+    /// Read-only peek at the backend-ready orders (`ReadyForBatch` or `Batching`) for a backend.
+    ///
+    /// Unlike [`Self::get_pending_batch_orders`] this does not claim (mutate status); it returns
+    /// each order alongside its current [`OrderStatus`] so the caller can resolve the batch's
+    /// assessor group before deciding which orders to claim.
+    async fn peek_pending_batch_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<(BatchReadyOrder, OrderStatus)>, DbError>;
+    /// Read-only peek at the direct-submit orders (`ReadyForSubmission`) for a backend. Like
+    /// [`Self::peek_pending_batch_orders`], it does not mutate status.
+    async fn peek_pending_direct_submission_orders(
+        &self,
+        backend_id: &BackendId,
+    ) -> Result<Vec<(BatchReadyOrder, OrderStatus)>, DbError>;
+    /// Atomically claim the given orders into a batch, returning the ids actually claimed.
+    ///
+    /// A single guarded bulk `UPDATE … RETURNING` sets each order's status to `Batching` (plus
+    /// `backend_id` / `updated_at`) only when it is still claimable — its status is `ReadyForBatch`
+    /// or `Batching` and it belongs to `backend_id`. The guard closes the peek-then-claim race: a
+    /// concurrent reaper that flipped a `ReadyForBatch` order to `Failed` in the gap is not matched,
+    /// so an expired order can never be resurrected into a batch. Ids whose row did not match the
+    /// guard are neither mutated nor returned. An empty `ids` is a no-op returning an empty vec.
+    async fn claim_orders_for_batch(
+        &self,
+        ids: &[String],
+        backend_id: &BackendId,
+    ) -> Result<Vec<String>, DbError>;
     async fn complete_batch(
         &self,
         batch_id: usize,
