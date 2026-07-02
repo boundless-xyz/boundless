@@ -40,7 +40,6 @@ error InvalidRouter();
 error InvalidCollateralToken();
 error InvalidLegacyImpl();
 error InvalidInitialOwner();
-error MismatchedRequestId(uint256 expected, uint256 received);
 
 contract BoundlessMarket is
     IBoundlessMarket,
