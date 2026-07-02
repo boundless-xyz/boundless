@@ -37,7 +37,9 @@ use boundless_market::prover_utils::{
     EvaluationLimits, EvaluationRequest, RequestEvaluation, RequestEvaluator,
 };
 use boundless_market::telemetry::EvalOutcome;
-use boundless_market::{prover_utils::estimate_erc1271_gas, selector::SupportedSelectors};
+use boundless_market::{
+    contracts::ProofRequest, prover_utils::estimate_erc1271_gas, selector::SupportedSelectors,
+};
 use tokio_util::sync::CancellationToken;
 
 use super::error::{
@@ -328,17 +330,21 @@ where
             .await
             .map_err(|err| OrderPricerErr::UnexpectedErr(Arc::new(err.into())))?
         {
-            let gas_estimate = utils::estimate_gas_to_fulfill(
-                config,
-                &self.supported_selectors,
-                &order.request,
-                order.journal_bytes,
-            )
-            .await?;
-            gas += gas_estimate;
+            let base = self.backend.fulfillment_gas(&order.request)?;
+            gas += utils::fulfill_gas_units(base, config, &order.request, order.journal_bytes)?;
         }
         tracing::debug!("Total gas estimate to fulfill pending orders: {}", gas);
         Ok(gas)
+    }
+
+    async fn estimate_gas_to_fulfill(&self, request: &ProofRequest) -> Result<u64, OrderPricerErr> {
+        // Delegate to the backend: it resolves the submission path and assessor from the router
+        // policy and applies the measured per-path gas. Journal calldata is added separately.
+        Ok(self.backend.fulfillment_gas(request)?)
+    }
+
+    fn additional_proof_cycles(&self, request: &ProofRequest) -> Result<u64, OrderPricerErr> {
+        Ok(self.backend.additional_proof_cycles(request)?)
     }
 
     fn is_priority_requestor(&self, client_addr: &Address) -> bool {

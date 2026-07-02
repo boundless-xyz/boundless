@@ -748,7 +748,12 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn skip_price_less_than_gas_costs_groth16() {
+    async fn groth16_selector_prices_with_cheaper_direct_gas() {
+        // A groth16 selector takes the direct submission path (single on-chain verify + on-chain
+        // assessor, no set-builder root), which the backend's router-aware cost model prices below
+        // the batched set-inclusion path. So at a price that covers the batched base, the groth16
+        // order is *also* profitable — it is no longer penalized — and its stored fulfill-gas
+        // estimate is strictly lower than the batched order's.
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.min_mcycle_price =
@@ -756,13 +761,12 @@ pub(crate) mod tests {
         }
         let mut ctx = PricerTestCtxBuilder::default().with_config(config).build().await;
 
-        // Compute a price between the base gas cost and the groth16 gas cost.
-        // Groth16 adds 250k gas units on top of the base 600k.
+        // A price comfortably above both the direct and batched gas bases, so both orders lock.
         let price = gas_midpoint_price(&ctx, 250_000).await;
         let min_price = price;
         let max_price = price;
 
-        // Order should have high enough price with the default selector.
+        // Default selector -> batched set-inclusion path.
         let order = ctx
             .generate_next_order(OrderParams {
                 order_index: 1,
@@ -779,10 +783,10 @@ pub(crate) mod tests {
         pin_base_fee(&ctx).await;
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
-        let priced = ctx.priced_orders_rx.try_recv().unwrap();
-        assert_eq!(priced.target_timestamp, Some(0));
+        let priced_batched = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced_batched.target_timestamp, Some(0));
 
-        // Order does not have high enough price when groth16 is used.
+        // Same price, but a groth16 selector -> direct path.
         let mut order = ctx
             .generate_next_order(OrderParams {
                 order_index: 2,
@@ -791,8 +795,6 @@ pub(crate) mod tests {
                 ..Default::default()
             })
             .await;
-
-        // set a Groth16 selector
         order.request.requirements.selector =
             FixedBytes::from(SelectorExt::groth16_latest() as u32);
 
@@ -801,13 +803,19 @@ pub(crate) mod tests {
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
         pin_base_fee(&ctx).await;
-        let order_id = order.id();
         let locked = ctx.pricer.price_order_and_update_state(order, CancellationToken::new()).await;
-        assert!(!locked);
+        assert!(locked, "direct-groth16 order is cheaper than batched and should lock");
+        let priced_groth16 = ctx.priced_orders_rx.try_recv().unwrap();
 
-        assert!(ctx.db.get_order(&order_id).await.unwrap().is_none());
-
-        assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
+        // The feature: the direct path is estimated cheaper than the batched path. Both orders
+        // share the same lock gas, so the lower total gas estimate reflects the cheaper direct
+        // fulfill base (the backend's direct vs batched cost).
+        assert!(
+            priced_groth16.gas_estimate.unwrap() < priced_batched.gas_estimate.unwrap(),
+            "direct groth16 gas estimate ({:?}) should be below batched ({:?})",
+            priced_groth16.gas_estimate,
+            priced_batched.gas_estimate,
+        );
     }
 
     #[tokio::test]
