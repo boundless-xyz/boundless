@@ -1,0 +1,29 @@
+# Reference snapshot of the BoundlessMarket implementation deployed at the Taiko
+# mainnet proxy (the pre-router market, compiled under FOUNDRY_PROFILE=shanghai).
+# Used by scripts/verify-legacy-bytecode.py to assert that contracts/shanghai/legacy/
+# compiles to the same bytecode (modulo immutable slots baked in at deploy time).
+#
+# Refresh procedure:
+#   cast code 0x6c2d2c33e9a7cd0e1b39dc218f472e4bf534523b \
+#     --rpc-url https://rpc.mainnet.taiko.xyz \
+#     > contracts/shanghai/legacy/deployed-bytecode.hex
+# and update `fetched_at_block` below.
+
+network = "taiko-mainnet"
+chain_id = 167000
+proxy = "0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b"
+impl = "0x6c2d2c33e9a7cd0e1b39dc218f472e4bf534523b"
+fetched_at_block = 7982471
+
+# Constructor immutables baked into the deployed bytecode. The compiled
+# shanghai/legacy/ artifact has zeros at these positions; the verification
+# script masks them out for the body-match check and then re-extracts each
+# baked-in value and asserts it matches the expected value below.
+
+[immutables]
+VERIFIER = "0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45"
+ASSESSOR_ID = "0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100"
+COLLATERAL_TOKEN_CONTRACT = "0xC284A781072442cc1882a8Db4573990B7B49DaC4"
+DEPRECATED_ASSESSOR_ID = "0x0000000000000000000000000000000000000000000000000000000000000000"
+DEPRECATED_ASSESSOR_EXPIRES_AT = 1773868771
+APPLICATION_VERIFIER = "0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45"

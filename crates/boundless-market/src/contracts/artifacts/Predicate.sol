@@ -6,7 +6,7 @@
 pragma solidity ^0.8.26;
 
 import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+import {Bytes} from "bytes-compat/Bytes.sol";
 
 using PredicateLibrary for Predicate global;
 using ReceiptClaimLib for ReceiptClaim;
