@@ -12,8 +12,8 @@ config:
       role: explorer
       chainId: "84532"
       alarmProfile: staging
-    - name: prover-84532-staging-nightly
-      hostname: prover-84532-staging-nightly
+    - name: prover-staging
+      hostname: prover-staging
       role: prover
       chainId: "84532"
       alarmProfile: staging

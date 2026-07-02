@@ -18,18 +18,19 @@ const COMPUTE_TYPE = "BUILD_GENERAL1_MEDIUM";
 export interface LProverAnsiblePipelineArgs extends BasePipelineArgs { }
 
 /**
- * CodePipeline that deploys the prover via Ansible (monitoring, security, prover playbooks).
+ * CodePipeline that deploys the prover via Ansible (prover playbook).
  * SSH key and inventory are read from AWS Secrets Manager so infra details are not in GitHub.
  *
  * Required secrets (must have a value via put-secret-value before first run, or build fails at DOWNLOAD_SOURCE):
- * - l-prover-ansible-ssh-key: SSH private key for Ansible (same as ANSIBLE_SSH_PRIVATE_KEY in GitHub).
- * - l-prover-ansible-inventory: Base64-encoded Ansible inventory. See ansible/INVENTORY.md for format and how to update.
+ * - l-prover-ansible-private-key: SSH private key for Ansible (same as ANSIBLE_SSH_PRIVATE_KEY in GitHub).
+ * - l-prover-ansible-inventory-file: Base64-encoded Ansible inventory. See ansible/INVENTORY.md for format and how to update.
+ * - l-prover-ansible-tailscale-authkey: Ephemeral, tagged Tailscale auth key so CodeBuild can join the
+ *   tailnet and reach the DC provers over MagicDNS. See ansible/INVENTORY.md for the Tailscale setup.
  *
  * Pipeline stages:
  * 1. Source - fetch code from GitHub
  * 2. DeployStaging - Ansible deploy to staging + cw-monitoring Pulumi staging stack (parallel)
- * 3. DeployNightly - Ansible deploy to nightly
- * 4. DeployProduction - manual approval, then Ansible deploy to production release
+ * 3. DeployProduction - manual approval, then Ansible deploy to production release
  *    and cw-monitoring Pulumi production stack
  */
 export class LProverAnsiblePipeline extends pulumi.ComponentResource {
@@ -57,19 +58,28 @@ export class LProverAnsiblePipeline extends pulumi.ComponentResource {
       { parent: this }
     );
 
+    // Ephemeral, tagged Tailscale auth key used by CodeBuild to join the tailnet
+    // and reach the DC provers over MagicDNS. Value is seeded out-of-band (like
+    // the SSH key and inventory secrets above) before the first run.
+    const tailscaleAuthkeySecret = new aws.secretsmanager.Secret(
+      `${APP_NAME}-tailscale-authkey`,
+      { name: "l-prover-ansible-tailscale-authkey" },
+      { parent: this }
+    );
+
     new aws.iam.RolePolicy(
       `${APP_NAME}-secrets-policy`,
       {
         role: role.id,
-        policy: pulumi.all([sshKeySecret.arn, inventorySecret.arn]).apply(
-          ([sshArn, invArn]) =>
+        policy: pulumi.all([sshKeySecret.arn, inventorySecret.arn, tailscaleAuthkeySecret.arn]).apply(
+          ([sshArn, invArn, tsArn]) =>
             JSON.stringify({
               Version: "2012-10-17",
               Statement: [
                 {
                   Effect: "Allow",
                   Action: "secretsmanager:GetSecretValue",
-                  Resource: [sshArn, invArn],
+                  Resource: [sshArn, invArn, tsArn],
                 },
               ],
             })
@@ -82,10 +92,13 @@ export class LProverAnsiblePipeline extends pulumi.ComponentResource {
 phases:
   install:
     commands:
-      - apt-get update && apt-get install -y openssh-client python3-pip
+      # netcat-openbsd provides SOCKS5 support (nc -X 5) so SSH can tunnel
+      # through the userspace tailscaled proxy below.
+      - apt-get update && apt-get install -y openssh-client python3-pip netcat-openbsd
       - pip install --break-system-packages ansible-core
       - pip uninstall -y paramiko || true
       - ansible-galaxy collection install community.postgresql
+      - curl -fsSL https://tailscale.com/install.sh | sh
   pre_build:
     commands:
       - set -e
@@ -94,6 +107,12 @@ phases:
       - echo "$ANSIBLE_PRIVATE_KEY" > ~/.ssh/id_ed25519
       - chmod 600 ~/.ssh/id_ed25519
       - echo "$ANSIBLE_INVENTORY" | base64 -d > ansible/inventory.yml
+      # Join the tailnet in userspace mode (no /dev/net/tun, no privileged build).
+      # The ephemeral, tagged auth key auto-removes this node when the build ends.
+      - tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --state=/tmp/tailscaled.state --statedir=/tmp/tailscale &
+      - sleep 5
+      - tailscale up --authkey "$TAILSCALE_AUTHKEY" --hostname "codebuild-prover-ansible" --accept-dns=true
+      - tailscale status
   build:
     commands:
       - |
@@ -102,21 +121,23 @@ phases:
         eval "$(ssh-agent -s)"
         ssh-add $HOME/.ssh/id_ed25519
 
-        # Ansible environment
+        # Ansible environment. SSH is tunneled through the tailscaled SOCKS5
+        # proxy (userspace networking) so MagicDNS prover hostnames resolve and
+        # connect over the tailnet.
         export ANSIBLE_HOST_KEY_CHECKING=False
         export ANSIBLE_FORCE_COLOR=1
         export ANSIBLE_SSH_AGENT=auto
-        export ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        export ANSIBLE_SSH_ARGS="-o ProxyCommand='nc -X 5 -x localhost:1055 %h %p' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
         cd ansible
         echo "Deploying to target: $TARGET"
-        ansible-playbook -i inventory.yml monitoring.yml -D -v --limit "$TARGET"
-        ansible-playbook -i inventory.yml security.yml -D -v --limit "$TARGET"
         ansible-playbook -i inventory.yml prover.yml -D -v --limit "$TARGET"
   post_build:
     commands:
       - rm -f ~/.ssh/id_ed25519
       - rm -f ansible/inventory.yml
+      # Ephemeral node auto-removes, but log out promptly so it leaves the tailnet.
+      - tailscale logout || true
 artifacts:
   files: ['**/*']
 `;
@@ -249,7 +270,7 @@ artifacts:
       `l-${APP_NAME}-build`,
       {
         name: `l-${APP_NAME}-build`,
-        description: "Deploy prover via Ansible (monitoring, security, prover)",
+        description: "Deploy prover via Ansible (prover playbook)",
         serviceRole: role.arn,
         buildTimeout: BUILD_TIMEOUT,
         environment: {
@@ -266,6 +287,11 @@ artifacts:
               name: "ANSIBLE_INVENTORY",
               type: "SECRETS_MANAGER",
               value: inventorySecret.name,
+            },
+            {
+              name: "TAILSCALE_AUTHKEY",
+              type: "SECRETS_MANAGER",
+              value: tailscaleAuthkeySecret.name,
             },
             {
               name: "TARGET",
@@ -353,44 +379,6 @@ artifacts:
                 outputArtifacts: ["cw_staging_output"],
                 configuration: {
                   ProjectName: cwStagingBuild.name,
-                },
-              },
-            ],
-          },
-          {
-            name: "DeployNightly",
-            actions: [
-              {
-                name: "AnsibleDeployProductionNightly",
-                category: "Build",
-                owner: "AWS",
-                provider: "CodeBuild",
-                version: "1",
-                runOrder: 1,
-                inputArtifacts: ["source_output"],
-                outputArtifacts: ["nightly_output"],
-                configuration: {
-                  ProjectName: buildProject.name,
-                  EnvironmentVariables: JSON.stringify([
-                    {
-                      name: "TARGET",
-                      value: "production:&nightly",
-                      type: "PLAINTEXT",
-                    },
-                  ]),
-                },
-              },
-              {
-                name: "CWMonitoringProduction",
-                category: "Build",
-                owner: "AWS",
-                provider: "CodeBuild",
-                version: "1",
-                runOrder: 1,
-                inputArtifacts: ["source_output"],
-                outputArtifacts: ["cw_nightly_production_output"],
-                configuration: {
-                  ProjectName: cwProductionBuild.name,
                 },
               },
             ],

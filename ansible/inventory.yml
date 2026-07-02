@@ -1,8 +1,0 @@
----
-# Inventory file with environment variable support
-# Sensitive variables can be set via environment variables
-# Example: export POSTGRESQL_PASSWORD="your_password"
-all:
-  hosts:
-    localhost:
-      ansible_connection: local
