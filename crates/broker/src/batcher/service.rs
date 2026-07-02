@@ -299,14 +299,18 @@ impl BatcherService {
     }
 
     /// Filter out non-actionable orders (expired or already fulfilled) and mark them as failed.
+    ///
+    /// Each order's [`OrderStatus`] is carried through untouched: the filter decides based on the
+    /// [`BatchReadyOrder`] alone, but the status must survive so later stages can tell a
+    /// pre-existing `Batching` claim from an untouched ready order.
     async fn filter_non_actionable_orders(
         &self,
-        orders: Vec<BatchReadyOrder>,
+        orders: Vec<(BatchReadyOrder, OrderStatus)>,
         current_time: u64,
-    ) -> Result<Vec<BatchReadyOrder>, BatcherErr> {
+    ) -> Result<Vec<(BatchReadyOrder, OrderStatus)>, BatcherErr> {
         let mut valid_orders = Vec::with_capacity(orders.len());
 
-        for order in orders {
+        for (order, status) in orders {
             if order.expiration < current_time {
                 tracing::warn!(
                     "[B-AGG-600] Order {} expired before backend batch processing, marking as failed",
@@ -387,37 +391,77 @@ impl BatcherService {
                 }
             }
 
-            valid_orders.push(order);
+            valid_orders.push((order, status));
         }
 
         Ok(valid_orders)
     }
 
-    /// Claim backend-ready orders, filter non-actionable orders, and keep direct-submit
-    /// orders separate.
-    async fn get_filtered_batch_ready_orders(
+    /// Resolve the open batch's target assessor group, then claim only the orders of that group.
+    ///
+    /// A batch carries one assessor seal, so it holds a single assessor class. Rather than claim
+    /// every ready order and requeue the ones that don't fit (which leaves non-matching orders
+    /// stuck in `Batching` if the broker crashes between the claim and the requeue), this peeks the
+    /// ready orders read-only, resolves each order's assessor group, and only then claims the
+    /// orders whose group matches the batch's target — leaving the rest untouched in their ready
+    /// state. Returns the kept `(batch_update_orders, direct_submit_orders)`.
+    ///
+    /// Steps:
+    /// 1. PEEK (no claim) the backend-ready and direct-submit orders, remembering each order's
+    ///    current status, and drop non-actionable (expired / already-fulfilled) ones.
+    /// 2. Resolve each remaining order's assessor group ([`Self::resolve_assessor_groups`] fails
+    ///    unresolvable orders and releases their capacity).
+    /// 3. Pick the target group: the group the batch already holds, or — for an empty batch — the
+    ///    first resolved order's group. With no router registry every group is `None`, so no target
+    ///    is adopted and all orders are kept ([`Self::claim_batch_group`]).
+    async fn select_open_batch_orders(
         &self,
         backend_id: &BackendId,
+        batch: &Batch,
     ) -> Result<(Vec<BatchReadyOrder>, Vec<BatchReadyOrder>), BatcherErr> {
         let current_time = crate::now_timestamp();
 
-        let batch_update_orders = self
+        // PEEK (read-only): nothing is claimed until the target group is known.
+        let batch_peek = self
             .db
-            .get_pending_batch_orders(backend_id)
+            .peek_pending_batch_orders(backend_id)
             .await
-            .context("Failed to get pending backend batch orders")?;
-        let direct_submit_orders = self
+            .context("Failed to peek pending backend batch orders")?;
+        let direct_peek = self
             .db
-            .get_pending_direct_submission_orders(backend_id)
+            .peek_pending_direct_submission_orders(backend_id)
             .await
-            .context("Failed to get pending direct-submit orders")?;
+            .context("Failed to peek pending direct-submit orders")?;
 
-        let valid_batch_update_orders =
-            self.filter_non_actionable_orders(batch_update_orders, current_time).await?;
-        let valid_direct_submit_orders =
-            self.filter_non_actionable_orders(direct_submit_orders, current_time).await?;
+        // Drop non-actionable orders (they are marked failed and their capacity released). Each
+        // order's status is carried through so a non-target order can later be recognized as a
+        // pre-existing `Batching` claim (to requeue) versus an untouched ready order (to leave).
+        let batch_ready = self.filter_non_actionable_orders(batch_peek, current_time).await?;
+        let direct_ready = self.filter_non_actionable_orders(direct_peek, current_time).await?;
 
-        Ok((valid_batch_update_orders, valid_direct_submit_orders))
+        // Resolve assessor groups; unresolvable orders are failed and dropped here.
+        let resolved_batch = self.resolve_assessor_groups(backend_id, batch_ready).await;
+        let resolved_direct = self.resolve_assessor_groups(backend_id, direct_ready).await;
+
+        // Target group: the group the batch already holds, or the first resolved order's group for
+        // an empty batch (skipping ungrouped orders). `None` means no grouping is in effect.
+        let target = match self.batch_assessor_group(backend_id, batch).await? {
+            Some(group) => Some(group),
+            None => {
+                resolved_batch.iter().chain(resolved_direct.iter()).find_map(|(_, _, group)| *group)
+            }
+        };
+
+        // Claim the target-group batch-update orders as `Batching` with a single guarded bulk
+        // update, reconciling the kept set against what the DB actually claimed (a racer may have
+        // failed some in the gap). Direct-submit orders keep their `ReadyForSubmission` status —
+        // they are filtered in memory only, never rewritten (claiming them to `Batching` would
+        // misclassify them as batch-update orders on the next peek, and any status write risks
+        // clobbering a racer's failure); the batch consumes them on finalize as before.
+        let kept_update = self.claim_batch_group(backend_id, target, resolved_batch).await?;
+        let kept_direct = Self::filter_direct_target_group(target, resolved_direct);
+
+        Ok((kept_update, kept_direct))
     }
 
     /// Load full orders for `ids` and project them to the generic [`OrderProvingData`] the
@@ -467,12 +511,12 @@ impl BatcherService {
     async fn resolve_assessor_groups(
         &self,
         backend_id: &BackendId,
-        orders: Vec<BatchReadyOrder>,
-    ) -> Vec<(BatchReadyOrder, Option<FixedBytes<4>>)> {
+        orders: Vec<(BatchReadyOrder, OrderStatus)>,
+    ) -> Vec<(BatchReadyOrder, OrderStatus, Option<FixedBytes<4>>)> {
         let mut resolved = Vec::with_capacity(orders.len());
-        for order in orders {
+        for (order, status) in orders {
             match self.backend.assessor_group(backend_id, order.selector) {
-                Ok(group) => resolved.push((order, group)),
+                Ok(group) => resolved.push((order, status, group)),
                 Err(err) => {
                     tracing::error!(
                         "[B-AGG-602] Order {} has no resolvable assessor group, marking as failed: {err:#}",
@@ -504,77 +548,100 @@ impl BatcherService {
         resolved
     }
 
-    /// Keep only the claimed orders whose assessor group matches the batch's, requeueing the rest so
-    /// a later batch picks them up. The batch's group is the one it already holds, or — for an empty
-    /// batch — the first claimed order's group it adopts.
+    /// Claim the resolved batch-update orders whose assessor group matches the batch's `target`,
+    /// as `Batching`, and return the ones actually claimed.
     ///
-    /// A backend that does not distinguish assessor classes returns `None` for every group: no
-    /// target is ever adopted and nothing is deferred. Orders whose group cannot be resolved at all
-    /// are failed by [`Self::resolve_assessor_groups`].
-    async fn restrict_to_batch_group(
+    /// Matching orders (`target.is_none() || group == target`) are claimed with a single guarded
+    /// bulk update ([`crate::db::BrokerDb::claim_orders_for_batch`]): its status guard only
+    /// transitions orders still in a claimable state, so a racing reaper that flipped a peeked
+    /// `ReadyForBatch` order to `Failed` in the gap between the peek and this claim can never be
+    /// clobbered back into a batch. The kept set is reconciled against the ids the DB actually
+    /// claimed — any that vanished in the gap are dropped rather than added to a batch they were
+    /// never claimed for.
+    ///
+    /// A non-matching order is left untouched in its ready state, unless it is a pre-existing
+    /// `Batching` claim of another group (its carried-through `OrderStatus`), which is requeued to
+    /// `ReadyForBatch` so a batch of its own group can pick it up. That requeue is the only status
+    /// write for a non-matching order, and the reaper never touches `Batching`, so it can neither
+    /// clobber a `Failed` order nor strand a non-target ready order in `Batching`.
+    ///
+    /// With `target` = `None` (ungrouped backend / no group in effect) every order matches and is
+    /// claimed, preserving the pre-grouping behavior.
+    async fn claim_batch_group(
         &self,
         backend_id: &BackendId,
-        batch: &Batch,
-        batch_update_orders: Vec<BatchReadyOrder>,
-        direct_submit_orders: Vec<BatchReadyOrder>,
-    ) -> Result<(Vec<BatchReadyOrder>, Vec<BatchReadyOrder>), BatcherErr> {
-        let update_orders = self.resolve_assessor_groups(backend_id, batch_update_orders).await;
-        let direct_orders = self.resolve_assessor_groups(backend_id, direct_submit_orders).await;
-
-        let target = match self.batch_assessor_group(backend_id, batch).await? {
-            Some(group) => Some(group),
-            // Empty batch: adopt the first claimed order's group (skipping ungrouped orders).
-            None => update_orders.iter().chain(direct_orders.iter()).find_map(|(_, group)| *group),
-        };
-
-        // No grouping in effect (ungrouped backend / no claimed order carries a group): keep all.
-        let Some(target) = target else {
-            return Ok((
-                update_orders.into_iter().map(|(order, _)| order).collect(),
-                direct_orders.into_iter().map(|(order, _)| order).collect(),
-            ));
-        };
-
-        let kept_update = self
-            .keep_group_or_requeue(backend_id, target, update_orders, OrderStatus::ReadyForBatch)
-            .await?;
-        let kept_direct = self
-            .keep_group_or_requeue(
-                backend_id,
-                target,
-                direct_orders,
-                OrderStatus::ReadyForSubmission,
-            )
-            .await?;
-        Ok((kept_update, kept_direct))
-    }
-
-    /// Partition resolved orders by whether their assessor group matches `target`: matching orders
-    /// are returned, the rest are requeued to `requeue_status` (the status they were claimed from)
-    /// so a later batch of their group picks them up.
-    async fn keep_group_or_requeue(
-        &self,
-        backend_id: &BackendId,
-        target: FixedBytes<4>,
-        orders: Vec<(BatchReadyOrder, Option<FixedBytes<4>>)>,
-        requeue_status: OrderStatus,
+        target: Option<FixedBytes<4>>,
+        resolved: Vec<(BatchReadyOrder, OrderStatus, Option<FixedBytes<4>>)>,
     ) -> Result<Vec<BatchReadyOrder>, BatcherErr> {
-        let mut kept = Vec::with_capacity(orders.len());
-        for (order, group) in orders {
-            if group == Some(target) {
-                kept.push(order);
-            } else {
+        let mut matching = Vec::with_capacity(resolved.len());
+        for (order, status, group) in resolved {
+            if target.is_none() || group == target {
+                matching.push(order);
+            } else if status == OrderStatus::Batching {
+                // A non-target order that a previous batch already claimed: release it so a batch
+                // of its own group can pick it up. Never-claimed ready orders are left untouched.
                 tracing::debug!(
-                    "Deferring order {} (assessor group {group:?} != batch group {target}) to a later batch",
+                    "Requeuing order {} (assessor group {group:?} != batch group {target:?}) claimed by an earlier batch",
                     order.order_id
                 );
                 self.db
-                    .set_order_batch_status(&order.order_id, requeue_status, backend_id)
+                    .set_order_batch_status(&order.order_id, OrderStatus::ReadyForBatch, backend_id)
                     .await
-                    .with_context(|| format!("Failed to requeue deferred order {}", order.order_id))?;
+                    .with_context(|| format!("Failed to requeue order {}", order.order_id))?;
+            } else {
+                tracing::debug!(
+                    "Deferring order {} (assessor group {group:?} != batch group {target:?}) to a later batch",
+                    order.order_id
+                );
             }
         }
-        Ok(kept)
+
+        // One guarded bulk claim for all matching ids. The DB's status guard drops any order a
+        // racer flipped out of a claimable state (e.g. to `Failed`) in the gap between the peek and
+        // here, so an expired order can never be resurrected into this batch.
+        let ids: Vec<String> = matching.iter().map(|order| order.order_id.clone()).collect();
+        let claimed: std::collections::HashSet<String> = self
+            .db
+            .claim_orders_for_batch(&ids, backend_id)
+            .await
+            .context("Failed to bulk-claim batch orders")?
+            .into_iter()
+            .collect();
+
+        // Reconcile: keep only orders the DB actually claimed.
+        let before = matching.len();
+        matching.retain(|order| claimed.contains(&order.order_id));
+        let dropped = before - matching.len();
+        if dropped > 0 {
+            tracing::debug!(
+                "{dropped} order(s) vanished between peek and claim (raced out of a claimable state); dropped from this batch"
+            );
+        }
+
+        Ok(matching)
+    }
+
+    /// In-memory target filter for direct-submit orders. They are already `ReadyForSubmission` (the
+    /// direct peek only selects that status, so they are never `Batching`), and unlike batch-update
+    /// orders they are never claimed: rewriting them would risk clobbering an order a racer just
+    /// failed. Keep only the ones whose assessor group matches the batch's `target` (or all, when
+    /// `target` is `None`); the batch consumes them on finalize as before.
+    fn filter_direct_target_group(
+        target: Option<FixedBytes<4>>,
+        resolved: Vec<(BatchReadyOrder, OrderStatus, Option<FixedBytes<4>>)>,
+    ) -> Vec<BatchReadyOrder> {
+        let mut kept = Vec::with_capacity(resolved.len());
+        for (order, _, group) in resolved {
+            if target.is_none() || group == target {
+                kept.push(order);
+            } else {
+                tracing::debug!(
+                    "Deferring direct-submit order {} (assessor group {group:?} != batch group {target:?}) to a later batch",
+                    order.order_id
+                );
+            }
+        }
+        kept
     }
 
     async fn update_backend_batch(
@@ -652,22 +719,13 @@ impl BatcherService {
 
         let (compress, batch_update_secs, assessor_secs) = match batch.status {
             BatchStatus::Open => {
-                // Claim and filter orders that are ready for backend batch processing.
+                // Resolve this batch's assessor group first and claim only the orders of that
+                // group. A batch carries one assessor seal, so it must hold a single assessor
+                // class; peeking read-only before claiming means a non-matching ready order is
+                // never claimed (and so can never be stranded in `Batching` by a crash). With no
+                // router registry every group is `None`, so all orders are kept.
                 let (batch_update_orders, direct_submit_orders) =
-                    self.get_filtered_batch_ready_orders(backend_id).await?;
-
-                // A batch carries one assessor seal, so it must hold a single assessor class. Keep
-                // only the orders matching this batch's assessor group (the group it already holds,
-                // or the first claimed order's group for an empty batch) and requeue the rest for a
-                // later batch. With no router registry every group is `None`, so nothing is deferred.
-                let (batch_update_orders, direct_submit_orders) = self
-                    .restrict_to_batch_group(
-                        backend_id,
-                        &batch,
-                        batch_update_orders,
-                        direct_submit_orders,
-                    )
-                    .await?;
+                    self.select_open_batch_orders(backend_id, &batch).await?;
 
                 // Finalize the current batch before adding any new orders if the finalization conditions
                 // are already met.
@@ -1677,14 +1735,16 @@ mod tests {
         );
         db.add_order(&valid_order).await.unwrap();
 
-        let orders =
-            vec![batch_ready_order_from(&expired_order), batch_ready_order_from(&valid_order)];
+        let orders = vec![
+            (batch_ready_order_from(&expired_order), OrderStatus::ReadyForBatch),
+            (batch_ready_order_from(&valid_order), OrderStatus::ReadyForBatch),
+        ];
 
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         assert_eq!(valid_orders.len(), 1);
-        assert_eq!(valid_orders[0].order_id, valid_order.id());
+        assert_eq!(valid_orders[0].0.order_id, valid_order.id());
 
         // Check that expired order was marked as failed
         let db_expired_order = db.get_order(&expired_order.id()).await.unwrap().unwrap();
@@ -1723,7 +1783,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1762,13 +1822,13 @@ mod tests {
         );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be kept — not fulfilled
         assert_eq!(valid_orders.len(), 1);
-        assert_eq!(valid_orders[0].order_id, order.id());
+        assert_eq!(valid_orders[0].0.order_id, order.id());
     }
 
     #[tokio::test]
@@ -1796,7 +1856,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1835,13 +1895,13 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be KEPT — lock still active, we must continue to avoid slashing
         assert_eq!(valid_orders.len(), 1);
-        assert_eq!(valid_orders[0].order_id, order.id());
+        assert_eq!(valid_orders[0].0.order_id, order.id());
     }
 
     #[tokio::test]
@@ -1863,13 +1923,13 @@ mod tests {
         );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be kept — not fulfilled
         assert_eq!(valid_orders.len(), 1);
-        assert_eq!(valid_orders[0].order_id, order.id());
+        assert_eq!(valid_orders[0].0.order_id, order.id());
     }
 
     #[tokio::test]
@@ -1893,7 +1953,7 @@ mod tests {
         // Mark the request as fulfilled
         db.set_request_fulfilled(order.request.id, 1).await.unwrap();
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
@@ -1926,13 +1986,13 @@ mod tests {
         );
         db.add_order(&order).await.unwrap();
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid_orders =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be kept — not fulfilled
         assert_eq!(valid_orders.len(), 1);
-        assert_eq!(valid_orders[0].order_id, order.id());
+        assert_eq!(valid_orders[0].0.order_id, order.id());
     }
 
     #[tokio::test]
@@ -1957,21 +2017,23 @@ mod tests {
         assert!(order.request.lock_expires_at() < current_time);
         assert!(order.request.expires_at() > current_time);
 
-        let orders = vec![batch_ready_order_from(&order)];
+        let orders = vec![(batch_ready_order_from(&order), OrderStatus::ReadyForBatch)];
         let valid =
             batcher_service.filter_non_actionable_orders(orders, current_time).await.unwrap();
 
         // Should be KEPT — lock expired but request still valid and not fulfilled
         assert_eq!(valid.len(), 1);
-        assert_eq!(valid[0].order_id, order.id());
+        assert_eq!(valid[0].0.order_id, order.id());
     }
 
-    /// Minimal backend that maps verifier selectors to fixed assessor groups, for exercising the
-    /// batcher's single-assessor-class grouping. Only `id` / `supported_selectors` / `proof_type` /
+    /// Minimal backend that maps supported verifier selectors to an optional assessor group, for
+    /// exercising the batcher's single-assessor-class grouping. A selector present in `groups` is
+    /// supported; its value is the group it resolves to (`None` = ungrouped, so the backend
+    /// distinguishes no assessor classes). Only `id` / `supported_selectors` / `proof_type` /
     /// `assessor_group` are meaningful; the rest are unused by these tests.
     struct GroupingBackend {
         id: BackendId,
-        groups: HashMap<FixedBytes<4>, FixedBytes<4>>,
+        groups: HashMap<FixedBytes<4>, Option<FixedBytes<4>>>,
     }
 
     #[async_trait]
@@ -1986,7 +2048,7 @@ mod tests {
             self.groups.contains_key(&selector).then_some(ProofType::Any)
         }
         fn assessor_group(&self, selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>> {
-            Ok(self.groups.get(&selector).copied())
+            Ok(self.groups.get(&selector).copied().flatten())
         }
         async fn evaluate_request(
             &self,
@@ -2021,79 +2083,159 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn restrict_to_batch_group_defers_other_assessor_classes() {
-        const SEL_A: FixedBytes<4> = FixedBytes([0xAA, 0xAA, 0xAA, 0xAA]);
-        const SEL_B: FixedBytes<4> = FixedBytes([0xBB, 0xBB, 0xBB, 0xBB]);
-        const GROUP_A: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0xA0]);
-        const GROUP_B: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0xB0]);
+    const SEL_A: FixedBytes<4> = FixedBytes([0xAA, 0xAA, 0xAA, 0xAA]);
+    const SEL_B: FixedBytes<4> = FixedBytes([0xBB, 0xBB, 0xBB, 0xBB]);
+    const GROUP_A: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0xA0]);
+    const GROUP_B: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0xB0]);
 
-        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+    /// Build a [`BatcherService`] backed by a single [`GroupingBackend`] with the given
+    /// selector -> optional-assessor-group map (all-`None` values = ungrouped backend).
+    async fn grouping_batcher(
+        db: DbObj,
+        groups: HashMap<FixedBytes<4>, Option<FixedBytes<4>>>,
+    ) -> (BatcherService, BackendId) {
         let backend_id = BackendId::new("grouping_test");
-        let backend = Arc::new(GroupingBackend {
-            id: backend_id.clone(),
-            groups: HashMap::from([(SEL_A, GROUP_A), (SEL_B, GROUP_B)]),
-        });
+        let backend = Arc::new(GroupingBackend { id: backend_id.clone(), groups });
         let router =
             Arc::new(BackendRouter::new().register_backend(BackendEntry::new(backend)).unwrap());
         let batcher = BatcherService::new_with_backend_router(
-            db.clone(),
+            db,
             ConfigLock::default(),
             router,
             1,
             mpsc::channel::<CommitmentComplete>(100).0,
         )
         .unwrap();
+        (batcher, backend_id)
+    }
 
-        // Two claimed orders of different assessor groups, both in `Batching` (claimed) status.
-        let mut order_a = make_test_order(
-            1,
+    /// A backend-ready order with the given verifier selector, valid for ~300s.
+    fn grouping_order(nonce: u32, selector: FixedBytes<4>, backend_id: &BackendId) -> Order {
+        let mut order = make_test_order(
+            nonce,
             FulfillmentType::LockAndFulfill,
             Some(now_timestamp() + 300),
             now_timestamp(),
             100,
             500,
         );
-        order_a.request.requirements.selector = SEL_A;
-        order_a.backend_id = Some(backend_id.clone());
-        let mut order_b = make_test_order(
-            2,
-            FulfillmentType::LockAndFulfill,
-            Some(now_timestamp() + 300),
-            now_timestamp(),
-            100,
-            500,
-        );
-        order_b.request.requirements.selector = SEL_B;
-        order_b.backend_id = Some(backend_id.clone());
+        order.request.requirements.selector = selector;
+        order.backend_id = Some(backend_id.clone());
+        order
+    }
+
+    /// An empty open batch adopts the first ready order's assessor group and claims only that
+    /// group. The other group's order is never claimed — it stays `ReadyForBatch`, untouched.
+    #[tokio::test]
+    async fn open_batch_claims_only_target_group_orders() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let (batcher, backend_id) = grouping_batcher(
+            db.clone(),
+            HashMap::from([(SEL_A, Some(GROUP_A)), (SEL_B, Some(GROUP_B))]),
+        )
+        .await;
+
+        // Two ready orders of different assessor groups, both `ReadyForBatch` (NOT pre-claimed).
+        let order_a = grouping_order(1, SEL_A, &backend_id);
+        let order_b = grouping_order(2, SEL_B, &backend_id);
         db.add_order(&order_a).await.unwrap();
         db.add_order(&order_b).await.unwrap();
-        db.set_order_batch_status(&order_a.id(), OrderStatus::Batching, &backend_id).await.unwrap();
-        db.set_order_batch_status(&order_b.id(), OrderStatus::Batching, &backend_id).await.unwrap();
 
-        // An empty open batch adopts the first claimed order's group (A) and defers the rest (B).
+        // An empty open batch adopts the first order's group (A) and claims only A.
         let empty_batch = Batch::new(backend_id.clone(), Utc::now());
-        let (kept_update, kept_direct) = batcher
-            .restrict_to_batch_group(
-                &backend_id,
-                &empty_batch,
-                vec![batch_ready_order_from(&order_a), batch_ready_order_from(&order_b)],
-                vec![],
-            )
-            .await
-            .unwrap();
+        let (kept_update, kept_direct) =
+            batcher.select_open_batch_orders(&backend_id, &empty_batch).await.unwrap();
 
         assert_eq!(kept_update.len(), 1, "only the adopted-group order is kept");
         assert_eq!(kept_update[0].order_id, order_a.id());
         assert!(kept_direct.is_empty());
 
-        // The deferred B order is requeued to ReadyForBatch; the kept A order is untouched.
-        assert_eq!(
-            db.get_order(&order_b.id()).await.unwrap().unwrap().status,
-            OrderStatus::ReadyForBatch
-        );
+        // A is claimed to Batching; B was never claimed and remains ReadyForBatch.
         assert_eq!(
             db.get_order(&order_a.id()).await.unwrap().unwrap().status,
+            OrderStatus::Batching
+        );
+        assert_eq!(
+            db.get_order(&order_b.id()).await.unwrap().unwrap().status,
+            OrderStatus::ReadyForBatch,
+            "the non-target order must never be claimed"
+        );
+    }
+
+    /// The crash window is gone: a non-target order that is still `ReadyForBatch` is never set to
+    /// `Batching`, while a non-target order that a *previous* batch already claimed (`Batching`) is
+    /// requeued back to `ReadyForBatch` — the only status write for a non-target order.
+    #[tokio::test]
+    async fn open_batch_never_claims_ready_and_requeues_stale_claims() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        let (batcher, backend_id) = grouping_batcher(
+            db.clone(),
+            HashMap::from([(SEL_A, Some(GROUP_A)), (SEL_B, Some(GROUP_B))]),
+        )
+        .await;
+
+        // A (target after adoption), a never-claimed B, and a B left `Batching` by an earlier batch.
+        let order_a = grouping_order(1, SEL_A, &backend_id);
+        let order_b_ready = grouping_order(2, SEL_B, &backend_id);
+        let order_b_claimed = grouping_order(3, SEL_B, &backend_id);
+        db.add_order(&order_a).await.unwrap();
+        db.add_order(&order_b_ready).await.unwrap();
+        db.add_order(&order_b_claimed).await.unwrap();
+        db.set_order_batch_status(&order_b_claimed.id(), OrderStatus::Batching, &backend_id)
+            .await
+            .unwrap();
+
+        let empty_batch = Batch::new(backend_id.clone(), Utc::now());
+        let (kept_update, _) =
+            batcher.select_open_batch_orders(&backend_id, &empty_batch).await.unwrap();
+
+        assert_eq!(kept_update.len(), 1);
+        assert_eq!(kept_update[0].order_id, order_a.id());
+
+        assert_eq!(
+            db.get_order(&order_a.id()).await.unwrap().unwrap().status,
+            OrderStatus::Batching
+        );
+        // The never-claimed B is left untouched — proving the claim-then-requeue crash window is gone.
+        assert_eq!(
+            db.get_order(&order_b_ready.id()).await.unwrap().unwrap().status,
+            OrderStatus::ReadyForBatch,
+            "a ready non-target order must never be set to Batching"
+        );
+        // The stale claim is released back to ReadyForBatch (idempotent cleanup of a prior claim).
+        assert_eq!(
+            db.get_order(&order_b_claimed.id()).await.unwrap().unwrap().status,
+            OrderStatus::ReadyForBatch,
+            "a pre-existing Batching claim of another group is requeued"
+        );
+    }
+
+    /// An ungrouped backend (`assessor_group` returns `None` for every selector) adopts no target
+    /// group, so all ready orders are claimed and kept regardless of their selector.
+    #[tokio::test]
+    async fn open_batch_ungrouped_backend_claims_all() {
+        let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
+        // Supported selectors that resolve to no group => assessor_group returns None for each.
+        let (batcher, backend_id) =
+            grouping_batcher(db.clone(), HashMap::from([(SEL_A, None), (SEL_B, None)])).await;
+
+        let order_a = grouping_order(1, SEL_A, &backend_id);
+        let order_b = grouping_order(2, SEL_B, &backend_id);
+        db.add_order(&order_a).await.unwrap();
+        db.add_order(&order_b).await.unwrap();
+
+        let empty_batch = Batch::new(backend_id.clone(), Utc::now());
+        let (kept_update, kept_direct) =
+            batcher.select_open_batch_orders(&backend_id, &empty_batch).await.unwrap();
+
+        assert_eq!(kept_update.len(), 2, "no grouping in effect: all orders are kept");
+        assert!(kept_direct.is_empty());
+        assert_eq!(
+            db.get_order(&order_a.id()).await.unwrap().unwrap().status,
+            OrderStatus::Batching
+        );
+        assert_eq!(
+            db.get_order(&order_b.id()).await.unwrap().unwrap().status,
             OrderStatus::Batching
         );
     }
