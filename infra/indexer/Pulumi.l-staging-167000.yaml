@@ -12,6 +12,10 @@ config:
   indexer:BOUNDLESS_ADDRESS: 0x60d11ef5d4608bab18a663fd486d3b9f162172cf
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:CHAIN_ID: "167000"
+  indexer:DB_SERVERLESS: "true"
+  indexer:DB_MIN_ACU: "0.5"
+  indexer:DB_MAX_ACU: "4"
+  indexer:DB_ENABLE_REPLICA: "false"
   indexer:CI_CACHE_SECRET:
     secure: v1:uvdJMC0JsccdGluc:wTd+lZ8ChZwINpw2XJ6GGcEjhwXliGghZHXX2QXgSnKD8B6m6Ke1Ug5iKA6bb6zw3HVgEBbazeoPO0mYS0km1uzYnDqFRODhZuseViySdFyWKUSq4qFKqZ3amHgx2P8UpCHOsVIowCrl83NHnRCKdXrVz+CtabD0A+ixDCLirQ==
   indexer:DOCKER_DIR: ../../

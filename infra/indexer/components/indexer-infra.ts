@@ -12,6 +12,14 @@ export interface IndexerInfraArgs {
   pubSubNetIds: pulumi.Output<string[]>;
   rdsPassword: pulumi.Output<string>;
   isDev: boolean;
+  /// Run Aurora on Serverless v2 (db.serverless) instead of a fixed instance
+  /// class. Defaults to false (provisioned).
+  dbServerless?: boolean;
+  /// Serverless v2 capacity range in ACUs (only used when dbServerless is true).
+  dbMinAcu?: number;
+  dbMaxAcu?: number;
+  /// Skip the Aurora read replica (writer only) when false. Defaults to true.
+  dbEnableReplica?: boolean;
   ciCacheSecret?: pulumi.Output<string>;
   githubTokenSecret?: pulumi.Output<string>;
   dockerDir: string;
@@ -46,7 +54,8 @@ export class IndexerShared extends pulumi.ComponentResource {
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
 
-    const { vpcId, privSubNetIds, pubSubNetIds, rdsPassword, isDev, ciCacheSecret, githubTokenSecret, dockerDir, dockerTag, dockerRemoteBuilder } = args;
+    const { vpcId, privSubNetIds, pubSubNetIds, rdsPassword, isDev, dbServerless, dbMinAcu, dbMaxAcu, dbEnableReplica, ciCacheSecret, githubTokenSecret, dockerDir, dockerTag, dockerRemoteBuilder } = args;
+    const enableReplica = dbEnableReplica ?? true;
     const serviceName = `${args.serviceName}-base`;
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
@@ -168,6 +177,9 @@ export class IndexerShared extends pulumi.ComponentResource {
       storageEncrypted: true,
       monitoringInterval: 60,
       monitoringRoleArn: enhancedMonitoringRole.arn,
+      serverlessv2ScalingConfiguration: dbServerless
+        ? { minCapacity: dbMinAcu ?? 0.5, maxCapacity: dbMaxAcu ?? 4 }
+        : undefined,
     }, { parent: this, ignoreChanges: ['engineVersion'] /* protect: true */ });
 
     new aws.iam.RolePolicyAttachment(`${serviceName}-rds-mon-pol`, {
@@ -175,7 +187,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       policyArn: 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole',
     }, { parent: this });
 
-    const instanceClass = isDev ? 'db.r6g.large' : 'db.r6g.xlarge';
+    const instanceClass = dbServerless ? 'db.serverless' : (isDev ? 'db.r6g.large' : 'db.r6g.xlarge');
 
     // engineVersion is a floor here too — see comment on auroraCluster above.
     new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-${databaseVersion}`, {
@@ -193,20 +205,22 @@ export class IndexerShared extends pulumi.ComponentResource {
       applyImmediately: true,
     }, { parent: this, ignoreChanges: ['engineVersion'] /* protect: true */ });
 
-    new aws.rds.ClusterInstance(`${serviceName}-aurora-reader-${databaseVersion}`, {
-      clusterIdentifier: auroraCluster.id,
-      engine: 'aurora-postgresql',
-      engineVersion: '17.7',
-      instanceClass: instanceClass,
-      identifier: `${serviceName}-aurora-reader-${databaseVersion}`,
-      publiclyAccessible: false,
-      dbSubnetGroupName: dbSubnets.name,
-      performanceInsightsEnabled: true,
-      performanceInsightsRetentionPeriod: 7,
-      monitoringInterval: 60,
-      monitoringRoleArn: enhancedMonitoringRole.arn,
-      applyImmediately: true,
-    }, { parent: this, ignoreChanges: ['engineVersion'] /* protect: true */ });
+    if (enableReplica) {
+      new aws.rds.ClusterInstance(`${serviceName}-aurora-reader-${databaseVersion}`, {
+        clusterIdentifier: auroraCluster.id,
+        engine: 'aurora-postgresql',
+        engineVersion: '17.7',
+        instanceClass: instanceClass,
+        identifier: `${serviceName}-aurora-reader-${databaseVersion}`,
+        publiclyAccessible: false,
+        dbSubnetGroupName: dbSubnets.name,
+        performanceInsightsEnabled: true,
+        performanceInsightsRetentionPeriod: 7,
+        monitoringInterval: 60,
+        monitoringRoleArn: enhancedMonitoringRole.arn,
+        applyImmediately: true,
+      }, { parent: this, ignoreChanges: ['engineVersion'] /* protect: true */ });
+    }
 
     // Writer secret: direct connection to Aurora cluster endpoint (for ECS indexer)
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;

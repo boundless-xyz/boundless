@@ -25,6 +25,12 @@ export = () => {
   const dockerDir = config.get('DOCKER_DIR') || '../../';
   const dockerTag = config.get('DOCKER_TAG') || 'latest';
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
+  // Aurora sizing. Defaults preserve provisioned r6g + read replica; staging
+  // stacks opt into Serverless v2 and drop the replica via config.
+  const dbServerless = config.getBoolean('DB_SERVERLESS') ?? false;
+  const dbMinAcu = config.getNumber('DB_MIN_ACU');
+  const dbMaxAcu = config.getNumber('DB_MAX_ACU');
+  const dbEnableReplica = config.getBoolean('DB_ENABLE_REPLICA') ?? true;
   const baseStackName = config.require('BASE_STACK');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
@@ -75,6 +81,10 @@ export = () => {
     pubSubNetIds,
     rdsPassword,
     isDev,
+    dbServerless,
+    dbMinAcu,
+    dbMaxAcu,
+    dbEnableReplica,
     ciCacheSecret,
     githubTokenSecret,
     dockerDir,

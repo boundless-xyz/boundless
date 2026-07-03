@@ -5,6 +5,10 @@ config:
   indexer:BASE_STACK: organization/bootstrap/services-staging
   indexer:BOUNDLESS_ADDRESS: 0x7abb16522f4599481361d318b765af988bfcca8e
   indexer:CHAIN_ID: "84532"
+  indexer:DB_SERVERLESS: "true"
+  indexer:DB_MIN_ACU: "0.5"
+  indexer:DB_MAX_ACU: "4"
+  indexer:DB_ENABLE_REPLICA: "false"
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
   indexer:GH_TOKEN_SECRET:
