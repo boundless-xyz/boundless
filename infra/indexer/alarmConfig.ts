@@ -359,6 +359,68 @@ export const alarmConfig: ChainStageAlarms = {
           }],
         },
         {
+          name: "kailua_batch",
+          address: "0x371479ca8a23b662f5b08d137bb21a4850861aca",
+          submissionRate: [
+            {
+              description: "no submitted orders in 1 hour from kailua_batch",
+              severity: Severity.SEV1,
+              metricConfig: {
+                period: 3600
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            },
+            {
+              description: "no submitted orders in 30 minutes from kailua_batch",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 1800
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            }
+          ],
+          successRate: [
+            {
+              description: "less than 90% success rate for two consecutive hours from kailua_batch",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 3600
+              },
+              alarmConfig: {
+                threshold: 0.90,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
+                comparisonOperator: "LessThanThreshold"
+              }
+            }
+          ],
+          expiredRequests: [{
+            description: "greater than or equal to 5 expired orders across 2 hours from kailua_batch",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 5,
+              evaluationPeriods: 2,
+              datapointsToAlarm: 2,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
+        },
+        {
           name: "kailua_og_offchain_2",
           address: "0x89f12aba0bcda3e708b1129eb2557b96f57b0de6",
           submissionRate: [
