@@ -596,7 +596,7 @@ mod tests {
             ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ELF, ECHO_ID, SET_BUILDER_ELF,
             SET_BUILDER_ID, SET_BUILDER_PATH,
         },
-        market::{deploy_boundless_market, deploy_hit_points, ASSESSOR_R0_SELECTOR},
+        market::{deploy_boundless_market, deploy_hit_points},
         verifier::{deploy_mock_verifier, deploy_set_verifier},
     };
     use chrono::Utc;
@@ -919,8 +919,7 @@ mod tests {
                 router_policy,
             )
             .with_set_builder_program_id(set_builder_id)
-            .with_set_verifier(set_verifier, provider.clone(), prover_addr)
-            .with_assessor_selector(ASSESSOR_R0_SELECTOR),
+            .with_set_verifier(set_verifier, provider.clone(), prover_addr),
         );
         let backend_router = Arc::new(
             BackendRouter::new().register_backend(BackendEntry::new(risc0_backend)).unwrap(),
