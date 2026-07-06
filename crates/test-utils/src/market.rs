@@ -35,7 +35,7 @@ use boundless_market::{
         bytecode::*,
         hit_points::{default_allowance, HitPointsService},
         AssessorCommitment, AssessorJournal, Fulfillment, FulfillmentData, FulfillmentDataType,
-        ProofRequest,
+        ProofRequest, RouterEntry, RouterRegistry,
     },
     deployments::Deployment,
     dynamic_gas_filler::DynamicGasFiller,
@@ -99,13 +99,20 @@ pub async fn deploy_version_registry<P: Provider>(
     Ok(*proxy_instance.address())
 }
 
-/// BoundlessRouter verifier class id (matches the Solidity test harness).
-pub const VERIFIER_CLASS_ID: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0x10]);
-/// BoundlessRouter assessor class id.
-pub const ASSESSOR_CLASS_ID: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0x20]);
+/// Canonical router class ids — one class per proof type, mirrored from the SDK constants so the
+/// test topology matches what `Manage.Router.s.sol:BootstrapRouter` puts on real chains.
+pub use boundless_market::contracts::{
+    R0_ASSESSOR_CLASS_ID, R0_GROTH16_BLAKE3_CLASS_ID, R0_GROTH16_CLASS_ID,
+    R0_SET_INCLUSION_CLASS_ID,
+};
 /// Router entry selector for the R0 STARK assessor adapter. Brokers prepend this to the assessor
-/// seal so the router dispatches to `R0BoundlessAssessorAdapter`.
-pub const ASSESSOR_R0_SELECTOR: FixedBytes<4> = FixedBytes([0x00, 0x00, 0x00, 0x24]);
+/// seal so the router dispatches to `R0BoundlessAssessorAdapter`. Single source of truth is the SDK
+/// constant — the deploy must register the adapter at this selector.
+pub const ASSESSOR_R0_SELECTOR: FixedBytes<4> = boundless_market::contracts::R0_ASSESSOR_SELECTOR;
+/// Router entry selector for the native `OnChainAssessor` adapter. Brokers prepend this to the
+/// assessor seal so the router dispatches to `OnChainAssessor` instead of the R0 STARK adapter.
+pub const ASSESSOR_ONCHAIN_SELECTOR: FixedBytes<4> =
+    boundless_market::contracts::ONCHAIN_ASSESSOR_SELECTOR;
 /// `type(IBoundlessAssessor).interfaceId`.
 const ASSESSOR_INTERFACE_ID: FixedBytes<4> = FixedBytes([0x08, 0x06, 0x08, 0x88]);
 /// `type(IBoundlessVerifier).interfaceId`.
@@ -116,6 +123,55 @@ const VERIFIER_INTERFACE_ID: FixedBytes<4> = FixedBytes([0x6b, 0x40, 0x63, 0x41]
 pub fn set_verifier_selector(set_builder_id: Digest) -> FixedBytes<4> {
     let digest = SetInclusionReceiptVerifierParameters { image_id: set_builder_id }.digest();
     FixedBytes::<4>::from_slice(&digest.as_bytes()[..4])
+}
+
+/// In-memory [`RouterRegistry`] fixture mirroring the topology [`deploy_router`] puts on chain: one
+/// class per proof type — set-inclusion (the chain default), groth16, and blake3-groth16, each
+/// holding the real and dev-mode fake selectors of its proof type — all requiring an assessor class
+/// that holds the R0 STARK assessor and — when `include_onchain_assessor` — the native on-chain
+/// assessor. Lets tests exercise the broker's real router-resolution logic without a chain; entry
+/// addresses are deterministic dummies.
+///
+/// Pass `include_onchain_assessor: false` for tests that must drive the R0 guest-assessor path (the
+/// broker prefers the on-chain assessor whenever its class registers one).
+pub fn test_router_registry(
+    set_builder_id: Digest,
+    include_onchain_assessor: bool,
+) -> RouterRegistry {
+    use boundless_market::selector::SelectorExt;
+
+    let entry = |byte: u8, class_id: FixedBytes<4>| RouterEntry {
+        implementation: Address::repeat_byte(byte),
+        class_id,
+        gas_limit: 0,
+    };
+
+    let mut entries = std::collections::HashMap::from([
+        (set_verifier_selector(set_builder_id), entry(0x01, R0_SET_INCLUSION_CLASS_ID)),
+        (FixedBytes::from(SelectorExt::groth16_latest() as u32), entry(0x02, R0_GROTH16_CLASS_ID)),
+        (
+            FixedBytes::from(SelectorExt::blake3_groth16_latest() as u32),
+            entry(0x03, R0_GROTH16_BLAKE3_CLASS_ID),
+        ),
+        (FixedBytes::from(SelectorExt::FakeReceipt as u32), entry(0x04, R0_GROTH16_CLASS_ID)),
+        (
+            FixedBytes::from(SelectorExt::FakeBlake3Groth16 as u32),
+            entry(0x05, R0_GROTH16_BLAKE3_CLASS_ID),
+        ),
+        (ASSESSOR_R0_SELECTOR, entry(0x0A, R0_ASSESSOR_CLASS_ID)),
+    ]);
+    if include_onchain_assessor {
+        entries.insert(ASSESSOR_ONCHAIN_SELECTOR, entry(0x0B, R0_ASSESSOR_CLASS_ID));
+    }
+
+    let required_assessor_class = std::collections::HashMap::from([
+        (R0_SET_INCLUSION_CLASS_ID, R0_ASSESSOR_CLASS_ID),
+        (R0_GROTH16_CLASS_ID, R0_ASSESSOR_CLASS_ID),
+        (R0_GROTH16_BLAKE3_CLASS_ID, R0_ASSESSOR_CLASS_ID),
+        (R0_ASSESSOR_CLASS_ID, FixedBytes::ZERO),
+    ]);
+
+    RouterRegistry::from_parts(R0_SET_INCLUSION_CLASS_ID, entries, required_assessor_class)
 }
 
 /// Deploy and configure a [BoundlessRouter] mirroring the Solidity test harness: a UUPS proxy with
@@ -152,10 +208,11 @@ pub async fn deploy_router<P: Provider + Clone>(
         .await
         .context("failed to deploy R0BoundlessVerifierAdapter")?;
 
-    // Assessor class + its R0 entry.
+    // Assessor class + its R0 entry. Registered first: the verifier classes reference it
+    // via `requiredAssessorClass`, which `addClass` validates against existing classes.
     router
         .addClass(
-            ASSESSOR_CLASS_ID,
+            R0_ASSESSOR_CLASS_ID,
             BoundlessRouter::ClassMetadata {
                 interfaceTag: ASSESSOR_INTERFACE_ID,
                 permissionlessInstantiate: false,
@@ -172,36 +229,22 @@ pub async fn deploy_router<P: Provider + Clone>(
         .get_receipt()
         .await?;
     router
-        .instantiate(ASSESSOR_R0_SELECTOR, *assessor_adapter.address(), ASSESSOR_CLASS_ID, 0)
+        .instantiate(ASSESSOR_R0_SELECTOR, *assessor_adapter.address(), R0_ASSESSOR_CLASS_ID, 0)
         .send()
         .await?
         .get_receipt()
         .await?;
 
-    // Default verifier class + the set-verifier entry, requiring the assessor class above.
-    router
-        .addClass(
-            VERIFIER_CLASS_ID,
-            BoundlessRouter::ClassMetadata {
-                interfaceTag: VERIFIER_INTERFACE_ID,
-                permissionlessInstantiate: false,
-                isDefault: true,
-                requiredAssessorClass: ASSESSOR_CLASS_ID,
-                schemaArtifact: B256::ZERO,
-                schemaArtifactUrl: String::new(),
-                defaultGasLimit: 100_000,
-                label: String::new(),
-            },
-        )
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
+    // Native on-chain assessor adapter registered under the same assessor class. Brokers select
+    // it over the R0 STARK adapter by prepending `ASSESSOR_ONCHAIN_SELECTOR` to the assessor seal.
+    let onchain_assessor = OnChainAssessor::deploy(&deployer_provider)
+        .await
+        .context("failed to deploy OnChainAssessor")?;
     router
         .instantiate(
-            set_verifier_selector(set_builder_id),
-            *verifier_adapter.address(),
-            VERIFIER_CLASS_ID,
+            ASSESSOR_ONCHAIN_SELECTOR,
+            *onchain_assessor.address(),
+            R0_ASSESSOR_CLASS_ID,
             0,
         )
         .send()
@@ -209,18 +252,51 @@ pub async fn deploy_router<P: Provider + Clone>(
         .get_receipt()
         .await?;
 
-    // Register the broker's non-set-inclusion verifier selectors (groth16 / blake3 groth16, or
-    // their dev-mode fake-receipt mocks) under the same verifier class. One adapter per selector,
-    // each pinned to the matching underlying verifier, so seals carrying those selectors dispatch
-    // instead of reverting with `EntryUnknown`.
-    for (selector, verifier) in
+    // One verifier class per proof type, all requiring the assessor class above. Set-inclusion
+    // is the chain default: sentinel-signed requests are fulfilled with aggregated seals.
+    let verifier_class = |is_default: bool| BoundlessRouter::ClassMetadata {
+        interfaceTag: VERIFIER_INTERFACE_ID,
+        permissionlessInstantiate: false,
+        isDefault: is_default,
+        requiredAssessorClass: R0_ASSESSOR_CLASS_ID,
+        schemaArtifact: B256::ZERO,
+        schemaArtifactUrl: String::new(),
+        // Real Groth16 verification costs ~250k gas (blake3-groth16 more); mirrors the
+        // production router bootstrap. Mock verifiers stay far below either value.
+        defaultGasLimit: 500_000,
+        label: String::new(),
+    };
+    for (class_id, is_default) in [
+        (R0_SET_INCLUSION_CLASS_ID, true),
+        (R0_GROTH16_CLASS_ID, false),
+        (R0_GROTH16_BLAKE3_CLASS_ID, false),
+    ] {
+        router.addClass(class_id, verifier_class(is_default)).send().await?.get_receipt().await?;
+    }
+    router
+        .instantiate(
+            set_verifier_selector(set_builder_id),
+            *verifier_adapter.address(),
+            R0_SET_INCLUSION_CLASS_ID,
+            0,
+        )
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
+    // Register the broker's root-proof selectors (groth16 / blake3 groth16, or their dev-mode
+    // fake-receipt mocks), each under its proof-type class. One adapter per selector, pinned to
+    // the matching underlying verifier, so seals carrying those selectors dispatch instead of
+    // reverting with `EntryUnknown`.
+    for (selector, verifier, class_id) in
         crate::verifier::deploy_verifier_class_entries(&deployer_provider).await?
     {
         let adapter = R0BoundlessVerifierAdapter::deploy(&deployer_provider, verifier)
             .await
             .context("failed to deploy R0BoundlessVerifierAdapter")?;
         router
-            .instantiate(selector, *adapter.address(), VERIFIER_CLASS_ID, 0)
+            .instantiate(selector, *adapter.address(), class_id, 0)
             .send()
             .await?
             .get_receipt()

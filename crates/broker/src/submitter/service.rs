@@ -903,12 +903,20 @@ mod tests {
         let (commitment_tx, commitment_rx) = mpsc::channel::<CommitmentComplete>(100);
         let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
         let priority_requestors = PriorityRequestors::new(config.clone(), anvil.chain_id());
+        // R0-only registry fixture: the batches under test carry guest-assessor set-inclusion
+        // seals, so resolution must select the R0 assessor.
+        let router_policy = risc0_backend::Risc0Backend::router_policy(
+            boundless_test_utils::market::test_router_registry(set_builder_id, false),
+            boundless_test_utils::market::set_verifier_selector(set_builder_id),
+            true,
+        );
         let risc0_backend = Arc::new(
             Risc0Backend::with_provers(
                 prover.clone(),
                 prover.clone(),
                 Arc::new(downloader),
                 priority_requestors.as_check(),
+                router_policy,
             )
             .with_set_builder_program_id(set_builder_id)
             .with_set_verifier(set_verifier, provider.clone(), prover_addr)

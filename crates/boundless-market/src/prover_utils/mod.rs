@@ -14,7 +14,6 @@
 #![allow(missing_docs)]
 
 pub mod config;
-pub(crate) mod local_executor;
 pub mod prover;
 pub mod request_evaluator;
 pub(crate) mod requestor_pricing;
@@ -31,7 +30,6 @@ pub use request_evaluator::{
     EvaluationLimits, EvaluationMetrics, EvaluationRequest, ImageUploadCache, ImageUploadCacheKey,
     InputCacheKey, NativeWork, NormalizedWork, PreflightCache, PreflightCacheKey,
     PreflightCacheValue, PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
-    Risc0Evaluator,
 };
 
 use crate::{
@@ -228,6 +226,11 @@ pub struct OrderRequest {
     /// Total gas units (lock + fulfill) estimated during pricing. Stored so the pre-lock
     /// check can simply re-multiply by the current gas price instead of re-computing.
     pub gas_estimate: Option<u64>,
+    /// Extra proving cycles beyond the order's own guest cycles for the fulfillment path this
+    /// order will take (direct groth16 → its groth16 wrap only; batched → assessor STARK +
+    /// set builder). Resolved by the backend during pricing; consumed by the capacity/timing
+    /// math. `None` falls back to the configured `additional_proof_cycles`.
+    pub additional_proof_cycles: Option<u64>,
     pub expected_reward_eth: Option<U256>,
     /// Unix timestamp (seconds since epoch) of when the broker first received this
     /// request from the network.
@@ -264,6 +267,7 @@ impl OrderRequest {
             target_timestamp: None,
             expire_timestamp: None,
             gas_estimate: None,
+            additional_proof_cycles: None,
             expected_reward_eth: None,
             received_at_timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -376,6 +380,29 @@ pub trait OrderPricingContext: RequestEvaluator {
     ) -> Result<Option<OrderPricingOutcome>, OrderPricingError>;
     #[cfg(feature = "prover_utils")]
     async fn estimate_gas_to_fulfill_pending(&self) -> Result<u64, OrderPricingError>;
+
+    /// Estimated on-chain gas to fulfill this order via the path/assessor that will actually be
+    /// used, **excluding** journal calldata and callback gas (both added separately during pricing,
+    /// selector-agnostically) and lock gas.
+    ///
+    /// The default is selector-agnostic (config base + groth16-verify for groth16 selectors). The
+    /// broker overrides it to delegate to its backend, which resolves the submission path and
+    /// assessor from the router policy and applies measured per-path costs.
+    async fn estimate_gas_to_fulfill(
+        &self,
+        request: &ProofRequest,
+    ) -> Result<u64, OrderPricingError> {
+        let config = self.market_config()?;
+        Ok(estimate_fulfill_gas_default(&config, self.supported_selectors(), request).await?)
+    }
+
+    /// Extra proving cycles beyond the order's own guest cycles for this order's fulfillment
+    /// path. The default returns the configured `additional_proof_cycles`; the broker overrides
+    /// it to delegate to its backend (direct → groth16 wrap only; batched → assessor + set builder).
+    fn additional_proof_cycles(&self, _request: &ProofRequest) -> Result<u64, OrderPricingError> {
+        Ok(self.market_config()?.additional_proof_cycles)
+    }
+
     fn is_priority_requestor(&self, client_addr: &Address) -> bool;
     async fn check_available_balances(
         &self,
@@ -506,23 +533,27 @@ pub trait OrderPricingContext: RequestEvaluator {
         // gas prices may go up (or down) by the time its time to fulfill. This does not aim to be
         // a tight estimate, although improving this estimate will allow for a more profit.
         let gas_price = self.current_gas_price().await?;
+        // The path-aware base (backend-resolved) plus the universal callback gas. Journal calldata
+        // is added later, once preflight reveals its size.
+        let fulfill_gas =
+            self.estimate_gas_to_fulfill(&order.request).await? + callback_gas(&order.request)?;
         let order_gas = if lock_expired {
             // No need to include lock gas if its a lock expired order
-            U256::from(
-                estimate_gas_to_fulfill(&config, self.supported_selectors(), &order.request)
-                    .await?,
-            )
+            U256::from(fulfill_gas)
         } else {
             U256::from(
-                config.lockin_gas_estimate
-                    + self.estimate_erc1271_gas(order).await
-                    + estimate_gas_to_fulfill(&config, self.supported_selectors(), &order.request)
-                        .await?,
+                config.lockin_gas_estimate + self.estimate_erc1271_gas(order).await + fulfill_gas,
             )
         };
         // Store the gas estimate on the order so the pre-lock check can re-use it
         // instead of re-computing.
         order.gas_estimate = Some(order_gas.saturating_to::<u64>());
+        // Resolve the path-dependent proving overhead once and carry it on the order. It is
+        // consumed by the OrderCommitter, a single scheduler shared across all chains that holds
+        // no backend handle (the per-chain locker recomputes its fulfill gas from its own backend
+        // instead). The value depends only on the request's selector and the cost-model constants
+        // — both uniform across chains — so computing it once here at pricing is sufficient.
+        order.additional_proof_cycles = Some(self.additional_proof_cycles(&order.request)?);
 
         let mut order_gas_cost = U256::from(gas_price) * order_gas;
         tracing::debug!(
@@ -1108,7 +1139,22 @@ fn format_expiries(request: &ProofRequest) -> String {
     format!("Lock expires {lock_expires_delta_str}, expires {expires_delta_str}")
 }
 
-async fn estimate_gas_to_fulfill(
+/// Gas the on-chain callback consumes for a request, or 0 if it has none. This is universal
+/// across backends and fulfillment paths — just the requestor-specified `callback.gasLimit` — so
+/// it is priced at the broker/market layer (here / `fulfill_gas_units`), not inside any backend's
+/// path-aware estimate.
+pub fn callback_gas(request: &ProofRequest) -> anyhow::Result<u64> {
+    Ok(u64::try_from(
+        request
+            .requirements
+            .callback
+            .as_option()
+            .map(|callback| callback.gasLimit)
+            .unwrap_or(alloy::primitives::aliases::U96::ZERO),
+    )?)
+}
+
+async fn estimate_fulfill_gas_default(
     config: &MarketConfig,
     supported_selectors: &SupportedSelectors,
     request: &ProofRequest,

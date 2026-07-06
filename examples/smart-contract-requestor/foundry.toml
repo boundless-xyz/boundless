@@ -5,6 +5,11 @@ libs = ["../../lib", "../../contracts/src"]
 script = "contracts/scripts"
 test = "contracts/test"
 ffi = true
+# The example's contracts transitively import BoundlessRouter, which needs via-ir to compile
+# (stack too deep in legacy codegen). Mirrors the root foundry.toml settings.
+via_ir = true
+optimizer = true
+optimizer_runs = 100
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 

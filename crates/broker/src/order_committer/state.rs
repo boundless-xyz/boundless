@@ -23,6 +23,9 @@ use crate::config::OrderCommitmentPriority;
 pub(super) struct InFlightOrder {
     pub(super) dispatched_at: Instant,
     pub(super) total_cycles: Option<u64>,
+    /// Path-aware proving overhead for this order, resolved during pricing (falls back to the
+    /// committer config default). Summed with `total_cycles` for capacity/timing estimates.
+    pub(super) additional_proof_cycles: u64,
     pub(super) proving_started_at: Option<u64>,
 }
 

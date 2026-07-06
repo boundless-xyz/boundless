@@ -17,7 +17,7 @@ use std::{str::FromStr, time::Duration};
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::{Context, Result};
 use blake3_groth16::Blake3Groth16ReceiptClaim;
-use boundless_market::{Client, Deployment, StorageUploaderConfig};
+use boundless_market::{risc0::Risc0ZkvmOps, Client, Deployment, StorageUploaderConfig};
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
@@ -62,6 +62,7 @@ async fn main() -> Result<()> {
 async fn run(args: Args) -> Result<()> {
     // Create a Boundless client from the provided parameters.
     let client = Client::builder()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
         .with_uploader_config(&args.storage_config)

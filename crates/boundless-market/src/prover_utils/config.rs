@@ -110,7 +110,13 @@ pub mod defaults {
     }
 
     pub fn assessor_default_image_url() -> String {
-        "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin".to_string()
+        // The assessor guest currently deployed on-chain (image id
+        // 0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100): matches the market
+        // `imageInfo()` and the router R0 assessor adapter's pinned `ASSESSOR_IMAGE_ID`. The broker
+        // trusts this URL without verifying it against the chain so it must track the deployed
+        // assessor; in practice the R0 STARK assessor path is not exercised while the
+        // on-chain assessor is preferred.
+        "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq".to_string()
     }
 
     pub const fn max_fetch_retries() -> Option<u8> {

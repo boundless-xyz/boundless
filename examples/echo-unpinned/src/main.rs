@@ -16,7 +16,9 @@ use std::time::Duration;
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
-use boundless_market::{request_builder::OfferParams, Client, Deployment, StorageUploaderConfig};
+use boundless_market::{
+    request_builder::OfferParams, risc0::Risc0ZkvmOps, Client, Deployment, StorageUploaderConfig,
+};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use tracing_subscriber::EnvFilter;
@@ -47,6 +49,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let client = Client::builder()
+        .with_zkvm(Risc0ZkvmOps::new().await)
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
         .with_uploader_config(&args.storage_config)

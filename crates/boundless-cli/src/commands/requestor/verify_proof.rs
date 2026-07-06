@@ -15,9 +15,9 @@
 use alloy::primitives::{B256, U256};
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use boundless_market::contracts::{FulfillmentData, Predicate};
+use boundless_market::Digest;
 use clap::Args;
 use risc0_ethereum_contracts::IRiscZeroVerifier;
-use risc0_zkvm::sha::Digest;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
@@ -52,7 +52,8 @@ impl RequestorVerifyProof {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config
-            .client_builder(global_config.tx_timeout)?
+            .client_builder(global_config.tx_timeout)
+            .await?
             .build()
             .await
             .context("Failed to build Boundless Client")?;

@@ -328,6 +328,11 @@ interface IBoundlessMarket {
     /// that is not locked. This is useful when the prover wishes to fulfill a request, but does
     /// not want to issue a lock transaction e.g. because the collateral is too high or to save money by
     /// avoiding the gas costs of the lock transaction.
+    ///
+    /// Fulfilling a still-lockable request without locking is non-exclusive by definition: a proof
+    /// proves the claim, not the prover, so an observer can grab the lock, re-bind the copied proof,
+    /// and take the payment, i.e. front run. Lock first to be exclusive — the default flow, and what proving software
+    /// does.
     /// @param request The proof request details.
     /// @param clientSignature The signature of the client.
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) external;

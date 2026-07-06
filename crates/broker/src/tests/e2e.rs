@@ -33,8 +33,9 @@ use alloy::{
 use boundless_market::price_oracle::config::PriceValue;
 use boundless_market::{
     contracts::{
-        bytecode::VersionRegistry, hit_points::default_allowance, Callback, FulfillmentData, Offer,
-        Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        boundless_market::BoundlessMarketService, bytecode::VersionRegistry,
+        hit_points::default_allowance, Callback, FulfillmentData, Offer, Predicate, ProofRequest,
+        RequestId, RequestInput, Requirements,
     },
     dynamic_gas_filler::PriorityMode,
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType},
@@ -44,7 +45,8 @@ use boundless_market::{
 use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, SET_BUILDER_PATH},
     market::{
-        create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_R0_SELECTOR,
+        create_test_ctx, deploy_mock_callback, get_mock_callback_count, ASSESSOR_ONCHAIN_SELECTOR,
+        ASSESSOR_R0_SELECTOR, R0_SET_INCLUSION_CLASS_ID,
     },
 };
 use risc0_zkvm::{
@@ -62,6 +64,55 @@ pub(super) fn is_dev_mode() -> bool {
         .map(|x| x.to_lowercase())
         .filter(|x| x == "1" || x == "true" || x == "yes")
         .is_some()
+}
+
+/// The 4-byte router assessor selector framing the `assessorSeal` of the fulfillment batch that
+/// delivered `request_id`, decoded from the fulfillment transaction's calldata. Asserting on it
+/// pins which assessor adapter the router dispatched the batch to (on-chain vs R0 guest).
+async fn submitted_assessor_selector<P: Provider>(
+    market: &BoundlessMarketService<P>,
+    request_id: U256,
+) -> FixedBytes<4> {
+    use alloy::consensus::Transaction as _;
+    use alloy::sol_types::SolCall;
+    use boundless_market::contracts::{FulfillmentBatch, IBoundlessMarket as IM};
+
+    let events = market.query_all_proof_delivered_events(request_id, None, None).await.unwrap();
+    let tx_hash = events.first().expect("no ProofDelivered event for request").tx_hash;
+    let tx = market
+        .instance()
+        .provider()
+        .get_transaction_by_hash(tx_hash)
+        .await
+        .unwrap()
+        .expect("fulfillment transaction not found");
+    let input = tx.input();
+
+    let batches: Vec<FulfillmentBatch> = if let Ok(call) = IM::fulfillCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else if let Ok(call) = IM::fulfillAndWithdrawCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else if let Ok(call) = IM::priceAndFulfillCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else if let Ok(call) = IM::priceAndFulfillAndWithdrawCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else if let Ok(call) = IM::submitRootAndFulfillCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else if let Ok(call) = IM::submitRootAndFulfillAndWithdrawCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else if let Ok(call) = IM::submitRootAndPriceAndFulfillCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else if let Ok(call) = IM::submitRootAndPriceAndFulfillAndWithdrawCall::abi_decode(input) {
+        call.fulfillmentBatches
+    } else {
+        panic!("unrecognized fulfillment calldata in tx {tx_hash}");
+    };
+
+    let batch = batches
+        .iter()
+        .find(|batch| batch.requests.iter().any(|request| request.id == request_id))
+        .expect("request not found in any fulfillment batch");
+    FixedBytes(batch.assessorSeal[0..4].try_into().expect("assessor seal shorter than 4 bytes"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -321,7 +372,8 @@ async fn simple_e2e() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -348,6 +400,11 @@ async fn simple_e2e() {
             )
             .await
             .unwrap();
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
     })
     .await;
 }
@@ -393,7 +450,8 @@ async fn simple_e2e_rpc_mode_legacy() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -420,6 +478,11 @@ async fn simple_e2e_rpc_mode_legacy() {
             )
             .await
             .unwrap();
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
     })
     .await;
 }
@@ -477,7 +540,8 @@ async fn simple_e2e_with_callback() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order with callback
     let request = generate_request(
@@ -504,6 +568,11 @@ async fn simple_e2e_with_callback() {
             )
             .await
             .unwrap();
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
 
         // Check for callback failures
         let event_filter = ctx
@@ -569,7 +638,8 @@ async fn e2e_fulfill_after_lock_expiry() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -606,6 +676,11 @@ async fn e2e_fulfill_after_lock_expiry() {
             )
             .await
             .unwrap();
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
     })
     .await;
 }
@@ -650,7 +725,8 @@ async fn e2e_with_selector() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -681,8 +757,200 @@ async fn e2e_with_selector() {
         let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_groth16_selector(selector));
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
     })
     .await;
+}
+
+/// A requestor can sign a verifier *class id* (not only a specific entry selector or the default
+/// sentinel). The broker must recognize the class via its startup-resolved `verifier_classes`,
+/// produce a seal whose entry lives in that class, and the router must accept it. (Signing the
+/// default sentinel and a specific selector are covered by `simple_e2e` and `e2e_with_selector`.)
+#[tokio::test]
+#[traced_test]
+async fn e2e_with_signed_verifier_class() {
+    let anvil = Anvil::new().spawn();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
+    let args = broker_args(
+        config.base_path(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer.clone(),
+        Some(ctx.version_registry_address),
+    );
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
+    )
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
+
+    let storage = MockStorageUploader::new();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
+
+    let mut request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+    // Sign against a verifier class id ("any version of this proof type") rather than a
+    // specific entry selector or the default sentinel.
+    request.requirements.selector = R0_SET_INCLUSION_CLASS_ID;
+
+    run_with_broker(broker, vec![chain], async move {
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        let fulfillment = ctx
+            .customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+        // The class id resolved to the set-inclusion entry (the producible selector in that class),
+        // not a direct groth16/blake3 proof.
+        let seal = fulfillment.seal;
+        let selector = FixedBytes(seal[0..4].try_into().unwrap());
+        assert!(!is_groth16_selector(selector) && !is_blake3_groth16_selector(selector));
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
+    })
+    .await;
+}
+
+/// With no on-chain assessor registered in the router, the broker's assessor priority falls back
+/// to the R0 STARK guest: the assessor guest is proven, aggregated by the set-builder, and the
+/// batch is sealed with a set-inclusion proof framed by the R0 assessor selector. (Every other
+/// e2e test runs with the on-chain assessor registered and preferred, which skips the guest.)
+#[tokio::test]
+#[traced_test]
+async fn e2e_r0_guest_assessor_fallback() {
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    // Setup signers / providers
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Tombstone the on-chain assessor entry (as the router admin) before the broker starts, so
+    // its startup registry snapshot finds only the R0 guest assessor in the required class.
+    let router_addr = ctx.prover_market.router_address().await.unwrap();
+    let admin_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+    let admin_provider = ProviderBuilder::new()
+        .wallet(EthereumWallet::from(admin_signer))
+        .connect(&anvil.endpoint())
+        .await
+        .unwrap();
+    let router =
+        boundless_market::contracts::bytecode::BoundlessRouter::new(router_addr, &admin_provider);
+    router
+        .removeEntry(ASSESSOR_ONCHAIN_SELECTOR)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    // Deposit prover / customer balances
+    ctx.prover_market
+        .deposit_collateral_with_permit(default_allowance(), &ctx.prover_signer)
+        .await
+        .unwrap();
+    ctx.customer_market.deposit(utils::parse_ether("0.5").unwrap()).await.unwrap();
+
+    // Start broker
+    let config = new_config(1).await;
+    let config_watcher = config.watcher().await;
+    let args = broker_args(
+        config.base_path(),
+        ctx.deployment.clone(),
+        anvil.endpoint_url(),
+        ctx.prover_signer.clone(),
+        Some(ctx.version_registry_address),
+    );
+    let db_dir = tempfile::tempdir().unwrap();
+    let chain = build_test_chain(
+        &ctx.prover_provider,
+        &ctx.prover_signer,
+        &ctx.deployment,
+        anvil.endpoint_url(),
+        &config_watcher.config,
+        db_dir.path(),
+    )
+    .await;
+    let broker = Broker::new(args, config_watcher).await.unwrap();
+
+    // Provide URL for ECHO program
+    let storage = MockStorageUploader::new();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
+
+    // Submit an order
+    let request = generate_request(
+        ctx.customer_market.index_from_nonce().await.unwrap(),
+        &ctx.customer_signer.address(),
+        ProofType::Any,
+        image_url,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    run_with_broker(broker, vec![chain], async move {
+        // Submit the request
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+        // Wait for fulfillment
+        ctx.customer_market
+            .wait_for_request_fulfillment(
+                U256::from(request.id),
+                Duration::from_secs(1),
+                request.expires_at(),
+            )
+            .await
+            .unwrap();
+
+        // The batch's assessor seal was framed with the R0 guest assessor selector.
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_R0_SELECTOR
+        );
+    })
+    .await;
+
+    // The guest path actually ran: the assessor STARK was proven (and the router accepted the
+    // set-inclusion assessor seal, or fulfillment would have reverted).
+    assert!(logs_contain("Assessor proof completed"));
 }
 
 #[tokio::test]
@@ -724,7 +992,8 @@ async fn e2e_with_blake3_groth16_selector() {
     let broker = Broker::new(args, config_watcher).await.unwrap();
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     // Submit an order
     let request = generate_request(
@@ -755,6 +1024,11 @@ async fn e2e_with_blake3_groth16_selector() {
         let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_blake3_groth16_selector(selector));
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
     })
     .await;
 }
@@ -803,7 +1077,8 @@ async fn e2e_with_multiple_requests() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap().to_string();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap().to_string();
 
     // Submit the first order
     let request = generate_request(
@@ -847,6 +1122,10 @@ async fn e2e_with_multiple_requests() {
         let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(!is_groth16_selector(selector));
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
 
         let fulfillment = ctx
             .customer_market
@@ -860,6 +1139,11 @@ async fn e2e_with_multiple_requests() {
         let seal = fulfillment.seal;
         let selector = FixedBytes(seal[0..4].try_into().unwrap());
         assert!(is_groth16_selector(selector));
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(request_groth16.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
     })
     .await;
 }
@@ -904,7 +1188,8 @@ async fn e2e_with_claim_digest_match() {
 
     // Provide URL for ECHO program
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     let input_bytes = vec![0x41, 0x41, 0x41, 0x41];
     let input = RequestInput::builder().write_slice(&input_bytes).build_inline().unwrap();
@@ -937,6 +1222,11 @@ async fn e2e_with_claim_digest_match() {
             )
             .await
             .unwrap();
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, U256::from(good_request.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
         let fulfillment_data = fulfillment.data().unwrap();
 
         // When claim digest match is used without a callback, fulfillment data is empty
@@ -984,7 +1274,8 @@ async fn gas_estimation_matches_actual_tx_cost() {
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     let request = generate_request(
         ctx.customer_market.index_from_nonce().await.unwrap(),
@@ -1006,6 +1297,12 @@ async fn gas_estimation_matches_actual_tx_cost() {
             .wait_for_request_fulfillment(request_id, Duration::from_secs(1), request.expires_at())
             .await
             .unwrap();
+
+        assert_eq!(
+            submitted_assessor_selector(&ctx.customer_market, request_id).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
+
 
         let market_config = MarketConfig::default();
         let estimated_lock_gas = market_config.lockin_gas_estimate;
@@ -1132,7 +1429,8 @@ async fn multi_chain_e2e() {
     let broker = Broker::new(args, config_watcher).await.unwrap();
 
     let storage = MockStorageUploader::new();
-    let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
+    let id = risc0_zkvm::compute_image_id(ECHO_ELF).unwrap();
+    let image_url = storage.upload_bytes(ECHO_ELF, &format!("{id}.bin")).await.unwrap();
 
     let multi_chain_offer = Offer {
         minPrice: parse_ether("0.02").unwrap(),
@@ -1177,6 +1475,10 @@ async fn multi_chain_e2e() {
             )
             .await
             .unwrap();
+        assert_eq!(
+            submitted_assessor_selector(&ctx1.customer_market, U256::from(req1.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
 
         ctx2.customer_market
             .wait_for_request_fulfillment(
@@ -1186,6 +1488,10 @@ async fn multi_chain_e2e() {
             )
             .await
             .unwrap();
+        assert_eq!(
+            submitted_assessor_selector(&ctx2.customer_market, U256::from(req2.id)).await,
+            ASSESSOR_ONCHAIN_SELECTOR
+        );
 
         assert!(logs_contain("chain_id=31337"));
         assert!(logs_contain("chain_id=1337"));

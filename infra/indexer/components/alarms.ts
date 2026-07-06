@@ -1,5 +1,5 @@
 import * as aws from "@pulumi/aws";
-import { Severity } from "../../util";
+import { Severity, withAutoInvestigate } from "../../util";
 
 export const buildCreateMetricFns = (serviceName: string, namespace: string, alarmActions: string[]) => {
     const createMetricAlarm = ({
@@ -7,6 +7,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
         severity,
         target,
         description,
+        autoInvestigate,
         metricConfig,
         alarmConfig,
     }: {
@@ -17,6 +18,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             address: string;
         },
         description?: string,
+        autoInvestigate?: boolean,
         metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
         alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
     }): void => {
@@ -51,7 +53,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
-            alarmDescription: `${severity}: ${description}`,
+            alarmDescription: withAutoInvestigate(`${severity}: ${description}`, autoInvestigate),
             actionsEnabled: true,
             alarmActions,
             ...alarmConfig
@@ -67,6 +69,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
         description?: string,
         metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
         alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
+        autoInvestigate?: boolean,
     ): void => {
         // Hash description to ensure unique alarm name
         const descriptionHash = (description ?? "")
@@ -115,7 +118,7 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             evaluationPeriods: 12,
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
-            alarmDescription: `${severity}: ${description}`,
+            alarmDescription: withAutoInvestigate(`${severity}: ${description}`, autoInvestigate),
             actionsEnabled: true,
             alarmActions,
             ...alarmConfig

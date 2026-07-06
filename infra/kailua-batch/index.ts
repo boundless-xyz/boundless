@@ -1,7 +1,7 @@
 import * as aws from "@pulumi/aws";
 import * as awsx from "@pulumi/awsx";
 import * as pulumi from "@pulumi/pulumi";
-import { getServiceNameV1, Severity } from "../util";
+import { getServiceNameV1, Severity, withAutoInvestigate } from "../util";
 
 require("dotenv").config();
 
@@ -35,6 +35,9 @@ const OPTIONAL_SECRETS: SecretMapping[] = [];
 const DEFAULT_SCHEDULE_COUNT = 20;
 const DEFAULT_SCHEDULE_WINDOW_MINUTES = 20;
 const DEFAULT_TASKS_PER_MINUTE = 2;
+// Hard wall-clock cap on a kailua task; the watchdog in defaultProveScript SIGTERM/SIGKILLs
+// the whole prove process group past this and the task exits.
+const DEFAULT_TASK_TIMEOUT_MINUTES = 20;
 
 export = () => {
     const config = new pulumi.Config();
@@ -61,6 +64,10 @@ export = () => {
     const scheduleCount = config.getNumber("SCHEDULE_COUNT") ?? DEFAULT_SCHEDULE_COUNT;
     const scheduleWindowMinutes = config.getNumber("SCHEDULE_WINDOW_MINUTES") ?? DEFAULT_SCHEDULE_WINDOW_MINUTES;
     const tasksPerMinute = config.getNumber("TASKS_PER_MINUTE") ?? DEFAULT_TASKS_PER_MINUTE;
+    const taskTimeoutMinutes = config.getNumber("TASK_TIMEOUT_MINUTES") ?? DEFAULT_TASK_TIMEOUT_MINUTES;
+    if (taskTimeoutMinutes < 1) {
+        throw new Error("TASK_TIMEOUT_MINUTES must be at least 1");
+    }
     if (scheduleCount < 1) {
         throw new Error("SCHEDULE_COUNT must be at least 1");
     }
@@ -179,6 +186,9 @@ export = () => {
         );
     }
 
+    const dynamicPricingTimeoutModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER");
+    const dynamicPricingRampUpModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER");
+
     const defaultEnvironment: Record<string, string> = {
         MODE: config.get("MODE") ?? "debug",
         ...deploymentOverrides,
@@ -191,6 +201,12 @@ export = () => {
         NO_COLOR: "1",
         R2_DOMAIN: config.require("R2_DOMAIN"),
         BOUNDLESS_DYNAMIC_PRICING: config.get("BOUNDLESS_DYNAMIC_PRICING") ?? "true",
+        ...(dynamicPricingTimeoutModifier
+            ? { BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER: dynamicPricingTimeoutModifier }
+            : {}),
+        ...(dynamicPricingRampUpModifier
+            ? { BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: dynamicPricingRampUpModifier }
+            : {}),
         S3_BUCKET: config.require("S3_BUCKET"),
         AWS_REGION: config.get("AWS_REGION") ?? "auto",
         LOG_VERBOSITY: config.get("LOG_VERBOSITY") ?? "-vvv",
@@ -207,6 +223,8 @@ export = () => {
         NUM_CONCURRENT_PROOFS: config.get("NUM_CONCURRENT_PROOFS") ?? "1",
         NUM_CONCURRENT_PROVERS: config.get("NUM_CONCURRENT_PROVERS") ?? "3",
         SEQ_WINDOW: config.get("SEQ_WINDOW") ?? "50",
+        // Consumed by the prove watchdog in defaultProveScript; ENV stack config can override.
+        KAILUA_TASK_TIMEOUT_SECONDS: (taskTimeoutMinutes * 60).toString(),
     };
 
     const orderStreamUrl = config.requireSecret("BOUNDLESS_ORDER_STREAM_URL");
@@ -230,11 +248,28 @@ export = () => {
         ': "${S3_SECRET_KEY:?S3_SECRET_KEY is required for R2}"',
         'export AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY}"',
         'export AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY}"',
-        'FINALIZED=$(cast bn finalized -r "$L2_RPC")',
+        // Bound the pre-prove RPC call too: a dead/hung L2 RPC here would otherwise hang the
+        // task forever, since the prove watchdog below has not started yet.
+        'FINALIZED=$(timeout 60 cast bn finalized -r "$L2_RPC")',
         'START_BLOCK=$((FINALIZED - START_BLOCK_OFFSET))',
         'echo "KAILUA_RUNNING finalized=${FINALIZED} start_block=${START_BLOCK} offset=${START_BLOCK_OFFSET} block_count=${BLOCK_COUNT}"',
         `cd ${kailuaWorkdir}`,
-        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 || [ $? -eq 111 ]',
+        // Hard wall-clock cap on proving. A plain `timeout` does NOT bound this: `just`/the prover
+        // don't propagate the signal to the whole process tree, so orphaned proving processes keep
+        // running (observed: tasks ran ~52min under a 30min `timeout`, saturating MAX_RUNNING_TASKS).
+        // Run prove in its own process group (set -m) and have a watchdog SIGTERM/SIGKILL the WHOLE
+        // group on overrun, then exit so ECS tears the task down. Exit 111 stays the success/skip
+        // code. The limit comes from TASK_TIMEOUT_MINUTES stack config (default 20m); override the
+        // raw seconds via ENV stack config (KAILUA_TASK_TIMEOUT_SECONDS) if needed.
+        'set -m',
+        'just prove "$START_BLOCK" "$BLOCK_COUNT" "$L1_RPC" "$L1_BEACON" "$L2_RPC" "$OP_NODE" "$DATA_REL" "$MODE" "$SEQ_WINDOW" "$LOG_VERBOSITY" 1 &',
+        'KAILUA_PROVE_PID=$!',
+        '( sleep "${KAILUA_TASK_TIMEOUT_SECONDS:-1800}"; echo "KAILUA_TASK_TIMEOUT exceeded after ${KAILUA_TASK_TIMEOUT_SECONDS:-1800}s; killing prove process group"; kill -TERM -"$KAILUA_PROVE_PID" 2>/dev/null; sleep 30; kill -KILL -"$KAILUA_PROVE_PID" 2>/dev/null ) &',
+        'KAILUA_WATCHDOG_PID=$!',
+        'KAILUA_RC=0; wait "$KAILUA_PROVE_PID" || KAILUA_RC=$?',
+        'kill "$KAILUA_WATCHDOG_PID" 2>/dev/null || true',
+        'if [ "$KAILUA_RC" -eq 111 ]; then KAILUA_RC=0; fi',
+        'exit "$KAILUA_RC"',
     ].join("\n");
 
     const containerCommand = config.get("KAILUA_COMMAND") ?? [
@@ -254,7 +289,7 @@ export = () => {
                 cpu: taskCpu,
                 memory: taskMemory,
                 essential: true,
-                entryPoint: ["/bin/sh", "-c"],
+                entryPoint: ["/bin/bash", "-c"],
                 command: [containerCommand],
                 environment,
                 secrets: ecsSecrets,
@@ -452,7 +487,8 @@ export = () => {
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             treatMissingData: "notBreaching",
-            alarmDescription: `${Severity.SEV2}: Kailua emitted a low-funds log in 1 hour`,
+            // Balance alarm: remediation is to top up Kailua, nothing to investigate.
+            alarmDescription: withAutoInvestigate(`${Severity.SEV2}: Kailua emitted a low-funds log in 1 hour`, false),
             actionsEnabled: true,
             alarmActions,
         });

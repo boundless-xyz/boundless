@@ -22,7 +22,7 @@ use alloy::{
     consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{utils::format_ether, Address, Bytes, B256, U256},
+    primitives::{utils::format_ether, Address, Bytes, FixedBytes, B256, U256},
     providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
@@ -32,8 +32,22 @@ use alloy_sol_types::{SolCall, SolEvent, SolInterface};
 use anyhow::{anyhow, Context, Result};
 use thiserror::Error;
 
+alloy::sol! {
+    /// Read-only view binding for the `BoundlessRouter` selector registry: enough to snapshot the
+    /// entry pins, the per-class metadata, and the chain-default class id. Used to build a
+    /// [`super::RouterRegistry`].
+    #[sol(rpc)]
+    contract BoundlessRouterView {
+        function entries(bytes4 selector) external view returns (address implementation, bytes4 classId, uint64 gasLimit);
+        function classes(bytes4 classId) external view returns (bytes4 interfaceTag, bool permissionlessInstantiate, bool isDefault, bytes4 requiredAssessorClass, bytes32 schemaArtifact, string schemaArtifactUrl, uint64 defaultGasLimit, string label);
+        function defaultClassId() external view returns (bytes4);
+    }
+}
+
 use super::{
-    eip712_domain, EIP712DomainSaltless, Fulfillment, FulfillmentBatch,
+    eip712_domain,
+    router_registry::{RouterEntry, RouterRegistry},
+    EIP712DomainSaltless, Fulfillment, FulfillmentBatch,
     IBoundlessMarket::{self, IBoundlessMarketErrors, IBoundlessMarketInstance, ProofDelivered},
     LegacyFulfillment, Offer, ProofRequest, ProofRequestBatch, RequestError, RequestId,
     RequestStatus, SlimRequest, TxnErr, TXN_CONFIRM_TIMEOUT,
@@ -465,6 +479,104 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// If not cached, this function will fetch the chain ID with an RPC call.
     pub async fn eip712_domain(&self) -> Result<EIP712DomainSaltless, MarketError> {
         Ok(eip712_domain(*self.instance.address(), self.get_chain_id().await?))
+    }
+
+    /// Returns the `BoundlessRouter` address the market dispatches verification through.
+    pub async fn router_address(&self) -> Result<Address, MarketError> {
+        Ok(self.instance.ROUTER().call().await?)
+    }
+
+    /// Resolves the adapter implementation registered in the router under `selector`.
+    ///
+    /// Used to discover the deployed `OnChainAssessor` address (needed to build its EIP-712
+    /// domain) from the assessor selector the broker is configured with.
+    pub async fn router_entry_impl(&self, selector: FixedBytes<4>) -> Result<Address, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.entries(selector).call().await?.implementation)
+    }
+
+    /// Resolves the router class id a `selector` entry belongs to, or `bytes4(0)` if the selector
+    /// is not a registered entry. Used to map the verifier selectors a broker can produce onto the
+    /// router classes a requestor may sign against.
+    pub async fn router_entry_class_id(
+        &self,
+        selector: FixedBytes<4>,
+    ) -> Result<FixedBytes<4>, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.entries(selector).call().await?.classId)
+    }
+
+    /// Reads the chain-default verifier class id from the router (`bytes4(0)` if none is set).
+    pub async fn router_default_class_id(&self) -> Result<FixedBytes<4>, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.defaultClassId().call().await?)
+    }
+
+    /// Reads the `requiredAssessorClass` of a router class (`bytes4(0)` for assessor/joint classes
+    /// or a class that is not registered).
+    pub async fn router_required_assessor_class(
+        &self,
+        class_id: FixedBytes<4>,
+    ) -> Result<FixedBytes<4>, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+        Ok(router.classes(class_id).call().await?.requiredAssessorClass)
+    }
+
+    /// Snapshots the router registry for a fixed set of selectors of interest into an in-memory
+    /// [`RouterRegistry`]. Reads `defaultClassId`, one `entries` lookup per selector, and one
+    /// `classes` lookup per referenced class; the resulting registry answers resolution queries
+    /// with no further RPC.
+    ///
+    /// `selectors_of_interest` are the selectors the caller cares about — typically the verifier
+    /// selectors a backend can produce plus the assessor selectors it can satisfy. Selectors that
+    /// are not registered as entries are simply absent from the snapshot.
+    pub async fn load_router_registry(
+        &self,
+        selectors_of_interest: &[FixedBytes<4>],
+    ) -> Result<RouterRegistry, MarketError> {
+        let router_addr = self.router_address().await?;
+        let router = BoundlessRouterView::new(router_addr, self.instance.provider());
+
+        let default_class_id = router.defaultClassId().call().await?;
+
+        let mut entries = std::collections::HashMap::new();
+        let mut class_ids = std::collections::HashSet::new();
+        if default_class_id != FixedBytes::<4>::ZERO {
+            class_ids.insert(default_class_id);
+        }
+        for &selector in selectors_of_interest {
+            // The chain-default sentinel is never a registered entry.
+            if selector == super::UNSPECIFIED_SELECTOR {
+                continue;
+            }
+            let entry = router.entries(selector).call().await?;
+            if entry.implementation != Address::ZERO {
+                entries.insert(
+                    selector,
+                    RouterEntry {
+                        implementation: entry.implementation,
+                        class_id: entry.classId,
+                        gas_limit: entry.gasLimit,
+                    },
+                );
+                class_ids.insert(entry.classId);
+            }
+        }
+
+        let mut required_assessor_class = std::collections::HashMap::new();
+        for class_id in class_ids {
+            let meta = router.classes(class_id).call().await?;
+            // A zero interfaceTag means the class is not registered; skip it.
+            if meta.interfaceTag != FixedBytes::<4>::ZERO {
+                required_assessor_class.insert(class_id, meta.requiredAssessorClass);
+            }
+        }
+
+        Ok(RouterRegistry::from_parts(default_class_id, entries, required_assessor_class))
     }
 
     /// Deposit Ether into the market to pay for proof and/or lockin collateral.

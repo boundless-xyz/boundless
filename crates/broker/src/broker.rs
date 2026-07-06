@@ -575,27 +575,22 @@ impl Broker {
             }
         };
 
-        let mut risc0_backend = Risc0Backend::new(
-            risc0_cfg.clone(),
+        let risc0_backend = Risc0Backend::from_deployment(
+            risc0_cfg,
             self.args.bonsai_api_key.as_deref(),
             self.args.bonsai_api_url.as_ref(),
             self.args.bento_api_url.as_ref(),
             Arc::new(self.downloader.clone()),
             priority_requestors.as_check(),
-        )?;
-
-        if !self.args.listen_only {
-            risc0_backend = risc0_backend
-                .with_batch_processor_from_deployment(
-                    risc0_cfg,
-                    config.proof_retry_policy(),
-                    &provider,
-                    deployment,
-                    prover_addr,
-                    chain_id,
-                )
-                .await?;
-        }
+            config.proof_retry_policy(),
+            &provider,
+            deployment,
+            prover_addr,
+            signer.clone(),
+            chain_id,
+            self.args.listen_only,
+        )
+        .await?;
 
         let backend_router = Arc::new(
             BackendRouter::new()
@@ -646,7 +641,7 @@ impl Broker {
             gas_priority_mode.clone(),
             gas_estimation_priority_mode,
             erc1271_gas_cache,
-            backend_router.supported_selectors(),
+            backend_router.clone(),
             self.args.listen_only,
             chain_id,
             proving_completion_tx.clone(),

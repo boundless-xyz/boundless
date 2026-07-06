@@ -21,7 +21,9 @@ use alloy_primitives::FixedBytes;
 use clap::ValueEnum;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_ethereum_contracts::selector::Selector;
-use risc0_zkvm::sha::{Digest, Digestible};
+use risc0_zkvm::sha::Digestible;
+
+use crate::Digest;
 use thiserror::Error;
 
 use crate::contracts::UNSPECIFIED_SELECTOR;
@@ -223,9 +225,9 @@ impl SupportedSelectors {
     /// The selector is calculated by constructing the [SetInclusionReceiptVerifierParameters]
     /// using the given image ID. The resulting selector has [ProofType::Inclusion].
     pub fn with_set_builder_image_id(&self, set_builder_image_id: impl Into<Digest>) -> Self {
+        let r0_image_id = risc0_zkvm::sha::Digest::from(set_builder_image_id.into());
         let verifier_params =
-            SetInclusionReceiptVerifierParameters { image_id: set_builder_image_id.into() }
-                .digest();
+            SetInclusionReceiptVerifierParameters { image_id: r0_image_id }.digest();
         let set_builder_selector: FixedBytes<4> =
             verifier_params.as_bytes()[0..4].try_into().unwrap();
         let mut selectors = self.selectors.clone();
@@ -247,8 +249,14 @@ pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
     }
 }
 
-/// Check if a selector is a blake3 groth16 selector.
+/// Check if a selector is a blake3 groth16 selector. Also matches the blake3-groth16 router class
+/// id (`R0_GROTH16_BLAKE3_CLASS_ID`): a request may sign the class rather than the concrete entry,
+/// and it resolves to that entry on-chain, so request building and predicate evaluation — which key
+/// off the signed selector — must treat the class the same as the entry.
 pub fn is_blake3_groth16_selector(selector: FixedBytes<4>) -> bool {
+    if selector == crate::contracts::R0_GROTH16_BLAKE3_CLASS_ID {
+        return true;
+    }
     let sel = SelectorExt::from_bytes(selector.into());
     match sel {
         Some(selector) => {

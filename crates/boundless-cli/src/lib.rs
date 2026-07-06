@@ -57,12 +57,14 @@ use boundless_market::{
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
     storage::StorageDownloader,
-    ProofRequest,
+    NotProvided, ProofRequest,
 };
 
-/// Default URL for assessor image - matches broker config defaults
+/// Default URL for assessor image - matches broker config defaults. The assessor guest currently
+/// deployed on-chain (image id 0x6c5a03c0…56694100), matching the market `imageInfo()` and the
+/// router R0 assessor adapter's pinned `ASSESSOR_IMAGE_ID`.
 pub const ASSESSOR_DEFAULT_IMAGE_URL: &str =
-    "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin";
+    "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq";
 
 /// Default URL for set builder image - matches broker config defaults
 pub const SET_BUILDER_DEFAULT_IMAGE_URL: &str =
@@ -245,7 +247,7 @@ impl OrderFulfiller {
 
     pub(crate) async fn initialize_from_config<P, St, D, R, Si>(
         prover_config: &config::ProverConfig,
-        client: &boundless_market::Client<P, St, D, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, D, R, Si>,
         assessor_selector: FixedBytes<4>,
     ) -> Result<Self>
     where
@@ -293,7 +295,7 @@ impl OrderFulfiller {
     /// matches the image deployed by the test harness.
     pub async fn initialize<P, St, D, R, Si>(
         prover: Arc<dyn Prover + Send + Sync>,
-        client: &boundless_market::Client<P, St, D, R, Si>,
+        client: &boundless_market::Client<NotProvided, P, St, D, R, Si>,
         assessor_selector: FixedBytes<4>,
         assessor_image_url: &str,
     ) -> Result<Self>

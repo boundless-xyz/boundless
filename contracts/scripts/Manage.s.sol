@@ -101,6 +101,12 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
             new ERC1967Proxy{salt: salt}(newImplementation, abi.encodeCall(BoundlessMarket.initialize, (admin)))
         );
 
+        // Carry the legacy assessor guest URL onto the fresh proxy so old brokers — which
+        // fetch the assessor guest from `imageInfo()` — keep working. Read from the market
+        // this deployment replaces (deployment.toml's boundless-market; LEGACY_MARKET
+        // overrides the address, LEGACY_ASSESSOR_GUEST_URL overrides the URL outright).
+        ensureLegacyImageUrl(marketAddress, resolveLegacyImageUrl(deploymentConfig.boundlessMarket));
+
         vm.stopBroadcast();
 
         // Verify the deployment
@@ -170,11 +176,23 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // config (the BOUNDLESS_ROUTER env var overrides it).
         address boundlessRouter =
             vm.envOr("BOUNDLESS_ROUTER", deploymentConfig.boundlessRouter).required("boundless-router");
-        BoundlessMarket market = BoundlessMarket(payable(marketAddress));
         // Keep the existing delegate-call target by default so the audited
         // legacy bytecode the proxy already points at is preserved across the
         // upgrade; BOUNDLESS_LEGACY_IMPL can override it to intentionally repoint.
-        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", market.LEGACY_IMPL());
+        address legacyImpl = vm.envOr("BOUNDLESS_LEGACY_IMPL", address(0));
+        if (legacyImpl == address(0)) {
+            // A proxy already on the router-aware impl exposes LEGACY_IMPL(); a proxy still
+            // on the legacy impl does not (no such getter, no fallback) — there the
+            // implementation being replaced IS the legacy bytecode the fallback must keep
+            // serving.
+            (bool ok, bytes memory data) = marketAddress.staticcall(abi.encodeWithSignature("LEGACY_IMPL()"));
+            legacyImpl = (ok && data.length == 32) ? abi.decode(data, (address)) : currentImplementation;
+        }
+        // The legacy assessor guest URL lives in proxy storage and is served through the
+        // legacy fallback after the upgrade; capture it up front so the flow can guarantee
+        // `imageInfo()` still serves it afterwards. LEGACY_ASSESSOR_GUEST_URL overrides the
+        // captured value.
+        string memory legacyImageUrl = vm.envOr("LEGACY_ASSESSOR_GUEST_URL", readLegacyImageUrl(marketAddress));
 
         // Upgrade requires build info from the currently deployed version.
         // You can get this build info with the following process.
@@ -194,8 +212,11 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             console2.log("WARNING: Skipping all upgrade safety checks and reference build!");
             opts.unsafeSkipAllChecks = true;
         } else {
-            // Only set reference contract when doing safety checks
-            opts.referenceContract = "build-info-reference:BoundlessMarket";
+            // Only set reference contract when doing safety checks. The file-qualified name is
+            // required: the legacy fallback source (BoundlessMarketLegacy.sol) also declares a
+            // contract named BoundlessMarket, so the bare name is ambiguous in any build that
+            // includes contracts/src/legacy/.
+            opts.referenceContract = "build-info-reference:contracts/src/BoundlessMarket.sol:BoundlessMarket";
             opts.referenceBuildInfoDir = "contracts/build-info-reference";
         }
 
@@ -245,7 +266,7 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
             console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
             console2.log("Upgraded BoundlessMarket router contract at %s", boundlessRouter);
-            // The assessor guest URL is no longer market-level state.
+            ensureLegacyImageUrl(marketAddress, legacyImageUrl);
         }
         vm.stopBroadcast();
 
@@ -305,7 +326,14 @@ contract RollbackBoundlessMarket is BoundlessScriptBase {
         console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
         console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
         console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
-        console2.log("Upgraded BoundlessMarket router contract at %s", address(upgradedMarket.ROUTER()));
+        // ROUTER() only exists on the router-aware impl; a rollback to the legacy impl
+        // (the emergency exit of an in-place production upgrade) has none.
+        (bool routerOk, bytes memory routerData) = marketAddress.staticcall(abi.encodeWithSignature("ROUTER()"));
+        if (routerOk && routerData.length == 32) {
+            console2.log("Upgraded BoundlessMarket router contract at %s", abi.decode(routerData, (address)));
+        } else {
+            console2.log("Rolled back to a legacy implementation (no ROUTER())");
+        }
 
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         require(

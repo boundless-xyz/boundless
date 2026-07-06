@@ -19,6 +19,7 @@ import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 import { resolveNodes, NodeConfigEntry, MonitoredNode, AlarmConfig, LogPatternAlarmConfig } from "./nodeConfig";
 import { buildDashboardBody } from "./components/dashboard";
+import { withAutoInvestigate } from "../util";
 
 export = () => {
     const config = new pulumi.Config();
@@ -145,7 +146,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             statistic: "Minimum",
             period: ac.metricConfig.period,
             ...a,
-            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "bento-down"),
+            alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "bento-down"), ac.autoInvestigate),
             actionsEnabled: true,
             alarmActions,
             tags: alarmTags,
@@ -164,7 +165,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             statistic: "Minimum",
             period: ac.metricConfig.period,
             ...a,
-            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "no-containers"),
+            alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "no-containers"), ac.autoInvestigate),
             actionsEnabled: true,
             alarmActions,
             tags: alarmTags,
@@ -209,7 +210,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ],
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
-            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "memory-high"),
+            alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "memory-high"), ac.autoInvestigate),
             actionsEnabled: true,
             alarmActions,
             tags: alarmTags,
@@ -254,7 +255,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ],
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
-            alarmDescription: withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "disk-high"),
+            alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "disk-high"), ac.autoInvestigate),
             actionsEnabled: true,
             alarmActions,
             tags: alarmTags,
@@ -312,7 +313,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                 alarmDescription: (() => {
                     const desc = `${lp.alarm.severity}: ${lp.alarm.description} on ${node.name}`;
                     const slug = getSlugFromPattern(lp.pattern);
-                    return slug ? withRunbook(desc, slug) : desc;
+                    return withAutoInvestigate(slug ? withRunbook(desc, slug) : desc, lp.alarm.autoInvestigate);
                 })(),
                 actionsEnabled: true,
                 alarmActions,

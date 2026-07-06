@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use moka::future::Cache;
 use moka::policy::EvictionPolicy;
@@ -21,7 +19,10 @@ use risc0_zkvm::Receipt;
 use risc0_zkvm::{default_executor, ExecutorEnv, SessionInfo};
 use sha2::{Digest as Sha2Digest, Sha256};
 
-use super::prover::{ExecutorResp, ProofResult, Prover, ProverError};
+use crate::{
+    prover_utils::prover::{ExecutorResp, ProofResult, Prover, ProverError},
+    request_builder::LocalExecutor,
+};
 
 /// A local executor that runs zkVM programs in-memory for preflight operations.
 ///
@@ -38,9 +39,8 @@ use super::prover::{ExecutorResp, ProofResult, Prover, ProverError};
 ///
 /// It does **not** support actual proving operations (STARK/SNARK/Groth16).
 /// Those operations will return errors.
-#[derive(Clone)]
-pub struct LocalExecutor {
-    state: Arc<ExecutorState>,
+pub struct Risc0LocalExecutor {
+    state: ExecutorState,
 }
 
 struct ExecutorState {
@@ -55,10 +55,10 @@ struct ExecutionData {
     preflight_journal: Option<Vec<u8>>,
 }
 
-impl Default for LocalExecutor {
+impl Default for Risc0LocalExecutor {
     fn default() -> Self {
         Self {
-            state: Arc::new(ExecutorState {
+            state: ExecutorState {
                 inputs: Cache::builder()
                     .eviction_policy(EvictionPolicy::lru())
                     .max_capacity(32)
@@ -71,12 +71,12 @@ impl Default for LocalExecutor {
                     .eviction_policy(EvictionPolicy::lru())
                     .max_capacity(64)
                     .build(),
-            }),
+            },
         }
     }
 }
 
-impl LocalExecutor {
+impl Risc0LocalExecutor {
     /// Hash input bytes to create a content-addressed ID.
     pub fn hash_input(input: &[u8]) -> String {
         let hash = Sha256::digest(input);
@@ -86,61 +86,6 @@ impl LocalExecutor {
     /// Create execution ID from image_id and input_hash for deduplication.
     fn make_exec_id(image_id: &str, input_hash: &str) -> String {
         format!("{}_{}", image_id, input_hash)
-    }
-
-    /// Manually insert execution data directly into the cache.
-    pub async fn insert_execution_data(
-        &self,
-        image_id: &str,
-        input: &[u8],
-        total_cycles: u64,
-        journal: Vec<u8>,
-    ) {
-        let input_hash = Self::hash_input(input);
-        let exec_id = Self::make_exec_id(image_id, &input_hash);
-
-        let data = ExecutionData {
-            stats: Some(ExecutorResp {
-                total_cycles,
-                user_cycles: total_cycles,
-                segments: 1,
-                assumption_count: 0,
-            }),
-            preflight_journal: Some(journal),
-        };
-
-        tracing::debug!("Pre-filling execution cache for {} with {} cycles", exec_id, total_cycles);
-
-        self.state.executions.insert(exec_id, data).await;
-    }
-
-    /// Execute a program with the given input, deduplicating by content.
-    ///
-    /// Returns the execution stats and journal. If the same image_id + input
-    /// combination was already executed, returns the cached result.
-    pub async fn execute_program(
-        &self,
-        image_id: &str,
-        program: &[u8],
-        input: &[u8],
-    ) -> Result<(ExecutorResp, Vec<u8>), ProverError> {
-        // Store image and input, get the content-addressed input ID
-        self.upload_image(image_id, program.to_vec()).await?;
-        let input_id = self.upload_input(input.to_vec()).await?;
-
-        // Delegate to preflight (handles caching and execution)
-        let result = self.preflight(image_id, &input_id, vec![], None, "").await?;
-
-        // Fetch the journal
-        let journal = self
-            .get_preflight_journal(&result.id)
-            .await?
-            .ok_or_else(|| ProverError::NotFound("journal".to_string()))?;
-
-        let stats = result.stats.ok_or_else(|| {
-            ProverError::ProverInternalError("Local executor preflight missing stats".to_string())
-        })?;
-        Ok((stats, journal))
     }
 
     async fn run_execution(
@@ -170,7 +115,65 @@ impl LocalExecutor {
 }
 
 #[async_trait]
-impl Prover for LocalExecutor {
+impl LocalExecutor for Risc0LocalExecutor {
+    /// Manually insert execution data directly into the cache.
+    async fn insert_execution_data(
+        &self,
+        image_id: &str,
+        input: &[u8],
+        total_cycles: u64,
+        journal: Vec<u8>,
+    ) {
+        let input_hash = Self::hash_input(input);
+        let exec_id = Self::make_exec_id(image_id, &input_hash);
+
+        let data = ExecutionData {
+            stats: Some(ExecutorResp {
+                total_cycles,
+                user_cycles: total_cycles,
+                segments: 1,
+                assumption_count: 0,
+            }),
+            preflight_journal: Some(journal),
+        };
+
+        tracing::debug!("Pre-filling execution cache for {} with {} cycles", exec_id, total_cycles);
+
+        self.state.executions.insert(exec_id, data).await;
+    }
+
+    /// Execute a program with the given input, deduplicating by content.
+    ///
+    /// Returns the execution stats and journal. If the same image_id + input
+    /// combination was already executed, returns the cached result.
+    async fn execute_program(
+        &self,
+        image_id: &str,
+        program: &[u8],
+        input: &[u8],
+    ) -> Result<(ExecutorResp, Vec<u8>), ProverError> {
+        // Store image and input, get the content-addressed input ID
+        self.upload_image(image_id, program.to_vec()).await?;
+        let input_id = self.upload_input(input.to_vec()).await?;
+
+        // Delegate to preflight (handles caching and execution)
+        let result = self.preflight(image_id, &input_id, vec![], None, "").await?;
+
+        // Fetch the journal
+        let journal = self
+            .get_preflight_journal(&result.id)
+            .await?
+            .ok_or_else(|| ProverError::NotFound("journal".to_string()))?;
+
+        let stats = result.stats.ok_or_else(|| {
+            ProverError::ProverInternalError("Local executor preflight missing stats".to_string())
+        })?;
+        Ok((stats, journal))
+    }
+}
+
+#[async_trait]
+impl Prover for Risc0LocalExecutor {
     async fn has_image(&self, image_id: &str) -> Result<bool, ProverError> {
         Ok(self.state.images.contains_key(image_id))
     }
@@ -259,28 +262,31 @@ impl Prover for LocalExecutor {
         _assumptions: Vec<String>,
     ) -> Result<String, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support STARK proving. Use for preflight only.".to_string(),
+            "Risc0LocalExecutor does not support STARK proving. Use for preflight only."
+                .to_string(),
         ))
     }
 
     #[allow(unused)]
     async fn wait_for_stark(&self, _proof_id: &str) -> Result<ProofResult, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support STARK proving. Use for preflight only.".to_string(),
+            "Risc0LocalExecutor does not support STARK proving. Use for preflight only."
+                .to_string(),
         ))
     }
 
     #[allow(unused)]
     async fn cancel_stark(&self, _proof_id: &str) -> Result<(), ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support STARK proving. Use for preflight only.".to_string(),
+            "Risc0LocalExecutor does not support STARK proving. Use for preflight only."
+                .to_string(),
         ))
     }
 
     #[allow(unused)]
     async fn get_receipt(&self, _proof_id: &str) -> Result<Option<Receipt>, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support receipts. Use for preflight only.".to_string(),
+            "Risc0LocalExecutor does not support receipts. Use for preflight only.".to_string(),
         ))
     }
 
@@ -303,7 +309,7 @@ impl Prover for LocalExecutor {
     #[allow(unused)]
     async fn compress(&self, _proof_id: &str) -> Result<String, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support compression. Use for preflight only.".to_string(),
+            "Risc0LocalExecutor does not support compression. Use for preflight only.".to_string(),
         ))
     }
 
@@ -313,14 +319,14 @@ impl Prover for LocalExecutor {
         _proof_id: &str,
     ) -> Result<Option<Vec<u8>>, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support compression. Use for preflight only.".to_string(),
+            "Risc0LocalExecutor does not support compression. Use for preflight only.".to_string(),
         ))
     }
 
     #[allow(unused)]
     async fn compress_blake3_groth16(&self, _proof_id: &str) -> Result<String, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support Blake3 Groth16 compression. Use for preflight only."
+            "Risc0LocalExecutor does not support Blake3 Groth16 compression. Use for preflight only."
                 .to_string(),
         ))
     }
@@ -331,7 +337,7 @@ impl Prover for LocalExecutor {
         _proof_id: &str,
     ) -> Result<Option<Vec<u8>>, ProverError> {
         Err(ProverError::ProverInternalError(
-            "LocalExecutor does not support Blake3 Groth16 receipts. Use for preflight only."
+            "Risc0LocalExecutor does not support Blake3 Groth16 receipts. Use for preflight only."
                 .to_string(),
         ))
     }
@@ -345,7 +351,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_input_and_image() {
-        let executor = LocalExecutor::default();
+        let executor = Risc0LocalExecutor::default();
 
         // Test input upload
         let input_data = b"Hello, World!".to_vec();
@@ -366,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_preflight() {
-        let executor = LocalExecutor::default();
+        let executor = Risc0LocalExecutor::default();
 
         // Upload test data
         let input_data = b"Hello, World!".to_vec();
@@ -388,7 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_program_deduplication() {
-        let executor = LocalExecutor::default();
+        let executor = Risc0LocalExecutor::default();
         let image_id = Digest::from(ECHO_ID).to_string();
         let input = b"Hello, World!".to_vec();
 
@@ -407,14 +413,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_prove_stark_returns_error() {
-        let executor = LocalExecutor::default();
+        let executor = Risc0LocalExecutor::default();
         let result = executor.prove_stark("image", "input", vec![]).await;
         assert!(matches!(result, Err(ProverError::ProverInternalError(_))));
     }
 
     #[tokio::test]
     async fn test_insert_execution_data() {
-        let executor = LocalExecutor::default();
+        let executor = Risc0LocalExecutor::default();
         let image_id = Digest::from(ECHO_ID).to_string();
         let input = b"Hello, World!".to_vec();
         let cycles = 12345678u64;
