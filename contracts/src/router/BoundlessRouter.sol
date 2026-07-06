@@ -171,6 +171,14 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
     ///         `interfaceTag` is not the assessor interface.
     error AssessorClassNotAssessor(bytes4 classId);
 
+    /// @notice An assessor-tagged class was registered with `permissionlessInstantiate == true`.
+    ///         Assessor classes must be governance-curated. A request commits to a verifier class
+    ///         but never to a specific assessor entry — the prover selects the assessor within the
+    ///         verifier class's `requiredAssessorClass` — so the requestor cannot opt out of a
+    ///         malicious permissionless assessor. Keeping assessor classes curated keeps the
+    ///         request-binding / predicate checks trusted.
+    error AssessorClassMustBeCurated();
+
     /// @notice An attempt was made to register a second class with `isDefault == true`.
     ///         Exactly one class may be the chain default at any time.
     error DefaultClassExists(bytes4 currentDefault);
@@ -307,6 +315,11 @@ contract BoundlessRouter is IBoundlessRouter, Initializable, AccessControlUpgrad
         } else {
             // Joint or terminal-assessor: requiredAssessorClass must be zero.
             if (metadata.requiredAssessorClass != bytes4(0)) revert AssessorClassMustBeZero();
+            // Assessor classes must be governance-curated. A request commits to a verifier class,
+            // never to a specific assessor entry (the prover picks it within the verifier class's
+            // requiredAssessorClass), so a permissionless assessor class would let anyone register a
+            // no-op assessor the requestor cannot opt out of. Joint classes may still be permissionless.
+            if (_isAssessorTag(tag) && metadata.permissionlessInstantiate) revert AssessorClassMustBeCurated();
         }
 
         if (metadata.isDefault) {

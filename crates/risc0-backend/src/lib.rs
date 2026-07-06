@@ -103,6 +103,58 @@ pub struct Risc0BackendConfig {
     pub txn_timeout: u64,
 }
 
+/// Measured per-path fulfillment cost constants the RISC0 backend uses to price orders.
+///
+/// The gas figures are all-in single-fill costs (settlement + verification + assessor),
+/// **excluding** journal calldata (added separately, selector-agnostically, during pricing) and
+/// lock gas. The cycle figures are the extra proving cycles beyond an order's own guest cycles.
+/// Defaults are benchmark-grounded; override via [`Risc0Backend::with_cost_model`].
+#[derive(Clone, Copy, Debug)]
+pub struct Risc0CostModel {
+    /// Direct submission **sealed by the on-chain assessor**: one groth16 verify (the proof
+    /// itself) + the on-chain assessor (ECDSA recover + predicate eval), no set-builder root.
+    /// Measured via `benchFulfillOnChainAssessor` (single proof) = 373,891; the default carries a
+    /// small safety margin.
+    ///
+    /// This is ~40% below the legacy direct cost (`fulfill_gas_estimate` 420k + `groth16_verify`
+    /// 250k = ~670k), which paid **two** groth16 verifies — the proof's plus the R0 STARK
+    /// assessor's — and a root submission. The on-chain assessor removes the second groth16 and
+    /// the root; the remaining ~250k is the proof's own (unavoidable) groth16 plus settlement, so
+    /// it cannot go much lower.
+    ///
+    /// NOTE: this assumes the direct path is sealed by the on-chain assessor (the broker's
+    /// preferred assessor). The model keys off the submission path, not the resolved assessor, so
+    /// a direct order sealed by the R0 STARK assessor instead would actually cost a second groth16
+    /// (~the legacy 670k) and would be under-estimated here.
+    pub direct_fulfill_gas: u64,
+    /// Batched submission: set-inclusion verify + R0 STARK assessor (amortized root). Mirrors the
+    /// historical `fulfill_gas_estimate` baseline and is left unchanged by the direct-path work.
+    pub batched_fulfill_gas: u64,
+    /// Direct-submission proving overhead beyond guest cycles. The only extra proving a direct
+    /// order does is its own groth16 wrap, but the batched path does not count its root's groth16
+    /// wrap either (amortized / uncounted in `batched_additional_proof_cycles`), so for consistency
+    /// this is 0 — direct orders are budgeted at their guest cycles only.
+    pub direct_additional_proof_cycles: u64,
+    /// Batched-submission proving overhead beyond guest cycles: assessor STARK + set builder.
+    pub batched_additional_proof_cycles: u64,
+}
+
+impl Default for Risc0CostModel {
+    fn default() -> Self {
+        Self {
+            // Measured 373,891 (1 groth16 + on-chain assessor, no root) + margin. See the field
+            // doc for the legacy-vs-now (2 groth16 -> 1) breakdown and the on-chain-assessor caveat.
+            direct_fulfill_gas: 400_000,
+            // Historical fulfill_gas_estimate (observed ~390k + margin).
+            batched_fulfill_gas: 420_000,
+            // 0: the per-order groth16 wrap is uncounted, mirroring the batched root wrap (see doc).
+            direct_additional_proof_cycles: 0,
+            // 2M assessor + 270k set builder.
+            batched_additional_proof_cycles: 2_000_000 + 270_000,
+        }
+    }
+}
+
 /// Live proving-retry policy: `() -> (retry_count, retry_sleep_ms)`, read per prove.
 pub type ProofRetryPolicy = Arc<dyn Fn() -> (u64, u64) + Send + Sync>;
 
@@ -189,6 +241,8 @@ pub struct Risc0Backend {
     /// Router snapshot + derived broker policy, resolved once at construction. Always present:
     /// production snapshots the on-chain registry, tests supply a fixture.
     router_policy: RouterPolicy,
+    /// Measured per-path fulfillment cost constants used to price orders.
+    cost_model: Risc0CostModel,
 }
 
 impl Risc0Backend {
@@ -392,7 +446,15 @@ impl Risc0Backend {
             prover_addr: None,
             chain_id: 0,
             router_policy,
+            cost_model: Risc0CostModel::default(),
         }
+    }
+
+    /// Overrides the measured per-path fulfillment cost constants (default
+    /// [`Risc0CostModel::default`]).
+    pub fn with_cost_model(mut self, cost_model: Risc0CostModel) -> Self {
+        self.cost_model = cost_model;
+        self
     }
 
     fn build_provers(
@@ -871,6 +933,30 @@ impl Backend for Risc0Backend {
                 )
             })?;
         Ok(Some(group))
+    }
+
+    fn fulfillment_gas(&self, request: &boundless_market::contracts::ProofRequest) -> Result<u64> {
+        // Direct selectors are fulfilled by a single groth16 verify + the on-chain assessor (no
+        // root); everything else takes the batched set-inclusion + STARK-assessor path. The path
+        // is keyed off the normalized selector, exactly as `process_order` does.
+        let selector = self.normalize_selector(request.requirements.selector);
+        // Path-aware base only. The universal callback gas is priced at the broker/market layer
+        // (`callback_gas` / `fulfill_gas_units` / `price_order`), not here.
+        Ok(match submission_path_for_risc0_selector(selector) {
+            SubmissionPath::Direct => self.cost_model.direct_fulfill_gas,
+            SubmissionPath::Batched => self.cost_model.batched_fulfill_gas,
+        })
+    }
+
+    fn additional_proof_cycles(
+        &self,
+        request: &boundless_market::contracts::ProofRequest,
+    ) -> Result<u64> {
+        let selector = self.normalize_selector(request.requirements.selector);
+        Ok(match submission_path_for_risc0_selector(selector) {
+            SubmissionPath::Direct => self.cost_model.direct_additional_proof_cycles,
+            SubmissionPath::Batched => self.cost_model.batched_additional_proof_cycles,
+        })
     }
 
     async fn evaluate_request(
@@ -1624,5 +1710,60 @@ mod tests {
         });
         let err = expect_build_fulfillments_err(&backend, cmd).await;
         assert!(err.to_string().contains("no assessor receipt"), "unexpected error: {err:#}");
+    }
+
+    fn cost_request(selector: FixedBytes<4>) -> boundless_market::contracts::ProofRequest {
+        use boundless_market::contracts::{
+            Offer, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+        };
+        let mut request = ProofRequest::new(
+            RequestId::new(Address::ZERO, 1),
+            Requirements::new(Predicate::prefix_match(
+                Risc0Digest::ZERO,
+                alloy::primitives::Bytes::default(),
+            )),
+            "test",
+            RequestInput { inputType: RequestInputType::Inline, data: Default::default() },
+            Offer {
+                minPrice: U256::from(1),
+                maxPrice: U256::from(10),
+                rampUpStart: 0,
+                timeout: 1000,
+                lockTimeout: 1000,
+                rampUpPeriod: 1,
+                lockCollateral: U256::ZERO,
+            },
+        );
+        request.requirements.selector = selector;
+        request
+    }
+
+    /// Direct-submission (groth16) orders price with the cheap on-chain-assessor path; the batched
+    /// set-inclusion path keeps the legacy base gas and the STARK-assessor + set-builder cycles.
+    #[tokio::test]
+    async fn fulfillment_cost_is_path_aware() {
+        let backend = guard_test_backend().await;
+        let cost = backend.cost_model;
+
+        // A groth16 selector takes the direct path.
+        let direct = cost_request(SELECTOR_GROTH16_V3_0);
+        assert_eq!(backend.fulfillment_gas(&direct).unwrap(), cost.direct_fulfill_gas);
+        assert_eq!(
+            backend.additional_proof_cycles(&direct).unwrap(),
+            cost.direct_additional_proof_cycles
+        );
+
+        // The set-inclusion entry selector normalizes to the aggregated seal -> batched path.
+        let set_inclusion = boundless_test_utils::market::set_verifier_selector(Risc0Digest::ZERO);
+        let batched = cost_request(set_inclusion);
+        assert_eq!(backend.fulfillment_gas(&batched).unwrap(), cost.batched_fulfill_gas);
+        assert_eq!(
+            backend.additional_proof_cycles(&batched).unwrap(),
+            cost.batched_additional_proof_cycles
+        );
+
+        // The whole point: direct submission is cheaper on both the gas and the proving axis.
+        assert!(cost.direct_fulfill_gas < cost.batched_fulfill_gas);
+        assert!(cost.direct_additional_proof_cycles < cost.batched_additional_proof_cycles);
     }
 }

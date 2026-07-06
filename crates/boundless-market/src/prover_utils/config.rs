@@ -63,6 +63,13 @@ pub mod defaults {
         420_000
     }
 
+    pub const fn commit_fulfillment_gas_estimate() -> u64 {
+        // The open path (#2052 front-running guard) sends a separate commitFulfillment tx one
+        // block before the reveal: ~21k intrinsic + one cold SSTORE (~22.1k) + 32-byte calldata.
+        // Carries the same margin as the other estimates; the reveal's delete refund is ignored.
+        50_000
+    }
+
     pub const fn fulfill_journal_gas_per_byte() -> u64 {
         // Retrieved from onchain observations.
         26
@@ -110,7 +117,13 @@ pub mod defaults {
     }
 
     pub fn assessor_default_image_url() -> String {
-        "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin".to_string()
+        // The assessor guest currently deployed on-chain (image id
+        // 0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e56694100): matches the market
+        // `imageInfo()` and the router R0 assessor adapter's pinned `ASSESSOR_IMAGE_ID`. The broker
+        // trusts this URL without verifying it against the chain so it must track the deployed
+        // assessor; in practice the R0 STARK assessor path is not exercised while the
+        // on-chain assessor is preferred.
+        "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq".to_string()
     }
 
     pub const fn max_fetch_retries() -> Option<u8> {
@@ -497,6 +510,11 @@ pub struct MarketConfig {
     /// conservative default will be used.
     #[serde(default = "defaults::fulfill_gas_estimate")]
     pub fulfill_gas_estimate: u64,
+    /// Gas estimate for the open-path `commitFulfillment` transaction (#2052 front-running
+    /// guard), charged only when fulfilling without a fresh lock (never-locked / after lock
+    /// expiry). Used during pricing; a conservative default is used if not set.
+    #[serde(default = "defaults::commit_fulfillment_gas_estimate")]
+    pub commit_fulfillment_gas_estimate: u64,
     /// Gas per byte of journal data submitted on-chain during fulfillment.
     ///
     /// Applied only for predicates that require journal data (DigestMatch, PrefixMatch).
@@ -657,6 +675,7 @@ impl Default for MarketConfig {
             max_fetch_retries: defaults::max_fetch_retries(),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
+            commit_fulfillment_gas_estimate: defaults::commit_fulfillment_gas_estimate(),
             fulfill_journal_gas_per_byte: defaults::fulfill_journal_gas_per_byte(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
             additional_proof_cycles: defaults::additional_proof_cycles(),

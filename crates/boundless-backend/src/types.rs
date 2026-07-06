@@ -401,6 +401,17 @@ pub trait Backend: Send + Sync {
     /// class) — such an order can never be sealed and must not be batched.
     fn assessor_group(&self, selector: FixedBytes<4>) -> Result<Option<FixedBytes<4>>>;
 
+    /// Estimated on-chain gas to fulfill `request` via the path and assessor this backend would
+    /// actually use, resolved from its router policy. Excludes journal calldata (added separately,
+    /// selector-agnostically, during pricing) and lock gas. Required: every backend models its own
+    /// cost — there is no safe default.
+    fn fulfillment_gas(&self, request: &ProofRequest) -> Result<u64>;
+
+    /// Extra proving cycles beyond the order's own guest cycles for the path this backend would
+    /// take to fulfill `request` (direct groth16 → its groth16 wrap only; batched → assessor STARK
+    /// + set builder). Required: every backend models its own cost — there is no safe default.
+    fn additional_proof_cycles(&self, request: &ProofRequest) -> Result<u64>;
+
     async fn evaluate_request(
         &self,
         request: EvaluationRequest,
