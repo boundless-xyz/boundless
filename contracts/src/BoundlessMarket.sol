@@ -70,6 +70,12 @@ contract BoundlessMarket is
     ///      without a rename annotation.
     string private imageUrl;
 
+    /// @notice Block number at which a fulfillment commitment was recorded, keyed by the commitment
+    ///         hash `keccak256(abi.encode(FulfillmentBatch[]))`. Anti-front-running guard for the
+    ///         open fulfillment paths (never-locked and after the lock deadline), which carry no
+    ///         prior on-chain prover binding.
+    mapping(bytes32 => uint256) public fulfillmentCommitBlock;
+
     /// @notice The verification engine. The market calls `ROUTER.verifyBatch`
     ///         once per fulfillment batch and trusts whatever per-class adapter the
     ///         router dispatches to.
@@ -106,6 +112,12 @@ contract BoundlessMarket is
     /// @dev The fee is configured as a constant to avoid accessing storage and thus paying for the
     /// gas of an SLOAD. Can only be changed via contract upgrade.
     uint96 public constant MARKET_FEE_BPS = 0;
+
+    /// @notice Minimum number of blocks between a fulfillment commitment and its reveal on the open
+    /// fulfillment paths. A reveal at block R requires a commitment at block C with
+    /// `C + COMMIT_REVEAL_MIN_BLOCKS <= R`, so a front-runner who only learns the seal at reveal time
+    /// cannot have committed early enough to steal it.
+    uint256 public constant COMMIT_REVEAL_MIN_BLOCKS = 1;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(IBoundlessRouter router, address collateralTokenContract, address legacyImpl) {
@@ -303,6 +315,15 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) public returns (bytes[] memory paymentError) {
+        // Anti-front-running: the open fulfillment paths (never-locked, or locked-but-past-deadline)
+        // carry no prior on-chain prover binding, so a copied proof could be re-submitted under a
+        // different prover. Require a `commitFulfillment` recorded in a strictly earlier block —
+        // binding these exact batches (and their seals) — before settling any open-path fill. The
+        // locked-before-deadline path is already bound by `lock.prover` and needs no commitment.
+        if (_hasOpenPathFill(fulfillmentBatches)) {
+            _consumeCommitment(fulfillmentBatches);
+        }
+
         // Flatten payment-error output across fulfillment batches.
         uint256 totalFills = 0;
         for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
@@ -325,6 +346,45 @@ contract BoundlessMarket is
             ROUTER.verifyBatch(batch, requestDigests);
             outIdx = _settleBatch(batch, requestDigests, paymentError, outIdx);
         }
+    }
+
+    /// @notice Commit, ahead of time, to the exact fulfillment you will reveal on an open path.
+    /// @param commitment `keccak256(abi.encode(FulfillmentBatch[]))` — the exact `fulfillmentBatches`
+    ///        argument of the upcoming `fulfill` / `priceAndFulfill` / `submitRoot…` call. Because it
+    ///        binds the prover and every seal, it cannot be precomputed without already holding the
+    ///        proof, and the reveal must land at least `COMMIT_REVEAL_MIN_BLOCKS` blocks later.
+    /// @dev First writer per commitment wins the block stamp; re-commits are no-ops. The commitment
+    ///      reveals nothing (just a hash), so front-running this call is pointless.
+    function commitFulfillment(bytes32 commitment) external {
+        if (fulfillmentCommitBlock[commitment] == 0) {
+            fulfillmentCommitBlock[commitment] = block.number;
+        }
+    }
+
+    /// @dev True if any fill in the call settles on an open path — never-locked, or locked but past
+    ///      its lock deadline — i.e. a path with no prior on-chain prover binding.
+    function _hasOpenPathFill(FulfillmentBatch[] calldata fulfillmentBatches) internal view returns (bool) {
+        for (uint256 j = 0; j < fulfillmentBatches.length; j++) {
+            SlimRequest[] calldata requests = fulfillmentBatches[j].requests;
+            for (uint256 i = 0; i < requests.length; i++) {
+                (address client, uint32 idx) = requests[i].id.clientAndIndex();
+                (bool locked,) = accounts[client].requestFlags(idx);
+                if (!locked) return true; // never-locked
+                if (requestLocks[requests[i].id].lockDeadline < block.timestamp) return true; // was-locked
+            }
+        }
+        return false;
+    }
+
+    /// @dev Consume the commitment for these exact batches, requiring it was recorded at least
+    ///      `COMMIT_REVEAL_MIN_BLOCKS` blocks earlier. Reverts if absent or too recent. One-shot.
+    function _consumeCommitment(FulfillmentBatch[] calldata fulfillmentBatches) internal {
+        bytes32 commitment = keccak256(abi.encode(fulfillmentBatches));
+        uint256 committedBlock = fulfillmentCommitBlock[commitment];
+        if (committedBlock == 0 || committedBlock + COMMIT_REVEAL_MIN_BLOCKS > block.number) {
+            revert MissingFulfillmentCommitment();
+        }
+        delete fulfillmentCommitBlock[commitment];
     }
 
     /// @dev Per-fill settle pass for one already-verified `FulfillmentBatch`.
