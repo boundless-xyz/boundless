@@ -28,8 +28,8 @@ use boundless_indexer::db::{
 };
 use boundless_indexer::market::epoch_calculator::EpochCalculator;
 use boundless_market::contracts::{
-    boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
-    Requirements,
+    boundless_market::{FulfillmentTx, UnlockedRequest},
+    Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use sqlx::{PgPool, Row};
@@ -1907,7 +1907,10 @@ async fn test_request_status_lock_expired_then_slashed(pool: sqlx::PgPool) {
                 fixture.ctx.deployment.set_verifier_address,
                 order_fulfilled.root,
                 order_fulfilled.seal,
-            ),
+            )
+            // Lock-expired (was-locked) fulfillment takes the open/priced path, which the SDK
+            // auto-commits one block ahead (#2052 front-running guard), matching production.
+            .with_unlocked_request(UnlockedRequest::new(req.clone(), sig_bytes.clone())),
         )
         .await
         .unwrap();
