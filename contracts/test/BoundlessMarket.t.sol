@@ -1435,7 +1435,7 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.warp(request.offer.deadline() + 1);
 
         // Attempt to lock the request after it has expired
-        // should revert with "RequestIsExpired({requestId: request.id, deadline: deadline})"
+        // should revert with "RequestLockIsExpired({requestId: request.id, lockDeadline: lockDeadline})"
         vm.expectRevert(
             abi.encodeWithSelector(
                 IBoundlessMarket.RequestLockIsExpired.selector, request.id, request.offer.lockDeadline()
