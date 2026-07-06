@@ -163,6 +163,26 @@ contract BoundlessRouterRegistryTest is RouterTestBase {
         assertEq(requiredAssessor, bytes4(0));
     }
 
+    /// @notice Assessor classes must be governance-curated: a request commits to a verifier class
+    ///         but never to a specific assessor entry, so a permissionless assessor class would let
+    ///         anyone register a no-op assessor the requestor cannot opt out of. `addClass` rejects it.
+    function test_addClass_revertsForPermissionlessAssessorClass() public {
+        BoundlessRouter.ClassMetadata memory meta = BoundlessRouter.ClassMetadata({
+            interfaceTag: type(IBoundlessAssessor).interfaceId,
+            permissionlessInstantiate: true,
+            isDefault: false,
+            requiredAssessorClass: bytes4(0),
+            schemaArtifact: bytes32(0),
+            schemaArtifactUrl: "",
+            defaultGasLimit: 10_000_000,
+            label: ""
+        });
+
+        vm.prank(ADMIN);
+        vm.expectRevert(BoundlessRouter.AssessorClassMustBeCurated.selector);
+        router.addClass(A_CLASS, meta);
+    }
+
     function test_addClass_storesAllFields() public {
         _addAssessorClass(A_CLASS, false);
 
@@ -539,20 +559,23 @@ contract BoundlessRouterRegistryTest is RouterTestBase {
     }
 
     function test_instantiate_byUser_underPermissionlessClass_nonReservedPrefix() public {
-        _addAssessorClass(A_CLASS, true);
-        address impl = address(new NullAssessor());
+        _addAssessorClass(A_CLASS, false);
+        _addVerifierClass(V_CLASS, A_CLASS, false, true);
+        address impl = address(new NullVerifier());
         vm.prank(USER);
-        router.instantiate(PUBLIC_ENTRY, impl, A_CLASS, 0);
-        (address storedImpl,,) = router.entries(PUBLIC_ENTRY);
+        router.instantiate(PUBLIC_ENTRY, impl, V_CLASS, 0);
+        (address storedImpl, bytes4 storedClassId,) = router.entries(PUBLIC_ENTRY);
         assertEq(storedImpl, impl);
+        assertEq(storedClassId, V_CLASS);
     }
 
     function test_instantiate_byAdmin_underPermissionlessClass_reservedPrefix() public {
-        _addAssessorClass(A_CLASS, true);
-        address impl = address(new NullAssessor());
+        _addAssessorClass(A_CLASS, false);
+        _addVerifierClass(V_CLASS, A_CLASS, false, true);
+        address impl = address(new NullVerifier());
         vm.prank(ADMIN);
-        router.instantiate(A_ENTRY, impl, A_CLASS, 0);
-        (address storedImpl,,) = router.entries(A_ENTRY);
+        router.instantiate(V_ENTRY, impl, V_CLASS, 0);
+        (address storedImpl,,) = router.entries(V_ENTRY);
         assertEq(storedImpl, impl);
     }
 
@@ -676,17 +699,18 @@ contract BoundlessRouterRegistryTest is RouterTestBase {
 
     function test_instantiate_revertsForNonAdminOnReservedPrefix_permissionless() public {
         // The reserved-prefix policy applies to entry selectors only — class
-        // ids are unrestricted, so a class id starting with 0x00 (here A_CLASS)
+        // ids are unrestricted, so a class id starting with 0x00 (here V_CLASS)
         // can perfectly well be registered as permissionless. The check below
         // exercises the entry-selector axis: even on a permissionless class,
         // entry selectors in the reserved 0x00xxxxxx range stay admin-only.
-        _addAssessorClass(A_CLASS, true);
-        // A_ENTRY = 0x00000021 → starts with 0x00 → reserved-prefix → admin-only
+        _addAssessorClass(A_CLASS, false);
+        _addVerifierClass(V_CLASS, A_CLASS, false, true);
+        // V_ENTRY = 0x00000011 → starts with 0x00 → reserved-prefix → admin-only
         // even on a permissionless class.
-        address impl = address(new NullAssessor());
+        address impl = address(new NullVerifier());
         vm.startPrank(USER);
-        vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.ReservedPrefix.selector, A_ENTRY));
-        router.instantiate(A_ENTRY, impl, A_CLASS, 0);
+        vm.expectRevert(abi.encodeWithSelector(BoundlessRouter.ReservedPrefix.selector, V_ENTRY));
+        router.instantiate(V_ENTRY, impl, V_CLASS, 0);
         vm.stopPrank();
     }
 
