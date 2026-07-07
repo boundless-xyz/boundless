@@ -10,6 +10,10 @@ config:
   indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
   indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:CHAIN_ID: "11155111"
+  indexer:DB_SERVERLESS: "true"
+  indexer:DB_MIN_ACU: "0.5"
+  indexer:DB_MAX_ACU: "4"
+  indexer:DB_ENABLE_REPLICA: "false"
   indexer:BLOCK_DELAY: "10"
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "10000"
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
