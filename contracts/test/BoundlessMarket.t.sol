@@ -27,7 +27,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 
-import {BoundlessMarket} from "../src/BoundlessMarket.sol";
+import {BoundlessMarket} from "boundless-market/BoundlessMarket.sol";
 import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {IBoundlessVerifier} from "../src/router/interfaces/IBoundlessVerifier.sol";
 import {IBoundlessAssessor} from "../src/router/interfaces/IBoundlessAssessor.sol";

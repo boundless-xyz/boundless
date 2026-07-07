@@ -18,8 +18,8 @@ import {BoundlessRouter} from "../src/router/BoundlessRouter.sol";
 import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
-import {BoundlessMarket} from "../src/BoundlessMarket.sol";
-import {BoundlessMarket as BoundlessMarketLegacy} from "../src/legacy/BoundlessMarketLegacy.sol";
+import {BoundlessMarket} from "boundless-market/BoundlessMarket.sol";
+import {BoundlessMarket as BoundlessMarketLegacy} from "boundless-market-legacy/BoundlessMarketLegacy.sol";
 import {HitPoints} from "../src/HitPoints.sol";
 import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 

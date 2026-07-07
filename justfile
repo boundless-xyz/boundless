@@ -26,6 +26,10 @@ test: test-foundry test-cargo
 test-foundry:
     forge test -vvv --isolate
 
+# Run the contract suite under the Shanghai-EVM profile (Taiko variant)
+test-foundry-shanghai:
+    FOUNDRY_PROFILE=shanghai forge test -vvv --isolate
+
 # Run all Cargo tests
 test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
@@ -149,7 +153,7 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy check-legacy-bytecode check-storage-layout
+check: check-links check-license check-format check-clippy check-legacy-bytecode check-storage-layout check-legacy-bytecode-shanghai check-storage-layout-shanghai
 
 check-main: check-format-main check-clippy-main check-license check-links
 
@@ -164,6 +168,18 @@ check-storage-layout:
     @echo "Verifying storage layout interop between markets..."
     forge build --silent
     uv run contracts/scripts/verify-storage-layout.py
+
+# Verify contracts/shanghai/legacy/ still compiles to the deployed Taiko market bytecode
+check-legacy-bytecode-shanghai:
+    @echo "Verifying Taiko (shanghai) legacy market bytecode parity..."
+    FOUNDRY_PROFILE=shanghai forge build --silent contracts/shanghai/legacy/BoundlessMarketLegacy.sol
+    BOUNDLESS_OUT_DIR=out-shanghai BOUNDLESS_LEGACY_SNAPSHOT_DIR=contracts/shanghai/legacy uv run contracts/scripts/verify-legacy-bytecode.py
+
+# Verify storage layout interop between the shanghai market variant and its frozen legacy
+check-storage-layout-shanghai:
+    @echo "Verifying shanghai market/legacy storage layout interop..."
+    FOUNDRY_PROFILE=shanghai forge build --silent contracts/shanghai/variants/BoundlessMarket.sol contracts/shanghai/legacy/BoundlessMarketLegacy.sol
+    BOUNDLESS_OUT_DIR=out-shanghai uv run contracts/scripts/verify-storage-layout.py
 
 # Check links in markdown files
 check-links:

@@ -39,6 +39,7 @@ jobs:
           filters: |
             src:
               - 'contracts/src/**'
+              - 'contracts/shanghai/**'
             foundry:
               - 'foundry.toml'
             test:
@@ -103,6 +104,18 @@ jobs:
 
       - name: Verify storage layout interop between src/ and src/legacy/
         run: python3 contracts/scripts/verify-storage-layout.py
+
+      - name: forge build (shanghai profile)
+        run: FOUNDRY_PROFILE=shanghai forge build --silent contracts/shanghai/variants/BoundlessMarket.sol contracts/shanghai/legacy/BoundlessMarketLegacy.sol
+
+      - name: Verify shanghai legacy/ bytecode matches deployed Taiko impl
+        run: BOUNDLESS_OUT_DIR=out-shanghai BOUNDLESS_LEGACY_SNAPSHOT_DIR=contracts/shanghai/legacy python3 contracts/scripts/verify-legacy-bytecode.py
+
+      - name: Verify shanghai market/legacy storage layout interop
+        run: BOUNDLESS_OUT_DIR=out-shanghai python3 contracts/scripts/verify-storage-layout.py
+
+      - name: Run the contract suite under the shanghai profile
+        run: FOUNDRY_PROFILE=shanghai forge test --isolate
 
   upgradability:
     runs-on: ubuntu-latest
