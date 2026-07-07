@@ -22,7 +22,7 @@ use alloy::{
     consensus::{BlockHeader, Transaction},
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{utils::format_ether, Address, Bytes, FixedBytes, B256, U256},
+    primitives::{keccak256, utils::format_ether, Address, Bytes, FixedBytes, B256, U256},
     providers::{PendingTransactionBuilder, PendingTransactionError, Provider},
     rpc::types::{Log, TransactionReceipt},
     signers::Signer,
@@ -900,6 +900,21 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
     }
 
+    /// Records a fulfillment commitment for the open path (front-running guard, #2052).
+    ///
+    /// The market requires the commitment to have been recorded in a strictly earlier block
+    /// than the reveal, so callers must await this receipt before broadcasting the `fulfill`:
+    /// awaiting it guarantees the reveal is mined at least one block later.
+    pub async fn commit_fulfillment(&self, commitment: B256) -> Result<(), MarketError> {
+        tracing::trace!("Calling commitFulfillment({commitment:x})");
+        let call = self.instance.commitFulfillment(commitment).from(self.caller);
+        let pending_tx = call.send().await?;
+        tracing::debug!("Broadcasting commit tx {}", pending_tx.tx_hash());
+        let receipt = self.get_receipt_with_retry(pending_tx).await?;
+        tracing::debug!("Fulfillment commitment recorded in tx {}", receipt.transaction_hash);
+        Ok(())
+    }
+
     /// Submits a `FulfillmentTx`.
     pub async fn fulfill(&self, tx: FulfillmentTx) -> Result<(), MarketError> {
         let FulfillmentTx {
@@ -933,6 +948,20 @@ impl<P: Provider> BoundlessMarketService<P> {
         } else {
             Vec::new()
         };
+
+        // Open-path fills (never-locked or past-lock-deadline) must be committed one block
+        // before they are revealed, or the market reverts `MissingFulfillmentCommitment`
+        // (front-running guard, #2052). `price` is true iff the batch contains such requests.
+        // The commitment is keccak256(abi.encode(fulfillmentBatches)); reuse the `fulfill` call
+        // encoder so the bytes match the contract regardless of which reveal entry point runs.
+        if price {
+            let call = self.instance.fulfill(fulfillment_batches.clone());
+            let commitment = keccak256(&call.calldata()[4..]);
+            tracing::debug!(
+                "Committing open-path fulfillment {commitment:x} for requests {request_ids:?}"
+            );
+            self.commit_fulfillment(commitment).await?;
+        }
 
         match root {
             None => match (price, withdraw) {
@@ -2391,6 +2420,32 @@ mod tests {
     fn test_collateral_reward_if_locked_and_not_fulfilled() {
         let offer = &test_offer(100);
         assert_eq!(offer.collateral_reward_if_locked_and_not_fulfilled(), ether("0.5"));
+    }
+
+    // The open-path commit (fulfill() gate) hashes the `fulfill` calldata minus its 4-byte
+    // selector. Pin that this equals the contract's keccak256(abi.encode(fulfillmentBatches)),
+    // so a mis-sliced preimage can't silently start reverting MissingFulfillmentCommitment.
+    #[test]
+    fn commitment_preimage_matches_abi_encoded_batches() {
+        use super::*;
+        use alloy::primitives::{Address, Bytes};
+        use alloy_sol_types::SolValue;
+
+        let batches = vec![FulfillmentBatch {
+            requests: vec![],
+            fills: vec![],
+            assessorSeal: Bytes::new(),
+            prover: Address::ZERO,
+        }];
+
+        // What the SDK commits: keccak256 over the fulfill calldata with the selector dropped.
+        let calldata =
+            IBoundlessMarket::fulfillCall { fulfillmentBatches: batches.clone() }.abi_encode();
+        let sdk_commitment = keccak256(&calldata[4..]);
+
+        // What the contract hashes.
+        let contract_preimage = <Vec<FulfillmentBatch> as SolValue>::abi_encode(&batches);
+        assert_eq!(sdk_commitment, keccak256(&contract_preimage));
     }
 
     #[tokio::test]

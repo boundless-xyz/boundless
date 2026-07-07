@@ -538,8 +538,9 @@ pub trait OrderPricingContext: RequestEvaluator {
         let fulfill_gas =
             self.estimate_gas_to_fulfill(&order.request).await? + callback_gas(&order.request)?;
         let order_gas = if lock_expired {
-            // No need to include lock gas if its a lock expired order
-            U256::from(fulfill_gas)
+            // No lock gas on the open path, but the #2052 front-running guard adds a separate
+            // commitFulfillment tx that must be sent one block before the reveal.
+            U256::from(fulfill_gas + config.commit_fulfillment_gas_estimate)
         } else {
             U256::from(
                 config.lockin_gas_estimate + self.estimate_erc1271_gas(order).await + fulfill_gas,

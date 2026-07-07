@@ -200,6 +200,16 @@ contract DeploymentTest is Test {
             BoundlessMarket(payable(address(boundlessMarket))).eip712DomainSeparator(), request.eip712Digest()
         );
 
+        ProofRequestBatch[] memory requestBatches = new ProofRequestBatch[](1);
+        requestBatches[0] = ProofRequestBatch({requests: requests, signatures: clientSignatures});
+        FulfillmentBatch[] memory fulfillmentBatches = new FulfillmentBatch[](1);
+        fulfillmentBatches[0] = result.fulfillmentBatch;
+
+        // This request is never locked, so priceAndFulfill takes the open path: the #2052
+        // front-running guard requires a matching commitment recorded a strictly earlier block.
+        boundlessMarket.commitFulfillment(keccak256(abi.encode(fulfillmentBatches)));
+        vm.roll(block.number + 1);
+
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, address(testProver), requestDigest);
         // ProofDelivered carries the legacy fulfillment shape (id/requestDigest inline) for
@@ -219,10 +229,6 @@ contract DeploymentTest is Test {
             })
         );
 
-        ProofRequestBatch[] memory requestBatches = new ProofRequestBatch[](1);
-        requestBatches[0] = ProofRequestBatch({requests: requests, signatures: clientSignatures});
-        FulfillmentBatch[] memory fulfillmentBatches = new FulfillmentBatch[](1);
-        fulfillmentBatches[0] = result.fulfillmentBatch;
         boundlessMarket.priceAndFulfill(requestBatches, fulfillmentBatches);
 
         assertTrue(boundlessMarket.requestIsFulfilled(request.id), "Request should have fulfilled status");
