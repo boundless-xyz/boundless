@@ -169,7 +169,7 @@ jobs:
           echo "BLAKE3_GROTH16_SETUP_DIR=$HOME/.risc0/blake3_groth16" >> "$GITHUB_ENV"
 
           mkdir -p "$BLAKE3_GROTH16_SETUP_DIR"
-          curl -L -o /tmp/blake3_groth16_artifacts.tar.xz \
+          curl -fL -o /tmp/blake3_groth16_artifacts.tar.xz \
             "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
           tar -xJf /tmp/blake3_groth16_artifacts.tar.xz \
             -C "$BLAKE3_GROTH16_SETUP_DIR" --strip-components=1
