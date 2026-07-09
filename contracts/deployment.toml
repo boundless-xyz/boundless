@@ -262,8 +262,8 @@ verifier = "0x607d196b43abc5d9BE3c7Fb8e336Ca82fec18C45"
 application-verifier = "0x6E96201D39CE861c7DCeDC56CdB937a9A880Eb73"
 set-verifier = "0x6135DC08D14EF8a44496B009e2181426628B8ebd"
 boundless-market = "0x60d11ef5d4608bab18a663fd486d3b9f162172cf"
-boundless-market-impl = "0x7d27d73368c9cece5bc25d9b4c9d912de5af9db1"
-boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
+boundless-market-impl = "0xad9af87319e744c62f33e05bb2a2cb9f20c7a358"
+boundless-market-old-impl = "0x7d27d73368c9cece5bc25d9b4c9d912de5af9db1"
 collateral-token = "0xC284A781072442cC1882a8Db4573990B7B49DaC4"
 
 # Guests info
@@ -272,6 +272,7 @@ assessor-image-id = "0x6c5a03c0785e91bc0ad0db486004116010680a03af4e712bcca3188e5
 assessor-guest-url = "https://gateway.beboundless.cloud/ipfs/bafybeiauvbhinz2yqm2vbgpl2njgoyaxhuwa2vbv6gts2ajcjfkw5m4ejq"
 deprecated-assessor-duration = 0
 boundless-market-deployment-commit = "901097a54"
+boundless-router = "0xd2a01b63bf9d08d31fb11ba81825624c6484453f"
 
 #################################################################################
 #                               QUICK EPOCH                                     #
