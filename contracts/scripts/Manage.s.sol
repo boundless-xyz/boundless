@@ -211,6 +211,14 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         if (skipSafetyChecks) {
             console2.log("WARNING: Skipping all upgrade safety checks and reference build!");
             opts.unsafeSkipAllChecks = true;
+        } else if (bytes(vm.envOr("REFERENCE_CONTRACT", string(""))).length != 0) {
+            // REFERENCE_CONTRACT overrides the layout reference with a contract from the CURRENT
+            // build — e.g. "BoundlessMarketLegacy.sol:BoundlessMarket" under FOUNDRY_PROFILE=shanghai,
+            // the frozen Taiko legacy whose bytecode parity with the deployed impl is enforced by
+            // `just check-legacy-bytecode-shanghai`. Use it when the deployed commit cannot provide
+            // a reference build at the default path below. No external build-info dir is wired: an
+            // in-build reference resolves against this build's artifacts.
+            opts.referenceContract = vm.envString("REFERENCE_CONTRACT");
         } else {
             // Only set reference contract when doing safety checks. The file-qualified name is
             // required: the legacy fallback source (BoundlessMarketLegacy.sol) also declares a
