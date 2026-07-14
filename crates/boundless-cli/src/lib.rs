@@ -284,7 +284,12 @@ impl OrderFulfiller {
             )?)
         };
 
-        Self::initialize(prover, client, assessor_selector, ASSESSOR_DEFAULT_IMAGE_URL).await
+        // ASSESSOR_IMAGE_URL overrides the default assessor guest source (any downloader
+        // scheme, e.g. file://). The proven guest's image id must match the id pinned by the
+        // router assessor adapter that `assessor_selector` dispatches to.
+        let assessor_image_url = std::env::var("ASSESSOR_IMAGE_URL")
+            .unwrap_or_else(|_| ASSESSOR_DEFAULT_IMAGE_URL.to_string());
+        Self::initialize(prover, client, assessor_selector, &assessor_image_url).await
     }
 
     /// Initialize an OrderFulfiller from a provided Prover instance.
