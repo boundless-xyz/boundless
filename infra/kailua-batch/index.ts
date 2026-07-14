@@ -254,6 +254,13 @@ export = () => {
         ': "${S3_SECRET_KEY:?S3_SECRET_KEY is required for R2}"',
         'export AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY}"',
         'export AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY}"',
+        // Random start jitter so tasks launched together do not hit the RPC provider's
+        // beacon/blob endpoints in lockstep. Runs before the finalized-block fetch so the
+        // start block stays fresh, and before the prove watchdog so it does not consume the
+        // proving budget. Cap must stay well under the watchdog lambda's TASK_KILL_AFTER_MINUTES.
+        'KAILUA_START_JITTER=$((RANDOM % ${KAILUA_START_JITTER_MAX_SECONDS:-180}))',
+        'echo "KAILUA_JITTER sleeping ${KAILUA_START_JITTER}s"',
+        'sleep "$KAILUA_START_JITTER"',
         // Bound the pre-prove RPC call too: a dead/hung L2 RPC here would otherwise hang the
         // task forever, since the prove watchdog below has not started yet.
         'FINALIZED=$(timeout 60 cast bn finalized -r "$L2_RPC")',
