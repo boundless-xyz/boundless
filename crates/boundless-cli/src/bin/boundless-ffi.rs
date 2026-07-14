@@ -25,7 +25,7 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{bail, ensure, Context, Result};
-use boundless_cli::{OrderFulfilled, OrderFulfiller};
+use boundless_cli::{AssessorMode, OrderFulfilled, OrderFulfiller};
 use boundless_market::contracts::{eip712_domain, ProofRequest};
 use boundless_market::storage::StandardDownloader;
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
@@ -136,10 +136,10 @@ async fn main() -> Result<()> {
         prover,
         Arc::new(StandardDownloader::new().await),
         set_builder_image_id,
-        assessor_image_id,
+        Some(assessor_image_id),
         args.prover_address,
         domain.clone(),
-        args.assessor_selector,
+        AssessorMode::R0 { selector: args.assessor_selector },
     )?;
     let request = <ProofRequest>::abi_decode(&hex::decode(args.request.trim_start_matches("0x"))?)
         .map_err(|_| anyhow::anyhow!("Failed to decode ProofRequest from input"))?;
