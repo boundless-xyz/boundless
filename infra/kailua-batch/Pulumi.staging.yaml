@@ -30,11 +30,11 @@ config:
   kailua-batch:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging
   kailua-batch:ENABLE_PAGERDUTY_ALERTS: "true"
   kailua-batch:L1_RPC:
-    secure: v1:CZ4niHnsH82jY+K4:B78oU23pSX5Q8QeEiGZrMdDbrc4JsToI1DTalFRjCnI6ULo8VYggTLLo2+yEXmLqfXbtc27YXiASlpKC4IXbE80JN/QdyqJL+G60+avUKPbOHqkioaZq5ztYWitUnO1H
+    secure: v1:rjVQr/QZVHx1AwfZ:CVgycgRPhePeD9lv9wJXan7+nyqq/bLGGWLnJqBlV8fPlUjJtOBKpmYCd9tsqIP319hmav75YofVdAR36F+OpvEWVeU/ROdaQfay694qlbMIf4yQwiaF7Jz/jX9AVL5ssPABAzyya8+57gzaZN4lJmerhw==
   kailua-batch:L2_RPC:
-    secure: v1:pUNYk5hFuP0jvvRF:6ewLtHUtTTXcuqPFtFnGmm3LADqZvDCwjlRkaosPkC9yjjMTKRMrugPmOznEPa0UVDzsgiuDq9fgSlc/rKInxDguEMxA6o9Ceb+JnLx5VormlTmJp2fU5Ym7VW5j7HI8Eyoa+IMiEgzhtiY=
+    secure: v1:X+ZK/BB765UbCja5:IXVzfkVDgWd7A9DPVE44tEtPtoV8HzC5zHDpgPxxk06sTY5KLgORS4iJQuiIke93g/b0GvJwJ3bJniDngB3kZzRFPkFhdFbY8UEpI6teM/ZbP0wVExe796LM31+Qx/uau60FypJLIgvsCvtmO5Vu
   kailua-batch:OP_NODE:
-    secure: v1:NDmliGKgnrIixk9l:PWQDI58xNY/xInKXEJlOw1Mdc9wCBF8licP/+Z/EsTUUtZPRcEsaEfWDGg7L/DQqbMA+UssMsGrGtyDX1wQEE+hc2Qx1Wn6nTHOM6hz+O6aR92ksYXjQ885po5XYOq385JJYzDK0O4ZMACY=
+    secure: v1:H4oYkRCZcTwhD21t:uRDyD01ck5/TreXRS8RAXI++Qboaxwz96msA96Sz9zH1Mj5LtVZMZ/3gbLYq4HjELQih7B9vtgURPbSad3b4nvKygDyUkRC25ap+qvFu8pT/tmWFr35rPJmSiq9MLctZyjB8PvRZOwWizyWUF3pF
   kailua-batch:S3_UPLOAD_ACCESS_KEY:
     secure: v1:uFycwmlIKUO7NsKE:dRU7bvvPSrwczbfLSTROn4cecsWm4efCNKE6myOw1NkCF/p9qWGib0cNoMj9PdZE
   kailua-batch:S3_SECRET_ACCESS_KEY:
@@ -44,7 +44,7 @@ config:
   kailua-batch:BOUNDLESS_RPC_URL:
     secure: v1:6Twx1ICtEXpBAuP9:5zjb9S1hfA8ZQCyMnBzfHsODQttEpPUyJ/lMquS6Dm1JPluU+JThVi/8aw2Ai7awi3Gd5YNn7TcmIi3ARIY5smNupuAMjXSCCYlyn3acMt1lxOmOyXOrBdu9XAO7CvmGQKWXXgTDlcJeUsZ5dqMd+w==
   kailua-batch:L1_BEACON:
-    secure: v1:MQoNgD7ntu5BZh+0:SW9N5n+daQQJWr87m37OGvkfxfOOhW33EX3qxyjkEmNoLtCc0qecSENX8noGaVFmLShKzHTUl337gnvCbqS53ZhO9FwxENpan1MG6Lzam1IJHzJ4IZQ+pAo7EH/d0iEN
+    secure: v1:grfhSE8cTVS2QJSO:Wn0BYKm1hrQ0V6jyWRIzaATjgXRUAx3xNwKaWyRC83BgIFrgR+LeWborhxOlzJTruxXFUxvSCnoGbIAI08LJyRkBlPRFQxQMry3qk0jzzleLK1xHcfYnroIaScfKk4fnsKDm1dTe1xwnhJvepjxPEWWMFw==
   kailua-batch:S3_URL:
     secure: v1:uic0XwOCVP8ecxaT:GwwYi64Gisrq7VKu+mTpqxYhdCWOpOkBGS+oEMvPGEA1qMcpiwalNOfS8WmgzCIdG0+l0h3+1xMZ/RqyPEWO43klUPk4+GbI4rjY0Xeen1bk
   kailua-batch:BOUNDLESS_ORDER_STREAM_URL:
