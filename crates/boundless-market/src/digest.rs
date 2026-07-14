@@ -13,14 +13,40 @@
 // limitations under the License.
 
 use alloy_primitives::B256;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(not(target_os = "zkvm"))]
 use std::fmt;
 
 /// A 32-byte hash digest representing an image ID or journal digest.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Digest([u8; 32]);
+
+/// Serde encodes as eight little-endian u32 words, wire-identical to
+/// `risc0_zkvm::sha::Digest`. Deployed guests (e.g. the on-chain assessor)
+/// decode their postcard inputs against that layout, so the encoding is a
+/// compatibility contract, not an implementation detail: a byte-array
+/// encoding here would silently break every host-to-deployed-guest boundary
+/// that embeds a digest.
+impl Serialize for Digest {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let words: [u32; 8] = core::array::from_fn(|i| {
+            u32::from_le_bytes(self.0[i * 4..i * 4 + 4].try_into().expect("4-byte chunk"))
+        });
+        words.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Digest {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let words = <[u32; 8]>::deserialize(deserializer)?;
+        let mut bytes = [0u8; 32];
+        for (i, word) in words.iter().enumerate() {
+            bytes[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        Ok(Self(bytes))
+    }
+}
 
 impl Digest {
     /// The zero digest.
@@ -99,6 +125,17 @@ mod tests {
         let bytes = [1u8; 32];
         let d = Digest::from_bytes(bytes);
         assert_eq!(<[u8; 32]>::from(d), bytes);
+    }
+
+    #[test]
+    fn postcard_wire_format_matches_risc0_digest() {
+        // risc0's Digest is [u32; 8]; postcard varint-encodes each LE word.
+        // 0x42424242 -> varint c2 84 89 92 04, repeated for all 8 words.
+        let d = Digest::from_bytes([0x42; 32]);
+        let encoded = postcard::to_allocvec(&d).unwrap();
+        assert_eq!(encoded, [0xc2, 0x84, 0x89, 0x92, 0x04].repeat(8));
+        let decoded: Digest = postcard::from_bytes(&encoded).unwrap();
+        assert_eq!(decoded, d);
     }
 
     #[cfg(not(target_os = "zkvm"))]
