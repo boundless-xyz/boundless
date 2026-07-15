@@ -194,6 +194,10 @@ export = () => {
 
     const dynamicPricingTimeoutModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_TIMEOUT_MODIFIER");
     const dynamicPricingRampUpModifier = config.get("BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER");
+    // Comma-separated RPC methods the prover answers locally with a "method not found" error
+    // instead of calling the provider (e.g. debug_executePayload, whose uncached re-execution
+    // is expensive). Only passed through when set so it stays absent (empty list) by default.
+    const blockedRpcMethods = config.get("BLOCKED_RPC_METHODS");
 
     const defaultEnvironment: Record<string, string> = {
         MODE: config.get("MODE") ?? "debug",
@@ -213,6 +217,7 @@ export = () => {
         ...(dynamicPricingRampUpModifier
             ? { BOUNDLESS_DYNAMIC_PRICING_RAMP_UP_MODIFIER: dynamicPricingRampUpModifier }
             : {}),
+        ...(blockedRpcMethods ? { BLOCKED_RPC_METHODS: blockedRpcMethods } : {}),
         S3_BUCKET: config.require("S3_BUCKET"),
         AWS_REGION: config.get("AWS_REGION") ?? "auto",
         LOG_VERBOSITY: config.get("LOG_VERBOSITY") ?? "-vvv",

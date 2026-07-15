@@ -4,7 +4,9 @@ config:
   aws:region: us-west-2
   kailua-batch:BASE_STACK: organization/bootstrap/services-prod
   kailua-batch:CHAIN_ID: "10"
-  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:c003948
+  kailua-batch:KAILUA_IMAGE: ghcr.io/boundless-xyz/kailua:c7bcaa2
+  # Block the uncached debug_executePayload; the prover falls through to fine-grained hints.
+  kailua-batch:BLOCKED_RPC_METHODS: debug_executePayload
   # BLOCK_COUNT per launched task: task index 0 -> 1, task index 1 -> 2, task index 2 -> 3 (see trigger Lambda)
   kailua-batch:TASK_CPU: "8"
   kailua-batch:TASK_MEMORY_MIB: "8192"
