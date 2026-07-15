@@ -11,7 +11,14 @@ Combine on-chain indexer data, off-chain broker telemetry, and CloudWatch servic
 
 Set up the data sources needed for the investigation. Not all sources are needed for every query -- use the ones relevant to the task.
 
-1. **Read `network_secrets.toml`** from the repo root. If it exists, it contains credentials for all environments (indexer API keys, telemetry DB URLs/passwords, AWS creds). Also read `network_address_labels.json` (same directory) for labelling addresses -- it is plain JSON (`{"0xaddr": "label", ...}`). If `network_secrets.toml` is not present, recommend the user create it -- instructions and credentials are in the **Boundless runbook**. If `network_address_labels.json` is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**.
+1. **Load credentials from Bitwarden.** All ops credentials (AWS keys, indexer API keys, telemetry DB URLs/passwords) live in the user's Bitwarden vault. Source the shared helpers and verify the vault is unlocked:
+
+   ```bash
+   source .claude/skills/ops-query/references/bw-credentials.sh
+   bw_ensure_ready || exit 1
+   ```
+
+   The sub-skills below pull only the credentials they need. If `bw_ensure_ready` fails, it prints install/unlock instructions -- follow those and re-run. Full setup, item schema, and troubleshooting live in [`references/bw-credentials.md`](references/bw-credentials.md). Also read `network_address_labels.json` from the repo root for labelling addresses -- it is plain JSON (`{"0xaddr": "label", ...}`). If `network_address_labels.json` is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**.
 
 2. **Read and follow the ops-indexer-query skill** at `.claude/skills/ops-indexer-query/SKILL.md` to set up indexer access (`MARKET_INDEXER_URL`, `ZKC_INDEXER_URL`, optional `INDEXER_API_KEY`, and the `indexer_get` helper function).
 
