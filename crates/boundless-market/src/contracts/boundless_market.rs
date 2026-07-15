@@ -904,10 +904,8 @@ impl<P: Provider> BoundlessMarketService<P> {
     ///
     /// The market requires the commitment to have been recorded in a strictly earlier block
     /// than the reveal. Awaiting the commit receipt guarantees the reveal is *mined* at least
-    /// one block later, but not that it is *broadcast*: the reveal's gas estimation simulates
-    /// against the current head, and on nodes where the pending tag aliases latest (op-geth)
-    /// that is the commit's own block, where the age check reverts. This method therefore also
-    /// waits for the head to pass the commit block before returning.
+    /// one block later; whether its gas estimation also sees a later block depends on the
+    /// node — see the reveal retry in [`BoundlessMarketService::fulfill`].
     pub async fn commit_fulfillment(&self, commitment: B256) -> Result<(), MarketError> {
         tracing::trace!("Calling commitFulfillment({commitment:x})");
         let call = self.instance.commitFulfillment(commitment).from(self.caller);
@@ -915,27 +913,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::debug!("Broadcasting commit tx {}", pending_tx.tx_hash());
         let receipt = self.get_receipt_with_retry(pending_tx).await?;
         tracing::debug!("Fulfillment commitment recorded in tx {}", receipt.transaction_hash);
-
-        // The reveal must execute in a strictly later block, and the caller's next step is a
-        // `send()` whose gas estimation simulates against the current head: on nodes that
-        // estimate against the latest block (e.g. op-geth, where the pending tag aliases
-        // latest), estimating in the commit's own block reverts `MissingFulfillmentCommitment`
-        // before the reveal is ever broadcast. Wait for the head to pass the commit block.
-        // Bounded: chains that only mine on demand (anvil) never advance here, but their
-        // estimation runs on a next-block env and passes anyway.
-        if let Some(commit_block) = receipt.block_number {
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-            while self.get_latest_block_number().await? <= commit_block {
-                if tokio::time::Instant::now() >= deadline {
-                    tracing::debug!(
-                        "Chain head did not pass the commit block within the grace period; \
-                         proceeding to the reveal"
-                    );
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(500)).await;
-            }
-        }
         Ok(())
     }
 
@@ -987,64 +964,104 @@ impl<P: Provider> BoundlessMarketService<P> {
             self.commit_fulfillment(commitment).await?;
         }
 
-        match root {
-            None => match (price, withdraw) {
-                (false, false) => {
-                    tracing::debug!("Fulfilling requests {:?} with fulfill", request_ids);
-                    self._fulfill(fulfillment_batches).await
-                }
-                (false, true) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with fulfill and withdraw",
-                        request_ids
-                    );
-                    self.fulfill_and_withdraw(fulfillment_batches).await
-                }
-                (true, false) => {
-                    tracing::debug!("Fulfilling requests {:?} with price and fulfill", request_ids);
-                    self.price_and_fulfill(request_batches, fulfillment_batches).await
-                }
-                (true, true) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with price and fulfill and withdraw",
-                        request_ids
-                    );
-                    self.price_and_fulfill_and_withdraw(request_batches, fulfillment_batches).await
-                }
-            },
-            Some(root) => match (price, withdraw) {
-                (false, false) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with submitting root and fulfill",
-                        request_ids
-                    );
-                    self.submit_root_and_fulfill(root, fulfillment_batches).await
-                }
-                (false, true) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with submitting root and fulfill and withdraw",
-                        request_ids
-                    );
-                    self.submit_root_and_fulfill_and_withdraw(root, fulfillment_batches).await
-                }
-                (true, false) => {
-                    tracing::debug!(
-                        "Fulfilling requests {:?} with submitting root and price and fulfill",
-                        request_ids
-                    );
-                    self.submit_root_and_price_fulfill(root, request_batches, fulfillment_batches)
+        // The reveal must land in a strictly later block than the commit, and its gas
+        // estimation simulates against the current head: on nodes where the pending tag
+        // aliases latest (op-geth), that is the commit's own block, where the age check still
+        // fails and estimation reverts `MissingFulfillmentCommitment` before the reveal is
+        // ever broadcast. Retry until the head passes the commit block (bounded); nodes that
+        // estimate on a next-block env (anvil, L1 geth) pass on the first attempt.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            let result = match &root {
+                None => match (price, withdraw) {
+                    (false, false) => {
+                        tracing::debug!("Fulfilling requests {:?} with fulfill", request_ids);
+                        self._fulfill(fulfillment_batches.clone()).await
+                    }
+                    (false, true) => {
+                        tracing::debug!(
+                            "Fulfilling requests {:?} with fulfill and withdraw",
+                            request_ids
+                        );
+                        self.fulfill_and_withdraw(fulfillment_batches.clone()).await
+                    }
+                    (true, false) => {
+                        tracing::debug!(
+                            "Fulfilling requests {:?} with price and fulfill",
+                            request_ids
+                        );
+                        self.price_and_fulfill(request_batches.clone(), fulfillment_batches.clone())
+                            .await
+                    }
+                    (true, true) => {
+                        tracing::debug!(
+                            "Fulfilling requests {:?} with price and fulfill and withdraw",
+                            request_ids
+                        );
+                        self.price_and_fulfill_and_withdraw(
+                            request_batches.clone(),
+                            fulfillment_batches.clone(),
+                        )
                         .await
+                    }
+                },
+                Some(root) => match (price, withdraw) {
+                    (false, false) => {
+                        tracing::debug!(
+                            "Fulfilling requests {:?} with submitting root and fulfill",
+                            request_ids
+                        );
+                        self.submit_root_and_fulfill(root.clone(), fulfillment_batches.clone())
+                            .await
+                    }
+                    (false, true) => {
+                        tracing::debug!(
+                            "Fulfilling requests {:?} with submitting root and fulfill and withdraw",
+                            request_ids
+                        );
+                        self.submit_root_and_fulfill_and_withdraw(
+                            root.clone(),
+                            fulfillment_batches.clone(),
+                        )
+                        .await
+                    }
+                    (true, false) => {
+                        tracing::debug!(
+                            "Fulfilling requests {:?} with submitting root and price and fulfill",
+                            request_ids
+                        );
+                        self.submit_root_and_price_fulfill(
+                            root.clone(),
+                            request_batches.clone(),
+                            fulfillment_batches.clone(),
+                        )
+                        .await
+                    }
+                    (true, true) => {
+                        tracing::debug!("Fulfilling requests {:?} with submitting root and price and fulfill and withdraw", request_ids);
+                        self.submit_root_and_price_fulfill_and_withdraw(
+                            root.clone(),
+                            request_batches.clone(),
+                            fulfillment_batches.clone(),
+                        )
+                        .await
+                    }
+                },
+            };
+            match result {
+                Err(err)
+                    if price
+                        && format!("{err:?}").contains("MissingFulfillmentCommitment")
+                        && tokio::time::Instant::now() < deadline =>
+                {
+                    tracing::debug!(
+                        "Reveal was estimated in the commit's own block; retrying once the \
+                         head advances"
+                    );
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
-                (true, true) => {
-                    tracing::debug!("Fulfilling requests {:?} with submitting root and price and fulfill and withdraw", request_ids);
-                    self.submit_root_and_price_fulfill_and_withdraw(
-                        root,
-                        request_batches,
-                        fulfillment_batches,
-                    )
-                    .await
-                }
-            },
+                result => return result,
+            }
         }
     }
 
