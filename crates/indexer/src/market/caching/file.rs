@@ -251,7 +251,7 @@ mod tests {
         let prover = OrderFulfiller::initialize(
             Arc::new(DefaultProver::default()),
             &client,
-            ASSESSOR_R0_SELECTOR,
+            boundless_cli::AssessorMode::R0 { selector: ASSESSOR_R0_SELECTOR },
             &format!("file://{ASSESSOR_GUEST_PATH}"),
         )
         .await

@@ -30,7 +30,10 @@ pub mod contracts;
 pub mod display;
 pub mod price_oracle_helper;
 
-use alloy::primitives::{Address, Bytes, FixedBytes};
+use alloy::{
+    primitives::{Address, Bytes, FixedBytes},
+    signers::local::PrivateKeySigner,
+};
 use anyhow::{bail, Context, Result};
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
@@ -51,14 +54,35 @@ use std::sync::Arc;
 
 use boundless_market::{
     contracts::{
-        EIP712DomainSaltless, Fulfillment as BoundlessFulfillment, FulfillmentBatch,
-        FulfillmentData, PredicateType, RequestInputType, SlimRequest,
+        build_onchain_assessor_seal, EIP712DomainSaltless, Fulfillment as BoundlessFulfillment,
+        FulfillmentBatch, FulfillmentData, PredicateType, RequestInputType, SlimRequest,
     },
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
     storage::StorageDownloader,
     NotProvided, ProofRequest,
 };
+
+/// How the assessor seal for a fulfillment batch is produced.
+#[derive(Clone)]
+pub enum AssessorMode {
+    /// Prove the R0 assessor guest and aggregate it with the order claims; the seal is the guest
+    /// receipt's set-inclusion proof framed behind `selector`.
+    R0 {
+        /// The 4-byte router entry selector of the deployed `R0BoundlessAssessorAdapter`.
+        selector: FixedBytes<4>,
+    },
+    /// Skip the assessor guest; the seal is an EIP-712 `FulfillmentBatchAuth` signature framed
+    /// behind `selector`, verified by the `OnChainAssessor` adapter deployed at `adapter`.
+    Onchain {
+        /// The 4-byte router entry selector of the deployed `OnChainAssessor` adapter.
+        selector: FixedBytes<4>,
+        /// The deployed `OnChainAssessor` adapter (the EIP-712 `verifyingContract`).
+        adapter: Address,
+        /// Signs the batch authorization; must control the prover address credited on-chain.
+        signer: PrivateKeySigner,
+    },
+}
 
 /// Default URL for assessor image - matches broker config defaults. The assessor guest currently
 /// deployed on-chain (image id 0x6c5a03c0…56694100), matching the market `imageInfo()` and the
@@ -212,12 +236,13 @@ pub struct OrderFulfiller {
     prover: Arc<dyn Prover + Send + Sync>,
     downloader: Arc<dyn StorageDownloader + Send + Sync>,
     set_builder_image_id: Digest,
-    assessor_image_id: Digest,
+    /// The R0 assessor guest image id; only set in [AssessorMode::R0].
+    assessor_image_id: Option<Digest>,
     address: Address,
     domain: EIP712DomainSaltless,
     supported_selectors: SupportedSelectors,
-    /// The 4-byte router assessor selector prepended to the assessor seal.
-    assessor_selector: FixedBytes<4>,
+    /// How the batch assessor seal is produced.
+    assessor_mode: AssessorMode,
 }
 
 impl OrderFulfiller {
@@ -226,10 +251,10 @@ impl OrderFulfiller {
         prover: Arc<dyn Prover + Send + Sync>,
         downloader: Arc<dyn StorageDownloader>,
         set_builder_image_id: Digest,
-        assessor_image_id: Digest,
+        assessor_image_id: Option<Digest>,
         address: Address,
         domain: EIP712DomainSaltless,
-        assessor_selector: FixedBytes<4>,
+        assessor_mode: AssessorMode,
     ) -> Result<Self> {
         let supported_selectors =
             SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
@@ -241,14 +266,14 @@ impl OrderFulfiller {
             address,
             domain,
             supported_selectors,
-            assessor_selector,
+            assessor_mode,
         })
     }
 
     pub(crate) async fn initialize_from_config<P, St, D, R, Si>(
         prover_config: &config::ProverConfig,
         client: &boundless_market::Client<NotProvided, P, St, D, R, Si>,
-        assessor_selector: FixedBytes<4>,
+        assessor_mode: AssessorMode,
     ) -> Result<Self>
     where
         P: alloy::providers::Provider + Clone + 'static,
@@ -284,19 +309,25 @@ impl OrderFulfiller {
             )?)
         };
 
-        Self::initialize(prover, client, assessor_selector, ASSESSOR_DEFAULT_IMAGE_URL).await
+        // ASSESSOR_IMAGE_URL overrides the default assessor guest source (any downloader
+        // scheme, e.g. file://). The proven guest's image id must match the id pinned by the
+        // router assessor adapter that `assessor_selector` dispatches to.
+        let assessor_image_url = std::env::var("ASSESSOR_IMAGE_URL")
+            .unwrap_or_else(|_| ASSESSOR_DEFAULT_IMAGE_URL.to_string());
+        Self::initialize(prover, client, assessor_mode, &assessor_image_url).await
     }
 
     /// Initialize an OrderFulfiller from a provided Prover instance.
     ///
-    /// `assessor_image_url` is the source for the assessor guest ELF; its image id must match the
-    /// one the deployed `R0BoundlessAssessorAdapter` verifies against. Production passes
-    /// [ASSESSOR_DEFAULT_IMAGE_URL]; tests point it at the locally-built guest so the proven image
-    /// matches the image deployed by the test harness.
+    /// In [AssessorMode::R0], `assessor_image_url` is the source for the assessor guest ELF; its
+    /// image id must match the one the deployed `R0BoundlessAssessorAdapter` verifies against.
+    /// Production passes [ASSESSOR_DEFAULT_IMAGE_URL]; tests point it at the locally-built guest
+    /// so the proven image matches the image deployed by the test harness. In
+    /// [AssessorMode::Onchain] no assessor guest is proven and the URL is unused.
     pub async fn initialize<P, St, D, R, Si>(
         prover: Arc<dyn Prover + Send + Sync>,
         client: &boundless_market::Client<NotProvided, P, St, D, R, Si>,
-        assessor_selector: FixedBytes<4>,
+        assessor_mode: AssessorMode,
         assessor_image_url: &str,
     ) -> Result<Self>
     where
@@ -310,24 +341,31 @@ impl OrderFulfiller {
             client.set_verifier.image_info().await?;
         let set_builder_image_id = Digest::try_from(set_builder_image_id_bytes.as_slice())?;
 
-        // The market no longer exposes the assessor image info; derive it from the configured ELF.
-        let assessor_program = downloader
-            .download(assessor_image_url)
-            .await
-            .context("Failed to download assessor image")?;
-        let assessor_image_id =
-            compute_image_id(&assessor_program).context("Failed to compute assessor image ID")?;
+        let assessor_image_id = match &assessor_mode {
+            AssessorMode::Onchain { .. } => None,
+            AssessorMode::R0 { .. } => {
+                // The market no longer exposes the assessor image info; derive it from the
+                // configured ELF.
+                let assessor_program = downloader
+                    .download(assessor_image_url)
+                    .await
+                    .context("Failed to download assessor image")?;
+                let assessor_image_id = compute_image_id(&assessor_program)
+                    .context("Failed to compute assessor image ID")?;
 
-        tracing::debug!("Fetching Assessor program (ID: {})", assessor_image_id);
-        ensure_prover_has_image(
-            &prover,
-            "assessor",
-            assessor_image_id,
-            assessor_image_url,
-            assessor_image_url,
-            &downloader,
-        )
-        .await?;
+                tracing::debug!("Fetching Assessor program (ID: {})", assessor_image_id);
+                ensure_prover_has_image(
+                    &prover,
+                    "assessor",
+                    assessor_image_id,
+                    assessor_image_url,
+                    assessor_image_url,
+                    &downloader,
+                )
+                .await?;
+                Some(assessor_image_id)
+            }
+        };
 
         tracing::debug!("Fetching SetBuilder program (ID: {})", set_builder_image_id);
         ensure_prover_has_image(
@@ -347,7 +385,7 @@ impl OrderFulfiller {
             assessor_image_id,
             client.boundless_market.caller(),
             domain,
-            assessor_selector,
+            assessor_mode,
         )
     }
 
@@ -409,8 +447,9 @@ impl OrderFulfiller {
 
         let stdin = GuestEnv::builder().write_frame(&assessor_input.encode()).stdin;
 
-        let image_id_str = self.assessor_image_id.to_string();
-        self.prove_stark(&image_id_str, stdin, assumption_ids).await
+        let image_id =
+            self.assessor_image_id.context("assessor image id is only set in R0 assessor mode")?;
+        self.prove_stark(&image_id.to_string(), stdin, assumption_ids).await
     }
 
     /// Fulfills a list of orders, returning the relevant data:
@@ -518,28 +557,38 @@ impl OrderFulfiller {
             }
         }
 
-        tracing::debug!("Proving assessor");
-        let assessor_receipt_id = self.assessor(fills.clone(), proof_ids.clone()).await?;
-        let assessor_receipt = self
-            .prover
-            .get_receipt(&assessor_receipt_id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Assessor receipt not found"))?;
-        let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
-            self.assessor_image_id,
-            assessor_journal.clone(),
-        ));
-        claims.push(assessor_claim.clone());
-        claim_digests.push(assessor_claim.digest());
+        anyhow::ensure!(!fills.is_empty(), "no orders were successfully proven");
+
+        // The R0 assessor guest is only proven (and aggregated with the order claims) when it
+        // seals the batch; the on-chain assessor replaces it with an EIP-712 batch signature.
+        let assessor_r0 = match &self.assessor_mode {
+            AssessorMode::Onchain { .. } => None,
+            AssessorMode::R0 { .. } => {
+                tracing::debug!("Proving assessor");
+                let assessor_receipt_id = self.assessor(fills.clone(), proof_ids.clone()).await?;
+                let assessor_receipt = self
+                    .prover
+                    .get_receipt(&assessor_receipt_id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Assessor receipt not found"))?;
+                let assessor_journal = assessor_receipt.journal.bytes.clone();
+                let assessor_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
+                    self.assessor_image_id
+                        .context("assessor image id is only set in R0 assessor mode")?,
+                    assessor_journal.clone(),
+                ));
+                claims.push(assessor_claim.clone());
+                claim_digests.push(assessor_claim.digest());
+                Some((assessor_receipt_id, assessor_claim))
+            }
+        };
 
         tracing::debug!("Finalizing");
-        let root_receipt_id = self
-            .finalize(
-                claims.clone(),
-                [proof_ids.as_slice(), std::slice::from_ref(&assessor_receipt_id)].concat(),
-            )
-            .await?;
+        let mut assumption_ids = proof_ids.clone();
+        if let Some((assessor_receipt_id, _)) = &assessor_r0 {
+            assumption_ids.push(assessor_receipt_id.clone());
+        }
+        let root_receipt_id = self.finalize(claims.clone(), assumption_ids).await?;
         let compressed_receipt_bytes = self
             .prover
             .get_compressed_receipt(&root_receipt_id)
@@ -616,18 +665,41 @@ impl OrderFulfiller {
             boundless_fills.push(fulfillment);
         }
 
-        let assessor_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
-            assessor_claim,
-            merkle_path(&claim_digests, claim_digests.len() - 1),
-            verifier_parameters.digest(),
-        );
-
-        // The on-chain assessor seal is `router assessor selector ++ inner seal`. Callbacks and
-        // selectors are no longer submitted; they are derived on-chain from the signed SlimRequest.
-        let assessor_seal = boundless_market::contracts::assessor_seal(
-            self.assessor_selector,
-            assessor_inclusion_receipt.abi_encode_seal()?,
-        );
+        // The assessor seal is `router assessor selector ++ inner seal`. Callbacks and selectors
+        // are no longer submitted; they are derived on-chain from the signed SlimRequest.
+        let assessor_seal = match &self.assessor_mode {
+            AssessorMode::R0 { selector } => {
+                let (_, assessor_claim) =
+                    assessor_r0.context("the R0 assessor mode proves the assessor guest")?;
+                let assessor_inclusion_receipt =
+                    SetInclusionReceipt::from_path_with_verifier_params(
+                        assessor_claim,
+                        merkle_path(&claim_digests, claim_digests.len() - 1),
+                        verifier_parameters.digest(),
+                    );
+                boundless_market::contracts::assessor_seal(
+                    *selector,
+                    assessor_inclusion_receipt.abi_encode_seal()?,
+                )
+            }
+            AssessorMode::Onchain { selector, adapter, signer } => {
+                // The signed batch authorization must cover exactly the fills being submitted.
+                let requests: Vec<ProofRequest> =
+                    successful_indices.iter().map(|&idx| orders[idx].0.clone()).collect();
+                build_onchain_assessor_seal(
+                    signer,
+                    *selector,
+                    *adapter,
+                    self.domain.chain_id,
+                    &self.domain.alloy_struct(),
+                    self.address,
+                    &requests,
+                    &boundless_fills,
+                )
+                .await
+                .context("Failed to build the on-chain assessor seal")?
+            }
+        };
 
         Ok((boundless_fills, root_receipt, assessor_seal))
     }
@@ -657,7 +729,7 @@ mod tests {
     };
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, ECHO_ID, ECHO_PATH},
-        market::{create_test_ctx, ASSESSOR_R0_SELECTOR},
+        market::{create_test_ctx, ASSESSOR_ONCHAIN_SELECTOR, ASSESSOR_R0_SELECTOR},
     };
     use std::sync::Arc;
 
@@ -703,7 +775,7 @@ mod tests {
         let mut fulfiller = OrderFulfiller::initialize(
             prover,
             &client,
-            ASSESSOR_R0_SELECTOR,
+            AssessorMode::R0 { selector: ASSESSOR_R0_SELECTOR },
             &format!("file://{ASSESSOR_GUEST_PATH}"),
         )
         .await
@@ -730,7 +802,7 @@ mod tests {
         let mut fulfiller = OrderFulfiller::initialize(
             prover,
             &client,
-            ASSESSOR_R0_SELECTOR,
+            AssessorMode::R0 { selector: ASSESSOR_R0_SELECTOR },
             &format!("file://{ASSESSOR_GUEST_PATH}"),
         )
         .await
@@ -738,6 +810,68 @@ mod tests {
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
+    async fn test_fulfill_onchain_assessor() {
+        use alloy::sol_types::SolStruct;
+        use boundless_market::contracts::{
+            fulfillment_batch_auth_signing_hash, onchain_assessor_eip712_domain,
+        };
+
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let client = boundless_market::Client::new(
+            ctx.customer_market.clone(),
+            ctx.set_verifier.clone(),
+            StandardDownloader::new().await,
+        );
+
+        let signer = PrivateKeySigner::random();
+        let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
+
+        let adapter =
+            ctx.customer_market.router_entry_impl(ASSESSOR_ONCHAIN_SELECTOR).await.unwrap();
+        assert_ne!(adapter, Address::ZERO);
+
+        let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
+        let mut fulfiller = OrderFulfiller::initialize(
+            prover,
+            &client,
+            AssessorMode::Onchain {
+                selector: ASSESSOR_ONCHAIN_SELECTOR,
+                adapter,
+                signer: ctx.customer_signer.clone(),
+            },
+            &format!("file://{ASSESSOR_GUEST_PATH}"),
+        )
+        .await
+        .unwrap();
+        fulfiller.domain = eip712_domain(Address::ZERO, 1);
+
+        let (fills, _root_receipt, assessor_seal) =
+            fulfiller.fulfill(&[(request.clone(), signature.as_bytes().into())]).await.unwrap();
+
+        // The seal is the 4-byte on-chain assessor selector followed by a 65-byte ECDSA
+        // signature that recovers to the prover over the hash `OnChainAssessor` reconstructs.
+        assert_eq!(fills.len(), 1);
+        assert_eq!(assessor_seal.len(), 69);
+        assert_eq!(&assessor_seal[..4], ASSESSOR_ONCHAIN_SELECTOR.as_slice());
+
+        let prover_address = ctx.customer_signer.address();
+        let market_domain = eip712_domain(Address::ZERO, 1).alloy_struct();
+        let hash = fulfillment_batch_auth_signing_hash(
+            &onchain_assessor_eip712_domain(adapter, 1),
+            prover_address,
+            &[request.eip712_signing_hash(&market_domain)],
+            &[fills[0].claimDigest],
+        );
+        let recovered = Signature::try_from(&assessor_seal[4..])
+            .unwrap()
+            .recover_address_from_prehash(&hash)
+            .unwrap();
+        assert_eq!(recovered, prover_address);
     }
 
     #[tokio::test]
@@ -774,7 +908,7 @@ mod tests {
         let mut fulfiller = OrderFulfiller::initialize(
             prover,
             &client,
-            ASSESSOR_R0_SELECTOR,
+            AssessorMode::R0 { selector: ASSESSOR_R0_SELECTOR },
             &format!("file://{ASSESSOR_GUEST_PATH}"),
         )
         .await
