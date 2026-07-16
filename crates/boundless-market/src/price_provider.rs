@@ -27,6 +27,7 @@ use anyhow::{bail, Context, Result};
 use derive_builder::Builder;
 use futures::future::try_join_all;
 use rand::Rng;
+#[cfg(feature = "risc0")]
 use risc0_zkvm::serde::from_slice;
 use url::Url;
 
@@ -665,26 +666,38 @@ fn try_extract_cycle_count(input: &RequestInput) -> Option<u64> {
     // Decode GuestEnv
     match GuestEnv::decode(&input.data) {
         Ok(guest_env) => {
-            // Convert stdin bytes to u32 words for risc0 deserialization
-            // risc0 serde uses u32 words, need to convert from bytes
-            match bytemuck::try_cast_slice::<u8, u32>(&guest_env.stdin) {
-                Ok(words) => {
-                    // Decode first u64 from stdin words
-                    match from_slice::<u64, u32>(words) {
-                        Ok(cycle_count) => {
-                            tracing::trace!("Successfully decoded cycle count: {}", cycle_count);
-                            Some(cycle_count)
-                        }
-                        Err(e) => {
-                            tracing::debug!("Failed to decode cycle count from stdin: {}", e);
-                            None
+            #[cfg(feature = "risc0")]
+            {
+                // Convert stdin bytes to u32 words for risc0 deserialization
+                // risc0 serde uses u32 words, need to convert from bytes
+                match bytemuck::try_cast_slice::<u8, u32>(&guest_env.stdin) {
+                    Ok(words) => {
+                        // Decode first u64 from stdin words
+                        match from_slice::<u64, u32>(words) {
+                            Ok(cycle_count) => {
+                                tracing::trace!(
+                                    "Successfully decoded cycle count: {}",
+                                    cycle_count
+                                );
+                                Some(cycle_count)
+                            }
+                            Err(e) => {
+                                tracing::debug!("Failed to decode cycle count from stdin: {}", e);
+                                None
+                            }
                         }
                     }
+                    Err(e) => {
+                        tracing::debug!("Failed to convert stdin bytes to u32 words: {}", e);
+                        None
+                    }
                 }
-                Err(e) => {
-                    tracing::debug!("Failed to convert stdin bytes to u32 words: {}", e);
-                    None
-                }
+            }
+            #[cfg(not(feature = "risc0"))]
+            {
+                let _ = guest_env;
+                tracing::debug!("Skipping cycle count extraction: risc0 feature not enabled");
+                None
             }
         }
         Err(e) => {

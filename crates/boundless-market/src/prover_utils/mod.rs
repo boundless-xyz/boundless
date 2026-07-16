@@ -27,9 +27,14 @@ pub use config::{
 };
 #[allow(unused_imports)]
 pub use request_evaluator::{
-    EvaluationLimits, EvaluationMetrics, EvaluationRequest, ImageUploadCache, ImageUploadCacheKey,
-    InputCacheKey, NativeWork, NormalizedWork, PreflightCache, PreflightCacheKey,
-    PreflightCacheValue, PriorityRequestorCheck, RequestEvaluation, RequestEvaluator,
+    EvaluationLimits, EvaluationMetrics, EvaluationRequest, InputCacheKey, NativeWork,
+    NormalizedWork, PreflightCacheKey, PreflightCacheValue, RequestEvaluation, RequestEvaluator,
+};
+#[cfg(feature = "risc0")]
+#[allow(unused_imports)]
+pub use request_evaluator::{
+    ImageUploadCache, ImageUploadCacheKey, PreflightCache, PreflightErrorKind,
+    PriorityRequestorCheck,
 };
 
 use crate::{
@@ -50,9 +55,7 @@ use alloy::{
     uint,
 };
 use anyhow::Context;
-use hex::FromHex;
 use moka::future::Cache;
-use risc0_zkvm::sha::Digest as Risc0Digest;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -772,7 +775,7 @@ pub trait OrderPricingContext: RequestEvaluator {
             FulfillmentData::None
         } else {
             FulfillmentData::from_image_id_and_journal(
-                Risc0Digest::from_hex(program_id).context("Failed to parse image ID")?,
+                crate::Digest::from_hex(&program_id).context("Failed to parse image ID")?,
                 journal,
             )
         };

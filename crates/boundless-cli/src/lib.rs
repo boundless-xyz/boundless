@@ -44,7 +44,7 @@ use broker::{
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
-use risc0_ethereum_contracts::encode_seal;
+use risc0_ethereum_contracts::{encode_seal, set_verifier::SetVerifierService};
 use risc0_zkvm::{
     compute_image_id,
     sha::{Digest, Digestible},
@@ -337,8 +337,12 @@ impl OrderFulfiller {
         let downloader = Arc::new(client.downloader.clone());
         let domain = client.boundless_market.eip712_domain().await?;
 
-        let (set_builder_image_id_bytes, set_builder_url) =
-            client.set_verifier.image_info().await?;
+        let set_verifier = SetVerifierService::new(
+            client.deployment.set_verifier_address,
+            client.provider(),
+            Address::ZERO,
+        );
+        let (set_builder_image_id_bytes, set_builder_url) = set_verifier.image_info().await?;
         let set_builder_image_id = Digest::try_from(set_builder_image_id_bytes.as_slice())?;
 
         let assessor_image_id = match &assessor_mode {
@@ -764,7 +768,7 @@ mod tests {
         let ctx = create_test_ctx(&anvil).await.unwrap();
         let client = boundless_market::Client::new(
             ctx.customer_market.clone(),
-            ctx.set_verifier.clone(),
+            ctx.deployment.set_verifier_address,
             StandardDownloader::new().await,
         );
 
@@ -792,7 +796,7 @@ mod tests {
         let ctx = create_test_ctx(&anvil).await.unwrap();
         let client = boundless_market::Client::new(
             ctx.customer_market.clone(),
-            ctx.set_verifier.clone(),
+            ctx.deployment.set_verifier_address,
             StandardDownloader::new().await,
         );
 
@@ -881,7 +885,7 @@ mod tests {
         let ctx = create_test_ctx(&anvil).await.unwrap();
         let client = boundless_market::Client::new(
             ctx.customer_market.clone(),
-            ctx.set_verifier.clone(),
+            ctx.deployment.set_verifier_address,
             StandardDownloader::new().await,
         );
 

@@ -67,7 +67,7 @@ pub async fn new_market_test_fixture(
 
     let client = boundless_market::Client::new(
         ctx.prover_market.clone(),
-        ctx.set_verifier.clone(),
+        ctx.deployment.set_verifier_address,
         StandardDownloader::new().await,
     );
     let prover = OrderFulfiller::initialize(

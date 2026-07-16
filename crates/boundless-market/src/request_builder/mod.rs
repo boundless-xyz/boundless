@@ -22,6 +22,7 @@ use std::{
 use crate::{Digest, Journal};
 use alloy::{
     network::Ethereum,
+    primitives::{Bytes, B256},
     providers::{DynProvider, Provider},
 };
 use async_trait::async_trait;
@@ -33,7 +34,7 @@ use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
     prover_utils::{
-        prover::{ExecutorResp, Prover, ProverError},
+        prover::{ExecutorResp, ProverError},
         requestor_pricing::requestor_order_preflight,
     },
     selector::SelectorExt,
@@ -163,7 +164,7 @@ where
 
 /// Executes a program locally
 #[async_trait]
-pub trait LocalExecutor: Prover + Sync + Send {
+pub trait LocalExecutor: Sync + Send {
     /// Execute a program with the given input, deduplicating by content.
     ///
     /// Returns the execution stats and journal. If the same image_id + input
@@ -186,7 +187,11 @@ pub trait LocalExecutor: Prover + Sync + Send {
 }
 
 /// Trait containing ZKVM types and functions
+#[async_trait]
 pub trait ZkvmOps {
+    /// Receipt type returned by [ZkvmOps::fetch_set_inclusion_receipt].
+    type SetInclusionReceipt: Send;
+
     /// A local executor for preflight
     fn executor(&self) -> Arc<dyn LocalExecutor + Sync + Send>;
 
@@ -200,6 +205,14 @@ pub trait ZkvmOps {
     fn create_journal(&self, bytes: Vec<u8>) -> Journal {
         Journal::new(bytes)
     }
+
+    /// Fetch the set inclusion receipt for the given seal, image ID, and journal.
+    async fn fetch_set_inclusion_receipt(
+        &self,
+        seal: Bytes,
+        image_id: B256,
+        journal: Journal,
+    ) -> anyhow::Result<Self::SetInclusionReceipt>;
 }
 
 /// A standard implementation of [RequestBuilder] that uses a layered architecture.
@@ -1072,6 +1085,7 @@ mod tests {
     use url::Url;
 
     use crate::price_oracle::{Amount, Asset};
+    use crate::prover_utils::prover::Prover;
     use crate::storage::HttpDownloader;
     use crate::{
         contracts::{
@@ -1354,11 +1368,11 @@ mod tests {
 
         // Verify cache was pre-filled by checking we can get preflight result
         // First, upload image so preflight can find it
-        zkvm.executor().upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
-        let input_id = zkvm.executor().upload_input(input_data.to_vec()).await?;
+        zkvm.local_executor().upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
+        let input_id = zkvm.local_executor().upload_input(input_data.to_vec()).await?;
 
         let preflight_result = zkvm
-            .executor()
+            .local_executor()
             .preflight(&image_id.to_string(), &input_id, vec![], None, "test")
             .await?;
 
