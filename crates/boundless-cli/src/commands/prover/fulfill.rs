@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{OrderFulfilled, OrderFulfiller};
-use alloy::primitives::{FixedBytes, B256, U256};
-use anyhow::{bail, Context, Result};
-use boundless_market::contracts::boundless_market::{FulfillmentTx, UnlockedRequest};
+use crate::{AssessorMode, OrderFulfilled, OrderFulfiller};
+use alloy::primitives::{Address, FixedBytes, B256, U256};
+use anyhow::{bail, ensure, Context, Result};
+use boundless_market::contracts::{
+    boundless_market::{FulfillmentTx, UnlockedRequest},
+    ONCHAIN_ASSESSOR_SELECTOR,
+};
 use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};
@@ -41,8 +44,10 @@ pub struct ProverFulfill {
     #[arg(long, default_value = "false")]
     pub withdraw: bool,
 
-    /// The 4-byte BoundlessRouter assessor selector to prepend to the assessor seal (hex, e.g. 0x00000022)
-    #[arg(long)]
+    /// The 4-byte BoundlessRouter assessor selector to prepend to the assessor seal. Defaults to
+    /// the on-chain assessor (an EIP-712 batch signature, no assessor guest proof); pass the R0
+    /// assessor selector (e.g. 0x00000024) to prove the assessor guest instead.
+    #[arg(long, default_value_t = ONCHAIN_ASSESSOR_SELECTOR)]
     pub assessor_selector: FixedBytes<4>,
 
     /// Lower bound: search events backwards down to this block
@@ -89,12 +94,35 @@ impl ProverFulfill {
 
         display.header("Fulfilling Proof Requests");
         display.item_colored("Request IDs", &request_ids_string, "cyan");
+        display.item_colored("Assessor", self.assessor_selector.to_string(), "cyan");
         display.status("Status", "Initializing prover and fetching images", "yellow");
+
+        let assessor_mode = if self.assessor_selector == ONCHAIN_ASSESSOR_SELECTOR {
+            // The adapter address is the EIP-712 verifying contract of the batch signature;
+            // discover it behind the selector via the market's router.
+            let adapter =
+                client
+                    .boundless_market
+                    .router_entry_impl(self.assessor_selector)
+                    .await
+                    .context("failed to resolve the OnChainAssessor adapter from the router")?;
+            ensure!(
+                adapter != Address::ZERO,
+                "the on-chain assessor is not registered in this market's router; pass \
+                 --assessor-selector with the R0 assessor selector (e.g. 0x00000024) instead"
+            );
+            AssessorMode::Onchain {
+                selector: self.assessor_selector,
+                adapter,
+                signer: prover_config.require_private_key_with_help()?,
+            }
+        } else {
+            AssessorMode::R0 { selector: self.assessor_selector }
+        };
 
         // Initialize fulfiller with prover setup and image uploads
         let fulfiller =
-            OrderFulfiller::initialize_from_config(&prover_config, &client, self.assessor_selector)
-                .await?;
+            OrderFulfiller::initialize_from_config(&prover_config, &client, assessor_mode).await?;
 
         let fetch_order_jobs = self.request_ids.iter().enumerate().map(|(i, request_id)| {
             let client = client.clone();

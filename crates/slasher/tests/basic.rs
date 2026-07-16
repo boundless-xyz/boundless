@@ -274,7 +274,7 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     let fulfiller = OrderFulfiller::initialize(
         prover,
         &client,
-        ASSESSOR_R0_SELECTOR,
+        boundless_cli::AssessorMode::R0 { selector: ASSESSOR_R0_SELECTOR },
         &format!("file://{ASSESSOR_GUEST_PATH}"),
     )
     .await
