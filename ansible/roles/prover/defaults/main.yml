@@ -81,7 +81,7 @@ prover_broker_extra_args: ""
 
 # Broker configuration directory. When set, copies broker.toml and all broker.*.toml
 # chain overrides from this directory. Preferred over prover_broker_toml_local/url.
-# Example: "configs/broker/prod-mainnet-nightly"
+# Example: "configs/broker/prod-mainnet-release"
 prover_broker_config_dir: ""
 
 # Broker configuration URL (used when prover_broker_config_dir and prover_broker_toml_local are not set)

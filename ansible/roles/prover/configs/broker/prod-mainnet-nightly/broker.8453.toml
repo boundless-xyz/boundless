@@ -1,3 +1,0 @@
-# Nightly Base Mainnet (8453) chain override
-[market]
-max_collateral = "200"

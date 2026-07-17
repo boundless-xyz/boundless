@@ -101,7 +101,7 @@ Compose defaults can be overridden with env vars: `AGENT_IMAGE`, `CPU_AGENT_IMAG
 | `prover_rpc_url`           | `""`         | RPC URL for blockchain                                                                          |
 | `prover_rpc_urls`          | `""`         | Comma-separated RPC URLs                                                                        |
 | `prover_povw_log_id`       | `""`         | POVW log contract address                                                                       |
-| `prover_broker_config_dir` | `""`         | Config directory (e.g. `configs/broker/prod-mainnet-nightly`). Copies all files. Preferred.     |
+| `prover_broker_config_dir` | `""`         | Config directory (e.g. `configs/broker/prod-mainnet-release`). Copies all files. Preferred.     |
 | `prover_broker_toml_local` | `""`         | Local broker.toml file path. Used when config_dir is not set.                                   |
 | `prover_broker_toml_url`   | (GitHub URL) | URL to broker.toml template (used when config_dir and toml_local are not set)                   |
 | `prover_broker_extra_args` | `""`         | Extra CLI args for the broker.                                                                  |
