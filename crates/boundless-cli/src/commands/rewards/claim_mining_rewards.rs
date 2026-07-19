@@ -66,8 +66,8 @@ pub struct RewardsClaimMiningRewards {
 
     /// Maximum number of days to consider for the reward claim
     ///
-    /// This effects how far back in history this command will search for log update events for the
-    /// rewards claim. If all log update events to claim occured in fewer than the specified number
+    /// This affects how far back in history this command will search for log update events for the
+    /// rewards claim. If all log update events to claim occurred in fewer than the specified number
     /// of days, this command will not scan for events in the full range.
     #[arg(long, default_value_t = 30)]
     days: u32,
@@ -181,7 +181,7 @@ impl RewardsClaimMiningRewards {
             return Ok(());
         }
 
-        // Search for the WorkLogUpdated events, and the the EpochFinalized events
+        // Search for the WorkLogUpdated events, and the EpochFinalized events
         display.subsection("Searching for claimable work");
         display.note(&format!(
             "Scanning past {} days for work log updates...",
