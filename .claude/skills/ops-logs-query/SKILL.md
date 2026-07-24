@@ -27,9 +27,9 @@ We run **one prover, and it is prod-only**. Its logs go to the CloudWatch log
 group `boundless/hlc/prover` -- note there is **no leading slash** -- in the log
 stream `prover-prod`.
 
-| Log Group              | Environment | Chain ID    | Description                        |
-| ---------------------- | ----------- | ----------- | ---------------------------------- |
-| `boundless/hlc/prover` | prod        | 8453 (Base) | The prover. Stream `prover-prod`.  |
+| Log Group              | Environment | Chain ID    | Description                       |
+| ---------------------- | ----------- | ----------- | --------------------------------- |
+| `boundless/hlc/prover` | prod        | 8453 (Base) | The prover. Stream `prover-prod`. |
 
 There is **no staging prover**. A same-named group exists in the staging account
 (stream `prover-staging`) but it has been idle since 2026-06-22. If asked about a
@@ -111,16 +111,16 @@ Some services have multiple log groups for different components (e.g. an indexer
 
 Common service name fragments to search for:
 
-| Service         | Search fragments                                           |
-| --------------- | ---------------------------------------------------------- |
-| Indexer API     | `indexer-api`                                              |
-| Indexer backend | `indexer`, `market-indexer`, `rewards-indexer`             |
-| Order stream    | `order-stream`                                             |
-| Order generator | `order-generator`, `og`                                    |
-| Slasher         | `slasher`                                                  |
-| Distributor     | `distributor`                                              |
-| Signal          | `prod-8453-signal` (no `l-` prefix)                        |
-| Prover          | `boundless/hlc/prover` (prod only, no leading slash)        |
+| Service         | Search fragments                                     |
+| --------------- | ---------------------------------------------------- |
+| Indexer API     | `indexer-api`                                        |
+| Indexer backend | `indexer`, `market-indexer`, `rewards-indexer`       |
+| Order stream    | `order-stream`                                       |
+| Order generator | `order-generator`, `og`                              |
+| Slasher         | `slasher`                                            |
+| Distributor     | `distributor`                                        |
+| Signal          | `prod-8453-signal` (no `l-` prefix)                  |
+| Prover          | `boundless/hlc/prover` (prod only, no leading slash) |
 
 ## Querying Logs
 
