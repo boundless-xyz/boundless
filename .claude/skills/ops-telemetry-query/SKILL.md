@@ -175,7 +175,24 @@ The same three view names exist as directories under each archive bucket (e.g. `
 
 ## Schema Reference
 
-**IMPORTANT**: Before writing any queries, you MUST read `crates/boundless-market/src/telemetry.rs` to get the exact column names and enum values. The view columns map 1:1 to the Rust struct fields (snake_case). Do NOT guess column names.
+**IMPORTANT**: Do NOT guess column names. Get them from the cluster before writing
+any query that references a column you are not certain of:
+
+```sql
+SELECT column_name, data_type FROM information_schema.columns
+WHERE table_schema = 'telemetry' AND table_name = '<view>' ORDER BY ordinal_position;
+```
+
+This is authoritative and costs one fast query. Use it rather than guessing plausible
+names -- `requestor_address` and `client_address`, for example, do not exist.
+
+One trap worth knowing up front: **`requestor` exists only on `request_evaluations`**,
+not on `request_completions`. To filter completions by requestor, join through
+`request_evaluations` on `order_id`. Requestor addresses are stored lowercased.
+
+If you have filesystem access, `crates/boundless-market/src/telemetry.rs` is the source
+of truth for enum values; the view columns map 1:1 to its Rust struct fields (snake_case).
+The alert bot has no filesystem access -- use the introspection query above instead.
 
 The key mappings are:
 
