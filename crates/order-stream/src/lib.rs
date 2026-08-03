@@ -486,9 +486,9 @@ impl AppState {
     }
 
     /// Removes connection for a given address.
-    pub(crate) async fn remove_connection(&self, addr: &Address) {
+    pub(crate) async fn remove_connection(&self, addr: &Address, connection_id: u64) {
         let mut connections = self.connections.write().await;
-        connections.remove(addr);
+        ws::remove_connection_if_current(&mut connections, addr, connection_id);
     }
 }
 

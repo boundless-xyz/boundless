@@ -29,17 +29,49 @@ use boundless_market::{
 use futures_util::{SinkExt, StreamExt};
 use rand::{seq::SliceRandom, Rng};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use tokio::{sync::mpsc, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 use crate::order_db::{DbOrder, OrderDbErr, OrderStream};
 use crate::{AppError, AppState};
 
 pub(crate) struct ClientConnection {
+    pub(crate) id: u64,
     sender: mpsc::Sender<String>, // Channel to send messages to this client
+    cancellation: CancellationToken,
 }
 
 pub(crate) type ConnectionsMap = HashMap<Address, ClientConnection>;
+
+static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn remove_connection_if_current(
+    connections: &mut ConnectionsMap,
+    address: &Address,
+    connection_id: u64,
+) -> bool {
+    if connections.get(address).is_some_and(|connection| connection.id == connection_id) {
+        connections.remove(address);
+        true
+    } else {
+        false
+    }
+}
+
+fn remove_connections_if_current(
+    connections: &mut ConnectionsMap,
+    connections_to_remove: impl IntoIterator<Item = (Address, u64)>,
+) {
+    for (address, connection_id) in connections_to_remove {
+        if remove_connection_if_current(connections, &address, connection_id) {
+            tracing::debug!("Removing client {address} from connections");
+        }
+    }
+}
 
 fn parse_auth_msg(value: &HeaderValue) -> Result<AuthMsg> {
     let json_str = value.to_str().context("Invalid header encoding")?;
@@ -196,14 +228,14 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
     let connections_list = {
         let connections = state.connections.read().await;
         let mut connections_list: Vec<_> =
-            connections.iter().map(|(addr, conn)| (*addr, conn.sender.clone())).collect();
+            connections.iter().map(|(addr, conn)| (*addr, conn.id, conn.sender.clone())).collect();
         connections_list.shuffle(&mut rand::rng());
         connections_list
     };
 
     let mut clients_to_remove = Vec::new();
     let num_clients = connections_list.len();
-    for (address, sender) in connections_list {
+    for (address, connection_id, sender) in connections_list {
         match sender.try_send(order_json.clone()) {
             Ok(_) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
@@ -212,7 +244,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 tracing::warn!("Client {}'s message queue is closed, removing client", address);
                 // Add the client to the list of clients to remove
-                clients_to_remove.push(address);
+                clients_to_remove.push((address, connection_id));
             }
         }
     }
@@ -225,10 +257,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
     if !clients_to_remove.is_empty() {
         {
             let mut connections = state.connections.write().await;
-            for address in clients_to_remove {
-                tracing::debug!("Removing client {address} from connections");
-                connections.remove(&address);
-            }
+            remove_connections_if_current(&mut connections, clients_to_remove);
         }
     }
 
@@ -239,16 +268,22 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
     let (mut sender_ws, mut recver_ws) = socket.split();
 
     let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
+    let connection_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
+    let cancellation = CancellationToken::new();
 
     // Add sender to the list of connections, replacing any existing connection
     // This handles the case where a client reconnects - we replace the old connection with the new one
     {
         let mut connections = state.connections.write().await;
-        if let Some(old_connection) =
-            connections.insert(address, ClientConnection { sender: sender_channel.clone() })
-        {
-            // An old connection existed - drop its sender channel to close it
-            // This will cause the old connection's receiver to return None, breaking its loop
+        if let Some(old_connection) = connections.insert(
+            address,
+            ClientConnection {
+                id: connection_id,
+                sender: sender_channel,
+                cancellation: cancellation.clone(),
+            },
+        ) {
+            old_connection.cancellation.cancel();
             drop(old_connection.sender);
             tracing::debug!(
                 "Replaced existing connection for client {address} with new connection"
@@ -370,10 +405,13 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
             _ = state.shutdown.cancelled() => {
                 break;
             }
+            _ = cancellation.cancelled() => {
+                break;
+            }
         }
     }
     // Remove the connection when the send loop exits
-    state.remove_connection(&address).await;
+    state.remove_connection(&address, connection_id).await;
 
     // Explicitly close the WebSocket connection.
     if let Err(err) = sender_ws.close().await {
@@ -393,4 +431,50 @@ pub(crate) fn start_broadcast_task(
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stale_connection_cleanup_does_not_remove_replacement() {
+        let address = Address::ZERO;
+        let (old_sender, _old_receiver) = mpsc::channel(1);
+        let (new_sender, _new_receiver) = mpsc::channel(1);
+        let mut connections = ConnectionsMap::new();
+
+        connections.insert(
+            address,
+            ClientConnection { id: 1, sender: old_sender, cancellation: CancellationToken::new() },
+        );
+        connections.insert(
+            address,
+            ClientConnection { id: 2, sender: new_sender, cancellation: CancellationToken::new() },
+        );
+
+        assert!(!remove_connection_if_current(&mut connections, &address, 1));
+        assert_eq!(connections.get(&address).map(|connection| connection.id), Some(2));
+    }
+
+    #[test]
+    fn stale_broadcast_cleanup_does_not_remove_replacement() {
+        let address = Address::ZERO;
+        let (old_sender, _old_receiver) = mpsc::channel(1);
+        let (new_sender, _new_receiver) = mpsc::channel(1);
+        let mut connections = ConnectionsMap::new();
+
+        connections.insert(
+            address,
+            ClientConnection { id: 1, sender: old_sender, cancellation: CancellationToken::new() },
+        );
+        let stale_broadcast_entry = (address, 1);
+        connections.insert(
+            address,
+            ClientConnection { id: 2, sender: new_sender, cancellation: CancellationToken::new() },
+        );
+
+        remove_connections_if_current(&mut connections, [stale_broadcast_entry]);
+        assert_eq!(connections.get(&address).map(|connection| connection.id), Some(2));
+    }
 }
