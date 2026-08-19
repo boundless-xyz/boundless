@@ -231,7 +231,8 @@ async fn telemetry_end_to_end() {
     let mut eval_found = false;
     for attempt in 1..=max_attempts {
         let row = sqlx::query(
-            "SELECT broker_address, outcome FROM telemetry.request_evaluations \
+            "SELECT broker_address, outcome, preflight_duration_ms \
+             FROM telemetry.request_evaluations \
              WHERE request_id = $1 \
              LIMIT 1",
         )
@@ -243,8 +244,10 @@ async fn telemetry_end_to_end() {
             Ok(Some(r)) => {
                 let db_broker: String = r.get("broker_address");
                 let db_outcome: String = r.get("outcome");
+                let db_preflight_duration: i64 = r.get("preflight_duration_ms");
                 assert_eq!(db_broker, broker_addr_str, "eval broker_address mismatch");
                 assert_eq!(db_outcome, "Locked", "eval outcome mismatch");
+                assert_eq!(db_preflight_duration, 800, "eval preflight_duration_ms mismatch");
                 eprintln!("  Evaluation found on attempt {attempt}");
                 eval_found = true;
                 break;
@@ -266,7 +269,10 @@ async fn telemetry_end_to_end() {
     let mut comp_found = false;
     for attempt in 1..=max_attempts {
         let row = sqlx::query(
-            "SELECT broker_address, outcome, total_duration_secs FROM telemetry.request_completions \
+            "SELECT broker_address, outcome, total_duration_secs, \
+                    committed_to_application_proof_duration_secs, proving_duration_secs, \
+                    actual_total_proving_time_secs, actual_proving_time_secs \
+             FROM telemetry.request_completions \
              WHERE request_id = $1 \
              LIMIT 1",
         )
@@ -279,9 +285,30 @@ async fn telemetry_end_to_end() {
                 let db_broker: String = r.get("broker_address");
                 let db_outcome: String = r.get("outcome");
                 let db_total_dur: i64 = r.get("total_duration_secs");
+                let db_application_proof_dur: i64 =
+                    r.get("committed_to_application_proof_duration_secs");
+                let db_legacy_proving_dur: i64 = r.get("proving_duration_secs");
+                let db_actual_total_proving_dur: i64 = r.get("actual_total_proving_time_secs");
+                let db_legacy_actual_proving_dur: i64 = r.get("actual_proving_time_secs");
                 assert_eq!(db_broker, broker_addr_str, "comp broker_address mismatch");
                 assert_eq!(db_outcome, "Fulfilled", "comp outcome mismatch");
                 assert_eq!(db_total_dur, 55, "comp total_duration_secs mismatch");
+                assert_eq!(
+                    db_application_proof_dur, 30,
+                    "comp application proof duration mismatch"
+                );
+                assert_eq!(
+                    db_legacy_proving_dur, db_application_proof_dur,
+                    "legacy proving alias mismatch"
+                );
+                assert_eq!(
+                    db_actual_total_proving_dur, 30,
+                    "comp actual proving duration mismatch"
+                );
+                assert_eq!(
+                    db_legacy_actual_proving_dur, db_actual_total_proving_dur,
+                    "legacy actual proving alias mismatch"
+                );
                 eprintln!("  Completion found on attempt {attempt}");
                 comp_found = true;
                 break;
