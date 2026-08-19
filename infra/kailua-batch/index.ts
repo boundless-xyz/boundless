@@ -68,18 +68,22 @@ export = () => {
     if (taskTimeoutMinutes < 1) {
         throw new Error("TASK_TIMEOUT_MINUTES must be at least 1");
     }
-    if (scheduleCount < 1) {
-        throw new Error("SCHEDULE_COUNT must be at least 1");
+    if (scheduleCount < 0) {
+        throw new Error("SCHEDULE_COUNT must be at least 0");
     }
     if (scheduleWindowMinutes < 1) {
         throw new Error("SCHEDULE_WINDOW_MINUTES must be at least 1");
     }
-    if (tasksPerMinute < 1) {
-        throw new Error("TASKS_PER_MINUTE must be at least 1");
+    if (tasksPerMinute < 0) {
+        throw new Error("TASKS_PER_MINUTE must be at least 0");
+    }
+    if (maxRunningTasks < 0) {
+        throw new Error("MAX_RUNNING_TASKS must be at least 0");
     }
     if (scheduleCount > scheduleWindowMinutes) {
         throw new Error("SCHEDULE_COUNT must be less than or equal to SCHEDULE_WINDOW_MINUTES");
     }
+    const launchEnabled = scheduleCount > 0 && tasksPerMinute > 0 && maxRunningTasks > 0;
 
     const slackTopicArn = config.get("SLACK_ALERTS_TOPIC_ARN");
     const pagerdutyTopicArn = config.get("PAGERDUTY_ALERTS_TOPIC_ARN");
@@ -410,6 +414,7 @@ export = () => {
     new aws.scheduler.Schedule(`${serviceName}-schedule`, {
         name: `${serviceName}-schedule`,
         description: `Every minute trigger; Lambda fans out ${tasksPerMinute} task(s) for ${scheduleCount}/${scheduleWindowMinutes} minute slots`,
+        state: launchEnabled ? "ENABLED" : "DISABLED",
         flexibleTimeWindow: {
             mode: "OFF",
         },
@@ -455,7 +460,7 @@ export = () => {
         datapointsToAlarm: 1,
         treatMissingData: "breaching",
         alarmDescription: `${Severity.SEV2}: Kailua did not start any Fargate task in 1 hour`,
-        actionsEnabled: true,
+        actionsEnabled: launchEnabled,
         alarmActions,
     });
 
