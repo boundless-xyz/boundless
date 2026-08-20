@@ -45,7 +45,7 @@ export const handler: Handler<KailuaBatchTriggerEvent, KailuaBatchTriggerResult>
         }
     }
 
-    const maxRunning = parsePositiveInteger("MAX_RUNNING_TASKS", "3");
+    const maxRunning = parseIntegerAtLeast("MAX_RUNNING_TASKS", "3", 0);
     const taskRequests = buildTaskRequests(event);
     if (taskRequests.length === 0) {
         return {
@@ -171,9 +171,9 @@ function buildTaskRequests(event: KailuaBatchTriggerEvent): TaskRequest[] {
         return [{ startBlockOffset: event.startBlockOffset, blockCount: event.blockCount }];
     }
 
-    const scheduleCount = parsePositiveInteger("SCHEDULE_COUNT", "20");
-    const scheduleWindowMinutes = parsePositiveInteger("SCHEDULE_WINDOW_MINUTES", "20");
-    const tasksPerMinute = parsePositiveInteger("TASKS_PER_MINUTE", "2");
+    const scheduleCount = parseIntegerAtLeast("SCHEDULE_COUNT", "20", 0);
+    const scheduleWindowMinutes = parseIntegerAtLeast("SCHEDULE_WINDOW_MINUTES", "20", 1);
+    const tasksPerMinute = parseIntegerAtLeast("TASKS_PER_MINUTE", "2", 0);
     if (scheduleCount > scheduleWindowMinutes) {
         throw new Error("SCHEDULE_COUNT must be less than or equal to SCHEDULE_WINDOW_MINUTES");
     }
@@ -205,9 +205,9 @@ function buildTaskRequests(event: KailuaBatchTriggerEvent): TaskRequest[] {
     return taskRequests;
 }
 
-function parsePositiveInteger(name: string, defaultValue: string): number {
+function parseIntegerAtLeast(name: string, defaultValue: string, min: number): number {
     const value = parseInt(process.env[name] ?? defaultValue, 10);
-    if (!Number.isFinite(value) || value < 1) {
+    if (!Number.isFinite(value) || value < min) {
         throw new Error(`Invalid ${name}: ${process.env[name]}`);
     }
     return value;
