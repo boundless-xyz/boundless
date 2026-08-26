@@ -33,11 +33,15 @@ export class RewardsIndexer extends pulumi.ComponentResource {
     } = args;
 
     const serviceName = name;
+    const rewardsServiceName = `${serviceName}-rewards-service`;
+    // Single-container task. Fargate 0.5 vCPU requires >= 1024 MB, so match both to that.
+    const rewardsTaskCpu = 512;
+    const rewardsMemoryMb = 1024;
 
     const rewardsServiceLogGroup = `${serviceName}-rewards-service-v2`;
 
     this.service = new awsx.ecs.FargateService(`${serviceName}-rewards-service`, {
-      name: `${serviceName}-rewards-service`,
+      name: rewardsServiceName,
       cluster: infra.cluster.arn,
       networkConfiguration: {
         securityGroups: [infra.indexerSecurityGroup.id],
@@ -52,6 +56,8 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       forceNewDeployment: true,
       enableExecuteCommand: true,
       taskDefinitionArgs: {
+        cpu: String(rewardsTaskCpu),
+        memory: String(rewardsMemoryMb),
         logGroup: {
           args: {
             name: rewardsServiceLogGroup,
@@ -65,8 +71,8 @@ export class RewardsIndexer extends pulumi.ComponentResource {
           name: `${serviceName}-rewards`,
           image: infra.imageRef,
           entryPoint: ['/app/rewards-indexer'],
-          cpu: 512,
-          memory: 256,
+          cpu: rewardsTaskCpu,
+          memory: rewardsMemoryMb,
           essential: true,
           linuxParameters: {
             initProcessEnabled: true,
@@ -208,6 +214,26 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       actionsEnabled: true,
       alarmActions,
     }, { parent: this });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-memory-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-rewards-mem-${Severity.SEV2}`,
+      namespace: 'AWS/ECS',
+      metricName: 'MemoryUtilization',
+      dimensions: {
+        ClusterName: infra.cluster.name,
+        ServiceName: rewardsServiceName,
+      },
+      statistic: 'Maximum',
+      period: 300,
+      threshold: 80,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Rewards indexer ${name}: memory >= 80% of ${rewardsMemoryMb} MB ${Severity.SEV2}`,
+      actionsEnabled: true,
+      alarmActions,
+    }, { parent: this, dependsOn: [this.service] });
 
     this.registerOutputs({
       serviceUrn: this.service.urn,
