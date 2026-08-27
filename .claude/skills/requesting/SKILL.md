@@ -64,10 +64,6 @@ For full CLI docs, see `references/cli-reference.md`.
 
 **Always use `submit-file` with `--no-preflight`.**
 
-### Environment Variable: AWS_EC2_METADATA_DISABLED
-
-Set `AWS_EC2_METADATA_DISABLED=true` on all `boundless` commands. Without this, the AWS SDK embedded in the CLI tries to contact the EC2 IMDS on startup, causing 2–4 second timeouts with warning spam on non-EC2 machines.
-
 ## Phase 1: Check Prerequisites
 
 ```bash
@@ -164,13 +160,13 @@ boundless requestor setup --set-private-key "0x<PRIVATE_KEY>"
 Deposit ETH into the Boundless Market contract (provers are paid from this balance):
 
 ```bash
-AWS_EC2_METADATA_DISABLED=true boundless requestor deposit 0.005
+boundless requestor deposit 0.005
 ```
 
 Check the deposited balance:
 
 ```bash
-AWS_EC2_METADATA_DISABLED=true boundless requestor balance
+boundless requestor balance
 ```
 
 ---
@@ -337,7 +333,7 @@ echo $(( $(date +%s) + 30 ))
 ### Submit
 
 ```bash
-AWS_EC2_METADATA_DISABLED=true RUST_LOG=info boundless requestor submit-file /tmp/boundless-request.yaml --no-preflight
+RUST_LOG=info boundless requestor submit-file /tmp/boundless-request.yaml --no-preflight
 ```
 
 **Do NOT use `--wait` initially.** Submit without it and poll status manually so you can see what's happening.
@@ -349,7 +345,7 @@ AWS_EC2_METADATA_DISABLED=true RUST_LOG=info boundless requestor submit-file /tm
 ### Poll for Fulfillment
 
 ```bash
-AWS_EC2_METADATA_DISABLED=true boundless requestor status <REQUEST_ID>
+boundless requestor status <REQUEST_ID>
 ```
 
 Run every 30–60 seconds. Typical fulfillment takes 1–5 minutes after lock.
@@ -370,7 +366,7 @@ https://explorer.boundless.network/orders/<REQUEST_ID>
 ### Show Timeline
 
 ```bash
-AWS_EC2_METADATA_DISABLED=true boundless requestor status <REQUEST_ID> --timeline
+boundless requestor status <REQUEST_ID> --timeline
 ```
 
 Present a summary:
@@ -390,7 +386,7 @@ Present a summary:
 ### Retrieve the Proof
 
 ```bash
-AWS_EC2_METADATA_DISABLED=true boundless requestor get-proof <REQUEST_ID>
+boundless requestor get-proof <REQUEST_ID>
 ```
 
 - **Journal** — the public output committed by the guest program
@@ -399,7 +395,7 @@ AWS_EC2_METADATA_DISABLED=true boundless requestor get-proof <REQUEST_ID>
 ### Verify the Proof
 
 ```bash
-AWS_EC2_METADATA_DISABLED=true boundless requestor verify-proof <REQUEST_ID>
+boundless requestor verify-proof <REQUEST_ID>
 ```
 
 ## Troubleshooting
@@ -410,7 +406,7 @@ See `references/troubleshooting.md` for a full list. Common issues:
 | ------------------------------------ | ------------------------------------------------------------ |
 | `submit` hangs with no output        | Use `submit-file --no-preflight` instead                     |
 | `Malformed ProgramBinary`            | Use the `.bin` file (R0BF format), not the raw `.elf`        |
-| AWS IMDS timeout warnings            | Set `AWS_EC2_METADATA_DISABLED=true`                         |
+
 | Cloudflare `429 Too Many Requests`   | Wait 10–15 min. Don't create/destroy tunnels rapidly.        |
 | Tunnel URL not reachable             | Check firewall. Wait a few seconds for DNS. Retry.           |
 | Request expired                      | Increase `--max-price`. Ensure tunnel stayed alive (Path A). |
