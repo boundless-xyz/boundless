@@ -9,15 +9,15 @@ Query AWS CloudWatch Logs for Boundless services on prod/staging.
 
 ## Prerequisites
 
-1. **Read `network_secrets.toml`** from the repo root. Extract the AWS credentials for the target environment from `[aws.prod]` or `[aws.staging]` (`access_key_id`, `secret_access_key`). If the file is not present, recommend the user create it -- instructions and credentials are in the **Boundless runbook**.
-
-2. Export credentials before running any queries:
+Load AWS credentials from Bitwarden via the shared helpers (full setup in [`../ops-query/references/bw-credentials.md`](../ops-query/references/bw-credentials.md)):
 
 ```bash
-export AWS_ACCESS_KEY_ID="..."
-export AWS_SECRET_ACCESS_KEY="..."
-export AWS_DEFAULT_REGION="us-west-2"
+source .claude/skills/ops-query/references/bw-credentials.sh
+bw_ensure_ready || exit 1
+bw_load_aws "$TIER"     # prod | staging
 ```
+
+`bw_load_aws` exports `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_DEFAULT_REGION=us-west-2`. If the Bitwarden item is missing, the call fails loud with the expected item name.
 
 ## Finding Log Groups
 

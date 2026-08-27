@@ -60,19 +60,19 @@ export ZKC_INDEXER_URL="https://d3ig5wxf8178te.cloudfront.net"
 
 ## Credentials
 
-First, try to read `network_secrets.toml` from the repo root. If it exists, extract the indexer API key for the selected environment from `[environments.<env>.indexer] api_key`. Also read `network_address_labels.json` (same directory) for translating addresses to human-readable labels in output.
-
-If `network_secrets.toml` is not present, recommend the user create it -- instructions and credentials are in the **Boundless runbook**. The API still works without a key, but they'll have lower rate limits.
-
-If `network_address_labels.json` is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**. The file is plain JSON (`{"0xaddr": "label", ...}`).
-
-When an API key is available:
+Load the indexer API key from Bitwarden via the shared helpers (full setup in [`../ops-query/references/bw-credentials.md`](../ops-query/references/bw-credentials.md)):
 
 ```bash
-export INDEXER_API_KEY="the-key"
+source .claude/skills/ops-query/references/bw-credentials.sh
+bw_ensure_ready || exit 1
+bw_load_indexer "$ENV"      # e.g. prod_base, staging_taiko — matches the env keys in bw-credentials.md
 ```
 
-Include it in requests via the `x-api-key` header. Without an API key, omit the header.
+`bw_load_indexer` exports `INDEXER_API_KEY` if the corresponding Bitwarden item exists. If no item is found, the call is a no-op and the API still works -- just with lower rate limits.
+
+Also read `network_address_labels.json` from the repo root for translating addresses to human-readable labels in output. If it is not present, recommend the user create it -- the canonical address mapping is in the **Boundless runbook**. The file is plain JSON (`{"0xaddr": "label", ...}`).
+
+Include the API key in requests via the `x-api-key` header. Without an API key, omit the header.
 
 ## Known Addresses
 
