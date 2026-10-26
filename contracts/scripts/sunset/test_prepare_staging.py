@@ -97,12 +97,13 @@ class CandidateValidation(unittest.TestCase):
                 self.threshold = 3
                 self.owners = ['0x' + f'{i:040x}' for i in range(1, 7)]
                 self.reorganized = False
+                self.timestamp = 1793836799
 
             def call(self, method, params):
                 assert method in prepare.staging.READS
                 if method == 'eth_chainId': return hex(self.chain)
                 if method == 'eth_getBlockByNumber':
-                    return {'number': '0x123', 'timestamp': hex(1793836799),
+                    return {'number': '0x123', 'timestamp': hex(self.timestamp),
                             'hash': '0x' + ('bb' if self.reorganized and params[0] != 'latest' else 'aa') * 32}
                 if method == 'eth_getStorageAt': return '0x' + self.implementation[2:].rjust(64, '0')
                 if method == 'eth_getCode':
@@ -145,6 +146,12 @@ class CandidateValidation(unittest.TestCase):
         self.assertFalse(transaction['live_submission_ready'])
         self.assertTrue(self.output.is_file())
 
+    def test_cutoff_reached_preserves_previous_draft(self):
+        for timestamp in [1793836800, 1793836801]:
+            with self.subTest(timestamp=timestamp):
+                self.rpc.timestamp = timestamp
+                self.reject('cutoff already reached')
+
     def test_wrong_chain(self):
         self.rpc.chain = 1
         self.reject('wrong RPC chain')
@@ -159,8 +166,11 @@ class CandidateValidation(unittest.TestCase):
 
     def test_missing_baseline_hash_fails_closed(self):
         del self.manifest['targets'][0]['baseline_code_hash']; self.save_manifest()
+        self.output.parent.mkdir(parents=True)
+        self.output.write_text('previous reviewed draft')
         with self.assertRaises(KeyError): self.run_prepare()
-        self.assertFalse(self.output.exists())
+        self.assertEqual(self.output.read_text(), 'previous reviewed draft')
+        self.assertFalse(self.output.with_name(self.output.name + '.tmp').exists())
 
     def test_baseline_cannot_be_candidate(self):
         self.reject('candidate is the baseline', candidate=self.old)

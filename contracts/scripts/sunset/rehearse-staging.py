@@ -153,7 +153,9 @@ def run_one(label,output,manifest):
         reference=export_transaction(rpc,label,chain_id,steps,local_bundle,block)
         prepare_args=['python3',str(Path(__file__).with_name('prepare-staging.py')),'--chain',label,'--rpc-url',rpc.url,'--output',str(local_bundle)]
         for step in steps:prepare_args.extend(['--candidate',step['contract']+'='+step['implementation']])
-        subprocess.run(prepare_args,check=True,capture_output=True,text=True)
+        prepared=subprocess.run(prepare_args,capture_output=True,text=True)
+        (folder/'preparation.log').write_text(prepared.stdout+prepared.stderr)
+        assert prepared.returncode==0,label+': candidate preparation failed; see '+str(folder/'preparation.log')
         tx=json.loads(local_bundle.read_text())
         assert tx['data']==reference['data'] and tx['safeTxHash']==reference['safeTxHash'] and tx['nonce']==reference['nonce']
         assert tx['local_fixture'] and tx['rpc_reads_only'] and not tx['live_submission_ready']
