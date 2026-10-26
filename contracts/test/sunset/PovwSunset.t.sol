@@ -1,5 +1,8 @@
 // Copyright 2026 Boundless Foundation, Inc.
-// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+
 pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";

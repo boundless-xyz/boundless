@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: MIT
+// Copyright 2026 Boundless Foundation, Inc.
+//
+// Use of this source code is governed by the Business Source License
+// as found in the LICENSE-BSL file.
+
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
