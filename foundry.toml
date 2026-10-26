@@ -151,9 +151,12 @@ skip = [
     "contracts/src/povw/**",
     "contracts/test/sunset/PovwSunset.t.sol",
     "contracts/fork-test/PovwFork.t.sol",
+    "contracts/fork-test/EthereumBatchFork.t.sol",
     "contracts/test/reference/Povw*Original.sol",
     "contracts/scripts/Deploy.PoVW.s.sol",
     "contracts/scripts/Manage.PoVW.s.sol",
+    "contracts/scripts/sunset/PovwSunset.sol",
+    "contracts/scripts/sunset/PrintPovwSunset.s.sol",
     # ZKC test fixtures pull in the transient zkc Supply library; only PoVW tests use them.
     "contracts/test/MockZKC.sol",
     "contracts/test/TestUtilsZKC.sol",
@@ -170,6 +173,7 @@ solc_version = "0.8.26"
 bytecode_hash = "none"
 isolate = true
 fs_permissions = [
+    { access = "read", path = "./out" },
     { access = "read", path = "./out-shanghai" },
     { access = "read", path = "./contracts/out" },
     { access = "read-write", path = "./contracts/deployment.toml" },

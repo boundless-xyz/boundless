@@ -5,6 +5,10 @@ pragma solidity ^0.8.26;
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
+import {SunsetTransaction} from "../scripts/sunset/SunsetTransaction.sol";
+import {MarketSunset} from "../scripts/sunset/MarketSunset.sol";
+import {RuntimeCheck} from "../scripts/sunset/RuntimeCheck.sol";
+
 import {SafeFork} from "./SafeFork.sol";
 import {BoundlessMarket} from "boundless-market/BoundlessMarket.sol";
 import {IBoundlessRouter} from "../src/router/interfaces/IBoundlessRouter.sol";
@@ -25,6 +29,7 @@ contract MarketForkTest is SafeFork {
     address safe;
     address oldImplementation;
     address candidate;
+    SunsetTransaction.Transaction transaction;
     address user;
     IERC20 collateral;
     address router;
@@ -34,14 +39,14 @@ contract MarketForkTest is SafeFork {
     function setUp() public {
         // Fail rather than skip if this is not the explicitly pinned production fork.
         if (block.chainid == 8453) {
-            assertEq(block.number, 53113412);
+            assertEq(block.number, vm.envOr("SUNSET_BLOCK_NUMBER", uint256(53113412)));
             baselineHash = 0x857c1fb15b2673b0434ea6ce56800e7fda921baa1e29c6fd0f68b4e04bdccda6;
             market = BoundlessMarket(payable(0xFd152dADc5183870710FE54f939Eae3aB9F0fE82));
             safe = 0xB04D1a222789A76E74168a919b43b20F66e24f0b;
             oldImplementation = 0xBf3b740FaF258F8E4ab214702a96918ab739a686;
         } else {
             assertEq(block.chainid, 167000, "use Base or Taiko fork");
-            assertEq(block.number, 13186463);
+            assertEq(block.number, vm.envOr("SUNSET_BLOCK_NUMBER", uint256(13186463)));
             baselineHash = 0x894769a576b0342d1a34c8a38db498320e054dab89ca9ac55d013de95331a0b7;
             market = BoundlessMarket(payable(0xb3f5C7B4379052EADE8C7f3fa6da37Fb871DA28B));
             safe = 0x8E537AAeddbC98a9a095397aDb7c0d738458Cc8b;
@@ -53,7 +58,7 @@ contract MarketForkTest is SafeFork {
         router = address(market.ROUTER());
         legacy = market.LEGACY_IMPL();
         collateral = IERC20(market.COLLATERAL_TOKEN_CONTRACT());
-        candidate = address(new BoundlessMarket(IBoundlessRouter(router), address(collateral), legacy));
+        (transaction, candidate) = MarketSunset.prepare(vm.envOr("SUNSET_IMPL", address(0)));
         user = vm.addr(0xabc123);
         vm.deal(user, 10 ether);
         vm.prank(user);
@@ -70,7 +75,7 @@ contract MarketForkTest is SafeFork {
         uint256 etherBalance = address(market).balance;
         uint256 tokens = collateral.balanceOf(address(market));
         vm.record();
-        executeSafe(safe, address(market), abi.encodeCall(market.upgradeToAndCall, (candidate, bytes(""))), 0, true);
+        executeSafe(transaction.safe, transaction.to, transaction.data, transaction.operation, true);
         assertOnlyImplementationWritten(address(market));
         assertEq(implementation(address(market)), candidate);
         assertEq(address(market.ROUTER()), router);
@@ -146,7 +151,7 @@ contract MarketForkTest is SafeFork {
         );
         assertEq(implementation(address(market)), oldImplementation);
         assertEq(market.balanceOf(user), 0);
-        executeSafe(safe, address(market), abi.encodeCall(market.upgradeToAndCall, (candidate, bytes(""))), 0, true);
+        executeSafe(transaction.safe, transaction.to, transaction.data, transaction.operation, true);
         assertEq(implementation(address(market)), candidate);
     }
 
@@ -166,5 +171,31 @@ contract MarketForkTest is SafeFork {
         market.initialize(user);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         BoundlessMarket(payable(candidate)).initialize(user);
+    }
+
+    function checkCandidate(address value) external {
+        MarketSunset.prepare(value);
+    }
+
+    function testForkCandidateRuntimeValidation() public {
+        this.checkCandidate(candidate);
+        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, oldImplementation));
+        this.checkCandidate(oldImplementation);
+        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, address(1)));
+        this.checkCandidate(address(1));
+        address wrong = address(new BoundlessMarket(IBoundlessRouter(router), address(collateral), address(market)));
+        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, wrong));
+        this.checkCandidate(wrong);
+    }
+
+    function checkUndeployedReferenceAddress() external {
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        assertEq(predicted.code.length, 0);
+        MarketSunset.prepare(predicted);
+    }
+
+    function testForkRejectsUndeployedReferenceAddress() public {
+        vm.expectPartialRevert(RuntimeCheck.RuntimeMismatch.selector);
+        this.checkUndeployedReferenceAddress();
     }
 }
