@@ -24,7 +24,13 @@ struct PendingEpochStorage {
     uint64 number;
 }
 
-contract PovwAccountingOriginal is IPovwAccounting, Initializable, EIP712Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
+contract PovwAccountingOriginal is
+    IPovwAccounting,
+    Initializable,
+    EIP712Upgradeable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
     using SafeCast for uint256;
 
     /// @dev The version of the contract, with respect to upgrades.

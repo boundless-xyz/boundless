@@ -8,9 +8,9 @@ The only production changes are cutoff checks, the shared `Sunset` library, and 
 
 ```sh
 forge test --offline --match-contract 'MarketSunsetTest|PovwSunsetTest'
-forge test --offline --match-contract '.*ValidSunsetTest' --match-test '^testSunset'
+forge test --offline --match-contract 'BoundlessMarketBasicTest|BoundlessMarketLegacyViaFallbackBasicTest' --match-test '^testSunset'
 FOUNDRY_PROFILE=shanghai forge test --offline --match-contract MarketSunsetTest
-FOUNDRY_PROFILE=shanghai forge test --offline --match-contract CurrentMarketValidSunsetTest --match-test '^testSunset'
+FOUNDRY_PROFILE=shanghai forge test --offline --match-contract BoundlessMarketBasicTest --match-test '^testSunset'
 FOUNDRY_PROFILE=povw-deploy forge test --offline --out out-povw-sunset --cache-path cache-povw-sunset --match-contract PovwSunsetTest
 contracts/fork-test/run.sh all
 ```
