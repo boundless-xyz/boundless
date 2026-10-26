@@ -149,7 +149,13 @@ def run_one(label,output,manifest):
         block=int(rpc.call('eth_blockNumber',[]),16)
         repo=ROOT/('zkc' if label=='ethereum' else 'market')
         local_bundle=repo/'out/staging-preparation'/label/'transaction.json';local_bundle.parent.mkdir(parents=True,exist_ok=True)
-        tx=export_transaction(rpc,label,chain_id,steps,local_bundle,block)
+        reference=export_transaction(rpc,label,chain_id,steps,local_bundle,block)
+        prepare_args=['python3',str(Path(__file__).with_name('prepare-staging.py')),'--chain',label,'--rpc-url',rpc.url,'--output',str(local_bundle)]
+        for step in steps:prepare_args.extend(['--candidate',step['contract']+'='+step['implementation']])
+        subprocess.run(prepare_args,check=True,capture_output=True,text=True)
+        tx=json.loads(local_bundle.read_text())
+        assert tx['data']==reference['data'] and tx['safeTxHash']==reference['safeTxHash'] and tx['nonce']==reference['nonce']
+        assert tx['local_fixture'] and tx['rpc_reads_only'] and not tx['live_submission_ready']
         (folder/'transaction.json').write_text(local_bundle.read_text())
         env=os.environ.copy();env.update(FOUNDRY_FFI='false',FOUNDRY_TEST='staging-fork' if label=='ethereum' else 'contracts/staging-fork',FOUNDRY_PROFILE='shanghai' if label=='taiko' else 'default',SUNSET_STAGING_BUNDLE=str(local_bundle),FOUNDRY_BUILD_INFO_PATH='out/staging-build-info-'+label)
         contract='StagingEthereumForkTest' if label=='ethereum' else 'StagingMarketForkTest'
@@ -159,7 +165,7 @@ def run_one(label,output,manifest):
         assert completed.returncode==0,label+': fork tests failed; see '+str(folder/'tests.log')
         # Foundry's fork is independent. Execute the same exported bytes on the parent Anvil too.
         execution=execute_exact(rpc,tx)
-        result={'status':'passed','label':label,'chain_id':chain_id,'source_block':number,'source_block_hash':pinned['hash'],'local_candidate_block':block,'anvil_hardfork':hardfork,'anvil_version':cmd('anvil','--version').splitlines()[0],'transaction_file':str(folder/'transaction.json'),'tests_log':str(folder/'tests.log'),'anvil_execution':execution,'upstream_calls':'read-only; Anvil fetches fork state','live_writes':False,'live_submission_ready':False,'limitations':'Local fixture addresses and impersonated owners. Not a live staging deployment or signer-availability check.'}
+        result={'status':'passed','label':label,'chain_id':chain_id,'source_block':number,'source_block_hash':pinned['hash'],'local_candidate_block':block,'anvil_hardfork':hardfork,'anvil_version':cmd('anvil','--version').splitlines()[0],'transaction_file':str(folder/'transaction.json'),'tests_log':str(folder/'tests.log'),'anvil_execution':execution,'upstream_calls':'read-only; Anvil fetches fork state','live_writes':False,'live_submission_ready':False,'read_only_candidate_preparer_checked':True,'limitations':'Local fixture addresses and impersonated owners. Not a live staging deployment or signer-availability check.'}
         (folder/'result.json').write_text(json.dumps(result,indent=2)+'\n');print(label+': fork regressions and exact Anvil Safe execution passed',flush=True);return result
     finally:
         process.terminate()
