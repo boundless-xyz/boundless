@@ -13,6 +13,9 @@ import {ProofRequest} from "../src/types/ProofRequest.sol";
 import {ProofRequestLibrary} from "../src/types/ProofRequest.sol";
 import {RequestId} from "../src/types/RequestId.sol";
 import {FulfillmentBatch} from "../src/types/FulfillmentBatch.sol";
+import {SlimRequest} from "../src/types/SlimRequest.sol";
+import {Fulfillment} from "../src/types/Fulfillment.sol";
+import {FulfillmentDataType} from "../src/types/FulfillmentData.sol";
 import {ProofRequestBatch} from "../src/types/ProofRequestBatch.sol";
 import {Fulfillment as LegacyFulfillment} from "boundless-market-legacy/types/Fulfillment.sol";
 import {AssessorReceipt} from "boundless-market-legacy/types/AssessorReceipt.sol";
@@ -125,6 +128,50 @@ contract StagingMarketForkTest is StagingSafeFork {
             AssessorReceipt memory receipt;
             vm.expectRevert(Sunset.ProtocolSunset.selector);
             ILegacyMarket(address(market)).fulfill(fills, receipt);
+        }
+    }
+
+    function testForkValidSettlementBeforeCutoffAndSamePayloadRejectedAtCutoff() public {
+        upgrade();
+        vm.warp(T - 1);
+        (ProofRequest memory r, bytes memory signature) = request();
+        vm.prank(user);
+        market.lockRequest(r, signature);
+        FulfillmentBatch[] memory batches = new FulfillmentBatch[](1);
+        SlimRequest[] memory slim = new SlimRequest[](1);
+        slim[0] = SlimRequest(
+            r.id,
+            r.requirements.predicate,
+            r.requirements.callback,
+            r.requirements.selector,
+            keccak256(bytes(r.imageUrl)),
+            r.input.eip712Digest(),
+            r.offer.eip712Digest()
+        );
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = Fulfillment(bytes32(uint256(42)), FulfillmentDataType.None, "", hex"12345678deadbeef");
+        batches[0] = FulfillmentBatch(slim, fills, hex"12345678", user);
+        bytes32[] memory digests = new bytes32[](1);
+        digests[0] = keccak256(abi.encodePacked("\x19\x01", market.eip712DomainSeparator(), r.eip712Digest()));
+        bytes memory verification = abi.encodeCall(IBoundlessRouter.verifyBatch, (batches[0], digests));
+        // Router verification is mocked; market request binding, lock and settlement use deployed state.
+        vm.mockCall(router, verification, "");
+        vm.expectCall(router, verification);
+        uint256 snapshot = vm.snapshotState();
+        bytes[] memory errors = market.fulfill(batches);
+        assertEq(errors.length, 1);
+        assertEq(errors[0].length, 0);
+        assertTrue(market.requestIsFulfilled(r.id));
+        assertEq(market.balanceOfCollateral(user), 3 ether);
+        assertEq(market.balanceOf(user), 2 ether - 1 ether * market.MARKET_FEE_BPS() / 10000);
+        assertTrue(vm.revertToState(snapshot));
+        for (uint256 i; i < 2; ++i) {
+            vm.warp(T + i);
+            vm.expectRevert(Sunset.ProtocolSunset.selector);
+            market.fulfill(batches);
+            assertFalse(market.requestIsFulfilled(r.id));
+            assertEq(market.balanceOfCollateral(user), 2 ether);
+            assertEq(market.balanceOf(user), 1 ether);
         }
     }
 

@@ -81,7 +81,7 @@ def verify_runtime(rpc,target,artifact,candidate):
 def export_transaction(rpc,label,chain_id,steps,path,block):
     safe=TAIKO_SAFE if label=='taiko' else SAFE
     owners=abi_addresses(rpc.view(safe,'getOwners()'));threshold=rpc.uint(safe,'getThreshold()')
-    assert threshold==3 and len(owners)==(5 if label=='ethereum' else 6)
+    assert threshold==3 and len(owners)==(5 if label=='ethereum' else 6),'unexpected Safe threshold or owner count'
     calls=[encode('upgradeToAndCall(address,bytes)',s['implementation'],'0x') for s in steps]
     if len(steps)==1:target=steps[0]['proxy'];data=calls[0];operation=0
     else:
@@ -134,6 +134,7 @@ def run_one(label,output,manifest):
             artifact_path=ROOT/manifest['artifacts'][key]['path'];artifact=json.loads(artifact_path.read_text())
             assert hashlib.sha256(artifact_path.read_bytes()).hexdigest()==manifest['artifacts'][key]['artifact_sha256']
             assert rpc.call('eth_getStorageAt',[entry['proxy'],SLOT,'latest'])[-40:].lower()==entry['baseline_implementation'][2:].lower(),'staging baseline changed'
+            assert keccak(rpc.call('eth_getCode',[entry['baseline_implementation'],'latest']))==entry['baseline_code_hash'],'baseline runtime changed'
             for arg in entry['constructor_inputs']:
                 field={'router':'ROUTER','collateralTokenContract':'COLLATERAL_TOKEN_CONTRACT','legacyImpl':'LEGACY_IMPL','verifier':'VERIFIER','token':'TOKEN','logUpdaterId':'LOG_UPDATER_ID','accounting':'ACCOUNTING','mintCalculatorId':'MINT_CALCULATOR_ID','tokenRewards':'TOKEN_REWARDS'}[arg['name']]
                 raw=rpc.view(entry['proxy'],field+'()')
@@ -159,13 +160,13 @@ def run_one(label,output,manifest):
         (folder/'transaction.json').write_text(local_bundle.read_text())
         env=os.environ.copy();env.update(FOUNDRY_FFI='false',FOUNDRY_TEST='staging-fork' if label=='ethereum' else 'contracts/staging-fork',FOUNDRY_PROFILE='shanghai' if label=='taiko' else 'default',SUNSET_STAGING_BUNDLE=str(local_bundle),FOUNDRY_BUILD_INFO_PATH='out/staging-build-info-'+label)
         contract='StagingEthereumForkTest' if label=='ethereum' else 'StagingMarketForkTest'
-        tests=['forge','test','--offline','--fork-url',rpc.url,'--fork-block-number',str(block),'--out','out/staging-fork-'+label,'--cache-path','cache/staging-fork-'+label,'--match-contract',contract,'-vv']
+        tests=['forge','test','--offline','--network','base' if label=='base' else 'ethereum','--hardfork','base:'+hardfork if label=='base' else hardfork,'--fork-url',rpc.url,'--fork-block-number',str(block),'--out','out/staging-fork-'+label,'--cache-path','cache/staging-fork-'+label,'--match-contract',contract,'-vv']
         print(label+': candidates and exact Safe transaction prepared; running fork regressions',flush=True)
         with (folder/'tests.log').open('w') as tests_log:completed=subprocess.run(tests,cwd=repo,env=env,stdout=tests_log,stderr=subprocess.STDOUT,timeout=600)
         assert completed.returncode==0,label+': fork tests failed; see '+str(folder/'tests.log')
         # Foundry's fork is independent. Execute the same exported bytes on the parent Anvil too.
         execution=execute_exact(rpc,tx)
-        result={'status':'passed','label':label,'chain_id':chain_id,'source_block':number,'source_block_hash':pinned['hash'],'local_candidate_block':block,'anvil_hardfork':hardfork,'anvil_version':cmd('anvil','--version').splitlines()[0],'transaction_file':str(folder/'transaction.json'),'tests_log':str(folder/'tests.log'),'anvil_execution':execution,'upstream_calls':'read-only; Anvil fetches fork state','live_writes':False,'live_submission_ready':False,'read_only_candidate_preparer_checked':True,'limitations':'Local fixture addresses and impersonated owners. Not a live staging deployment or signer-availability check.'}
+        result={'status':'passed','label':label,'chain_id':chain_id,'source_block':number,'source_block_hash':pinned['hash'],'local_candidate_block':block,'anvil_hardfork':hardfork,'foundry_runtime_hardfork':hardfork,'foundry_compiler_profile':env['FOUNDRY_PROFILE'],'anvil_version':cmd('anvil','--version').splitlines()[0],'transaction_file':str(folder/'transaction.json'),'tests_log':str(folder/'tests.log'),'anvil_execution':execution,'upstream_calls':'read-only; Anvil fetches fork state','live_writes':False,'live_submission_ready':False,'read_only_candidate_preparer_checked':True,'limitations':'Local fixture addresses and impersonated owners. Not a live staging deployment or signer-availability check.'}
         (folder/'result.json').write_text(json.dumps(result,indent=2)+'\n');print(label+': fork regressions and exact Anvil Safe execution passed',flush=True);return result
     finally:
         process.terminate()

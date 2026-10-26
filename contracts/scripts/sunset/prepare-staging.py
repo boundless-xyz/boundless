@@ -42,7 +42,6 @@ def prepare(label, url, candidates, output):
     assert int(block['timestamp'], 16) < 1793836800, 'cutoff already reached'
     rpc.block = block['number']
     manifest = json.loads((staging.ROOT / 'preparation-evidence/deployment-inputs/manifest.json').read_text())
-    baseline_record = json.loads((staging.ROOT / 'preparation-evidence/staging' / label / 'transaction.json').read_text())
     safe = staging.TAIKO_SAFE if label == 'taiko' else staging.SAFE
     steps = []
     for key in keys:
@@ -51,8 +50,7 @@ def prepare(label, url, candidates, output):
         old = '0x' + rpc.call('eth_getStorageAt', [proxy, staging.SLOT, 'latest'])[-40:]
         assert old.lower() == target['baseline_implementation'].lower(), 'staging baseline changed'
         old_hash = staging.keccak(rpc.call('eth_getCode', [old, 'latest']))
-        reviewed = next(s for s in baseline_record['steps'] if s['proxy'].lower() == proxy.lower())
-        assert old_hash == reviewed['baselineCodeHash'], 'baseline runtime changed'
+        assert old_hash == target['baseline_code_hash'], 'baseline runtime changed'
         if key in ('accounting', 'mint'):
             assert rpc.address(proxy, 'owner()').lower() == safe.lower(), 'unexpected staging owner'
         else:
@@ -86,6 +84,8 @@ def prepare(label, url, candidates, output):
                                  'Unsigned staging draft for supplied deployed candidates. Recheck nonce and candidates before collecting signatures.'),
                            local_fixture=fixture, live_submission_ready=False, snapshotBlockHash=block['hash'],
                            rpc_reads_only=True, requires_signer_confirmation=True)
+        if label == 'taiko':
+            transaction['scope'] += ' Taiko staging and production share this Safe and nonce on chain 167000. Execute staging first, then regenerate the production draft and nonce.'
         temporary.write_text(json.dumps(transaction, indent=2) + '\n')
         temporary.replace(output)
     finally:
