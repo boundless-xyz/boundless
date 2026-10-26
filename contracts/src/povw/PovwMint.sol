@@ -6,6 +6,8 @@
 
 pragma solidity ^0.8.26;
 
+import {Sunset} from "../libraries/Sunset.sol";
+
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -23,6 +25,8 @@ import {Steel} from "steel/Steel.sol";
 contract PovwMint is IPovwMint, Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
+
+    uint256 public constant SUNSET_TIMESTAMP = Sunset.TIMESTAMP;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IRiscZeroVerifier public immutable VERIFIER;
@@ -84,6 +88,7 @@ contract PovwMint is IPovwMint, Initializable, OwnableUpgradeable, UUPSUpgradeab
 
     /// @inheritdoc IPovwMint
     function mint(bytes calldata journalBytes, bytes calldata seal) external {
+        Sunset.requireActive();
         // Verify the mint is authorized by the mint calculator guest.
         VERIFIER.verify(seal, MINT_CALCULATOR_ID, sha256(journalBytes));
         MintCalculatorJournal memory journal = abi.decode(journalBytes, (MintCalculatorJournal));
