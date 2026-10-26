@@ -12,35 +12,20 @@ import {PendingEpoch} from "../../src/povw/IPovwAccounting.sol";
 import {Sunset} from "../../src/libraries/Sunset.sol";
 import {Steel, ChainSpec} from "steel/Steel.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
+import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
+import {MockZKC} from "../MockZKC.sol";
 import {IZKC} from "zkc/interfaces/IZKC.sol";
 import {IRewards} from "zkc/interfaces/IRewards.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-// These tests exercise contract transitions; they do not generate zk proofs.
-contract AcceptingSunsetVerifier {
-    function verify(bytes calldata, bytes32, bytes32) external pure {}
-}
-
-contract SunsetTokenStub {
-    mapping(address => uint256) public minted;
-
-    function getCurrentEpoch() external view returns (uint256) {
-        return block.timestamp / 2 days;
-    }
-
-    function mintPoVWRewardsForRecipient(address recipient, uint256 amount) external {
-        minted[recipient] += amount;
-    }
-}
-
 contract PovwSunsetTest is Test {
     uint256 constant T = 1793836800;
-    address constant OWNER = address(0xa11ce);
-    address constant USER = address(0xbeef);
+    address owner = makeAddr("owner");
+    address user = makeAddr("user");
     PovwAccounting accounting;
     PovwMint minter;
     IRiscZeroVerifier verifier;
-    SunsetTokenStub token;
+    MockZKC token;
     bytes32 constant IMAGE_ID = bytes32(uint256(1));
     address constant REWARDS = address(0x1234);
 
@@ -49,21 +34,23 @@ contract PovwSunsetTest is Test {
         vm.chainId(1);
         vm.roll(100);
         vm.setBlockhash(99, bytes32(uint256(42)));
-        verifier = IRiscZeroVerifier(address(new AcceptingSunsetVerifier()));
-        token = new SunsetTokenStub();
+        verifier = new RiscZeroMockVerifier(bytes4(0));
+        // Proof generation is outside this contract-transition suite.
+        vm.mockCall(address(verifier), abi.encodeWithSelector(IRiscZeroVerifier.verify.selector), "");
+        token = new MockZKC();
         PovwAccountingOriginal a = new PovwAccountingOriginal(verifier, IZKC(address(token)), IMAGE_ID);
         accounting = PovwAccounting(
-            address(new ERC1967Proxy(address(a), abi.encodeCall(PovwAccountingOriginal.initialize, (OWNER))))
+            address(new ERC1967Proxy(address(a), abi.encodeCall(PovwAccountingOriginal.initialize, (owner))))
         );
         PovwMintOriginal m =
             new PovwMintOriginal(verifier, accounting, IMAGE_ID, IZKC(address(token)), IRewards(REWARDS));
-        minter = PovwMint(address(new ERC1967Proxy(address(m), abi.encodeCall(PovwMintOriginal.initialize, (OWNER)))));
+        minter = PovwMint(address(new ERC1967Proxy(address(m), abi.encodeCall(PovwMintOriginal.initialize, (owner)))));
     }
 
     function upgradeBoth() internal {
         PovwAccounting a = new PovwAccounting(verifier, IZKC(address(token)), IMAGE_ID);
         PovwMint m = new PovwMint(verifier, accounting, IMAGE_ID, IZKC(address(token)), IRewards(REWARDS));
-        vm.startPrank(OWNER);
+        vm.startPrank(owner);
         accounting.upgradeToAndCall(address(a), "");
         minter.upgradeToAndCall(address(m), "");
         vm.stopPrank();
@@ -78,21 +65,21 @@ contract PovwSunsetTest is Test {
         j.updates = new MintCalculatorUpdate[](empty ? 0 : 1);
         j.mints = new MintCalculatorMint[](empty ? 0 : 1);
         if (!empty) {
-            j.updates[0] = MintCalculatorUpdate(USER, EMPTY_LOG_ROOT, bytes32(uint256(3)));
-            j.mints[0] = MintCalculatorMint(USER, 100);
+            j.updates[0] = MintCalculatorUpdate(user, EMPTY_LOG_ROOT, bytes32(uint256(3)));
+            j.mints[0] = MintCalculatorMint(user, 100);
         }
         return abi.encode(j);
     }
 
     function testUpgradeRetainsOwnerDependenciesAndHistoricalState() public {
-        accounting.updateWorkLog(USER, bytes32(uint256(2)), 7, USER, "");
+        accounting.updateWorkLog(user, bytes32(uint256(2)), 7, user, "");
         minter.mint(journal(false), "");
         PendingEpoch memory beforeEpoch = accounting.pendingEpoch();
         upgradeBoth();
-        assertEq(accounting.owner(), OWNER);
-        assertEq(minter.owner(), OWNER);
-        assertEq(accounting.workLogCommit(USER), bytes32(uint256(2)));
-        assertEq(minter.workLogCommit(USER), bytes32(uint256(3)));
+        assertEq(accounting.owner(), owner);
+        assertEq(minter.owner(), owner);
+        assertEq(accounting.workLogCommit(user), bytes32(uint256(2)));
+        assertEq(minter.workLogCommit(user), bytes32(uint256(3)));
         assertEq(accounting.pendingEpoch().totalWork, beforeEpoch.totalWork);
         assertEq(accounting.pendingEpoch().number, beforeEpoch.number);
         assertEq(address(accounting.VERIFIER()), address(verifier));
@@ -103,9 +90,9 @@ contract PovwSunsetTest is Test {
         upgradeBoth();
         vm.warp(T - 1);
         accounting.finalizeEpoch();
-        accounting.updateWorkLog(USER, bytes32(uint256(2)), 7, USER, "");
+        accounting.updateWorkLog(user, bytes32(uint256(2)), 7, user, "");
         minter.mint(journal(false), "");
-        assertEq(token.minted(USER), 100);
+        assertEq(token.balanceOf(user), 100);
         assertEq(accounting.pendingEpoch().totalWork, 7);
     }
 
@@ -116,7 +103,7 @@ contract PovwSunsetTest is Test {
             vm.warp(T + i);
             vm.recordLogs();
             vm.expectRevert(Sunset.ProtocolSunset.selector);
-            accounting.updateWorkLog(USER, bytes32(uint256(2)), 7, USER, "");
+            accounting.updateWorkLog(user, bytes32(uint256(2)), 7, user, "");
             vm.expectRevert(Sunset.ProtocolSunset.selector);
             accounting.finalizeEpoch();
             vm.expectRevert(Sunset.ProtocolSunset.selector);
@@ -127,9 +114,9 @@ contract PovwSunsetTest is Test {
             vm.expectRevert(Sunset.ProtocolSunset.selector);
             minter.mint(hex"01", hex"02");
             assertEq(vm.getRecordedLogs().length, 0);
-            assertEq(accounting.workLogCommit(USER), EMPTY_LOG_ROOT);
-            assertEq(minter.workLogCommit(USER), EMPTY_LOG_ROOT);
-            assertEq(token.minted(USER), 0);
+            assertEq(accounting.workLogCommit(user), EMPTY_LOG_ROOT);
+            assertEq(minter.workLogCommit(user), EMPTY_LOG_ROOT);
+            assertEq(token.balanceOf(user), 0);
         }
     }
 
@@ -154,11 +141,11 @@ contract PovwSunsetTest is Test {
         accounting.upgradeToAndCall(address(a), "");
         vm.expectRevert();
         minter.upgradeToAndCall(address(m), "");
-        vm.startPrank(OWNER);
+        vm.startPrank(owner);
         accounting.upgradeToAndCall(address(a), "");
         minter.upgradeToAndCall(address(m), "");
         vm.stopPrank();
-        assertEq(accounting.owner(), OWNER);
-        assertEq(minter.owner(), OWNER);
+        assertEq(accounting.owner(), owner);
+        assertEq(minter.owner(), owner);
     }
 }

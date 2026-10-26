@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {SafeFork, IForkSafe} from "./SafeFork.sol";
+import {SafeFork, IForkSafe} from "../fork-test/SafeFork.sol";
 
 abstract contract StagingSafeFork is SafeFork {
     string internal bundleJson;
@@ -59,34 +59,12 @@ abstract contract StagingSafeFork is SafeFork {
         assertTrue(candidate != baseline);
     }
 
+    function expectedOwnerCount() internal view override returns (uint256) {
+        return block.chainid == 11155111 ? 5 : 6;
+    }
+
     function executeStaging(address target, bytes memory data, uint8 operation, bool success) internal {
-        IForkSafe safe = IForkSafe(stagingSafe);
-        address[] memory owners = safe.getOwners();
-        uint256 threshold = safe.getThreshold();
-        assertEq(threshold, 3);
-        assertEq(owners.length, block.chainid == 11155111 ? 5 : 6);
-        for (uint256 i; i < owners.length; ++i) {
-            for (uint256 j = i + 1; j < owners.length; ++j) {
-                if (owners[j] < owners[i]) (owners[i], owners[j]) = (owners[j], owners[i]);
-            }
-        }
-        uint256 nonce = safe.nonce();
-        uint256 gasLimit = success ? 0 : 5_000_000;
-        bytes32 hash =
-            safe.getTransactionHash(target, 0, data, operation, gasLimit, 0, 0, address(0), address(0), nonce);
-        bytes memory signatures;
-        for (uint256 i; i < threshold; ++i) {
-            vm.prank(owners[i]);
-            safe.approveHash(hash);
-            signatures = abi.encodePacked(signatures, bytes32(uint256(uint160(owners[i]))), bytes32(0), uint8(1));
-        }
-        assertEq(
-            safe.execTransaction(
-                target, 0, data, operation, gasLimit, 0, 0, address(0), payable(address(0)), signatures
-            ),
-            success
-        );
-        assertEq(safe.nonce(), nonce + 1);
+        executeSafe(stagingSafe, target, data, operation, success);
     }
 
     function executeBundle() internal {

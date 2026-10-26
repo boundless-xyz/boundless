@@ -50,7 +50,7 @@ abstract contract SafeFork is Test {
         address[] memory owners = safe.getOwners();
         uint256 threshold = safe.getThreshold();
         assertEq(threshold, 3, "unexpected Safe threshold");
-        assertEq(owners.length, 6, "unexpected Safe owners");
+        assertEq(owners.length, expectedOwnerCount(), "unexpected Safe owners");
         for (uint256 i; i < owners.length; ++i) {
             for (uint256 j = i + 1; j < owners.length; ++j) {
                 if (owners[j] < owners[i]) (owners[i], owners[j]) = (owners[j], owners[i]);
@@ -74,6 +74,10 @@ abstract contract SafeFork is Test {
             expectSuccess
         );
         assertEq(safe.nonce(), nonce + 1);
+    }
+
+    function expectedOwnerCount() internal view virtual returns (uint256) {
+        return 6;
     }
 
     function assertOnlyImplementationWritten(address proxy) internal {

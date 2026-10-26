@@ -20,15 +20,7 @@ import {IRiscZeroVerifier, Receipt} from "risc0/IRiscZeroVerifier.sol";
 import {ProofRequestLibrary as LegacyRequestLibrary} from "boundless-market-legacy/types/ProofRequest.sol";
 import {RequestId as LegacyRequestId} from "boundless-market-legacy/types/RequestId.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-
-contract SunsetCollateral is ERC20 {
-    constructor() ERC20("Collateral", "COL") {}
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-}
+import {HitPoints} from "../../src/HitPoints.sol";
 
 contract MarketSunsetVerifier {
     function verify(bytes calldata, bytes32, bytes32) external pure {}
@@ -47,15 +39,16 @@ contract MarketSunsetTest is Test {
     uint256 constant T = 1793836800;
     BoundlessMarket market;
     LegacyMarket legacy;
-    SunsetCollateral collateral;
-    address admin = address(0xa11ce);
-    address user = address(0xbeef);
+    HitPoints collateral;
+    address admin = makeAddr("admin");
+    address user = makeAddr("user");
     address implementation;
     MarketSunsetVerifier verifier;
 
     function setUp() public {
         vm.warp(T - 2 days);
-        collateral = new SunsetCollateral();
+        collateral = new HitPoints(address(this));
+        collateral.grantMinterRole(address(this));
         verifier = new MarketSunsetVerifier();
         legacy = new LegacyMarket(
             IRiscZeroVerifier(address(verifier)),
@@ -74,6 +67,7 @@ contract MarketSunsetTest is Test {
                     new ERC1967Proxy(address(original), abi.encodeCall(BoundlessMarketOriginal.initialize, (admin)))
                 ))
         );
+        collateral.grantAuthorizedTransferRole(address(market));
         vm.deal(user, 10 ether);
         vm.prank(user);
         market.deposit{value: 2 ether}();
