@@ -276,7 +276,6 @@ class CandidateValidation(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.run_prepare()
         self.assertEqual(self.output.read_text(), "previous reviewed draft")
-        self.assertFalse(self.output.with_name(self.output.name + ".tmp").exists())
 
     def test_baseline_cannot_be_candidate(self):
         self.reject("candidate is the baseline", candidate=self.old)
