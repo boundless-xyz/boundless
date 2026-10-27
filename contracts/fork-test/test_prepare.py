@@ -221,15 +221,23 @@ class CandidateValidation(unittest.TestCase):
         )
 
     def reject(self, message, label="base", candidate=None):
-        # An invalid refresh must preserve the last reviewed draft and remove any temporary file.
+        # A rejected refresh must preserve both artifacts the signer reviewed.
         self.output.parent.mkdir(parents=True, exist_ok=True)
         self.output.write_text("previous reviewed draft")
+        builder = self.output.with_name("safe-builder.json")
+        builder.write_text("previous reviewed builder")
         with self.assertRaisesRegex(AssertionError, message):
             self.run_prepare(label, candidate)
         self.assertEqual(self.output.read_text(), "previous reviewed draft")
-        self.assertFalse(self.output.with_name(self.output.name + ".tmp").exists())
+        self.assertEqual(builder.read_text(), "previous reviewed builder")
+        self.assertEqual(
+            sorted(p.name for p in self.output.parent.iterdir()),
+            ["safe-builder.json", "transaction.json"],
+        )
 
     def test_manifest_alone_prepares_without_prior_transaction_fixture(self):
+        import json
+
         transaction = self.run_prepare()
         self.assertEqual(
             transaction["steps"][0]["baselineCodeHash"],
@@ -238,6 +246,9 @@ class CandidateValidation(unittest.TestCase):
         self.assertTrue(transaction["rpc_reads_only"])
         self.assertFalse(transaction["live_submission_ready"])
         self.assertTrue(self.output.is_file())
+        builder = json.loads(self.output.with_name("safe-builder.json").read_text())
+        self.assertEqual(builder["transactions"][0]["to"], transaction["to"])
+        self.assertEqual(builder["transactions"][0]["data"], transaction["data"])
 
     def test_cutoff_reached_preserves_previous_draft(self):
         for timestamp in [1793836800, 1793836801]:

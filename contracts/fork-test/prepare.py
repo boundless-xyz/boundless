@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import re
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -120,8 +121,8 @@ def prepare(label, url, candidates, output):
             ), "constructor dependency changed"
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(output.name + ".tmp")
-    try:
+    with tempfile.TemporaryDirectory(dir=output.parent) as pending:
+        temporary = Path(pending) / output.name
         transaction = staging.export_transaction(
             rpc, label, chain_id, steps, temporary, int(rpc.block, 16)
         )
@@ -151,9 +152,10 @@ def prepare(label, url, candidates, output):
                 "scope"
             ] += " Taiko staging and production share this Safe and nonce on chain 167000. Execute staging first, then regenerate the production draft and nonce."
         temporary.write_text(json.dumps(transaction, indent=2) + "\n")
+        temporary.with_name("safe-builder.json").replace(
+            output.with_name("safe-builder.json")
+        )
         temporary.replace(output)
-    finally:
-        temporary.unlink(missing_ok=True)
     return transaction
 
 

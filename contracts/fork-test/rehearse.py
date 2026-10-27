@@ -155,8 +155,8 @@ class RPC:
 
 def abi_addresses(raw):
     data = bytes.fromhex(raw[2:])
-    offset = int.from_bytes(data[:32])
-    n = int.from_bytes(data[offset : offset + 32])
+    offset = int.from_bytes(data[:32], "big")
+    n = int.from_bytes(data[offset : offset + 32], "big")
     return ["0x" + data[offset + 32 + i * 32 + 12 : offset + 64 + i * 32].hex() for i in range(n)]
 
 
