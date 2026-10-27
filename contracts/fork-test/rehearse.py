@@ -350,6 +350,8 @@ def deploy_with_repo_script(rpc, label, key, proxy, folder, chain_key=None):
         "forge",
         "script",
         script,
+        "--skip",
+        "test",
         "--offline",
         "--rpc-url",
         rpc.url,
