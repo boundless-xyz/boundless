@@ -8,9 +8,7 @@ pragma solidity ^0.8.26;
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {SunsetTransaction} from "../scripts/sunset/SunsetTransaction.sol";
-import {MarketSunset} from "../scripts/sunset/MarketSunset.sol";
-import {RuntimeCheck} from "../scripts/sunset/RuntimeCheck.sol";
+import {UpgradeBoundlessMarket} from "../scripts/Manage.s.sol";
 
 import {SafeFork} from "./SafeFork.sol";
 import {BoundlessMarket} from "boundless-market/BoundlessMarket.sol";
@@ -32,7 +30,6 @@ contract MarketForkTest is SafeFork {
     address safe;
     address oldImplementation;
     address candidate;
-    SunsetTransaction.Transaction transaction;
     address user;
     IERC20 collateral;
     address router;
@@ -61,7 +58,7 @@ contract MarketForkTest is SafeFork {
         router = address(market.ROUTER());
         legacy = market.LEGACY_IMPL();
         collateral = IERC20(market.COLLATERAL_TOKEN_CONTRACT());
-        (transaction, candidate) = MarketSunset.prepare(vm.envOr("SUNSET_IMPL", address(0)));
+        candidate = prepareCandidate(vm.envOr("SUNSET_IMPL", address(0)));
         user = vm.addr(0xabc123);
         vm.deal(user, 10 ether);
         vm.prank(user);
@@ -78,7 +75,7 @@ contract MarketForkTest is SafeFork {
         uint256 etherBalance = address(market).balance;
         uint256 tokens = collateral.balanceOf(address(market));
         vm.record();
-        executeSafe(transaction.safe, transaction.to, transaction.data, transaction.operation, true);
+        executeSafe(safe, address(market), upgradeCall(candidate), 0, true);
         assertOnlyImplementationWritten(address(market));
         assertEq(implementation(address(market)), candidate);
         assertEq(address(market.ROUTER()), router);
@@ -154,7 +151,7 @@ contract MarketForkTest is SafeFork {
         );
         assertEq(implementation(address(market)), oldImplementation);
         assertEq(market.balanceOf(user), 0);
-        executeSafe(transaction.safe, transaction.to, transaction.data, transaction.operation, true);
+        executeSafe(safe, address(market), upgradeCall(candidate), 0, true);
         assertEq(implementation(address(market)), candidate);
     }
 
@@ -176,29 +173,68 @@ contract MarketForkTest is SafeFork {
         BoundlessMarket(payable(candidate)).initialize(user);
     }
 
+    function prepareCandidate(address requested) internal returns (address result) {
+        if (requested != address(0)) {
+            requireExisting(requested);
+            address expectedImplementation =
+                address(new BoundlessMarket(IBoundlessRouter(router), address(collateral), legacy));
+            checkRuntime(
+                expectedImplementation,
+                requested,
+                string.concat(
+                    vm.projectRoot(),
+                    "/",
+                    vm.envString("SUNSET_ARTIFACT_ROOT"),
+                    "/BoundlessMarket.sol/BoundlessMarket.json"
+                )
+            );
+            return requested;
+        }
+        vm.setEnv("CHAIN_KEY", block.chainid == 8453 ? "base-mainnet" : "taiko-mainnet");
+        vm.setEnv("STACK_TAG", "");
+        vm.setEnv("BOUNDLESS_ROUTER", vm.toString(router));
+        vm.setEnv("GNOSIS_EXECUTE", "true");
+        // These tests verify deployment and Safe execution. OZ validation runs separately on reference builds.
+        vm.setEnv("SKIP_SAFETY_CHECKS", "true");
+        vm.setEnv("DEPLOYER_PRIVATE_KEY", "0");
+        vm.setEnv("DEPLOYER_ADDRESS", vm.toString(makeAddr("deployer")));
+        string memory config = vm.readFile("contracts/deployment.toml");
+        address local = new UpgradeBoundlessMarket().run();
+        assertEq(vm.readFile("contracts/deployment.toml"), config, "preparation changed deployment config");
+        assertEq(implementation(address(market)), oldImplementation, "preparation upgraded proxy");
+        result = requested == address(0) ? local : requested;
+        checkRuntime(
+            local,
+            result,
+            string.concat(
+                vm.projectRoot(), "/", vm.envString("SUNSET_ARTIFACT_ROOT"), "/BoundlessMarket.sol/BoundlessMarket.json"
+            )
+        );
+    }
+
     function checkCandidate(address value) external {
-        MarketSunset.prepare(value);
+        prepareCandidate(value);
     }
 
     function testForkCandidateRuntimeValidation() public {
         this.checkCandidate(candidate);
-        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, oldImplementation));
+        vm.expectRevert(abi.encodeWithSelector(RuntimeMismatch.selector, oldImplementation));
         this.checkCandidate(oldImplementation);
-        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, address(1)));
+        vm.expectRevert(abi.encodeWithSelector(RuntimeMismatch.selector, address(1)));
         this.checkCandidate(address(1));
         address wrong = address(new BoundlessMarket(IBoundlessRouter(router), address(collateral), address(market)));
-        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, wrong));
+        vm.expectRevert(abi.encodeWithSelector(RuntimeMismatch.selector, wrong));
         this.checkCandidate(wrong);
     }
 
     function checkUndeployedReferenceAddress() external {
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         assertEq(predicted.code.length, 0);
-        MarketSunset.prepare(predicted);
+        prepareCandidate(predicted);
     }
 
     function testForkRejectsUndeployedReferenceAddress() public {
-        vm.expectPartialRevert(RuntimeCheck.RuntimeMismatch.selector);
+        vm.expectPartialRevert(RuntimeMismatch.selector);
         this.checkUndeployedReferenceAddress();
     }
 }

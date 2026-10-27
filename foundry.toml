@@ -155,8 +155,6 @@ skip = [
     "contracts/test/reference/Povw*Original.sol",
     "contracts/scripts/Deploy.PoVW.s.sol",
     "contracts/scripts/Manage.PoVW.s.sol",
-    "contracts/scripts/sunset/PovwSunset.sol",
-    "contracts/scripts/sunset/PrintPovwSunset.s.sol",
     # ZKC test fixtures pull in the transient zkc Supply library; only PoVW tests use them.
     "contracts/test/MockZKC.sol",
     "contracts/test/TestUtilsZKC.sol",

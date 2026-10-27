@@ -43,6 +43,66 @@ abstract contract SafeFork is Test {
     bytes32 internal constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     uint256 internal constant T = 1793836800;
 
+    struct Reference {
+        uint256 length;
+        uint256 start;
+    }
+    error RuntimeMismatch(address candidate);
+
+    function requireExisting(address candidate) internal view {
+        if (candidate.code.length == 0) revert RuntimeMismatch(candidate);
+    }
+
+    /// Compare every emitted runtime byte and all constructor dependencies.
+    /// Only the compiler-listed UUPS __self references may differ by deployment address.
+    function checkRuntime(address local, address candidate, string memory artifact) internal view {
+        requireExisting(candidate);
+        bytes memory expected = local.code;
+        bytes memory actual = candidate.code;
+        if (candidate == local) return;
+        if (expected.length != actual.length) revert RuntimeMismatch(candidate);
+        string memory json = vm.readFile(artifact);
+        string memory key = ".deployedBytecode.immutableReferences";
+        uint256 count = vm.parseJsonKeys(json, key).length;
+        bytes memory object = vm.parseJson(json, key);
+        // Foundry encodes the object as a tuple of arrays. Add the outer array length
+        // so every immutable group can be decoded after parsing the large artifact once.
+        bytes memory encoded = new bytes(object.length + 32);
+        assembly {
+            mstore(add(encoded, 32), 32)
+            mstore(add(encoded, 64), count)
+            for { let offset := 32 } lt(offset, mload(object)) { offset := add(offset, 32) } {
+                mstore(add(add(encoded, 64), offset), mload(add(add(object, 32), offset)))
+            }
+        }
+        Reference[][] memory groups = abi.decode(encoded, (Reference[][]));
+        bool foundSelf;
+        for (uint256 i; i < groups.length; ++i) {
+            Reference[] memory refs = groups[i];
+            for (uint256 j; j < refs.length; ++j) {
+                uint256 offset = refs[j].start;
+                require(refs[j].length == 32 && offset + 32 <= expected.length, "invalid immutable reference");
+                bytes32 value;
+                assembly { value := mload(add(add(expected, 32), offset)) }
+                if (value == bytes32(uint256(uint160(local)))) {
+                    foundSelf = true;
+                    bytes32 replacement = bytes32(uint256(uint160(candidate)));
+                    assembly { mstore(add(add(expected, 32), offset), replacement) }
+                }
+            }
+        }
+        require(foundSelf, "missing UUPS self reference");
+        if (keccak256(expected) != keccak256(actual)) revert RuntimeMismatch(candidate);
+    }
+
+    function upgradeCall(address candidate) internal pure returns (bytes memory) {
+        return abi.encodeWithSignature("upgradeToAndCall(address,bytes)", candidate, bytes(""));
+    }
+
+    function packedCall(address target, bytes memory data) internal pure returns (bytes memory) {
+        return abi.encodePacked(uint8(0), target, uint256(0), uint256(data.length), data);
+    }
+
     function implementation(address proxy) internal view returns (address) {
         return address(uint160(uint256(vm.load(proxy, IMPLEMENTATION_SLOT))));
     }

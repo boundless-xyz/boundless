@@ -20,7 +20,7 @@ import {BoundlessScriptBase, BoundlessScript} from "./BoundlessScript.s.sol";
 /// @notice Upgrade script for the PovwAccounting contract.
 /// @dev Set values in deployment.toml to configure the upgrade.
 contract UpgradePoVWAccounting is BoundlessScriptBase {
-    function run() external {
+    function run() external returns (address newImplementation) {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
@@ -33,6 +33,22 @@ contract UpgradePoVWAccounting is BoundlessScriptBase {
         address currentAdmin = povwAccounting.owner();
 
         address currentImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
+
+        if (vm.envOr("GNOSIS_EXECUTE", false)) {
+            UpgradeOptions memory safeOptions;
+            safeOptions.referenceContract = "build-info-reference:PovwAccounting";
+            safeOptions.referenceBuildInfoDir = "contracts/build-info-reference";
+            safeOptions.constructorData =
+                abi.encode(povwAccounting.VERIFIER(), povwAccounting.TOKEN(), povwAccounting.LOG_UPDATER_ID());
+            safeOptions.unsafeSkipAllChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
+            if (safeOptions.unsafeSkipAllChecks) console2.log("WARNING: Skipping upgrade safety checks");
+            require(block.chainid == deploymentConfig.chainId, "deployment chain mismatch");
+            vm.startBroadcast(getDeployer());
+            newImplementation = Upgrades.prepareUpgrade("PovwAccounting.sol:PovwAccounting", safeOptions);
+            vm.stopBroadcast();
+            _printGnosisSafeInfo(povwAccountingAddress, newImplementation, "");
+            return newImplementation;
+        }
 
         // Get constructor arguments for PovwAccounting
         IRiscZeroVerifier verifier =
@@ -91,7 +107,7 @@ contract UpgradePoVWAccounting is BoundlessScriptBase {
         vm.stopBroadcast();
 
         // Verify the upgrade
-        address newImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
+        newImplementation = Upgrades.getImplementationAddress(povwAccountingAddress);
         require(newImplementation != currentImplementation, "PovwAccounting implementation was not upgraded");
         require(povwAccounting.owner() == currentAdmin, "PovwAccounting admin changed during upgrade");
 
@@ -126,7 +142,7 @@ contract UpgradePoVWAccounting is BoundlessScriptBase {
 /// @notice Upgrade script for the PovwMint contract.
 /// @dev Set values in deployment.toml to configure the upgrade.
 contract UpgradePoVWMint is BoundlessScriptBase {
-    function run() external {
+    function run() external returns (address newImplementation) {
         // Load the config
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
@@ -144,6 +160,27 @@ contract UpgradePoVWMint is BoundlessScriptBase {
         address currentImplementation = Upgrades.getImplementationAddress(povwMintAddress);
 
         console2.log("Current PovwMint implementation: %s", currentImplementation);
+
+        if (vm.envOr("GNOSIS_EXECUTE", false)) {
+            UpgradeOptions memory safeOptions;
+            safeOptions.referenceContract = "build-info-reference:PovwMint";
+            safeOptions.referenceBuildInfoDir = "contracts/build-info-reference";
+            safeOptions.constructorData = abi.encode(
+                povwMint.VERIFIER(),
+                povwMint.ACCOUNTING(),
+                povwMint.MINT_CALCULATOR_ID(),
+                povwMint.TOKEN(),
+                povwMint.TOKEN_REWARDS()
+            );
+            safeOptions.unsafeSkipAllChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
+            if (safeOptions.unsafeSkipAllChecks) console2.log("WARNING: Skipping upgrade safety checks");
+            require(block.chainid == deploymentConfig.chainId, "deployment chain mismatch");
+            vm.startBroadcast(getDeployer());
+            newImplementation = Upgrades.prepareUpgrade("PovwMint.sol:PovwMint", safeOptions);
+            vm.stopBroadcast();
+            _printGnosisSafeInfo(povwMintAddress, newImplementation, "");
+            return newImplementation;
+        }
 
         // Get constructor arguments for PovwMint
         IRiscZeroVerifier verifier =
@@ -206,7 +243,7 @@ contract UpgradePoVWMint is BoundlessScriptBase {
         vm.stopBroadcast();
 
         // Verify the upgrade
-        address newImplementation = Upgrades.getImplementationAddress(povwMintAddress);
+        newImplementation = Upgrades.getImplementationAddress(povwMintAddress);
         require(newImplementation != currentImplementation, "PovwMint implementation was not upgraded");
         require(povwMint.owner() == currentAdmin, "PovwMint admin changed during upgrade");
 

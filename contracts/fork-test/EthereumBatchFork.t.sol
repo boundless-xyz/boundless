@@ -5,9 +5,7 @@
 
 pragma solidity ^0.8.26;
 
-import {SafeFork} from "./SafeFork.sol";
-import {ISunsetSafe} from "../scripts/sunset/SunsetTransaction.sol";
-import {SunsetTransaction} from "../scripts/sunset/SunsetTransaction.sol";
+import {SafeFork, IForkSafe} from "./SafeFork.sol";
 import {PovwAccounting} from "../src/povw/PovwAccounting.sol";
 import {PovwMint} from "../src/povw/PovwMint.sol";
 import {Sunset} from "../src/libraries/Sunset.sol";
@@ -45,11 +43,11 @@ contract EthereumBatchForkTest is SafeFork {
         assertEq(vm.parseJsonAddress(json, ".gasToken"), address(0));
         assertEq(vm.parseJsonAddress(json, ".refundReceiver"), address(0));
         bundle = vm.parseJsonBytes(json, ".data");
-        uint256 nonce = ISunsetSafe(SAFE).nonce();
+        uint256 nonce = IForkSafe(SAFE).nonce();
         assertEq(vm.parseJsonUint(json, ".nonce"), nonce);
         assertEq(
             vm.parseJsonBytes32(json, ".safeTxHash"),
-            ISunsetSafe(SAFE).getTransactionHash(MULTISEND, 0, bundle, 1, 0, 0, 0, address(0), address(0), nonce)
+            IForkSafe(SAFE).getTransactionHash(MULTISEND, 0, bundle, 1, 0, 0, 0, address(0), address(0), nonce)
         );
         for (uint256 i; i < 3; ++i) {
             string memory key = string.concat(".steps[", vm.toString(i), "]");
@@ -91,18 +89,18 @@ contract EthereumBatchForkTest is SafeFork {
     }
 
     function testForkFailedThirdUpgradeRollsBackAllThree() public {
-        bytes memory third = SunsetTransaction.upgrade(address(0));
+        bytes memory third = upgradeCall(address(0));
         bytes memory firstTwo = abi.decode(slice(bundle, 4), (bytes));
         // The last packed call is always 85 bytes of framing plus 100 bytes of upgrade calldata.
         bytes memory packed = sliceLength(firstTwo, 0, firstTwo.length - 185);
         bytes memory failed = abi.encodeWithSignature(
             "multiSend(bytes)", abi.encodePacked(packed, uint8(0), ZKC, uint256(0), uint256(third.length), third)
         );
-        uint256 nonce = ISunsetSafe(SAFE).nonce();
+        uint256 nonce = IForkSafe(SAFE).nonce();
         vm.expectCall(ZKC, third);
         vm.expectRevert(bytes("GS013"));
         this.executeInvalidBatch(failed);
-        assertEq(ISunsetSafe(SAFE).nonce(), nonce);
+        assertEq(IForkSafe(SAFE).nonce(), nonce);
         for (uint256 i; i < 3; ++i) {
             assertEq(implementation(proxies[i]), baselines[i]);
         }

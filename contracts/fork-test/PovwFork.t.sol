@@ -8,9 +8,7 @@ pragma solidity ^0.8.26;
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {SunsetTransaction} from "../scripts/sunset/SunsetTransaction.sol";
-import {PovwSunset} from "../scripts/sunset/PovwSunset.sol";
-import {RuntimeCheck} from "../scripts/sunset/RuntimeCheck.sol";
+import {UpgradePoVWAccounting, UpgradePoVWMint} from "../scripts/Manage.PoVW.s.sol";
 
 import {SafeFork} from "./SafeFork.sol";
 import {PovwAccounting} from "../src/povw/PovwAccounting.sol";
@@ -39,15 +37,15 @@ contract PovwForkTest is SafeFork {
         assertEq(accounting.owner(), FOUNDATION);
         assertEq(minter.owner(), FOUNDATION);
         assertGt(MULTISEND.code.length, 0, "real MultiSendCallOnly required");
-        (transaction, newAccounting, newMint) = PovwSunset.prepare(
-            vm.envOr("ACCOUNTING_SUNSET_IMPL", address(0)), vm.envOr("MINT_SUNSET_IMPL", address(0))
-        );
+        (newAccounting, newMint) =
+            prepareCandidates(vm.envOr("ACCOUNTING_SUNSET_IMPL", address(0)), vm.envOr("MINT_SUNSET_IMPL", address(0)));
     }
 
-    SunsetTransaction.Transaction transaction;
-
     function batch(address a, address m) internal pure returns (bytes memory) {
-        return SunsetTransaction.pair(FOUNDATION, MULTISEND, address(accounting), a, address(minter), m).data;
+        return abi.encodeWithSignature(
+            "multiSend(bytes)",
+            bytes.concat(packedCall(address(accounting), upgradeCall(a)), packedCall(address(minter), upgradeCall(m)))
+        );
     }
 
     function dependencyHash() internal view returns (bytes32) {
@@ -69,7 +67,7 @@ contract PovwForkTest is SafeFork {
         bytes32 beforeEpoch = keccak256(abi.encode(accounting.pendingEpoch()));
         bytes32 dependencies = dependencyHash();
         vm.record();
-        executeSafe(transaction.safe, transaction.to, transaction.data, transaction.operation, true);
+        executeSafe(FOUNDATION, MULTISEND, batch(newAccounting, newMint), 1, true);
         assertOnlyImplementationWritten(address(accounting));
         assertOnlyImplementationWritten(address(minter));
         assertEq(implementation(address(accounting)), newAccounting);
@@ -137,18 +135,60 @@ contract PovwForkTest is SafeFork {
         upgrade();
     }
 
+    function prepareCandidates(address requestedAccounting, address requestedMint)
+        internal
+        returns (address a, address m)
+    {
+        require(
+            MULTISEND.codehash == 0xa9865ac2d9c7a1591619b188c4d88167b50df6cc0c5327fcbd1c8c75f7c066ad,
+            "unexpected MultiSend runtime"
+        );
+        if (requestedAccounting != address(0)) requireExisting(requestedAccounting);
+        if (requestedMint != address(0)) requireExisting(requestedMint);
+        vm.setEnv("CHAIN_KEY", "ethereum-mainnet");
+        vm.setEnv("STACK_TAG", "");
+        vm.setEnv("GNOSIS_EXECUTE", "true");
+        // OZ validation runs separately; this suite exercises the actual script deployment path and Safe.
+        vm.setEnv("SKIP_SAFETY_CHECKS", "true");
+        vm.setEnv("DEPLOYER_PRIVATE_KEY", "0");
+        vm.setEnv("DEPLOYER_ADDRESS", vm.toString(makeAddr("deployer")));
+        string memory config = vm.readFile("contracts/deployment.toml");
+        address localAccounting;
+        address localMint;
+        if (requestedAccounting == address(0) && requestedMint == address(0)) {
+            localAccounting = new UpgradePoVWAccounting().run();
+            localMint = new UpgradePoVWMint().run();
+        } else {
+            localAccounting =
+                address(new PovwAccounting(accounting.VERIFIER(), accounting.TOKEN(), accounting.LOG_UPDATER_ID()));
+            localMint = address(
+                new PovwMint(
+                    minter.VERIFIER(), accounting, minter.MINT_CALCULATOR_ID(), minter.TOKEN(), minter.TOKEN_REWARDS()
+                )
+            );
+        }
+        assertEq(vm.readFile("contracts/deployment.toml"), config, "preparation changed deployment config");
+        assertEq(implementation(address(accounting)), oldAccounting, "preparation upgraded accounting");
+        assertEq(implementation(address(minter)), oldMint, "preparation upgraded mint");
+        a = requestedAccounting == address(0) ? localAccounting : requestedAccounting;
+        m = requestedMint == address(0) ? localMint : requestedMint;
+        string memory folder = string.concat(vm.projectRoot(), "/", vm.envString("SUNSET_ARTIFACT_ROOT"));
+        checkRuntime(localAccounting, a, string.concat(folder, "/PovwAccounting.sol/PovwAccounting.json"));
+        checkRuntime(localMint, m, string.concat(folder, "/PovwMint.sol/PovwMint.json"));
+    }
+
     function checkCandidates(address a, address m) external {
-        PovwSunset.prepare(a, m);
+        prepareCandidates(a, m);
     }
 
     function testForkCandidateRuntimeValidation() public {
         this.checkCandidates(newAccounting, newMint);
-        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, oldAccounting));
+        vm.expectRevert(abi.encodeWithSelector(RuntimeMismatch.selector, oldAccounting));
         this.checkCandidates(oldAccounting, newMint);
-        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, oldMint));
+        vm.expectRevert(abi.encodeWithSelector(RuntimeMismatch.selector, oldMint));
         this.checkCandidates(newAccounting, oldMint);
         address wrong = address(new PovwAccounting(accounting.VERIFIER(), accounting.TOKEN(), bytes32(uint256(1))));
-        vm.expectRevert(abi.encodeWithSelector(RuntimeCheck.RuntimeMismatch.selector, wrong));
+        vm.expectRevert(abi.encodeWithSelector(RuntimeMismatch.selector, wrong));
         this.checkCandidates(wrong, newMint);
         vm.etch(MULTISEND, hex"00");
         vm.expectRevert(bytes("unexpected MultiSend runtime"));
@@ -158,13 +198,13 @@ contract PovwForkTest is SafeFork {
     function checkUndeployedReferenceAddress(bool mint) external {
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + (mint ? 1 : 0));
         assertEq(predicted.code.length, 0);
-        PovwSunset.prepare(mint ? newAccounting : predicted, mint ? predicted : newMint);
+        prepareCandidates(mint ? newAccounting : predicted, mint ? predicted : newMint);
     }
 
     function testForkRejectsUndeployedReferenceAddress() public {
-        vm.expectPartialRevert(RuntimeCheck.RuntimeMismatch.selector);
+        vm.expectPartialRevert(RuntimeMismatch.selector);
         this.checkUndeployedReferenceAddress(false);
-        vm.expectPartialRevert(RuntimeCheck.RuntimeMismatch.selector);
+        vm.expectPartialRevert(RuntimeMismatch.selector);
         this.checkUndeployedReferenceAddress(true);
     }
 }

@@ -158,7 +158,7 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
 /// See the Foundry documentation for more information about Solidity scripts.
 /// https://book.getfoundry.sh/tutorials/solidity-scripting
 contract UpgradeBoundlessMarket is BoundlessScriptBase {
-    function run() external {
+    function run() external returns (address newImpl) {
         // Check for deployment mode flags
         bool gnosisExecute = vm.envOr("GNOSIS_EXECUTE", false);
         bool skipSafetyChecks = vm.envOr("SKIP_SAFETY_CHECKS", false);
@@ -220,7 +220,6 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             opts.referenceBuildInfoDir = "contracts/build-info-reference";
         }
 
-        address newImpl = address(0);
         bytes memory initializerData = "";
 
         vm.startBroadcast(getDeployer());
@@ -269,6 +268,8 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             ensureLegacyImageUrl(marketAddress, legacyImageUrl);
         }
         vm.stopBroadcast();
+        // A prepared implementation is not yet the proxy implementation.
+        if (gnosisExecute) return newImpl;
 
         string[] memory args = new string[](6);
         args[0] = "python3";
