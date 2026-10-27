@@ -91,23 +91,19 @@ Proof verifiers are mocked where needed; these checks do not prove signer availa
 or exhaust every possible contract state. The suites cover cutoff boundaries, preserved
 passive staking rewards and withdrawals, permissions, initialization and failed upgrades.
 
-## Bundles and unsigned transactions
+## Safe drafts and verification results
 
-Keep the generated `out/handoff/` bundle with the two source revisions. It contains
+Keep the generated `out/handoff/` results with the two source revisions. The directory contains
 Safe JSON, full calldata, baseline and candidate hashes, tool versions, submodule pins,
 Anvil execution results and test logs. It is useful evidence for a reviewer. Candidate
-addresses exist only on the disposable forks; replay a saved bundle by rerunning the
-rehearsal from its recorded source revisions. The saved JSON alone cannot restore fork state.
-
-```bash
-tar -czf sunset-rehearsal-evidence.tgz -C market/out handoff
-shasum -a 256 sunset-rehearsal-evidence.tgz
-```
+addresses exist only on the disposable forks. Rerun the rehearsal from its recorded
+source revisions to reproduce the checks. Saved JSON cannot restore fork state.
 
 Do not submit rehearsal JSON to a live Safe. After approved candidate deployment,
 regenerate the unsigned draft against current chain state. `prepare.py` performs RPC
 reads only, even for loopback endpoints. It checks supplied candidate runtimes against
-locally rebuilt artifacts and pins every read to one block. For example, from `market/`:
+locally rebuilt artifacts and pins every read to one block. Draft preparation requires
+a snapshot before the cutoff. For example, from `market/`:
 
 ```bash
 python3 contracts/fork-test/prepare.py --environment staging --chain ethereum --zkc-repo ../zkc --candidate accounting=0xACCOUNTING --candidate mint=0xMINT --candidate zkc=0xZKC --output out/staging-draft/transaction.json
