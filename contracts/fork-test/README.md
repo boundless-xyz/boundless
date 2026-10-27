@@ -10,9 +10,9 @@ git -C market bundle create ../sunset-market.bundle codex/protocol-sunset
 git -C zkc bundle create ../sunset-zkc.bundle codex/povw-sunset
 ```
 
-A colleague can use `git clone sunset-market.bundle market` and
-`git clone sunset-zkc.bundle zkc`, then follow the commands below. Submodules still
-come from their pinned upstream commits. Neither bundle contains deployment secrets.
+A colleague can use `git clone --branch codex/protocol-sunset sunset-market.bundle market` and
+`git clone --branch codex/povw-sunset sunset-zkc.bundle zkc`, then follow the commands below. Submodules still
+come from their pinned upstream commits. Git bundles exclude ignored local configuration.
 
 ## Setup and unit tests
 
