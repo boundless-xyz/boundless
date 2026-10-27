@@ -3,16 +3,6 @@
 Use both feature branches, checked out as sibling directories `market/` and `zkc/`.
 The ZKC branch is `codex/povw-sunset`; the market branch is `codex/protocol-sunset`.
 These instructions need no files from the original author's preparation directory.
-To share the unpublished branches, create local Git bundles:
-
-```bash
-git -C market bundle create ../sunset-market.bundle codex/protocol-sunset
-git -C zkc bundle create ../sunset-zkc.bundle codex/povw-sunset
-```
-
-A colleague can use `git clone --branch codex/protocol-sunset sunset-market.bundle market` and
-`git clone --branch codex/povw-sunset sunset-zkc.bundle zkc`, then follow the commands below. Submodules still
-come from their pinned upstream commits. Git bundles exclude ignored local configuration.
 
 ## Setup and unit tests
 
