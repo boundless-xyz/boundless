@@ -35,21 +35,21 @@ Disable gas snapshot emission to preserve tracked snapshots. Do not use deployme
 
 ## Upgrade validation
 
-From the same parent directory, compare each candidate with its frozen original.
-Separate build-info directories prevent older compiler output from entering the check.
-No unsafe validation flags are required.
+From the same parent directory, use the build info from the unit suites above to
+compare each candidate with its frozen original. Run this before the fork rehearsals.
+OpenZeppelin checks storage layout and upgrade safety; the rehearsals separately check
+full runtime bytecode with the deployment profiles. No unsafe validation flags are required.
 
 ```bash
-(cd market && FOUNDRY_BUILD_INFO_PATH=out/validate-base/build-info forge build --offline --force --out out/validate-base --cache-path cache/validate-base)
-(cd market && FOUNDRY_PROFILE=shanghai FOUNDRY_EVM_VERSION=shanghai FOUNDRY_BUILD_INFO_PATH=out/validate-taiko/build-info forge build --offline --force --out out/validate-taiko --cache-path cache/validate-taiko)
-(cd market && FOUNDRY_PROFILE=povw-deploy FOUNDRY_BUILD_INFO_PATH=out/validate-povw/build-info forge build --offline --force --out out/validate-povw --cache-path cache/validate-povw)
-(cd zkc && FOUNDRY_BUILD_INFO_PATH=out/validate-zkc/build-info forge build --offline --force --out out/validate-zkc --cache-path cache/validate-zkc)
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/validate-base/build-info --contract contracts/src/BoundlessMarket.sol:BoundlessMarket --reference contracts/test/reference/BoundlessMarketOriginal.sol:BoundlessMarketOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/validate-taiko/build-info --contract contracts/shanghai/variants/BoundlessMarket.sol:BoundlessMarket --reference contracts/test/reference/BoundlessMarketShanghaiOriginal.sol:BoundlessMarketOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/validate-povw/build-info --contract contracts/src/povw/PovwAccounting.sol:PovwAccounting --reference contracts/test/reference/PovwAccountingOriginal.sol:PovwAccountingOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/validate-povw/build-info --contract contracts/src/povw/PovwMint.sol:PovwMint --reference contracts/test/reference/PovwMintOriginal.sol:PovwMintOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate zkc/out/validate-zkc/build-info --contract src/ZKC.sol:ZKC --reference test/reference/ZKCOriginal.sol:ZKCOriginal --requireReference
+npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/build-info --contract contracts/src/BoundlessMarket.sol:BoundlessMarket --reference contracts/test/reference/BoundlessMarketOriginal.sol:BoundlessMarketOriginal --requireReference
+npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out-shanghai/build-info --contract contracts/shanghai/variants/BoundlessMarket.sol:BoundlessMarket --reference contracts/test/reference/BoundlessMarketShanghaiOriginal.sol:BoundlessMarketOriginal --requireReference
+npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/build-info --contract contracts/src/povw/PovwAccounting.sol:PovwAccounting --reference contracts/test/reference/PovwAccountingOriginal.sol:PovwAccountingOriginal --requireReference
+npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/build-info --contract contracts/src/povw/PovwMint.sol:PovwMint --reference contracts/test/reference/PovwMintOriginal.sol:PovwMintOriginal --requireReference
+npx --yes @openzeppelin/upgrades-core@1.40.0 validate zkc/out/build-info --contract src/ZKC.sol:ZKC --reference test/reference/ZKCOriginal.sol:ZKCOriginal --requireReference
 ```
+
+Use clean checkouts for this sequence. Old build-info files from incremental builds can
+make contract names ambiguous; do not mix those with the inputs above.
 
 ## Fork rehearsals
 
