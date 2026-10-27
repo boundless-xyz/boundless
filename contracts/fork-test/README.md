@@ -99,8 +99,8 @@ cp market-reference/out/reference-povw-production/build-info/*.json market/contr
 python3 market/contracts/fork-test/rehearse.py --environment production --zkc-repo zkc --output market/out/handoff/production
 ```
 
-All six rehearsals must report `passed`. Staging has 17 Foundry cases; production has
-21 supplied-candidate cases plus two exact Ethereum batch cases. Ethereum upgrades
+All six rehearsals must report `passed`, including exact exported rollback execution
+before and after the cutoff. Ethereum upgrades
 Accounting, Mint and ZKC atomically in that order, with no initializer. Base and Taiko
 upgrade their markets separately. Staging Taiko is chain 167000 and shares the production
 Safe and nonce. Sepolia uses its own 3-of-5 Safe; the other Safes require 3-of-6.
@@ -130,7 +130,7 @@ Do not submit rehearsal JSON to a live Safe. After approved candidate deployment
 regenerate the unsigned draft against current chain state. `prepare.py` performs RPC
 reads only, even for loopback endpoints. It checks supplied candidate runtimes against
 locally rebuilt artifacts and pins every read to one block. Draft preparation requires
-a snapshot before the cutoff. For example, from `market/`:
+a snapshot before the cutoff for upgrades. For example, from `market/`:
 
 ```bash
 python3 contracts/fork-test/prepare.py --environment staging --chain ethereum --zkc-repo ../zkc --candidate accounting=0xACCOUNTING --candidate mint=0xMINT --candidate zkc=0xZKC --output out/staging-draft/transaction.json
@@ -143,3 +143,23 @@ The command exports the exact Safe transaction and a Transaction Builder file, b
 not collect signatures or submit anything. Refresh after any intervening Safe transaction,
 including a Taiko staging upgrade. A changed baseline, dependency or bytecode template
 requires review and updated pins; do not bypass a mismatch.
+
+## Rollback
+
+The preparer also writes `rollback/transaction.json` and `rollback/safe-builder.json`
+beside each upgrade draft. They call `upgradeToAndCall(previousImplementation, "")`
+with no migration, using pinned baseline addresses and full runtime hashes. Ethereum
+restores Accounting, Mint and ZKC atomically; Base and Taiko restore their markets separately.
+
+For upgrade nonce N, the rollback hash uses N+1. Have three owners review and sign it
+off-chain before upgrading if fast recovery is required. Check installed implementations,
+baseline hashes and the Safe nonce before executing. Any intervening Safe transaction
+requires a fresh hash and signatures; Taiko staging and production share one nonce sequence.
+After installation, rerun the preparation command with the same candidate addresses,
+`--rollback` and a separate `--output` directory. It requires those candidates to be
+installed and works after the cutoff. All RPC calls remain read-only.
+
+A failed atomic upgrade needs no rollback. After a successful rollback, verify the recorded
+implementation slots, withdrawals and passive staking claims. Rollback restores the original
+PoVW minting and emission schedule; it does not undo completed transactions or verifier cleanup.
+Generated packets stay under ignored output directories. No deployment or signing keys are needed.

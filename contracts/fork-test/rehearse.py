@@ -188,7 +188,7 @@ def verify_runtime(rpc, target, artifact, candidate):
     return keccak(actual)
 
 
-def export_transaction(rpc, label, chain_id, steps, path, block, safe=None):
+def export_transaction(rpc, label, chain_id, steps, path, block, safe=None, nonce=None, name=None):
     safe = safe or (FOUNDATION if chain_id == 1 else TAIKO_SAFE if label == "taiko" else SAFE)
     owners = abi_addresses(rpc.view(safe, "getOwners()"))
     threshold = rpc.uint(safe, "getThreshold()")
@@ -202,7 +202,7 @@ def export_transaction(rpc, label, chain_id, steps, path, block, safe=None):
         [s["proxy"] for s in steps],
         calls,
         [s["contract"] for s in steps],
-        label + " upgrades",
+        name or label + " upgrades",
     )
     path.with_name("safe-builder.json").write_text(json.dumps(builder, indent=2) + "\n")
     assert [(v["to"], v["data"]) for v in builder["transactions"]] == [(s["proxy"], c) for s, c in zip(steps, calls)]
@@ -226,7 +226,8 @@ def export_transaction(rpc, label, chain_id, steps, path, block, safe=None):
         target = MULTISEND
         data = encode("multiSend(bytes)", packed)
         operation = 1
-    nonce = rpc.uint(safe, "nonce()")
+    if nonce is None:
+        nonce = rpc.uint(safe, "nonce()")
     hash_args = [target, 0, data, operation, 0, 0, 0, ZERO, ZERO, nonce]
     txhash = rpc.view(
         safe,
@@ -525,6 +526,11 @@ def run_one(label, output, manifest):
         assert tx["local_fixture"] and tx["rpc_reads_only"] and not tx["live_submission_ready"]
         (folder / "transaction.json").write_text(local_bundle.read_text())
         (folder / "safe-builder.json").write_text(local_bundle.with_name("safe-builder.json").read_text())
+        rollback_bundle = local_bundle.parent / "rollback/transaction.json"
+        rollback = json.loads(rollback_bundle.read_text())
+        (folder / "rollback").mkdir(exist_ok=True)
+        for name in ["transaction.json", "safe-builder.json"]:
+            (folder / "rollback" / name).write_bytes((rollback_bundle.parent / name).read_bytes())
         env = os.environ.copy()
         env.update(
             FOUNDRY_FFI="false",
@@ -592,6 +598,7 @@ def run_one(label, output, manifest):
                     FOUNDRY_TEST="contracts/fork-test",
                     FOUNDRY_PROFILE="povw-deploy",
                     SUNSET_BUNDLE=str(local_bundle),
+                    SUNSET_ROLLBACK_BUNDLE=str(rollback_bundle),
                 )
                 run_tests(
                     [
@@ -617,6 +624,26 @@ def run_one(label, output, manifest):
                 )
         # Foundry forks independently. Also execute the exported bytes on the parent Anvil.
         execution = execute_exact(rpc, tx)
+        snapshot = rpc.call("evm_snapshot", [])
+        rollbacks = []
+        for after_cutoff in [False, True]:
+            if after_cutoff:
+                assert rpc.call("evm_revert", [snapshot])
+                rpc.call("evm_setNextBlockTimestamp", [manifest["cutoff_timestamp"] + 1])
+                rpc.call("evm_mine", [])
+            # Refresh through the read-only CLI against the installed candidates, even after T.
+            refreshed_path = folder / (
+                "rollback-refreshed-after" if after_cutoff else "rollback-refreshed-before"
+            ) / "transaction.json"
+            refresh_args = prepare_args.copy()
+            refresh_args[refresh_args.index("--output") + 1] = str(refreshed_path)
+            refreshed = subprocess.run(refresh_args + ["--rollback"], capture_output=True, text=True)
+            (folder / ("rollback-refresh-after.log" if after_cutoff else "rollback-refresh-before.log")).write_text(refreshed.stdout + refreshed.stderr)
+            assert refreshed.returncode == 0, "rollback refresh failed"
+            fresh = json.loads(refreshed_path.read_text())
+            for field in ["safe", "to", "value", "data", "operation", "nonce", "safeTxHash"]:
+                assert fresh[field] == rollback[field], "rollback refresh changed " + field
+            rollbacks.append(dict(after_cutoff=after_cutoff, **execute_exact(rpc, rollback)))
         result = {
             "status": "passed",
             "label": label,
@@ -626,6 +653,7 @@ def run_one(label, output, manifest):
             "local_candidate_block": block,
             "anvil_hardfork": hardfork,
             "anvil_execution": execution,
+            "anvil_rollbacks": rollbacks,
             "live_writes": False,
             "live_submission_ready": False,
             "deployment_path": "Existing repository scripts on localhost Anvil with OpenZeppelin upgrade and storage validation enabled.",

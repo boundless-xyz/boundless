@@ -24,6 +24,7 @@ contract EthereumBatchForkTest is SafeFork {
     address constant MINT = 0xBFCE7c2d5e7EdDEab71B3eeED770713c8b755397;
     address constant ZKC = 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555;
     bytes bundle;
+    bytes rollbackBundle;
     address[3] proxies = [ACCOUNTING, MINT, ZKC];
     address[3] candidates;
     address[3] baselines;
@@ -62,6 +63,30 @@ contract EthereumBatchForkTest is SafeFork {
         assertEq(baselines[0].codehash, 0x4bac90ef98d198c558b236c0004335cbbd71f341623eb723679f424ae23654d9);
         assertEq(baselines[1].codehash, 0x45300b4466837e64abce4d91f75fd4576438490a5430ba938a892f2dab816cc8);
         assertEq(baselines[2].codehash, 0x809103882fcb7d3a50c452a7db932916ec00c50abacbb3452508085a6aa79529);
+        string memory rollbackJson = vm.readFile(vm.envString("SUNSET_ROLLBACK_BUNDLE"));
+        assertEq(vm.parseJsonAddress(rollbackJson, ".safe"), SAFE);
+        assertEq(vm.parseJsonAddress(rollbackJson, ".to"), MULTISEND);
+        assertEq(vm.parseJsonUint(rollbackJson, ".chainId"), 1);
+        assertEq(vm.parseJsonUint(rollbackJson, ".operation"), 1);
+        assertEq(vm.parseJsonUint(rollbackJson, ".value"), 0);
+        assertEq(vm.parseJsonUint(rollbackJson, ".safeTxGas"), 0);
+        assertEq(vm.parseJsonUint(rollbackJson, ".baseGas"), 0);
+        assertEq(vm.parseJsonUint(rollbackJson, ".gasPrice"), 0);
+        assertEq(vm.parseJsonAddress(rollbackJson, ".gasToken"), address(0));
+        assertEq(vm.parseJsonAddress(rollbackJson, ".refundReceiver"), address(0));
+        assertEq(vm.parseJsonUint(rollbackJson, ".nonce"), nonce + 1);
+        rollbackBundle = vm.parseJsonBytes(rollbackJson, ".data");
+        assertEq(
+            vm.parseJsonBytes32(rollbackJson, ".safeTxHash"),
+            IForkSafe(SAFE)
+                .getTransactionHash(MULTISEND, 0, rollbackBundle, 1, 0, 0, 0, address(0), address(0), nonce + 1)
+        );
+        bytes memory packed;
+        for (uint256 i; i < 3; ++i) {
+            bytes memory call = upgradeCall(baselines[i]);
+            packed = abi.encodePacked(packed, uint8(0), proxies[i], uint256(0), uint256(call.length), call);
+        }
+        assertEq(rollbackBundle, abi.encodeWithSignature("multiSend(bytes)", packed));
     }
 
     function testForkExactExportedBatchAndCutoff() public {
@@ -103,6 +128,45 @@ contract EthereumBatchForkTest is SafeFork {
         assertEq(IForkSafe(SAFE).nonce(), nonce);
         for (uint256 i; i < 3; ++i) {
             assertEq(implementation(proxies[i]), baselines[i]);
+        }
+    }
+
+    function testForkExactExportedRollbackBeforeAndAfterCutoff() public {
+        uint256 balance = IBatchZKC(ZKC).balanceOf(SAFE);
+        uint256 staking = IBatchZKC(ZKC).getTotalStakingEmissionsAtEpochStart(364);
+        uint256 povw = IBatchZKC(ZKC).getTotalPoVWEmissionsAtEpochStart(364);
+        executeSafe(SAFE, MULTISEND, bundle, 1, true);
+        for (uint256 i; i < 2; ++i) {
+            uint256 snapshot = vm.snapshotState();
+            if (i == 1) vm.warp(T + 1);
+            vm.record();
+            executeSafe(SAFE, MULTISEND, rollbackBundle, 1, true);
+            for (uint256 j; j < 3; ++j) {
+                assertEq(implementation(proxies[j]), baselines[j]);
+                assertOnlyImplementationWritten(proxies[j]);
+            }
+            assertEq(IBatchZKC(ZKC).balanceOf(SAFE), balance);
+            assertEq(IBatchZKC(ZKC).getTotalStakingEmissionsAtEpochStart(364), staking);
+            assertEq(IBatchZKC(ZKC).getTotalPoVWEmissionsAtEpochStart(364), povw);
+            assertTrue(vm.revertToState(snapshot));
+        }
+    }
+
+    function testForkFailedThirdRollbackKeepsAllCandidates() public {
+        executeSafe(SAFE, MULTISEND, bundle, 1, true);
+        bytes memory third = upgradeCall(address(0));
+        bytes memory calls = abi.decode(slice(rollbackBundle, 4), (bytes));
+        bytes memory firstTwo = sliceLength(calls, 0, calls.length - 185);
+        bytes memory failed = abi.encodeWithSignature(
+            "multiSend(bytes)", abi.encodePacked(firstTwo, uint8(0), ZKC, uint256(0), uint256(third.length), third)
+        );
+        uint256 nonce = IForkSafe(SAFE).nonce();
+        vm.expectCall(ZKC, third);
+        vm.expectRevert(bytes("GS013"));
+        this.executeInvalidBatch(failed);
+        assertEq(IForkSafe(SAFE).nonce(), nonce);
+        for (uint256 i; i < 3; ++i) {
+            assertEq(implementation(proxies[i]), candidates[i]);
         }
     }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify deployed candidates and write an unsigned Safe draft. RPC reads only."""
+"""Verify deployed candidates and prepare unsigned upgrade/rollback drafts. RPC reads only."""
 import argparse
 import importlib.util
 import json
@@ -36,7 +36,7 @@ class ReadOnlyRPC(staging.RPC):
         return super().call(method, params)
 
 
-def prepare(label, url, candidates, output):
+def prepare(label, url, candidates, output, rollback=False):
     chain_id, _, keys = staging.CHAINS[label]
     assert set(candidates) == set(
         keys
@@ -48,9 +48,12 @@ def prepare(label, url, candidates, output):
     rpc = ReadOnlyRPC(url)
     assert int(rpc.call("eth_chainId", []), 16) == chain_id, "wrong RPC chain"
     block = rpc.call("eth_getBlockByNumber", ["latest", False])
-    assert int(block["timestamp"], 16) < 1793836800, "cutoff already reached"
     rpc.block = block["number"]
     manifest = json.loads(staging.MANIFEST.read_text())
+    if not rollback:
+        assert (
+            int(block["timestamp"], 16) < manifest["cutoff_timestamp"]
+        ), "cutoff already reached"
     safe = (
         staging.FOUNDATION
         if chain_id == 1
@@ -64,10 +67,12 @@ def prepare(label, url, candidates, output):
             if v["environment"] == staging.ENVIRONMENT and v["contract"] == key
         )
         proxy = target["proxy"]
-        old = "0x" + rpc.call("eth_getStorageAt", [proxy, staging.SLOT, "latest"])[-40:]
+        old = target["baseline_implementation"]
+        candidate = candidates[key]
+        current = "0x" + rpc.call("eth_getStorageAt", [proxy, staging.SLOT, "latest"])[-40:]
         assert (
-            old.lower() == target["baseline_implementation"].lower()
-        ), "baseline changed"
+            current.lower() == (candidate if rollback else old).lower()
+        ), "installed candidate changed" if rollback else "baseline changed"
         old_hash = staging.keccak(rpc.call("eth_getCode", [old, "latest"]))
         assert old_hash == target["baseline_code_hash"], "baseline runtime changed"
         if key in ("accounting", "mint"):
@@ -79,7 +84,6 @@ def prepare(label, url, candidates, output):
                 rpc.uint(proxy, "hasRole(bytes32,address)", "0x" + "00" * 32, safe) == 1
             ), "missing Safe admin"
         artifact_path, artifact = staging.artifact_for(manifest, key)
-        candidate = candidates[key]
         assert candidate.lower() != old.lower(), "candidate is the baseline"
         runtime_hash = staging.verify_runtime(rpc, proxy, artifact, candidate)
         steps.append(
@@ -123,9 +127,31 @@ def prepare(label, url, candidates, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent) as pending:
         temporary = Path(pending) / output.name
+        rollback_steps = [
+            dict(
+                step,
+                implementation=step["baseline"],
+                runtimeCodeHash=step["baselineCodeHash"],
+                upgradedImplementation=step["implementation"],
+                upgradedRuntimeCodeHash=step["runtimeCodeHash"],
+            )
+            for step in steps
+        ]
         transaction = staging.export_transaction(
-            rpc, label, chain_id, steps, temporary, int(rpc.block, 16)
+            rpc, label, chain_id, rollback_steps if rollback else steps,
+            temporary, int(rpc.block, 16),
+            name=label + (" rollback" if rollback else " upgrades"),
         )
+        drafts = [(temporary, transaction, rollback)]
+        if not rollback:
+            rollback_path = temporary.parent / "rollback/transaction.json"
+            rollback_path.parent.mkdir()
+            rollback_transaction = staging.export_transaction(
+                rpc, label, chain_id, rollback_steps, rollback_path,
+                int(rpc.block, 16), nonce=transaction["nonce"] + 1,
+                name=label + " rollback",
+            )
+            drafts.append((rollback_path, rollback_transaction, True))
         owners = transaction["owners"]
         assert len({owner.lower() for owner in owners}) == len(owners) and all(
             int(owner, 16) for owner in owners
@@ -135,27 +161,60 @@ def prepare(label, url, candidates, output):
             == block["hash"]
         ), "snapshot reorganized"
         fixture = urlparse(url).hostname == "127.0.0.1"
-        transaction.update(
-            scope=(
-                "LOCAL FORK FIXTURE ONLY. Do not submit these candidate addresses to a live Safe."
-                if fixture
-                else "Unsigned upgrade draft for supplied deployed candidates. Recheck nonce and candidates before collecting signatures."
-            ),
-            local_fixture=fixture,
-            live_submission_ready=False,
-            snapshotBlockHash=block["hash"],
-            rpc_reads_only=True,
-            requires_signer_confirmation=True,
-        )
-        if label == "taiko":
-            transaction[
-                "scope"
-            ] += " Taiko staging and production share this Safe and nonce on chain 167000. Execute staging first, then regenerate the production draft and nonce."
-        temporary.write_text(json.dumps(transaction, indent=2) + "\n")
-        temporary.with_name("safe-builder.json").replace(
-            output.with_name("safe-builder.json")
-        )
-        temporary.replace(output)
+        for path, draft, is_rollback in drafts:
+            draft.update(
+                scope=(
+                    "LOCAL FORK FIXTURE ONLY. Do not submit this draft to a live Safe."
+                    if fixture
+                    else "Unsigned Safe draft. Recheck nonce and implementations before collecting signatures."
+                ),
+                action="rollback" if is_rollback else "upgrade",
+                local_fixture=fixture,
+                live_submission_ready=False,
+                snapshotBlockHash=block["hash"],
+                rpc_reads_only=True,
+                requires_signer_confirmation=True,
+            )
+            if is_rollback:
+                draft["scope"] += (
+                    " Execute only after the expected upgrade and a rollback decision."
+                    " Restores original PoVW behavior and emissions."
+                )
+            if label == "taiko":
+                draft["scope"] += " Taiko staging and production share this Safe and nonce on chain 167000."
+                draft["scope"] += (
+                    " Regenerate after any intervening Safe transaction."
+                    if is_rollback
+                    else " Execute staging first, then regenerate the production draft and nonce."
+                )
+            path.write_text(json.dumps(draft, indent=2) + "\n")
+        # Check every destination before publishing; retain old drafts for error recovery.
+        publications = []
+        previous = {}
+        for path, _, _ in drafts:
+            destination = (
+                output if path == temporary else output.parent / "rollback/transaction.json"
+            )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            for source, target in [
+                (path.with_name("safe-builder.json"), destination.with_name("safe-builder.json")),
+                (path, destination),
+            ]:
+                previous[target] = target.read_bytes() if target.exists() else None
+                publications.append((source, target))
+        published = []
+        try:
+            for source, target in publications:
+                source.replace(target)
+                published.append((source, target))
+        except OSError:
+            for source, target in reversed(published):
+                if previous[target] is None:
+                    target.unlink()
+                else:
+                    source.write_bytes(previous[target])
+                    source.replace(target)
+            raise
     return transaction
 
 
@@ -179,6 +238,10 @@ def main():
         "--candidate", action="append", required=True, metavar="CONTRACT=ADDRESS"
     )
     parser.add_argument("--rpc-url")
+    parser.add_argument(
+        "--rollback", action="store_true",
+        help="Refresh rollback after installation, including after cutoff; candidates must be currently installed",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     staging.configure(args.environment, args.zkc_repo)
@@ -187,6 +250,7 @@ def main():
         args.rpc_url or staging.CHAINS[args.chain][1],
         parse_candidates(args.candidate),
         args.output,
+        rollback=args.rollback,
     )
     print(
         json.dumps(

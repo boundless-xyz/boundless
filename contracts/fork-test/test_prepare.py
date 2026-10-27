@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -112,6 +113,7 @@ class CandidateValidation(unittest.TestCase):
         self.baseline_code = "0x6000"
         keys = ["base", "taiko", "accounting", "mint", "zkc"]
         self.manifest = {
+            "cutoff_timestamp": 1793836800,
             "artifacts": {
                 key: {
                     "path": "artifact.json",
@@ -153,6 +155,8 @@ class CandidateValidation(unittest.TestCase):
                 self.owners = ["0x" + f"{i:040x}" for i in range(1, 7)]
                 self.reorganized = False
                 self.timestamp = 1793836799
+                self.nonce = 7
+                self.hash_calls = []
 
             def call(self, method, params):
                 assert method in prepare.staging.READS
@@ -192,8 +196,9 @@ class CandidateValidation(unittest.TestCase):
                         + "".join(o[2:].rjust(64, "0") for o in self.owners)
                     )
                 if signature == "nonce()":
-                    return "0x7"
+                    return hex(self.nonce)
                 if signature.startswith("getTransactionHash("):
+                    self.hash_calls.append(args)
                     return "0x" + "cc" * 32
                 raise AssertionError("unexpected view: " + signature)
 
@@ -209,7 +214,7 @@ class CandidateValidation(unittest.TestCase):
         self.transport_patch.start()
         self.addCleanup(self.transport_patch.stop)
 
-    def run_prepare(self, label="base", candidate=None):
+    def run_prepare(self, label="base", candidate=None, rollback=False):
         return prepare.prepare(
             label,
             "https://example.com",
@@ -218,22 +223,123 @@ class CandidateValidation(unittest.TestCase):
                 for key in prepare.staging.CHAINS[label][2]
             },
             self.output,
+            rollback=rollback,
         )
 
-    def reject(self, message, label="base", candidate=None):
-        # A rejected refresh must preserve both artifacts the signer reviewed.
+    def reject(self, message, label="base", candidate=None, rollback=False):
+        # A rejected refresh must preserve the upgrade and rollback artifacts.
         self.output.parent.mkdir(parents=True, exist_ok=True)
         self.output.write_text("previous reviewed draft")
         builder = self.output.with_name("safe-builder.json")
         builder.write_text("previous reviewed builder")
+        recovery = self.output.parent / "rollback"
+        recovery.mkdir(exist_ok=True)
+        for name in ["transaction.json", "safe-builder.json"]:
+            (recovery / name).write_text("previous reviewed rollback")
         with self.assertRaisesRegex(AssertionError, message):
-            self.run_prepare(label, candidate)
+            self.run_prepare(label, candidate, rollback=rollback)
         self.assertEqual(self.output.read_text(), "previous reviewed draft")
         self.assertEqual(builder.read_text(), "previous reviewed builder")
+        for name in ["transaction.json", "safe-builder.json"]:
+            self.assertEqual((recovery / name).read_text(), "previous reviewed rollback")
         self.assertEqual(
             sorted(p.name for p in self.output.parent.iterdir()),
-            ["safe-builder.json", "transaction.json"],
+            ["rollback", "safe-builder.json", "transaction.json"],
         )
+
+    def test_upgrade_exports_matching_rollback_at_next_nonce(self):
+        upgrade = self.run_prepare()
+        folder = self.output.parent / "rollback"
+        rollback = json.loads((folder / "transaction.json").read_text())
+        builder = json.loads((folder / "safe-builder.json").read_text())
+        self.assertEqual(upgrade["action"], "upgrade")
+        self.assertEqual(rollback["action"], "rollback")
+        self.assertEqual(rollback["nonce"], upgrade["nonce"] + 1)
+        self.assertEqual([args[-1] for args in self.rpc.hash_calls], [7, 8])
+        for key in ["safe", "chainId", "to", "operation", "snapshotBlockHash"]:
+            self.assertEqual(rollback[key], upgrade[key])
+        self.assertEqual(rollback["steps"][0]["upgradedImplementation"], self.candidate)
+        self.assertEqual(rollback["steps"][0]["upgradedRuntimeCodeHash"], prepare.staging.keccak(self.runtime))
+        self.assertEqual(rollback["steps"][0]["runtimeCodeHash"], prepare.staging.keccak(self.baseline_code))
+        # Decode the saved call independently of the exporter, including empty init bytes.
+        call = bytes.fromhex(rollback["data"][2:])
+        self.assertEqual(call[:4].hex(), "4f1ef286")
+        self.assertEqual(call[4:36], bytes.fromhex(self.old[2:].rjust(64, "0")))
+        self.assertEqual(int.from_bytes(call[36:68], "big"), 64)
+        self.assertEqual(call[68:], bytes(32))
+        self.assertEqual(len(call), 100)
+        self.assertEqual(builder["transactions"][0]["data"], rollback["data"])
+        self.assertEqual(builder["transactions"][0]["value"], "0")
+        self.assertIn("Restores original PoVW", rollback["scope"])
+
+    def test_refresh_rollback_after_cutoff_uses_current_nonce(self):
+        self.rpc.implementation = self.candidate
+        self.rpc.timestamp = 1793836801
+        self.rpc.nonce = 10
+        rollback = self.run_prepare(rollback=True)
+        self.assertEqual(rollback["action"], "rollback")
+        self.assertEqual(rollback["nonce"], 10)
+        self.assertEqual(rollback["steps"][0]["implementation"], self.old)
+        self.assertEqual([args[-1] for args in self.rpc.hash_calls], [10])
+        self.assertTrue(rollback["rpc_reads_only"])
+        self.assertFalse(rollback["live_submission_ready"])
+
+    def test_rollback_requires_expected_installed_candidate(self):
+        for current in [self.old, "0x" + "55" * 20]:
+            with self.subTest(current=current):
+                self.rpc.implementation = current
+                self.reject("installed candidate changed", rollback=True)
+
+    def test_rollback_rechecks_baseline_runtime_and_candidate_runtime(self):
+        self.rpc.implementation = self.candidate
+        self.rpc.baseline_code = "0x6001"
+        self.reject("baseline runtime changed", rollback=True)
+        self.rpc.baseline_code = self.baseline_code
+        self.rpc.runtime = "0x"
+        self.reject("runtime/dependency mismatch", rollback=True)
+
+    def test_rollback_reorganization_preserves_previous_drafts(self):
+        self.rpc.implementation = self.candidate
+        self.rpc.reorganized = True
+        self.reject("snapshot reorganized", rollback=True)
+
+    def test_blocked_rollback_destination_preserves_upgrade(self):
+        self.output.parent.mkdir(parents=True)
+        self.output.write_text("previous reviewed draft")
+        builder = self.output.with_name("safe-builder.json")
+        builder.write_text("previous reviewed builder")
+        recovery = self.output.parent / "rollback"
+        recovery.write_text("blocked directory")
+        with self.assertRaises(FileExistsError):
+            self.run_prepare()
+        self.assertEqual(self.output.read_text(), "previous reviewed draft")
+        self.assertEqual(builder.read_text(), "previous reviewed builder")
+        self.assertEqual(recovery.read_text(), "blocked directory")
+
+    def test_publication_failure_restores_previous_drafts(self):
+        replace = Path.replace
+        for existing, failed_name in [
+            (False, "safe-builder.json"), (False, "transaction.json"),
+            (True, "safe-builder.json"), (True, "transaction.json"),
+        ]:
+            with self.subTest(existing=existing, failed_name=failed_name):
+                self.output = self.root / (str(existing) + failed_name) / "transaction.json"
+                if existing:
+                    self.run_prepare()
+                paths = [self.output, self.output.with_name("safe-builder.json")]
+                paths += [self.output.parent / "rollback" / name for name in ["transaction.json", "safe-builder.json"]]
+                previous = {p: p.read_bytes() if p.exists() else None for p in paths}
+                self.rpc.nonce += 1
+
+                def fail_rollback(source, destination):
+                    if source.name == failed_name and Path(destination) == self.output.parent / "rollback" / failed_name:
+                        raise OSError("simulated rollback publication failure")
+                    return replace(source, destination)
+
+                with patch.object(Path, "replace", fail_rollback):
+                    with self.assertRaisesRegex(OSError, "simulated rollback publication failure"):
+                        self.run_prepare()
+                self.assertEqual({p: p.read_bytes() if p.exists() else None for p in paths}, previous)
 
     def test_manifest_alone_prepares_without_prior_transaction_fixture(self):
         import json
@@ -346,6 +452,10 @@ class CandidateValidation(unittest.TestCase):
         self.assertEqual(transaction["safe"], prepare.staging.TAIKO_SAFE)
         self.assertIn("share this Safe and nonce", transaction["scope"])
         self.assertIn("regenerate the production draft", transaction["scope"])
+        rollback = json.loads((self.output.parent / "rollback/transaction.json").read_text())
+        self.assertIn("share this Safe and nonce", rollback["scope"])
+        self.assertIn("any intervening Safe transaction", rollback["scope"])
+        self.assertNotIn("Execute staging first", rollback["scope"])
 
     def test_production_configuration_uses_reviewed_production_targets(self):
         for target in self.manifest["targets"]:
