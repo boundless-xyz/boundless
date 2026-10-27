@@ -23,8 +23,8 @@
     },
     "zkc": {
       "path": "out/script-rehearsal-zkc/ZKC.sol/ZKC.json",
-      "runtime_template_keccak256": "0x865ac564b6a9b7e6cc1f6118c857c213ff1af94f6a6f621fb53c488b89235393",
-      "creation_bytecode_keccak256": "0x09f914c8b8d884e84229d45ed4a0350f86a894cf05774cb77dfb6adfc92f9704"
+      "runtime_template_keccak256": "0x2801a564ea8b0eadba5094edc591c6727367b6fdf92b066258263a2ddecce4bc",
+      "creation_bytecode_keccak256": "0x7ddcf83fd165d581deb385bbc0e7065f53f5d1ee911185e3c23369d98b15be57"
     }
   },
   "targets": [
