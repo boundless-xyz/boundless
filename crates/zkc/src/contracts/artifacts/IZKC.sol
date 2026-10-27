@@ -44,7 +44,7 @@ interface IZKC {
     ///      as part of staking/work during the current epoch.
     /// @param epoch The epoch number (0-indexed)
     /// @return The total supply at the start of the epoch
-    function getSupplyAtEpochStart(uint256 epoch) external view returns (uint256);
+    function getSupplyAtEpochStart(uint256 epoch) external pure returns (uint256);
 
     /// @notice Get the cumulative total PoVW emissions since genesis up to the start of a specific epoch
     /// @param epoch The epoch number

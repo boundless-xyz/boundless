@@ -2,7 +2,7 @@
 
 Local implementation for November 5, 2026, 00:00 UTC (`1793836800`). Both market variants reject new work and fulfillment. PoVW Accounting rejects updates/finalization; PoVW Mint rejects every claim. Withdrawals, reads and upgrade administration remain available. No storage or initializer changes.
 
-The only production changes are cutoff checks, the shared `Sunset` library, and the generated Solidity ZKC interface's `pure` to `view` correction. Frozen baseline contracts are test fixtures. ZKC emission changes live in the separate `codex/povw-sunset` branch.
+The only production changes are cutoff checks and the shared `Sunset` library. Frozen baseline contracts are test fixtures. ZKC emission changes live in the separate `codex/povw-sunset` branch.
 
 ## Tests
 
