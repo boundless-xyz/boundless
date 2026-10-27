@@ -16,6 +16,7 @@ import {BoundlessMarketLib} from "../src/libraries/BoundlessMarketLib.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {Utils} from "openzeppelin-foundry-upgrades/internal/Utils.sol";
 import {Options as UpgradeOptions} from "openzeppelin-foundry-upgrades/Options.sol";
 import {BoundlessScriptBase} from "./BoundlessScript.s.sol";
 
@@ -194,16 +195,8 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         // captured value.
         string memory legacyImageUrl = vm.envOr("LEGACY_ASSESSOR_GUEST_URL", readLegacyImageUrl(marketAddress));
 
-        // Upgrade requires build info from the currently deployed version.
-        // You can get this build info with the following process.
-        // Check the `deployment.toml` for the deployed commit.
-        //
-        // ```sh
-        // git worktree add ../boundless-reference ${DEPLOYED_COMMIT:?}
-        // cd ../boundless-reference
-        // forge build
-        // cp -R out/build-info ../boundless/contracts/build-info-reference
-        // ```
+        // Build the deployed source with the chain compiler profile.
+        // See contracts/fork-test/README.md for the pinned sunset references.
         UpgradeOptions memory opts;
         opts.constructorData =
             BoundlessMarketLib.encodeConstructorArgs(BoundlessRouter(boundlessRouter), collateralToken, legacyImpl);
@@ -215,8 +208,11 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
             // Only set reference contract when doing safety checks. The file-qualified name is
             // required: the legacy fallback source (BoundlessMarketLegacy.sol) also declares a
             // contract named BoundlessMarket, so the bare name is ambiguous in any build that
-            // includes contracts/src/legacy/.
-            opts.referenceContract = "build-info-reference:contracts/src/BoundlessMarket.sol:BoundlessMarket";
+            // includes contracts/src/legacy/. Resolve the active profile to select Shanghai on Taiko.
+            opts.referenceContract = string.concat(
+                "build-info-reference:",
+                Utils.getFullyQualifiedName("BoundlessMarket.sol:BoundlessMarket", Utils.getOutDir())
+            );
             opts.referenceBuildInfoDir = "contracts/build-info-reference";
         }
 

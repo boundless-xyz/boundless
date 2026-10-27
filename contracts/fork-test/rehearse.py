@@ -333,7 +333,9 @@ def deploy_with_repo_script(rpc, label, key, proxy, folder, chain_key=None):
         CHAIN_KEY=chain_key,
         STACK_TAG="",
         GNOSIS_EXECUTE="true",
-        SKIP_SAFETY_CHECKS="true",
+        SKIP_SAFETY_CHECKS="false",
+        FOUNDRY_FFI="true",
+        FOUNDRY_OUT="out/script-rehearsal-" + key,
         DEPLOYER_PRIVATE_KEY="0",
         DEPLOYER_ADDRESS=SENDER,
         FOUNDRY_PROFILE=profile,
@@ -360,6 +362,7 @@ def deploy_with_repo_script(rpc, label, key, proxy, folder, chain_key=None):
         "--sender",
         SENDER,
         "--skip-simulation",
+        "--force",
         "--out",
         "out/script-rehearsal-" + key,
         "--cache-path",
@@ -625,7 +628,7 @@ def run_one(label, output, manifest):
             "anvil_execution": execution,
             "live_writes": False,
             "live_submission_ready": False,
-            "deployment_path": "Existing repository scripts on localhost Anvil. SKIP_SAFETY_CHECKS=true only here; run OZ validation separately as documented.",
+            "deployment_path": "Existing repository scripts on localhost Anvil with OpenZeppelin upgrade and storage validation enabled.",
             "limitations": "Local fixture addresses and impersonated owners. Proof verifiers are mocked where required. No signer availability check.",
         }
         (folder / "result.json").write_text(json.dumps(result, indent=2) + "\n")
@@ -687,6 +690,11 @@ def main():
             for key, repo in [("market", MARKET), ("zkc", ZKC)]
         },
         "baseline_manifest_sha256": hashlib.sha256(MANIFEST.read_bytes()).hexdigest(),
+        "reference_builds_sha256": {
+            str(folder): {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(folder.glob("*.json"))}
+            for folder in [MARKET / "contracts/build-info-reference", *sorted(ZKC.glob("build-info-reference-*"))]
+            if folder.is_dir()
+        },
         "results": results,
     }
     (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")

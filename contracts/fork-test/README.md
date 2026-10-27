@@ -21,7 +21,6 @@ git -C market submodule update --init --recursive
 git -C zkc submodule update --init --recursive
 (cd market && forge build)
 (cd zkc && forge build)
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate --help > /dev/null
 (cd market && forge test --offline)
 (cd market && FOUNDRY_PROFILE=shanghai FOUNDRY_EVM_VERSION=shanghai forge test --offline)
 (cd zkc && forge test --offline)
@@ -35,21 +34,47 @@ Disable gas snapshot emission to preserve tracked snapshots. Do not use deployme
 
 ## Upgrade validation
 
-From the same parent directory, use the build info from the unit suites above to
-compare each candidate with its frozen original. Run this before the fork rehearsals.
-OpenZeppelin checks storage layout and upgrade safety; the rehearsals separately check
-full runtime bytecode with the deployment profiles. No unsafe validation flags are required.
+Build references from the deployed source revisions with their pinned submodules.
+From the parent directory, create disposable detached checkouts. The market revision
+has the same contract sources as the deployed builds; the comparisons recorded with
+the rehearsal confirm the executable bytecode after resolving constructor immutables.
+ZKC uses the deployment commits from `deployment.toml`.
 
 ```bash
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/build-info --contract contracts/src/BoundlessMarket.sol:BoundlessMarket --reference contracts/test/reference/BoundlessMarketOriginal.sol:BoundlessMarketOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out-shanghai/build-info --contract contracts/shanghai/variants/BoundlessMarket.sol:BoundlessMarket --reference contracts/test/reference/BoundlessMarketShanghaiOriginal.sol:BoundlessMarketOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/build-info --contract contracts/src/povw/PovwAccounting.sol:PovwAccounting --reference contracts/test/reference/PovwAccountingOriginal.sol:PovwAccountingOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate market/out/build-info --contract contracts/src/povw/PovwMint.sol:PovwMint --reference contracts/test/reference/PovwMintOriginal.sol:PovwMintOriginal --requireReference
-npx --yes @openzeppelin/upgrades-core@1.40.0 validate zkc/out/build-info --contract src/ZKC.sol:ZKC --reference test/reference/ZKCOriginal.sol:ZKCOriginal --requireReference
+git clone --no-checkout market market-reference
+git -C market-reference checkout --detach 93e971a653258bb2cf1de920b103fcfdfd9ef994
+git -C market-reference submodule update --init --recursive
+for spec in "base default cancun contracts/src/BoundlessMarket.sol" \
+            "taiko shanghai shanghai contracts/shanghai/variants/BoundlessMarket.sol" \
+            "povw-staging default cancun contracts/src/povw/PovwAccounting.sol contracts/src/povw/PovwMint.sol" \
+            "povw-production povw-deploy cancun contracts/src/povw/PovwAccounting.sol contracts/src/povw/PovwMint.sol"; do
+    read -r -a args <<< "$spec"
+    label=${args[0]}; profile=${args[1]}; evm=${args[2]}
+    (cd market-reference && FOUNDRY_PROFILE="$profile" FOUNDRY_EVM_VERSION="$evm" \
+        FOUNDRY_AST=true FOUNDRY_BUILD_INFO_PATH="out/reference-$label/build-info" \
+        forge build "${args[@]:3}" --out "out/reference-$label" --cache-path "cache/reference-$label")
+done
+mkdir -p market/contracts/build-info-reference
+for label in base taiko povw-staging; do
+    cp market-reference/out/reference-$label/build-info/*.json market/contracts/build-info-reference/$label.json
+done
+for commit in 5b8310b 99f8f78; do
+    git clone --no-checkout zkc "zkc-reference-$commit"
+    git -C "zkc-reference-$commit" checkout --detach "$commit"
+    git -C "zkc-reference-$commit" submodule update --init --recursive
+    (cd "zkc-reference-$commit" && FOUNDRY_PROFILE=default FOUNDRY_AST=true \
+        FOUNDRY_BUILD_INFO_PATH=out/reference/build-info \
+        forge build src/ZKC.sol --out out/reference --cache-path cache/reference)
+    mkdir -p "zkc/build-info-reference-$commit"
+    cp "zkc-reference-$commit"/out/reference/build-info/*.json "zkc/build-info-reference-$commit/"
+done
 ```
 
-Use clean checkouts for this sequence. Old build-info files from incremental builds can
-make contract names ambiguous; do not mix those with the inputs above.
+Run this block in Bash, with the setup exports above. Use empty reference output folders;
+old incremental build-info files can make contract names ambiguous. Staging PoVW used
+100 optimizer runs; production used one million. Base and Taiko require separate Cancun
+and Shanghai references. OpenZeppelin validates storage and upgrade safety inside each
+upgrade script, with no unsafe flags. The rehearsals also check full candidate runtime bytes.
 
 ## Fork rehearsals
 
@@ -69,6 +94,8 @@ then executes the same exported bytes on the parent Anvil with locally impersona
 
 ```bash
 python3 market/contracts/fork-test/rehearse.py --environment staging --zkc-repo zkc --output market/out/handoff/staging
+rm market/contracts/build-info-reference/povw-staging.json
+cp market-reference/out/reference-povw-production/build-info/*.json market/contracts/build-info-reference/povw-production.json
 python3 market/contracts/fork-test/rehearse.py --environment production --zkc-repo zkc --output market/out/handoff/production
 ```
 
@@ -85,8 +112,8 @@ accept arbitrary replacement artifacts. Override the default read-only endpoints
 `ETHEREUM_SEPOLIA_RPC_URL` if an archive endpoint is unavailable. `--chain` can select
 `base`, `taiko` or `ethereum`. Rehearsals use historical snapshots even after the cutoff.
 
-These execution rehearsals set `SKIP_SAFETY_CHECKS=true` only on localhost. The separate
-OpenZeppelin checks above are required. Keep validation enabled for an actual deployment.
+The execution rehearsals set `SKIP_SAFETY_CHECKS=false` and enable FFI for OpenZeppelin
+validation. Missing or incompatible reference builds stop candidate deployment.
 Proof verifiers are mocked where needed; these checks do not prove signer availability
 or exhaust every possible contract state. The suites cover cutoff boundaries, preserved
 passive staking rewards and withdrawals, permissions, initialization and failed upgrades.
