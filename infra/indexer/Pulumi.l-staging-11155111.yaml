@@ -1,4 +1,5 @@
 config:
+  indexer:GHCR_IMAGE_TAG: nightly-93e971a
   aws:region: us-west-2
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
