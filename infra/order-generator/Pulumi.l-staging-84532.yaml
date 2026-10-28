@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFtDEwEd4DokgsE4MVOHUtcAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM4WRMKe/RTs500zvZAgEQgDtQ2eCBkl8/LjExNPf2ur+A7uLQFZMgejzs37yMD2GEIGfTCVCGbyxZf8BzxD9trpiDrGN++LO+f9/AyA==
 config:
+  order-generator-base:GHCR_IMAGE_TAG: nightly-93e971a
   order-generator-base:STOPPED: true
   aws:region: us-west-2
   order-generator-base:BASE_STACK: organization/bootstrap/services-staging

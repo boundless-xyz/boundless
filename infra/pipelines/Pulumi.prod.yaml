@@ -1,7 +1,7 @@
 config:
   aws:region: us-west-2
   pipelines:GITHUB_TOKEN:
-    secure: v1:7sm5+n3SWDLhTAKR:xOhHJSukijKJ5VQA/t+eI+SVhUsgXmfw0arSrKrTW1QLgWvsMhuAF6iznwh+KuKr5l1jKhNocpvCeY6j7y2gumarUohTy2qR942fT+TuuCCle7jid0lQhGd27vAs/v4+khqlrHrf3remSWHjsg==
+    secure: v1:rBfkl94TC/7gasAy:10IB8Q9MWBguUvbJuClu1/ccokCSeMBj3xQvxARMnTTZAgHdumijzoQVlOl/gQfYJ3+xj9h+TeBdls8hwwulgOqFg4ly/xzOCDynz4jQW6/RBc/gc7Mi4pIwVzYtRVBYszpt2YENvzyhYiU1qg==
   pipelines:DOCKER_USER: boundlessautomation
   pipelines:DOCKER_PAT:
     secure: v1:UMOqTsMiIFPFAx/b:4RKzSkWjewfWGwAP+xLloOBRbwCTBSh+XuzixsacmS2myqh3K/YNwk5kfl1w8Fi1QshhUg==
