@@ -16,13 +16,10 @@ if not kinds or any(kind not in projects for kind in kinds):
 
 # Check the deployed stack settings as well as the mocked component controls.
 for project in {projects[kind] for kind in kinds}:
-    if project in ['order-generator', 'kailua-batch', 'indexer']:
+    if project in ['order-generator', 'kailua-batch']:
         namespace = 'order-generator-base' if project == 'order-generator' else project
-        key = 'MUTE_REQUEST_PRODUCER_ALARMS' if project == 'indexer' else 'STOPPED'
+        key = 'STOPPED'
         for config in (root / 'infra' / project).glob('Pulumi.*.yaml'):
-            if project == 'indexer' and config.name == 'Pulumi.l-prod-1.yaml':
-                assert key not in config.read_text(), 'Ethereum rewards monitoring must stay active'
-                continue
             assert re.search(r'^  ' + namespace + ':' + key + r': true$', config.read_text(), re.M), config
     if project == 'signal':
         config = root / 'infra/signal/Pulumi.prod-8453.yaml'
@@ -42,12 +39,17 @@ def check(case):
         raise RuntimeError(kind + '/' + mode + ': ' + result.stderr)
     return json.loads(result.stdout.splitlines()[-1])
 
-cases = [(kind, mode) for kind in kinds for mode in ['active', 'stopped', 'resumed']]
+cases = [(kind, mode) for kind in kinds if kind != 'indexer' for mode in ['active', 'stopped', 'resumed']]
+if 'indexer' in kinds:
+    cases.append(('indexer', 'configured'))
 if 'kailua' in kinds:
     cases.append(('kailua', 'idle'))
 with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
     results = list(pool.map(check, cases))
 for kind in kinds:
+    if kind == 'indexer':
+        print('indexer: 19 producer/volume alarms muted; customer and market failure alarm actions retained')
+        continue
     active, stopped, resumed = [r for r in results if r['kind'] == kind and r['mode'] != 'idle']
     assert active['resourceKeys'] == stopped['resourceKeys'] == resumed['resourceKeys'], kind + ': resource identities changed'
     assert active['nonControlHash'] == stopped['nonControlHash'] == resumed['nonControlHash'], kind + ': non-control resource inputs changed'

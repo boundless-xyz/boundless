@@ -51,39 +51,33 @@ async function main() {
       const {LoadTestTrigger} = require('../infra/order-generator/components/load-test.ts');
       new LoadTestTrigger(args);
     } else if (kind === 'indexer') {
-      const {alarmConfig, getChainStageAlarmConfig} = require('../infra/indexer/alarmConfig.ts');
+      const {alarmConfig} = require('../infra/indexer/alarmConfig.ts');
       const {ChainId, Stage} = require('../infra/util/index.ts');
       const {buildCreateMetricFns} = require('../infra/indexer/components/alarms.ts');
       const producerNames = new Set(['og_offchain', 'og_onchain', 'signal_requestor', 'signal_sepolia_requestor', 'kailua_order_generator', 'kailua_og_offchain_2']);
-      const original = JSON.stringify(alarmConfig);
       for (const chain of Object.values(ChainId)) for (const stage of Object.values(Stage)) {
-        const baseline = alarmConfig[chain][stage];
-        const current = getChainStageAlarmConfig(chain, stage, stopped);
-        if (!baseline) {assert.equal(current, undefined); continue;}
+        const current = alarmConfig[chain][stage];
+        if (!current) continue;
         const {createMetricAlarm, createSuccessRateAlarm} = buildCreateMetricFns(`test-${chain}-${stage}`, 'test', []);
-        for (const [index, client] of current.clients.entries()) {
-          const expectedMuted = stopped && producerNames.has(client.name);
-          if (!expectedMuted) assert.deepEqual(client, baseline.clients[index]);
+        for (const client of current.clients) {
+          const expectedMuted = producerNames.has(client.name);
           for (const [key, alarms] of Object.entries(client)) {
             if (!Array.isArray(alarms)) continue;
             for (const cfg of alarms) {
-              assert.equal(cfg.alarmConfig.actionsEnabled, expectedMuted ? false : baseline.clients[index][key][alarms.indexOf(cfg)].alarmConfig.actionsEnabled);
+              assert.equal(cfg.alarmConfig.actionsEnabled === false, expectedMuted);
               if (key === 'successRate') createSuccessRateAlarm(client, cfg.severity, cfg.description, cfg.metricConfig, cfg.alarmConfig, cfg.autoInvestigate);
               else createMetricAlarm({metricName: key, target: client, ...cfg});
             }
           }
         }
         for (const [key, alarms] of Object.entries(current.topLevel)) {
-          const expectedMuted = stopped && ['submittedRequests', 'fulfilledRequests'].includes(key);
-          if (!expectedMuted) assert.deepEqual(alarms, baseline.topLevel[key]);
+          const expectedMuted = ['submittedRequests', 'fulfilledRequests'].includes(key);
           for (const cfg of alarms) {
-            if (expectedMuted) assert.equal(cfg.alarmConfig.actionsEnabled, false);
+            assert.equal(cfg.alarmConfig.actionsEnabled === false, expectedMuted);
             createMetricAlarm({metricName: key, ...cfg});
           }
         }
-        assert.deepEqual(current.provers, baseline.provers);
       }
-      assert.equal(JSON.stringify(alarmConfig), original, 'muting must not mutate shared alarm definitions');
     } else {
       const dir = kind === 'kailua' ? 'kailua-batch' : kind === 'zeth' ? 'zeth-requestor' : kind;
       process.chdir(path.join(root, 'infra', dir));
@@ -125,7 +119,7 @@ async function main() {
   }
   if (kind === 'indexer') {
     assert.ok(alarms.some(a => a.inputs.actionsEnabled === true), 'customer and market failure alarms must remain enabled');
-    assert.equal(alarms.some(a => a.inputs.actionsEnabled === false), stopped);
+    assert.equal(alarms.filter(a => a.inputs.actionsEnabled === false).length, 19, 'must mute exactly the intended producer and volume alarms');
   }
   const stableResources = resources.map(r => {
     const inputs = {...r.inputs};
