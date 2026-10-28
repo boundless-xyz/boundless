@@ -43,6 +43,7 @@ const DEFAULT_TASK_KILL_AFTER_MINUTES = 30;
 
 export = () => {
     const config = new pulumi.Config();
+    const stopped = config.getBoolean("STOPPED") ?? false;
     const awsConfig = new pulumi.Config("aws");
     const region = awsConfig.require("region");
     const stackName = pulumi.getStack();
@@ -89,7 +90,7 @@ export = () => {
     if (scheduleCount > scheduleWindowMinutes) {
         throw new Error("SCHEDULE_COUNT must be less than or equal to SCHEDULE_WINDOW_MINUTES");
     }
-    const launchEnabled = scheduleCount > 0 && tasksPerMinute > 0 && maxRunningTasks > 0;
+    const launchEnabled = !stopped && scheduleCount > 0 && tasksPerMinute > 0 && maxRunningTasks > 0;
 
     const slackTopicArn = config.get("SLACK_ALERTS_TOPIC_ARN");
     const pagerdutyTopicArn = config.get("PAGERDUTY_ALERTS_TOPIC_ARN");
@@ -400,6 +401,7 @@ export = () => {
         role: triggerLambdaRole.arn,
         runtime: "nodejs20.x",
         handler: "index.handler",
+        reservedConcurrentExecutions: stopped ? 0 : undefined,
         timeout: 30,
         loggingConfig: {
             logGroup: triggerLambdaLogGroup.name,
@@ -501,6 +503,7 @@ export = () => {
         role: watchdogLambdaRole.arn,
         runtime: "nodejs20.x",
         handler: "index.handler",
+        reservedConcurrentExecutions: stopped ? 0 : undefined,
         timeout: 60,
         loggingConfig: {
             logGroup: watchdogLambdaLogGroup.name,
@@ -541,6 +544,7 @@ export = () => {
     new aws.scheduler.Schedule(`${serviceName}-watchdog-schedule`, {
         name: `${serviceName}-watchdog-schedule`,
         description: `Every minute; stop kailua-batch tasks running longer than ${taskKillAfterMinutes} minutes`,
+        state: stopped ? "DISABLED" : "ENABLED",
         flexibleTimeWindow: {
             mode: "OFF",
         },
@@ -614,7 +618,7 @@ export = () => {
         datapointsToAlarm: 3,
         treatMissingData: "notBreaching",
         alarmDescription: `${Severity.SEV2}: Kailua logged ERROR in 3 consecutive 20-minute periods`,
-        actionsEnabled: true,
+        actionsEnabled: !stopped,
         alarmActions,
     });
 
@@ -631,7 +635,7 @@ export = () => {
             datapointsToAlarm: 1,
             treatMissingData: "notBreaching",
             alarmDescription: `${Severity.SEV2}: Kailua emitted a low-funds log in 1 hour`,
-            actionsEnabled: true,
+            actionsEnabled: !stopped,
             alarmActions,
         });
     }
