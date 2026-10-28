@@ -62,6 +62,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 3600
               },
               alarmConfig: {
+                actionsEnabled: false,
                 evaluationPeriods: 2,
                 datapointsToAlarm: 2,
                 threshold: 1,
@@ -81,6 +82,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 3600
               },
               alarmConfig: {
+                actionsEnabled: false,
                 threshold: 0.90,
                 evaluationPeriods: 3,
                 datapointsToAlarm: 3,
@@ -96,6 +98,7 @@ export const alarmConfig: ChainStageAlarms = {
               period: 3600,
             },
             alarmConfig: {
+              actionsEnabled: false,
               threshold: 3,
               evaluationPeriods: 2,
               datapointsToAlarm: 2,
@@ -114,6 +117,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 3600
               },
               alarmConfig: {
+                actionsEnabled: false,
                 evaluationPeriods: 2,
                 datapointsToAlarm: 2,
                 threshold: 1,
@@ -130,6 +134,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 3600
               },
               alarmConfig: {
+                actionsEnabled: false,
                 threshold: 0.90,
                 evaluationPeriods: 2,
                 datapointsToAlarm: 2,
@@ -150,6 +155,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 3600
               },
               alarmConfig: {
+                actionsEnabled: false,
                 evaluationPeriods: 2,
                 datapointsToAlarm: 2,
                 threshold: 1,
@@ -169,6 +175,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 3600
               },
               alarmConfig: {
+                actionsEnabled: false,
                 threshold: 0.90,
                 evaluationPeriods: 3,
                 datapointsToAlarm: 3,
@@ -184,6 +191,7 @@ export const alarmConfig: ChainStageAlarms = {
               period: 21600,
             },
             alarmConfig: {
+              actionsEnabled: false,
               threshold: 50,
               evaluationPeriods: 1,
               datapointsToAlarm: 1,
@@ -210,6 +218,7 @@ export const alarmConfig: ChainStageAlarms = {
             period: 3600
           },
           alarmConfig: {
+            actionsEnabled: false,
             threshold: 2,
             evaluationPeriods: 2,
             datapointsToAlarm: 2,
@@ -224,6 +233,7 @@ export const alarmConfig: ChainStageAlarms = {
             period: 3600
           },
           alarmConfig: {
+            actionsEnabled: false,
             threshold: 2,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
@@ -292,6 +302,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 21600
               },
               alarmConfig: {
+                actionsEnabled: false,
                 evaluationPeriods: 1,
                 datapointsToAlarm: 1,
                 threshold: 1,
@@ -306,6 +317,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 10800
               },
               alarmConfig: {
+                actionsEnabled: false,
                 evaluationPeriods: 1,
                 datapointsToAlarm: 1,
                 threshold: 1,
@@ -322,6 +334,7 @@ export const alarmConfig: ChainStageAlarms = {
               period: 3600,
             },
             alarmConfig: {
+              actionsEnabled: false,
               threshold: 1,
               evaluationPeriods: 2,
               datapointsToAlarm: 2,
@@ -340,6 +353,7 @@ export const alarmConfig: ChainStageAlarms = {
                 period: 10800
               },
               alarmConfig: {
+                actionsEnabled: false,
                 evaluationPeriods: 1,
                 datapointsToAlarm: 1,
                 threshold: 1,
@@ -356,6 +370,7 @@ export const alarmConfig: ChainStageAlarms = {
               period: 3600,
             },
             alarmConfig: {
+              actionsEnabled: false,
               threshold: 5,
               evaluationPeriods: 2,
               datapointsToAlarm: 2,
@@ -665,6 +680,7 @@ export const alarmConfig: ChainStageAlarms = {
             period: 3600
           },
           alarmConfig: {
+            actionsEnabled: false,
             threshold: 2,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
@@ -679,6 +695,7 @@ export const alarmConfig: ChainStageAlarms = {
             period: 3600
           },
           alarmConfig: {
+            actionsEnabled: false,
             threshold: 1,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
@@ -693,6 +710,7 @@ export const alarmConfig: ChainStageAlarms = {
             period: 3600
           },
           alarmConfig: {
+            actionsEnabled: false,
             threshold: 2,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
@@ -707,6 +725,7 @@ export const alarmConfig: ChainStageAlarms = {
             period: 1800,
           },
           alarmConfig: {
+            actionsEnabled: false,
             threshold: 1,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,

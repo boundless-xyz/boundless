@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEeNvekCQ9dM5taQDHpN1l8AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNDIM1SGm/ictEijdAgEQgDvsCQZr5cfGenUgQsK1qfHoCx+vB9/lmSuxYUKXFA9gASVTl8tNuy8hMC6jn0Lwbp6LVndEkYbzYe9eYg==
 config:
+  order-generator-base:STOPPED: true
   order-generator-base:ETH_RPC_URL:
     secure: v1:x/TtO7El9l7huYbi:ThHbD7xB2UClhMtuVS20evJd9AtYhEOXPs/FRnka+YxDVWlAbh0f+ptv03EVCCLUz/HlV7VOmHQyFHIO4wxagXtne9YDcNfMe8dHhUJ958fb5K+OgMYoCpuAV4Dsl/vTuLrJL+UmnoMere0BcLfPzg==
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch

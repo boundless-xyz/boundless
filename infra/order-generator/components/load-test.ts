@@ -30,6 +30,7 @@ export class LoadTestTrigger extends pulumi.ComponentResource {
 
   constructor(args: LoadTestTriggerArgs, opts?: pulumi.ComponentResourceOptions) {
     const name = 'load-test';
+    const stopped = new pulumi.Config('order-generator-base').getBoolean('STOPPED') ?? false;
     super(`boundless:order-generator:${name}`, name, args, opts);
 
     const serviceName = getServiceNameV1(args.stackName, `og-${name}`, args.chainId);
@@ -198,6 +199,7 @@ export class LoadTestTrigger extends pulumi.ComponentResource {
       role: lambdaRole.arn,
       runtime: 'nodejs20.x',
       handler: 'index.handler',
+      reservedConcurrentExecutions: stopped ? 0 : undefined,
       timeout: 30,
       code: new pulumi.asset.AssetArchive({
         '.': new pulumi.asset.FileArchive('../order-generator/load-test-trigger-lambda/build'),
