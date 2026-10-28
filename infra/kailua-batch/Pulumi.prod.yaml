@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwGxYxYT9T/UTijZK0QdxTsVAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM7lBm63a9p0ZLvbQfAgEQgDsZ2TrFlKSbvukH2cEhz+PDJhQ5eqGaR4ucTKd85CmFSQMiiZzjPiQf2xJ+f4CbBTZ5F87wl78kDmZh2w==
 config:
+  kailua-batch:STOPPED: true
   aws:region: us-west-2
   kailua-batch:BASE_STACK: organization/bootstrap/services-prod
   kailua-batch:CHAIN_ID: "10"
