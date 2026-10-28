@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFhGPorkVKVmIzT59myXLDeAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMHk+N0QGY87UhlT0bAgEQgDsPtOR+OJ8FN756p+HT9KkCrmMots/HfD2CPJeipMXlAWXT8hnJ6mHZkWZYuBN25IV0LPaEnY/APC+pXA==
 config:
+  indexer:MUTE_REQUEST_PRODUCER_ALARMS: true
   aws:region: us-west-2
   indexer:BASE_STACK: organization/bootstrap/services-staging
   indexer:BOUNDLESS_ADDRESS: 0x7abb16522f4599481361d318b765af988bfcca8e

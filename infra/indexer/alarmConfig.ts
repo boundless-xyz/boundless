@@ -754,3 +754,41 @@ export const alarmConfig: ChainStageAlarms = {
   }
 };
 
+// These clients stop with our request producers. Customer and service alarms stay active.
+const requestProducerNames = new Set([
+  'og_offchain',
+  'og_onchain',
+  'signal_requestor',
+  'signal_sepolia_requestor',
+  'kailua_order_generator',
+  'kailua_og_offchain_2',
+]);
+
+export function getChainStageAlarmConfig(
+  chainId: ChainId,
+  stage: Stage,
+  muteRequestProducerAlarms = false,
+): ChainStageAlarmConfig | undefined {
+  const config = alarmConfig[chainId][stage];
+  if (!config || !muteRequestProducerAlarms) return config;
+
+  const mute = (alarms: AlarmConfig[]): AlarmConfig[] => alarms.map(alarm => ({
+    ...alarm,
+    alarmConfig: { ...alarm.alarmConfig, actionsEnabled: false },
+  }));
+
+  return {
+    ...config,
+    clients: config.clients.map(client => requestProducerNames.has(client.name) ? {
+      ...client,
+      submissionRate: mute(client.submissionRate),
+      successRate: mute(client.successRate),
+      expiredRequests: mute(client.expiredRequests),
+    } : client),
+    topLevel: {
+      ...config.topLevel,
+      submittedRequests: mute(config.topLevel.submittedRequests),
+      fulfilledRequests: mute(config.topLevel.fulfilledRequests),
+    },
+  };
+}

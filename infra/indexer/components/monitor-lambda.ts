@@ -4,7 +4,7 @@ import * as pulumi from '@pulumi/pulumi';
 import { createRustLambda } from './rust-lambda';
 import { ChainId, getChainId, Stage } from '../../util';
 import { buildCreateMetricFns } from './alarms';
-import { alarmConfig } from '../alarmConfig';
+import { getChainStageAlarmConfig } from '../alarmConfig';
 
 export interface MonitorLambdaArgs {
   /** VPC where RDS lives */
@@ -46,7 +46,8 @@ export class MonitorLambda extends pulumi.ComponentResource {
     const serviceName = `${name}-mon`;
     const chainId: ChainId = getChainId(args.chainId);
     const stage = pulumi.getStack().includes("staging") ? Stage.STAGING : Stage.PROD;
-    const chainStageAlarmConfig = alarmConfig[chainId][stage];
+    const muteRequestProducerAlarms = new pulumi.Config('indexer').getBoolean('MUTE_REQUEST_PRODUCER_ALARMS') ?? false;
+    const chainStageAlarmConfig = getChainStageAlarmConfig(chainId, stage, muteRequestProducerAlarms);
 
     const role = new aws.iam.Role(
       `${serviceName}-role`,

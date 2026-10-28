@@ -1,4 +1,5 @@
 config:
+  indexer:MUTE_REQUEST_PRODUCER_ALARMS: true
   aws:region: us-west-2
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest

@@ -60,6 +60,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     const serviceName = getServiceNameV1(args.stackName, `og-${name}`, args.chainId);
     const isStaging = args.stackName.includes('staging');
+    const stopped = new pulumi.Config('order-generator-base').getBoolean('STOPPED') ?? false;
 
     const offchainConfig = args.offchainConfig;
 
@@ -275,6 +276,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
       const rule = new aws.cloudwatch.EventRule(`${serviceName}-sched`, {
         scheduleExpression: args.oneShotConfig.scheduleExpression,
+        state: stopped ? 'DISABLED' : 'ENABLED',
       });
 
       const fargateTask = new awsx.ecs.FargateTaskDefinition(
@@ -325,7 +327,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         {
           name: serviceName,
           cluster: cluster.arn,
-          desiredCount: args.desiredCount ?? 1,
+          desiredCount: stopped ? 0 : (args.desiredCount ?? 1),
           networkConfiguration: {
             securityGroups: [securityGroup.id],
             subnets: args.privateSubnetIds,
@@ -443,7 +445,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       treatMissingData: 'notBreaching',
       // Balance alarm: remediation is to top up the order generator, nothing to investigate.
       alarmDescription: withAutoInvestigate(`${name} ETH bal < ${args.warnBalanceBelow} ${Severity.SEV2}`, false),
-      actionsEnabled: true,
+      actionsEnabled: !stopped,
       alarmActions,
     });
 
@@ -469,7 +471,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         treatMissingData: 'notBreaching',
         // Balance alarm: remediation is to top up the order generator, nothing to investigate.
         alarmDescription: withAutoInvestigate(`${name} ETH bal < ${args.errorBalanceBelow} ${Severity.SEV1}`, false),
-        actionsEnabled: true,
+        actionsEnabled: !stopped,
         alarmActions,
       });
     }
@@ -495,7 +497,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       datapointsToAlarm: 4,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} log ERROR level 3 times within an hour`,
-      actionsEnabled: true,
+      actionsEnabled: !stopped,
       alarmActions,
     });
 
@@ -520,7 +522,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} transaction confirmation error 10+ times within an hour`,
-      actionsEnabled: true,
+      actionsEnabled: !stopped,
       alarmActions,
     });
 
@@ -546,7 +548,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order generator ${name} FATAL (task exited) 2 times within 30 mins`,
-      actionsEnabled: true,
+      actionsEnabled: !stopped,
       alarmActions,
     });
 
