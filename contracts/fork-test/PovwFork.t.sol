@@ -19,7 +19,7 @@ contract PovwForkTest is SafeFork {
     PovwAccounting constant accounting = PovwAccounting(0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8);
     PovwMint constant minter = PovwMint(0xBFCE7c2d5e7EdDEab71B3eeED770713c8b755397);
     address constant FOUNDATION = 0x3886eEaf95AA2bDDdf0C924925e290291f70447F;
-    address constant MULTISEND = 0x40A2aCCbd92BCA938b02010E17A5b8929b49130D;
+    address constant MULTISEND = 0x9641d764fc13c8B624c04430C7356C1C7C8102e2;
     address oldAccounting;
     address oldMint;
     address newAccounting;
@@ -140,7 +140,7 @@ contract PovwForkTest is SafeFork {
         returns (address a, address m)
     {
         require(
-            MULTISEND.codehash == 0xa9865ac2d9c7a1591619b188c4d88167b50df6cc0c5327fcbd1c8c75f7c066ad,
+            MULTISEND.codehash == 0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939,
             "unexpected MultiSend runtime"
         );
         if (requestedAccounting != address(0)) requireExisting(requestedAccounting);

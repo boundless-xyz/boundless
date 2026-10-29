@@ -144,6 +144,17 @@ not collect signatures or submit anything. Refresh after any intervening Safe tr
 including a Taiko staging upgrade. A changed baseline, dependency or bytecode template
 requires review and updated pins; do not bypass a mismatch.
 
+Ethereum upgrade and rollback packets use MultiSendCallOnly v1.4.1 at
+`0x9641d764fc13c8B624c04430C7356C1C7C8102e2`, with runtime hash
+`0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939`.
+These match [Safe's published deployment](https://github.com/safe-global/safe-deployments/blob/main/src/assets/v1.4.1/multi_send_call_only.json).
+Before signing, compare the actual Safe proposal's target, value, data, operation,
+gas/refund fields, nonce and Safe transaction hash with `transaction.json`.
+Importing `safe-builder.json` supplies the inner calls; the UI chooses the outer helper.
+If any field or hash differs, stop. Verify the final helper's published runtime and
+rebuild and rehearse the packet for that exact envelope before collecting signatures.
+Apply the same check to rollback. Base and Taiko exports are single CALLs.
+
 ## Rollback
 
 The preparer also writes `rollback/transaction.json` and `rollback/safe-builder.json`

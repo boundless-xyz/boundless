@@ -18,7 +18,7 @@ SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 ZERO = "0x" + "00" * 20
 SAFE = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 TAIKO_SAFE = "0x8e537aaeddbc98a9a095397adb7c0d738458cc8b"
-MULTISEND = "0x40A2aCCbd92BCA938b02010E17A5b8929b49130D"
+MULTISEND = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2"
 SENDER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 READS = {
     "eth_chainId",
@@ -213,8 +213,8 @@ def export_transaction(rpc, label, chain_id, steps, path, block, safe=None, nonc
     else:
         assert (
             keccak(rpc.call("eth_getCode", [MULTISEND, "latest"]))
-            == "0xa9865ac2d9c7a1591619b188c4d88167b50df6cc0c5327fcbd1c8c75f7c066ad"
-        )
+            == "0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939"
+        ), "unexpected MultiSend runtime"
         packed = "0x" + "".join(
             "00"
             + v["to"][2:]
@@ -424,7 +424,7 @@ def run_one(label, output, manifest):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     log = (folder / "anvil.log").open("w")
-    hardfork = {"base": "beryl", "taiko": "shanghai", "ethereum": "amsterdam"}[label]
+    hardfork = {"base": "beryl", "taiko": "shanghai", "ethereum": "osaka"}[label]
     process = subprocess.Popen(
         [
             "anvil",

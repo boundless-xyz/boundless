@@ -19,7 +19,7 @@ interface IBatchZKC {
 
 contract EthereumBatchForkTest is SafeFork {
     address constant SAFE = 0x3886eEaf95AA2bDDdf0C924925e290291f70447F;
-    address constant MULTISEND = 0x40A2aCCbd92BCA938b02010E17A5b8929b49130D;
+    address constant MULTISEND = 0x9641d764fc13c8B624c04430C7356C1C7C8102e2;
     address constant ACCOUNTING = 0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8;
     address constant MINT = 0xBFCE7c2d5e7EdDEab71B3eeED770713c8b755397;
     address constant ZKC = 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555;

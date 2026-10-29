@@ -478,5 +478,60 @@ class CandidateValidation(unittest.TestCase):
         self.reject("artifact runtime template changed")
 
 
+class EthereumBatchExport(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from unittest.mock import Mock
+
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.output = Path(self.temp.name) / "transaction.json"
+        self.helper = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2"
+        self.code_hash = "0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939"
+        self.rpc = Mock()
+        owners = [f"{i:064x}" for i in range(1, 7)]
+        self.rpc.view.side_effect = ["0x" + f"{32:064x}{6:064x}" + "".join(owners), "0x" + "cc" * 32]
+        self.rpc.uint.side_effect = [3, 10]
+        self.rpc.call.return_value = "0x6000"
+        self.steps = [
+            {"contract": key, "proxy": "0x" + f"{i:040x}", "implementation": "0x" + "22" * 20}
+            for i, key in enumerate(["accounting", "mint", "zkc"], 1)
+        ]
+
+    def check_export(self, nonce):
+        with patch.object(prepare.staging, "keccak", return_value=self.code_hash):
+            transaction = prepare.staging.export_transaction(
+                self.rpc, "ethereum", 1, self.steps, self.output, 123, nonce=nonce
+            )
+        self.rpc.call.assert_called_once_with("eth_getCode", [self.helper, "latest"])
+        self.assertEqual(transaction["to"], self.helper)
+        self.assertEqual(transaction["operation"], 1)
+        self.assertEqual(transaction["nonce"], nonce)
+        hash_args = self.rpc.view.call_args.args[2:]
+        self.assertEqual(
+            hash_args,
+            (self.helper, 0, transaction["data"], 1, 0, 0, 0,
+             prepare.staging.ZERO, prepare.staging.ZERO, nonce),
+        )
+        builder = json.loads(self.output.with_name("safe-builder.json").read_text())
+        self.assertEqual([call["to"] for call in builder["transactions"]],
+                         [step["proxy"] for step in self.steps])
+
+    def test_ethereum_upgrade_hash_uses_safe_ui_helper(self):
+        self.check_export(10)
+
+    def test_ethereum_rollback_hash_uses_safe_ui_helper(self):
+        self.check_export(11)
+
+    def test_changed_helper_runtime_stops_before_hashing(self):
+        with patch.object(prepare.staging, "keccak", return_value="0x" + "00" * 32):
+            with self.assertRaisesRegex(AssertionError, "unexpected MultiSend runtime"):
+                prepare.staging.export_transaction(
+                    self.rpc, "ethereum", 1, self.steps, self.output, 123
+                )
+        self.assertEqual(self.rpc.view.call_count, 1)
+        self.assertFalse(self.output.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
