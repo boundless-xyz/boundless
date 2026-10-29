@@ -1,0 +1,290 @@
+{
+  "cutoff_timestamp": 1793836800,
+  "artifacts": {
+    "base": {
+      "path": "out/script-rehearsal-base/BoundlessMarket.sol/BoundlessMarket.json",
+      "runtime_template_keccak256": "0xda50e83d07ad4deb5a987412bd1dc4578ba07c1d94cc2c30f31bd82241748478",
+      "creation_bytecode_keccak256": "0x284b4d7b067a49ad67855684bdabf43dab816f8e478782c9a6c5985ac3b60a83"
+    },
+    "taiko": {
+      "path": "out/script-rehearsal-taiko/BoundlessMarket.sol/BoundlessMarket.json",
+      "runtime_template_keccak256": "0x6904f77617ae32f9f7d07480a5a1ceccaf9e674b03f5d5ec1c3f37a648de78ed",
+      "creation_bytecode_keccak256": "0x80487343a7671e2733778ef55b9111a5fe5f9abe9409aa336b7af0571ff80753"
+    },
+    "accounting": {
+      "path": "out/script-rehearsal-accounting/PovwAccounting.sol/PovwAccounting.json",
+      "runtime_template_keccak256": "0xade825b34af570c686ccba6ae98ec7ace483d34828baf7f2ff6d0a8d68694a25",
+      "creation_bytecode_keccak256": "0xf4db712e0115f3ebb231816877b40c77494673ce211c1b39729cf1bfcc2ba54a"
+    },
+    "mint": {
+      "path": "out/script-rehearsal-mint/PovwMint.sol/PovwMint.json",
+      "runtime_template_keccak256": "0x7b87162b5c1ce0ee625b4b095a8601ceab23606185eab1c82ec58b699f4a48a8",
+      "creation_bytecode_keccak256": "0xddafb5d4135e124f83f54f66ecb78ac32247fcfa6a643d64be4f5f6eaae33220"
+    },
+    "zkc": {
+      "path": "out/script-rehearsal-zkc/ZKC.sol/ZKC.json",
+      "runtime_template_keccak256": "0x2801a564ea8b0eadba5094edc591c6727367b6fdf92b066258263a2ddecce4bc",
+      "creation_bytecode_keccak256": "0x7ddcf83fd165d581deb385bbc0e7065f53f5d1ee911185e3c23369d98b15be57"
+    }
+  },
+  "targets": [
+    {
+      "environment": "production",
+      "chain_id": 8453,
+      "contract": "base",
+      "proxy": "0xfd152dadc5183870710fe54f939eae3ab9f0fe82",
+      "baseline_implementation": "0xbf3b740faf258f8e4ab214702a96918ab739a686",
+      "baseline_code_hash": "0x857c1fb15b2673b0434ea6ce56800e7fda921baa1e29c6fd0f68b4e04bdccda6",
+      "baseline_hash_block": 53131463,
+      "baseline_hash_block_hash": "0x8dee0050d9f3a52b40b2723c28fa891e03e25dc253ac4d66799b61d44eb4b741",
+      "constructor_inputs": [
+        {
+          "name": "router",
+          "type": "address",
+          "value": "0x7d4bb6295e56ba3e93f51f44598310539cd783a2"
+        },
+        {
+          "name": "collateralTokenContract",
+          "type": "address",
+          "value": "0xaa61bb7777bd01b684347961918f1e07fbbce7cf"
+        },
+        {
+          "name": "legacyImpl",
+          "type": "address",
+          "value": "0x22bb6bbe5d221ef3e738029dab4d1d27ec725cd3"
+        }
+      ]
+    },
+    {
+      "environment": "production",
+      "chain_id": 167000,
+      "contract": "taiko",
+      "proxy": "0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b",
+      "baseline_implementation": "0x0824b650350cc2f510aa22e061a917524945b78c",
+      "baseline_code_hash": "0x894769a576b0342d1a34c8a38db498320e054dab89ca9ac55d013de95331a0b7",
+      "baseline_hash_block": 13204513,
+      "baseline_hash_block_hash": "0x1e9cb2be5b03ee781bf33c6ce5dadd45450837742e763a8ea2ca6cf4dbbe39ac",
+      "constructor_inputs": [
+        {
+          "name": "router",
+          "type": "address",
+          "value": "0x8a4beac3b253c65868f091f87e56d4bafaabef22"
+        },
+        {
+          "name": "collateralTokenContract",
+          "type": "address",
+          "value": "0xc284a781072442cc1882a8db4573990b7b49dac4"
+        },
+        {
+          "name": "legacyImpl",
+          "type": "address",
+          "value": "0x6c2d2c33e9a7cd0e1b39dc218f472e4bf534523b"
+        }
+      ]
+    },
+    {
+      "environment": "production",
+      "chain_id": 1,
+      "contract": "accounting",
+      "proxy": "0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8",
+      "baseline_implementation": "0xfb2187436fd8e266e4f18cbce9aafbdbb796e67c",
+      "baseline_code_hash": "0x4bac90ef98d198c558b236c0004335cbbd71f341623eb723679f424ae23654d9",
+      "baseline_hash_block": 26279735,
+      "baseline_hash_block_hash": "0xc4610b353cdf4bb048d15f2b53d5d96406b2444cf9e28a36d84bd2d0988cc237",
+      "constructor_inputs": [
+        {
+          "name": "verifier",
+          "type": "address",
+          "value": "0x8eab2d97dfce405a1692a21b3ff3a172d593d319"
+        },
+        {
+          "name": "token",
+          "type": "address",
+          "value": "0x000006c2a22ff4a44ff1f5d0f2ed65f781f55555"
+        },
+        {
+          "name": "logUpdaterId",
+          "type": "bytes32",
+          "value": "0x004b225edce73d0fd399993c14bea083a08bc346eacd68a644946179ebc4818f"
+        }
+      ]
+    },
+    {
+      "environment": "production",
+      "chain_id": 1,
+      "contract": "mint",
+      "proxy": "0xBFCE7c2d5e7EdDEab71B3eeED770713c8b755397",
+      "baseline_implementation": "0x569d48052d59dc4aac86098fe8db43d0e514f59b",
+      "baseline_code_hash": "0x45300b4466837e64abce4d91f75fd4576438490a5430ba938a892f2dab816cc8",
+      "baseline_hash_block": 26279735,
+      "baseline_hash_block_hash": "0xc4610b353cdf4bb048d15f2b53d5d96406b2444cf9e28a36d84bd2d0988cc237",
+      "constructor_inputs": [
+        {
+          "name": "verifier",
+          "type": "address",
+          "value": "0x8eab2d97dfce405a1692a21b3ff3a172d593d319"
+        },
+        {
+          "name": "accounting",
+          "type": "address",
+          "value": "0x319bd4050b2170a7ae3ead3e6d5ab8a5c7cfbdf8"
+        },
+        {
+          "name": "mintCalculatorId",
+          "type": "bytes32",
+          "value": "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b8154109db76bf"
+        },
+        {
+          "name": "token",
+          "type": "address",
+          "value": "0x000006c2a22ff4a44ff1f5d0f2ed65f781f55555"
+        },
+        {
+          "name": "tokenRewards",
+          "type": "address",
+          "value": "0xe8ae8ee8ffa57f6a79b6cbe06bafc0b05f3ffbf4"
+        }
+      ]
+    },
+    {
+      "environment": "production",
+      "chain_id": 1,
+      "contract": "zkc",
+      "proxy": "0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555",
+      "baseline_implementation": "0xe90a3bc5992d30b9909eeb6a8015a7bc402d7f98",
+      "baseline_code_hash": "0x809103882fcb7d3a50c452a7db932916ec00c50abacbb3452508085a6aa79529",
+      "baseline_hash_block": 26279735,
+      "baseline_hash_block_hash": "0xc4610b353cdf4bb048d15f2b53d5d96406b2444cf9e28a36d84bd2d0988cc237",
+      "constructor_inputs": []
+    },
+    {
+      "environment": "rehearsal",
+      "chain_id": 84532,
+      "contract": "base",
+      "proxy": "0x7abb16522f4599481361d318b765af988bfcca8e",
+      "baseline_implementation": "0x1de3eacc02f263b666e2251ff6167cecbf51e3b6",
+      "baseline_code_hash": "0x17be5a8252b277adfa9a5888b5af865222f9139783d37826901f73b365905119",
+      "baseline_hash_block": 50652030,
+      "baseline_hash_block_hash": "0x21b61d39504d39ac3e0a2b8af9c819932dfebfe33957835e76c4c835e61a27cd",
+      "constructor_inputs": [
+        {
+          "name": "router",
+          "type": "address",
+          "value": "0x6f4523fd85fa19bf469d4f804a55e0d5e73efef4"
+        },
+        {
+          "name": "collateralTokenContract",
+          "type": "address",
+          "value": "0xcba5fd30105984125395c18b6e6b1bf603408629"
+        },
+        {
+          "name": "legacyImpl",
+          "type": "address",
+          "value": "0x4896bb4e1fb52ed283d505de79532e2b01e2a066"
+        }
+      ]
+    },
+    {
+      "environment": "rehearsal",
+      "chain_id": 167000,
+      "contract": "taiko",
+      "proxy": "0x60d11ef5d4608bab18a663fd486d3b9f162172cf",
+      "baseline_implementation": "0xad9af87319e744c62f33e05bb2a2cb9f20c7a358",
+      "baseline_code_hash": "0x1acaecdf62454bd2d24c49863dbb26976983bd06713113fef51853a958c9ecf3",
+      "baseline_hash_block": 13204513,
+      "baseline_hash_block_hash": "0x1e9cb2be5b03ee781bf33c6ce5dadd45450837742e763a8ea2ca6cf4dbbe39ac",
+      "constructor_inputs": [
+        {
+          "name": "router",
+          "type": "address",
+          "value": "0xd2a01b63bf9d08d31fb11ba81825624c6484453f"
+        },
+        {
+          "name": "collateralTokenContract",
+          "type": "address",
+          "value": "0xc284a781072442cc1882a8db4573990b7b49dac4"
+        },
+        {
+          "name": "legacyImpl",
+          "type": "address",
+          "value": "0x7d27d73368c9cece5bc25d9b4c9d912de5af9db1"
+        }
+      ]
+    },
+    {
+      "environment": "rehearsal",
+      "chain_id": 11155111,
+      "contract": "accounting",
+      "proxy": "0x129aeab812d77c102ff1ad9d76dfb55faae4b8d3",
+      "baseline_implementation": "0x7959bc1a7a8dfe0b031964115e5e2eda98a95d91",
+      "baseline_code_hash": "0x8cf5e65e0e227430b1f4effc57001dd9904bddfaf2b139fdf78c26262508e484",
+      "baseline_hash_block": 12000855,
+      "baseline_hash_block_hash": "0x8e76a630311b5d749abb8b9b418b60b63f23ea7addbec999536c2fbb50bf4ed8",
+      "constructor_inputs": [
+        {
+          "name": "verifier",
+          "type": "address",
+          "value": "0x925d8331ddc0a1f0d96e68cf073dfe1d92b69187"
+        },
+        {
+          "name": "token",
+          "type": "address",
+          "value": "0x99a52662b576f4b2d4ffbc4504331a624a7b2846"
+        },
+        {
+          "name": "logUpdaterId",
+          "type": "bytes32",
+          "value": "0x004b225edce73d0fd399993c14bea083a08bc346eacd68a644946179ebc4818f"
+        }
+      ]
+    },
+    {
+      "environment": "rehearsal",
+      "chain_id": 11155111,
+      "contract": "mint",
+      "proxy": "0x8c2a4a28116ed8b8fe559bc53e30b6a056c5d3c9",
+      "baseline_implementation": "0x43952737a52ed2ccc8c148884993120f2f94fc98",
+      "baseline_code_hash": "0x463ff56cd4880bd43f2a2d1acbe1a55c950633af100a11efc7d30315a61e8edc",
+      "baseline_hash_block": 12000855,
+      "baseline_hash_block_hash": "0x8e76a630311b5d749abb8b9b418b60b63f23ea7addbec999536c2fbb50bf4ed8",
+      "constructor_inputs": [
+        {
+          "name": "verifier",
+          "type": "address",
+          "value": "0x925d8331ddc0a1f0d96e68cf073dfe1d92b69187"
+        },
+        {
+          "name": "accounting",
+          "type": "address",
+          "value": "0x129aeab812d77c102ff1ad9d76dfb55faae4b8d3"
+        },
+        {
+          "name": "mintCalculatorId",
+          "type": "bytes32",
+          "value": "0x6a12be89391574535f998faf60bc4993b52c42f195d1482896b8154109db76bf"
+        },
+        {
+          "name": "token",
+          "type": "address",
+          "value": "0x99a52662b576f4b2d4ffbc4504331a624a7b2846"
+        },
+        {
+          "name": "tokenRewards",
+          "type": "address",
+          "value": "0xb7c63161da06ec56840465308e24c70df65abc56"
+        }
+      ]
+    },
+    {
+      "environment": "rehearsal",
+      "chain_id": 11155111,
+      "contract": "zkc",
+      "proxy": "0x99a52662b576f4b2d4ffbc4504331a624a7b2846",
+      "baseline_implementation": "0xbd1f65405e7cd9972fd7ae81635532a6000d018f",
+      "baseline_code_hash": "0x7849b88e7cfb81aac599d16f9b4cc8ff8e00db2cb6bb4727ae0e055a81e863fd",
+      "baseline_hash_block": 12000855,
+      "baseline_hash_block_hash": "0x8e76a630311b5d749abb8b9b418b60b63f23ea7addbec999536c2fbb50bf4ed8",
+      "constructor_inputs": []
+    }
+  ]
+}

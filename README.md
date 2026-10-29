@@ -78,6 +78,8 @@ cargo build
 
 You can find the documentation in the [boundless-xyz/docs](https://github.com/boundless-xyz/docs) repo.
 
+For the protocol sunset contract checks and local upgrade rehearsals, see the [fork runbook](contracts/fork-test/README.md).
+
 ## Audits
 
 See https://github.com/boundless-xyz/boundless-security
