@@ -715,8 +715,7 @@ _e2e-run-composition private_key log_path:
     set -uo pipefail
     # The IDENTITY guest enables risc0-zkvm/disable-dev-mode (see
     # crates/guest/util/identity/Cargo.toml), so it rejects FakeReceipts even
-    # when RISC0_DEV_MODE=1. Composition is exercised in nightly-examples.yml
-    # with real Groth16 proving.
+    # when RISC0_DEV_MODE=1.
     if [ "${RISC0_DEV_MODE:-}" = "1" ]; then
         echo "[test-e2e-release] composition: SKIPPED (incompatible with RISC0_DEV_MODE=1)"
         echo "SKIPPED: composition requires real proofs (identity guest sets risc0-zkvm/disable-dev-mode)" > "{{log_path}}"
