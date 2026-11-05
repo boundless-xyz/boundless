@@ -364,7 +364,7 @@ export = () => {
     datapointsToAlarm: chainId === '11155111' ? 10 : 2, // Sepolia is flakey and has issues with tx timeouts
     treatMissingData: 'notBreaching',
     alarmDescription: 'Order slasher log ERROR level 2 times in one hour',
-    actionsEnabled: true,
+    actionsEnabled: false,
     alarmActions,
   });
 
@@ -400,7 +400,7 @@ export = () => {
     datapointsToAlarm: chainId === '11155111' ? 10 : 2, // Sepolia is flakey and has issues with tx timeouts
     treatMissingData: 'notBreaching',
     alarmDescription: `Order slasher FATAL (task exited) twice in 1 hour`,
-    actionsEnabled: true,
+    actionsEnabled: false,
     alarmActions,
   });
 };

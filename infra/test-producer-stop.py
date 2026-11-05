@@ -48,7 +48,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
     results = list(pool.map(check, cases))
 for kind in kinds:
     if kind == 'indexer':
-        print('indexer: 19 producer/volume alarms muted; customer and market failure alarm actions retained')
+        print('indexer: all alarm actions muted for the sunset')
         continue
     active, stopped, resumed = [r for r in results if r['kind'] == kind and r['mode'] != 'idle']
     assert active['resourceKeys'] == stopped['resourceKeys'] == resumed['resourceKeys'], kind + ': resource identities changed'

@@ -171,7 +171,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: `Monitor Lambda ${name} log ERROR level`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
     });
 

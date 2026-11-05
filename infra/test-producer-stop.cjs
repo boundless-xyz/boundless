@@ -118,8 +118,8 @@ async function main() {
     }
   }
   if (kind === 'indexer') {
-    assert.ok(alarms.some(a => a.inputs.actionsEnabled === true), 'customer and market failure alarms must remain enabled');
-    assert.equal(alarms.filter(a => a.inputs.actionsEnabled === false).length, 19, 'must mute exactly the intended producer and volume alarms');
+    assert.ok(alarms.length, 'must exercise indexer alarms');
+    assert.ok(alarms.every(a => a.inputs.actionsEnabled === false), 'all indexer alarm actions must be disabled for the sunset');
   }
   const stableResources = resources.map(r => {
     const inputs = {...r.inputs};

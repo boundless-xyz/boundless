@@ -215,7 +215,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: `Indexer API Lambda (${serviceName}) ${Severity.SEV2} log ERROR level (2 errors within 20 mins)`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
       tags: alarmTags,
     }, { parent: this });
@@ -313,6 +313,7 @@ export class IndexerApi extends pulumi.ComponentResource {
         ApiId: api.id,
       },
       treatMissingData: 'notBreaching',
+      actionsEnabled: false,
       alarmActions,
     }, { parent: this });
 

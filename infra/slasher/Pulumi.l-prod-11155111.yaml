@@ -25,3 +25,4 @@ config:
   slasher:CI_CACHE_SECRET:
     secure: v1:/gTX3aYOK+/i1KDs:D8PdP0EkeAch8lMRFpeyb9gTgReQ+WXpkzvbUAbSl3cCrNyXOaUb82VQRnG8Y6IsXnGPz4gNcW/D+7NuvtQZatddvjKrd9fOKVrtj99+JBAJsFGc+H5NUCLP4gAEyfPhFxbylVfyt6hoX/gu/mp7vsV06tIPGYUH/ffYQfwPKQ==
   slasher:USE_GHCR: true
+  slasher:GHCR_IMAGE_TAG: nightly-93e971a

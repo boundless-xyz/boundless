@@ -33,3 +33,4 @@ config:
   distributor:CI_CACHE_SECRET:
     secure: v1:A1EQh+VvTQxqMR0+:h7peFNVmLZJIyT6mwCBLm/RQHcnvzj69sng0p6BxkiiOf9wvsPzevhc61FadoWk92WKYBgq8OWsMg5xXBX7c19gLW2r7MK/Bgmi7wNSeg0Gw0bK3bhZiChfcchYL1iqW3bds3mr94/QrhCHmw9BxaEkCpofHk9HWQQzz2lXDTg==
   distributor:USE_GHCR: true
+  distributor:GHCR_IMAGE_TAG: nightly-e5396b4
