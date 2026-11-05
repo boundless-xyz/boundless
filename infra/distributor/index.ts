@@ -375,8 +375,10 @@ export = () => {
     ],
   });
 
+  // Stop scheduled funding after the protocol sunset; preserve state for cleanup.
   const rule = new aws.cloudwatch.EventRule(`${serviceName}-schedule-rule`, {
     scheduleExpression: `rate(${scheduleMinutes} minutes)`,
+    state: 'DISABLED',
   });
 
   // EFS mount points and volumes — always attached so toggling external top-ups
@@ -572,7 +574,7 @@ export = () => {
     datapointsToAlarm: chainId === '11155111' ? 10 : 2, // Sepolia is flakey and has issues with tx timeouts
     treatMissingData: 'notBreaching',
     alarmDescription: 'Distributor log ERROR level 2 times in one hour',
-    actionsEnabled: true,
+    actionsEnabled: false,
     alarmActions,
   });
 
@@ -597,7 +599,7 @@ export = () => {
     treatMissingData: 'notBreaching',
     // Balance alarm: remediation is to top up the distributor, nothing to investigate.
     alarmDescription: withAutoInvestigate(`Distributor unable to send stake. Send stake to distributor: ${distributorAddress} on ${chainId}`, false),
-    actionsEnabled: true,
+    actionsEnabled: false,
     alarmActions,
   });
 
@@ -622,7 +624,7 @@ export = () => {
     treatMissingData: 'notBreaching',
     // Balance alarm: remediation is to top up the distributor, nothing to investigate.
     alarmDescription: withAutoInvestigate(`Distributor unable to send ETH. Send ETH to distributor: ${distributorAddress} on ${chainId}`, false),
-    actionsEnabled: true,
+    actionsEnabled: false,
     alarmActions,
   });
 
@@ -647,7 +649,7 @@ export = () => {
     treatMissingData: 'notBreaching',
     // Balance alarm: remediation is to top up the distributor, nothing to investigate.
     alarmDescription: withAutoInvestigate(`Distributor stake balance low. Send stake to distributor: ${distributorAddress} on ${chainId}`, false),
-    actionsEnabled: true,
+    actionsEnabled: false,
     alarmActions,
   });
 
@@ -672,7 +674,7 @@ export = () => {
     treatMissingData: 'notBreaching',
     // Balance alarm: remediation is to top up the distributor, nothing to investigate.
     alarmDescription: withAutoInvestigate(`WARNING: Distributor ETH balance low. Send ETH to distributor: ${distributorAddress} on ${chainId}`, false),
-    actionsEnabled: true,
+    actionsEnabled: false,
     alarmActions,
   });
 
@@ -727,7 +729,7 @@ export = () => {
           treatMissingData: 'notBreaching',
           // Balance alarm: remediation is to top up the monitored address, nothing to investigate.
           alarmDescription: withAutoInvestigate(`${level === 'CRIT' ? 'CRITICAL' : 'WARNING'}: monitored ${spec.label} ${spec.kind} balance below ${level.toLowerCase()} threshold on ${chainId}`, false),
-          actionsEnabled: true,
+          actionsEnabled: false,
           alarmActions,
         });
       }

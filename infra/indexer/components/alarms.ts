@@ -54,9 +54,9 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
             alarmDescription: withAutoInvestigate(`${severity}: ${description}`, autoInvestigate),
-            actionsEnabled: true,
             alarmActions,
-            ...alarmConfig
+            ...alarmConfig,
+            actionsEnabled: false,
         });
     }
 
@@ -119,9 +119,9 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             datapointsToAlarm: 1,
             treatMissingData: 'notBreaching',
             alarmDescription: withAutoInvestigate(`${severity}: ${description}`, autoInvestigate),
-            actionsEnabled: true,
             alarmActions,
-            ...alarmConfig
+            ...alarmConfig,
+            actionsEnabled: false,
         });
     }
 

@@ -32,3 +32,4 @@ config:
   order-stream:CI_CACHE_SECRET:
     secure: v1:+a4Detjhba+9w9Sg:nocLLDduVNL1d0ZxsejwdnriV2qeB6ifiqS2cN8XseevjFqlHuJuyF9QF0ebN/4+F+08We/8v+ed/KQQrhMJ3DCKUf4PLh3Vy5slDNM1EIpuj6IVJ+/Spbtuz9gRaZLIIU9DviFuGdJ8PdMCXV0boO0EbnvnriytJEgPhJzO1A==
   order-stream:USE_GHCR: true
+  order-stream:GHCR_IMAGE_TAG: nightly-93e971a

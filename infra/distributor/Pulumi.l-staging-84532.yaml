@@ -45,3 +45,4 @@ config:
   distributor:CI_CACHE_SECRET:
     secure: v1:solXrbUbXvaVG3Js:EOanwXj1+kqdBziV9W2TpcvRG353CLd/iXzCfAUesP3QVkkveRQQcQo9rie3+70ZzjLIUMx9xpWyAQ0kV8OePB+1+4UdO63PjkOtK4vhae8/4O5YcZJLc0D1vaJuQi4VA0TZGwfkBIA0O8CRp/Izxk8LpRxf5OyWriag8qGk/w==
   distributor:USE_GHCR: true
+  distributor:GHCR_IMAGE_TAG: nightly-93e971a

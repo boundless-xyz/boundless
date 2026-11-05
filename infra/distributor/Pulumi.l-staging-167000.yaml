@@ -46,3 +46,4 @@ config:
   distributor:CHAINALYSIS_API_KEY:
     secure: v1:EwnWzq+sLC1goQEA:goaoWUUx3rNoKBr7nrlcQdZlqwSiYFSymnOr0StAd/9KiQaMQeJUP3F3mGdHcjjO5X3FZEe3q9BN/3cDPIs4TFaLHUWlj3Ao6OjRbOQcZk0=
   distributor:USE_GHCR: "true"
+  distributor:GHCR_IMAGE_TAG: nightly-93e971a

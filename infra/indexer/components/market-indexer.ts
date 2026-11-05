@@ -502,7 +502,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       datapointsToAlarm: 3,
       treatMissingData: 'notBreaching',
       alarmDescription: `Market indexer ${name}: ERROR 3 datapoints within 1 hour ${Severity.SEV2}`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
     }, { parent: this });
 
@@ -539,7 +539,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       datapointsToAlarm: 3,
       treatMissingData: 'notBreaching',
       alarmDescription: `Market indexer ${name} FATAL 3 times within 1 hour ${Severity.SEV2}`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
     }, { parent: this });
 
@@ -576,7 +576,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       datapointsToAlarm: 3,
       treatMissingData: 'notBreaching',
       alarmDescription: `Market indexer ${name} PANICKED 3 times within 1 hour ${Severity.SEV2}`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
     }, { parent: this });
 

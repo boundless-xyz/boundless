@@ -28,3 +28,4 @@ config:
   slasher:CI_CACHE_SECRET:
     secure: v1:h632pMCNLw1B+kTp:JyMlDMr/yn/wYkO5aAlDBT/08T8BNXQzELy0mg2taFNZqAoIA6qd+Wm3VwyQwshIR3nxuhSmv6tnRXGIOXFBlzNo1U7Xngyrf95Mu1fuAhJL5b5/ChB+Vxexf+AUOERQc3wLtIHE9tzXrjhbvna87BTvCSNjgBNDgrQVuEwJ+g==
   slasher:USE_GHCR: true
+  slasher:GHCR_IMAGE_TAG: nightly-e1bfe0f

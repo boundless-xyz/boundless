@@ -174,7 +174,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: `Rewards indexer ${name}: 2 periods with ERROR logs within 1 hour ${Severity.SEV2}`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
     }, { parent: this });
 
@@ -211,7 +211,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: `Rewards indexer ${name} FATAL 2 periods with ERROR logs within 1 hour ${Severity.SEV2}`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
     }, { parent: this });
 
@@ -231,7 +231,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
       alarmDescription: `Rewards indexer ${name}: memory >= 80% of ${rewardsMemoryMb} MB ${Severity.SEV2}`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
     }, { parent: this, dependsOn: [this.service] });
 

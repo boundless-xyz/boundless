@@ -711,7 +711,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
       alarmDescription: 'Order stream: 2 ERROR logs within an hour',
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
       tags: alarmTags,
     });
@@ -738,7 +738,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       datapointsToAlarm: 5,
       treatMissingData: 'notBreaching',
       alarmDescription: 'Order stream: 5 ERROR logs within an hour',
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
       tags: alarmTags,
     });
@@ -766,7 +766,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       statistic: 'Sum',
       threshold: 1,
       alarmDescription: 'Order stream health check alarm failed 2 times within an hour',
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
       tags: alarmTags,
     });
@@ -786,7 +786,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       statistic: 'Sum',
       threshold: 1,
       alarmDescription: 'Order stream health check alarm failed 5 times within an hour',
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
       tags: alarmTags,
     });
@@ -823,7 +823,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order stream FATAL (task exited) 1 time within an hour`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
       tags: alarmTags,
     });
@@ -848,7 +848,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       datapointsToAlarm: 3,
       treatMissingData: 'notBreaching',
       alarmDescription: `Order stream FATAL (task exited) 3 times within an hour`,
-      actionsEnabled: true,
+      actionsEnabled: false,
       alarmActions,
       tags: alarmTags,
     });

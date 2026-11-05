@@ -147,7 +147,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             period: ac.metricConfig.period,
             ...a,
             alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "bento-down"), ac.autoInvestigate),
-            actionsEnabled: true,
+            actionsEnabled: false,
             alarmActions,
             tags: alarmTags,
         });
@@ -166,7 +166,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             period: ac.metricConfig.period,
             ...a,
             alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "no-containers"), ac.autoInvestigate),
-            actionsEnabled: true,
+            actionsEnabled: false,
             alarmActions,
             tags: alarmTags,
         });
@@ -211,7 +211,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
             alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "memory-high"), ac.autoInvestigate),
-            actionsEnabled: true,
+            actionsEnabled: false,
             alarmActions,
             tags: alarmTags,
         });
@@ -256,7 +256,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             ...a,
             treatMissingData: a.treatMissingData ?? "missing",
             alarmDescription: withAutoInvestigate(withRunbook(`${ac.severity}: ${ac.description} on ${node.name}`, "disk-high"), ac.autoInvestigate),
-            actionsEnabled: true,
+            actionsEnabled: false,
             alarmActions,
             tags: alarmTags,
         });
@@ -315,7 +315,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                     const slug = getSlugFromPattern(lp.pattern);
                     return withAutoInvestigate(slug ? withRunbook(desc, slug) : desc, lp.alarm.autoInvestigate);
                 })(),
-                actionsEnabled: true,
+                actionsEnabled: false,
                 alarmActions,
                 tags: alarmTags,
             });

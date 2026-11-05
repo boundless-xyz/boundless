@@ -29,3 +29,4 @@ config:
   order-stream:ETH_RPC_URL:
     secure: v1:+y+/MbljoYcpu9nM:VyFomiB90y1gw3H+YyB1xsJvpKNMjaSESETOA3rMvnOYMN/3mYrZq1wSJaTz
   order-stream:USE_GHCR: true
+  order-stream:GHCR_IMAGE_TAG: nightly-e1bfe0f

@@ -455,7 +455,7 @@ export = () => {
         datapointsToAlarm: 1,
         treatMissingData: "breaching",
         alarmDescription: `${Severity.SEV2}: Kailua did not start any Fargate task in 1 hour`,
-        actionsEnabled: true,
+        actionsEnabled: false,
         alarmActions,
     });
 
@@ -471,7 +471,7 @@ export = () => {
         datapointsToAlarm: 3,
         treatMissingData: "notBreaching",
         alarmDescription: `${Severity.SEV2}: Kailua logged ERROR in 3 consecutive 20-minute periods`,
-        actionsEnabled: true,
+        actionsEnabled: false,
         alarmActions,
     });
 
@@ -489,7 +489,7 @@ export = () => {
             treatMissingData: "notBreaching",
             // Balance alarm: remediation is to top up Kailua, nothing to investigate.
             alarmDescription: withAutoInvestigate(`${Severity.SEV2}: Kailua emitted a low-funds log in 1 hour`, false),
-            actionsEnabled: true,
+            actionsEnabled: false,
             alarmActions,
         });
     }
