@@ -25,6 +25,7 @@ remappings = [
     "bytes-compat/=lib/openzeppelin-contracts/contracts/utils/",
     "boundless-market/=contracts/src/",
     "boundless-market-legacy/=contracts/src/legacy/",
+    "sunset-reference/=contracts/test/reference/BoundlessMarketOriginal.sol",
 ]
 ffi = true
 evm_version = 'cancun'
@@ -130,11 +131,13 @@ remappings = [
     "bytes-compat/=contracts/shanghai/compat/",
     "boundless-market/=contracts/shanghai/variants/",
     "boundless-market-legacy/=contracts/shanghai/legacy/",
+    "sunset-reference/=contracts/test/reference/BoundlessMarketShanghaiOriginal.sol",
 ]
 skip = [
     "contracts/src/legacy/**",
     "contracts/src/BoundlessMarket.sol",
     "contracts/src/types/FulfillmentContext.sol",
+    "contracts/test/reference/BoundlessMarketOriginal.sol",
     # The Cancun/Base legacy ABI test suites exercise the mainline frozen legacy (tstore); the
     # Taiko legacy is covered by the bytecode/storage parity checks instead.
     "contracts/test/legacy/**",
@@ -146,6 +149,10 @@ skip = [
     # Supply library uses transient storage. It is out of scope for the Taiko market port; skip the
     # PoVW contracts and their deploy scripts under shanghai.
     "contracts/src/povw/**",
+    "contracts/test/sunset/PovwSunset.t.sol",
+    "contracts/fork-test/PovwFork.t.sol",
+    "contracts/fork-test/EthereumBatchFork.t.sol",
+    "contracts/test/reference/Povw*Original.sol",
     "contracts/scripts/Deploy.PoVW.s.sol",
     "contracts/scripts/Manage.PoVW.s.sol",
     # ZKC test fixtures pull in the transient zkc Supply library; only PoVW tests use them.
@@ -164,6 +171,7 @@ solc_version = "0.8.26"
 bytecode_hash = "none"
 isolate = true
 fs_permissions = [
+    { access = "read", path = "./out" },
     { access = "read", path = "./out-shanghai" },
     { access = "read", path = "./contracts/out" },
     { access = "read-write", path = "./contracts/deployment.toml" },

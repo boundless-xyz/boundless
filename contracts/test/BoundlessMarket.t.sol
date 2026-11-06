@@ -4631,6 +4631,31 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         testProver.expectBalanceChange(1 ether);
         expectMarketBalanceUnchanged();
     }
+
+    function testSunsetValidLock() public {
+        vm.warp(1793836799);
+        testLockRequest();
+    }
+
+    function testSunsetValidSignedLock() public {
+        vm.warp(1793836799);
+        testLockRequestWithSignature();
+    }
+
+    function testSunsetValidFulfillment() public {
+        vm.warp(1793836799);
+        testFulfillLockedRequest();
+    }
+
+    function testSunsetValidRootAndFulfillment() public {
+        vm.warp(1793836799);
+        testSubmitRootAndFulfillLockedRequest();
+    }
+
+    function testSunsetValidOpenFulfillment() public {
+        vm.warp(1793836799);
+        testFulfillNeverLocked();
+    }
 } // <-- closes BoundlessMarketBasicTest
 
 /// @title BoundlessMarketOnChainAssessorTest — e2e through the native assessor.

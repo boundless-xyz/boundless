@@ -36,6 +36,8 @@ import {BoundlessMarketLib} from "./libraries/BoundlessMarketLib.sol";
 
 import {IBoundlessRouter} from "./router/interfaces/IBoundlessRouter.sol";
 
+import {Sunset} from "./libraries/Sunset.sol";
+
 error InvalidRouter();
 error InvalidCollateralToken();
 error InvalidLegacyImpl();
@@ -55,6 +57,8 @@ contract BoundlessMarket is
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
+
+    uint256 public constant SUNSET_TIMESTAMP = Sunset.TIMESTAMP;
 
     /// @notice Admin role identifier
     bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
@@ -141,6 +145,7 @@ contract BoundlessMarket is
     ///         the legacy ABI surface live this way avoids re-introducing the
     ///         legacy bodies into this implementation's bytecode.
     function _implementation() internal view override returns (address) {
+        Sunset.requireActiveLegacy(msg.sig);
         return LEGACY_IMPL;
     }
 
@@ -160,6 +165,7 @@ contract BoundlessMarket is
     // implementation), doubling the cost of calling this method. It is not required for protocol
     // safety as the signature is checked during lock, and during fulfillment (by the assessor).
     function submitRequest(ProofRequest calldata request, bytes calldata clientSignature) external payable {
+        Sunset.requireActive();
         if (msg.value > 0) {
             deposit();
         }
@@ -168,6 +174,7 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function lockRequest(ProofRequest calldata request, bytes calldata clientSignature) external {
+        Sunset.requireActive();
         (address client, uint32 idx) = request.id.clientAndIndex();
         (bytes32 requestHash,) = _verifyClientSignature(request, client, clientSignature);
         (uint64 lockDeadline, uint64 deadline) = request.validate();
@@ -181,6 +188,7 @@ contract BoundlessMarket is
         bytes calldata clientSignature,
         bytes calldata proverSignature
     ) external {
+        Sunset.requireActive();
         (address client, uint32 idx) = request.id.clientAndIndex();
         (bytes32 requestHash, bytes32 proofRequestEip712Digest) =
             _verifyClientSignature(request, client, clientSignature);
@@ -252,6 +260,7 @@ contract BoundlessMarket is
     /// fulfilled within the same transaction without taking a lock on it.
     /// @inheritdoc IBoundlessMarket
     function priceRequest(ProofRequest calldata request, bytes calldata clientSignature) public {
+        Sunset.requireActive();
         address client = request.id.client();
 
         (bytes32 requestHash,) = _verifyClientSignature(request, client, clientSignature);
@@ -315,6 +324,7 @@ contract BoundlessMarket is
 
     /// @inheritdoc IBoundlessMarket
     function fulfill(FulfillmentBatch[] calldata fulfillmentBatches) public returns (bytes[] memory paymentError) {
+        Sunset.requireActive();
         // Anti-front-running: the open fulfillment paths (never-locked, or locked-but-past-deadline)
         // carry no prior on-chain prover binding, so a copied proof could be re-submitted under a
         // different prover. Require a `commitFulfillment` recorded in a strictly earlier block —
@@ -356,6 +366,7 @@ contract BoundlessMarket is
     /// @dev First writer per commitment wins the block stamp; re-commits are no-ops. The commitment
     ///      reveals nothing (just a hash), so front-running this call is pointless.
     function commitFulfillment(bytes32 commitment) external {
+        Sunset.requireActive();
         if (fulfillmentCommitBlock[commitment] == 0) {
             fulfillmentCommitBlock[commitment] = block.number;
         }
@@ -788,6 +799,7 @@ contract BoundlessMarket is
     ///      the optimizer should keep this factored instead of inlining the
     ///      external-call setup at each site.
     function _submitRoot(address setVerifier, bytes32 root, bytes calldata seal) private {
+        Sunset.requireActive();
         IRiscZeroSetVerifier(setVerifier).submitMerkleRoot(root, seal);
     }
 
