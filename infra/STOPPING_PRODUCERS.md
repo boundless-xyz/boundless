@@ -13,3 +13,11 @@ Already running standalone tasks and in-flight Lambda invocations are not cancel
 Signal has a separate stop branch based on `willpote/initial-signal`. Kailua launcher/watchdog changes have a separate branch based on `zeroecco/kailua_cleanup`; do not deploy the older Kailua project from main for this change.
 
 Run `python3 infra/test-producer-stop.py og-service og-schedule load-test indexer` after installing each affected project's locked npm dependencies. The tests use Pulumi mocks to check generator stop/resume, the configured indexer alarm actions, and retention of resource identities and other inputs. They do not replace a live deployment preview.
+
+## Stop order stream and slasher
+
+`order-stream:DESIRED_COUNT: "0"` and `slasher:DESIRED_COUNT: "0"` scale both services to zero on every launch stack. The ALB, RDS databases, Redshift telemetry, logs and secrets remain.
+
+The market indexer exits on any order-stream fetch failure, so `indexer:ORDER_STREAM_URL` is removed from every indexer stack and the indexer runs onchain-only. Deploy the indexer before order stream. Stop Kailua, which is configured with `BOUNDLESS_ORDER_STREAM_URL`, and any other offchain submitter first.
+
+To resume, remove the `DESIRED_COUNT` overrides, deploy order stream, then restore the `ORDER_STREAM_URL` values from git history and deploy the indexer.

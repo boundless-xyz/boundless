@@ -27,5 +27,6 @@ config:
   slasher:ETH_RPC_URL:
     secure: v1:HDKwjizWEgLIvfyk:kHIpu5ZOBWZszdKbCI04ScMGluPIJV1gv6RmhnPbiHk36oN1pCThSaLQ6vsZ
   slasher:START_BLOCK: "4819525"
+  slasher:DESIRED_COUNT: "0"
   slasher:USE_GHCR: true
   slasher:GHCR_IMAGE_TAG: nightly-44ebf64

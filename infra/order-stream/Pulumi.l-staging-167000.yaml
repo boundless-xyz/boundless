@@ -10,6 +10,7 @@ config:
     secure: v1:pJAlHd4Bkitr5ANB:a/McUdaet7jYmYJw5VcWRkUciZWP6w5DGET/B1NfaMIV5fH28O1RfZMicx2GX3Epue4g2jdm/3NzXWKFG4Tu86s4C5kwHcYLp+4PCAl8jtaz6e5k7dvXOUH+XUbZOMAEEkwNEFTwelOWlStPLjVT5DQAiXruh6vW0W/MFeFWWA==
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
+  order-stream:DESIRED_COUNT: "0"
   order-stream:GH_TOKEN_SECRET:
     secure: v1:9qM9PiQiLDwk7XRl:awC475v/s72GfjPjHnpg3ct9iC3USqZQmF/Itfv8ZuS8Ik70LceKmuMfSGkmUalJW8eOZ1sKYoPa2C4YjFXIfHSABrcvptQwlfdK0eBJhukpIsR/vn3NwuZt5SRzv/63foG3ArYp/Cgcfqub7w==
   order-stream:MIN_BALANCE_RAW: "5000000000000000000"

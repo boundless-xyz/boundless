@@ -12,6 +12,7 @@ config:
   order-stream:DISABLE_CERT: "false"
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
+  order-stream:DESIRED_COUNT: "0"
   order-stream:GH_TOKEN_SECRET:
     secure: v1:ZeO3S48SQkFZHvN8:jOZMm+SLAX5vG1be/cKzbjotY2Rm9HxiVLSB81h8ZS7dMPVanCDcMHsdtsWv1lvX14VkWgMZVATAqOJHO3d04p0b2B/WwCc+FzjevMmvo9IoHdbQRpCAoAK+Y2WtJWqd3Wb2Y7YrvPwNHg95Fg==
   order-stream:MIN_BALANCE_RAW: "5000000000000000000"

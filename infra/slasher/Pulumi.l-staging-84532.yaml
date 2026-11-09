@@ -6,6 +6,7 @@ config:
   slasher:CHAIN_ID: "84532"
   slasher:DOCKER_DIR: ../../
   slasher:DOCKER_TAG: latest
+  slasher:DESIRED_COUNT: "0"
   slasher:USE_GHCR: true
   slasher:GHCR_IMAGE_TAG: nightly-e905cce
   slasher:ERROR_BALANCE_BELOW: "0.005"

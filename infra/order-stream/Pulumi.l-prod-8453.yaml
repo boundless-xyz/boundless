@@ -10,6 +10,7 @@ config:
   order-stream:CHAIN_ID: "8453"
   order-stream:DOCKER_DIR: ../../
   order-stream:DOCKER_TAG: latest
+  order-stream:DESIRED_COUNT: "0"
   order-stream:GH_TOKEN_SECRET:
     secure: v1:fvRIY/KbEgT8FPaO:RAV/9Lm4+KyOvqNq9Ow7sV0nekQZbmow4JqEL1qQtTiSqqFu/9GOxwr2tes5br0Q1lSQEQ6B+qKNn3XfmqkwTklb4iJY+2DGbIR5xbdTSIA0/ANqHXx/ZLvkLJkI/Ic3b9YR568RVrt20t5KDQ==
   order-stream:MIN_BALANCE_RAW: "5000000000000000000"

@@ -27,7 +27,6 @@ config:
   indexer:ETH_RPC_URL:
     secure: v1:3RLCb+RU0GBoN2u8:S/Ll6MQr8KjNwYf4hGVwQmU62NHT7G8z6vD60xwOFF26MHEF7UwtW6coBHsTzCYMLVd95lo4xGcLWof9jw+PCWlXer0vAMPiooTWDR4bKrtficCmzWBPPEJSAOciE+KP7y8JsEFF9BLFTViWQjK+sX0sfi0T
   indexer:INDEXER_API_DOMAIN: indexer.eth-sepolia.boundless.network
-  indexer:ORDER_STREAM_URL: https://eth-sepolia.boundless.network
   indexer:LOGS_ETH_RPC_URL:
     secure: v1:7jluI4ERQhSdKkX7:uSEFu3lx8Cgz4nLSctxz5fNGbhKOJuldN56Hop50GgGDio40eKC1jpyns0cBCZP6t/3LvRRsNs2S3sOUNqUcmrCsGfYAyZVWaHw=
   indexer:ORDER_STREAM_API_KEY:

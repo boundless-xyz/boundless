@@ -37,6 +37,7 @@ export = () => {
   const txTimeout = config.get('TX_TIMEOUT') || "60";
   const warnBalanceBelow = config.get('WARN_BALANCE_BELOW');
   const errorBalanceBelow = config.get('ERROR_BALANCE_BELOW');
+  const desiredCount = config.getNumber('DESIRED_COUNT') ?? 1;
 
   const rdsPassword = isDev ? getEnvVar("RDS_PASSWORD") : config.requireSecret('RDS_PASSWORD');
 
@@ -274,6 +275,7 @@ export = () => {
     {
       name: serviceName,
       cluster: cluster.arn,
+      desiredCount,
       networkConfiguration: {
         securityGroups: [securityGroup.id],
         subnets: privateSubnetIds,
