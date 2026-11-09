@@ -18,6 +18,6 @@ Run `python3 infra/test-producer-stop.py og-service og-schedule load-test indexe
 
 `order-stream:DESIRED_COUNT: "0"` and `slasher:DESIRED_COUNT: "0"` scale both services to zero on every launch stack. The ALB, RDS databases, Redshift telemetry, logs and secrets remain.
 
-The market indexer exits on any order-stream fetch failure, so `indexer:ORDER_STREAM_URL` is removed from every indexer stack and the indexer runs onchain-only. Deploy the indexer before order stream. Stop Kailua, which is configured with `BOUNDLESS_ORDER_STREAM_URL`, and any other offchain submitter first.
+The market indexer exits on any order-stream fetch failure, so `indexer:ORDER_STREAM_URL` is removed from every indexer stack and the indexer runs onchain-only. Deploy the indexer before order stream. The order generators and Kailua, which submitted offchain, are already stopped.
 
 To resume, remove the `DESIRED_COUNT` overrides, deploy order stream, then restore the `ORDER_STREAM_URL` values from git history and deploy the indexer.
