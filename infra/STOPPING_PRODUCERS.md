@@ -20,9 +20,23 @@ Keep the explorer, market/rewards indexers, indexer APIs, their databases and ca
 
 `RETIRED: true` makes the distributor, slasher, order-stream and order-generator programs register no service resources. Their normal pipeline update then deletes their dedicated infrastructure, including databases, telemetry, storage and secrets. It does not build or look up container images. Shared stacks and the indexer are outside this retirement path.
 
-The 24 launch configs set retirement true. Before applying, verify that the wallet backup is safely stored. Deploy the pipeline update first, then deploy the indexer and verify it is healthy. Both the retirement helper and the order-stream program refuse retirement unless the deployed indexer reports `ORDER_STREAM_ENABLED: false`. Review each deletion preview and approve production through the existing pipeline. Do not create missing stacks or run local staging applies. Keep retired configs in place so later pipeline runs cannot recreate these services.
+The 24 launch configs set retirement true. Before applying, verify that the wallet backup is safely stored. Deploy the indexer through its existing pipeline and verify it is healthy. Both the retirement helper and the order-stream program refuse retirement unless the deployed indexer reports `ORDER_STREAM_ENABLED: false`. No pipeline-stack deployment is needed. An order-stream run that starts before its indexer update will fail the guard and needs a retry. Do not create missing stacks or run local staging applies. Keep retired configs in place so later pipeline runs cannot recreate these services.
 
-The helper removes deletion protection only from a retired, allowlisted service's own launch stack. Running standalone tasks must finish or be stopped before deleting their cluster. Existing provider settings may retain CloudWatch log groups and create a final Redshift snapshot; account for those in the deletion preview and subsequent cleanup.
+The checkpoint review found protected resources only in production order-stream stacks `l-prod-8453` and `l-prod-167000`. Once their indexers are updated, and only when retirement is authorized, run the guarded helper once for those two stacks from the retirement checkout. These commands change live Pulumi state but do not delete resources:
+
+```bash
+(
+  cd infra/order-stream
+  export AWS_PROFILE=boundless-ops
+  export PULUMI_BACKEND_URL='s3://boundless-pulumi-state?region=us-west-2&awssdk=v2'
+  python3 ../prepare-retirement.py order-stream l-prod-8453
+  python3 ../prepare-retirement.py order-stream l-prod-167000
+)
+```
+
+Use active credentials with access to the state backend and its KMS key. Do not run preparation concurrently with that stack's pipeline, or deploy an older service revision between preparation and retirement. The existing pipeline refresh preserves the unprotected state. The helper checks the retired flag, deployed indexer output and checkpoint ownership before removing protection. Other currently reviewed target stacks need no preparation.
+
+Reconcile pending operations and review a fresh deletion preview before approving production retirement. The production pipeline refreshes and applies after approval; it does not provide a pre-approval preview. Running standalone tasks must finish or be stopped before deleting their cluster. Existing provider settings may retain CloudWatch log groups and create a final Redshift snapshot; account for those in the deletion preview and subsequent cleanup.
 
 The order-stream post-deploy hook skips Redshift migrations when `RETIRED` is true, before reading database passwords. Active stacks still run their migrations.
 
@@ -30,7 +44,7 @@ The order-stream post-deploy hook skips Redshift migrations when `RETIRED` is tr
 
 Pulumi 3.193.0 previews against local copies of all 24 launch checkpoints plan 292 distributor, 104 slasher, 186 order-stream and 681 order-generator resource deletions, including component resources. No planned deletion overlaps the 1,242 resource identities checked in retained indexer, bootstrap, requestor-list, monitoring and pipeline stacks. The four empty slasher/order-stream checkpoints for `l-prod-84532` and `l-prod-11155111` have nothing to retire; skip them. No live checkpoint or resource was changed.
 
-These previews disabled protection only in the local copies and modeled the indexer reporting `ORDER_STREAM_ENABLED: false`. The deployed indexers do not yet have that output. Deploy and verify the indexer before retiring order-stream. Checkpoints also contain unfinished creates in slasher `l-staging-84532`, order-stream `l-prod-8453`, `l-prod-84532` and `l-prod-11155111`, and several indexer stacks. The normal pipeline refresh must reconcile these, followed by fresh deletion previews before approval. The copied-state previews do not verify cloud drift or indexer health. Order-stream log groups remain because of `skipDestroy`; its Redshift clusters request final snapshots.
+These previews disabled protection only in the local copies and modeled the indexer reporting `ORDER_STREAM_ENABLED: false`. The deployed indexers do not yet have that output. Deploy and verify the indexer before retiring order-stream. Checkpoints also contain unfinished creates in slasher `l-staging-84532`, order-stream `l-prod-8453`, `l-prod-84532` and `l-prod-11155111`, and several indexer stacks. Review and reconcile these before approving retirement. The copied-state previews do not verify cloud drift or indexer health. Order-stream log groups remain because of `skipDestroy`; its Redshift clusters request final snapshots.
 
 This branch covers the four service projects above. Signal, the live Kailua deployment, leased prover machines and their external restart/deployment jobs need retirement in their owning repositories; do not deploy the old Kailua project from this branch. Remove obsolete service pipelines after their stacks have been retired.
 
