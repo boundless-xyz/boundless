@@ -24,6 +24,14 @@ The 24 launch configs set retirement true. Before applying, verify that the wall
 
 The helper removes deletion protection only from a retired, allowlisted service's own launch stack. Running standalone tasks must finish or be stopped before deleting their cluster. Existing provider settings may retain CloudWatch log groups and create a final Redshift snapshot; account for those in the deletion preview and subsequent cleanup.
 
+The order-stream post-deploy hook skips Redshift migrations when `RETIRED` is true, before reading database passwords. Active stacks still run their migrations.
+
+### Read-only preview review, 10 November 2026
+
+Pulumi 3.193.0 previews against local copies of all 24 launch checkpoints plan 292 distributor, 104 slasher, 186 order-stream and 681 order-generator resource deletions, including component resources. No planned deletion overlaps the 1,242 resource identities checked in retained indexer, bootstrap, requestor-list, monitoring and pipeline stacks. The four empty slasher/order-stream checkpoints for `l-prod-84532` and `l-prod-11155111` have nothing to retire; skip them. No live checkpoint or resource was changed.
+
+These previews disabled protection only in the local copies and modeled the indexer reporting `ORDER_STREAM_ENABLED: false`. The deployed indexers do not yet have that output. Deploy and verify the indexer before retiring order-stream. Checkpoints also contain unfinished creates in slasher `l-staging-84532`, order-stream `l-prod-8453`, `l-prod-84532` and `l-prod-11155111`, and several indexer stacks. The normal pipeline refresh must reconcile these, followed by fresh deletion previews before approval. The copied-state previews do not verify cloud drift or indexer health. Order-stream log groups remain because of `skipDestroy`; its Redshift clusters request final snapshots.
+
 This branch covers the four service projects above. Signal, the live Kailua deployment, leased prover machines and their external restart/deployment jobs need retirement in their owning repositories; do not deploy the old Kailua project from this branch. Remove obsolete service pipelines after their stacks have been retired.
 
 Run `python3 infra/test-retirement.py` with the service projects' npm dependencies available to test the deletion boundaries and empty retired programs without cloud changes.

@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +19,64 @@ SPEC.loader.exec_module(retirement)
 
 
 class RetirementTests(unittest.TestCase):
+    def run_post_deploy(self, config):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "bin").mkdir()
+            (root / "redshift-migrations").mkdir()
+            hook = root / "post-deploy.sh"
+            hook.write_text((ROOT / "order-stream/post-deploy.sh").read_text())
+            log = root / "calls.jsonl"
+            pulumi = root / "bin/pulumi"
+            pulumi.write_text(f"#!{sys.executable}\n" + """
+import json, os, sys
+with open(os.environ['TEST_CALLS'], 'a') as log:
+    log.write(json.dumps(sys.argv[1:]) + '\\n')
+if '--json' in sys.argv:
+    print(os.environ['TEST_CONFIG'])
+else:
+    print('synthetic-password')
+""")
+            pulumi.chmod(0o700)
+            (root / "bin/python3").symlink_to(sys.executable)
+            for name in ("psql", "envsubst", "apt-get"):
+                command = root / "bin" / name
+                command.write_text("#!/bin/sh\nexit 99\n")
+                command.chmod(0o700)
+            migration = root / "redshift-migrations/apply.sh"
+            migration.write_text('#!/bin/sh\nprintf \'["migration"]\\n\' >> "$TEST_CALLS"\n')
+            migration.chmod(0o700)
+            env = dict(os.environ, TEST_CALLS=str(log), TEST_CONFIG=config,
+                       PATH=str(root / "bin") + os.pathsep + os.environ["PATH"])
+            env.pop("REDSHIFT_ADMIN_PASSWORD", None)
+            env.pop("REDSHIFT_READONLY_PASSWORD", None)
+            result = subprocess.run(
+                ["bash", str(hook), "l-staging-84532"], env=env,
+                capture_output=True, text=True, timeout=10,
+            )
+            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            return result, calls
+
+    def test_retired_post_deploy_skips_secrets_and_migrations(self):
+        for value in (True, "true"):
+            result, calls = self.run_post_deploy(json.dumps({"order-stream:RETIRED": {"value": value}}))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("skipping Redshift migrations", result.stdout)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][:2], ["config", "--json"])
+
+    def test_active_post_deploy_still_runs_migrations(self):
+        for config in ({}, {"order-stream:RETIRED": {"value": "false"}}):
+            result, calls = self.run_post_deploy(json.dumps(config))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls[-1], ["migration"])
+            self.assertEqual(sum(call[:2] == ["config", "get"] for call in calls), 2)
+
+    def test_unreadable_post_deploy_config_stops_before_secrets(self):
+        result, calls = self.run_post_deploy("invalid JSON")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(calls), 1)
+
     def responses(self, service, enabled=True, indexer=None, project=None):
         values = [{f"{service}:RETIRED": {"value": str(enabled).lower()}}]
         if service == "order-stream":

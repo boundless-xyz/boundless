@@ -11,6 +11,16 @@ set -euo pipefail
 STACK="${1:?Usage: $0 <pulumi-stack>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+retired=$(pulumi config --json --stack "$STACK" --cwd "$SCRIPT_DIR" | python3 -c '
+import json, sys
+value = json.load(sys.stdin).get("order-stream:RETIRED", {}).get("value")
+print("true" if value in (True, "true") else "false")
+')
+if [ "$retired" = "true" ]; then
+    echo "Order stream is retired; skipping Redshift migrations."
+    exit 0
+fi
+
 echo "=== Post-deploy: Redshift migrations ==="
 
 # Install psql + envsubst if not present (CodeBuild image may not have them)
