@@ -24,6 +24,8 @@ for project in {projects[kind] for kind in kinds}:
                 assert key not in config.read_text(), 'Ethereum rewards monitoring must stay active'
                 continue
             assert re.search(r'^  ' + namespace + ':' + key + r': true$', config.read_text(), re.M), config
+            if project == 'kailua-batch':
+                assert re.search(r'^  kailua-batch:RETIRED: true$', config.read_text(), re.M), config
     if project == 'signal':
         config = root / 'infra/signal/Pulumi.prod-8453.yaml'
         assert 'signal:DESIRED_COUNT: "0"' in config.read_text(), config
@@ -45,10 +47,11 @@ def check(case):
 cases = [(kind, mode) for kind in kinds for mode in ['active', 'stopped', 'resumed']]
 if 'kailua' in kinds:
     cases.append(('kailua', 'idle'))
+    cases.append(('kailua', 'retired'))
 with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
     results = list(pool.map(check, cases))
 for kind in kinds:
-    active, stopped, resumed = [r for r in results if r['kind'] == kind and r['mode'] != 'idle']
+    active, stopped, resumed = [r for r in results if r['kind'] == kind and r['mode'] in ['active', 'stopped', 'resumed']]
     assert active['resourceKeys'] == stopped['resourceKeys'] == resumed['resourceKeys'], kind + ': resource identities changed'
     assert active['nonControlHash'] == stopped['nonControlHash'] == resumed['nonControlHash'], kind + ': non-control resource inputs changed'
     print(kind + ': stop and resume passed; resource identities and non-control inputs retained')

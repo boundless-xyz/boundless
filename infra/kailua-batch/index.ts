@@ -43,6 +43,7 @@ const DEFAULT_TASK_KILL_AFTER_MINUTES = 30;
 
 export = () => {
     const config = new pulumi.Config();
+    if (config.getBoolean("RETIRED")) return {};
     const stopped = config.getBoolean("STOPPED") ?? false;
     const awsConfig = new pulumi.Config("aws");
     const region = awsConfig.require("region");
