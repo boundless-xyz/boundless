@@ -10,10 +10,12 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
 const pulumi = require('@pulumi/pulumi');
 const [kind, mode] = process.argv.slice(2);
 const stopped = mode === 'stopped';
+const retired = mode === 'retired';
 const root = path.resolve(__dirname, '..');
 const resources = [];
 pulumi.runtime.setMocks({
   newResource: args => {
+    if (retired) assert.equal(args.type, 'pulumi:pulumi:Stack', 'retirement must register no service resources');
     const arn = `arn:aws:mock:us-west-2:123456789012:${args.name}`;
     resources.push({type: args.type, name: args.name, inputs: args.inputs});
     return {id: `${args.name}-id`, state: {...args.inputs, arn, name: args.inputs.name || args.name,
@@ -21,13 +23,22 @@ pulumi.runtime.setMocks({
       repository: {repositoryUrl: 'example.test/repo', registryId: '123456789012'},
       taskDefinition: {arn}, outputs: {VPC_ID: 'vpc-test', PRIVATE_SUBNET_IDS: ['subnet-a']}}};
   },
-  call: args => ({...args.inputs, id: 'ami-test', name: 'us-west-2', accountId: '123456789012',
+  call: args => {
+    assert.equal(retired, false, 'retirement must not look up cloud resources');
+    return {...args.inputs, id: 'ami-test', name: 'us-west-2', accountId: '123456789012',
     authorizationToken: Buffer.from('AWS:test').toString('base64'), proxyEndpoint: 'https://example.test',
-    password: 'test', userName: 'AWS', json: '{}', repositoryUrl: 'example.test/repo'}),
+    password: 'test', userName: 'AWS', json: '{}', repositoryUrl: 'example.test/repo'};
+  },
 }, 'test-project', 'staging-84532', false);
 const strings = {CHAIN_ID: '84532', BASE_STACK: 'test/base', LOG_LEVEL: 'info', DOCKER_DIR: '.', DOCKER_TAG: 'test', KAILUA_IMAGE: 'test/image'};
-pulumi.Config.prototype.require = function(key) {return strings[key] || (key === 'region' ? 'us-west-2' : '1');};
-pulumi.Config.prototype.requireSecret = function() {return pulumi.secret('test-value');};
+pulumi.Config.prototype.require = function(key) {
+  assert.equal(retired, false, 'retirement must not read service config');
+  return strings[key] || (key === 'region' ? 'us-west-2' : '1');
+};
+pulumi.Config.prototype.requireSecret = function() {
+  assert.equal(retired, false, 'retirement must not read secrets');
+  return pulumi.secret('test-value');
+};
 pulumi.Config.prototype.get = function() {return undefined;};
 pulumi.Config.prototype.getSecret = function() {return undefined;};
 pulumi.Config.prototype.getNumber = function(key) {
@@ -35,7 +46,11 @@ pulumi.Config.prototype.getNumber = function(key) {
   if (mode === 'idle' && key === 'SCHEDULE_COUNT') return 0;
   return undefined;
 };
-pulumi.Config.prototype.getBoolean = function(key) {return key === 'STOPPED' ? stopped : undefined;};
+pulumi.Config.prototype.getBoolean = function(key) {
+  if (key === 'RETIRED') return retired;
+  assert.equal(retired, false, 'retirement must return before reading service config');
+  return key === 'STOPPED' ? stopped : undefined;
+};
 const out = pulumi.output('test');
 const args = {chainId: '84532', stackName: 'staging-84532', privateKey: out, pinataJWT: out, ethRpcUrl: out,
   indexerUrl: out, orderStreamUrl: out, imageRef: out, logLevel: 'info', setVerifierAddr: '0x1',
@@ -91,6 +106,11 @@ async function main() {
     }
   });
   await pulumi.runtime.disconnect();
+  if (retired) {
+    assert.deepEqual(resources.map(r => r.type), ['pulumi:pulumi:Stack']);
+    console.log(JSON.stringify({kind, mode, status: 'passed'}));
+    return;
+  }
   const select = type => resources.filter(r => r.type === type);
   const alarms = select('aws:cloudwatch/metricAlarm:MetricAlarm');
   if (kind === 'og-service') {
