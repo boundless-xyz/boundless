@@ -16,7 +16,7 @@ Run `python3 infra/test-producer-stop.py og-service og-schedule load-test indexe
 
 ## Retire the dedicated service stacks
 
-Keep the explorer, market/rewards indexers, indexer APIs, their databases and caches, shared bootstrap networking, and staking dependencies through 30 November 2026. Staking dependencies may remain after that date. The indexer stack now reports `ORDER_STREAM_ENABLED` and `BENTO_EXECUTION_ENABLED`; both are false after its optional order-stream and Bento connections are removed.
+Keep the explorer, market/rewards indexers, indexer APIs, their databases and caches, shared bootstrap networking, and staking dependencies through 30 November 2026. Staking dependencies may remain after that date. The indexer stack reports `ORDER_STREAM_ENABLED`, which is false after its optional order-stream connection is removed.
 
 `RETIRED: true` makes the distributor, slasher, order-stream and order-generator programs register no service resources. Their normal pipeline update then deletes their dedicated infrastructure, including databases, telemetry, storage and secrets. It does not build or look up container images. Shared stacks and the indexer are outside this retirement path.
 
