@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHjo9dP83MIkRU7zP48vJb5veObMz9xpFGm6gYEXRHbpqwGqMB8eLNHHORw8G+oPQzG3AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMbPuvwqjOi2kLlBhMAgEQgDua3PKshck2tTVsAlN5iDaVr0QkFkotafyuMSDlwXWFzCYRoFHMWOp3c9pgrPu6V7uyyo7TulNi0TCZew==
 config:
+  slasher:RETIRED: true
   slasher:BASE_STACK: organization/bootstrap/services-staging
   slasher:BOUNDLESS_MARKET_ADDR: 0x60d11ef5d4608bab18a663fd486d3b9f162172cf
   slasher:CHAIN_ID: "167000"

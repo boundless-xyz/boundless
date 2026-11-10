@@ -27,15 +27,10 @@ config:
   indexer:ETH_RPC_URL:
     secure: v1:3RLCb+RU0GBoN2u8:S/Ll6MQr8KjNwYf4hGVwQmU62NHT7G8z6vD60xwOFF26MHEF7UwtW6coBHsTzCYMLVd95lo4xGcLWof9jw+PCWlXer0vAMPiooTWDR4bKrtficCmzWBPPEJSAOciE+KP7y8JsEFF9BLFTViWQjK+sX0sfi0T
   indexer:INDEXER_API_DOMAIN: indexer.eth-sepolia.boundless.network
-  indexer:ORDER_STREAM_URL: https://eth-sepolia.boundless.network
   indexer:LOGS_ETH_RPC_URL:
     secure: v1:7jluI4ERQhSdKkX7:uSEFu3lx8Cgz4nLSctxz5fNGbhKOJuldN56Hop50GgGDio40eKC1jpyns0cBCZP6t/3LvRRsNs2S3sOUNqUcmrCsGfYAyZVWaHw=
   indexer:ORDER_STREAM_API_KEY:
     secure: v1:hZcD5DvFZQRbzerN:mbL7soALYswOCihAhgRaafe4EGzpHyKKdjfQUDVS
-  indexer:BENTO_API_KEY:
-    secure: v1:+RUDS4ok4X/69VF+:aPoZGobjnEE+X1C86VVLxtuunPDGPTr6ryeUP3swBpQ/7pX/1k/5vITMv+uGtZADIs+FkGw3FoyRXeA=
-  indexer:BENTO_API_URL:
-    secure: v1:fbklOHjhg0N4goLf:BuVIHqqDuoQ9ANOfaWFdn9Q67q4L6gkrHa0juuN6PU4NH4HDRKKTwO7sJ9J9l6y8N9TZ
   indexer:PROXY_SECRET:
     secure: v1:8tDkD+NKpylrHLY/:TmXWT5IRgeAfG8ZpR2HCQxasqdYiY10zp/H3BjTy5knG/SJSjt8IJw==
   indexer:CI_CACHE_SECRET:

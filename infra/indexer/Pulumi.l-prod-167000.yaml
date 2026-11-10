@@ -7,10 +7,6 @@ config:
     secure: v1:/OwfvlV5c/WpyGOB:39kj/yXgE7TSVsDnn0ChDW4cXeKb13OOdsuZ0EbLXMI=
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100"
   indexer:BASE_STACK: organization/bootstrap/services-prod
-  indexer:BENTO_API_KEY:
-    secure: v1:x87gs/MvRT8mPiL5:PivTIVXB+1MPkKOMR4jzieFyTt+jACxZwVezXICcJ1t5xMKFCCDajqApSSmW8faXRvU/+HowOcX02A==
-  indexer:BENTO_API_URL:
-    secure: v1:w/1qk8oy02ODv3fB:5+Uhp4MzucvzalcJdIagkqruWh+m+0m9SSc/wz3qiL6xpw4Xn2ZzLrcCc4dTtksgda/a
   indexer:BLOCK_DELAY: "30"
   indexer:BOUNDLESS_ADDRESS: 0xb3f5c7b4379052eade8c7f3fa6da37fb871da28b
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
@@ -23,8 +19,6 @@ config:
     secure: v1:cKWMly+7pYAjXvOx:i7+dTJ3eUdFXDbq4Apqe+mE315buqpKyx3QsWxgo8cFaTec+ZFPxN2AMRUHYpZMf7I5Z478Mk6D6hmi+FSS//mGls+e7a/LaVpsD6nijvCf+wA41HjMdDReRiVBgpKWla4v/COJtBpD+S9crnw==
   indexer:ORDER_STREAM_API_KEY:
     secure: v1:jRnEC0ITCjWjtawv:WMxiA9eNu0xWwOinKzFk8zogBGJSPwZLlTdElVRL
-  indexer:ORDER_STREAM_URL:
-    secure: v1:DV6+i/4nICnQAuho:3Zr57euv3Uk8BkBTTRiwTILOWn8sJtSaCkM/jspB3ZxiWZo2xaC+lU+6+dNOu7HYtvSjmvCodtSG68C+uLKsId3t837RGVvHvD21xp3lqoyNjL1Psw8h0Wz4Tg==
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:PREMIUM_API_KEY:
     secure: v1:CtMR8aiDjeNb79XR:HdqjuQ1Mt96mu1PAI16GXaNjzdt2kVsm5+zI7g==

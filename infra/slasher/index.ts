@@ -8,6 +8,9 @@ require('dotenv').config();
 
 export = () => {
   const config = new pulumi.Config();
+  if (config.getBoolean('RETIRED')) {
+    return {};
+  }
   const stackName = pulumi.getStack();
   const isDev = stackName.includes("dev");
   const chainId = isDev ? getEnvVar("CHAIN_ID") : config.require('CHAIN_ID');
@@ -403,4 +406,6 @@ export = () => {
     actionsEnabled: false,
     alarmActions,
   });
+  return {};
+
 };

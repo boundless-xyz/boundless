@@ -290,6 +290,7 @@ ${additionalCommandsStr}          - ls -lt
           - pulumi stack select $STACK_NAME
           - pulumi cancel --yes
           - pulumi refresh --yes
+          - python3 ../prepare-retirement.py "$APP_NAME" "$STACK_NAME"
           - pulumi up --yes${postBuildSection ? '\n' + postBuildSection : ''}
     `;
     }

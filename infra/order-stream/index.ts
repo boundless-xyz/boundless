@@ -5,8 +5,16 @@ import { getEnvVar, getServiceNameV1, getGhcrImageUri } from '../util';
 
 require('dotenv').config();
 
-export = () => {
+export = async () => {
   const config = new pulumi.Config();
+  if (config.getBoolean('RETIRED')) {
+    const indexer = new pulumi.StackReference(`organization/indexer/${pulumi.getStack()}`);
+    const orderStream = await indexer.getOutputDetails('ORDER_STREAM_ENABLED');
+    if (orderStream.value !== false) {
+      throw new Error('Deploy the onchain-only indexer before retiring its order stream');
+    }
+    return {};
+  }
   const stackName = pulumi.getStack();
   const isDev = stackName.includes("dev");
 

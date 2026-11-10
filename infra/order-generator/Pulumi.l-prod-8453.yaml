@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEeNvekCQ9dM5taQDHpN1l8AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNDIM1SGm/ictEijdAgEQgDvsCQZr5cfGenUgQsK1qfHoCx+vB9/lmSuxYUKXFA9gASVTl8tNuy8hMC6jn0Lwbp6LVndEkYbzYe9eYg==
 config:
+  order-generator:RETIRED: true
   order-generator-base:GHCR_IMAGE_TAG: nightly-93e971a
   order-generator-base:STOPPED: true
   order-generator-base:ETH_RPC_URL:

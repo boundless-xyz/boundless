@@ -212,6 +212,8 @@ export = () => {
   }
 
   const outputs: Record<string, any> = {};
+  outputs.ORDER_STREAM_ENABLED = shouldDeployMarket && config.getSecret('ORDER_STREAM_URL') !== undefined;
+  outputs.BENTO_EXECUTION_ENABLED = shouldDeployMarket && config.getSecret('BENTO_API_URL') !== undefined;
   outputs.bastionInstanceId = infra.bastionInstanceId;
   outputs.readerEndpoint = infra.readerEndpoint;
   outputs.writerEndpoint = infra.writerEndpoint;

@@ -9,6 +9,9 @@ import { LoadTestTrigger } from './components/load-test';
 require('dotenv').config();
 
 export = () => {
+  if (new pulumi.Config().getBoolean('RETIRED')) {
+    return {};
+  }
   const stackName = pulumi.getStack();
   const isDev = stackName.includes("dev");
 
@@ -414,4 +417,6 @@ export = () => {
       privateSubnetIds,
     });
   }
+  return {};
+
 };
