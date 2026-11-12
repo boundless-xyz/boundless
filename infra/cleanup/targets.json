@@ -1,0 +1,961 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "id": "pote-distributor-11155111-schedule-rule-d284873",
+      "profile": "boundless-dev",
+      "ownership": "Legacy market task schedule with an explicit market ECS target.",
+      "checks": [
+        {
+          "args": [
+            "events",
+            "describe-rule",
+            "--name",
+            "pote-distributor-11155111-schedule-rule-d284873",
+            "--query",
+            "Name"
+          ],
+          "expect": "pote-distributor-11155111-schedule-rule-d284873"
+        },
+        {
+          "args": [
+            "events",
+            "list-targets-by-rule",
+            "--rule",
+            "pote-distributor-11155111-schedule-rule-d284873",
+            "--query",
+            "sort_by(Targets, &Id)[].{id:Id,arn:Arn}"
+          ],
+          "expect": [
+            {
+              "id": "pote-distributor-11155111-task-target-45c1df1",
+              "arn": "arn:aws:ecs:us-west-2:751442549745:cluster/pote-distributor-11155111"
+            }
+          ]
+        },
+        {
+          "args": [
+            "ecs",
+            "list-tasks",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote-distributor-11155111",
+            "--desired-status",
+            "RUNNING",
+            "--query",
+            "taskArns"
+          ],
+          "expect": []
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "events",
+            "disable-rule",
+            "--name",
+            "pote-distributor-11155111-schedule-rule-d284873"
+          ]
+        },
+        {
+          "command": [
+            "events",
+            "remove-targets",
+            "--rule",
+            "pote-distributor-11155111-schedule-rule-d284873",
+            "--ids",
+            "pote-distributor-11155111-task-target-45c1df1"
+          ]
+        },
+        {
+          "command": [
+            "events",
+            "delete-rule",
+            "--name",
+            "pote-distributor-11155111-schedule-rule-d284873"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote333-og-random-requestor-8453-schedule-rule-5e1f3b3",
+      "profile": "boundless-dev",
+      "ownership": "Legacy market task schedule with an explicit market ECS target.",
+      "checks": [
+        {
+          "args": [
+            "events",
+            "describe-rule",
+            "--name",
+            "pote333-og-random-requestor-8453-schedule-rule-5e1f3b3",
+            "--query",
+            "Name"
+          ],
+          "expect": "pote333-og-random-requestor-8453-schedule-rule-5e1f3b3"
+        },
+        {
+          "args": [
+            "events",
+            "list-targets-by-rule",
+            "--rule",
+            "pote333-og-random-requestor-8453-schedule-rule-5e1f3b3",
+            "--query",
+            "sort_by(Targets, &Id)[].{id:Id,arn:Arn}"
+          ],
+          "expect": [
+            {
+              "id": "pote333-og-random-requestor-8453-task-target-0635835",
+              "arn": "arn:aws:ecs:us-west-2:751442549745:cluster/pote333-og-random-requestor-8453"
+            }
+          ]
+        },
+        {
+          "args": [
+            "ecs",
+            "list-tasks",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote333-og-random-requestor-8453",
+            "--desired-status",
+            "RUNNING",
+            "--query",
+            "taskArns"
+          ],
+          "expect": []
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "events",
+            "disable-rule",
+            "--name",
+            "pote333-og-random-requestor-8453-schedule-rule-5e1f3b3"
+          ]
+        },
+        {
+          "command": [
+            "events",
+            "remove-targets",
+            "--rule",
+            "pote333-og-random-requestor-8453-schedule-rule-5e1f3b3",
+            "--ids",
+            "pote333-og-random-requestor-8453-task-target-0635835"
+          ]
+        },
+        {
+          "command": [
+            "events",
+            "delete-rule",
+            "--name",
+            "pote333-og-random-requestor-8453-schedule-rule-5e1f3b3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote-order-slasher-11155111",
+      "profile": "boundless-dev",
+      "ownership": "Legacy market service verified running in the development account.",
+      "checks": [
+        {
+          "args": [
+            "ecs",
+            "describe-services",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote-order-slasher-11155111",
+            "--services",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote-order-slasher-11155111/pote-order-slasher-11155111",
+            "--query",
+            "services[0].{arn:serviceArn,cluster:clusterArn}"
+          ],
+          "expect": {
+            "arn": "arn:aws:ecs:us-west-2:751442549745:service/pote-order-slasher-11155111/pote-order-slasher-11155111",
+            "cluster": "arn:aws:ecs:us-west-2:751442549745:cluster/pote-order-slasher-11155111"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "ecs",
+            "update-service",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote-order-slasher-11155111",
+            "--service",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote-order-slasher-11155111/pote-order-slasher-11155111",
+            "--desired-count",
+            "0"
+          ]
+        },
+        {
+          "command": [
+            "ecs",
+            "delete-service",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote-order-slasher-11155111",
+            "--service",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote-order-slasher-11155111/pote-order-slasher-11155111",
+            "--force"
+          ]
+        },
+        {
+          "command": [
+            "ecs",
+            "wait",
+            "services-inactive",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote-order-slasher-11155111",
+            "--services",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote-order-slasher-11155111/pote-order-slasher-11155111"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote999-order-stream-serv",
+      "profile": "boundless-dev",
+      "ownership": "Legacy market service verified running in the development account.",
+      "checks": [
+        {
+          "args": [
+            "ecs",
+            "describe-services",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote999-order-stream-cluster",
+            "--services",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote999-order-stream-cluster/pote999-order-stream-serv",
+            "--query",
+            "services[0].{arn:serviceArn,cluster:clusterArn}"
+          ],
+          "expect": {
+            "arn": "arn:aws:ecs:us-west-2:751442549745:service/pote999-order-stream-cluster/pote999-order-stream-serv",
+            "cluster": "arn:aws:ecs:us-west-2:751442549745:cluster/pote999-order-stream-cluster"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "ecs",
+            "update-service",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote999-order-stream-cluster",
+            "--service",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote999-order-stream-cluster/pote999-order-stream-serv",
+            "--desired-count",
+            "0"
+          ]
+        },
+        {
+          "command": [
+            "ecs",
+            "delete-service",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote999-order-stream-cluster",
+            "--service",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote999-order-stream-cluster/pote999-order-stream-serv",
+            "--force"
+          ]
+        },
+        {
+          "command": [
+            "ecs",
+            "wait",
+            "services-inactive",
+            "--cluster",
+            "arn:aws:ecs:us-west-2:751442549745:cluster/pote999-order-stream-cluster",
+            "--services",
+            "arn:aws:ecs:us-west-2:751442549745:service/pote999-order-stream-cluster/pote999-order-stream-serv"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote999-order-stream-rds",
+      "profile": "boundless-dev",
+      "ownership": "Database dedicated to the old market order-stream service.",
+      "checks": [
+        {
+          "args": [
+            "rds",
+            "describe-db-instances",
+            "--db-instance-identifier",
+            "pote999-order-stream-rds",
+            "--query",
+            "DBInstances[0].{id:DBInstanceIdentifier,vpc:DBSubnetGroup.VpcId,protection:DeletionProtection}"
+          ],
+          "expect": {
+            "id": "pote999-order-stream-rds",
+            "vpc": "vpc-06d8305a7e7256350",
+            "protection": false
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "rds",
+            "delete-db-instance",
+            "--db-instance-identifier",
+            "pote999-order-stream-rds",
+            "--skip-final-snapshot",
+            "--delete-automated-backups"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote999-order-stream-84532-telem-v3",
+      "profile": "boundless-dev",
+      "ownership": "Telemetry warehouse for the old market order stream.",
+      "checks": [
+        {
+          "args": [
+            "redshift",
+            "describe-clusters",
+            "--cluster-identifier",
+            "pote999-order-stream-84532-telem-v3",
+            "--query",
+            "Clusters[0].{id:ClusterIdentifier,vpc:VpcId}"
+          ],
+          "expect": {
+            "id": "pote999-order-stream-84532-telem-v3",
+            "vpc": "vpc-06d8305a7e7256350"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "redshift",
+            "delete-cluster",
+            "--cluster-identifier",
+            "pote999-order-stream-84532-telem-v3",
+            "--skip-final-cluster-snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote999-order-stream-84532-telem-completions",
+      "profile": "boundless-dev",
+      "ownership": "Telemetry stream dedicated to the old market order stream.",
+      "checks": [
+        {
+          "args": [
+            "kinesis",
+            "describe-stream-summary",
+            "--stream-name",
+            "pote999-order-stream-84532-telem-completions",
+            "--query",
+            "StreamDescriptionSummary.StreamARN"
+          ],
+          "expect": "arn:aws:kinesis:us-west-2:751442549745:stream/pote999-order-stream-84532-telem-completions"
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "kinesis",
+            "delete-stream",
+            "--stream-name",
+            "pote999-order-stream-84532-telem-completions"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote999-order-stream-84532-telem-evaluations",
+      "profile": "boundless-dev",
+      "ownership": "Telemetry stream dedicated to the old market order stream.",
+      "checks": [
+        {
+          "args": [
+            "kinesis",
+            "describe-stream-summary",
+            "--stream-name",
+            "pote999-order-stream-84532-telem-evaluations",
+            "--query",
+            "StreamDescriptionSummary.StreamARN"
+          ],
+          "expect": "arn:aws:kinesis:us-west-2:751442549745:stream/pote999-order-stream-84532-telem-evaluations"
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "kinesis",
+            "delete-stream",
+            "--stream-name",
+            "pote999-order-stream-84532-telem-evaluations"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote999-order-stream-84532-telem-heartbeats",
+      "profile": "boundless-dev",
+      "ownership": "Telemetry stream dedicated to the old market order stream.",
+      "checks": [
+        {
+          "args": [
+            "kinesis",
+            "describe-stream-summary",
+            "--stream-name",
+            "pote999-order-stream-84532-telem-heartbeats",
+            "--query",
+            "StreamDescriptionSummary.StreamARN"
+          ],
+          "expect": "arn:aws:kinesis:us-west-2:751442549745:stream/pote999-order-stream-84532-telem-heartbeats"
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "kinesis",
+            "delete-stream",
+            "--stream-name",
+            "pote999-order-stream-84532-telem-heartbeats"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pote999-order-stream-lb",
+      "profile": "boundless-dev",
+      "ownership": "Load balancer dedicated to the old market order stream.",
+      "checks": [
+        {
+          "args": [
+            "elbv2",
+            "describe-load-balancers",
+            "--load-balancer-arns",
+            "arn:aws:elasticloadbalancing:us-west-2:751442549745:loadbalancer/app/pote999-order-stream-lb/4397d192c8951348",
+            "--query",
+            "LoadBalancers[0].{arn:LoadBalancerArn,vpc:VpcId}"
+          ],
+          "expect": {
+            "arn": "arn:aws:elasticloadbalancing:us-west-2:751442549745:loadbalancer/app/pote999-order-stream-lb/4397d192c8951348",
+            "vpc": "vpc-06d8305a7e7256350"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "elbv2",
+            "delete-load-balancer",
+            "--load-balancer-arn",
+            "arn:aws:elasticloadbalancing:us-west-2:751442549745:loadbalancer/app/pote999-order-stream-lb/4397d192c8951348"
+          ]
+        },
+        {
+          "command": [
+            "elbv2",
+            "wait",
+            "load-balancers-deleted",
+            "--load-balancer-arns",
+            "arn:aws:elasticloadbalancing:us-west-2:751442549745:loadbalancer/app/pote999-order-stream-lb/4397d192c8951348"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry-snapshot-prod-167000-04-24-26",
+      "profile": "boundless-prod",
+      "ownership": "April 24 market telemetry archive, explicitly mapped in .claude/skills/ops-telemetry-query/SKILL.md under Bucket mapping.",
+      "checks": [
+        {
+          "args": [
+            "s3api",
+            "head-bucket",
+            "--bucket",
+            "telemetry-snapshot-prod-167000-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633",
+            "--query",
+            "null"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-versioning",
+            "--bucket",
+            "telemetry-snapshot-prod-167000-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633",
+            "--query",
+            "Status"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-notification-configuration",
+            "--bucket",
+            "telemetry-snapshot-prod-167000-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633"
+          ],
+          "expect": null
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "s3",
+            "rb",
+            "s3://telemetry-snapshot-prod-167000-04-24-26",
+            "--force"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry-snapshot-prod-8453-04-24-26",
+      "profile": "boundless-prod",
+      "ownership": "April 24 market telemetry archive, explicitly mapped in .claude/skills/ops-telemetry-query/SKILL.md under Bucket mapping.",
+      "checks": [
+        {
+          "args": [
+            "s3api",
+            "head-bucket",
+            "--bucket",
+            "telemetry-snapshot-prod-8453-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633",
+            "--query",
+            "null"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-versioning",
+            "--bucket",
+            "telemetry-snapshot-prod-8453-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633",
+            "--query",
+            "Status"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-notification-configuration",
+            "--bucket",
+            "telemetry-snapshot-prod-8453-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633"
+          ],
+          "expect": null
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "s3",
+            "rb",
+            "s3://telemetry-snapshot-prod-8453-04-24-26",
+            "--force"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry-snapshot-prod-84532-04-24-26",
+      "profile": "boundless-prod",
+      "ownership": "April 24 market telemetry archive, explicitly mapped in .claude/skills/ops-telemetry-query/SKILL.md under Bucket mapping.",
+      "checks": [
+        {
+          "args": [
+            "s3api",
+            "head-bucket",
+            "--bucket",
+            "telemetry-snapshot-prod-84532-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633",
+            "--query",
+            "null"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-versioning",
+            "--bucket",
+            "telemetry-snapshot-prod-84532-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633",
+            "--query",
+            "Status"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-notification-configuration",
+            "--bucket",
+            "telemetry-snapshot-prod-84532-04-24-26",
+            "--expected-bucket-owner",
+            "632745187633"
+          ],
+          "expect": null
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "s3",
+            "rb",
+            "s3://telemetry-snapshot-prod-84532-04-24-26",
+            "--force"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry-snapshot-staging-167000-04-24-26",
+      "profile": "boundless-staging",
+      "ownership": "April 24 market telemetry archive, explicitly mapped in .claude/skills/ops-telemetry-query/SKILL.md under Bucket mapping.",
+      "checks": [
+        {
+          "args": [
+            "s3api",
+            "head-bucket",
+            "--bucket",
+            "telemetry-snapshot-staging-167000-04-24-26",
+            "--expected-bucket-owner",
+            "245178712747",
+            "--query",
+            "null"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-versioning",
+            "--bucket",
+            "telemetry-snapshot-staging-167000-04-24-26",
+            "--expected-bucket-owner",
+            "245178712747",
+            "--query",
+            "Status"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-notification-configuration",
+            "--bucket",
+            "telemetry-snapshot-staging-167000-04-24-26",
+            "--expected-bucket-owner",
+            "245178712747"
+          ],
+          "expect": null
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "s3",
+            "rb",
+            "s3://telemetry-snapshot-staging-167000-04-24-26",
+            "--force"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry-snapshot-staging-84532-04-24-26",
+      "profile": "boundless-staging",
+      "ownership": "April 24 market telemetry archive, explicitly mapped in .claude/skills/ops-telemetry-query/SKILL.md under Bucket mapping.",
+      "checks": [
+        {
+          "args": [
+            "s3api",
+            "head-bucket",
+            "--bucket",
+            "telemetry-snapshot-staging-84532-04-24-26",
+            "--expected-bucket-owner",
+            "245178712747",
+            "--query",
+            "null"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-versioning",
+            "--bucket",
+            "telemetry-snapshot-staging-84532-04-24-26",
+            "--expected-bucket-owner",
+            "245178712747",
+            "--query",
+            "Status"
+          ],
+          "expect": null
+        },
+        {
+          "args": [
+            "s3api",
+            "get-bucket-notification-configuration",
+            "--bucket",
+            "telemetry-snapshot-staging-84532-04-24-26",
+            "--expected-bucket-owner",
+            "245178712747"
+          ],
+          "expect": null
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "s3",
+            "rb",
+            "s3://telemetry-snapshot-staging-84532-04-24-26",
+            "--force"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prod-11155111-order-stream-rds-snapshot",
+      "profile": "boundless-prod",
+      "ownership": "Final snapshot of a retired market order-stream database.",
+      "checks": [
+        {
+          "args": [
+            "rds",
+            "describe-db-snapshots",
+            "--db-snapshot-identifier",
+            "prod-11155111-order-stream-rds-snapshot",
+            "--query",
+            "DBSnapshots[0].{id:DBSnapshotIdentifier,parent:DBInstanceIdentifier,type:SnapshotType}"
+          ],
+          "expect": {
+            "id": "prod-11155111-order-stream-rds-snapshot",
+            "parent": "prod-11155111-order-stream-rds",
+            "type": "manual"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "rds",
+            "delete-db-snapshot",
+            "--db-snapshot-identifier",
+            "prod-11155111-order-stream-rds-snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prod-84532-order-stream-rds-snapshot",
+      "profile": "boundless-prod",
+      "ownership": "Final snapshot of a retired market order-stream database.",
+      "checks": [
+        {
+          "args": [
+            "rds",
+            "describe-db-snapshots",
+            "--db-snapshot-identifier",
+            "prod-84532-order-stream-rds-snapshot",
+            "--query",
+            "DBSnapshots[0].{id:DBSnapshotIdentifier,parent:DBInstanceIdentifier,type:SnapshotType}"
+          ],
+          "expect": {
+            "id": "prod-84532-order-stream-rds-snapshot",
+            "parent": "prod-84532-order-stream-rds",
+            "type": "manual"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "rds",
+            "delete-db-snapshot",
+            "--db-snapshot-identifier",
+            "prod-84532-order-stream-rds-snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prod-8453-order-stream-rds-snapshot",
+      "profile": "boundless-prod",
+      "ownership": "Final snapshot of a retired market order-stream database.",
+      "checks": [
+        {
+          "args": [
+            "rds",
+            "describe-db-snapshots",
+            "--db-snapshot-identifier",
+            "prod-8453-order-stream-rds-snapshot",
+            "--query",
+            "DBSnapshots[0].{id:DBSnapshotIdentifier,parent:DBInstanceIdentifier,type:SnapshotType}"
+          ],
+          "expect": {
+            "id": "prod-8453-order-stream-rds-snapshot",
+            "parent": "prod-8453-order-stream-rds",
+            "type": "manual"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "rds",
+            "delete-db-snapshot",
+            "--db-snapshot-identifier",
+            "prod-8453-order-stream-rds-snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "l-prod-84532-order-stream-84532-telem-v4-final",
+      "profile": "boundless-prod",
+      "ownership": "Final snapshot of a retired market telemetry warehouse.",
+      "checks": [
+        {
+          "args": [
+            "redshift",
+            "describe-cluster-snapshots",
+            "--snapshot-identifier",
+            "l-prod-84532-order-stream-84532-telem-v4-final",
+            "--query",
+            "Snapshots[0].{id:SnapshotIdentifier,parent:ClusterIdentifier,type:SnapshotType}"
+          ],
+          "expect": {
+            "id": "l-prod-84532-order-stream-84532-telem-v4-final",
+            "parent": "l-prod-84532-order-stream-84532-telem-v4",
+            "type": "manual"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "redshift",
+            "delete-cluster-snapshot",
+            "--snapshot-identifier",
+            "l-prod-84532-order-stream-84532-telem-v4-final"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "l-prod-11155111-order-stream-11155111-telem-v4-final",
+      "profile": "boundless-prod",
+      "ownership": "Final snapshot of a retired market telemetry warehouse.",
+      "checks": [
+        {
+          "args": [
+            "redshift",
+            "describe-cluster-snapshots",
+            "--snapshot-identifier",
+            "l-prod-11155111-order-stream-11155111-telem-v4-final",
+            "--query",
+            "Snapshots[0].{id:SnapshotIdentifier,parent:ClusterIdentifier,type:SnapshotType}"
+          ],
+          "expect": {
+            "id": "l-prod-11155111-order-stream-11155111-telem-v4-final",
+            "parent": "l-prod-11155111-order-stream-11155111-telem-v4",
+            "type": "manual"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "command": [
+            "redshift",
+            "delete-cluster-snapshot",
+            "--snapshot-identifier",
+            "l-prod-11155111-order-stream-11155111-telem-v4-final"
+          ]
+        }
+      ]
+    }
+  ],
+  "managed_stacks": [
+    {
+      "project": "slasher",
+      "stack": "prod-11155111",
+      "profile": "boundless-prod",
+      "version": "OaE2cSPXbyFC0O7eyIZXe9i4xNllc3mn",
+      "aws_resource_count": 24,
+      "identity_digest": "3bab340cf173104385b31e787a9556eb45f1c6cc328c37bb54c4691038947001",
+      "ownership": "Historical market deployment, separate from shared networking.",
+      "preparation": "Preview from copied state; retain the live checkpoint until separately approved cleanup."
+    },
+    {
+      "project": "slasher",
+      "stack": "prod-8453",
+      "profile": "boundless-prod",
+      "version": "1QUsoOqaFqI479oR0nLULhteq0hDuNiy",
+      "aws_resource_count": 24,
+      "identity_digest": "b7b2e4842233836486dfd8510686422dcdd0aa952ea8785c7106e14722caf5f8",
+      "ownership": "Historical market deployment, separate from shared networking.",
+      "preparation": "Preview from copied state; retain the live checkpoint until separately approved cleanup."
+    },
+    {
+      "project": "slasher",
+      "stack": "prod-84532",
+      "profile": "boundless-prod",
+      "version": "La5DCQqmtZZX2cgnlEy.L72vv0Pxigwo",
+      "aws_resource_count": 24,
+      "identity_digest": "ba572e165255ffbfb79ace34add168a9345869954b5a706f2e2eea8712f2a83c",
+      "ownership": "Historical market deployment, separate from shared networking.",
+      "preparation": "Preview from copied state; retain the live checkpoint until separately approved cleanup."
+    },
+    {
+      "project": "prover",
+      "stack": "staging-11155111",
+      "profile": "boundless-staging",
+      "version": "v27MphzFpy2H.Upgyzk7U445nLT2_QXk",
+      "aws_resource_count": 267,
+      "identity_digest": "3fdf0b003f266259972de4cf580955012b009618260169189d99d23bf9550b95",
+      "ownership": "Historical market deployment, separate from shared networking.",
+      "preparation": "Preview from copied state; retain the live checkpoint until separately approved cleanup."
+    },
+    {
+      "project": "prover",
+      "stack": "staging-84532",
+      "profile": "boundless-staging",
+      "version": "BGNjOZ5Gk.fX7t1mkC9N.T9DeBXVuDOM",
+      "aws_resource_count": 267,
+      "identity_digest": "9506dcfb6a5a6a66f394e001f18c47fbf48a2abb9f5eae203d2c86098bafb57b",
+      "ownership": "Historical market deployment, separate from shared networking.",
+      "preparation": "Preview from copied state; retain the live checkpoint until separately approved cleanup."
+    },
+    {
+      "project": "prover-cluster",
+      "stack": "staging-11155111",
+      "profile": "boundless-staging",
+      "version": "f1eN66MMqLGw5cBexGpyJcxrE.WDdQVt",
+      "aws_resource_count": 72,
+      "identity_digest": "4b213b2c90e1b58f8d5669271d0aeb9a54ffd167d2dcbdd21fc6b22fdf26c546",
+      "ownership": "Historical market deployment, separate from shared networking.",
+      "preparation": "Preview from copied state; retain the live checkpoint until separately approved cleanup."
+    }
+  ],
+  "deferred": {
+    "protected": "All non-target workloads and dependencies remain excluded.",
+    "unverified": "Resources without verified ownership are excluded.",
+    "monitoring": "Production monitoring retirement is approved and runs in the existing nightly stage before the manual production gate.",
+    "paused": "Paused workloads remain untouched."
+  }
+}

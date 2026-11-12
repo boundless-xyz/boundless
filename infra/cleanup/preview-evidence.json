@@ -1,0 +1,74 @@
+{
+  "previews": [
+    {
+      "project": "slasher",
+      "stack": "prod-11155111",
+      "changes": {
+        "delete": 29,
+        "discard": 1
+      },
+      "protected_overlap": 0,
+      "protected_reverse_references": 0,
+      "aws_deletions": 24
+    },
+    {
+      "project": "slasher",
+      "stack": "prod-8453",
+      "changes": {
+        "delete": 29,
+        "discard": 1
+      },
+      "protected_overlap": 0,
+      "protected_reverse_references": 0,
+      "aws_deletions": 24
+    },
+    {
+      "project": "slasher",
+      "stack": "prod-84532",
+      "changes": {
+        "delete": 29,
+        "discard": 1
+      },
+      "protected_overlap": 0,
+      "protected_reverse_references": 0,
+      "aws_deletions": 24
+    },
+    {
+      "project": "prover",
+      "stack": "staging-11155111",
+      "changes": {
+        "delete": 274,
+        "discard": 1
+      },
+      "protected_overlap": 0,
+      "protected_reverse_references": 0,
+      "aws_deletions": 267
+    },
+    {
+      "project": "prover",
+      "stack": "staging-84532",
+      "changes": {
+        "delete": 274,
+        "discard": 1
+      },
+      "protected_overlap": 0,
+      "protected_reverse_references": 0,
+      "aws_deletions": 267
+    },
+    {
+      "project": "prover-cluster",
+      "stack": "staging-11155111",
+      "changes": {
+        "delete": 73,
+        "discard": 1
+      },
+      "protected_overlap": 0,
+      "protected_reverse_references": 0,
+      "aws_deletions": 72
+    }
+  ],
+  "no_live_state_imports_or_teardown": true,
+  "total_state_resource_deletions": 708,
+  "notes": "Copied-state destroy previews include stale resources and components. S3 forceDestroy and log skipDestroy were prepared only in the private copies; live preparation and refreshed review remain required before execution.",
+  "retained_resource_checks_passed": true
+}
