@@ -1,4 +1,10 @@
 """Check that the old deployment entry points cannot restart retired Bento hosts."""
+import copy
+import os
+import shutil
+import socket
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,7 +29,8 @@ class RetirementTests(unittest.TestCase):
     def test_retirement_stops_workloads_without_an_execution_guard(self):
         play = yaml.safe_load((ROOT / 'retire-bento.yml').read_text())[0]
         self.assertEqual(play['hosts'], 'all')
-        self.assertNotIn('pre_tasks', play)
+        self.assertFalse(play.get('ignore_unreachable', False))
+        self.assertFalse(play.get('ignore_errors', False))
         stop = next(t for t in play['tasks'] if 'ansible.builtin.systemd_service' in t)
         self.assertEqual(stop['ansible.builtin.systemd_service']['state'], 'stopped')
         self.assertFalse(stop['ansible.builtin.systemd_service']['enabled'])
@@ -34,6 +41,47 @@ class RetirementTests(unittest.TestCase):
         remove = next(command for command in commands if 'rm' in command)
         self.assertNotIn('--volumes', remove)
         self.assertNotIn('-v', remove)
+
+
+@unittest.skipUnless(shutil.which('ansible-playbook'), 'ansible-playbook is required')
+class RetirementConnectionTests(unittest.TestCase):
+    def run_playbook(self, directory, playbook, port, connection='ssh'):
+        inventory = Path(directory) / 'inventory.yml'
+        inventory.write_text(yaml.safe_dump({'all': {'hosts': {'retired_test_host': {
+            'ansible_host': '127.0.0.1',
+            'ansible_port': port,
+            'ansible_connection': connection,
+            'ansible_connect_timeout': 1,
+        }}}}))
+        env = dict(os.environ, ANSIBLE_LOCAL_TEMP=str(Path(directory) / 'tmp'),
+                   ANSIBLE_HOST_KEY_CHECKING='False', ANSIBLE_NOCOLOR='1')
+        return subprocess.run(
+            ['ansible-playbook', '-i', str(inventory), str(playbook), '--check'],
+            env=env, capture_output=True, text=True, timeout=40,
+        )
+
+    def test_unreachable_host_does_not_block_retirement_pipeline(self):
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as unavailable:
+            unavailable.bind(('127.0.0.1', 0))
+            result = self.run_playbook(directory, ROOT / 'prover.yml', unavailable.getsockname()[1])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('Skipping unreachable retired host retired_test_host', result.stdout)
+
+    def test_reachable_host_cleanup_errors_still_fail(self):
+        play = copy.deepcopy(yaml.safe_load((ROOT / 'retire-bento.yml').read_text())[0])
+        play['become'] = False
+        play['tasks'] = [{'name': 'Simulate a cleanup failure',
+                          'ansible.builtin.fail': {'msg': 'retirement cleanup failed'}}]
+        play.pop('handlers', None)
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as available:
+            available.bind(('127.0.0.1', 0))
+            available.listen()
+            fixture = Path(directory) / 'cleanup-failure.yml'
+            fixture.write_text(yaml.safe_dump([play]))
+            result = self.run_playbook(directory, fixture, available.getsockname()[1], 'local')
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('retirement cleanup failed', result.stdout)
+        self.assertNotIn('Skipping unreachable retired host', result.stdout)
 
 
 if __name__ == '__main__':

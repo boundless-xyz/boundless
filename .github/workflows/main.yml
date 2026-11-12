@@ -448,6 +448,9 @@ jobs:
             fi
           done
 
+      - name: Check cleanup preview boundaries
+        run: python3 infra/cleanup/test_preview.py
+
   scaler-tests:
     name: Scaler Tests (GH)
     runs-on: ubuntu-latest
