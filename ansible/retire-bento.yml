@@ -3,6 +3,24 @@
   hosts: all
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Check whether the retired host is reachable
+      block:
+        - name: Wait briefly for the retired host's SSH port
+          ansible.builtin.wait_for:
+            host: "{{ ansible_host | default(inventory_hostname) }}"
+            port: "{{ ansible_port | default(22) }}"
+            connect_timeout: 3
+            timeout: 10
+          delegate_to: localhost
+          become: false
+          check_mode: false
+      rescue:
+        - name: Report the skipped retired host
+          ansible.builtin.debug:
+            msg: "Skipping unreachable retired host {{ inventory_hostname }}; no host cleanup was performed."
+        - name: Skip the unreachable retired host
+          ansible.builtin.meta: end_host
   tasks:
     - name: Read installed service state
       ansible.builtin.service_facts:
