@@ -955,7 +955,7 @@
   "deferred": {
     "protected": "All non-target workloads and dependencies remain excluded.",
     "unverified": "Resources without verified ownership are excluded.",
-    "monitoring": "The existing nightly pipeline applies production monitoring retirement before the manual production gate; merge remains blocked until that action is authorized or the pipeline is changed.",
+    "monitoring": "Production monitoring retirement is approved and runs in the existing nightly stage before the manual production gate.",
     "paused": "Paused workloads remain untouched."
   }
 }

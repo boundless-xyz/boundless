@@ -57,7 +57,7 @@ untouched.
 Production `cw-monitoring` already has a retirement program. The existing
 `DeployNightly` stage applies it before the manual production approval gate.
 Merging the Ansible fix can therefore stop reachable staging/nightly workloads
-and delete production monitoring without that approval. Keep this PR in draft
-until those actions are explicitly authorized or the deployed pipeline is changed.
+and delete production monitoring before that approval. This monitoring cleanup
+is part of the approved retirement rollout.
 Remove obsolete pipelines only after the remaining service and monitoring work is
 complete.
