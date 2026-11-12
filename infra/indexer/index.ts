@@ -12,6 +12,12 @@ require('dotenv').config();
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
+  if (config.getBoolean('RETIRED')) {
+    if (!['l-prod-84532', 'l-prod-11155111'].includes(stackName)) {
+      throw new Error('Only the two inactive production testnet indexers may be retired');
+    }
+    return { ORDER_STREAM_ENABLED: false };
+  }
   const isDev = stackName === "dev";
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const useGhcr = config.getBoolean('USE_GHCR') || false;

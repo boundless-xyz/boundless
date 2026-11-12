@@ -158,8 +158,52 @@ else:
     def test_indexer_configs_have_no_retired_service_dependencies(self):
         for config in (ROOT / "indexer").glob("Pulumi.l-*.yaml"):
             text = config.read_text()
-            for key in ("ORDER_STREAM_URL", "BENTO_API_URL", "BENTO_API_KEY", "RETIRED"):
+            for key in ("ORDER_STREAM_URL", "BENTO_API_URL", "BENTO_API_KEY"):
                 self.assertNotIn(f"indexer:{key}:", text, config.name)
+
+    def test_only_inactive_testnet_indexers_are_retired(self):
+        retired = {config.name[7:-5] for config in (ROOT / "indexer").glob("Pulumi.*.yaml")
+                   if "indexer:RETIRED: true" in config.read_text()}
+        self.assertEqual(retired, retirement.INACTIVE_INDEXER_STACKS)
+        for stack in ("l-prod-84532", "l-prod-11155111", "l-prod-8453", "l-prod-167000", "l-prod-1", "l-staging-84532", "l-staging-11155111", "l-staging-167000"):
+            result = subprocess.run(
+                ["node", str(ROOT / "test-retirement.cjs"), "indexer", "retired", stack],
+                env=dict(os.environ, NODE_PATH=str(ROOT / "indexer/node_modules")),
+                capture_output=True, text=True, timeout=30,
+            )
+            if stack in retired:
+                self.assertEqual(result.returncode, 0, result.stderr)
+            else:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Only the two inactive", result.stderr)
+
+    def test_inactive_indexer_preparation_cleans_up_owned_buckets_and_logs(self):
+        stack = "l-prod-84532"
+        resources = [{"urn": f"urn:pulumi:{stack}::indexer::{kind}::owned", "type": kind,
+                      "protect": True, "inputs": dict(values), "outputs": dict(values)}
+                     for kind, values in [("aws:s3/bucketV2:BucketV2", {"forceDestroy": False}),
+                                          ("aws:cloudwatch/logGroup:LogGroup", {"skipDestroy": True})]]
+        checkpoint = {"deployment": {"resources": resources}}
+        responses = [json.dumps({"indexer:RETIRED": {"value": "true"}}), json.dumps(checkpoint)]
+        with patch.object(retirement.subprocess, "check_output", side_effect=responses), \
+                patch.object(retirement.subprocess, "run") as mutate:
+            self.assertTrue(retirement.prepare("indexer", stack))
+            self.assertEqual(mutate.call_count, 1)
+        retirement.prepare_checkpoint("indexer", stack, checkpoint)
+        for field in ("inputs", "outputs"):
+            self.assertTrue(resources[0][field]["forceDestroy"])
+            self.assertFalse(resources[1][field]["skipDestroy"])
+        self.assertTrue(all(not r["protect"] for r in resources))
+        with self.assertRaisesRegex(ValueError, "Active indexers"):
+            retirement.prepare_checkpoint("indexer", "l-prod-8453", {"deployment": {}})
+
+    def test_indexer_pipeline_keeps_only_active_targets_and_production_approval(self):
+        result = subprocess.run(
+            ["node", str(ROOT / "test-indexer-pipeline.cjs")],
+            env=dict(os.environ, NODE_PATH=str(ROOT / "pipelines/node_modules")),
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_cleanup_removes_retention_only_from_owned_resources(self):
         resources = []

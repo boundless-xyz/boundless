@@ -15,7 +15,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(
 
 const indexerUsesOrderStream = process.argv[3] === 'indexer-enabled';
 const indexerOutputMissing = process.argv[3] === 'indexer-missing';
-assert(['distributor', 'slasher', 'order-stream', 'order-generator', 'requestor-lists', 'cw-monitoring'].includes(service));
+assert(['distributor', 'slasher', 'order-stream', 'order-generator', 'requestor-lists', 'cw-monitoring', 'indexer'].includes(service));
 const resources = [];
 pulumi.runtime.setMocks({
   newResource(args) {
@@ -29,7 +29,7 @@ pulumi.runtime.setMocks({
     }};
   },
   call() { throw new Error('Retirement must not look up cloud resources'); },
-}, service, service === 'requestor-lists' ? 'l-prod' : service === 'cw-monitoring' ? 'production' : 'l-prod-8453', false);
+}, service, process.argv[4] || (service === 'indexer' ? 'l-prod-84532' : service === 'requestor-lists' ? 'l-prod' : service === 'cw-monitoring' ? 'production' : 'l-prod-8453'), false);
 pulumi.Config.prototype.getBoolean = function (key) {
   assert.equal(key, 'RETIRED');
   return true;
@@ -40,7 +40,7 @@ require('node:child_process').execSync = () => { throw new Error('Image setup wa
 
 (async () => {
   await pulumi.runtime.runInPulumiStack(async () => {
-    assert.deepEqual(await require(path.join(__dirname, service, 'index.ts'))(), {});
+    assert.deepEqual(await require(path.join(__dirname, service, 'index.ts'))(), service === 'indexer' ? {ORDER_STREAM_ENABLED: false} : {});
   });
   await pulumi.runtime.disconnect();
   assert(resources.every(resource => ['pulumi:pulumi:Stack', 'pulumi:pulumi:StackReference'].includes(resource.type)));
