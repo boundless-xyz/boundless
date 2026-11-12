@@ -1,14 +1,7 @@
 import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
 import { Notifications } from "./components/notifications";
-import { LDistributorPipeline } from "./pipelines/l-distributor";
 import { LIndexerPipeline } from "./pipelines/l-indexer";
-import { LOrderGeneratorPipeline } from "./pipelines/l-order-generator";
-import { LOrderStreamPipeline } from "./pipelines/l-order-stream";
-import { LProverAnsiblePipeline } from "./pipelines/l-prover-ansible";
-import { LRequestorListsPipeline } from "./pipelines/l-requestor-lists";
-import { LSlasherPipeline } from "./pipelines/l-slasher";
-import { LKailuaBatchPipeline } from "./pipelines/l-kailua-batch";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -105,79 +98,8 @@ const githubToken = config.requireSecret("GITHUB_TOKEN");
 const dockerUsername = config.require("DOCKER_USER");
 const dockerToken = config.requireSecret("DOCKER_PAT");
 
-// Launch pipelines
-const lDistributorPipeline = new LDistributorPipeline("lDistributorPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
-const lOrderStreamPipeline = new LOrderStreamPipeline("lOrderStreamPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
-const lOrderGeneratorPipeline = new LOrderGeneratorPipeline("lOrderGeneratorPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
+// Keep the indexer pipeline until the explorer/indexer retirement.
 const lIndexerPipeline = new LIndexerPipeline("lIndexerPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
-const lSlasherPipeline = new LSlasherPipeline("lSlasherPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
-const lKailuaBatchPipeline = new LKailuaBatchPipeline("lKailuaBatchPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
-const lRequestorListsPipeline = new LRequestorListsPipeline("lRequestorListsPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
-// Prover Ansible deployment (SSH + inventory in Secrets Manager; no infra in GitHub)
-const lProverAnsiblePipeline = new LProverAnsiblePipeline("lProverAnsiblePipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
@@ -194,4 +116,3 @@ export const boundlessAlertsBetaTopicArn = notifications.slackSNSTopic.arn;
 export const boundlessPagerdutyBetaTopicArn = notifications.pagerdutySNSTopic.arn;
 export const boundlessAlertsTopicArnLaunch = notifications.slackSNSTopicLaunch.arn;
 export const boundlessAlertsTopicArnStagingLaunch = notifications.slackSNSTopicStagingLaunch.arn;
-export const lProverAnsiblePipelineName = lProverAnsiblePipeline.pipelineName;

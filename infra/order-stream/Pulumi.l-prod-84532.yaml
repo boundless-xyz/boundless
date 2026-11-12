@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAG5SvvpHIdofbUQ9x/+Sg/NAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM/8QrPtXrOev7UhEuAgEQgDtkSwa10WOMbSAnyvCB6zuV9HWY/kigxAxzYRIThBZz9xuy7+E1pY8DtT+Qq+pmCjPu4q8MTxBCyacq0g==
 config:
+  order-stream:RETIRED: true
   aws:region: us-west-2
   order-stream:ALB_DOMAIN: base-sepolia.boundless.network
   order-stream:DISABLE_CERT: "false"

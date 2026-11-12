@@ -1,0 +1,54 @@
+---
+- name: Retire managed Bento workloads
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read installed service state
+      ansible.builtin.service_facts:
+
+    - name: Stop and disable the workload and telemetry services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - bento.service
+        - vector.service
+      when: item in ansible_facts.services
+
+    - name: Find remaining Bento containers
+      ansible.builtin.command:
+        argv:
+          - docker
+          - ps
+          - -aq
+          - --filter
+          - "label=com.docker.compose.project={{ item }}"
+      loop:
+        - bento
+        - prover
+      register: retired_containers
+      changed_when: false
+      check_mode: false
+
+    - name: Remove remaining containers from the retired stack
+      ansible.builtin.command:
+        argv:
+          - docker
+          - rm
+          - --force
+          - "{{ item }}"
+      loop: "{{ retired_containers.results | map(attribute='stdout_lines') | flatten | unique }}"
+      changed_when: true
+
+    - name: Remove the retired workload service definition
+      ansible.builtin.file:
+        path: /etc/systemd/system/bento.service
+        state: absent
+      notify: Reload systemd after Bento retirement
+
+  handlers:
+    - name: Reload systemd after Bento retirement
+      ansible.builtin.systemd_service:
+        daemon_reload: true

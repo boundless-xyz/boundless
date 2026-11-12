@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAF3TTGTzKt8/w8kAfBy+BATAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMvtbwFxObhz7jvhw/AgEQgDt0zDgEuFtT4Gvk2w4uG6SFbJOD0ITgurZPRjfWTVgRCqzZ/FBIgcZluS9KqjBdupu1eo/MU3dgy7Jv8g==
 config:
+  distributor:RETIRED: true
   distributor:BASE_STACK: organization/bootstrap/services-prod
   distributor:CHAIN_ID: "11155111"
   distributor:DISTRIBUTOR_ADDRESS: 0xd79A4B9D713e70De8b0B820eBB7B5a18B7F07d4A

@@ -23,6 +23,9 @@ import { withAutoInvestigate } from "../util";
 
 export = () => {
     const config = new pulumi.Config();
+    if (config.getBoolean('RETIRED')) {
+        return {};
+    }
     const stackName = pulumi.getStack();
 
     // ── Load node inventory from stack config ────────────────────────────

@@ -114,24 +114,8 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          - name: slasher
-            dockerfile: dockerfiles/slasher.dockerfile
-            submodules: false
-            runner: [self-hosted, prod, Linux, cpu]
-          - name: order-stream
-            dockerfile: dockerfiles/order_stream.dockerfile
-            submodules: false
-            runner: [self-hosted, prod, Linux, cpu]
           - name: indexer
             dockerfile: dockerfiles/indexer.dockerfile
-            submodules: false
-            runner: [self-hosted, prod, Linux, cpu]
-          - name: distributor
-            dockerfile: dockerfiles/distributor.dockerfile
-            submodules: false
-            runner: [self-hosted, prod, Linux, cpu]
-          - name: order-generator
-            dockerfile: dockerfiles/order_generator.dockerfile
             submodules: false
             runner: [self-hosted, prod, Linux, cpu]
           - name: broker

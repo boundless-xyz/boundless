@@ -27,16 +27,10 @@ config:
   indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:ETH_RPC_URL:
     secure: v1:S5t1d+qfUUS63zZv:23xURask3Aq2/6rL1KDiVhN7xnnTMnFsYRt7cHvClBDl3sfEELo8WlegCoxYtiEZcB7dYQXtVvGBTCW9Z/lgHOo4r1xBoL/h4uLcYHhxkGlacrX/HoyyPfYRLollzEVwU77FQ9Z+fKVLVkNk2Q==
-  indexer:ORDER_STREAM_URL:
-    secure: v1:ML0Kk4FpP/GziDre:4jU25g1PNq2wuFzmhDmVAUPU+PfJN3YQyNx6aeMy/auojDeiQungfqUIw9FUqAurV2tPfCriGJncS5DsbsmemkWQsx1MhUZfvnNT6+ByDpmwCd768Yjvp3u/ul4=
   indexer:ORDER_STREAM_API_KEY:
     secure: v1:uUHqkWGSHlc3+m3s:PERf1Dj+ES2WhAK3ofMFLnf1dJiZ+yWBRX50cYtO
   indexer:LOGS_ETH_RPC_URL:
     secure: v1:mtDoiRDofMGFzYoM:JV1359OLhOYkTQpaQZMh3OSBhoco7dF1zR1fMDGu6icxE7JV4ZQDMAnefN8ouQTNtOOM7DBYtMn76Z2UslaAbkX9RdPiF16UXp+P
-  indexer:BENTO_API_URL:
-    secure: v1:VoXJzUa7hMIoM9VA:Dk1gBRF3mtZvaVMV6qTa60NC1VGrKwVwFcU4abiwFc09jxRjnhd9r5aSRiE8Jt6fikkbkZQhGMYnIRQ=
-  indexer:BENTO_API_KEY:
-    secure: v1:r49/xVHhI+yVNEBM:mk3wBWORkdyo2SFq5ZrTgzuOHOCpgrf3hpmkf2trdUB3cQb1aKzW3OsF8ZEb32I9STRas1xAhCLnow==
   indexer:PROXY_SECRET:
     secure: v1:cab3j8bdNyiHTCx+:H7ZL+w6m4WcBbDI1NaIth+rLitNPFho41CByB2PuuP45FPi7jPRxhg==
   indexer:CI_CACHE_SECRET:
