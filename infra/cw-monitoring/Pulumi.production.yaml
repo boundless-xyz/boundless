@@ -1,6 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEm6cL2w1KQ2l5udrYEWI8wAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMe2boXqagLxQdwwTkAgEQgDv8D4XcArRKHPlbtaiExgrg8P8fgTc/Po3TX7f+e09NusJGK8rv67X5T/GpKOh4RmMat1B6OKdPbv6wdQ==
 config:
+  cw-monitoring:RETIRED: true
   aws:region: us-west-2
   cw-monitoring:logRetentionDays: "90"
   # Uncomment and set these to enable alarm notifications:

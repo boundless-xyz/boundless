@@ -192,6 +192,7 @@
   when:
     - prover_stack | default('') != 'legacy'
     - prover_legacy_bento_containers.stdout | default('') | length > 0
+  changed_when: true
   notify: Restart Bento
 
 - name: Flush queued handlers

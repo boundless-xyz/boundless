@@ -4,6 +4,9 @@ import { getEnvVar, getServiceNameV1 } from '../util';
 
 export = () => {
   const config = new pulumi.Config();
+  if (config.getBoolean('RETIRED')) {
+    return {};
+  }
   const stackName = pulumi.getStack();
   const bucketName = config.get('BUCKET_NAME') || `boundless-requestor-lists-${stackName}`;
   const domain = config.get('DOMAIN');

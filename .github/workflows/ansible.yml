@@ -87,7 +87,7 @@ jobs:
         working-directory: ansible
         run: |
           # List of playbooks to check (exclude inventory.yml and other non-playbook files)
-          playbooks=("prover.yml" "monitoring.yml")
+          playbooks=("prover.yml" "monitoring.yml" "security.yml" "retire-bento.yml")
           for playbook in "${playbooks[@]}"; do
             if [ -f "$playbook" ]; then
               echo "Checking syntax of $playbook..."
@@ -143,6 +143,9 @@ jobs:
           else:
               print('All YAML files are valid')
           "
+
+      - name: Check retired deployment entry points
+        run: python3 ansible/tests/test_retirement.py
 
   ansible-summary:
     name: Ansible Check Summary

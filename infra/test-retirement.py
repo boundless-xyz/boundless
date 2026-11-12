@@ -79,15 +79,19 @@ else:
 
     def responses(self, service, enabled=True, indexer=None, project=None):
         values = [{f"{service}:RETIRED": {"value": str(enabled).lower()}}]
+        values.append({"deployment": {"resources": [{
+            "urn": f"urn:pulumi:{self.stack(service)}::{project or service}::pulumi:pulumi:Stack::stack",
+            "type": "pulumi:pulumi:Stack",
+        }]}})
         if service == "order-stream":
             values.append(indexer if indexer is not None else {"ORDER_STREAM_ENABLED": False})
-        values.append({"deployment": {"resources": [{
-            "urn": f"urn:pulumi:l-prod-8453::{project or service}::pulumi:pulumi:Stack::stack"
-        }]}})
         return [json.dumps(value) for value in values]
 
+    def stack(self, service):
+        return {"requestor-lists": "l-prod", "cw-monitoring": "production"}.get(service, "l-prod-8453")
+
     def test_preserved_services_are_never_touched(self):
-        for service in ("indexer", "bootstrap", "pipelines", "requestor-lists", "cw-monitoring"):
+        for service in ("indexer", "bootstrap", "pipelines"):
             with patch.object(retirement.subprocess, "check_output") as read, \
                     patch.object(retirement.subprocess, "run") as mutate:
                 self.assertFalse(retirement.prepare(service, "l-prod-8453"))
@@ -104,11 +108,10 @@ else:
         for service in retirement.RETIRABLE_SERVICES:
             with patch.object(retirement.subprocess, "check_output", side_effect=self.responses(service)), \
                     patch.object(retirement.subprocess, "run") as mutate:
-                self.assertTrue(retirement.prepare(service, "l-prod-8453"))
-                mutate.assert_called_once_with(
-                    ["pulumi", "state", "unprotect", "--all", "--yes", "--stack", "l-prod-8453"],
-                    check=True,
-                )
+                self.assertTrue(retirement.prepare(service, self.stack(service)))
+                self.assertEqual(mutate.call_count, 1)
+                self.assertEqual(mutate.call_args.args[0][:5],
+                                 ["pulumi", "stack", "import", "--stack", self.stack(service)])
 
     def test_live_or_unverified_indexer_blocks_order_stream_retirement(self):
         for indexer in ({}, {"ORDER_STREAM_ENABLED": True}):
@@ -128,7 +131,7 @@ else:
     def test_wrong_stack_is_not_unprotected(self):
         with patch.object(retirement.subprocess, "check_output", side_effect=self.responses("slasher")), \
                 patch.object(retirement.subprocess, "run") as mutate:
-            with self.assertRaisesRegex(ValueError, "named launch stacks"):
+            with self.assertRaisesRegex(ValueError, "named service stacks"):
                 retirement.prepare("slasher", "services-prod")
             mutate.assert_not_called()
 
@@ -136,7 +139,7 @@ else:
         for service in retirement.RETIRABLE_SERVICES:
             result = subprocess.run(
                 ["node", str(ROOT / "test-retirement.cjs"), service],
-                env=os.environ,
+                env=dict(os.environ, NODE_PATH=str(ROOT / service / "node_modules")),
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -147,7 +150,7 @@ else:
         for state in ("indexer-enabled", "indexer-missing"):
             result = subprocess.run(
                 ["node", str(ROOT / "test-retirement.cjs"), "order-stream", state],
-                env=os.environ, capture_output=True, text=True, timeout=30,
+                env=dict(os.environ, NODE_PATH=str(ROOT / "order-stream/node_modules")), capture_output=True, text=True, timeout=30,
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("onchain-only indexer", result.stderr)
@@ -157,6 +160,81 @@ else:
             text = config.read_text()
             for key in ("ORDER_STREAM_URL", "BENTO_API_URL", "BENTO_API_KEY", "RETIRED"):
                 self.assertNotIn(f"indexer:{key}:", text, config.name)
+
+    def test_cleanup_removes_retention_only_from_owned_resources(self):
+        resources = []
+        for kind, values in [
+            ("aws:cloudwatch/logGroup:LogGroup", {"skipDestroy": True, "name": "service-logs"}),
+            ("aws:redshift/cluster:Cluster", {"skipFinalSnapshot": False, "finalSnapshotIdentifier": "final"}),
+        ]:
+            resources.append({"urn": f"urn:pulumi:l-prod-8453::order-stream::{kind}::owned",
+                              "type": kind, "protect": True, "inputs": dict(values), "outputs": dict(values)})
+        result = retirement.prepare_checkpoint("order-stream", "l-prod-8453", {"deployment": {"resources": resources}})
+        for resource in result["deployment"]["resources"]:
+            self.assertFalse(resource["protect"])
+        for field in ("inputs", "outputs"):
+            self.assertFalse(resources[0][field]["skipDestroy"])
+            self.assertEqual(resources[0][field]["name"], "service-logs")
+            self.assertTrue(resources[1][field]["skipFinalSnapshot"])
+            self.assertNotIn("finalSnapshotIdentifier", resources[1][field])
+
+    def test_pending_operations_block_checkpoint_changes(self):
+        with self.assertRaisesRegex(ValueError, "pending operations"):
+            retirement.prepare_checkpoint("slasher", "l-prod-8453", {
+                "deployment": {"pending_operations": [{}], "resources": []}})
+
+    def test_empty_legacy_checkpoint_without_resources_is_supported(self):
+        checkpoint = {"deployment": {}}
+        self.assertEqual(retirement.prepare_checkpoint("slasher", "l-prod-8453", checkpoint), checkpoint)
+
+    def test_requestor_bucket_cleanup_allows_removing_remaining_objects(self):
+        bucket = {"urn": "urn:pulumi:l-prod::requestor-lists::aws:s3/bucket:Bucket::lists",
+                  "type": "aws:s3/bucket:Bucket", "inputs": {}, "outputs": {}}
+        retirement.prepare_checkpoint("requestor-lists", "l-prod", {"deployment": {"resources": [bucket]}})
+        self.assertTrue(bucket["inputs"]["forceDestroy"])
+        self.assertTrue(bucket["outputs"]["forceDestroy"])
+
+    def test_empty_stack_removal_refuses_remaining_infrastructure(self):
+        replies = self.responses("slasher")
+        checkpoint = json.loads(replies[-1])
+        checkpoint["deployment"]["resources"].append({
+            "urn": "urn:pulumi:l-prod-8453::slasher::aws:ecs/cluster:Cluster::remaining",
+            "type": "aws:ecs/cluster:Cluster",
+        })
+        replies[-1] = json.dumps(checkpoint)
+        with patch.object(retirement.subprocess, "check_output", side_effect=replies), \
+                patch.object(retirement.subprocess, "run") as mutate:
+            with self.assertRaisesRegex(ValueError, "still owns resources"):
+                retirement.prepare("slasher", "l-prod-8453", remove_empty=True)
+            mutate.assert_not_called()
+
+    def test_empty_stack_can_be_removed_after_retirement(self):
+        with patch.object(retirement.subprocess, "check_output", side_effect=self.responses("slasher")), \
+                patch.object(retirement.subprocess, "run") as mutate:
+            self.assertTrue(retirement.prepare("slasher", "l-prod-8453", remove_empty=True))
+            self.assertEqual(mutate.call_args.args[0],
+                             ["pulumi", "stack", "rm", "--stack", "l-prod-8453", "--yes", "--non-interactive"])
+
+    def test_legacy_and_launch_configs_are_retired(self):
+        for service in retirement.RETIRABLE_SERVICES:
+            for config in (ROOT / service).glob("Pulumi.*.yaml"):
+                stack = config.name[7:-5]
+                if stack in ("dev",) or stack.startswith("dev-"):
+                    continue
+                self.assertIn(f"{service}:RETIRED: true", config.read_text(), str(config))
+
+    def test_docker_builds_keep_indexer_and_drop_retired_services(self):
+        workflow = (ROOT.parent / ".github/workflows/docker-services.yml").read_text()
+        self.assertIn("- name: indexer", workflow)
+        for service in ("slasher", "distributor", "order-stream", "order-generator"):
+            self.assertNotIn(f"- name: {service}\n", workflow)
+
+    def test_pipeline_cleanup_preserves_indexer_and_shared_infrastructure(self):
+        program = (ROOT / "pipelines/index.ts").read_text()
+        for name in ("LIndexerPipeline", "CodePipelineSharedResources", "PulumiStateBucket", "PulumiSecrets", "Notifications"):
+            self.assertIn(f"new {name}(", program)
+        for name in ("LDistributorPipeline", "LSlasherPipeline", "LOrderStreamPipeline", "LOrderGeneratorPipeline", "LRequestorListsPipeline", "LProverAnsiblePipeline", "LKailuaBatchPipeline"):
+            self.assertNotIn(f"new {name}(", program)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const ts = require('typescript');
-const pulumi = require('@pulumi/pulumi');
+const service = process.argv[2];
+const serviceRequire = require('node:module').createRequire(path.join(__dirname, service, 'package.json'));
+const ts = serviceRequire('typescript');
+const pulumi = serviceRequire('@pulumi/pulumi');
 
 require.extensions['.ts'] = (module, filename) => module._compile(
   ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
@@ -11,10 +13,9 @@ require.extensions['.ts'] = (module, filename) => module._compile(
   filename,
 );
 
-const service = process.argv[2];
 const indexerUsesOrderStream = process.argv[3] === 'indexer-enabled';
 const indexerOutputMissing = process.argv[3] === 'indexer-missing';
-assert(['distributor', 'slasher', 'order-stream', 'order-generator'].includes(service));
+assert(['distributor', 'slasher', 'order-stream', 'order-generator', 'requestor-lists', 'cw-monitoring'].includes(service));
 const resources = [];
 pulumi.runtime.setMocks({
   newResource(args) {
@@ -28,7 +29,7 @@ pulumi.runtime.setMocks({
     }};
   },
   call() { throw new Error('Retirement must not look up cloud resources'); },
-}, service, 'l-prod-8453', false);
+}, service, service === 'requestor-lists' ? 'l-prod' : service === 'cw-monitoring' ? 'production' : 'l-prod-8453', false);
 pulumi.Config.prototype.getBoolean = function (key) {
   assert.equal(key, 'RETIRED');
   return true;

@@ -16,36 +16,51 @@ Run `python3 infra/test-producer-stop.py og-service og-schedule load-test indexe
 
 ## Retire the dedicated service stacks
 
-Keep the explorer, market/rewards indexers, indexer APIs, their databases and caches, shared bootstrap networking, and staking dependencies through 30 November 2026. Staking dependencies may remain after that date. The indexer stack reports `ORDER_STREAM_ENABLED`, which is false after its optional order-stream connection is removed.
+Keep the public explorer, all eight market/rewards indexer stacks, APIs, databases, caches, RPC access, shared bootstrap networking, and the indexer pipeline through 30 November 2026. This change does not retire any of those resources. Bento execution only computes optional cycle counts; losing it does not stop chain indexing.
 
-`RETIRED: true` makes the distributor, slasher, order-stream and order-generator programs register no service resources. Their normal pipeline update then deletes their dedicated infrastructure, including databases, telemetry, storage and secrets. It does not build or look up container images. Shared stacks and the indexer are outside this retirement path.
+`RETIRED: true` makes distributor, slasher, order-stream, order-generator, requestor-lists and the old Bento `cw-monitoring` programs register no service resources. Normal pipeline updates delete their dedicated infrastructure without building container images. The requestor lists are not an indexer dependency; existing external brokers configured to fetch them will lose those endpoints. The four retired service images are also removed from Docker CI.
 
-The 24 launch configs set retirement true. Before applying, verify that the wallet backup is safely stored. Deploy the indexer through its existing pipeline and verify it is healthy. Both the retirement helper and the order-stream program refuse retirement unless the deployed indexer reports `ORDER_STREAM_ENABLED: false`. No pipeline-stack deployment is needed. An order-stream run that starts before its indexer update will fail the guard and needs a retry. Do not create missing stacks or run local staging applies. Keep retired configs in place so later pipeline runs cannot recreate these services.
+All 24 launch service configs, both requestor-list configs, both old monitoring configs and eleven legacy distributor/order-stream configs are marked retired. On 12 November, the ten legacy checkpoints were empty; `order-stream/test` had no checkpoint. Do not create missing stacks. Empty checkpoints with pending operations are not confirmed clean until those operations are reconciled.
 
-The checkpoint review found protected resources only in production order-stream stacks `l-prod-8453` and `l-prod-167000`. Once their indexers are updated, and only when retirement is authorized, run the guarded helper once for those two stacks from the retirement checkout. These commands change live Pulumi state but do not delete resources:
+### Deployment order
+
+1. Keep the wallet backup outside this repository. No other service data needs retaining.
+2. Deploy and verify the indexer through its existing pipeline. Its `ORDER_STREAM_ENABLED` output must be false before order-stream retirement. This guard remains because order-stream polling differs from optional Bento execution.
+3. Reconcile pending operations, then prepare the nonempty order-stream and requestor-list stacks with `prepare-retirement.py` before their normal pipeline updates. Review fresh deletion previews and use the usual production approvals. Other service stacks need preparation only if they still contain protected resources.
+4. Run the old `l-prover-ansible` pipeline while it still exists. Its prover entry point now stops/disables Bento and Vector, removes their Compose containers and removes the Bento unit on inventory hosts. Monitoring and firewall entry points no longer reconfigure hosts. There is no execution/indexer guard and no image build. Host volumes remain. The Latitude owner has separately scheduled the execution hosts' removal for approximately 16 November; this playbook does not cancel leases. Run it before that removal if the hosts are still reachable. Review the separate CloudWatch retirement plans through this pipeline's existing staging/production stages.
+5. Only after service and monitoring retirement has finished, preview and apply the `pipelines` ops stack. Its new program removes the seven obsolete service/KOG/Ansible pipelines and their dedicated build/notification resources. It retains the indexer pipeline, shared IAM, artifact/state buckets, KMS and notifications. Applying it earlier would remove the pipelines needed for steps 2–4. It also avoids redeploying the stale KOG definition from `main`; KOG retirement already completed from its owning branch.
+6. After obsolete pipelines are gone, remove confirmed-empty retired checkpoints with the helper's `--remove-empty` option. Keep the retired config files so old stacks cannot be recreated accidentally.
+
+No live preparation, refresh, deployment, stack removal or AWS deletion was run while preparing this PR. Staging deployments must use the existing pipeline, not local applies.
+
+### Prepare deletion settings
+
+The existing deployment state controls delete-time behavior even when a retired program returns no resources. From the appropriate `infra/<service>` directory, use:
 
 ```bash
-(
-  cd infra/order-stream
-  export AWS_PROFILE=boundless-ops
-  export PULUMI_BACKEND_URL='s3://boundless-pulumi-state?region=us-west-2&awssdk=v2'
-  python3 ../prepare-retirement.py order-stream l-prod-8453
-  python3 ../prepare-retirement.py order-stream l-prod-167000
-)
+AWS_PROFILE=boundless-ops python3 ../prepare-retirement.py <service> <stack>
 ```
 
-Use active credentials with access to the state backend and its KMS key. Do not run preparation concurrently with that stack's pipeline, or deploy an older service revision between preparation and retirement. The existing pipeline refresh preserves the unprotected state. The helper checks the retired flag, deployed indexer output and checkpoint ownership before removing protection. Other currently reviewed target stacks need no preparation.
+The helper checks the retired flag, known stack/config, checkpoint ownership and pending operations. For order-stream it also checks the matching deployed indexer's output. It imports an encrypted checkpoint with protection removed, CloudWatch `skipDestroy` disabled, Redshift final snapshots disabled, and requestor-list bucket `forceDestroy` enabled. This prevents retaining logs/snapshots or failing on extra bucket objects. It does not delete AWS resources. Exported secrets stay encrypted and the private temporary file is removed on exit.
 
-Reconcile pending operations and review a fresh deletion preview before approving production retirement. The production pipeline refreshes and applies after approval; it does not provide a pre-approval preview. Running standalone tasks must finish or be stopped before deleting their cluster. Existing provider settings may retain CloudWatch log groups and create a final Redshift snapshot; account for those in the deletion preview and subsequent cleanup.
+Prepare all four nonempty launch order-stream stacks, not only the two protected production stacks. Prepare requestor-lists `l-prod` and `l-staging` too. Do not run the helper concurrently with a pipeline or deploy an older revision between preparation and retirement. The normal pipeline refresh preserves these delete-only settings.
 
-The order-stream post-deploy hook skips Redshift migrations when `RETIRED` is true, before reading database passwords. Active stacks still run their migrations.
+After a stack has no service resources or pending operations, the same helper can remove its empty checkpoint:
 
-### Read-only preview review, 10 November 2026
+```bash
+AWS_PROFILE=boundless-ops python3 ../prepare-retirement.py <service> <stack> --remove-empty
+```
 
-Pulumi 3.193.0 previews against local copies of all 24 launch checkpoints plan 292 distributor, 104 slasher, 186 order-stream and 681 order-generator resource deletions, including component resources. No planned deletion overlaps the 1,242 resource identities checked in retained indexer, bootstrap, requestor-list, monitoring and pipeline stacks. The four empty slasher/order-stream checkpoints for `l-prod-84532` and `l-prod-11155111` have nothing to retire; skip them. No live checkpoint or resource was changed.
+This mode refuses indexer/bootstrap/pipeline stacks and any checkpoint that still owns a non-Pulumi resource. It never forces stack removal.
 
-These previews disabled protection only in the local copies and modeled the indexer reporting `ORDER_STREAM_ENABLED: false`. The deployed indexers do not yet have that output. Deploy and verify the indexer before retiring order-stream. Checkpoints also contain unfinished creates in slasher `l-staging-84532`, order-stream `l-prod-8453`, `l-prod-84532` and `l-prod-11155111`, and several indexer stacks. Review and reconcile these before approving retirement. The copied-state previews do not verify cloud drift or indexer health. Order-stream log groups remain because of `skipDestroy`; its Redshift clusters request final snapshots.
+### Unmanaged leftovers
 
-This branch covers the four service projects above. Signal, the live Kailua deployment, leased prover machines and their external restart/deployment jobs need retirement in their owning repositories; do not deploy the old Kailua project from this branch. Remove obsolete service pipelines after their stacks have been retired.
+The active execution log groups use older names outside `cw-monitoring` ownership: `/boundless/bento/explorer-8453-prod-release` in production and `/boundless/bento/execution-84532-staging-release` in staging. Delete these exact groups only after Vector/hosts stop, using the normal reviewed AWS cleanup. They are not removed by the Pulumi monitoring plan. Previously orphaned logs or snapshots also need explicit inventory and deletion; the helper changes only resources still owned by the selected stack.
 
-Run `python3 infra/test-retirement.py` with the service projects' npm dependencies available to test the deletion boundaries and empty retired programs without cloud changes.
+The current HLC prover and Signal have separate ownership/deployment paths. This PR retires the legacy Bento inventory and does not claim to cancel unrelated leases or retire another repository's deployment.
+
+### Validation
+
+Run `python3 infra/test-retirement.py` after installing the service packages, plus `python3 ansible/tests/test_retirement.py` and Ansible lint. Tests cover retired programs, post-deploy behavior, indexer preservation, delete-only state settings, pending-operation refusal and safe empty-stack removal. Copied-state previews model the required indexer output and reconciled pending operations; they do not establish live health or resolve cloud drift.
+
+On 12 November, all 25 nonempty-stack previews passed with Pulumi 3.193.0 and the locked AWS provider versions. They plan 292 distributor, 104 slasher, 186 order-stream, 681 order-generator, 26 requestor-list, 306 old-monitoring and 99 pipeline deletions, including components. No deletion overlaps the 750 retained resource identities checked. There are no creates or replacements. The pipeline preview also updates the unchanged shared notification Lambda bundle; its eight tests pass. Fourteen existing empty checkpoints have no resources to preview, and the legacy `test` checkpoint is absent.

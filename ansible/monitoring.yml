@@ -1,12 +1,9 @@
 ---
-- name: Install AWS CLI and Vector (with metrics collection)
+- name: Skip retired Bento monitoring deployment
   hosts: all
-  become: true
-  gather_facts: true
+  gather_facts: false
+  become: false
   tasks:
-    - name: Install AWS CLI
-      ansible.builtin.include_role:
-        name: awscli
-    - name: Install Vector with system metrics collection
-      ansible.builtin.include_role:
-        name: vector
+    - name: Leave retired hosts unchanged
+      ansible.builtin.debug:
+        msg: "Bento monitoring deployment is retired."
