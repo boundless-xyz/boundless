@@ -16,7 +16,9 @@ Run `python3 infra/test-producer-stop.py og-service og-schedule load-test indexe
 
 ## Retire the dedicated service stacks
 
-Keep the public explorer, all eight market/rewards indexer stacks, APIs, databases, caches, RPC access, shared bootstrap networking, and the indexer pipeline through 30 November 2026. This change does not retire any of those resources. Bento execution only computes optional cycle counts; losing it does not stop chain indexing.
+Keep the public explorer, the six active market/rewards indexer stacks, their APIs, databases, caches, RPC access, shared bootstrap networking, and the indexer pipeline through 30 November 2026. These are `l-prod-1`, `l-prod-8453`, `l-prod-167000`, `l-staging-84532`, `l-staging-11155111`, and `l-staging-167000`. Bento execution only computes optional cycle counts; losing it does not stop chain indexing.
+
+The inactive indexers `l-prod-84532` and `l-prod-11155111` have no databases or ECS services, as confirmed live and in their 26 August checkpoints. Their corresponding order-stream checkpoints were already empty on 4 June. Only these two indexer configs accept `RETIRED: true`; their remaining resources are deleted and `ORDER_STREAM_ENABLED` is set to false. This avoids recreating the missing infrastructure or looking up nonexistent database secret versions.
 
 `RETIRED: true` makes distributor, slasher, order-stream, order-generator, requestor-lists and the old Bento `cw-monitoring` programs register no service resources. Normal pipeline updates delete their dedicated infrastructure without building container images. The requestor lists are not an indexer dependency; existing external brokers configured to fetch them will lose those endpoints. The four retired service images are also removed from Docker CI.
 
@@ -25,13 +27,13 @@ All 24 launch service configs, both requestor-list configs, both old monitoring 
 ### Deployment order
 
 1. Keep the wallet backup outside this repository. No other service data needs retaining.
-2. Deploy and verify the indexer through its existing pipeline. Its `ORDER_STREAM_ENABLED` output must be false before order-stream retirement. This guard remains because order-stream polling differs from optional Bento execution.
+2. Before merging the inactive-indexer cleanup, reconcile its stale pending operations and prepare both inactive indexer stacks with `prepare-retirement.py indexer <stack>`. Their pending records are failed Docker image builds plus stale certificate validations, not running workloads. Verify that against the current checkpoint before removing them. Preparation permits deletion of the cache buckets' contents and logs. Deploy through the existing indexer pipeline, which still owns the two cleanup actions until the final pipeline update. Verify the six active indexers and the retired testnet outputs. `ORDER_STREAM_ENABLED` must be false before order-stream retirement; its safety check remains in place.
 3. Reconcile pending operations, then prepare the nonempty order-stream and requestor-list stacks with `prepare-retirement.py` before their normal pipeline updates. Review fresh deletion previews and use the usual production approvals. Other service stacks need preparation only if they still contain protected resources.
 4. Run the old `l-prover-ansible` pipeline while it still exists. Its prover entry point now stops/disables Bento and Vector, removes their Compose containers and removes the Bento unit on inventory hosts. Monitoring and firewall entry points no longer reconfigure hosts. There is no execution/indexer guard and no image build. Host volumes remain. The Latitude owner has separately scheduled the execution hosts' removal for approximately 16 November; this playbook does not cancel leases. Run it before that removal if the hosts are still reachable. Review the separate CloudWatch retirement plans through this pipeline's existing staging/production stages.
-5. Only after service and monitoring retirement has finished, preview and apply the `pipelines` ops stack. Its new program removes the seven obsolete service/KOG/Ansible pipelines and their dedicated build/notification resources. It retains the indexer pipeline, shared IAM, artifact/state buckets, KMS and notifications. Applying it earlier would remove the pipelines needed for steps 2–4. It also avoids redeploying the stale KOG definition from `main`; KOG retirement already completed from its owning branch.
+5. Only after service, inactive-indexer and monitoring retirement has finished, preview and apply the `pipelines` ops stack. Its new program removes the seven obsolete service/KOG/Ansible pipelines and their dedicated build/notification resources, plus the two inactive testnet actions and CodeBuild projects from the indexer pipeline. It retains all six active indexer targets, shared IAM, artifact/state buckets, KMS and notifications. Applying it earlier would remove the pipelines needed for steps 2–4. It also avoids redeploying the stale KOG definition from `main`; KOG retirement already completed from its owning branch.
 6. After obsolete pipelines are gone, remove confirmed-empty retired checkpoints with the helper's `--remove-empty` option. Keep the retired config files so old stacks cannot be recreated accidentally.
 
-No live preparation, refresh, deployment, stack removal or AWS deletion was run while preparing this PR. Staging deployments must use the existing pipeline, not local applies.
+Staging deployments must use the existing pipeline, not local applies. State preparation does not apply or delete infrastructure.
 
 ### Prepare deletion settings
 
@@ -41,7 +43,7 @@ The existing deployment state controls delete-time behavior even when a retired 
 AWS_PROFILE=boundless-ops python3 ../prepare-retirement.py <service> <stack>
 ```
 
-The helper checks the retired flag, known stack/config, checkpoint ownership and pending operations. For order-stream it also checks the matching deployed indexer's output. It imports an encrypted checkpoint with protection removed, CloudWatch `skipDestroy` disabled, Redshift final snapshots disabled, and requestor-list bucket `forceDestroy` enabled. This prevents retaining logs/snapshots or failing on extra bucket objects. It does not delete AWS resources. Exported secrets stay encrypted and the private temporary file is removed on exit.
+The helper checks the retired flag, known stack/config, checkpoint ownership and pending operations. It refuses active indexers; only the two named inactive indexers are allowed. For order-stream it also checks the matching deployed indexer's output. It imports an encrypted checkpoint with protection removed, CloudWatch `skipDestroy` disabled, Redshift final snapshots disabled, and requestor-list/inactive-indexer bucket `forceDestroy` enabled. This prevents retaining logs/snapshots or failing on extra bucket objects. It does not delete AWS resources. Exported secrets stay encrypted and the private temporary file is removed on exit.
 
 Prepare all four nonempty launch order-stream stacks, not only the two protected production stacks. Prepare requestor-lists `l-prod` and `l-staging` too. Do not run the helper concurrently with a pipeline or deploy an older revision between preparation and retirement. The normal pipeline refresh preserves these delete-only settings.
 
@@ -51,7 +53,9 @@ After a stack has no service resources or pending operations, the same helper ca
 AWS_PROFILE=boundless-ops python3 ../prepare-retirement.py <service> <stack> --remove-empty
 ```
 
-This mode refuses indexer/bootstrap/pipeline stacks and any checkpoint that still owns a non-Pulumi resource. It never forces stack removal.
+This mode refuses active indexer/bootstrap/pipeline stacks and any checkpoint that still owns a non-Pulumi resource. It never forces stack removal.
+
+The 12 November inactive-indexer previews plan 33 and 68 resource deletions, including components, with no creates or replacements. No deletion overlaps the 661 active indexer/shared resource identities checked. These previews use copied state with the stale pending operations reconciled locally; live preparation is still required before deployment.
 
 ### Unmanaged leftovers
 

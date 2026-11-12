@@ -10,9 +10,12 @@ import tempfile
 
 
 RETIRABLE_SERVICES = {"distributor", "slasher", "order-stream", "order-generator", "requestor-lists", "cw-monitoring"}
+INACTIVE_INDEXER_STACKS = {"l-prod-84532", "l-prod-11155111"}
 
 
 def prepare_checkpoint(service, stack, checkpoint):
+    if service == "indexer" and stack not in INACTIVE_INDEXER_STACKS:
+        raise ValueError("Active indexers must remain protected")
     deployment = checkpoint["deployment"]
     if deployment.get("pending_operations"):
         raise ValueError("Reconcile pending operations before preparing retirement")
@@ -29,7 +32,9 @@ def prepare_checkpoint(service, stack, checkpoint):
             elif resource["type"] == "aws:redshift/cluster:Cluster":
                 values["skipFinalSnapshot"] = True
                 values.pop("finalSnapshotIdentifier", None)
-            elif service == "requestor-lists" and resource["type"] == "aws:s3/bucket:Bucket":
+            elif (service == "requestor-lists" and resource["type"] == "aws:s3/bucket:Bucket") or (
+                service == "indexer" and resource["type"] == "aws:s3/bucketV2:BucketV2"
+            ):
                 values["forceDestroy"] = True
     return checkpoint
 
@@ -39,8 +44,10 @@ def pulumi_json(*args):
 
 
 def prepare(service, stack, remove_empty=False):
-    # Shared infrastructure and indexers must never be unprotected by this path.
-    if service not in RETIRABLE_SERVICES:
+    # Keep shared infrastructure and every active indexer outside this path.
+    if service not in RETIRABLE_SERVICES and not (
+        service == "indexer" and stack in INACTIVE_INDEXER_STACKS
+    ):
         return False
 
     config = pulumi_json("config", "--stack", stack, "--json")
@@ -60,7 +67,7 @@ def prepare(service, stack, remove_empty=False):
     if remove_empty:
         if any(not r["type"].startswith("pulumi:") for r in checkpoint["deployment"].get("resources", [])):
             raise ValueError("Refusing to remove a stack that still owns resources")
-        subprocess.run(["pulumi", "stack", "rm", "--stack", stack, "--yes", "--non-interactive"], check=True)
+        subprocess.run(["pulumi", "stack", "rm", "--stack", stack, "--yes", "--non-interactive", "--preserve-config"], check=True)
         return True
 
     if service == "order-stream":
@@ -86,7 +93,7 @@ def prepare(service, stack, remove_empty=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("service", choices=sorted(RETIRABLE_SERVICES))
+    parser.add_argument("service", choices=sorted(RETIRABLE_SERVICES | {"indexer"}))
     parser.add_argument("stack")
     parser.add_argument("--remove-empty", action="store_true", help="Remove the checkpoint only after all service resources are gone")
     args = parser.parse_args()
