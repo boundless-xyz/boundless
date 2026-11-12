@@ -88,7 +88,7 @@ else:
         return [json.dumps(value) for value in values]
 
     def stack(self, service):
-        return {"requestor-lists": "l-prod", "cw-monitoring": "production"}.get(service, "l-prod-8453")
+        return {"requestor-lists": "l-prod", "cw-monitoring": "production", "indexer": "l-prod-84532"}.get(service, "l-prod-8453")
 
     def test_preserved_services_are_never_touched(self):
         for service in ("indexer", "bootstrap", "pipelines"):
@@ -252,12 +252,31 @@ else:
                 retirement.prepare("slasher", "l-prod-8453", remove_empty=True)
             mutate.assert_not_called()
 
-    def test_empty_stack_can_be_removed_after_retirement(self):
-        with patch.object(retirement.subprocess, "check_output", side_effect=self.responses("slasher")), \
-                patch.object(retirement.subprocess, "run") as mutate:
-            self.assertTrue(retirement.prepare("slasher", "l-prod-8453", remove_empty=True))
-            self.assertEqual(mutate.call_args.args[0],
-                             ["pulumi", "stack", "rm", "--stack", "l-prod-8453", "--yes", "--non-interactive"])
+    def test_empty_stack_removal_preserves_retired_config(self):
+        for service in ("slasher", "indexer"):
+            with self.subTest(service=service), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / service).mkdir()
+                stack = self.stack(service)
+                config = root / service / f"Pulumi.{stack}.yaml"
+                contents = f"config:\n  {service}:RETIRED: true\n"
+                config.write_text(contents)
+
+                def remove_stack(command, **kwargs):
+                    # Pulumi removes the local stack config unless explicitly preserved.
+                    if "--preserve-config" not in command:
+                        config.unlink()
+
+                with patch.object(retirement, "__file__", str(root / "prepare-retirement.py")), \
+                        patch.object(retirement.subprocess, "check_output", side_effect=self.responses(service)), \
+                        patch.object(retirement.subprocess, "run", side_effect=remove_stack) as mutate:
+                    self.assertTrue(retirement.prepare(service, stack, remove_empty=True))
+                self.assertTrue(config.exists(), "Empty-stack removal must keep the retired config")
+                self.assertEqual(config.read_text(), contents)
+                mutate.assert_called_once_with(
+                    ["pulumi", "stack", "rm", "--stack", stack, "--yes", "--non-interactive", "--preserve-config"],
+                    check=True,
+                )
 
     def test_legacy_and_launch_configs_are_retired(self):
         for service in retirement.RETIRABLE_SERVICES:

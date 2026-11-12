@@ -67,7 +67,7 @@ def prepare(service, stack, remove_empty=False):
     if remove_empty:
         if any(not r["type"].startswith("pulumi:") for r in checkpoint["deployment"].get("resources", [])):
             raise ValueError("Refusing to remove a stack that still owns resources")
-        subprocess.run(["pulumi", "stack", "rm", "--stack", stack, "--yes", "--non-interactive"], check=True)
+        subprocess.run(["pulumi", "stack", "rm", "--stack", stack, "--yes", "--non-interactive", "--preserve-config"], check=True)
         return True
 
     if service == "order-stream":
