@@ -45,14 +45,15 @@ class RetirementTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which('ansible-playbook'), 'ansible-playbook is required')
 class RetirementConnectionTests(unittest.TestCase):
-    def run_playbook(self, directory, playbook, port, connection='ssh'):
+    def run_playbook(self, directory, playbook, port, connection='ssh', inventory_hosts=None):
         inventory = Path(directory) / 'inventory.yml'
-        inventory.write_text(yaml.safe_dump({'all': {'hosts': {'retired_test_host': {
+        hosts = inventory_hosts or {'retired_test_host': {
             'ansible_host': '127.0.0.1',
             'ansible_port': port,
             'ansible_connection': connection,
             'ansible_connect_timeout': 1,
-        }}}}))
+        }}
+        inventory.write_text(yaml.safe_dump({'all': {'hosts': hosts}}))
         env = dict(os.environ, ANSIBLE_LOCAL_TEMP=str(Path(directory) / 'tmp'),
                    ANSIBLE_HOST_KEY_CHECKING='False', ANSIBLE_NOCOLOR='1')
         return subprocess.run(
@@ -81,6 +82,28 @@ class RetirementConnectionTests(unittest.TestCase):
             result = self.run_playbook(directory, fixture, available.getsockname()[1], 'local')
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('retirement cleanup failed', result.stdout)
+        self.assertNotIn('Skipping unreachable retired host', result.stdout)
+
+    def test_delegated_probe_uses_original_inventory_address(self):
+        play = copy.deepcopy(yaml.safe_load((ROOT / 'retire-bento.yml').read_text())[0])
+        play['hosts'] = '127.0.0.1'
+        play['become'] = False
+        play['tasks'] = [{'name': 'Confirm the reachable host was not skipped',
+                          'ansible.builtin.fail': {'msg': 'original host reached'}}]
+        play.pop('handlers', None)
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as available:
+            available.bind(('127.0.0.1', 0))
+            available.listen()
+            port = available.getsockname()[1]
+            hosts = {
+                '127.0.0.1': {'ansible_port': port, 'ansible_connection': 'local'},
+                'localhost': {'ansible_host': '127.0.0.2', 'ansible_connection': 'local'},
+            }
+            fixture = Path(directory) / 'inventory-address.yml'
+            fixture.write_text(yaml.safe_dump([play]))
+            result = self.run_playbook(directory, fixture, port, inventory_hosts=hosts)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('original host reached', result.stdout)
         self.assertNotIn('Skipping unreachable retired host', result.stdout)
 
 

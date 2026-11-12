@@ -8,8 +8,9 @@
       block:
         - name: Wait briefly for the retired host's SSH port
           ansible.builtin.wait_for:
-            host: "{{ ansible_host | default(inventory_hostname) }}"
-            port: "{{ ansible_port | default(22) }}"
+            # Delegation changes connection variables to localhost's values.
+            host: "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+            port: "{{ hostvars[inventory_hostname].ansible_port | default(22) }}"
             connect_timeout: 3
             timeout: 10
           delegate_to: localhost
