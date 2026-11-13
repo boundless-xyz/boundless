@@ -6,6 +6,8 @@
 
 pragma solidity ^0.8.26;
 
+import {Sunset} from "../libraries/Sunset.sol";
+
 import {IRiscZeroVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
@@ -29,6 +31,8 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
 
     /// @dev The version of the contract, with respect to upgrades.
     uint64 public constant VERSION = 1;
+
+    uint256 public constant SUNSET_TIMESTAMP = Sunset.TIMESTAMP;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IRiscZeroVerifier public immutable VERIFIER;
@@ -81,6 +85,7 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
 
     /// @inheritdoc IPovwAccounting
     function finalizeEpoch() public {
+        Sunset.requireActive();
         uint64 newEpoch = TOKEN.getCurrentEpoch().toUint64();
         require(_pendingEpoch.number < newEpoch, "pending epoch has not ended");
 
@@ -106,6 +111,7 @@ contract PovwAccounting is IPovwAccounting, Initializable, EIP712Upgradeable, Ow
         address valueRecipient,
         bytes calldata seal
     ) public {
+        Sunset.requireActive();
         uint64 currentEpoch = TOKEN.getCurrentEpoch().toUint64();
         if (_pendingEpoch.number < currentEpoch) {
             _finalizePendingEpoch(currentEpoch);
