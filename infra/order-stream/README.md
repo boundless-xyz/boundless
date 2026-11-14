@@ -59,6 +59,10 @@ In deployment pipelines, apply script is run automatically after each deployment
 
 To add a new migration, create the next numbered file (e.g. `004_add_new_field.sql`) and re-run `apply.sh`. Since Redshift does not allow `CREATE OR REPLACE VIEW` when the column list changes, migrations that add or remove columns must `DROP VIEW` and recreate it (and re-grant permissions to the `readonly` user).
 
+The completion view exposes both the current timing fields and the historical
+`proving_duration_secs` / `actual_proving_time_secs` aliases. The broker no
+longer emits `preflight_cache_hit`; use `preflight_duration_ms` instead.
+
 ## Querying Redshift
 
 Connect using any Postgres client with the read-only credentials:
